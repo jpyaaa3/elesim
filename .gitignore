@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+env/
+
+.DS_Store
+Thumbs.db
+
+imgui.ini
+
+addons/**/output/
+addons/opencv/images/
+
+*.log

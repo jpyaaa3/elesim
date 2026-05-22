@@ -1,0 +1,16 @@
+{
+  "notes": "Left jaw mesh connector metadata.",
+  "connectors": {
+    "from": {
+      "p": [0.0, 0.0, 0.0],
+      "q": [0.0, 0.0, 0.0, 1.0],
+      "joint": {
+        "type": "prismatic",
+        "axis": [0.0, 0.0, 1.0]
+      }
+    },
+    "to": {
+      "p": [0.01046, -0.101, 0.02213]
+    }
+  }
+}
