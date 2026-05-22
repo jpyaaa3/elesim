@@ -1104,6 +1104,15 @@ class ControlPanel:
         if sliders_locked:
             imgui.text("Sliders locked until Torque On")
 
+        tip_xyz = link_state.actual_tip_xyz if link_state is not None else None
+        if tip_xyz is None:
+            imgui.text("Tip xyz [m]: unavailable")
+        else:
+            imgui.text(
+                "Tip xyz [m]: (%.3f, %.3f, %.3f)"
+                % (float(tip_xyz[0]), float(tip_xyz[1]), float(tip_xyz[2]))
+            )
+
         if imgui.button("Open Gripper"):
             self.state.set_claw_closed(False)
             self.service.send_claw_command(closed=False)
