@@ -26,7 +26,7 @@ from engine.protocol import (
     unpack_q,
     unpack_u,
 )
-from engine.ik import pipeline as ik_pipeline
+from engine import ik as ik_pipeline
 from engine.config_loader import IkConfig
 from engine.sag_model import load_sag_model_json
 
@@ -782,7 +782,7 @@ class ControlService:
         target = np.array([self.state.target_x, self.state.target_y, self.state.target_z], dtype=float)
         self._start_position_solve(target)
 
-    def start_align(self) -> None:
+    def start_tweak(self) -> None:
         if self.state.ik_running:
             return
         self.refresh_ik_context()
@@ -792,11 +792,10 @@ class ControlService:
             "limit",
             "fk_joint_chain",
             "terminal_link_name",
-            "old_tip_local_offset",
-            "grasp_offset_node_local",
+            "approach_axis_local",
         )
         if any(k not in ctx for k in required):
-            print("[UI] Align rejected | missing ik_context fields")
+            print("[UI] Tweak rejected | missing ik_context fields")
             self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
             return
 
@@ -826,26 +825,26 @@ class ControlService:
                         hold_target = np.array(host_state.actual_tip_xyz, dtype=float).reshape(3)
                 if hold_target is None:
                     hold_target = None
-                refine_result = ik_pipeline.tweak_only(
+                tweak_result = ik_pipeline.tweak_only(
                     current_q=current_q,
                     hold_target_world=hold_target,
                     target_dir_world=target_dir,
                     context=ctx,
-                    position_hold_tol_m=1.5e-2,
+                    position_hold_tol_m=5e-3,
                     rounds=10,
                 )
-                q = np.asarray(refine_result.q, dtype=float).reshape(4)
+                q = np.asarray(tweak_result.q, dtype=float).reshape(4)
                 self.state.set_q(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
                 self.state.set_ik_solution(float(q[1]), float(q[2]), float(q[3]))
                 self.state.set_ik_status(
                     running=False,
-                    converged=True,
-                    failed=False,
-                    err_m=float(refine_result.position_error_m),
+                    converged=bool(tweak_result.converged),
+                    failed=not bool(tweak_result.converged),
+                    err_m=float(tweak_result.position_error_m),
                 )
                 self.send_current_target(source="ik")
             except Exception as exc:
-                print(f"[UI] Align failed: {exc}")
+                print(f"[UI] Tweak failed: {exc}")
                 self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
             finally:
                 self._ik_worker = None
@@ -978,9 +977,8 @@ class ControlPanel:
             if imgui.button("Solve IK"):
                 self.service.start_ik_solve()
             imgui.same_line()
-            disabled_token = self._begin_disabled_ui(True)
-            imgui.button("Tweak (not working)")
-            self._end_disabled_ui(disabled_token)
+            if imgui.button("Tweak"):
+                self.service.start_tweak()
             imgui.same_line()
             if imgui.button("Stop IK"):
                 self.state.clear_ik_status()
@@ -1141,7 +1139,15 @@ class ControlPanel:
                     resolved_path, model = self.service.load_sag_model(self._sag_model_path_draft)
                     self._sag_model_path_draft = str(resolved_path)
                     self.service.send_current_target(source="target")
-                    model_type = str(model.get("model_type", "legacy") or "legacy")
+                    raw_type = str(model.get("model_type", "") or "").strip()
+                    if raw_type:
+                        model_type = raw_type
+                    elif any(k in model for k in ("c1_family", "c1_params", "a1", "b1_coeffs", "c2_family", "c2_params", "a2", "b2_coeffs")):
+                        model_type = "refined"
+                    elif any(k in model for k in ("seg1_distribution", "seg1_amplitude", "seg2_distribution", "seg2_amplitude")):
+                        model_type = "legacy"
+                    else:
+                        model_type = "unknown"
                     self._sag_status_text = f"loaded: {resolved_path} ({model_type})"
                     self._sag_status_ok = True
                 except Exception as exc:

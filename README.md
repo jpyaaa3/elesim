@@ -21,16 +21,19 @@ The codebase is aimed at fast iteration on kinematics, control ideas, gripper in
 - [host.py](./host.py)  
   Acts as the broker between `ctrl.py`, `sim.py`, and optional Dynamixel hardware. It owns device connection, state broadcast, and command forwarding.
 
-- [engine/ik](./engine/ik)  
-  Internal IK package.
-  - [kinematics.py](./engine/ik/kinematics.py): forward kinematics, grasp pose, Jacobians, common math
-  - [solver.py](./engine/ik/solver.py): position-oriented IK
-  - [tweaker.py](./engine/ik/tweaker.py): fine pose refinement / small-step correction
-  - [pipeline.py](./engine/ik/pipeline.py): entrypoints used by the UI
+- [engine/ik.py](./engine/ik.py)  
+  Public IK entrypoint used by the UI.
+
+- [engine/iklib](./engine/iklib)  
+  Internal IK implementation package.
+  - [kinematics.py](./engine/iklib/kinematics.py): forward kinematics, grasp pose, Jacobians, common math
+  - [solver.py](./engine/iklib/solver.py): position-oriented IK
+  - [aligner.py](./engine/iklib/aligner.py): orientation alignment on top of a solved pose
+  - [tweaker.py](./engine/iklib/tweaker.py): reserved for future fine-tweak / clutch logic
 
 - [addons](./addons)  
   Standalone tools for experiments and analysis.  
-  Example: [addons/ik_solution_space_probe.py](./addons/ik_solution_space_probe.py) explores IK solution clouds for a target point.
+  Example: [addons/ik_test.py](./addons/ik_test.py) explores IK solution clouds for a target point.
 
 ## What The System Does
 
@@ -144,10 +147,10 @@ This repository is intentionally structured for experimentation:
 
 If you are extending the control logic, the best entrypoints are usually:
 
-- [engine/ik/pipeline.py](./engine/ik/pipeline.py) for UI-facing IK flow,
-- [engine/ik/solver.py](./engine/ik/solver.py) for position solve logic,
-- [engine/ik/tweaker.py](./engine/ik/tweaker.py) for fine-tuning / clutch-like behavior,
-- [engine/ik/kinematics.py](./engine/ik/kinematics.py) for shared kinematic computation.
+- [engine/ik.py](./engine/ik.py) for UI-facing IK flow,
+- [engine/iklib/solver.py](./engine/iklib/solver.py) for position solve logic,
+- [engine/iklib/aligner.py](./engine/iklib/aligner.py) for post-solve orientation alignment,
+- [engine/iklib/kinematics.py](./engine/iklib/kinematics.py) for shared kinematic computation.
 
 ## Status
 

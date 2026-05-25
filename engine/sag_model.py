@@ -178,7 +178,15 @@ def segment_errors_from_model(
     if n <= 0:
         return np.zeros((0,), dtype=float)
     mode = str(model.get("model_type", "") or "").strip().lower()
-    if mode == "func_finder_refined_v1":
+    seg_tag = "1" if int(seg_index) == 1 else "2"
+    refined_keys = (
+        f"c{seg_tag}_family",
+        f"c{seg_tag}_params",
+        f"a{seg_tag}",
+        f"b{seg_tag}_coeffs",
+    )
+    looks_refined = any(k in model for k in refined_keys)
+    if mode == "func_finder_refined_v1" or looks_refined:
         seg_tag = "1" if int(seg_index) == 1 else "2"
         c_family = str(model.get(f"c{seg_tag}_family", "const") or "const")
         c_params = np.asarray(model.get(f"c{seg_tag}_params", [1.0]), dtype=float).reshape(-1)

@@ -160,6 +160,7 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
     old_tip_local_offset = _load_frame_to_offset(build_dir, terminal_part, part_name=terminal_link_name)
 
     grasp_offset_node_local = np.array([0.0, 0.0, 0.0], dtype=float)
+    approach_axis_local = np.array(old_tip_local_offset, dtype=float).reshape(3)
     if "gripper_claw_left" in part_by_name and "gripper_claw_right" in part_by_name and terminal_link_name in part_by_name:
         term_part = part_by_name[terminal_link_name]
         term_pose_root = _pick_manifest_value(term_part, "pose_root", default={}) or {}
@@ -182,6 +183,11 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
         right_tip = right_p + right_r.apply(_load_frame_to_offset(build_dir, right_part, part_name="gripper_claw_right"))
         grasp_mid_world = 0.5 * (left_tip + right_tip)
         grasp_offset_node_local = term_r.inv().apply(grasp_mid_world - old_tip_world)
+        base_part = part_by_name.get("gripper_base")
+        if base_part is not None:
+            base_pose_root = _pick_manifest_value(base_part, "pose_root", default={}) or {}
+            base_p = np.array(_pick_manifest_value(base_pose_root, "p", default=[0.0, 0.0, 0.0]), dtype=float).reshape(3)
+            approach_axis_local = term_r.inv().apply(base_p - term_p)
 
     context = {
         "limit": bundle.joint_limit,
@@ -200,7 +206,7 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
         "spawn_euler_deg": np.array(bundle.spawn_config.spawn_euler_deg, dtype=float),
         "terminal_link_name": terminal_link_name,
         "approach_link_name": "gripper_base" if "gripper_base" in part_by_name else terminal_link_name,
-        "approach_axis_local": np.array([0.0, -1.0, 0.0], dtype=float),
+        "approach_axis_local": np.array(approach_axis_local, dtype=float),
         "old_tip_local_offset": np.array(old_tip_local_offset, dtype=float),
         "grasp_offset_node_local": np.array(grasp_offset_node_local, dtype=float),
     }

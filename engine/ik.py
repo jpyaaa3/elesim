@@ -5,9 +5,10 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from . import kinematics as ik_kin
-from . import solver as ik_solver
-from . import tweaker as ik_tweaker
+from .iklib import aligner as ik_aligner
+from .iklib import kinematics as ik_kin
+from .iklib import solver as ik_solver
+from .iklib import tweaker as ik_tweaker
 
 
 @dataclass(frozen=True)
@@ -58,9 +59,10 @@ def solve_then_tweak(
         direction = np.asarray(target_dir_world, dtype=float).reshape(3)
         dnorm = float(np.linalg.norm(direction))
         if dnorm > 1e-9:
-            refine = ik_tweaker.refine_direction_with_position_hold(
+            hold_target = ik_kin._forward_grasp_world(context, q)
+            refine = ik_aligner.refine_direction_with_position_hold(
                 current_q=q,
-                target_world=target_world,
+                target_world=hold_target,
                 target_dir_world=(direction / dnorm),
                 context=context,
                 position_hold_tol_m=tweak_position_hold_tol_m,
@@ -85,20 +87,20 @@ def tweak_only(
     hold_target_world: Optional[Sequence[float]],
     target_dir_world: Sequence[float],
     context: dict,
-    position_hold_tol_m: float = 1.5e-2,
+    position_hold_tol_m: float = 5e-3,
     rounds: int = 10,
-) -> ik_tweaker.OrientationRefineResult:
+) -> ik_tweaker.TweakResult:
     q = np.asarray(current_q, dtype=float).reshape(4)
     hold_target = None if hold_target_world is None else np.asarray(hold_target_world, dtype=float).reshape(3)
     if hold_target is None:
         hold_target = ik_kin._forward_grasp_world(context, q)
-    return ik_tweaker.refine_direction_with_position_hold(
+    return ik_tweaker.tweak_pose(
         current_q=q,
         target_world=hold_target,
         target_dir_world=target_dir_world,
         context=context,
-        position_hold_tol_m=position_hold_tol_m,
-        rounds=rounds,
+        position_tol_m=position_hold_tol_m,
+        max_iters=rounds,
     )
 
 

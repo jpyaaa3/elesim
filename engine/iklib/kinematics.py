@@ -126,16 +126,19 @@ def _forward_grasp_world(context: dict[str, Any], q4: Sequence[float]) -> np.nda
 
 def _forward_grasp_direction_world(context: dict[str, Any], q4: Sequence[float]) -> np.ndarray:
     link_tf = _forward_link_tf(context, q4)
-    tip_world = _forward_grasp_world(context, q4)
-    link_name = str(context.get("approach_link_name", "") or context["terminal_link_name"])
-    if link_name not in link_tf:
-        link_name = str(context["terminal_link_name"])
-    p_link, _R_link = link_tf[link_name]
-    direction = np.asarray(tip_world, dtype=float).reshape(3) - np.asarray(p_link, dtype=float).reshape(3)
-    norm = float(np.linalg.norm(direction))
+    terminal_link = str(context["terminal_link_name"])
+    if terminal_link not in link_tf:
+        raise RuntimeError(f"terminal link '{terminal_link}' missing from FK result")
+    _p_link, R_link = link_tf[terminal_link]
+    local_axis = np.asarray(context["approach_axis_local"], dtype=float).reshape(3)
+    norm = float(np.linalg.norm(local_axis))
     if norm <= 1e-9:
+        raise RuntimeError("node_end local normal is degenerate")
+    direction = R_link @ (local_axis / norm)
+    dir_norm = float(np.linalg.norm(direction))
+    if dir_norm <= 1e-9:
         raise RuntimeError("grasp direction is degenerate")
-    return np.asarray(direction, dtype=float).reshape(3) / norm
+    return np.asarray(direction, dtype=float).reshape(3) / dir_norm
 
 
 def _damped_pinv(J: np.ndarray, damping: float = 1e-4) -> np.ndarray:
