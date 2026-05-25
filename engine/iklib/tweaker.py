@@ -20,6 +20,32 @@ class TweakStepResult:
 
 
 @dataclass(frozen=True)
+class TweakSessionState:
+    q: np.ndarray
+    target_world: np.ndarray
+    target_dir_world: np.ndarray
+    step_scale: float
+    accepted_steps: int
+    stable_success_count: int
+    iterations: int
+    last_cost: float
+    last_position_error_m: float
+    last_direction_angle_rad: float
+    converged: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class TweakFeedbackStatus:
+    state: TweakSessionState
+    cost: float
+    position_error_m: float
+    direction_angle_rad: float
+    converged: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class TweakResult:
     q: np.ndarray
     position_error_m: float
@@ -61,6 +87,121 @@ def _pose_cost(
     dir_angle = _direction_angle_rad(actual_dir, desired_dir)
     cost = float(max(position_weight, 0.0)) * (pos_norm ** 2) + float(max(direction_weight, 0.0)) * (dir_angle ** 2)
     return cost, dir_angle
+
+
+def begin_tweak_session(
+    *,
+    current_q: Sequence[float],
+    target_world: Sequence[float],
+    target_dir_world: Sequence[float],
+    initial_step_scale: float = 1.0,
+) -> TweakSessionState:
+    desired_dir = _normalize_dir(target_dir_world)
+    if desired_dir is None:
+        raise ValueError("invalid target direction")
+    return TweakSessionState(
+        q=np.asarray(current_q, dtype=float).reshape(4).copy(),
+        target_world=np.asarray(target_world, dtype=float).reshape(3).copy(),
+        target_dir_world=desired_dir.copy(),
+        step_scale=float(max(initial_step_scale, 1e-3)),
+        accepted_steps=0,
+        stable_success_count=0,
+        iterations=0,
+        last_cost=float("inf"),
+        last_position_error_m=float("inf"),
+        last_direction_angle_rad=float("inf"),
+        converged=False,
+        reason="initialized",
+    )
+
+
+def evaluate_tweak_feedback(
+    *,
+    session: TweakSessionState,
+    actual_tip_world: Sequence[float],
+    actual_dir_world: Sequence[float],
+    position_tol_m: float = 5e-3,
+    direction_tol_deg: float = 5.0,
+    stable_success_required: int = 2,
+    position_weight: float = 1.0,
+    direction_weight: float = 0.35,
+) -> TweakFeedbackStatus:
+    actual_pos = np.asarray(actual_tip_world, dtype=float).reshape(3)
+    actual_dir = _normalize_dir(actual_dir_world)
+    if actual_dir is None:
+        raise ValueError("invalid actual direction")
+    cost, dir_angle = _pose_cost(
+        session.target_world - actual_pos,
+        actual_dir,
+        session.target_dir_world,
+        position_weight=position_weight,
+        direction_weight=direction_weight,
+    )
+    pos_err = float(np.linalg.norm(session.target_world - actual_pos))
+    pos_tol = float(max(position_tol_m, 1e-6))
+    dir_tol = math.radians(float(max(direction_tol_deg, 0.1)))
+    stable_success = session.stable_success_count + 1 if (pos_err <= pos_tol and dir_angle <= dir_tol) else 0
+    converged = stable_success >= max(int(stable_success_required), 1)
+    reason = "converged" if converged else "progress"
+    next_state = TweakSessionState(
+        q=session.q.copy(),
+        target_world=session.target_world.copy(),
+        target_dir_world=session.target_dir_world.copy(),
+        step_scale=float(session.step_scale),
+        accepted_steps=int(session.accepted_steps),
+        stable_success_count=int(stable_success),
+        iterations=int(session.iterations),
+        last_cost=float(cost),
+        last_position_error_m=float(pos_err),
+        last_direction_angle_rad=float(dir_angle),
+        converged=bool(converged),
+        reason=reason,
+    )
+    return TweakFeedbackStatus(
+        state=next_state,
+        cost=float(cost),
+        position_error_m=float(pos_err),
+        direction_angle_rad=float(dir_angle),
+        converged=bool(converged),
+        reason=reason,
+    )
+
+
+def accept_tweak_step(*, session: TweakSessionState, step: TweakStepResult) -> TweakSessionState:
+    return TweakSessionState(
+        q=np.asarray(step.q, dtype=float).reshape(4).copy(),
+        target_world=session.target_world.copy(),
+        target_dir_world=session.target_dir_world.copy(),
+        step_scale=max(float(step.step_scale) * 0.75, 0.1),
+        accepted_steps=int(session.accepted_steps) + 1,
+        stable_success_count=int(session.stable_success_count),
+        iterations=int(session.iterations) + 1,
+        last_cost=float(step.cost),
+        last_position_error_m=float(step.position_error_m),
+        last_direction_angle_rad=float(step.direction_angle_rad),
+        converged=False,
+        reason="step accepted",
+    )
+
+
+def reject_tweak_step(*, session: TweakSessionState, step: Optional[TweakStepResult] = None) -> TweakSessionState:
+    base_scale = float(session.step_scale if step is None else step.step_scale)
+    next_scale = max(base_scale * 0.5, 0.05)
+    reason = "step rejected" if next_scale > 0.051 else "step rejected: min scale reached"
+    return TweakSessionState(
+        q=session.q.copy(),
+        target_world=session.target_world.copy(),
+        target_dir_world=session.target_dir_world.copy(),
+        step_scale=float(next_scale),
+        accepted_steps=int(session.accepted_steps),
+        stable_success_count=0,
+        iterations=int(session.iterations) + 1,
+        last_cost=float(session.last_cost),
+        last_position_error_m=float(session.last_position_error_m),
+        last_direction_angle_rad=float(session.last_direction_angle_rad),
+        converged=False,
+        reason=reason,
+    )
 
 
 def compute_tweak_step(
@@ -160,6 +301,32 @@ def compute_tweak_step(
     return best
 
 
+def compute_tweak_session_step(
+    *,
+    session: TweakSessionState,
+    context: dict,
+    actual_tip_world: Sequence[float],
+    actual_dir_world: Sequence[float],
+    position_weight: float = 1.0,
+    direction_weight: float = 0.35,
+    damping: float = 1e-3,
+    line_search_steps: int = 6,
+) -> TweakStepResult:
+    return compute_tweak_step(
+        current_q=session.q,
+        target_world=session.target_world,
+        target_dir_world=session.target_dir_world,
+        context=context,
+        actual_tip_world=actual_tip_world,
+        actual_dir_world=actual_dir_world,
+        position_weight=position_weight,
+        direction_weight=direction_weight,
+        damping=damping,
+        step_scale=session.step_scale,
+        line_search_steps=line_search_steps,
+    )
+
+
 def tweak_pose(
     *,
     current_q: Sequence[float],
@@ -255,8 +422,15 @@ def tweak_pose(
 
 
 __all__ = [
+    "TweakFeedbackStatus",
     "TweakResult",
+    "TweakSessionState",
     "TweakStepResult",
+    "accept_tweak_step",
+    "begin_tweak_session",
     "compute_tweak_step",
+    "compute_tweak_session_step",
+    "evaluate_tweak_feedback",
+    "reject_tweak_step",
     "tweak_pose",
 ]

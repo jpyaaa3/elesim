@@ -42,6 +42,9 @@
 - [addons](./addons)  
   본 실행계와 분리된 실험/분석 도구 모음입니다.
 
+addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine/ik.py)** 만 공개 API로 사용하고,  
+`engine/iklib/*` 는 내부 구현으로 취급하는 편이 좋습니다.
+
 대표 예시:
 
 - [addons/ik_test.py](./addons/ik_test.py)  

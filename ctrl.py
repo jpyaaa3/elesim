@@ -606,32 +606,6 @@ class ControlService:
             return None
         return arr / norm
 
-    @staticmethod
-    def _direction_angle_rad(actual_dir: np.ndarray, desired_dir: np.ndarray) -> float:
-        dot = float(np.clip(np.dot(actual_dir, desired_dir), -1.0, 1.0))
-        return float(np.arccos(dot))
-
-    @classmethod
-    def _pose_cost(
-        cls,
-        *,
-        actual_pos: np.ndarray,
-        actual_dir: np.ndarray,
-        target_pos: np.ndarray,
-        target_dir: np.ndarray,
-        position_weight: float = 1.0,
-        direction_weight: float = 0.35,
-    ) -> tuple[float, float, float]:
-        pos_err = np.asarray(target_pos, dtype=float).reshape(3) - np.asarray(actual_pos, dtype=float).reshape(3)
-        actual_dir_n = cls._normalize_dir(np.asarray(actual_dir, dtype=float).reshape(3))
-        target_dir_n = cls._normalize_dir(np.asarray(target_dir, dtype=float).reshape(3))
-        if actual_dir_n is None or target_dir_n is None:
-            raise ValueError("invalid direction for pose cost")
-        dir_ang = cls._direction_angle_rad(actual_dir_n, target_dir_n)
-        pos_norm = float(np.linalg.norm(pos_err))
-        cost = float(max(position_weight, 0.0)) * (pos_norm ** 2) + float(max(direction_weight, 0.0)) * (dir_ang ** 2)
-        return cost, pos_norm, dir_ang
-
     def _wait_until_q_settled(
         self,
         target_q: np.ndarray,
@@ -965,61 +939,64 @@ class ControlService:
                     self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="invalid actual direction")
                     return
 
-                step_scale = 1.0
-                accepted_steps = 0
+                session = ik_pipeline.begin_tweak_session(
+                    current_q=q_cmd,
+                    hold_target_world=hold_target,
+                    target_dir_world=target_dir,
+                    initial_step_scale=1.0,
+                )
                 pos_tol = 5e-3
-                dir_tol_rad = math.radians(5.0)
-                stable_success = 0
+                dir_tol_deg = 5.0
                 last_pos_err = float("inf")
                 last_dir_ang = float("inf")
 
                 for _iter in range(10):
-                    cost_old, pos_err, dir_ang = self._pose_cost(
-                        actual_pos=actual_pos,
-                        actual_dir=actual_dir,
-                        target_pos=hold_target,
-                        target_dir=target_dir,
+                    feedback = ik_pipeline.evaluate_tweak_feedback(
+                        session=session,
+                        actual_tip_world=actual_pos,
+                        actual_dir_world=actual_dir,
+                        position_tol_m=pos_tol,
+                        direction_tol_deg=dir_tol_deg,
                     )
-                    last_pos_err = float(pos_err)
-                    last_dir_ang = float(dir_ang)
-                    if pos_err <= pos_tol and dir_ang <= dir_tol_rad:
-                        stable_success += 1
-                        if stable_success >= 2:
-                            self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
-                            self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
-                            self.state.set_ik_status(
-                                running=False,
-                                converged=True,
-                                failed=False,
-                                err_m=float(pos_err),
-                                msg="tweak converged | dir %.1f deg | steps %d" % (float(np.degrees(dir_ang)), int(accepted_steps)),
-                            )
-                            self.send_current_target(source="ik")
-                            return
-                    else:
-                        stable_success = 0
+                    session = feedback.state
+                    last_pos_err = float(feedback.position_error_m)
+                    last_dir_ang = float(feedback.direction_angle_rad)
+                    if feedback.converged:
+                        q_cmd = np.asarray(session.q, dtype=float).reshape(4).copy()
+                        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                        self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=True,
+                            failed=False,
+                            err_m=float(feedback.position_error_m),
+                            msg="tweak converged | dir %.1f deg | steps %d"
+                            % (float(np.degrees(feedback.direction_angle_rad)), int(session.accepted_steps)),
+                        )
+                        self.send_current_target(source="ik")
+                        return
 
-                    step = ik_pipeline.compute_tweak_step(
-                        current_q=q_cmd,
-                        target_world=hold_target,
-                        target_dir_world=target_dir,
+                    step = ik_pipeline.compute_tweak_session_step(
+                        session=session,
                         context=ctx,
                         actual_tip_world=actual_pos,
                         actual_dir_world=actual_dir,
-                        step_scale=step_scale,
                     )
                     if not bool(step.accepted):
+                        session = ik_pipeline.reject_tweak_step(session=session, step=step)
                         self.state.set_ik_status(
                             running=False,
                             converged=False,
                             failed=True,
-                            err_m=float(pos_err),
-                            msg="no improving step",
+                            err_m=float(feedback.position_error_m),
+                            msg=str(session.reason),
                         )
                         return
 
+                    prev_session = session
                     prev_q = q_cmd.copy()
                     q_cmd = np.asarray(step.q, dtype=float).reshape(4).copy()
+                    session = ik_pipeline.accept_tweak_step(session=session, step=step)
                     self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
                     self.send_current_target(source="ik")
                     post_state = self._wait_until_q_settled(q_cmd, timeout_s=1.0)
@@ -1028,7 +1005,7 @@ class ControlService:
                             running=False,
                             converged=False,
                             failed=True,
-                            err_m=float(pos_err),
+                            err_m=float(feedback.position_error_m),
                             msg="lost actual feedback",
                         )
                         return
@@ -1039,36 +1016,36 @@ class ControlService:
                             running=False,
                             converged=False,
                             failed=True,
-                            err_m=float(pos_err),
+                            err_m=float(feedback.position_error_m),
                             msg="invalid actual direction",
                         )
                         return
-                    cost_new, pos_err_new, dir_ang_new = self._pose_cost(
-                        actual_pos=new_pos,
-                        actual_dir=new_dir,
-                        target_pos=hold_target,
-                        target_dir=target_dir,
+                    feedback_new = ik_pipeline.evaluate_tweak_feedback(
+                        session=session,
+                        actual_tip_world=new_pos,
+                        actual_dir_world=new_dir,
+                        position_tol_m=pos_tol,
+                        direction_tol_deg=dir_tol_deg,
                     )
-                    if cost_new <= cost_old + 1e-9:
+                    if feedback_new.cost <= feedback.cost + 1e-9:
                         actual_pos = new_pos
                         actual_dir = new_dir
-                        accepted_steps += 1
-                        step_scale = max(float(step.step_scale) * 0.75, 0.1)
+                        session = feedback_new.state
                         continue
 
                     # Roll back when actual feedback got worse.
+                    session = ik_pipeline.reject_tweak_step(session=prev_session, step=step)
                     q_cmd = prev_q.copy()
                     self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
                     self.send_current_target(source="ik")
                     self._wait_until_q_settled(q_cmd, timeout_s=0.8)
-                    step_scale = max(float(step.step_scale) * 0.5, 0.05)
-                    if step_scale <= 0.051:
+                    if float(session.step_scale) <= 0.051:
                         self.state.set_ik_status(
                             running=False,
                             converged=False,
                             failed=True,
-                            err_m=float(pos_err_new),
-                            msg="actual feedback rejected step",
+                            err_m=float(feedback_new.position_error_m),
+                            msg=str(session.reason),
                         )
                         return
 
@@ -1079,7 +1056,7 @@ class ControlService:
                     converged=False,
                     failed=True,
                     err_m=float(last_pos_err),
-                    msg="iteration limit | dir %.1f deg | steps %d" % (float(np.degrees(last_dir_ang)), int(accepted_steps)),
+                    msg="iteration limit | dir %.1f deg | steps %d" % (float(np.degrees(last_dir_ang)), int(session.accepted_steps)),
                 )
             except Exception as exc:
                 print(f"[UI] Tweak failed: {exc}")

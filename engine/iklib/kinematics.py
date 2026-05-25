@@ -124,21 +124,29 @@ def _forward_grasp_world(context: dict[str, Any], q4: Sequence[float]) -> np.nda
     return np.array(p_link + R_link @ (old_tip_local + grasp_offset_local), dtype=float)
 
 
-def _forward_grasp_direction_world(context: dict[str, Any], q4: Sequence[float]) -> np.ndarray:
+def _get_direction_convention_local(context: dict[str, Any]) -> np.ndarray:
+    local_axis = np.asarray(context["approach_axis_local"], dtype=float).reshape(3)
+    norm = float(np.linalg.norm(local_axis))
+    if norm <= 1e-9:
+        raise RuntimeError("node_end local normal is degenerate")
+    return local_axis / norm
+
+
+def _forward_direction_world(context: dict[str, Any], q4: Sequence[float]) -> np.ndarray:
     link_tf = _forward_link_tf(context, q4)
     terminal_link = str(context["terminal_link_name"])
     if terminal_link not in link_tf:
         raise RuntimeError(f"terminal link '{terminal_link}' missing from FK result")
     _p_link, R_link = link_tf[terminal_link]
-    local_axis = np.asarray(context["approach_axis_local"], dtype=float).reshape(3)
-    norm = float(np.linalg.norm(local_axis))
-    if norm <= 1e-9:
-        raise RuntimeError("node_end local normal is degenerate")
-    direction = R_link @ (local_axis / norm)
+    direction = R_link @ _get_direction_convention_local(context)
     dir_norm = float(np.linalg.norm(direction))
     if dir_norm <= 1e-9:
         raise RuntimeError("grasp direction is degenerate")
     return np.asarray(direction, dtype=float).reshape(3) / dir_norm
+
+
+def _forward_grasp_direction_world(context: dict[str, Any], q4: Sequence[float]) -> np.ndarray:
+    return _forward_direction_world(context, q4)
 
 
 def _damped_pinv(J: np.ndarray, damping: float = 1e-4) -> np.ndarray:
@@ -211,69 +219,6 @@ class _ReachModel:
         actual_dir = self.grasp_direction(q)
         return float(1.0 - np.clip(float(np.dot(actual_dir, desired_dir)), -1.0, 1.0))
 
-    def residual_vec(
-        self,
-        q: Sequence[float],
-        *,
-        target_world: Sequence[float],
-        target_dir_world: Optional[Sequence[float]] = None,
-        direction_weight: float = 0.10,
-    ) -> np.ndarray:
-        pos_err = self.error_vec(q, target_world)
-        if target_dir_world is None:
-            return np.asarray(pos_err, dtype=float).reshape(3)
-        desired_dir = np.asarray(target_dir_world, dtype=float).reshape(3)
-        dnorm = float(np.linalg.norm(desired_dir))
-        if dnorm <= 1e-9:
-            return np.asarray(pos_err, dtype=float).reshape(3)
-        desired_dir = desired_dir / dnorm
-        dir_err = self.grasp_direction(q) - desired_dir
-        return np.concatenate(
-            [
-                np.asarray(pos_err, dtype=float).reshape(3),
-                float(max(direction_weight, 0.0)) * np.asarray(dir_err, dtype=float).reshape(3),
-            ],
-            axis=0,
-        )
-
-    def numerical_jacobian(
-        self,
-        q: Sequence[float],
-        *,
-        target_world: Sequence[float],
-        target_dir_world: Optional[Sequence[float]] = None,
-        direction_weight: float = 0.10,
-        eps: float = 1e-4,
-    ) -> np.ndarray:
-        q0 = self.clamp_q(q)
-        eps_vec = np.array([5e-4, 5e-4, max(float(eps), 1e-4), max(float(eps), 1e-4)], dtype=float)
-        r0 = self.residual_vec(
-            q0,
-            target_world=target_world,
-            target_dir_world=target_dir_world,
-            direction_weight=direction_weight,
-        )
-        J = np.zeros((r0.shape[0], 4), dtype=float)
-        for i in range(4):
-            qp = q0.copy()
-            qm = q0.copy()
-            qp[i] += eps_vec[i]
-            qm[i] -= eps_vec[i]
-            rp = self.residual_vec(
-                qp,
-                target_world=target_world,
-                target_dir_world=target_dir_world,
-                direction_weight=direction_weight,
-            )
-            rm = self.residual_vec(
-                qm,
-                target_world=target_world,
-                target_dir_world=target_dir_world,
-                direction_weight=direction_weight,
-            )
-            J[:, i] = (rp - rm) / (2.0 * eps_vec[i])
-        return J
-
     def position_jacobian(self, q: Sequence[float], *, eps: float = 1e-4) -> np.ndarray:
         q0 = self.clamp_q(q)
         eps_vec = np.array([5e-4, 5e-4, max(float(eps), 1e-4), max(float(eps), 1e-4)], dtype=float)
@@ -302,51 +247,6 @@ class _ReachModel:
             J[:, i] = (dp - dm) / (2.0 * eps_vec[i])
         return J
 
-    def tighten_once(
-        self,
-        *,
-        current_q: Sequence[float],
-        actual_tip_world: Sequence[float],
-        target_world: Sequence[float],
-        target_dir_world: Optional[Sequence[float]] = None,
-        direction_weight: float = 0.10,
-        damping: float = 1e-2,
-        step_scale: float = 1.0,
-    ) -> Q4:
-        q = self.clamp_q(current_q)
-        actual_tip = np.asarray(actual_tip_world, dtype=float).reshape(3)
-        pos_err = np.asarray(target_world, dtype=float).reshape(3) - actual_tip
-        if target_dir_world is None:
-            delta_r = np.asarray(pos_err, dtype=float).reshape(3)
-        else:
-            desired_dir = np.asarray(target_dir_world, dtype=float).reshape(3)
-            dnorm = float(np.linalg.norm(desired_dir))
-            if dnorm <= 1e-9:
-                delta_r = np.asarray(pos_err, dtype=float).reshape(3)
-            else:
-                desired_dir = desired_dir / dnorm
-                dir_err = desired_dir - self.grasp_direction(q)
-                delta_r = np.concatenate(
-                    [
-                        np.asarray(pos_err, dtype=float).reshape(3),
-                        float(max(direction_weight, 0.0)) * np.asarray(dir_err, dtype=float).reshape(3),
-                    ],
-                    axis=0,
-                )
-        J = self.numerical_jacobian(
-            q,
-            target_world=target_world,
-            target_dir_world=target_dir_world,
-            direction_weight=direction_weight,
-        )
-        H = J.T @ J + float(max(damping, 1e-9)) * np.eye(4, dtype=float)
-        g = J.T @ delta_r
-        try:
-            dq = np.linalg.solve(H, g)
-        except np.linalg.LinAlgError:
-            dq = np.linalg.pinv(H) @ g
-        return self.clamp_q(q + float(step_scale) * dq)
-
 
 __all__ = [
     "Q4",
@@ -356,10 +256,12 @@ __all__ = [
     "_ReachModel",
     "_build_q_map",
     "_damped_pinv",
+    "_forward_direction_world",
     "_forward_grasp_direction_world",
     "_forward_grasp_world",
     "_forward_link_tf",
     "_forward_old_tip_world",
+    "_get_direction_convention_local",
     "_limited_step",
     "_pick_manifest_value",
 ]

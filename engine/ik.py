@@ -160,6 +160,48 @@ def tweak_only(
     )
 
 
+def begin_tweak_session(
+    *,
+    current_q: Sequence[float],
+    hold_target_world: Sequence[float],
+    target_dir_world: Sequence[float],
+    initial_step_scale: float = 1.0,
+):
+    return ik_tweaker.begin_tweak_session(
+        current_q=current_q,
+        target_world=hold_target_world,
+        target_dir_world=target_dir_world,
+        initial_step_scale=initial_step_scale,
+    )
+
+
+def evaluate_tweak_feedback(
+    *,
+    session,
+    actual_tip_world: Sequence[float],
+    actual_dir_world: Sequence[float],
+    position_tol_m: float = 5e-3,
+    direction_tol_deg: float = 5.0,
+    stable_success_required: int = 2,
+):
+    return ik_tweaker.evaluate_tweak_feedback(
+        session=session,
+        actual_tip_world=actual_tip_world,
+        actual_dir_world=actual_dir_world,
+        position_tol_m=position_tol_m,
+        direction_tol_deg=direction_tol_deg,
+        stable_success_required=stable_success_required,
+    )
+
+
+def accept_tweak_step(*, session, step):
+    return ik_tweaker.accept_tweak_step(session=session, step=step)
+
+
+def reject_tweak_step(*, session, step=None):
+    return ik_tweaker.reject_tweak_step(session=session, step=step)
+
+
 def compute_tweak_step(
     *,
     current_q: Sequence[float],
@@ -181,9 +223,29 @@ def compute_tweak_step(
     )
 
 
+def compute_tweak_session_step(
+    *,
+    session,
+    context: dict,
+    actual_tip_world: Sequence[float],
+    actual_dir_world: Sequence[float],
+):
+    return ik_tweaker.compute_tweak_session_step(
+        session=session,
+        context=context,
+        actual_tip_world=actual_tip_world,
+        actual_dir_world=actual_dir_world,
+    )
+
+
 __all__ = [
     "SolveAndAlignResult",
+    "accept_tweak_step",
+    "begin_tweak_session",
+    "compute_tweak_session_step",
     "load_solver_context",
+    "evaluate_tweak_feedback",
+    "reject_tweak_step",
     "solve_then_align",
     "solve_then_tweak",
     "compute_tweak_step",
