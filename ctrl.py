@@ -67,6 +67,7 @@ class HostState:
     torque_enabled: bool
     claw_current: int
     actual_tip_xyz: Optional[tuple[float, float, float]]
+    actual_tip_dir: Optional[tuple[float, float, float]]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
@@ -113,6 +114,7 @@ class ControlClient:
         self.torque_enabled: bool = False
         self.last_claw_current: int = 0
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
+        self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -146,6 +148,7 @@ class ControlClient:
             torque_enabled=bool(self.torque_enabled),
             claw_current=int(self.last_claw_current),
             actual_tip_xyz=self.last_actual_tip_xyz,
+            actual_tip_dir=self.last_actual_tip_dir,
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -208,6 +211,13 @@ class ControlClient:
                     float(actual_tip_raw[1]),
                     float(actual_tip_raw[2]),
                 )
+            actual_tip_dir_raw = msg.get("actual_tip_dir", None)
+            if isinstance(actual_tip_dir_raw, (list, tuple)) and len(actual_tip_dir_raw) == 3:
+                self.last_actual_tip_dir = (
+                    float(actual_tip_dir_raw[0]),
+                    float(actual_tip_dir_raw[1]),
+                    float(actual_tip_dir_raw[2]),
+                )
             self.is_connected = True
             return
 
@@ -235,6 +245,13 @@ class ControlClient:
                     float(actual_tip_raw[0]),
                     float(actual_tip_raw[1]),
                     float(actual_tip_raw[2]),
+                )
+            actual_tip_dir_raw = msg.get("actual_tip_dir", None)
+            if isinstance(actual_tip_dir_raw, (list, tuple)) and len(actual_tip_dir_raw) == 3:
+                self.last_actual_tip_dir = (
+                    float(actual_tip_dir_raw[0]),
+                    float(actual_tip_dir_raw[1]),
+                    float(actual_tip_dir_raw[2]),
                 )
             self.is_connected = True
             if self.last_reply_reason == "":
@@ -746,7 +763,7 @@ class ControlService:
                     ],
                     dtype=float,
                 )
-                result = ik_pipeline.solve_then_tweak(
+                result = ik_pipeline.solve_then_align(
                     target_world=target,
                     target_dir_world=np.array([self.state.target_vx, self.state.target_vy, self.state.target_vz], dtype=float),
                     context=ctx,
@@ -760,6 +777,16 @@ class ControlService:
                     self.state.set_q(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
                     self.state.set_ik_solution(float(q[1]), float(q[2]), float(q[3]))
                     self.state.set_ik_status(running=False, converged=True, failed=False, err_m=refined_pos_err)
+                    if result.align_attempted:
+                        print(
+                            "[UI] Solve IK align | kept=%s | improved=%s | dir_deg %.2f -> %.2f"
+                            % (
+                                str(bool(result.align_position_kept)).lower(),
+                                str(bool(result.align_direction_improved)).lower(),
+                                float(np.degrees(result.initial_direction_angle_rad)),
+                                float(np.degrees(result.direction_angle_rad)),
+                            )
+                        )
                     self.send_current_target(source="ik")
                 else:
                     print(
@@ -819,17 +846,20 @@ class ControlService:
                     dtype=float,
                 )
                 hold_target = None
+                actual_dir = None
                 if self.client is not None:
                     host_state = self.client.refresh_state()
                     if host_state is not None and host_state.actual_tip_xyz is not None:
                         hold_target = np.array(host_state.actual_tip_xyz, dtype=float).reshape(3)
-                if hold_target is None:
-                    hold_target = None
+                    if host_state.actual_tip_dir is not None:
+                        actual_dir = np.array(host_state.actual_tip_dir, dtype=float).reshape(3)
                 tweak_result = ik_pipeline.tweak_only(
                     current_q=current_q,
                     hold_target_world=hold_target,
                     target_dir_world=target_dir,
                     context=ctx,
+                    actual_tip_world=hold_target,
+                    actual_dir_world=actual_dir,
                     position_hold_tol_m=5e-3,
                     rounds=10,
                 )

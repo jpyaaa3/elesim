@@ -974,7 +974,11 @@ class HostFeedbackPublisher:
         self.sock.setsockopt(zmq.LINGER, 0)
         self.sock.connect(self.endpoint)
 
-    def send_actual_tip(self, actual_tip_xyz: Optional[np.ndarray]) -> None:
+    def send_actual_tip(
+        self,
+        actual_tip_xyz: Optional[np.ndarray],
+        actual_tip_dir: Optional[np.ndarray] = None,
+    ) -> None:
         if actual_tip_xyz is None:
             return
         msg = {
@@ -986,6 +990,12 @@ class HostFeedbackPublisher:
                 float(actual_tip_xyz[2]),
             ],
         }
+        if actual_tip_dir is not None:
+            d = np.asarray(actual_tip_dir, dtype=float).reshape(3)
+            norm = float(np.linalg.norm(d))
+            if norm > 1e-9:
+                d = d / norm
+                msg["actual_tip_dir"] = [float(d[0]), float(d[1]), float(d[2])]
         try:
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
@@ -1258,11 +1268,11 @@ class SimRuntime:
                     a.sim_scene.apply_sim_q(q_errmodel)
 
                 sim_tip = a.sim_scene.actual_tip_world(a.layout)
+                sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                 if a.feedback_pub is not None:
-                    a.feedback_pub.send_actual_tip(sim_tip)
+                    a.feedback_pub.send_actual_tip(sim_tip, sim_tip_dir)
                 if a.spawn.draw_debug_markers and sim_tip is not None:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
-                    sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                     if sim_tip_dir is not None:
                         a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
                 a.sim_scene.step()

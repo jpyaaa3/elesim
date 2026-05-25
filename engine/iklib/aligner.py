@@ -16,8 +16,12 @@ class OrientationRefineResult:
     position_error_m: float
     direction_error: float
     direction_angle_rad: float
+    initial_direction_error: float
+    initial_direction_angle_rad: float
     iterations: int
     accepted_steps: int
+    position_kept: bool
+    direction_improved: bool
     converged: bool
 
 
@@ -172,8 +176,12 @@ def refine_direction_with_position_hold(
             position_error_m=pos_err,
             direction_error=0.0,
             direction_angle_rad=0.0,
+            initial_direction_error=0.0,
+            initial_direction_angle_rad=0.0,
             iterations=0,
             accepted_steps=0,
+            position_kept=(pos_err <= float(max(position_hold_tol_m, 1e-6))),
+            direction_improved=False,
             converged=(pos_err <= float(max(position_hold_tol_m, 1e-6))),
         )
 
@@ -203,7 +211,9 @@ def refine_direction_with_position_hold(
     fixed_roll_rad = float(phase1_best_q[1])
     best_q = phase1_best_q.copy()
     best_pos = float(phase1_best_err)
-    best_dir = float(model.direction_error(best_q, target_dir_np))
+    start_dir = float(model.direction_error(best_q, target_dir_np))
+    start_dir_angle = _direction_angle_rad(model.grasp_direction(best_q), target_dir_np)
+    best_dir = float(start_dir)
 
     seen_sol: set[tuple[float, ...]] = set()
     for q_seed in seed_bank:
@@ -229,14 +239,20 @@ def refine_direction_with_position_hold(
             best_dir = dir_err
 
     best_dir_angle = _direction_angle_rad(model.grasp_direction(best_q), target_dir_np)
+    position_kept = bool(best_pos <= pos_tol)
+    direction_improved = bool(best_dir + 1e-10 < start_dir)
     return OrientationRefineResult(
         q=best_q.copy(),
         position_error_m=float(best_pos),
         direction_error=float(best_dir),
         direction_angle_rad=float(best_dir_angle),
+        initial_direction_error=float(start_dir),
+        initial_direction_angle_rad=float(start_dir_angle),
         iterations=int(total_iters),
         accepted_steps=0,
-        converged=(best_pos <= pos_tol),
+        position_kept=position_kept,
+        direction_improved=direction_improved,
+        converged=(position_kept and direction_improved),
     )
 
 
