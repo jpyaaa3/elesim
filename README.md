@@ -44,7 +44,7 @@
 
 대표 예시:
 
-- [addons/ik_solution_space_probe.py](./addons/ik_solution_space_probe.py)  
+- [addons/ik_test.py](./addons/ik_test.py)  
   특정 목표점에 대해 IK 해공간을 샘플링하고 시각화하는 도구
 
 ## 이 시스템으로 할 수 있는 일

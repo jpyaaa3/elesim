@@ -12,7 +12,7 @@ from .iklib import tweaker as ik_tweaker
 
 
 @dataclass(frozen=True)
-class SolveAndTweakResult:
+class SolveAndAlignResult:
     success: bool
     q: Optional[np.ndarray]
     position_error_m: float
@@ -40,7 +40,7 @@ def solve_then_align(
     current_seed: Sequence[float],
     tweak_position_hold_tol_m: float = 1.5e-2,
     tweak_rounds: int = 10,
-) -> SolveAndTweakResult:
+) -> SolveAndAlignResult:
     result = ik_solver.solve_ik(
         target_world=target_world,
         context=context,
@@ -49,7 +49,7 @@ def solve_then_align(
         current_seed=current_seed,
     )
     if (not result.success) or result.q is None:
-        return SolveAndTweakResult(
+        return SolveAndAlignResult(
             success=False,
             q=None if result.q is None else np.asarray(result.q, dtype=float).reshape(4).copy(),
             position_error_m=float(result.position_error_m),
@@ -95,7 +95,7 @@ def solve_then_align(
         else:
             reason = "position_converged_align_rejected"
 
-    return SolveAndTweakResult(
+    return SolveAndAlignResult(
         success=True,
         q=q,
         position_error_m=err_m,
@@ -120,7 +120,7 @@ def solve_then_tweak(
     current_seed: Sequence[float],
     tweak_position_hold_tol_m: float = 1.5e-2,
     tweak_rounds: int = 10,
-) -> SolveAndTweakResult:
+) -> SolveAndAlignResult:
     return solve_then_align(
         target_world=target_world,
         target_dir_world=target_dir_world,
@@ -160,10 +160,36 @@ def tweak_only(
     )
 
 
+def compute_tweak_step(
+    *,
+    current_q: Sequence[float],
+    target_world: Sequence[float],
+    target_dir_world: Sequence[float],
+    context: dict,
+    actual_tip_world: Optional[Sequence[float]] = None,
+    actual_dir_world: Optional[Sequence[float]] = None,
+    step_scale: float = 1.0,
+):
+    return ik_tweaker.compute_tweak_step(
+        current_q=current_q,
+        target_world=target_world,
+        target_dir_world=target_dir_world,
+        context=context,
+        actual_tip_world=actual_tip_world,
+        actual_dir_world=actual_dir_world,
+        step_scale=step_scale,
+    )
+
+
 __all__ = [
-    "SolveAndTweakResult",
+    "SolveAndAlignResult",
     "load_solver_context",
     "solve_then_align",
     "solve_then_tweak",
+    "compute_tweak_step",
     "tweak_only",
 ]
+
+
+# Backward-compatibility alias for older callers.
+SolveAndTweakResult = SolveAndAlignResult
