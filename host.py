@@ -67,6 +67,7 @@ class ControlHost:
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_perceived_object_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
+        self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self._last_hw_pos_by_id: Dict[int, int] = {}
@@ -127,6 +128,7 @@ class ControlHost:
             self.last_ik_target_xyz = None
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
+            self.last_actual_tip_dir = None
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -171,6 +173,7 @@ class ControlHost:
             self.last_ik_target_xyz = None
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
+            self.last_actual_tip_dir = None
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -388,6 +391,13 @@ class ControlHost:
                 float(actual_tip_raw[1]),
                 float(actual_tip_raw[2]),
             )
+        actual_tip_dir_raw = msg.get("actual_tip_dir", None)
+        if isinstance(actual_tip_dir_raw, (list, tuple)) and len(actual_tip_dir_raw) == 3:
+            self.last_actual_tip_dir = (
+                float(actual_tip_dir_raw[0]),
+                float(actual_tip_dir_raw[1]),
+                float(actual_tip_dir_raw[2]),
+            )
 
     def _handle_msg(self, ident: bytes, msg: Dict[str, Any]) -> None:
         self.clients.add(ident)
@@ -572,6 +582,7 @@ class ControlHost:
                         ik_target_dir=self.last_ik_target_dir,
                         perceived_object_xyz=self.last_perceived_object_xyz,
                         actual_tip_xyz=self.last_actual_tip_xyz,
+                        actual_tip_dir=self.last_actual_tip_dir,
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         claw_current=self._last_claw_current,

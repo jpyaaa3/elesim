@@ -138,6 +138,7 @@ def pack_state(
     ik_target_dir: Optional[tuple[float, float, float]] = None,
     perceived_object_xyz: Optional[tuple[float, float, float]] = None,
     actual_tip_xyz: Optional[tuple[float, float, float]] = None,
+    actual_tip_dir: Optional[tuple[float, float, float]] = None,
     sag_model: Optional[dict[str, Any]] = None,
     claw_closed: Optional[bool] = None,
     claw_current: Optional[int] = None,
@@ -167,6 +168,8 @@ def pack_state(
         ]
     if actual_tip_xyz is not None:
         out["actual_tip"] = [float(actual_tip_xyz[0]), float(actual_tip_xyz[1]), float(actual_tip_xyz[2])]
+    if actual_tip_dir is not None:
+        out["actual_tip_dir"] = [float(actual_tip_dir[0]), float(actual_tip_dir[1]), float(actual_tip_dir[2])]
     if sag_model is not None:
         out["sag_model"] = dict(sag_model)
     if claw_closed is not None:

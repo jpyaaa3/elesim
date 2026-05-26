@@ -68,7 +68,6 @@ class RefinedResult:
 
 def _refined_to_sag_model_json(refined: RefinedResult) -> dict[str, Any]:
     return {
-        "model_type": "func_finder_refined_v1",
         "c1_family": str(refined.c1_family),
         "c2_family": str(refined.c2_family),
         "c1_params": np.asarray(refined.c1_params, dtype=float).reshape(-1).tolist(),

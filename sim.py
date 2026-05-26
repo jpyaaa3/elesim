@@ -56,6 +56,7 @@ def _rot_from_wxyz(q_wxyz) -> Rot:
     q = np.asarray(q_wxyz, dtype=float).reshape(4)
     return Rot.from_quat([float(q[1]), float(q[2]), float(q[3]), float(q[0])])
 
+
 @dataclass
 class JointLayout:
     linear_joint_name: str = "j_plate_housing"
@@ -68,6 +69,7 @@ class JointLayout:
     tip_link_name: str = ""
     terminal_link_name: str = ""
     tip_local_offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
+    old_tip_local_offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     tip_points: List[Tuple[str, np.ndarray]] = field(default_factory=list)
     # RealSense D435i on terminal link (node9): housing center + RGB optical offset (+x 27.5mm).
     camera_mount_on_terminal_m: np.ndarray = field(
@@ -243,32 +245,19 @@ class SimScene:
         if self.mover is None:
             return None
         try:
-            tip = self.actual_tip_world(layout)
-            if tip is None:
+            local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
+            axis_norm = float(np.linalg.norm(local_axis))
+            if axis_norm <= 1e-9 or not layout.tip_link_name:
                 return None
-            candidates: List[str] = []
-            if layout.approach_link_name:
-                candidates.append(str(layout.approach_link_name))
-            if layout.tip_link_name:
-                candidates.append(str(layout.tip_link_name))
-            if layout.fk_joint_chain:
-                candidates.append(str(layout.fk_joint_chain[-1]["child"]))
-            for link_name, _local_offset in layout.tip_points:
-                if link_name:
-                    candidates.append(str(link_name))
-            for base_link_name in candidates:
-                if not base_link_name:
-                    continue
-                try:
-                    link = self.mover.entity.get_link(base_link_name)
-                    base_pos = self._to_numpy_1d(link.get_pos())[:3]
-                    direction = np.asarray(tip, dtype=float).reshape(3) - np.asarray(base_pos, dtype=float).reshape(3)
-                    norm = float(np.linalg.norm(direction))
-                    if norm > 1e-9:
-                        return (direction / norm).reshape(3)
-                except Exception:
-                    continue
-            return None
+            link = self.mover.entity.get_link(str(layout.tip_link_name))
+            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
+            origin = np.array([0.0, 0.0, 0.0], dtype=float)
+            axis_tip = gs_geom.transform_by_trans_quat(local_axis / axis_norm, origin, q_wxyz)
+            direction = np.asarray(axis_tip, dtype=float).reshape(3)
+            norm = float(np.linalg.norm(direction))
+            if norm <= 1e-9:
+                return None
+            return (direction / norm).reshape(3)
         except Exception:
             return None
 
@@ -374,20 +363,12 @@ class SimScene:
                     R_child = R_parent @ child_rot_parent
                 link_tf[child] = (p_child, R_child)
 
-            tip_world = self.desired_tip_pos_from_cmd_target(layout, model, q_target_full)
-            if tip_world is None:
+            local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
+            norm_local = float(np.linalg.norm(local_axis))
+            if norm_local <= 1e-9 or not layout.tip_link_name or layout.tip_link_name not in link_tf:
                 return None
-            base_link_name = ""
-            if layout.approach_link_name and str(layout.approach_link_name) in link_tf:
-                base_link_name = str(layout.approach_link_name)
-            elif layout.tip_link_name and str(layout.tip_link_name) in link_tf:
-                base_link_name = str(layout.tip_link_name)
-            elif layout.fk_joint_chain:
-                base_link_name = str(layout.fk_joint_chain[-1]["child"])
-            if not base_link_name or base_link_name not in link_tf:
-                return None
-            base_pos, _ = link_tf[base_link_name]
-            direction = np.asarray(tip_world, dtype=float).reshape(3) - np.asarray(base_pos, dtype=float).reshape(3)
+            _p_tip, R_tip = link_tf[layout.tip_link_name]
+            direction = R_tip @ (local_axis / norm_local)
             norm = float(np.linalg.norm(direction))
             if norm <= 1e-9:
                 return None
@@ -702,9 +683,10 @@ class AssetProcessor:
             raise RuntimeError("manifest json is missing valid anchor_root for first bend joint")
         self.app.layout.chain_origin_local = np.array([float(ar[0]), float(ar[1]), float(ar[2])], dtype=float)
 
-        tip_link_name = str(_pick_manifest_value(joints[-1], "child", default="")) if joints else ""
+        terminal_joint = joint_by_name.get(self.app.layout.bend_joint_names[-1]) if self.app.layout.bend_joint_names else None
+        tip_link_name = str(_pick_manifest_value(terminal_joint, "child", default="")) if terminal_joint is not None else ""
         if not tip_link_name:
-            raise RuntimeError("manifest json is missing tip link child on last joint")
+            raise RuntimeError("manifest json is missing terminal bend child link")
         tip_local_offset = np.array([0.0, 0.0, 0.0], dtype=float)
         tip_points: List[Tuple[str, np.ndarray]] = []
         part_control_mode: Dict[str, str] = {}
@@ -762,6 +744,7 @@ class AssetProcessor:
             left_pose = pose_root_by_name.get("gripper_claw_left")
             right_pose = pose_root_by_name.get("gripper_claw_right")
             tip_pose = pose_root_by_name.get(tip_link_name)
+            base_pose = pose_root_by_name.get("gripper_base")
             old_tip_local = _load_tip_offset(tip_link_name)
             if left_pose is not None and right_pose is not None and tip_pose is not None:
                 left_world = left_pose[0] + left_pose[1].apply(left_local)
@@ -770,13 +753,15 @@ class AssetProcessor:
                 old_tip_world = tip_pose[0] + tip_pose[1].apply(old_tip_local)
                 delta_local = tip_pose[1].inv().apply(grasp_mid_world - old_tip_world)
                 tip_local_offset = old_tip_local + np.asarray(delta_local, dtype=float).reshape(3)
-            else:
-                tip_link_name = "gripper_center"
-                tip_local_offset = np.mean(np.stack([p[1] for p in tip_points], axis=0), axis=0)
+                if base_pose is not None:
+                    attach_local = tip_pose[1].inv().apply(base_pose[0] - tip_pose[0])
+                    self.app.layout.approach_axis_local = np.asarray(attach_local, dtype=float).reshape(3)
         else:
             tip_local_offset = _load_tip_offset(tip_link_name)
+            old_tip_local = tip_local_offset.copy()
         self.app.layout.tip_link_name = tip_link_name
         self.app.layout.tip_local_offset = tip_local_offset
+        self.app.layout.old_tip_local_offset = np.asarray(old_tip_local, dtype=float).reshape(3)
         self.app.layout.tip_points = tip_points
         self.app.layout.part_control_mode = part_control_mode
         if controlled_modes:
@@ -1068,7 +1053,11 @@ class HostFeedbackPublisher:
         self.sock.setsockopt(zmq.LINGER, 0)
         self.sock.connect(self.endpoint)
 
-    def send_actual_tip(self, actual_tip_xyz: Optional[np.ndarray]) -> None:
+    def send_actual_tip(
+        self,
+        actual_tip_xyz: Optional[np.ndarray],
+        actual_tip_dir: Optional[np.ndarray] = None,
+    ) -> None:
         if actual_tip_xyz is None:
             return
         msg = {
@@ -1080,6 +1069,12 @@ class HostFeedbackPublisher:
                 float(actual_tip_xyz[2]),
             ],
         }
+        if actual_tip_dir is not None:
+            d = np.asarray(actual_tip_dir, dtype=float).reshape(3)
+            norm = float(np.linalg.norm(d))
+            if norm > 1e-9:
+                d = d / norm
+                msg["actual_tip_dir"] = [float(d[0]), float(d[1]), float(d[2])]
         try:
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
@@ -1366,11 +1361,11 @@ class SimRuntime:
                     a.sim_scene.apply_sim_q(q_errmodel)
 
                 sim_tip = a.sim_scene.actual_tip_world(a.layout)
+                sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                 if a.feedback_pub is not None:
-                    a.feedback_pub.send_actual_tip(sim_tip)
+                    a.feedback_pub.send_actual_tip(sim_tip, sim_tip_dir)
                 if a.spawn.draw_debug_markers and sim_tip is not None:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
-                    sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                     if sim_tip_dir is not None:
                         a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
                 if a.spawn.draw_debug_markers and a.layout.terminal_link_name:

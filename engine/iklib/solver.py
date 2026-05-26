@@ -17,8 +17,6 @@ from .kinematics import Q4, Q_BENT, Q_NEUTRAL, Vec3, _ReachModel, _pick_manifest
 class IkSolveRequest:
     target_world: Vec3
     position_tol_m: float = 1e-4
-    target_dir_world: Optional[Vec3] = None
-    direction_weight: float = 0.10
 
 
 @dataclass(frozen=True)
@@ -160,6 +158,7 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
     old_tip_local_offset = _load_frame_to_offset(build_dir, terminal_part, part_name=terminal_link_name)
 
     grasp_offset_node_local = np.array([0.0, 0.0, 0.0], dtype=float)
+    approach_axis_local = np.array(old_tip_local_offset, dtype=float).reshape(3)
     if "gripper_claw_left" in part_by_name and "gripper_claw_right" in part_by_name and terminal_link_name in part_by_name:
         term_part = part_by_name[terminal_link_name]
         term_pose_root = _pick_manifest_value(term_part, "pose_root", default={}) or {}
@@ -182,6 +181,11 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
         right_tip = right_p + right_r.apply(_load_frame_to_offset(build_dir, right_part, part_name="gripper_claw_right"))
         grasp_mid_world = 0.5 * (left_tip + right_tip)
         grasp_offset_node_local = term_r.inv().apply(grasp_mid_world - old_tip_world)
+        base_part = part_by_name.get("gripper_base")
+        if base_part is not None:
+            base_pose_root = _pick_manifest_value(base_part, "pose_root", default={}) or {}
+            base_p = np.array(_pick_manifest_value(base_pose_root, "p", default=[0.0, 0.0, 0.0]), dtype=float).reshape(3)
+            approach_axis_local = term_r.inv().apply(base_p - term_p)
 
     context = {
         "limit": bundle.joint_limit,
@@ -200,7 +204,7 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
         "spawn_euler_deg": np.array(bundle.spawn_config.spawn_euler_deg, dtype=float),
         "terminal_link_name": terminal_link_name,
         "approach_link_name": "gripper_base" if "gripper_base" in part_by_name else terminal_link_name,
-        "approach_axis_local": np.array([0.0, -1.0, 0.0], dtype=float),
+        "approach_axis_local": np.array(approach_axis_local, dtype=float),
         "old_tip_local_offset": np.array(old_tip_local_offset, dtype=float),
         "grasp_offset_node_local": np.array(grasp_offset_node_local, dtype=float),
     }
@@ -213,8 +217,6 @@ def _optimize_position(
     tol: float,
     model: _ReachModel,
     target_world: Sequence[float],
-    target_dir_world: Optional[Sequence[float]],
-    direction_weight: float,
     max_iters: int,
     damping: float = 1e-2,
     line_search_shrink: float = 0.5,
@@ -231,18 +233,8 @@ def _optimize_position(
         err = float(np.linalg.norm(err_vec))
         if err <= tol:
             return True, q.copy(), err, iteration - 1
-        residual = model.residual_vec(
-            q,
-            target_world=target_world,
-            target_dir_world=target_dir_world,
-            direction_weight=direction_weight,
-        )
-        J = model.numerical_jacobian(
-            q,
-            target_world=target_world,
-            target_dir_world=target_dir_world,
-            direction_weight=direction_weight,
-        )
+        residual = np.asarray(err_vec, dtype=float).reshape(3)
+        J = model.position_jacobian(q)
         H = J.T @ J + float(max(damping, 1e-9)) * np.eye(4, dtype=float)
         g = J.T @ residual
         try:
@@ -253,12 +245,7 @@ def _optimize_position(
         for ls_idx in range(max(int(line_search_steps), 1)):
             alpha = float(np.clip(line_search_shrink, 1e-3, 0.999)) ** ls_idx
             q_try = model.clamp_q(q + alpha * step)
-            residual_try = model.residual_vec(
-                q_try,
-                target_world=target_world,
-                target_dir_world=target_dir_world,
-                direction_weight=direction_weight,
-            )
+            residual_try = np.asarray(model.error_vec(q_try, target_world), dtype=float).reshape(3)
             residual_norm = float(np.linalg.norm(residual))
             residual_try_norm = float(np.linalg.norm(residual_try))
             err_try = float(np.linalg.norm(model.error_vec(q_try, target_world)))
@@ -277,8 +264,6 @@ def solve_ik(
     target_world: Sequence[float],
     context: dict[str, Any],
     position_tol_m: float = 1e-4,
-    target_dir_world: Optional[Sequence[float]] = None,
-    direction_weight: float = 0.10,
     max_iters: int = 120,
     neutral_seed: Optional[Sequence[float]] = None,
     bent_seed: Optional[Sequence[float]] = None,
@@ -287,8 +272,6 @@ def solve_ik(
     request = IkSolveRequest(
         target_world=np.asarray(target_world, dtype=float).reshape(3),
         position_tol_m=float(position_tol_m),
-        target_dir_world=None if target_dir_world is None else np.asarray(target_dir_world, dtype=float).reshape(3),
-        direction_weight=float(direction_weight),
     )
     model = _ReachModel(context=context, limit=context["limit"])
     tol = float(max(request.position_tol_m, 0.0))
@@ -316,8 +299,6 @@ def solve_ik(
             tol=tol,
             model=model,
             target_world=request.target_world,
-            target_dir_world=request.target_dir_world,
-            direction_weight=request.direction_weight,
             max_iters=max_iters,
         )
         if err < best_err:
@@ -336,21 +317,20 @@ def tighten_from_actual(
     actual_tip_world: Sequence[float],
     target_world: Sequence[float],
     context: dict[str, Any],
-    target_dir_world: Optional[Sequence[float]] = None,
-    direction_weight: float = 0.10,
     damping: float = 1e-2,
     step_scale: float = 1.0,
 ) -> np.ndarray:
     model = _ReachModel(context=context, limit=context["limit"])
-    return model.tighten_once(
-        current_q=current_q,
-        actual_tip_world=actual_tip_world,
-        target_world=target_world,
-        target_dir_world=target_dir_world,
-        direction_weight=direction_weight,
-        damping=damping,
-        step_scale=step_scale,
-    )
+    q = model.clamp_q(current_q)
+    pos_err = np.asarray(target_world, dtype=float).reshape(3) - np.asarray(actual_tip_world, dtype=float).reshape(3)
+    J = model.position_jacobian(q)
+    H = J.T @ J + float(max(damping, 1e-9)) * np.eye(4, dtype=float)
+    g = J.T @ pos_err
+    try:
+        dq = np.linalg.solve(H, g)
+    except np.linalg.LinAlgError:
+        dq = np.linalg.pinv(H) @ g
+    return model.clamp_q(q + float(step_scale) * dq)
 
 
 load_ik_context = load_solver_context

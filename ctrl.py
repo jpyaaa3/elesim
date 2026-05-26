@@ -26,7 +26,7 @@ from engine.protocol import (
     unpack_q,
     unpack_u,
 )
-from engine.ik import pipeline as ik_pipeline
+from engine import ik as ik_pipeline
 from engine.config_loader import IkConfig
 from engine.sag_model import load_sag_model_json
 
@@ -67,6 +67,7 @@ class HostState:
     torque_enabled: bool
     claw_current: int
     actual_tip_xyz: Optional[tuple[float, float, float]]
+    actual_tip_dir: Optional[tuple[float, float, float]]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
@@ -113,6 +114,7 @@ class ControlClient:
         self.torque_enabled: bool = False
         self.last_claw_current: int = 0
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
+        self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -146,6 +148,7 @@ class ControlClient:
             torque_enabled=bool(self.torque_enabled),
             claw_current=int(self.last_claw_current),
             actual_tip_xyz=self.last_actual_tip_xyz,
+            actual_tip_dir=self.last_actual_tip_dir,
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -208,6 +211,13 @@ class ControlClient:
                     float(actual_tip_raw[1]),
                     float(actual_tip_raw[2]),
                 )
+            actual_tip_dir_raw = msg.get("actual_tip_dir", None)
+            if isinstance(actual_tip_dir_raw, (list, tuple)) and len(actual_tip_dir_raw) == 3:
+                self.last_actual_tip_dir = (
+                    float(actual_tip_dir_raw[0]),
+                    float(actual_tip_dir_raw[1]),
+                    float(actual_tip_dir_raw[2]),
+                )
             self.is_connected = True
             return
 
@@ -235,6 +245,13 @@ class ControlClient:
                     float(actual_tip_raw[0]),
                     float(actual_tip_raw[1]),
                     float(actual_tip_raw[2]),
+                )
+            actual_tip_dir_raw = msg.get("actual_tip_dir", None)
+            if isinstance(actual_tip_dir_raw, (list, tuple)) and len(actual_tip_dir_raw) == 3:
+                self.last_actual_tip_dir = (
+                    float(actual_tip_dir_raw[0]),
+                    float(actual_tip_dir_raw[1]),
+                    float(actual_tip_dir_raw[2]),
                 )
             self.is_connected = True
             if self.last_reply_reason == "":
@@ -450,6 +467,7 @@ class PanelState:
     ik_converged: bool = False
     ik_failed: bool = False
     ik_err_m: float = 0.0
+    ik_status_msg: str = ""
     # Debug: physics tracking + sim tip error (to diagnose 'fake converge')
     ik_sim_tip_err_m: float = 0.0
     ik_track_roll_err_rad: float = 0.0
@@ -525,15 +543,16 @@ class PanelState:
         with self._lock:
             self.claw_closed = bool(closed)
 
-    def set_ik_status(self, running: bool, converged: bool, failed: bool, err_m: float) -> None:
+    def set_ik_status(self, running: bool, converged: bool, failed: bool, err_m: float, msg: str = "") -> None:
         with self._lock:
             self.ik_running = bool(running)
             self.ik_converged = bool(converged)
             self.ik_failed = bool(failed)
             self.ik_err_m = float(err_m)
+            self.ik_status_msg = str(msg)
 
     def clear_ik_status(self) -> None:
-        self.set_ik_status(running=False, converged=False, failed=False, err_m=0.0)
+        self.set_ik_status(running=False, converged=False, failed=False, err_m=0.0, msg="")
 
     def set_ik_solution(self, roll: float, theta1: float, theta2: float) -> None:
         with self._lock:
@@ -578,6 +597,58 @@ class ControlService:
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
         self._ik_worker: Optional[threading.Thread] = None
+
+    @staticmethod
+    def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
+        arr = np.asarray(vec, dtype=float).reshape(3)
+        norm = float(np.linalg.norm(arr))
+        if norm <= 1e-9:
+            return None
+        return arr / norm
+
+    def _wait_until_q_settled(
+        self,
+        target_q: np.ndarray,
+        *,
+        timeout_s: float = 1.0,
+        linear_tol_m: float = 2e-3,
+        angle_tol_rad: float = math.radians(2.0),
+        consecutive: int = 3,
+    ) -> Optional[HostState]:
+        if self.client is None:
+            time.sleep(0.15)
+            return None
+        deadline = time.time() + float(max(timeout_s, 0.05))
+        target = np.asarray(target_q, dtype=float).reshape(4)
+        stable_count = 0
+        last_state: Optional[HostState] = None
+        while time.time() < deadline:
+            time.sleep(0.05)
+            state = self.client.refresh_state()
+            last_state = state
+            if state is None or state.q is None:
+                continue
+            q_now = np.array(
+                [
+                    float(state.q.linear_m),
+                    float(state.q.roll_rad),
+                    float(state.q.theta1_rad),
+                    float(state.q.theta2_rad),
+                ],
+                dtype=float,
+            )
+            if (
+                abs(float(q_now[0] - target[0])) <= float(linear_tol_m)
+                and abs(float(q_now[1] - target[1])) <= float(angle_tol_rad)
+                and abs(float(q_now[2] - target[2])) <= float(angle_tol_rad)
+                and abs(float(q_now[3] - target[3])) <= float(angle_tol_rad)
+            ):
+                stable_count += 1
+                if stable_count >= max(int(consecutive), 1):
+                    return state
+            else:
+                stable_count = 0
+        return last_state
 
     def refresh_ik_context(self) -> None:
         if not self._config_path:
@@ -730,10 +801,10 @@ class ControlService:
         )
         if any(k not in ctx for k in required):
             print("[UI] IK solve rejected | missing ik_context fields")
-            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
+            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="missing IK context")
             return
 
-        self.state.set_ik_status(running=True, converged=False, failed=False, err_m=float("inf"))
+        self.state.set_ik_status(running=True, converged=False, failed=False, err_m=float("inf"), msg="solving")
 
         def _worker() -> None:
             try:
@@ -746,7 +817,7 @@ class ControlService:
                     ],
                     dtype=float,
                 )
-                result = ik_pipeline.solve_then_tweak(
+                result = ik_pipeline.solve_then_align(
                     target_world=target,
                     target_dir_world=np.array([self.state.target_vx, self.state.target_vy, self.state.target_vz], dtype=float),
                     context=ctx,
@@ -759,7 +830,30 @@ class ControlService:
                     refined_pos_err = float(result.position_error_m)
                     self.state.set_q(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
                     self.state.set_ik_solution(float(q[1]), float(q[2]), float(q[3]))
-                    self.state.set_ik_status(running=False, converged=True, failed=False, err_m=refined_pos_err)
+                    align_msg = str(result.reason)
+                    if result.align_attempted:
+                        align_msg = "%s | dir %.1f -> %.1f deg" % (
+                            str(result.reason),
+                            float(np.degrees(result.initial_direction_angle_rad)),
+                            float(np.degrees(result.direction_angle_rad)),
+                        )
+                    self.state.set_ik_status(
+                        running=False,
+                        converged=True,
+                        failed=False,
+                        err_m=refined_pos_err,
+                        msg=align_msg,
+                    )
+                    if result.align_attempted:
+                        print(
+                            "[UI] Solve IK align | kept=%s | improved=%s | dir_deg %.2f -> %.2f"
+                            % (
+                                str(bool(result.align_position_kept)).lower(),
+                                str(bool(result.align_direction_improved)).lower(),
+                                float(np.degrees(result.initial_direction_angle_rad)),
+                                float(np.degrees(result.direction_angle_rad)),
+                            )
+                        )
                     self.send_current_target(source="ik")
                 else:
                     print(
@@ -771,6 +865,7 @@ class ControlService:
                         converged=False,
                         failed=True,
                         err_m=float(result.position_error_m),
+                        msg=str(result.reason),
                     )
             finally:
                 self._ik_worker = None
@@ -782,7 +877,7 @@ class ControlService:
         target = np.array([self.state.target_x, self.state.target_y, self.state.target_z], dtype=float)
         self._start_position_solve(target)
 
-    def start_align(self) -> None:
+    def start_tweak(self) -> None:
         if self.state.ik_running:
             return
         self.refresh_ik_context()
@@ -792,25 +887,24 @@ class ControlService:
             "limit",
             "fk_joint_chain",
             "terminal_link_name",
-            "old_tip_local_offset",
-            "grasp_offset_node_local",
+            "approach_axis_local",
         )
         if any(k not in ctx for k in required):
-            print("[UI] Align rejected | missing ik_context fields")
-            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
+            print("[UI] Tweak rejected | missing ik_context fields")
+            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="missing IK context")
             return
 
         direction = np.array([self.state.target_vx, self.state.target_vy, self.state.target_vz], dtype=float)
         dnorm = float(np.linalg.norm(direction))
         if dnorm <= 1e-9:
-            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
+            self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="invalid target direction")
             return
         target_dir = direction / dnorm
-        self.state.set_ik_status(running=True, converged=False, failed=False, err_m=float("inf"))
+        self.state.set_ik_status(running=True, converged=False, failed=False, err_m=float("inf"), msg="tweaking")
 
         def _worker() -> None:
             try:
-                current_q = np.array(
+                q_cmd = np.array(
                     [
                         float(self.state.linear),
                         float(self.state.roll),
@@ -819,34 +913,154 @@ class ControlService:
                     ],
                     dtype=float,
                 )
-                hold_target = None
-                if self.client is not None:
-                    host_state = self.client.refresh_state()
-                    if host_state is not None and host_state.actual_tip_xyz is not None:
-                        hold_target = np.array(host_state.actual_tip_xyz, dtype=float).reshape(3)
-                if hold_target is None:
-                    hold_target = None
-                refine_result = ik_pipeline.tweak_only(
-                    current_q=current_q,
+                if self.client is None:
+                    self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="no feedback client")
+                    return
+
+                host_state = self.client.refresh_state()
+                if host_state is None or host_state.actual_tip_xyz is None or host_state.actual_tip_dir is None:
+                    self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="missing actual tip feedback")
+                    return
+                if host_state.q is not None:
+                    q_cmd = np.array(
+                        [
+                            float(host_state.q.linear_m),
+                            float(host_state.q.roll_rad),
+                            float(host_state.q.theta1_rad),
+                            float(host_state.q.theta2_rad),
+                        ],
+                        dtype=float,
+                    )
+
+                hold_target = np.array(host_state.actual_tip_xyz, dtype=float).reshape(3)
+                actual_pos = np.array(host_state.actual_tip_xyz, dtype=float).reshape(3)
+                actual_dir = self._normalize_dir(np.array(host_state.actual_tip_dir, dtype=float).reshape(3))
+                if actual_dir is None:
+                    self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg="invalid actual direction")
+                    return
+
+                session = ik_pipeline.begin_tweak_session(
+                    current_q=q_cmd,
                     hold_target_world=hold_target,
                     target_dir_world=target_dir,
-                    context=ctx,
-                    position_hold_tol_m=1.5e-2,
-                    rounds=10,
+                    initial_step_scale=1.0,
                 )
-                q = np.asarray(refine_result.q, dtype=float).reshape(4)
-                self.state.set_q(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-                self.state.set_ik_solution(float(q[1]), float(q[2]), float(q[3]))
+                pos_tol = 5e-3
+                dir_tol_deg = 5.0
+                last_pos_err = float("inf")
+                last_dir_ang = float("inf")
+
+                for _iter in range(10):
+                    feedback = ik_pipeline.evaluate_tweak_feedback(
+                        session=session,
+                        actual_tip_world=actual_pos,
+                        actual_dir_world=actual_dir,
+                        position_tol_m=pos_tol,
+                        direction_tol_deg=dir_tol_deg,
+                    )
+                    session = feedback.state
+                    last_pos_err = float(feedback.position_error_m)
+                    last_dir_ang = float(feedback.direction_angle_rad)
+                    if feedback.converged:
+                        q_cmd = np.asarray(session.q, dtype=float).reshape(4).copy()
+                        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                        self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=True,
+                            failed=False,
+                            err_m=float(feedback.position_error_m),
+                            msg="tweak converged | dir %.1f deg | steps %d"
+                            % (float(np.degrees(feedback.direction_angle_rad)), int(session.accepted_steps)),
+                        )
+                        self.send_current_target(source="ik")
+                        return
+
+                    step = ik_pipeline.compute_tweak_session_step(
+                        session=session,
+                        context=ctx,
+                        actual_tip_world=actual_pos,
+                        actual_dir_world=actual_dir,
+                    )
+                    if not bool(step.accepted):
+                        session = ik_pipeline.reject_tweak_step(session=session, step=step)
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=False,
+                            failed=True,
+                            err_m=float(feedback.position_error_m),
+                            msg=str(session.reason),
+                        )
+                        return
+
+                    prev_session = session
+                    prev_q = q_cmd.copy()
+                    q_cmd = np.asarray(step.q, dtype=float).reshape(4).copy()
+                    session = ik_pipeline.accept_tweak_step(session=session, step=step)
+                    self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                    self.send_current_target(source="ik")
+                    post_state = self._wait_until_q_settled(q_cmd, timeout_s=1.0)
+                    if post_state is None or post_state.actual_tip_xyz is None or post_state.actual_tip_dir is None:
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=False,
+                            failed=True,
+                            err_m=float(feedback.position_error_m),
+                            msg="lost actual feedback",
+                        )
+                        return
+                    new_pos = np.array(post_state.actual_tip_xyz, dtype=float).reshape(3)
+                    new_dir = self._normalize_dir(np.array(post_state.actual_tip_dir, dtype=float).reshape(3))
+                    if new_dir is None:
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=False,
+                            failed=True,
+                            err_m=float(feedback.position_error_m),
+                            msg="invalid actual direction",
+                        )
+                        return
+                    feedback_new = ik_pipeline.evaluate_tweak_feedback(
+                        session=session,
+                        actual_tip_world=new_pos,
+                        actual_dir_world=new_dir,
+                        position_tol_m=pos_tol,
+                        direction_tol_deg=dir_tol_deg,
+                    )
+                    if feedback_new.cost <= feedback.cost + 1e-9:
+                        actual_pos = new_pos
+                        actual_dir = new_dir
+                        session = feedback_new.state
+                        continue
+
+                    # Roll back when actual feedback got worse.
+                    session = ik_pipeline.reject_tweak_step(session=prev_session, step=step)
+                    q_cmd = prev_q.copy()
+                    self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                    self.send_current_target(source="ik")
+                    self._wait_until_q_settled(q_cmd, timeout_s=0.8)
+                    if float(session.step_scale) <= 0.051:
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=False,
+                            failed=True,
+                            err_m=float(feedback_new.position_error_m),
+                            msg=str(session.reason),
+                        )
+                        return
+
+                self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+                self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
                 self.state.set_ik_status(
                     running=False,
-                    converged=True,
-                    failed=False,
-                    err_m=float(refine_result.position_error_m),
+                    converged=False,
+                    failed=True,
+                    err_m=float(last_pos_err),
+                    msg="iteration limit | dir %.1f deg | steps %d" % (float(np.degrees(last_dir_ang)), int(session.accepted_steps)),
                 )
-                self.send_current_target(source="ik")
             except Exception as exc:
-                print(f"[UI] Align failed: {exc}")
-                self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"))
+                print(f"[UI] Tweak failed: {exc}")
+                self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float("inf"), msg=str(exc))
             finally:
                 self._ik_worker = None
 
@@ -978,9 +1192,8 @@ class ControlPanel:
             if imgui.button("Solve IK"):
                 self.service.start_ik_solve()
             imgui.same_line()
-            disabled_token = self._begin_disabled_ui(True)
-            imgui.button("Tweak (not working)")
-            self._end_disabled_ui(disabled_token)
+            if imgui.button("Tweak"):
+                self.service.start_tweak()
             imgui.same_line()
             if imgui.button("Stop IK"):
                 self.state.clear_ik_status()
@@ -994,6 +1207,8 @@ class ControlPanel:
             if self.state.ik_failed:
                 status = "failed"
             imgui.text(f"IK status: {status} | err: {self.state.ik_err_m*1000:.2f} mm")
+            if str(self.state.ik_status_msg).strip():
+                imgui.text_wrapped(str(self.state.ik_status_msg))
 
     def _draw_hardware_panel(self) -> None:
         if (not self._use_hardware) or (not self.service.has_client()):
@@ -1141,7 +1356,15 @@ class ControlPanel:
                     resolved_path, model = self.service.load_sag_model(self._sag_model_path_draft)
                     self._sag_model_path_draft = str(resolved_path)
                     self.service.send_current_target(source="target")
-                    model_type = str(model.get("model_type", "legacy") or "legacy")
+                    raw_type = str(model.get("model_type", "") or "").strip()
+                    if raw_type:
+                        model_type = raw_type
+                    elif any(k in model for k in ("c1_family", "c1_params", "a1", "b1_coeffs", "c2_family", "c2_params", "a2", "b2_coeffs")):
+                        model_type = "refined"
+                    elif any(k in model for k in ("seg1_distribution", "seg1_amplitude", "seg2_distribution", "seg2_amplitude")):
+                        model_type = "legacy"
+                    else:
+                        model_type = "unknown"
                     self._sag_status_text = f"loaded: {resolved_path} ({model_type})"
                     self._sag_status_ok = True
                 except Exception as exc:
