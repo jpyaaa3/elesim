@@ -136,6 +136,7 @@ def pack_state(
     torque_enabled: Optional[bool] = None,
     ik_target_xyz: Optional[tuple[float, float, float]] = None,
     ik_target_dir: Optional[tuple[float, float, float]] = None,
+    perceived_object_xyz: Optional[tuple[float, float, float]] = None,
     actual_tip_xyz: Optional[tuple[float, float, float]] = None,
     sag_model: Optional[dict[str, Any]] = None,
     claw_closed: Optional[bool] = None,
@@ -158,6 +159,12 @@ def pack_state(
         out["ik_target"] = [float(ik_target_xyz[0]), float(ik_target_xyz[1]), float(ik_target_xyz[2])]
     if ik_target_dir is not None:
         out["ik_target_dir"] = [float(ik_target_dir[0]), float(ik_target_dir[1]), float(ik_target_dir[2])]
+    if perceived_object_xyz is not None:
+        out["perceived_object"] = [
+            float(perceived_object_xyz[0]),
+            float(perceived_object_xyz[1]),
+            float(perceived_object_xyz[2]),
+        ]
     if actual_tip_xyz is not None:
         out["actual_tip"] = [float(actual_tip_xyz[0]), float(actual_tip_xyz[1]), float(actual_tip_xyz[2])]
     if sag_model is not None:

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -66,8 +66,16 @@ class JointLayout:
     bend_axis_sign: float = -1.0
     chain_origin_local: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     tip_link_name: str = ""
+    terminal_link_name: str = ""
     tip_local_offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     tip_points: List[Tuple[str, np.ndarray]] = field(default_factory=list)
+    # RealSense D435i on terminal link (node9): housing center + RGB optical offset (+x 27.5mm).
+    camera_mount_on_terminal_m: np.ndarray = field(
+        default_factory=lambda: np.array([-0.03, 0.03, 0.01], dtype=float)
+    )
+    camera_rgb_offset_m: np.ndarray = field(
+        default_factory=lambda: np.array([0.0275, 0.0, 0.0], dtype=float)
+    )
     approach_link_name: str = "gripper_base"
     approach_axis_local: np.ndarray = field(default_factory=lambda: np.array([0.0, -1.0, 0.0], dtype=float))
     control_mode: str = "commanded"
@@ -89,6 +97,12 @@ class MarkerSet:
     _sim_tip_marker_pos: Optional[np.ndarray] = None
     _ik_target_marker_dir_sig: Optional[np.ndarray] = None
     _sim_tip_marker_dir_sig: Optional[np.ndarray] = None
+    _camera_housing_marker: object = None
+    _camera_rgb_marker: object = None
+    _camera_rgb_z_marker: object = None
+    _camera_housing_marker_pos: Optional[np.ndarray] = None
+    _camera_rgb_marker_pos: Optional[np.ndarray] = None
+    _camera_rgb_z_marker_sig: Optional[np.ndarray] = None
 
     def draw(self, scene, attr_name: str, pos: np.ndarray, color) -> None:
         pos_arr = np.asarray(pos, dtype=float).reshape(3)
@@ -152,6 +166,52 @@ class SimScene:
         if self.scene is None:
             return
         markers.draw_direction(self.scene, attr_name, pos, direction, color)
+
+    def _link_point_world(self, link_name: str, local_offset: np.ndarray) -> Optional[np.ndarray]:
+        if self.mover is None or not link_name:
+            return None
+        try:
+            link = self.mover.entity.get_link(str(link_name))
+            p = self._to_numpy_1d(link.get_pos())[:3]
+            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
+            local = np.asarray(local_offset, dtype=float).reshape(3)
+            out = gs_geom.transform_by_trans_quat(local, p, q_wxyz)
+            return np.array(out, dtype=float)
+        except Exception:
+            return None
+
+    def _link_rotation_world(self, link_name: str) -> Optional[np.ndarray]:
+        if self.mover is None or not link_name:
+            return None
+        try:
+            link = self.mover.entity.get_link(str(link_name))
+            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
+            return _rot_from_wxyz(q_wxyz).as_matrix()
+        except Exception:
+            return None
+
+    def camera_markers_world(
+        self, layout: JointLayout
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        D435i housing center and RGB optical frame origin in world (Genesis sim).
+        Optical +z forward axis unit vector in world is the third return value.
+        """
+        term = str(layout.terminal_link_name or "").strip()
+        if not term:
+            return None, None, None
+        mount = np.asarray(layout.camera_mount_on_terminal_m, dtype=float).reshape(3)
+        rgb_off = np.asarray(layout.camera_rgb_offset_m, dtype=float).reshape(3)
+        housing = self._link_point_world(term, mount)
+        rgb = self._link_point_world(term, mount + rgb_off)
+        R = self._link_rotation_world(term)
+        optical_z: Optional[np.ndarray] = None
+        if R is not None:
+            z = R @ np.array([0.0, 0.0, 1.0], dtype=float)
+            n = float(np.linalg.norm(z))
+            if n > 1e-9:
+                optical_z = z / n
+        return housing, rgb, optical_z
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         if self.mover is None:
@@ -830,6 +890,9 @@ class StateSource:
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return None
 
+    def perceived_object_xyz(self) -> Optional[np.ndarray]:
+        return None
+
     def sag_model(self) -> dict[str, Any]:
         return {}
 
@@ -850,6 +913,7 @@ class HardwareStateCache(StateSource):
         self._last_q: Optional[proto.SimQ] = None
         self._last_ik_target_xyz: Optional[np.ndarray] = None
         self._last_ik_target_dir: Optional[np.ndarray] = None
+        self._last_perceived_object_xyz: Optional[np.ndarray] = None
         self._last_sag_model: dict[str, Any] = {}
         self._last_claw_closed: bool = False
 
@@ -874,6 +938,11 @@ class HardwareStateCache(StateSource):
     def update_ik_target_dir(self, ik_target_dir: Optional[np.ndarray]) -> None:
         self._last_ik_target_dir = None if ik_target_dir is None else np.array(ik_target_dir, dtype=float).reshape(3)
 
+    def update_perceived_object(self, perceived_object_xyz: Optional[np.ndarray]) -> None:
+        self._last_perceived_object_xyz = (
+            None if perceived_object_xyz is None else np.array(perceived_object_xyz, dtype=float).reshape(3)
+        )
+
     def update_sag_model(self, sag_model: Optional[dict[str, Any]]) -> None:
         if sag_model is None:
             return
@@ -887,6 +956,9 @@ class HardwareStateCache(StateSource):
 
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return None if self._last_ik_target_dir is None else self._last_ik_target_dir.copy()
+
+    def perceived_object_xyz(self) -> Optional[np.ndarray]:
+        return None if self._last_perceived_object_xyz is None else self._last_perceived_object_xyz.copy()
 
     def sag_model(self) -> dict[str, Any]:
         return dict(self._last_sag_model)
@@ -915,6 +987,7 @@ class HostStateSubscriber:
         self.last_state_ts: float = 0.0
         self.last_ik_target_xyz: Optional[np.ndarray] = None
         self.last_ik_target_dir: Optional[np.ndarray] = None
+        self.last_perceived_object_xyz: Optional[np.ndarray] = None
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
 
@@ -968,6 +1041,12 @@ class HostStateSubscriber:
             if isinstance(target_dir_raw, (list, tuple)) and len(target_dir_raw) == 3:
                 self.last_ik_target_dir = np.array(
                     [float(target_dir_raw[0]), float(target_dir_raw[1]), float(target_dir_raw[2])],
+                    dtype=float,
+                )
+            object_raw = msg.get("perceived_object", None)
+            if isinstance(object_raw, (list, tuple)) and len(object_raw) == 3:
+                self.last_perceived_object_xyz = np.array(
+                    [float(object_raw[0]), float(object_raw[1]), float(object_raw[2])],
                     dtype=float,
                 )
             sag_raw = msg.get("sag_model", None)
@@ -1024,6 +1103,7 @@ class HostStateSource(StateSource):
         self._sub.poll()
         self._cache.update_ik_target(self._sub.last_ik_target_xyz)
         self._cache.update_ik_target_dir(self._sub.last_ik_target_dir)
+        self._cache.update_perceived_object(self._sub.last_perceived_object_xyz)
         self._cache.update_sag_model(self._sub.last_sag_model)
         self._cache.update_claw_closed(self._sub.last_claw_closed)
         if self._sub.last_q is not None:
@@ -1037,6 +1117,9 @@ class HostStateSource(StateSource):
 
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return self._cache.ik_target_dir()
+
+    def perceived_object_xyz(self) -> Optional[np.ndarray]:
+        return self._cache.perceived_object_xyz()
 
     def sag_model(self) -> dict[str, Any]:
         return self._cache.sag_model()
@@ -1255,6 +1338,16 @@ class SimRuntime:
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                perceived_object = (
+                    a.state_source.perceived_object_xyz() if a.state_source is not None else None
+                )
+                if perceived_object is not None and a.spawn.draw_debug_markers:
+                    a.sim_scene.draw_marker(
+                        a.markers,
+                        "_perceived_object_marker",
+                        perceived_object,
+                        (0.1, 1.0, 0.2, 0.95),
+                    )
                 if ik_target is not None and a.spawn.draw_debug_markers:
                     a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
                     if ik_target_dir is not None:
@@ -1280,6 +1373,30 @@ class SimRuntime:
                     sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                     if sim_tip_dir is not None:
                         a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
+                if a.spawn.draw_debug_markers and a.layout.terminal_link_name:
+                    cam_housing, cam_rgb, cam_z = a.sim_scene.camera_markers_world(a.layout)
+                    if cam_housing is not None:
+                        a.sim_scene.draw_marker(
+                            a.markers,
+                            "_camera_housing_marker",
+                            cam_housing,
+                            (0.15, 0.85, 1.0, 0.95),
+                        )
+                    if cam_rgb is not None:
+                        a.sim_scene.draw_marker(
+                            a.markers,
+                            "_camera_rgb_marker",
+                            cam_rgb,
+                            (1.0, 0.55, 0.1, 0.95),
+                        )
+                    if cam_rgb is not None and cam_z is not None:
+                        a.sim_scene.draw_marker_direction(
+                            a.markers,
+                            "_camera_rgb_z_marker",
+                            cam_rgb,
+                            cam_z,
+                            (1.0, 0.75, 0.2, 0.9),
+                        )
                 a.sim_scene.step()
         except KeyboardInterrupt:
             pass

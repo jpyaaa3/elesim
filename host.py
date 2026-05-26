@@ -65,6 +65,7 @@ class ControlHost:
         self.torque_enabled: bool = False
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
@@ -186,7 +187,7 @@ class ControlHost:
                     pass
 
     def _is_allowed_source(self, source: str) -> bool:
-        return str(source) in ("slider", "ik", "sim", "target")
+        return str(source) in ("slider", "ik", "sim", "target", "perception")
 
     def _reply(self, ident: bytes, msg: Dict[str, Any]) -> None:
         try:
@@ -475,13 +476,26 @@ class ControlHost:
                     float(target_dir_raw[1]),
                     float(target_dir_raw[2]),
                 )
+            object_world_raw = msg.get("object_world", msg.get("perceived_object", None))
+            if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
+                self.last_perceived_object_xyz = (
+                    float(object_world_raw[0]),
+                    float(object_world_raw[1]),
+                    float(object_world_raw[2]),
+                )
             sag_raw = msg.get("sag_model", None)
             if isinstance(sag_raw, dict):
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
             if q is None:
-                if target_raw is None and target_dir_raw is None and sag_raw is None and "claw_closed" not in msg:
+                if (
+                    target_raw is None
+                    and target_dir_raw is None
+                    and object_world_raw is None
+                    and sag_raw is None
+                    and "claw_closed" not in msg
+                ):
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
@@ -556,6 +570,7 @@ class ControlHost:
                         torque_enabled=self.torque_enabled,
                         ik_target_xyz=self.last_ik_target_xyz,
                         ik_target_dir=self.last_ik_target_dir,
+                        perceived_object_xyz=self.last_perceived_object_xyz,
                         actual_tip_xyz=self.last_actual_tip_xyz,
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
