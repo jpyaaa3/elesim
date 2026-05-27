@@ -136,12 +136,14 @@ def pack_state(
     torque_enabled: Optional[bool] = None,
     ik_target_xyz: Optional[tuple[float, float, float]] = None,
     ik_target_dir: Optional[tuple[float, float, float]] = None,
-    perceived_object_xyz: Optional[tuple[float, float, float]] = None,
     actual_tip_xyz: Optional[tuple[float, float, float]] = None,
     actual_tip_dir: Optional[tuple[float, float, float]] = None,
     sag_model: Optional[dict[str, Any]] = None,
     claw_closed: Optional[bool] = None,
     claw_current: Optional[int] = None,
+    motor_currents_ma: Optional[dict[str, int]] = None,
+    safety_fault: Optional[str] = None,
+    debug_markers: Optional[list[dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -160,12 +162,6 @@ def pack_state(
         out["ik_target"] = [float(ik_target_xyz[0]), float(ik_target_xyz[1]), float(ik_target_xyz[2])]
     if ik_target_dir is not None:
         out["ik_target_dir"] = [float(ik_target_dir[0]), float(ik_target_dir[1]), float(ik_target_dir[2])]
-    if perceived_object_xyz is not None:
-        out["perceived_object"] = [
-            float(perceived_object_xyz[0]),
-            float(perceived_object_xyz[1]),
-            float(perceived_object_xyz[2]),
-        ]
     if actual_tip_xyz is not None:
         out["actual_tip"] = [float(actual_tip_xyz[0]), float(actual_tip_xyz[1]), float(actual_tip_xyz[2])]
     if actual_tip_dir is not None:
@@ -176,6 +172,37 @@ def pack_state(
         out["claw_closed"] = bool(claw_closed)
     if claw_current is not None:
         out["claw_current"] = int(claw_current)
+    if motor_currents_ma is not None:
+        out["motor_currents_ma"] = {str(k): int(v) for k, v in motor_currents_ma.items()}
+    if safety_fault is not None:
+        out["safety_fault"] = str(safety_fault)
+    if debug_markers is not None:
+        packed_markers: list[dict[str, Any]] = []
+        for raw in list(debug_markers):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name", "")).strip()
+            frame = str(raw.get("frame", "world")).strip() or "world"
+            pos = raw.get("pos", None)
+            if not name or not isinstance(pos, (list, tuple)) or len(pos) != 3:
+                continue
+            marker: dict[str, Any] = {
+                "name": name,
+                "frame": frame,
+                "pos": [float(pos[0]), float(pos[1]), float(pos[2])],
+            }
+            direction = raw.get("dir", None)
+            if isinstance(direction, (list, tuple)) and len(direction) == 3:
+                marker["dir"] = [float(direction[0]), float(direction[1]), float(direction[2])]
+            color = raw.get("color", None)
+            if isinstance(color, (list, tuple)) and len(color) in (3, 4):
+                marker["color"] = [float(v) for v in color]
+            if "radius" in raw:
+                marker["radius"] = float(raw.get("radius", 0.0))
+            if "ttl_ms" in raw:
+                marker["ttl_ms"] = int(raw.get("ttl_ms", 0))
+            packed_markers.append(marker)
+        out["debug_markers"] = packed_markers
     return out
 
 

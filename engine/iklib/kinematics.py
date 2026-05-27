@@ -138,7 +138,8 @@ def _forward_direction_world(context: dict[str, Any], q4: Sequence[float]) -> np
     if terminal_link not in link_tf:
         raise RuntimeError(f"terminal link '{terminal_link}' missing from FK result")
     _p_link, R_link = link_tf[terminal_link]
-    direction = R_link @ _get_direction_convention_local(context)
+    approach_rot_tip = np.asarray(context.get("approach_rot_tip", np.eye(3)), dtype=float).reshape(3, 3)
+    direction = R_link @ approach_rot_tip @ _get_direction_convention_local(context)
     dir_norm = float(np.linalg.norm(direction))
     if dir_norm <= 1e-9:
         raise RuntimeError("grasp direction is degenerate")

@@ -87,6 +87,13 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 
 즉 `host.py`가 전체 시스템의 허브 역할을 합니다.
 
+외부 companion app을 붙일 때도 같은 구조를 유지합니다.
+
+- 예: [addons/autonomous_pick_place_app](./addons/autonomous_pick_place_app)
+- 이 경우 외부 앱은 보통 `tcp://127.0.0.1:5555`로 `source="perception"` 메시지를 보내고,
+- `host.py`가 이를 받아 world 좌표계 디버그 마커로 바꿔 `sim.py`에 중계합니다.
+- 즉 perception 계산 본체는 Elesim 밖에 두고, Elesim은 host/sim을 통한 시각화와 제어 substrate로 남는 구조를 권장합니다.
+
 ## 설치
 
 필수 패키지는 [requirements.txt](./requirements.txt)에 정리되어 있습니다.

@@ -66,6 +66,8 @@ class HostState:
     ports: tuple[str, ...]
     torque_enabled: bool
     claw_current: int
+    motor_currents_ma: dict[str, int]
+    safety_fault: str
     actual_tip_xyz: Optional[tuple[float, float, float]]
     actual_tip_dir: Optional[tuple[float, float, float]]
     reply_ok: bool
@@ -113,6 +115,8 @@ class ControlClient:
         self.last_device: str = ""
         self.torque_enabled: bool = False
         self.last_claw_current: int = 0
+        self.last_motor_currents_ma: dict[str, int] = {}
+        self.last_safety_fault: str = ""
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
@@ -147,6 +151,8 @@ class ControlClient:
             ports=tuple(str(x) for x in self.last_ports),
             torque_enabled=bool(self.torque_enabled),
             claw_current=int(self.last_claw_current),
+            motor_currents_ma=dict(self.last_motor_currents_ma),
+            safety_fault=str(self.last_safety_fault),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
             reply_ok=bool(self.last_reply_ok),
@@ -204,6 +210,10 @@ class ControlClient:
                 self.torque_enabled = bool(msg.get("torque_enabled", False))
             if "claw_current" in msg:
                 self.last_claw_current = int(msg.get("claw_current", 0))
+            if "motor_currents_ma" in msg and isinstance(msg.get("motor_currents_ma"), dict):
+                self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
+            if "safety_fault" in msg:
+                self.last_safety_fault = str(msg.get("safety_fault", ""))
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -239,6 +249,10 @@ class ControlClient:
                 self.torque_enabled = bool(msg.get("torque_enabled", False))
             if "claw_current" in msg:
                 self.last_claw_current = int(msg.get("claw_current", 0))
+            if "motor_currents_ma" in msg and isinstance(msg.get("motor_currents_ma"), dict):
+                self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
+            if "safety_fault" in msg:
+                self.last_safety_fault = str(msg.get("safety_fault", ""))
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -1259,6 +1273,11 @@ class ControlPanel:
                         imgui.text(f"Host: {reply_reason}")
                 else:
                     imgui.text_colored(f"Host: {reply_reason}", 1.0, 0.35, 0.35)
+            if str(state.safety_fault).strip():
+                imgui.text_colored(f"Safety fault: {state.safety_fault}", 1.0, 0.25, 0.25)
+            if state.motor_currents_ma:
+                currents_text = ", ".join(f"{k}={int(v)}mA" for k, v in state.motor_currents_ma.items())
+                imgui.text_wrapped(f"Currents: {currents_text}")
             if imgui.button("Torque On"):
                 self.service.torque_on()
             imgui.same_line()

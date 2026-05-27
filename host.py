@@ -7,12 +7,16 @@ import os
 import threading
 import time
 from typing import Any, Dict, Optional, Set
+
+import numpy as np
 import zmq
 
 from engine.config_loader import load_app_config_from_ini
 from engine.config_loader import HardwareConfig
+from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
 import engine.protocol as proto
+from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
 
 from serial.tools import list_ports as serial_list_ports
 
@@ -30,6 +34,9 @@ class ControlHost:
         direction_by_id: Dict[int, int],
         device: str,
         hardware_cfg: Optional[HardwareConfig],
+        ik_context: Optional[dict[str, Any]] = None,
+        hand_eye_transform: Optional[Any] = None,
+        hand_eye_parent_frame: str = "node9",
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
@@ -42,6 +49,9 @@ class ControlHost:
         self.direction_by_id = direction_by_id
         self.device = str(device)
         self.hardware_cfg = hardware_cfg
+        self.ik_context = dict(ik_context or {})
+        self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
+        self.hand_eye_parent_frame = str(hand_eye_parent_frame)
 
         self.ctx = zmq.Context.instance()
         self.sock = self.ctx.socket(zmq.ROUTER)
@@ -65,7 +75,6 @@ class ControlHost:
         self.torque_enabled: bool = False
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
-        self.last_perceived_object_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_sag_model: dict[str, Any] = {}
@@ -93,6 +102,12 @@ class ControlHost:
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
+        self._current_yellow_ma = int(getattr(hardware_cfg, "current_yellow_ma", 1800) if hardware_cfg is not None else 1800)
+        self._current_limit_ma = int(getattr(hardware_cfg, "current_limit_ma", 2500) if hardware_cfg is not None else 2500)
+        self._last_motor_current_by_id: Dict[int, int] = {}
+        self._safety_fault: str = ""
+        self._yellow_zone_ids: Set[int] = set()
+        self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
 
     def _has_hw(self) -> bool:
         return self.hw is not None
@@ -134,6 +149,9 @@ class ControlHost:
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
+            self._last_motor_current_by_id = {}
+            self._safety_fault = ""
+            self._yellow_zone_ids = set()
             if old_hw is not None:
                 try:
                     old_hw.close()
@@ -179,6 +197,9 @@ class ControlHost:
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
+            self._last_motor_current_by_id = {}
+            self._safety_fault = ""
+            self._yellow_zone_ids = set()
             self.hw = None
             self.direction_by_id = {}
             self._ids = []
@@ -191,6 +212,136 @@ class ControlHost:
 
     def _is_allowed_source(self, source: str) -> bool:
         return str(source) in ("slider", "ik", "sim", "target", "perception")
+
+    def _active_debug_markers(self) -> list[dict[str, Any]]:
+        now = time.time()
+        expired = [name for name, marker in self._debug_markers_by_name.items() if float(marker.get("_expiry_wall", 0.0)) < now]
+        for name in expired:
+            self._debug_markers_by_name.pop(name, None)
+        out: list[dict[str, Any]] = []
+        for marker in self._debug_markers_by_name.values():
+            clean = {k: v for k, v in marker.items() if not str(k).startswith("_")}
+            out.append(clean)
+        return out
+
+    def _set_debug_marker(
+        self,
+        *,
+        name: str,
+        pos: Any,
+        frame: str = "world",
+        direction: Optional[Any] = None,
+        color: Optional[list[float]] = None,
+        radius: Optional[float] = None,
+        ttl_ms: int = 250,
+    ) -> None:
+        marker: dict[str, Any] = {
+            "name": str(name),
+            "frame": str(frame),
+            "pos": [float(pos[0]), float(pos[1]), float(pos[2])],
+            "ttl_ms": int(ttl_ms),
+            "_expiry_wall": time.time() + max(int(ttl_ms), 1) / 1000.0,
+        }
+        if direction is not None:
+            marker["dir"] = [float(direction[0]), float(direction[1]), float(direction[2])]
+        if color is not None:
+            marker["color"] = [float(v) for v in color]
+        if radius is not None:
+            marker["radius"] = float(radius)
+        self._debug_markers_by_name[str(name)] = marker
+
+    def _update_perception_markers(self, object_camera_xyz: tuple[float, float, float], *, object_label: str = "") -> tuple[bool, str]:
+        if not self.ik_context or self.hand_eye_transform is None:
+            return False, "perception disabled: missing hand-eye or IK context"
+        if self.last_q is None:
+            return False, "perception rejected: no robot q available yet"
+        q4 = np.array(
+            [
+                float(self.last_q.linear_m),
+                float(self.last_q.roll_rad),
+                float(self.last_q.theta1_rad),
+                float(self.last_q.theta2_rad),
+            ],
+            dtype=float,
+        )
+        try:
+            object_world = camera_point_to_world(
+                self.ik_context,
+                q4,
+                self.hand_eye_transform,
+                np.asarray(object_camera_xyz, dtype=float).reshape(3),
+                parent_frame=self.hand_eye_parent_frame,
+            )
+            camera_world, camera_look, camera_right = camera_axes_world(
+                self.ik_context,
+                q4,
+                self.hand_eye_transform,
+                parent_frame=self.hand_eye_parent_frame,
+            )
+        except Exception as exc:
+            return False, f"perception transform failed: {exc}"
+        label_suffix = f":{object_label}" if str(object_label).strip() else ""
+        self._set_debug_marker(
+            name=f"perceived_object{label_suffix}",
+            pos=object_world,
+            color=[0.1, 0.95, 0.2, 0.95],
+            radius=0.012,
+            ttl_ms=250,
+        )
+        self._set_debug_marker(
+            name="camera_optical",
+            pos=camera_world,
+            color=[0.1, 0.7, 1.0, 0.95],
+            radius=0.010,
+            ttl_ms=250,
+        )
+        self._set_debug_marker(
+            name="camera_look",
+            pos=camera_world,
+            direction=camera_look,
+            color=[0.1, 0.7, 1.0, 0.95],
+            radius=0.004,
+            ttl_ms=250,
+        )
+        self._set_debug_marker(
+            name="camera_right",
+            pos=camera_world,
+            direction=camera_right,
+            color=[1.0, 0.8, 0.2, 0.95],
+            radius=0.004,
+            ttl_ms=250,
+        )
+        return True, "perception markers updated"
+
+    def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
+        updated = 0
+        for raw in list(raw_markers):
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name", "")).strip()
+            frame = str(raw.get("frame", "world")).strip() or "world"
+            pos = raw.get("pos", None)
+            if frame != "world" or not name or not isinstance(pos, (list, tuple)) or len(pos) != 3:
+                continue
+            direction = raw.get("dir", None)
+            if not (isinstance(direction, (list, tuple)) and len(direction) == 3):
+                direction = None
+            color = raw.get("color", None)
+            if not (isinstance(color, (list, tuple)) and len(color) in (3, 4)):
+                color = None
+            radius = raw.get("radius", None)
+            ttl_ms = int(raw.get("ttl_ms", 250))
+            self._set_debug_marker(
+                name=name,
+                pos=pos,
+                frame="world",
+                direction=direction,
+                color=list(color) if color is not None else None,
+                radius=float(radius) if radius is not None else None,
+                ttl_ms=ttl_ms,
+            )
+            updated += 1
+        return (updated > 0), (f"debug markers updated: {updated}" if updated > 0 else "no valid world debug markers")
 
     def _reply(self, ident: bytes, msg: Dict[str, Any]) -> None:
         try:
@@ -220,14 +371,17 @@ class ControlHost:
                 ticks_by_id = self.hw.get_present_positions()
         except Exception:
             return
-        claw_current = self._last_claw_current
-        try:
-            with self._hw_lock:
-                claw_current = int(self.hw.get_present_current(self.hw.cfg.id_claw))
-        except Exception:
-            pass
+        currents_by_id: Dict[int, int] = dict(self._last_motor_current_by_id)
+        for dxl_id in self._ids:
+            try:
+                with self._hw_lock:
+                    currents_by_id[int(dxl_id)] = int(self.hw.get_present_current(int(dxl_id)))
+            except Exception:
+                continue
         self._last_hw_pos_by_id = dict(ticks_by_id)
-        self._last_claw_current = int(claw_current)
+        self._last_motor_current_by_id = dict(currents_by_id)
+        self._last_claw_current = int(currents_by_id.get(int(self.hw.cfg.id_claw), self._last_claw_current))
+        self._check_current_limit()
         if not self._ids or len(self._ids) < 4:
             return
         motor_deg_vals = []
@@ -247,8 +401,119 @@ class ControlHost:
             self._target_u_state = self.last_u
         self.last_state_ts = time.time()
 
-    def _update_claw_hw(self) -> None:
+    def _motor_name_by_id(self, dxl_id: int) -> str:
         if not self._has_hw():
+            return f"id_{int(dxl_id)}"
+        cfg = self.hw.cfg
+        mapping = {
+            int(cfg.id_linear): "linear",
+            int(cfg.id_roll): "roll",
+            int(cfg.id_seg1): "seg1",
+            int(cfg.id_seg2): "seg2",
+            int(cfg.id_claw): "claw",
+        }
+        return mapping.get(int(dxl_id), f"id_{int(dxl_id)}")
+
+    def _trip_safety_fault(self, reason: str) -> None:
+        self._safety_fault = str(reason)
+        print(f"[host] RED zone trip: {self._safety_fault}")
+        self._pending_target_q = None
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        self._pending_target_seq = -1
+        try:
+            if self._has_hw():
+                with self._hw_lock:
+                    self.hw.torque_off_all()
+        except Exception:
+            pass
+        self.torque_enabled = False
+
+    def _check_current_limit(self) -> None:
+        yellow = abs(int(self._current_yellow_ma))
+        limit = abs(int(self._current_limit_ma))
+        if limit <= 0 or self._safety_fault:
+            return
+        next_yellow_ids: Set[int] = set()
+        for dxl_id, current_ma in list(self._last_motor_current_by_id.items()):
+            current_abs = abs(int(current_ma))
+            if yellow > 0 and current_abs > yellow:
+                next_yellow_ids.add(int(dxl_id))
+                if int(dxl_id) not in self._yellow_zone_ids:
+                    print(
+                        f"[host] YELLOW zone: {self._motor_name_by_id(int(dxl_id))} current={int(current_ma)} mA "
+                        f"(yellow={yellow}, red={limit})"
+                    )
+            if abs(int(current_ma)) > limit:
+                self._trip_safety_fault(
+                    f"overcurrent {self._motor_name_by_id(int(dxl_id))}: {int(current_ma)} mA exceeds {limit} mA"
+                )
+                return
+        for dxl_id in (self._yellow_zone_ids - next_yellow_ids):
+            current_ma = int(self._last_motor_current_by_id.get(int(dxl_id), 0))
+            print(f"[host] YELLOW zone cleared: {self._motor_name_by_id(int(dxl_id))} current={current_ma} mA")
+        self._yellow_zone_ids = next_yellow_ids
+
+    def _yellow_scale_for_id(self, dxl_id: int) -> float:
+        yellow = abs(int(self._current_yellow_ma))
+        red = abs(int(self._current_limit_ma))
+        if red <= 0 or yellow <= 0 or red <= yellow:
+            return 1.0
+        current_ma = abs(int(self._last_motor_current_by_id.get(int(dxl_id), 0)))
+        if current_ma <= yellow:
+            return 1.0
+        if current_ma >= red:
+            return 0.0
+        frac = float(red - current_ma) / float(red - yellow)
+        return float(max(min(frac, 1.0), 0.0))
+
+    def _limit_target_q(self, q: proto.SimQ) -> tuple[proto.SimQ, bool]:
+        if (not self._has_hw()) or self.last_q is None:
+            return q, True
+        ids = (
+            int(self.hw.cfg.id_linear),
+            int(self.hw.cfg.id_roll),
+            int(self.hw.cfg.id_seg1),
+            int(self.hw.cfg.id_seg2),
+        )
+        scales = [self._yellow_scale_for_id(dxl_id) for dxl_id in ids]
+        current = self.last_q
+        current_vals = np.array(
+            [
+                float(current.linear_m),
+                float(current.roll_rad),
+                float(current.theta1_rad),
+                float(current.theta2_rad),
+            ],
+            dtype=float,
+        )
+        target_vals = np.array(
+            [
+                float(q.linear_m),
+                float(q.roll_rad),
+                float(q.theta1_rad),
+                float(q.theta2_rad),
+            ],
+            dtype=float,
+        )
+        limited_vals = current_vals.copy()
+        complete = True
+        for i, scale in enumerate(scales):
+            limited_vals[i] = current_vals[i] + float(scale) * (target_vals[i] - current_vals[i])
+            if abs(float(limited_vals[i] - target_vals[i])) > 1e-9:
+                complete = False
+        return (
+            proto.SimQ(
+                linear_m=float(limited_vals[0]),
+                roll_rad=float(limited_vals[1]),
+                theta1_rad=float(limited_vals[2]),
+                theta2_rad=float(limited_vals[3]),
+            ),
+            bool(complete),
+        )
+
+    def _update_claw_hw(self) -> None:
+        if (not self._has_hw()) or self._safety_fault:
             return
         claw_id = int(self.hw.cfg.id_claw)
         tick = self._last_hw_pos_by_id.get(claw_id, None)
@@ -271,16 +536,19 @@ class ControlHost:
         except Exception:
             return
 
-    def _apply_sim_q_target(self, q: proto.SimQ) -> bool:
+    def _apply_sim_q_target(self, q: proto.SimQ) -> tuple[bool, bool]:
+        if self._safety_fault:
+            return False, False
         if not self._has_hw():
-            return False
-        motor_deg = proto.sim_q_to_motor_deg(q, self.cfg)
+            return False, False
+        q_limited, complete = self._limit_target_q(q)
+        motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
         try:
             with self._hw_lock:
                 self.hw.command_4dof_deg(motor_deg.u_linear, motor_deg.u_roll, motor_deg.u_s1, motor_deg.u_s2)
-            return True
+            return True, complete
         except Exception:
-            return False
+            return False, False
 
     def _merge_partial_target_u(self, partial_u: Dict[str, float]) -> Optional[proto.ControlU]:
         base = self._target_u_state if self._target_u_state is not None else self.last_u
@@ -316,13 +584,16 @@ class ControlHost:
         if not axes:
             return True
         self._target_u_state = u
+        if self._safety_fault:
+            return False
         if not self._has_hw():
             self.last_u = u
             self.last_q = proto.control_u_to_sim_q(u, self.cfg)
             self.last_state_ts = time.time()
             return True
         q = proto.control_u_to_sim_q(u, self.cfg)
-        motor_deg = proto.sim_q_to_motor_deg(q, self.cfg)
+        q_limited, complete = self._limit_target_q(q)
+        motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
         goals_deg: Dict[int, float] = {}
         if "linear" in axes:
             goals_deg[self.hw.cfg.id_linear] = float(motor_deg.u_linear)
@@ -335,7 +606,7 @@ class ControlHost:
         try:
             with self._hw_lock:
                 self.hw.command_partial_deg(goals_deg)
-            return True
+            return bool(complete)
         except Exception:
             return False
 
@@ -351,6 +622,7 @@ class ControlHost:
                 self.hw.set_profiles()
             self.hw.torque_on_all()
             self.torque_enabled = True
+            self._safety_fault = ""
             if go_mid:
                 self.hw.go_mid_pose()
 
@@ -457,10 +729,61 @@ class ControlHost:
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "ports": self._list_ports(), "reason": reason, "torque_enabled": self.torque_enabled})
             return
         if t == "target":
+            if self._safety_fault:
+                self._reply(
+                    ident,
+                    {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": False,
+                        "reason": self._safety_fault,
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                    },
+                )
+                return
             source = str(msg.get("source", "sim"))
             if not self._is_allowed_source(source):
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "source_reject", "device": self.device, "torque_enabled": self.torque_enabled})
                 return
+            raw_debug_markers = msg.get("debug_markers", None)
+            if isinstance(raw_debug_markers, list):
+                ok, reason = self._update_external_debug_markers(raw_debug_markers)
+                self._reply(
+                    ident,
+                    {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": bool(ok),
+                        "reason": str(reason),
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                    },
+                )
+                return
+            if source == "perception":
+                object_camera_raw = msg.get("object_camera", None)
+                if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
+                    ok, reason = self._update_perception_markers(
+                        (
+                            float(object_camera_raw[0]),
+                            float(object_camera_raw[1]),
+                            float(object_camera_raw[2]),
+                        ),
+                        object_label=str(msg.get("object_label", "")),
+                    )
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": bool(ok),
+                            "reason": str(reason),
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None
             partial_u_mode = False
@@ -486,26 +809,13 @@ class ControlHost:
                     float(target_dir_raw[1]),
                     float(target_dir_raw[2]),
                 )
-            object_world_raw = msg.get("object_world", msg.get("perceived_object", None))
-            if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
-                self.last_perceived_object_xyz = (
-                    float(object_world_raw[0]),
-                    float(object_world_raw[1]),
-                    float(object_world_raw[2]),
-                )
             sag_raw = msg.get("sag_model", None)
             if isinstance(sag_raw, dict):
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
             if q is None:
-                if (
-                    target_raw is None
-                    and target_dir_raw is None
-                    and object_world_raw is None
-                    and sag_raw is None
-                    and "claw_closed" not in msg
-                ):
+                if target_raw is None and target_dir_raw is None and sag_raw is None and "claw_closed" not in msg:
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
@@ -567,9 +877,12 @@ class ControlHost:
                         self._pending_target_u = None
                         self._pending_target_axes = set()
                         self._pending_target_q = None
-                elif self._apply_sim_q_target(self._pending_target_q):
-                    self._target_u_state = proto.sim_q_to_control_u(self._pending_target_q, self.cfg)
-                    self._pending_target_q = None
+                else:
+                    applied_hw, complete = self._apply_sim_q_target(self._pending_target_q)
+                    if applied_hw:
+                        self._target_u_state = proto.sim_q_to_control_u(self._pending_target_q, self.cfg)
+                        if complete:
+                            self._pending_target_q = None
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
                 self._broadcast(
@@ -580,12 +893,14 @@ class ControlHost:
                         torque_enabled=self.torque_enabled,
                         ik_target_xyz=self.last_ik_target_xyz,
                         ik_target_dir=self.last_ik_target_dir,
-                        perceived_object_xyz=self.last_perceived_object_xyz,
                         actual_tip_xyz=self.last_actual_tip_xyz,
                         actual_tip_dir=self.last_actual_tip_dir,
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         claw_current=self._last_claw_current,
+                        motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
+                        safety_fault=(self._safety_fault or None),
+                        debug_markers=self._active_debug_markers(),
                     )
                 )
 
@@ -598,6 +913,22 @@ def run_host(
 ) -> None:
     bundle = load_app_config_from_ini(str(config_path))
     hw_cfg: HardwareConfig | None = bundle.hardware_config
+    ik_context: dict[str, Any] = {}
+    hand_eye_transform = None
+    hand_eye_parent_frame = "node9"
+    try:
+        _ik_bundle, ik_context = load_solver_context(str(config_path))
+    except Exception as exc:
+        print(f"[host] IK context unavailable for perception markers: {exc}")
+        ik_context = {}
+    hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
+    if hand_eye_path:
+        try:
+            hand_eye_transform, hand_eye_meta = load_hand_eye_transform(hand_eye_path)
+            hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
+        except Exception as exc:
+            print(f"[host] hand-eye config unavailable: {exc}")
+            hand_eye_transform = None
     hw = None
     direction: Dict[int, int] = {}
     device = str(device).strip()
@@ -614,6 +945,9 @@ def run_host(
             direction_by_id=direction,
             device=device,
             hardware_cfg=hw_cfg,
+            ik_context=ik_context,
+            hand_eye_transform=hand_eye_transform,
+            hand_eye_parent_frame=hand_eye_parent_frame,
             cfg=bundle.mapping_config,
         )
         print(f"[host] comm with ctrl by {bind_addr}")

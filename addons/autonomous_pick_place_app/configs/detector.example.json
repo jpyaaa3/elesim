@@ -1,0 +1,14 @@
+{
+  "type": "mock_center",
+  "label": "mock_object",
+  "center_fraction": 0.3,
+  "mock_depth_m": 0.65,
+  "z_min_m": 0.15,
+  "z_max_m": 2.5,
+  "hsv": {
+    "lower": [0, 80, 80],
+    "upper": [20, 255, 255]
+  },
+  "roi_xyxy": [200, 120, 440, 360],
+  "min_area_px": 200
+}

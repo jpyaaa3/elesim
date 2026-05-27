@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+"""Detect object 3D position in camera frame; elesim converts to world using mount config."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+import numpy as np
+
+_APP_ROOT = Path(__file__).resolve().parent
+if str(_APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_APP_ROOT))
+
+from observation import CameraObservation
+from perception.depth_pose import CameraIntrinsics, estimate_object_position_camera
+from perception.detector import DetectionResult, ObjectDetector, create_detector, load_detector_config
+from perception.preview import close_preview, draw_detection_overlay, show_preview
+from perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError
+from perception.yolo_detector import YoloUnavailableError
+
+from elesim_bridge.host_client import HostPublishError, publish_perceived_object
+
+_DEFAULT_HOST_ENDPOINT = "tcp://127.0.0.1:5555"
+
+_PREVIEW_WINDOW = "autonomous_pick_place"
+
+
+def _format_vec(v: np.ndarray) -> str:
+    a = np.asarray(v, dtype=float).reshape(3)
+    return f"[{a[0]:+.4f}, {a[1]:+.4f}, {a[2]:+.4f}]"
+
+
+def _format_bbox(bbox: tuple[int, int, int, int]) -> str:
+    x0, y0, x1, y1 = bbox
+    return f"[{x0}, {y0}, {x1}, {y1}]"
+
+
+def _list_frame_detections(detector: ObjectDetector, color_bgr: np.ndarray) -> list[DetectionResult]:
+    list_fn = getattr(detector, "list_detections", None)
+    if callable(list_fn):
+        return list(list_fn(color_bgr))
+    det = detector.detect(color_bgr)
+    return [det] if det is not None else []
+
+
+def _pick_target_detection(
+    dets: list[DetectionResult],
+    target_label: str,
+) -> Optional[DetectionResult]:
+    if not dets:
+        return None
+    key = target_label.strip().lower()
+    if not key:
+        return max(dets, key=lambda d: float(d.confidence))
+    matches = [d for d in dets if d.label.strip().lower() == key]
+    if not matches:
+        return None
+    return max(matches, key=lambda d: float(d.confidence))
+
+
+def _model_class_names(detector: ObjectDetector) -> list[str]:
+    names = getattr(detector, "class_names", None)
+    if names is None:
+        return []
+    return [str(x) for x in names]
+
+
+def _format_detection_summary(dets: list[DetectionResult]) -> str:
+    return ", ".join(f"{d.label}@{float(d.confidence):.2f}" for d in dets)
+
+
+def build_camera_observation(
+    *,
+    detection_label: str,
+    confidence: float,
+    p_camera_object: np.ndarray,
+) -> CameraObservation:
+    return CameraObservation(
+        label=detection_label,
+        confidence=float(confidence),
+        p_camera_object=np.asarray(p_camera_object, dtype=float).reshape(3),
+        timestamp=time.time(),
+    )
+
+
+def resolve_detector_cfg(
+    file_cfg: dict[str, Any],
+    *,
+    detector_cli: str,
+    target_label_cli: str | None,
+    yolo_device_cli: str | None,
+    mode: str,
+) -> dict[str, Any]:
+    cfg = dict(file_cfg)
+    det = str(detector_cli).strip().lower()
+
+    if det == "yolo":
+        cfg["type"] = "yolo"
+    elif det != "config":
+        cfg["type"] = det
+
+    if target_label_cli:
+        cfg["target_label"] = str(target_label_cli).strip()
+
+    if yolo_device_cli is not None and str(yolo_device_cli).strip() != "":
+        cfg["device"] = str(yolo_device_cli).strip()
+
+    if mode == "mock" and str(cfg.get("type", "")).lower() == "yolo":
+        fallback = str(cfg.get("mock_fallback_type", "mock_center")).strip().lower() or "mock_center"
+        print(f"[Detector] mock mode: YOLO disabled, using '{fallback}' detector")
+        cfg["type"] = fallback
+
+    return cfg
+
+
+def run_mock_frame(detector_cfg: dict) -> tuple[np.ndarray, np.ndarray, CameraIntrinsics, float]:
+    import cv2
+
+    w, h = 640, 480
+    color = np.zeros((h, w, 3), dtype=np.uint8)
+    color[:, :] = (40, 120, 40)
+    cx, cy = w // 2, h // 2
+    cv2.circle(color, (cx, cy), 40, (0, 0, 220), -1)
+
+    intrinsics = CameraIntrinsics(fx=615.0, fy=615.0, cx=320.0, cy=240.0, width=w, height=h)
+    depth_scale = 0.001
+    z_m = float(detector_cfg.get("mock_depth_m", 0.65))
+    depth_raw = np.zeros((h, w), dtype=np.uint16)
+    depth_raw[:, :] = int(round(z_m / depth_scale))
+    return color, depth_raw, intrinsics, depth_scale
+
+
+def measure_detection(
+    det: DetectionResult,
+    *,
+    depth_raw: np.ndarray,
+    intrinsics: CameraIntrinsics,
+    depth_scale: float,
+    detector_cfg: dict[str, Any],
+) -> Optional[np.ndarray]:
+    try:
+        return estimate_object_position_camera(
+            det.mask,
+            depth_raw,
+            intrinsics,
+            depth_scale,
+            z_min_m=float(detector_cfg.get("z_min_m", 0.15)),
+            z_max_m=float(detector_cfg.get("z_max_m", 2.5)),
+        )
+    except RuntimeError:
+        return None
+
+
+def print_observation(obs: CameraObservation, *, det: DetectionResult) -> None:
+    print(f"[Detector] label={obs.label} confidence={obs.confidence:.3f} bbox={_format_bbox(det.bbox_xyxy)}")
+    print(f"[Camera]   p_camera_object = {_format_vec(obs.p_camera_object)} m  (optical: x=right y=down z=look)")
+
+
+def run_camera_session(
+    *,
+    detector: ObjectDetector,
+    detector_cfg: dict[str, Any],
+    verbose_debug: bool,
+    show: bool,
+    until_found: bool,
+    stop_on_detect: bool,
+    publish_host: bool,
+    host_endpoint: str,
+    publish_hz: float,
+) -> int:
+    import cv2
+
+    target_label = str(detector_cfg.get("target_label", "") or "")
+    model_classes = _model_class_names(detector)
+    publish_period = (1.0 / float(publish_hz)) if float(publish_hz) > 0 else 0.0
+    frame_idx = 0
+    found_once = False
+    last_det_summary = ""
+
+    if show:
+        cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
+
+    print(
+        "[Camera] live capture started"
+        + (" (retry until detection)" if until_found else " (exit if first frame has no target)")
+        + ("; stop after first detection" if stop_on_detect else "; runs until q/ESC")
+        + ("; preview: q/ESC to quit" if show else "")
+    )
+
+    try:
+        with RealSenseCamera() as cam:
+            while True:
+                t0 = time.time()
+                frame = cam.capture()
+                all_dets = _list_frame_detections(detector, frame.color_bgr)
+                det = _pick_target_detection(all_dets, target_label)
+                status = "searching"
+                p_camera: Optional[np.ndarray] = None
+                obs: Optional[CameraObservation] = None
+
+                det_summary = _format_detection_summary(all_dets)
+                if det_summary != last_det_summary:
+                    if all_dets:
+                        print(f"[Detector] frame={frame_idx} detections: {det_summary}")
+                    elif frame_idx == 0 or last_det_summary:
+                        print(f"[Detector] frame={frame_idx} no detections above confidence")
+                    if target_label and all_dets and det is None:
+                        print(
+                            f"[Detector] target {target_label!r} not in frame "
+                            f"(model classes: {', '.join(model_classes[:20])}"
+                            + ("..." if len(model_classes) > 20 else "")
+                            + ")"
+                        )
+                    last_det_summary = det_summary
+
+                if det is not None:
+                    p_camera = measure_detection(
+                        det,
+                        depth_raw=frame.depth_raw,
+                        intrinsics=frame.intrinsics,
+                        depth_scale=frame.depth_scale,
+                        detector_cfg=detector_cfg,
+                    )
+                    if p_camera is not None:
+                        status = "detected"
+                        obs = build_camera_observation(
+                            detection_label=det.label,
+                            confidence=det.confidence,
+                            p_camera_object=p_camera,
+                        )
+                    else:
+                        status = "bbox_ok_depth_fail"
+
+                if show:
+                    vis = draw_detection_overlay(
+                        frame.color_bgr,
+                        det,
+                        status=status,
+                        target_label=target_label,
+                        frame_idx=frame_idx,
+                        p_camera=p_camera,
+                        p_world=None,
+                        all_detections=all_dets,
+                        model_classes=model_classes,
+                    )
+                    key = show_preview(_PREVIEW_WINDOW, vis)
+                    if key in (ord("q"), 27):
+                        print("[Camera] quit by user")
+                        return 0
+
+                if obs is not None and det is not None:
+                    if not found_once:
+                        print("[Camera] object detected")
+                        found_once = True
+                    print_observation(obs, det=det)
+                    if verbose_debug:
+                        print(f"[Debug]  timestamp={obs.timestamp:.3f}")
+                    if publish_host:
+                        publish_perceived_object(
+                            endpoint=host_endpoint,
+                            object_camera_xyz=obs.p_camera_object,
+                            label=obs.label,
+                        )
+                        print("[Host] published object_camera (sim converts to world)")
+                    if stop_on_detect:
+                        return 0
+
+                if not until_found and not found_once:
+                    msg = "[Detector] no object in frame"
+                    if target_label:
+                        msg += f" (target_label={target_label!r})"
+                    if all_dets:
+                        msg += f"; saw: {_format_detection_summary(all_dets)}"
+                    print(msg, file=sys.stderr)
+                    return 1
+
+                frame_idx += 1
+                if publish_period > 0:
+                    elapsed = time.time() - t0
+                    sleep_s = max(0.0, publish_period - elapsed)
+                    if sleep_s > 0:
+                        time.sleep(sleep_s)
+    finally:
+        if show:
+            close_preview(_PREVIEW_WINDOW)
+
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Perceive object 3D position in camera frame; elesim sim converts to world."
+    )
+    parser.add_argument("--detector-config", required=True, help="detector JSON")
+    parser.add_argument(
+        "--detector",
+        choices=("config", "yolo", "hsv", "roi", "mock", "mock_center"),
+        default="config",
+        help="Detector backend; 'config' uses JSON type field (default)",
+    )
+    parser.add_argument(
+        "--target-label",
+        default=None,
+        help="YOLO class name filter (e.g. white_cup). Overrides JSON target_label.",
+    )
+    parser.add_argument(
+        "--yolo-device",
+        default=None,
+        help="YOLO GPU device: 0|1|2, cuda:1, or cpu. Overrides JSON 'device'.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("camera", "mock"),
+        default="mock",
+        help="camera: RealSense D435i; mock: synthetic frame",
+    )
+    parser.add_argument(
+        "--verbose-debug",
+        action="store_true",
+        help="Print extra debug fields",
+    )
+    parser.add_argument(
+        "--publish-host",
+        action="store_true",
+        help="Send p_camera_object to host; host uses hand_eye_config for world marker",
+    )
+    parser.add_argument(
+        "--host-endpoint",
+        default=_DEFAULT_HOST_ENDPOINT,
+        help=f"host.py ZMQ ROUTER address (default: {_DEFAULT_HOST_ENDPOINT})",
+    )
+    parser.add_argument(
+        "--stop-on-detect",
+        action="store_true",
+        help="Exit after first successful detection (default: keep running)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Exit on first frame with no target (default camera: retry until found)",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Disable OpenCV preview window",
+    )
+    parser.add_argument(
+        "--publish-hz",
+        type=float,
+        default=10.0,
+        help="Max camera loop rate when detecting (Hz)",
+    )
+    args = parser.parse_args()
+
+    file_cfg = load_detector_config(args.detector_config)
+    detector_cfg = resolve_detector_cfg(
+        file_cfg,
+        detector_cli=args.detector,
+        target_label_cli=args.target_label,
+        yolo_device_cli=args.yolo_device,
+        mode=args.mode,
+    )
+
+    host_endpoint = str(args.host_endpoint).strip() or _DEFAULT_HOST_ENDPOINT
+    if args.publish_host:
+        print(f"[Host] publish endpoint: {host_endpoint}")
+
+    try:
+        detector = create_detector(detector_cfg)
+
+        if args.mode == "camera":
+            return run_camera_session(
+                detector=detector,
+                detector_cfg=detector_cfg,
+                verbose_debug=args.verbose_debug,
+                show=not args.no_show,
+                until_found=not args.once,
+                stop_on_detect=bool(args.stop_on_detect),
+                publish_host=bool(args.publish_host),
+                host_endpoint=host_endpoint,
+                publish_hz=float(args.publish_hz),
+            )
+
+        color, depth, intrinsics, depth_scale = run_mock_frame(detector_cfg)
+        det = detector.detect(color)
+        if det is None:
+            print("[Error] mock detector found no object", file=sys.stderr)
+            return 1
+        p_camera = measure_detection(
+            det,
+            depth_raw=depth,
+            intrinsics=intrinsics,
+            depth_scale=depth_scale,
+            detector_cfg=detector_cfg,
+        )
+        if p_camera is None:
+            print("[Error] depth measurement failed on mock frame", file=sys.stderr)
+            return 1
+        obs = build_camera_observation(
+            detection_label=det.label,
+            confidence=det.confidence,
+            p_camera_object=p_camera,
+        )
+        print_observation(obs, det=det)
+        if args.publish_host:
+            publish_perceived_object(
+                endpoint=host_endpoint,
+                object_camera_xyz=obs.p_camera_object,
+                label=obs.label,
+            )
+            print("[Host] published object_camera (sim converts to world)")
+        return 0
+
+    except RealSenseUnavailableError as exc:
+        print(f"[Error] RealSense unavailable: {exc}", file=sys.stderr)
+        print("  Install: pip install pyrealsense2", file=sys.stderr)
+        return 1
+    except YoloUnavailableError as exc:
+        print(f"[Error] YOLO unavailable: {exc}", file=sys.stderr)
+        print("  Install: pip install ultralytics", file=sys.stderr)
+        return 1
+    except HostPublishError as exc:
+        print(f"[Error] host publish failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"[Error] {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -43,12 +43,15 @@ class SimConfig:
     host_ctrl_port: str = "tcp://127.0.0.1:5555"
     host_sim_port: str = "tcp://127.0.0.1:5556"
     host_feedback_port: str = "tcp://127.0.0.1:5557"
+    hand_eye_config: str = ""
 
 
 @dataclass(frozen=True)
 class HardwareConfig:
     command_direction: Tuple[int, int, int, int] = (-1, 1, 1, 1)
     motor_direction: Tuple[int, int, int, int] = (1, 1, 1, 1)
+    current_yellow_ma: int = 1800
+    current_limit_ma: int = 2500
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,12 @@ def _load_sim_param_config(cp: configparser.ConfigParser, defaults: AppConfigBun
 def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *, config_dir: str) -> SimConfig:
     sc0 = defaults.sim_config
     build_dir = os.path.abspath(os.path.join(config_dir, "craft"))
+    hand_eye_raw = cp.get("runtime", "hand_eye_config", fallback=sc0.hand_eye_config).strip()
+    hand_eye_config = (
+        os.path.abspath(os.path.join(config_dir, hand_eye_raw))
+        if hand_eye_raw and not os.path.isabs(hand_eye_raw)
+        else hand_eye_raw
+    )
     return SimConfig(
         use_gpu=cp.getboolean("runtime", "use_gpu", fallback=sc0.use_gpu),
         enable_viewer=cp.getboolean("runtime", "enable_viewer", fallback=sc0.enable_viewer),
@@ -231,6 +240,7 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         host_ctrl_port=cp.get("runtime", "host_ctrl_port", fallback=sc0.host_ctrl_port),
         host_sim_port=cp.get("runtime", "host_sim_port", fallback=sc0.host_sim_port),
         host_feedback_port=cp.get("runtime", "host_feedback_port", fallback=sc0.host_feedback_port),
+        hand_eye_config=hand_eye_config,
     )
 
 
@@ -244,6 +254,8 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
     return HardwareConfig(
         command_direction=_parse_direction4(cp.get("hardware", "command_direction"), key="hardware.command_direction"),
         motor_direction=_parse_direction4(cp.get("hardware", "motor_direction"), key="hardware.motor_direction"),
+        current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=HardwareConfig().current_yellow_ma),
+        current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=HardwareConfig().current_limit_ma),
     )
 
 

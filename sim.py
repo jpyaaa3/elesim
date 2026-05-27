@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -67,19 +67,12 @@ class JointLayout:
     bend_axis_sign: float = -1.0
     chain_origin_local: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     tip_link_name: str = ""
-    terminal_link_name: str = ""
     tip_local_offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     old_tip_local_offset: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=float))
     tip_points: List[Tuple[str, np.ndarray]] = field(default_factory=list)
-    # RealSense D435i on terminal link (node9): housing center + RGB optical offset (+x 27.5mm).
-    camera_mount_on_terminal_m: np.ndarray = field(
-        default_factory=lambda: np.array([-0.03, 0.03, 0.01], dtype=float)
-    )
-    camera_rgb_offset_m: np.ndarray = field(
-        default_factory=lambda: np.array([0.0275, 0.0, 0.0], dtype=float)
-    )
     approach_link_name: str = "gripper_base"
-    approach_axis_local: np.ndarray = field(default_factory=lambda: np.array([0.0, -1.0, 0.0], dtype=float))
+    approach_axis_local: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, -1.0], dtype=float))
+    approach_rot_tip: np.ndarray = field(default_factory=lambda: np.eye(3, dtype=float))
     control_mode: str = "commanded"
     part_control_mode: Dict[str, str] = field(default_factory=dict)
     part_pose_root: Dict[str, np.ndarray] = field(default_factory=dict)
@@ -99,12 +92,8 @@ class MarkerSet:
     _sim_tip_marker_pos: Optional[np.ndarray] = None
     _ik_target_marker_dir_sig: Optional[np.ndarray] = None
     _sim_tip_marker_dir_sig: Optional[np.ndarray] = None
-    _camera_housing_marker: object = None
-    _camera_rgb_marker: object = None
-    _camera_rgb_z_marker: object = None
-    _camera_housing_marker_pos: Optional[np.ndarray] = None
-    _camera_rgb_marker_pos: Optional[np.ndarray] = None
-    _camera_rgb_z_marker_sig: Optional[np.ndarray] = None
+    _dynamic_markers: dict[str, object] = field(default_factory=dict)
+    _dynamic_marker_sig: dict[str, np.ndarray] = field(default_factory=dict)
 
     def draw(self, scene, attr_name: str, pos: np.ndarray, color) -> None:
         pos_arr = np.asarray(pos, dtype=float).reshape(3)
@@ -141,6 +130,52 @@ class MarkerSet:
         setattr(self, attr_name, arrow)
         setattr(self, f"{attr_name}_sig", sig.copy())
 
+    def draw_dynamic_sphere(self, scene, key: str, pos: np.ndarray, color, radius: float) -> None:
+        pos_arr = np.asarray(pos, dtype=float).reshape(3)
+        sig = pos_arr.copy()
+        marker = self._dynamic_markers.get(key, None)
+        prev_sig = self._dynamic_marker_sig.get(key, None)
+        if marker is not None and prev_sig is not None and np.allclose(prev_sig, sig, atol=1e-9):
+            return
+        if marker is not None:
+            try:
+                scene.clear_debug_object(marker)
+            except Exception:
+                pass
+        self._dynamic_markers[key] = scene.draw_debug_sphere(pos=pos_arr, radius=float(radius), color=color)
+        self._dynamic_marker_sig[key] = sig
+
+    def draw_dynamic_arrow(self, scene, key: str, pos: np.ndarray, direction: np.ndarray, color, radius: float) -> None:
+        pos_arr = np.asarray(pos, dtype=float).reshape(3)
+        dir_arr = np.asarray(direction, dtype=float).reshape(3)
+        norm = float(np.linalg.norm(dir_arr))
+        if norm <= 1e-9:
+            return
+        dir_arr = dir_arr / norm
+        sig = np.concatenate([pos_arr, dir_arr], axis=0)
+        marker = self._dynamic_markers.get(key, None)
+        prev_sig = self._dynamic_marker_sig.get(key, None)
+        if marker is not None and prev_sig is not None and np.allclose(prev_sig, sig, atol=1e-9):
+            return
+        if marker is not None:
+            try:
+                scene.clear_debug_object(marker)
+            except Exception:
+                pass
+        self._dynamic_markers[key] = scene.draw_debug_arrow(pos=pos_arr, vec=dir_arr * 0.09, radius=float(radius), color=color)
+        self._dynamic_marker_sig[key] = sig
+
+    def clear_dynamic_missing(self, scene, active_keys: set[str]) -> None:
+        stale = [key for key in self._dynamic_markers.keys() if key not in active_keys]
+        for key in stale:
+            marker = self._dynamic_markers.pop(key, None)
+            self._dynamic_marker_sig.pop(key, None)
+            if marker is not None:
+                try:
+                    scene.clear_debug_object(marker)
+                except Exception:
+                    pass
+
 
 @dataclass
 class SimScene:
@@ -168,52 +203,6 @@ class SimScene:
         if self.scene is None:
             return
         markers.draw_direction(self.scene, attr_name, pos, direction, color)
-
-    def _link_point_world(self, link_name: str, local_offset: np.ndarray) -> Optional[np.ndarray]:
-        if self.mover is None or not link_name:
-            return None
-        try:
-            link = self.mover.entity.get_link(str(link_name))
-            p = self._to_numpy_1d(link.get_pos())[:3]
-            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
-            local = np.asarray(local_offset, dtype=float).reshape(3)
-            out = gs_geom.transform_by_trans_quat(local, p, q_wxyz)
-            return np.array(out, dtype=float)
-        except Exception:
-            return None
-
-    def _link_rotation_world(self, link_name: str) -> Optional[np.ndarray]:
-        if self.mover is None or not link_name:
-            return None
-        try:
-            link = self.mover.entity.get_link(str(link_name))
-            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
-            return _rot_from_wxyz(q_wxyz).as_matrix()
-        except Exception:
-            return None
-
-    def camera_markers_world(
-        self, layout: JointLayout
-    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        D435i housing center and RGB optical frame origin in world (Genesis sim).
-        Optical +z forward axis unit vector in world is the third return value.
-        """
-        term = str(layout.terminal_link_name or "").strip()
-        if not term:
-            return None, None, None
-        mount = np.asarray(layout.camera_mount_on_terminal_m, dtype=float).reshape(3)
-        rgb_off = np.asarray(layout.camera_rgb_offset_m, dtype=float).reshape(3)
-        housing = self._link_point_world(term, mount)
-        rgb = self._link_point_world(term, mount + rgb_off)
-        R = self._link_rotation_world(term)
-        optical_z: Optional[np.ndarray] = None
-        if R is not None:
-            z = R @ np.array([0.0, 0.0, 1.0], dtype=float)
-            n = float(np.linalg.norm(z))
-            if n > 1e-9:
-                optical_z = z / n
-        return housing, rgb, optical_z
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         if self.mover is None:
@@ -251,9 +240,8 @@ class SimScene:
                 return None
             link = self.mover.entity.get_link(str(layout.tip_link_name))
             q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
-            origin = np.array([0.0, 0.0, 0.0], dtype=float)
-            axis_tip = gs_geom.transform_by_trans_quat(local_axis / axis_norm, origin, q_wxyz)
-            direction = np.asarray(axis_tip, dtype=float).reshape(3)
+            R_tip = _rot_from_wxyz(q_wxyz).as_matrix()
+            direction = R_tip @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3) @ (local_axis / axis_norm)
             norm = float(np.linalg.norm(direction))
             if norm <= 1e-9:
                 return None
@@ -368,7 +356,7 @@ class SimScene:
             if norm_local <= 1e-9 or not layout.tip_link_name or layout.tip_link_name not in link_tf:
                 return None
             _p_tip, R_tip = link_tf[layout.tip_link_name]
-            direction = R_tip @ (local_axis / norm_local)
+            direction = R_tip @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3) @ (local_axis / norm_local)
             norm = float(np.linalg.norm(direction))
             if norm <= 1e-9:
                 return None
@@ -754,8 +742,8 @@ class AssetProcessor:
                 delta_local = tip_pose[1].inv().apply(grasp_mid_world - old_tip_world)
                 tip_local_offset = old_tip_local + np.asarray(delta_local, dtype=float).reshape(3)
                 if base_pose is not None:
-                    attach_local = tip_pose[1].inv().apply(base_pose[0] - tip_pose[0])
-                    self.app.layout.approach_axis_local = np.asarray(attach_local, dtype=float).reshape(3)
+                    self.app.layout.approach_axis_local = np.array([0.0, 0.0, -1.0], dtype=float)
+                    self.app.layout.approach_rot_tip = (tip_pose[1].inv() * base_pose[1]).as_matrix()
         else:
             tip_local_offset = _load_tip_offset(tip_link_name)
             old_tip_local = tip_local_offset.copy()
@@ -875,14 +863,14 @@ class StateSource:
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return None
 
-    def perceived_object_xyz(self) -> Optional[np.ndarray]:
-        return None
-
     def sag_model(self) -> dict[str, Any]:
         return {}
 
     def claw_closed(self) -> bool:
         return False
+
+    def debug_markers(self) -> list[dict[str, Any]]:
+        return []
 
     def close(self) -> None:
         return None
@@ -898,9 +886,9 @@ class HardwareStateCache(StateSource):
         self._last_q: Optional[proto.SimQ] = None
         self._last_ik_target_xyz: Optional[np.ndarray] = None
         self._last_ik_target_dir: Optional[np.ndarray] = None
-        self._last_perceived_object_xyz: Optional[np.ndarray] = None
         self._last_sag_model: dict[str, Any] = {}
         self._last_claw_closed: bool = False
+        self._last_debug_markers: list[dict[str, Any]] = []
 
     def update(
         self,
@@ -923,10 +911,8 @@ class HardwareStateCache(StateSource):
     def update_ik_target_dir(self, ik_target_dir: Optional[np.ndarray]) -> None:
         self._last_ik_target_dir = None if ik_target_dir is None else np.array(ik_target_dir, dtype=float).reshape(3)
 
-    def update_perceived_object(self, perceived_object_xyz: Optional[np.ndarray]) -> None:
-        self._last_perceived_object_xyz = (
-            None if perceived_object_xyz is None else np.array(perceived_object_xyz, dtype=float).reshape(3)
-        )
+    def update_debug_markers(self, debug_markers: list[dict[str, Any]]) -> None:
+        self._last_debug_markers = [dict(marker) for marker in list(debug_markers) if isinstance(marker, dict)]
 
     def update_sag_model(self, sag_model: Optional[dict[str, Any]]) -> None:
         if sag_model is None:
@@ -942,14 +928,14 @@ class HardwareStateCache(StateSource):
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return None if self._last_ik_target_dir is None else self._last_ik_target_dir.copy()
 
-    def perceived_object_xyz(self) -> Optional[np.ndarray]:
-        return None if self._last_perceived_object_xyz is None else self._last_perceived_object_xyz.copy()
-
     def sag_model(self) -> dict[str, Any]:
         return dict(self._last_sag_model)
 
     def claw_closed(self) -> bool:
         return bool(self._last_claw_closed)
+
+    def debug_markers(self) -> list[dict[str, Any]]:
+        return [dict(marker) for marker in self._last_debug_markers]
 
 
 class HostStateSubscriber:
@@ -972,9 +958,9 @@ class HostStateSubscriber:
         self.last_state_ts: float = 0.0
         self.last_ik_target_xyz: Optional[np.ndarray] = None
         self.last_ik_target_dir: Optional[np.ndarray] = None
-        self.last_perceived_object_xyz: Optional[np.ndarray] = None
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
+        self.last_debug_markers: list[dict[str, Any]] = []
 
     def close(self) -> None:
         try:
@@ -1028,17 +1014,18 @@ class HostStateSubscriber:
                     [float(target_dir_raw[0]), float(target_dir_raw[1]), float(target_dir_raw[2])],
                     dtype=float,
                 )
-            object_raw = msg.get("perceived_object", None)
-            if isinstance(object_raw, (list, tuple)) and len(object_raw) == 3:
-                self.last_perceived_object_xyz = np.array(
-                    [float(object_raw[0]), float(object_raw[1]), float(object_raw[2])],
-                    dtype=float,
-                )
             sag_raw = msg.get("sag_model", None)
             if isinstance(sag_raw, dict):
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
+            debug_markers_raw = msg.get("debug_markers", None)
+            if isinstance(debug_markers_raw, list):
+                next_markers: list[dict[str, Any]] = []
+                for raw in debug_markers_raw:
+                    if isinstance(raw, dict):
+                        next_markers.append(dict(raw))
+                self.last_debug_markers = next_markers
 
 
 class HostFeedbackPublisher:
@@ -1098,7 +1085,7 @@ class HostStateSource(StateSource):
         self._sub.poll()
         self._cache.update_ik_target(self._sub.last_ik_target_xyz)
         self._cache.update_ik_target_dir(self._sub.last_ik_target_dir)
-        self._cache.update_perceived_object(self._sub.last_perceived_object_xyz)
+        self._cache.update_debug_markers(self._sub.last_debug_markers)
         self._cache.update_sag_model(self._sub.last_sag_model)
         self._cache.update_claw_closed(self._sub.last_claw_closed)
         if self._sub.last_q is not None:
@@ -1113,14 +1100,14 @@ class HostStateSource(StateSource):
     def ik_target_dir(self) -> Optional[np.ndarray]:
         return self._cache.ik_target_dir()
 
-    def perceived_object_xyz(self) -> Optional[np.ndarray]:
-        return self._cache.perceived_object_xyz()
-
     def sag_model(self) -> dict[str, Any]:
         return self._cache.sag_model()
 
     def claw_closed(self) -> bool:
         return self._cache.claw_closed()
+
+    def debug_markers(self) -> list[dict[str, Any]]:
+        return self._cache.debug_markers()
 
     def close(self) -> None:
         self._sub.close()
@@ -1333,16 +1320,6 @@ class SimRuntime:
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
-                perceived_object = (
-                    a.state_source.perceived_object_xyz() if a.state_source is not None else None
-                )
-                if perceived_object is not None and a.spawn.draw_debug_markers:
-                    a.sim_scene.draw_marker(
-                        a.markers,
-                        "_perceived_object_marker",
-                        perceived_object,
-                        (0.1, 1.0, 0.2, 0.95),
-                    )
                 if ik_target is not None and a.spawn.draw_debug_markers:
                     a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
                     if ik_target_dir is not None:
@@ -1368,30 +1345,40 @@ class SimRuntime:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
                     if sim_tip_dir is not None:
                         a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
-                if a.spawn.draw_debug_markers and a.layout.terminal_link_name:
-                    cam_housing, cam_rgb, cam_z = a.sim_scene.camera_markers_world(a.layout)
-                    if cam_housing is not None:
-                        a.sim_scene.draw_marker(
-                            a.markers,
-                            "_camera_housing_marker",
-                            cam_housing,
-                            (0.15, 0.85, 1.0, 0.95),
-                        )
-                    if cam_rgb is not None:
-                        a.sim_scene.draw_marker(
-                            a.markers,
-                            "_camera_rgb_marker",
-                            cam_rgb,
-                            (1.0, 0.55, 0.1, 0.95),
-                        )
-                    if cam_rgb is not None and cam_z is not None:
-                        a.sim_scene.draw_marker_direction(
-                            a.markers,
-                            "_camera_rgb_z_marker",
-                            cam_rgb,
-                            cam_z,
-                            (1.0, 0.75, 0.2, 0.9),
-                        )
+                active_dynamic_keys: set[str] = set()
+                if a.spawn.draw_debug_markers and a.state_source is not None:
+                    for marker in a.state_source.debug_markers():
+                        if str(marker.get("frame", "world")) != "world":
+                            continue
+                        pos = marker.get("pos", None)
+                        if not isinstance(pos, (list, tuple)) or len(pos) != 3:
+                            continue
+                        name = str(marker.get("name", "")).strip()
+                        if not name:
+                            continue
+                        color_raw = marker.get("color", [0.1, 1.0, 0.1, 0.95])
+                        if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
+                            rgba = [float(color_raw[0]), float(color_raw[1]), float(color_raw[2]), float(color_raw[3]) if len(color_raw) >= 4 else 0.95]
+                        else:
+                            rgba = [0.1, 1.0, 0.1, 0.95]
+                        radius = float(marker.get("radius", 0.012))
+                        pos_arr = np.asarray(pos, dtype=float).reshape(3)
+                        sphere_key = f"{name}:sphere"
+                        active_dynamic_keys.add(sphere_key)
+                        a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
+                        direction = marker.get("dir", None)
+                        if isinstance(direction, (list, tuple)) and len(direction) == 3:
+                            arrow_key = f"{name}:dir"
+                            active_dynamic_keys.add(arrow_key)
+                            a.markers.draw_dynamic_arrow(
+                                a.sim_scene.scene,
+                                arrow_key,
+                                pos_arr,
+                                np.asarray(direction, dtype=float).reshape(3),
+                                rgba,
+                                max(0.0025, radius * 0.35),
+                            )
+                a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 a.sim_scene.step()
         except KeyboardInterrupt:
             pass

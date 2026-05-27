@@ -2,7 +2,7 @@
   "notes": "The gripper base attaches at local origin. In the raw mesh, local -Z is the forward direction.",
   "connectors": {
     "from": {
-      "p": [0.0, 0.0, 0.0],
+      "p": [0.0, 0.012, 0.0],
       "q": [0.0, 0.70710678, 0.0, 0.70710678],
       "joint": {
         "type": "fixed",

@@ -1,0 +1,15 @@
+{
+  "type": "yolo",
+  "model": "/home/hckang/continuum_app/autonomous_pick_place_app/yolov8n-seg.pt",
+  "device": 0,
+  "target_label": "white_cup",
+  "confidence_threshold": 0.35,
+  "iou_threshold": 0.45,
+  "imgsz": 640,
+  "min_area_px": 200,
+  "z_min_m": 0.15,
+  "z_max_m": 2.5,
+  "mock_fallback_type": "mock_center",
+  "center_fraction": 0.3,
+  "mock_depth_m": 0.65
+}

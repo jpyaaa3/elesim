@@ -1,0 +1,13 @@
+{
+  "_notes": [
+    "Camera optical (RealSense color): x=right, y=down, z=look.",
+    "node9: +x=forward(look), -y=right, -z=down (straight arm ~= world +x / -y / -z).",
+    "Loaded by host.py for perception -> world debug marker conversion."
+  ],
+  "parent_frame": "node9",
+  "child_frame": "camera_color_optical_frame",
+  "measurement_reference_frame": "node9",
+  "translation_in_node9_m": [-0.03, 0.01, 0.03],
+  "translation_m": [0.08, 0.03, -0.04],
+  "quaternion_xyzw": [0.5, -0.5, 0.5, -0.5]
+}

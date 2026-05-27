@@ -1,0 +1,11 @@
+numpy>=1.24
+opencv-python>=4.8
+
+# YOLO detector (camera mode with --detector yolo)
+# ultralytics>=8.0
+
+# RealSense D435i (optional; camera mode only)
+# pyrealsense2
+
+# elesim sim marker publish (--publish-host)
+# pyzmq
