@@ -107,6 +107,20 @@ class ControlHost:
         self._last_motor_current_by_id: Dict[int, int] = {}
         self._safety_fault: str = ""
         self._yellow_zone_ids: Set[int] = set()
+        if not self._has_hw():
+            self._set_virtual_neutral_state()
+
+    def _set_virtual_neutral_state(self) -> None:
+        neutral_q = proto.SimQ(
+            linear_m=0.0,
+            roll_rad=0.0,
+            theta1_rad=0.0,
+            theta2_rad=0.0,
+        )
+        self.last_q = neutral_q
+        self.last_u = proto.sim_q_to_control_u(neutral_q, self.cfg)
+        self._target_u_state = self.last_u
+        self.last_state_ts = time.time()
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
 
     def _has_hw(self) -> bool:
@@ -204,6 +218,7 @@ class ControlHost:
             self.direction_by_id = {}
             self._ids = []
             self.device = ""
+            self._set_virtual_neutral_state()
             if old_hw is not None:
                 try:
                     old_hw.close()
