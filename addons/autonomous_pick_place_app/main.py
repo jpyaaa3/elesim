@@ -160,6 +160,12 @@ def print_observation(obs: CameraObservation, *, det: DetectionResult) -> None:
     print(f"[Camera]   p_camera_object = {_format_vec(obs.p_camera_object)} m  (optical: x=right y=down z=look)")
 
 
+def _print_world_object(p_world: tuple[float, float, float] | None) -> None:
+    if p_world is None:
+        return
+    print(f"[World]  p_world_object = {_format_vec(np.asarray(p_world))} m")
+
+
 def run_camera_session(
     *,
     detector: ObjectDetector,
@@ -260,12 +266,12 @@ def run_camera_session(
                     if verbose_debug:
                         print(f"[Debug]  timestamp={obs.timestamp:.3f}")
                     if publish_host:
-                        publish_perceived_object(
+                        p_world = publish_perceived_object(
                             endpoint=host_endpoint,
                             object_camera_xyz=obs.p_camera_object,
                             label=obs.label,
                         )
-                        print("[Host] published object_camera (sim converts to world)")
+                        _print_world_object(p_world)
                     if stop_on_detect:
                         return 0
 
@@ -407,12 +413,12 @@ def main() -> int:
         )
         print_observation(obs, det=det)
         if args.publish_host:
-            publish_perceived_object(
+            p_world = publish_perceived_object(
                 endpoint=host_endpoint,
                 object_camera_xyz=obs.p_camera_object,
                 label=obs.label,
             )
-            print("[Host] published object_camera (sim converts to world)")
+            _print_world_object(p_world)
         return 0
 
     except RealSenseUnavailableError as exc:

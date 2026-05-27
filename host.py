@@ -265,11 +265,13 @@ class ControlHost:
             marker["radius"] = float(radius)
         self._debug_markers_by_name[str(name)] = marker
 
-    def _update_perception_markers(self, object_camera_xyz: tuple[float, float, float], *, object_label: str = "") -> tuple[bool, str]:
+    def _update_perception_markers(
+        self, object_camera_xyz: tuple[float, float, float], *, object_label: str = ""
+    ) -> tuple[bool, str, Optional[np.ndarray]]:
         if not self.ik_context or self.hand_eye_transform is None:
-            return False, "perception disabled: missing hand-eye or IK context"
+            return False, "perception disabled: missing hand-eye or IK context", None
         if self.last_q is None:
-            return False, "perception rejected: no robot q available yet"
+            return False, "perception rejected: no robot q available yet", None
         q4 = np.array(
             [
                 float(self.last_q.linear_m),
@@ -294,8 +296,16 @@ class ControlHost:
                 parent_frame=self.hand_eye_parent_frame,
             )
         except Exception as exc:
-            return False, f"perception transform failed: {exc}"
-        label_suffix = f":{object_label}" if str(object_label).strip() else ""
+            return False, f"perception transform failed: {exc}", None
+        p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
+        p_w = np.asarray(object_world, dtype=float).reshape(3)
+        label_txt = str(object_label).strip()
+        print(
+            f"[Perception] label={label_txt or '-'} "
+            f"camera=[{p_cam[0]:+.4f}, {p_cam[1]:+.4f}, {p_cam[2]:+.4f}] m "
+            f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
+        )
+        label_suffix = f":{label_txt}" if label_txt else ""
         self._set_debug_marker(
             name=f"perceived_object{label_suffix}",
             pos=object_world,
@@ -326,7 +336,7 @@ class ControlHost:
             radius=0.004,
             ttl_ms=250,
         )
-        return True, "perception markers updated"
+        return True, "perception markers updated", p_w
 
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
@@ -779,7 +789,7 @@ class ControlHost:
             if source == "perception":
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
-                    ok, reason = self._update_perception_markers(
+                    ok, reason, object_world = self._update_perception_markers(
                         (
                             float(object_camera_raw[0]),
                             float(object_camera_raw[1]),
@@ -787,17 +797,18 @@ class ControlHost:
                         ),
                         object_label=str(msg.get("object_label", "")),
                     )
-                    self._reply(
-                        ident,
-                        {
-                            "t": "ack",
-                            "ts": proto.now_s(),
-                            "ok": bool(ok),
-                            "reason": str(reason),
-                            "device": self.device,
-                            "torque_enabled": self.torque_enabled,
-                        },
-                    )
+                    ack: Dict[str, Any] = {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": bool(ok),
+                        "reason": str(reason),
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                    }
+                    if object_world is not None:
+                        p_w = np.asarray(object_world, dtype=float).reshape(3)
+                        ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
+                    self._reply(ident, ack)
                     return
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None

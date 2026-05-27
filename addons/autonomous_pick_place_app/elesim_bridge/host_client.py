@@ -11,7 +11,7 @@ try:
 except ImportError:
     zmq = None  # type: ignore
 
-_HOST_CLIENT_VERSION = "2025-05-camera-frame-v1"
+_HOST_CLIENT_VERSION = "2025-05-camera-frame-v2"
 
 
 class HostPublishError(RuntimeError):
@@ -42,17 +42,24 @@ def _wait_acks(sock: Any, *, poller: Any, count: int, timeout_ms: int) -> list[d
     return acks
 
 
+def _parse_object_world(ack: dict[str, Any]) -> tuple[float, float, float] | None:
+    raw = ack.get("object_world", None)
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        return None
+    return (float(raw[0]), float(raw[1]), float(raw[2]))
+
+
 def publish_perceived_object(
     *,
     endpoint: str,
     object_camera_xyz: tuple[float, float, float] | list[float],
     label: str = "",
     timeout_ms: int = 500,
-) -> None:
+) -> tuple[float, float, float] | None:
     """
     Send object position in camera optical frame to host.py (source=perception).
 
-    elesim sim.py loads hand-eye mount config and converts to world for the green marker.
+    host.py applies hand-eye + FK and returns world coordinates in the ack when ok.
     """
     if zmq is None:
         raise HostPublishError("pyzmq is not installed. Install with: pip install pyzmq")
@@ -95,6 +102,7 @@ def publish_perceived_object(
         ack = acks[-1]
         if not bool(ack.get("ok", False)):
             raise HostPublishError(f"host rejected message: {ack.get('reason', ack)}")
+        return _parse_object_world(ack)
     except zmq.Again as exc:
         raise HostPublishError(
             f"host did not reply within {timeout_ms} ms "
