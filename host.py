@@ -633,6 +633,16 @@ class ControlHost:
                         max_iters=80,
                         current_seed=current_seed,
                     )
+                    if (not ik_res.success) or ik_res.q is None:
+                        # Fallback: position-first solve when directional alignment is too strict.
+                        ik_res = ik_pipeline.solve_then_align(
+                            target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
+                            target_dir_world=None,
+                            context=self.ik_context,
+                            position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                            max_iters=80,
+                            current_seed=current_seed,
+                        )
                     if ik_res.success and ik_res.q is not None:
                         q = np.asarray(ik_res.q, dtype=float).reshape(4)
                         self._pending_target_q = proto.SimQ(
@@ -644,8 +654,10 @@ class ControlHost:
                         self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
                         self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
                         self._pick.coarse_last_cmd_ts = float(now)
-                except Exception:
-                    pass
+                    else:
+                        print("[pick] coarse IK failed (dir+pos and pos-only)")
+                except Exception as exc:
+                    print(f"[pick] coarse IK exception: {exc}")
             # Transition only after actual approach to pregrasp (or timeout), not immediately.
             reach_tol = max(0.02, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
             if self.last_actual_tip_xyz is not None:

@@ -82,6 +82,7 @@ class ControlService:
             "s2": ("s2", "seg2"),
         }
         self._perception_proc: Optional[subprocess.Popen[Any]] = None
+        self._perception_log_file: Optional[Any] = None
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -367,6 +368,9 @@ class ControlService:
             return False, "addon main.py not found"
         if not os.path.isfile(detector_cfg):
             return False, "detector config not found"
+        log_dir = os.path.join(repo_root, ".logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "perception.log")
         cmd = [
             sys.executable,
             "main.py",
@@ -386,10 +390,22 @@ class ControlService:
         if not bool(show_preview):
             cmd.append("--no-show")
         try:
-            self._perception_proc = subprocess.Popen(cmd, cwd=addon_dir)
-            return True, f"perception started ({mode_key}, cfg={os.path.basename(detector_cfg)})"
+            self._perception_log_file = open(log_path, "a", encoding="utf-8")
+            self._perception_proc = subprocess.Popen(
+                cmd,
+                cwd=addon_dir,
+                stdout=self._perception_log_file,
+                stderr=self._perception_log_file,
+            )
+            return True, f"perception started ({mode_key}, cfg={os.path.basename(detector_cfg)}, log=.logs/perception.log)"
         except Exception as exc:
             self._perception_proc = None
+            if self._perception_log_file is not None:
+                try:
+                    self._perception_log_file.close()
+                except Exception:
+                    pass
+                self._perception_log_file = None
             return False, f"perception start failed: {exc}"
 
     def stop_perception_bridge(self) -> tuple[bool, str]:
@@ -407,6 +423,12 @@ class ControlService:
             return False, f"perception stop failed: {exc}"
         finally:
             self._perception_proc = None
+            if self._perception_log_file is not None:
+                try:
+                    self._perception_log_file.close()
+                except Exception:
+                    pass
+                self._perception_log_file = None
 
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._ik_worker is not None:
