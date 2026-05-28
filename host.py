@@ -67,6 +67,8 @@ class PickContext:
     align_no_improve_count: int = 0
     coarse_last_cmd_ts: float = 0.0
     coarse_target_q: Optional[tuple[float, float, float, float]] = None
+    short_last_cmd_ts: float = 0.0
+    short_target_q: Optional[tuple[float, float, float, float]] = None
     manual_mode: bool = False
 
 
@@ -463,6 +465,8 @@ class ControlHost:
         self._pick.align_no_improve_count = 0
         self._pick.coarse_last_cmd_ts = 0.0
         self._pick.coarse_target_q = None
+        self._pick.short_last_cmd_ts = 0.0
+        self._pick.short_target_q = None
         self._pick_set_stage(PickStage.SEARCH, now)
 
     def _pick_soft_fail(self) -> None:
@@ -745,17 +749,46 @@ class ControlHost:
                     return
                 if float(self._pick.stage_error_m) <= float(self.pick_fsm_cfg.error_threshold_m) * 1.5:
                     return
-                # Negative feedback step; previous sign often moved away in real setup.
-                step = -np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
-                next_q = proto.SimQ(
-                    linear_m=float(self.last_q.linear_m + step[2]),
-                    roll_rad=float(self.last_q.roll_rad),
-                    theta1_rad=float(self.last_q.theta1_rad + step[0]),
-                    theta2_rad=float(self.last_q.theta2_rad + step[1]),
-                )
-                self._pending_target_q = next_q
-                self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
-                self._pick.align_last_cmd_ts = float(now)
+                desired_world = self._camera_to_world_point(np.asarray(self._pick.desired_camera_object, dtype=float).reshape(3))
+                if desired_world is None:
+                    self._pick_soft_fail()
+                    return
+                look_dir_world = None
+                if self._pick.anchor_world_xyz is not None:
+                    dv = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3) - np.asarray(desired_world, dtype=float).reshape(3)
+                    n = float(np.linalg.norm(dv))
+                    if n > 1e-9:
+                        look_dir_world = dv / n
+                try:
+                    current_seed = np.array(
+                        [
+                            float(self.last_q.linear_m),
+                            float(self.last_q.roll_rad),
+                            float(self.last_q.theta1_rad),
+                            float(self.last_q.theta2_rad),
+                        ],
+                        dtype=float,
+                    )
+                    ik_res = ik_pipeline.solve_then_align(
+                        target_world=np.asarray(desired_world, dtype=float).reshape(3),
+                        target_dir_world=look_dir_world,
+                        context=self.ik_context,
+                        position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                        max_iters=60,
+                        current_seed=current_seed,
+                    )
+                    if ik_res.success and ik_res.q is not None:
+                        q = np.asarray(ik_res.q, dtype=float).reshape(4)
+                        self._pending_target_q = proto.SimQ(
+                            linear_m=float(q[0]),
+                            roll_rad=float(q[1]),
+                            theta1_rad=float(q[2]),
+                            theta2_rad=float(q[3]),
+                        )
+                        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+                        self._pick.align_last_cmd_ts = float(now)
+                except Exception:
+                    self._pick_soft_fail()
             return
         if self._pick.stage == PickStage.CONFIDENCE_GATE:
             pass_gate = should_pass_confidence_gate(
@@ -789,26 +822,52 @@ class ControlHost:
                 radius=0.010,
                 ttl_ms=300,
             )
-            if self._pick.object_camera_mu is None or self.last_q is None:
-                if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
+            tgt = np.asarray(self._pick.short_approach_world, dtype=float).reshape(3)
+            if self.last_actual_tip_xyz is not None:
+                dist = float(np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - tgt))
+                self._pick.stage_error_m = dist
+                if dist <= max(0.015, float(self.pick_fsm_cfg.error_threshold_m) * 2.0):
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
+                    return
+            if self.last_q is not None and (now - float(self._pick.short_last_cmd_ts)) >= 0.15:
+                look_dir_world = None
+                if self._pick.anchor_world_xyz is not None:
+                    dv = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3) - tgt
+                    n = float(np.linalg.norm(dv))
+                    if n > 1e-9:
+                        look_dir_world = dv / n
+                try:
+                    current_seed = np.array(
+                        [
+                            float(self.last_q.linear_m),
+                            float(self.last_q.roll_rad),
+                            float(self.last_q.theta1_rad),
+                            float(self.last_q.theta2_rad),
+                        ],
+                        dtype=float,
+                    )
+                    ik_res = ik_pipeline.solve_then_align(
+                        target_world=tgt,
+                        target_dir_world=look_dir_world,
+                        context=self.ik_context,
+                        position_tol_m=max(0.004, float(self.pick_fsm_cfg.error_threshold_m)),
+                        max_iters=60,
+                        current_seed=current_seed,
+                    )
+                    if ik_res.success and ik_res.q is not None:
+                        q = np.asarray(ik_res.q, dtype=float).reshape(4)
+                        self._pending_target_q = proto.SimQ(
+                            linear_m=float(q[0]),
+                            roll_rad=float(q[1]),
+                            theta1_rad=float(q[2]),
+                            theta2_rad=float(q[3]),
+                        )
+                        self._pick.short_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+                        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+                        self._pick.short_last_cmd_ts = float(now)
+                except Exception:
                     self._pick_soft_fail()
-                else:
-                    self._pick_hard_fail(now)
-                return
-            desired_z = max(0.01, min(0.08, float(self.pick_fsm_cfg.short_approach_m)))
-            err_z = float(self._pick.object_camera_mu[2]) - desired_z
-            if abs(err_z) <= max(0.005, float(self.pick_fsm_cfg.error_threshold_m)):
-                if self._pick_can_auto_advance():
-                    self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
-                return
-            dz = float(np.clip(err_z, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m)))
-            self._pending_target_q = proto.SimQ(
-                linear_m=float(self.last_q.linear_m + dz),
-                roll_rad=float(self.last_q.roll_rad),
-                theta1_rad=float(self.last_q.theta1_rad),
-                theta2_rad=float(self.last_q.theta2_rad),
-            )
-            self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
                 if self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
