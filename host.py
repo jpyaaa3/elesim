@@ -875,6 +875,14 @@ class ControlHost:
                     },
                 )
                 return
+            # Manual stage forcing should also arm FSM.
+            self._pick_enabled = True
+            # If user jumps to coarse without explicit anchor, fallback to latest perceived world point.
+            if target_stage == PickStage.COARSE_WORLD_PREGRASP and self._pick.anchor_world_xyz is None:
+                if self._pick.object_world_latest is not None:
+                    self._pick.anchor_world_xyz = tuple(float(v) for v in self._pick.object_world_latest)
+                    self._pick.anchor_world_ts = now
+                    self._pick.anchor_confidence = max(float(self._pick.anchor_confidence), 0.5)
             self._pick_set_stage(target_stage, now)
             self._reply(
                 ident,
