@@ -14,7 +14,31 @@ def draw_pick_fsm_panel(panel) -> None:
         if state is None:
             imgui.text("Host: OFF")
             return
+        changed_label, new_label = imgui.input_text("Target Label", panel._pick_target_label_draft, 64)
+        if changed_label:
+            panel._pick_target_label_draft = str(new_label)
+        mode_labels = ["mock", "camera"]
+        changed_mode, selected_mode = imgui.combo("Perception Mode", int(panel._pick_mode_idx), mode_labels)
+        if changed_mode:
+            panel._pick_mode_idx = int(selected_mode)
         if panel.service.has_client():
+            if imgui.button("Start Perception"):
+                ok, msg = panel.service.start_perception_bridge(
+                    target_label=str(panel._pick_target_label_draft),
+                    mode=str(mode_labels[int(panel._pick_mode_idx)]),
+                    show_preview=False,
+                    publish_hz=10.0,
+                )
+                panel._pick_status_text = str(msg)
+            imgui.same_line()
+            if imgui.button("Stop Perception"):
+                _ok, msg = panel.service.stop_perception_bridge()
+                panel._pick_status_text = str(msg)
+            running = panel.service.perception_running()
+            imgui.text(f"Perception: {'RUNNING' if running else 'STOPPED'}")
+            if str(panel._pick_status_text).strip():
+                imgui.text_wrapped(f"Perception msg: {panel._pick_status_text}")
+            imgui.separator()
             if imgui.button("Start Pick"):
                 panel.service.pick_start()
             imgui.same_line()

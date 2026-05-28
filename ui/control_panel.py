@@ -48,6 +48,9 @@ class ControlPanel:
         self._offset_s1_draft = float(s1_off)
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
+        self._pick_target_label_draft = "cup"
+        self._pick_status_text = ""
+        self._pick_mode_idx = 0
 
     def stop(self) -> None:
         self._stop = True

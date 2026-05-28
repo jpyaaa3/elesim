@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import os
+import subprocess
+import sys
 import threading
 import time
 from typing import Any, Optional
@@ -79,6 +81,7 @@ class ControlService:
             "s1": ("s1", "seg1"),
             "s2": ("s2", "seg2"),
         }
+        self._perception_proc: Optional[subprocess.Popen[Any]] = None
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -328,6 +331,70 @@ class ControlService:
     def pick_reset(self) -> None:
         if self.client is not None:
             self.client.send_pick_command("reset")
+
+    def perception_running(self) -> bool:
+        return self._perception_proc is not None and self._perception_proc.poll() is None
+
+    def start_perception_bridge(
+        self,
+        *,
+        target_label: str = "",
+        mode: str = "mock",
+        show_preview: bool = False,
+        publish_hz: float = 10.0,
+    ) -> tuple[bool, str]:
+        if self.client is None:
+            return False, "host client unavailable"
+        if self.perception_running():
+            return True, "perception already running"
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        addon_dir = os.path.join(repo_root, "addons", "autonomous_pick_place_app")
+        main_py = os.path.join(addon_dir, "main.py")
+        detector_cfg = os.path.join(addon_dir, "configs", "detector.example.json")
+        if not os.path.isfile(main_py):
+            return False, "addon main.py not found"
+        if not os.path.isfile(detector_cfg):
+            return False, "detector config not found"
+        cmd = [
+            sys.executable,
+            "main.py",
+            "--detector-config",
+            detector_cfg,
+            "--mode",
+            str(mode),
+            "--publish-host",
+            "--host-endpoint",
+            str(self.client.endpoint),
+            "--publish-hz",
+            str(float(publish_hz)),
+        ]
+        label = str(target_label).strip()
+        if label:
+            cmd.extend(["--target-label", label])
+        if not bool(show_preview):
+            cmd.append("--no-show")
+        try:
+            self._perception_proc = subprocess.Popen(cmd, cwd=addon_dir)
+            return True, "perception started"
+        except Exception as exc:
+            self._perception_proc = None
+            return False, f"perception start failed: {exc}"
+
+    def stop_perception_bridge(self) -> tuple[bool, str]:
+        proc = self._perception_proc
+        if proc is None:
+            return True, "perception not running"
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except Exception:
+                proc.kill()
+            return True, "perception stopped"
+        except Exception as exc:
+            return False, f"perception stop failed: {exc}"
+        finally:
+            self._perception_proc = None
 
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._ik_worker is not None:
@@ -796,5 +863,6 @@ class ControlService:
             self.client.torque_off()
 
     def close(self) -> None:
+        self.stop_perception_bridge()
         if self.client is not None:
             self.client.close()
