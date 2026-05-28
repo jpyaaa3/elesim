@@ -633,6 +633,39 @@ class ControlHost:
                 self._pick_reset_to_search(now, increment_attempt=True)
             return
 
+    def _handle_pick_command(self, ident: bytes, msg: Dict[str, Any]) -> None:
+        cmd = str(msg.get("cmd", "")).strip().lower()
+        now = time.time()
+        if cmd == "start":
+            self._pick_enabled = True
+            self._pick_reset_to_search(now, increment_attempt=False)
+            self._reply(
+                ident,
+                {"t": "ack", "ts": proto.now_s(), "ok": True, "reason": "pick_started", "device": self.device, "torque_enabled": self.torque_enabled},
+            )
+            return
+        if cmd == "stop":
+            self._pick_enabled = False
+            self._pick_reset_to_search(now, increment_attempt=False)
+            self._reply(
+                ident,
+                {"t": "ack", "ts": proto.now_s(), "ok": True, "reason": "pick_stopped", "device": self.device, "torque_enabled": self.torque_enabled},
+            )
+            return
+        if cmd == "reset":
+            self._pick.attempt = 0
+            self._pick_enabled = bool(self.pick_fsm_cfg.enable)
+            self._pick_reset_to_search(now, increment_attempt=False)
+            self._reply(
+                ident,
+                {"t": "ack", "ts": proto.now_s(), "ok": True, "reason": "pick_reset", "device": self.device, "torque_enabled": self.torque_enabled},
+            )
+            return
+        self._reply(
+            ident,
+            {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_pick_cmd", "device": self.device, "torque_enabled": self.torque_enabled},
+        )
+
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
         for raw in list(raw_markers):
@@ -1004,6 +1037,9 @@ class ControlHost:
             except Exception:
                 ok = False
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "torque_enabled": self.torque_enabled})
+            return
+        if t == "pick_cmd":
+            self._handle_pick_command(ident, msg)
             return
         if t == "torque_on":
             ok = True

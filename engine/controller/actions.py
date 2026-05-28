@@ -317,6 +317,18 @@ class ControlService:
         if self.client is not None:
             self.client.send_claw_command(claw_closed=bool(closed), source="target")
 
+    def pick_start(self) -> None:
+        if self.client is not None:
+            self.client.send_pick_command("start")
+
+    def pick_stop(self) -> None:
+        if self.client is not None:
+            self.client.send_pick_command("stop")
+
+    def pick_reset(self) -> None:
+        if self.client is not None:
+            self.client.send_pick_command("reset")
+
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._ik_worker is not None:
             return

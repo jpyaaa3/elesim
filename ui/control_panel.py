@@ -12,6 +12,7 @@ from .panels import (
     draw_control_4dof_panel,
     draw_hardware_panel,
     draw_ik_panel,
+    draw_pick_fsm_panel,
     draw_sag_panel,
 )
 
@@ -33,6 +34,7 @@ class ControlPanel:
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
         self._ik_header_init_open = False
+        self._pick_header_init_open = False
         self._sag_header_init_open = False
         self._ctrl_window_init = False
         self._port_input = ""
@@ -74,6 +76,8 @@ class ControlPanel:
         draw_control_4dof_panel(self)
         imgui.separator()
         draw_ik_panel(self)
+        imgui.separator()
+        draw_pick_fsm_panel(self)
         imgui.separator()
         draw_sag_panel(self)
         imgui.end()
