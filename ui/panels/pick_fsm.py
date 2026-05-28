@@ -3,6 +3,18 @@ from __future__ import annotations
 import imgui
 
 
+_NEXT_STAGE_OPTIONS = {
+    "SEARCH": ["COARSE_WORLD_PREGRASP"],
+    "COARSE_WORLD_PREGRASP": ["STOP_AND_RELOCALIZE"],
+    "STOP_AND_RELOCALIZE": ["CAMERA_SERVO_ALIGN"],
+    "CAMERA_SERVO_ALIGN": ["CONFIDENCE_GATE", "STOP_AND_RELOCALIZE"],
+    "CONFIDENCE_GATE": ["SHORT_APPROACH", "CAMERA_SERVO_ALIGN"],
+    "SHORT_APPROACH": ["CLOSE_GRIPPER"],
+    "CLOSE_GRIPPER": ["LIFT_AND_VERIFY"],
+    "LIFT_AND_VERIFY": ["SEARCH"],
+}
+
+
 def draw_pick_fsm_panel(panel) -> None:
     if not panel._pick_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
@@ -67,3 +79,13 @@ def draw_pick_fsm_panel(panel) -> None:
         imgui.text(f"Anchor confidence: {anchor_conf_txt}")
         imgui.text(f"Dropout count: {int(state.pick_dropout_count)}")
         imgui.text(f"Score: {score_txt}")
+        if panel.service.has_client():
+            next_options = _NEXT_STAGE_OPTIONS.get(pick_stage, [])
+            if next_options:
+                imgui.separator()
+                imgui.text("Manual next stage:")
+                for idx, stage_name in enumerate(next_options):
+                    if imgui.button(f"{stage_name}##next_{idx}"):
+                        panel.service.pick_force_stage(stage_name)
+                    if (idx + 1) < len(next_options):
+                        imgui.same_line()

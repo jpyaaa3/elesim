@@ -332,6 +332,10 @@ class ControlService:
         if self.client is not None:
             self.client.send_pick_command("reset")
 
+    def pick_force_stage(self, stage: str) -> None:
+        if self.client is not None:
+            self.client.send_pick_command("goto_stage", stage=str(stage))
+
     def perception_running(self) -> bool:
         return self._perception_proc is not None and self._perception_proc.poll() is None
 

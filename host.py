@@ -841,6 +841,53 @@ class ControlHost:
                 {"t": "ack", "ts": proto.now_s(), "ok": True, "reason": "pick_reset", "device": self.device, "torque_enabled": self.torque_enabled},
             )
             return
+        if cmd == "goto_stage":
+            stage_raw = str(msg.get("stage", "")).strip().upper()
+            try:
+                target_stage = PickStage(stage_raw)
+            except Exception:
+                self._reply(
+                    ident,
+                    {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_stage", "device": self.device, "torque_enabled": self.torque_enabled},
+                )
+                return
+            current = self._pick.stage
+            allowed: dict[PickStage, set[PickStage]] = {
+                PickStage.SEARCH: {PickStage.COARSE_WORLD_PREGRASP},
+                PickStage.COARSE_WORLD_PREGRASP: {PickStage.STOP_AND_RELOCALIZE},
+                PickStage.STOP_AND_RELOCALIZE: {PickStage.CAMERA_SERVO_ALIGN},
+                PickStage.CAMERA_SERVO_ALIGN: {PickStage.CONFIDENCE_GATE, PickStage.STOP_AND_RELOCALIZE},
+                PickStage.CONFIDENCE_GATE: {PickStage.SHORT_APPROACH, PickStage.CAMERA_SERVO_ALIGN},
+                PickStage.SHORT_APPROACH: {PickStage.CLOSE_GRIPPER},
+                PickStage.CLOSE_GRIPPER: {PickStage.LIFT_AND_VERIFY},
+                PickStage.LIFT_AND_VERIFY: {PickStage.SEARCH},
+            }
+            if target_stage not in allowed.get(current, set()):
+                self._reply(
+                    ident,
+                    {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": False,
+                        "reason": f"transition_not_allowed:{current.value}->{target_stage.value}",
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                    },
+                )
+                return
+            self._pick_set_stage(target_stage, now)
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": True,
+                    "reason": f"stage_forced:{target_stage.value}",
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            return
         self._reply(
             ident,
             {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_pick_cmd", "device": self.device, "torque_enabled": self.torque_enabled},
