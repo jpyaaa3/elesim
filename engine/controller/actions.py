@@ -69,6 +69,11 @@ class ControlService:
         self._calibration_poll_s = 0.10
         self._calibration_ema_alpha = 0.25
         self._calibration_release_consecutive = 3
+        # Host motor_currents_ma keys use seg1/seg2; control-u axes use s1/s2.
+        self._calibration_current_keys = {
+            "s1": ("s1", "seg1"),
+            "s2": ("s2", "seg2"),
+        }
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -366,10 +371,11 @@ class ControlService:
         self._ik_worker.start()
 
     def _calibration_current_for_axis(self, host_state: HostState, axis: str) -> Optional[int]:
-        value = host_state.motor_currents_ma.get(str(axis), None)
-        if value is None:
-            return None
-        return abs(int(value))
+        for key in self._calibration_current_keys.get(str(axis), (str(axis),)):
+            value = host_state.motor_currents_ma.get(key)
+            if value is not None:
+                return abs(int(value))
+        return None
 
     def _refresh_calibration_feedback(self, axis: str) -> tuple[Optional[HostState], Optional[int]]:
         if self.client is None:
@@ -394,8 +400,8 @@ class ControlService:
         if not bool(host_state.torque_enabled):
             self.state.set_calibration_status(running=False, msg="torque off")
             return
-        if not host_state.motor_currents_ma:
-            self.state.set_calibration_status(running=False, msg="missing motor currents")
+        if any(self._calibration_current_for_axis(host_state, axis) is None for axis in ("s1", "s2")):
+            self.state.set_calibration_status(running=False, msg="missing motor currents (s1/s2)")
             return
         self.state.set_calibration_status(running=True, msg="calibrating")
 
