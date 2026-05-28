@@ -266,12 +266,16 @@ def run_camera_session(
                     if verbose_debug:
                         print(f"[Debug]  timestamp={obs.timestamp:.3f}")
                     if publish_host:
-                        p_world = publish_perceived_object(
-                            endpoint=host_endpoint,
-                            object_camera_xyz=obs.p_camera_object,
-                            label=obs.label,
-                        )
-                        _print_world_object(p_world)
+                        try:
+                            p_world = publish_perceived_object(
+                                endpoint=host_endpoint,
+                                object_camera_xyz=obs.p_camera_object,
+                                label=obs.label,
+                            )
+                            _print_world_object(p_world)
+                        except HostPublishError as exc:
+                            # Keep perception loop alive even if host is temporarily unavailable/rejecting.
+                            print(f"[Host] publish warning: {exc}", file=sys.stderr)
                     if stop_on_detect:
                         return 0
 
