@@ -64,11 +64,13 @@ class ControlService:
         self._config_path = None if config_path is None else str(config_path)
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
+        self._calibration_current_delta_ma = 500
         self._calibration_abort_current_ma = 2000
         self._calibration_step_u = 2.0
-        self._calibration_poll_s = 0.10
+        self._calibration_poll_s = 0.15
         self._calibration_ema_alpha = 0.25
         self._calibration_release_consecutive = 3
+        self._calibration_baseline_samples = 3
         # Host motor_currents_ma keys use seg1/seg2; control-u axes use s1/s2.
         self._calibration_current_keys = {
             "s1": ("s1", "seg1"),
@@ -381,10 +383,115 @@ class ControlService:
         if self.client is None:
             return None, None
         time.sleep(self._calibration_poll_s)
-        host_state = self.client.refresh_state()
-        if host_state is None:
-            return None, None
-        return host_state, self._calibration_current_for_axis(host_state, axis)
+        host_state: Optional[HostState] = None
+        current_val: Optional[int] = None
+        for _ in range(3):
+            host_state = self.client.refresh_state()
+            if host_state is not None:
+                current_val = self._calibration_current_for_axis(host_state, axis)
+            time.sleep(0.02)
+        return host_state, current_val
+
+    def _calibration_contact_threshold_ma(self, baseline_ma: float) -> float:
+        relative = float(baseline_ma) + float(self._calibration_current_delta_ma)
+        absolute = float(self._calibration_current_threshold_ma)
+        return float(max(relative, absolute * 0.75))
+
+    def _calibration_measure_baseline(self, axis: str, display_u: float) -> float:
+        self.apply_partial_control_u({axis: float(display_u)})
+        samples: list[float] = []
+        for _ in range(int(self._calibration_baseline_samples)):
+            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            if current_val is not None:
+                samples.append(float(current_val))
+        if not samples:
+            raise RuntimeError(f"missing {axis} current feedback")
+        return float(sum(samples) / len(samples))
+
+    def _calibration_update_ema(self, ema: Optional[float], current_val: float) -> float:
+        if ema is None:
+            return float(current_val)
+        alpha = float(self._calibration_ema_alpha)
+        return float(alpha * float(current_val) + (1.0 - alpha) * float(ema))
+
+    def _calibration_probe_axis(
+        self,
+        axis: str,
+        *,
+        start_u: float,
+        lo: float,
+        hi: float,
+        threshold_ma: float,
+    ) -> tuple[float, float, int]:
+        step = float(self._calibration_step_u)
+        for direction in (-1, +1):
+            display_u = float(start_u)
+            ema: Optional[float] = None
+            self.apply_partial_control_u({axis: display_u})
+            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            if _host_state is None or current_val is None:
+                raise RuntimeError(f"missing {axis} current feedback")
+            ema = self._calibration_update_ema(ema, float(current_val))
+            while True:
+                next_u = float(display_u) + float(direction) * step
+                if direction < 0 and next_u < float(lo) - 1e-9:
+                    break
+                if direction > 0 and next_u > float(hi) + 1e-9:
+                    break
+                display_u = float(max(lo, min(hi, next_u)))
+                self.apply_partial_control_u({axis: display_u})
+                _host_state, current_val = self._refresh_calibration_feedback(axis)
+                if _host_state is None or current_val is None:
+                    raise RuntimeError(f"missing {axis} current feedback")
+                ema = self._calibration_update_ema(ema, float(current_val))
+                if float(ema) >= float(self._calibration_abort_current_ma):
+                    raise RuntimeError(f"{axis} current too high during calibration")
+                if float(ema) >= float(threshold_ma):
+                    return float(display_u), float(ema), int(direction)
+            self.apply_partial_control_u({axis: float(start_u)})
+            _host_state, current_val = self._refresh_calibration_feedback(axis)
+        raise RuntimeError(f"no current rise on {axis}")
+
+    def _calibration_release_axis(
+        self,
+        axis: str,
+        *,
+        contact_u: float,
+        lo: float,
+        hi: float,
+        threshold_ma: float,
+        probe_direction: int,
+        ema: float,
+    ) -> float:
+        step = float(self._calibration_step_u)
+        release_dir = -int(probe_direction)
+        display_u = float(contact_u)
+        clear_count = 0
+        release_display = float(contact_u)
+        while True:
+            next_u = float(display_u) + float(release_dir) * step
+            if release_dir < 0 and next_u < float(lo) - 1e-9:
+                break
+            if release_dir > 0 and next_u > float(hi) + 1e-9:
+                break
+            display_u = float(max(lo, min(hi, next_u)))
+            self.apply_partial_control_u({axis: display_u})
+            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            if _host_state is None or current_val is None:
+                raise RuntimeError(f"missing {axis} current feedback")
+            ema = self._calibration_update_ema(ema, float(current_val))
+            if float(ema) >= float(self._calibration_abort_current_ma):
+                raise RuntimeError(f"{axis} current too high during release")
+            if float(ema) < float(threshold_ma):
+                clear_count += 1
+                if clear_count >= int(self._calibration_release_consecutive):
+                    release_display = float(display_u)
+                    break
+            else:
+                clear_count = 0
+        if clear_count < int(self._calibration_release_consecutive):
+            raise RuntimeError(f"release point not found on {axis}")
+        return float(release_display)
 
     def start_calibration(self) -> None:
         if self._ik_worker is not None:
@@ -408,52 +515,41 @@ class ControlService:
         def _worker() -> None:
             try:
                 cfg = self.control_mapping()
-                current_u = self.current_control_u()
-                display_vals = {"s1": float(current_u.u_s1), "s2": float(current_u.u_s2)}
+                host_u = host_state.u
+                if host_u is not None:
+                    display_u = self._actual_to_display_u(host_u)
+                    display_vals = {"s1": float(display_u.u_s1), "s2": float(display_u.u_s2)}
+                else:
+                    current_u = self.current_control_u()
+                    display_vals = {"s1": float(current_u.u_s1), "s2": float(current_u.u_s2)}
                 hi = float(cfg.seg_u_max)
                 lo = float(cfg.seg_u_min)
                 for axis in ("s1", "s2"):
-                    display_u = float(display_vals[axis])
-                    self.state.set_calibration_status(running=True, msg=f"probing {axis}")
-                    ema: Optional[float] = None
-                    threshold_hit = False
-                    while display_u > lo:
-                        display_u = max(lo, display_u - float(self._calibration_step_u))
-                        self.apply_partial_control_u({axis: display_u})
-                        host_state_now, current_val = self._refresh_calibration_feedback(axis)
-                        if host_state_now is None or current_val is None:
-                            raise RuntimeError(f"missing {axis} current feedback")
-                        ema = float(current_val) if ema is None else (self._calibration_ema_alpha * float(current_val) + (1.0 - self._calibration_ema_alpha) * float(ema))
-                        if float(ema) >= float(self._calibration_abort_current_ma):
-                            raise RuntimeError(f"{axis} current too high during calibration")
-                        if float(ema) >= float(self._calibration_current_threshold_ma):
-                            threshold_hit = True
-                            break
-                    if not threshold_hit:
-                        raise RuntimeError(f"no current rise on {axis}")
-
+                    start_u = float(display_vals[axis])
+                    self.state.set_calibration_status(running=True, msg=f"baseline {axis}")
+                    baseline_ma = self._calibration_measure_baseline(axis, start_u)
+                    threshold_ma = self._calibration_contact_threshold_ma(baseline_ma)
+                    self.state.set_calibration_status(
+                        running=True,
+                        msg=f"probing {axis} (base={baseline_ma:.0f}mA thr={threshold_ma:.0f}mA)",
+                    )
+                    contact_u, ema, probe_dir = self._calibration_probe_axis(
+                        axis,
+                        start_u=start_u,
+                        lo=lo,
+                        hi=hi,
+                        threshold_ma=threshold_ma,
+                    )
                     self.state.set_calibration_status(running=True, msg=f"releasing {axis}")
-                    clear_count = 0
-                    release_display = display_u
-                    while display_u < hi:
-                        display_u = min(hi, display_u + float(self._calibration_step_u))
-                        self.apply_partial_control_u({axis: display_u})
-                        host_state_now, current_val = self._refresh_calibration_feedback(axis)
-                        if host_state_now is None or current_val is None:
-                            raise RuntimeError(f"missing {axis} current feedback")
-                        ema = self._calibration_ema_alpha * float(current_val) + (1.0 - self._calibration_ema_alpha) * float(ema if ema is not None else current_val)
-                        if float(ema) >= float(self._calibration_abort_current_ma):
-                            raise RuntimeError(f"{axis} current too high during release")
-                        if float(ema) < float(self._calibration_current_threshold_ma):
-                            clear_count += 1
-                            if clear_count >= int(self._calibration_release_consecutive):
-                                release_display = display_u
-                                break
-                        else:
-                            clear_count = 0
-                    if clear_count < int(self._calibration_release_consecutive):
-                        raise RuntimeError(f"release point not found on {axis}")
-
+                    release_display = self._calibration_release_axis(
+                        axis,
+                        contact_u=contact_u,
+                        lo=lo,
+                        hi=hi,
+                        threshold_ma=threshold_ma,
+                        probe_direction=probe_dir,
+                        ema=ema,
+                    )
                     self.state.set_u_offset(axis, float(release_display))
                     display_vals[axis] = 0.0
                     self.apply_partial_control_u({axis: 0.0})
