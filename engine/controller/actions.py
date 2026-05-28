@@ -83,6 +83,8 @@ class ControlService:
         }
         self._perception_proc: Optional[subprocess.Popen[Any]] = None
         self._perception_log_file: Optional[Any] = None
+        self._host_ik_target_xyz: Optional[tuple[float, float, float]] = None
+        self._host_ik_target_dir: Optional[tuple[float, float, float]] = None
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -155,6 +157,20 @@ class ControlService:
                 float(host_state.q.roll_rad),
                 float(host_state.q.theta1_rad),
                 float(host_state.q.theta2_rad),
+            )
+        if host_state.ik_target_xyz is not None and host_state.ik_target_xyz != self._host_ik_target_xyz:
+            self._host_ik_target_xyz = host_state.ik_target_xyz
+            self.state.set_target(
+                float(host_state.ik_target_xyz[0]),
+                float(host_state.ik_target_xyz[1]),
+                float(host_state.ik_target_xyz[2]),
+            )
+        if host_state.ik_target_dir is not None and host_state.ik_target_dir != self._host_ik_target_dir:
+            self._host_ik_target_dir = host_state.ik_target_dir
+            self.state.set_target_dir(
+                float(host_state.ik_target_dir[0]),
+                float(host_state.ik_target_dir[1]),
+                float(host_state.ik_target_dir[2]),
             )
         return host_state
 

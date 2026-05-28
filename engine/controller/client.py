@@ -69,6 +69,8 @@ class ControlClient:
         self.last_pick_anchor_confidence: Optional[float] = None
         self.last_pick_dropout_count: int = 0
         self.last_pick_score: Optional[float] = None
+        self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
+        self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -111,6 +113,8 @@ class ControlClient:
             pick_anchor_confidence=self.last_pick_anchor_confidence,
             pick_dropout_count=int(self.last_pick_dropout_count),
             pick_score=self.last_pick_score,
+            ik_target_xyz=self.last_ik_target_xyz,
+            ik_target_dir=self.last_ik_target_dir,
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -297,6 +301,20 @@ class ControlClient:
                     self.last_pick_score = float(msg.get("pick_score"))
                 except (TypeError, ValueError):
                     self.last_pick_score = None
+            target_raw = msg.get("ik_target", None)
+            if isinstance(target_raw, (list, tuple)) and len(target_raw) == 3:
+                self.last_ik_target_xyz = (
+                    float(target_raw[0]),
+                    float(target_raw[1]),
+                    float(target_raw[2]),
+                )
+            target_dir_raw = msg.get("ik_target_dir", None)
+            if isinstance(target_dir_raw, (list, tuple)) and len(target_dir_raw) == 3:
+                self.last_ik_target_dir = (
+                    float(target_dir_raw[0]),
+                    float(target_dir_raw[1]),
+                    float(target_dir_raw[2]),
+                )
             self.is_connected = True
             if self.last_reply_reason == "":
                 self.last_reply_ok = True

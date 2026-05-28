@@ -28,6 +28,8 @@ class HostState:
     pick_anchor_confidence: Optional[float]
     pick_dropout_count: int
     pick_score: Optional[float]
+    ik_target_xyz: Optional[tuple[float, float, float]]
+    ik_target_dir: Optional[tuple[float, float, float]]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
