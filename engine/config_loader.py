@@ -60,7 +60,7 @@ class PickFsmConfig:
     enable: bool = False
     relocalize_window: int = 20
     relocalize_timeout_s: float = 1.0
-    coarse_offset_m: Tuple[float, float, float] = (0.0, 0.0, 0.08)
+    coarse_offset_m: Tuple[float, float, float] = (0.0, 0.0, 0.15)
     short_approach_m: float = 0.04
     align_step_m: float = 0.005
     align_step_rad: float = 0.0

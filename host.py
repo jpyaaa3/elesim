@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Set
 import numpy as np
 import zmq
 
+from engine import ik as ik_pipeline
 from engine.config_loader import load_app_config_from_ini
 from engine.config_loader import HardwareConfig
 from engine.config_loader import PickFsmConfig
@@ -46,7 +47,7 @@ class PickContext:
     object_camera_mu: Optional[tuple[float, float, float]] = None
     object_camera_cov: Optional[np.ndarray] = None
     object_world_mu: Optional[tuple[float, float, float]] = None
-    desired_camera_object: tuple[float, float, float] = (0.0, 0.0, 0.2)
+    desired_camera_object: tuple[float, float, float] = (0.0, 0.0, 0.1)
     pregrasp_world: Optional[tuple[float, float, float]] = None
     short_approach_world: Optional[tuple[float, float, float]] = None
     lift_start_z: Optional[float] = None
@@ -61,6 +62,11 @@ class PickContext:
     last_valid_camera_mu: Optional[tuple[float, float, float]] = None
     last_valid_cov: Optional[np.ndarray] = None
     score: float = 0.0
+    align_last_cmd_ts: float = 0.0
+    align_prev_error_m: float = float("inf")
+    align_no_improve_count: int = 0
+    coarse_last_cmd_ts: float = 0.0
+    coarse_target_q: Optional[tuple[float, float, float, float]] = None
 
 
 def filtered_camera_stats(
@@ -448,6 +454,11 @@ class ControlHost:
         self._pick.lift_start_z = None
         self._pick.dropout_count = 0
         self._pick.consecutive_detection_count = 0
+        self._pick.align_last_cmd_ts = 0.0
+        self._pick.align_prev_error_m = float("inf")
+        self._pick.align_no_improve_count = 0
+        self._pick.coarse_last_cmd_ts = 0.0
+        self._pick.coarse_target_q = None
         self._pick_set_stage(PickStage.SEARCH, now)
 
     def _pick_soft_fail(self) -> None:
@@ -580,7 +591,63 @@ class ControlHost:
             pre = obj + off
             self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
             self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
-            self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+            # Send real motion command toward pregrasp using IK.
+            if self.last_q is not None and (now - float(self._pick.coarse_last_cmd_ts)) >= 0.20:
+                try:
+                    current_seed = np.array(
+                        [
+                            float(self.last_q.linear_m),
+                            float(self.last_q.roll_rad),
+                            float(self.last_q.theta1_rad),
+                            float(self.last_q.theta2_rad),
+                        ],
+                        dtype=float,
+                    )
+                    ik_res = ik_pipeline.solve_then_align(
+                        target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
+                        target_dir_world=None,
+                        context=self.ik_context,
+                        position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                        max_iters=80,
+                        current_seed=current_seed,
+                    )
+                    if ik_res.success and ik_res.q is not None:
+                        q = np.asarray(ik_res.q, dtype=float).reshape(4)
+                        self._pending_target_q = proto.SimQ(
+                            linear_m=float(q[0]),
+                            roll_rad=float(q[1]),
+                            theta1_rad=float(q[2]),
+                            theta2_rad=float(q[3]),
+                        )
+                        self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+                        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+                        self._pick.coarse_last_cmd_ts = float(now)
+                except Exception:
+                    pass
+            # Transition only after actual approach to pregrasp (or timeout), not immediately.
+            reach_tol = max(0.02, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
+            if self.last_actual_tip_xyz is not None:
+                dist = float(np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - pre))
+                self._pick.stage_error_m = dist
+                if dist <= reach_tol:
+                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                    return
+            elif self._pick.coarse_target_q is not None and self.last_q is not None:
+                q_now = np.array(
+                    [
+                        float(self.last_q.linear_m),
+                        float(self.last_q.roll_rad),
+                        float(self.last_q.theta1_rad),
+                        float(self.last_q.theta2_rad),
+                    ],
+                    dtype=float,
+                )
+                q_goal = np.asarray(self._pick.coarse_target_q, dtype=float).reshape(4)
+                if float(np.linalg.norm(q_now - q_goal)) <= 0.02:
+                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                    return
+            if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
+                self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.STOP_AND_RELOCALIZE:
             mu, cov = self._estimate_object_camera_stats()
@@ -621,8 +688,18 @@ class ControlHost:
             desired = np.asarray(self._pick.desired_camera_object, dtype=float)
             err = desired - mu
             self._pick.stage_error_m = float(np.linalg.norm(err))
+            if float(self._pick.stage_error_m) > float(self._pick.align_prev_error_m) + 1e-4:
+                self._pick.align_no_improve_count += 1
+            else:
+                self._pick.align_no_improve_count = 0
+            self._pick.align_prev_error_m = float(self._pick.stage_error_m)
             if self._pick.stage_error_m <= float(self.pick_fsm_cfg.error_threshold_m):
                 self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
+                return
+            if self._pick.align_no_improve_count >= 6:
+                # Direction mismatch/noisy servo oscillation: re-localize instead of burning attempts.
+                self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                self._pick.align_no_improve_count = 0
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.align_timeout_s):
                 if should_hard_fail(
@@ -637,7 +714,12 @@ class ControlHost:
                     self._pick_soft_fail()
                 return
             if self.last_q is not None:
-                step = np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
+                if (now - float(self._pick.align_last_cmd_ts)) < 0.10:
+                    return
+                if float(self._pick.stage_error_m) <= float(self.pick_fsm_cfg.error_threshold_m) * 1.5:
+                    return
+                # Negative feedback step; previous sign often moved away in real setup.
+                step = -np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
                 next_q = proto.SimQ(
                     linear_m=float(self.last_q.linear_m + step[2]),
                     roll_rad=float(self.last_q.roll_rad),
@@ -646,6 +728,7 @@ class ControlHost:
                 )
                 self._pending_target_q = next_q
                 self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+                self._pick.align_last_cmd_ts = float(now)
             return
         if self._pick.stage == PickStage.CONFIDENCE_GATE:
             pass_gate = should_pass_confidence_gate(
