@@ -439,8 +439,12 @@ class ControlHost:
         return True, "perception markers updated", p_w
 
     def _pick_set_stage(self, stage: PickStage, now: float) -> None:
+        prev = self._pick.stage
         self._pick.stage = stage
         self._pick.stage_enter_ts = float(now)
+        if stage == PickStage.COARSE_WORLD_PREGRASP and prev != stage:
+            self._pick.coarse_last_cmd_ts = 0.0
+            self._pick.coarse_target_q = None
 
     def _pick_can_auto_advance(self) -> bool:
         return not bool(self._pick.manual_mode)
@@ -505,9 +509,6 @@ class ControlHost:
         z = float(object_camera_xyz[2])
         if z < float(self.pick_fsm_cfg.depth_min_m) or z > float(self.pick_fsm_cfg.depth_max_m):
             return
-
-    def _manual_hold_stage(self, stage: PickStage) -> bool:
-        return bool(self._pick.manual_mode) and self._pick.stage == stage
         window = max(3, int(self.pick_fsm_cfg.relocalize_window))
         self._pick.object_camera_samples.append(
             (float(object_camera_xyz[0]), float(object_camera_xyz[1]), float(object_camera_xyz[2]))
@@ -523,6 +524,9 @@ class ControlHost:
             self._pick.dropout_count = 0
             self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
         self._pick.last_perception_ts = time.time()
+
+    def _manual_hold_stage(self, stage: PickStage) -> bool:
+        return bool(self._pick.manual_mode) and self._pick.stage == stage
 
     def _estimate_object_camera_stats(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         return filtered_camera_stats(list(self._pick.object_camera_samples), outlier_zscore=float(self.pick_fsm_cfg.outlier_zscore))
@@ -563,6 +567,86 @@ class ControlHost:
         self._pending_target_seq = int(seq)
         self.last_ik_target_xyz = (float(world_xyz[0]), float(world_xyz[1]), float(world_xyz[2]))
 
+    def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
+        if self._pick.anchor_world_xyz is None:
+            print("[pick] coarse skipped: no anchor (start perception first)", flush=True)
+            return False
+        if not self.ik_context:
+            print("[pick] coarse skipped: IK context unavailable", flush=True)
+            return False
+        obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
+        off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
+        pre = obj + off
+        self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
+        self.last_ik_target_xyz = self._pick.pregrasp_world
+        self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
+        look_dir = (obj - pre).reshape(3)
+        look_norm = float(np.linalg.norm(look_dir))
+        look_dir_world = None if look_norm <= 1e-9 else (look_dir / look_norm)
+        if look_dir_world is not None:
+            self.last_ik_target_dir = (float(look_dir_world[0]), float(look_dir_world[1]), float(look_dir_world[2]))
+            self._set_debug_marker(
+                name="pregrasp_look_dir",
+                pos=self._pick.pregrasp_world,
+                direction=look_dir_world,
+                color=[0.9, 0.9, 0.2, 0.95],
+                radius=0.004,
+                ttl_ms=300,
+            )
+        if (not force) and (now - float(self._pick.coarse_last_cmd_ts)) < 0.20:
+            return bool(self._pick.coarse_target_q is not None)
+        if self.last_q is not None:
+            current_seed = np.array(
+                [
+                    float(self.last_q.linear_m),
+                    float(self.last_q.roll_rad),
+                    float(self.last_q.theta1_rad),
+                    float(self.last_q.theta2_rad),
+                ],
+                dtype=float,
+            )
+        else:
+            current_seed = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+        try:
+            ik_res = ik_pipeline.solve_then_align(
+                target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
+                target_dir_world=look_dir_world,
+                context=self.ik_context,
+                position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                max_iters=80,
+                current_seed=current_seed,
+            )
+            if (not ik_res.success) or ik_res.q is None:
+                ik_res = ik_pipeline.solve_then_align(
+                    target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
+                    target_dir_world=None,
+                    context=self.ik_context,
+                    position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                    max_iters=80,
+                    current_seed=current_seed,
+                )
+            if ik_res.success and ik_res.q is not None:
+                q = np.asarray(ik_res.q, dtype=float).reshape(4)
+                self._pending_target_q = proto.SimQ(
+                    linear_m=float(q[0]),
+                    roll_rad=float(q[1]),
+                    theta1_rad=float(q[2]),
+                    theta2_rad=float(q[3]),
+                )
+                self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+                self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+                self._pick.coarse_last_cmd_ts = float(now)
+                print(
+                    f"[pick] coarse IK ok pregrasp={self._pick.pregrasp_world} q={self._pick.coarse_target_q}",
+                    flush=True,
+                )
+                return True
+            print("[pick] coarse IK failed (dir+pos and pos-only)", flush=True)
+            return False
+        except Exception as exc:
+            print(f"[pick] coarse IK exception: {exc}", flush=True)
+            return False
+
     def _tick_pick_fsm(self, now: float) -> None:
         if not self._pick_enabled or self._safety_fault:
             return
@@ -595,76 +679,13 @@ class ControlHost:
             return
         if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
             if self._pick.anchor_world_xyz is None:
+                print("[pick] COARSE: no anchor, returning to SEARCH", flush=True)
                 self._pick_reset_to_search(now)
                 return
-            obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
-            off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
-            pre = obj + off
-            self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
-            self.last_ik_target_xyz = self._pick.pregrasp_world
-            self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
-            look_dir = (obj - pre).reshape(3)
-            look_norm = float(np.linalg.norm(look_dir))
-            look_dir_world = None if look_norm <= 1e-9 else (look_dir / look_norm)
-            if look_dir_world is not None:
-                self.last_ik_target_dir = (float(look_dir_world[0]), float(look_dir_world[1]), float(look_dir_world[2]))
-            if look_dir_world is not None:
-                self._set_debug_marker(
-                    name="pregrasp_look_dir",
-                    pos=self._pick.pregrasp_world,
-                    direction=look_dir_world,
-                    color=[0.9, 0.9, 0.2, 0.95],
-                    radius=0.004,
-                    ttl_ms=300,
-                )
-            # Send real motion command toward pregrasp using IK.
-            if (now - float(self._pick.coarse_last_cmd_ts)) >= 0.20:
-                try:
-                    if self.last_q is not None:
-                        current_seed = np.array(
-                            [
-                                float(self.last_q.linear_m),
-                                float(self.last_q.roll_rad),
-                                float(self.last_q.theta1_rad),
-                                float(self.last_q.theta2_rad),
-                            ],
-                            dtype=float,
-                        )
-                    else:
-                        current_seed = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
-                    ik_res = ik_pipeline.solve_then_align(
-                        target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
-                        target_dir_world=look_dir_world,
-                        context=self.ik_context,
-                        position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
-                        max_iters=80,
-                        current_seed=current_seed,
-                    )
-                    if (not ik_res.success) or ik_res.q is None:
-                        # Fallback: position-first solve when directional alignment is too strict.
-                        ik_res = ik_pipeline.solve_then_align(
-                            target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
-                            target_dir_world=None,
-                            context=self.ik_context,
-                            position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
-                            max_iters=80,
-                            current_seed=current_seed,
-                        )
-                    if ik_res.success and ik_res.q is not None:
-                        q = np.asarray(ik_res.q, dtype=float).reshape(4)
-                        self._pending_target_q = proto.SimQ(
-                            linear_m=float(q[0]),
-                            roll_rad=float(q[1]),
-                            theta1_rad=float(q[2]),
-                            theta2_rad=float(q[3]),
-                        )
-                        self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-                        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
-                        self._pick.coarse_last_cmd_ts = float(now)
-                    else:
-                        print("[pick] coarse IK failed (dir+pos and pos-only)")
-                except Exception as exc:
-                    print(f"[pick] coarse IK exception: {exc}")
+            self._pick_execute_coarse_pregrasp(now, force=False)
+            pre = np.asarray(self._pick.pregrasp_world, dtype=float) if self._pick.pregrasp_world is not None else None
+            if pre is None:
+                return
             # Transition only after actual approach to pregrasp (or timeout), not immediately.
             reach_tol = max(0.02, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
             if self.last_actual_tip_xyz is not None:
@@ -931,30 +952,6 @@ class ControlHost:
                     {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_stage", "device": self.device, "torque_enabled": self.torque_enabled},
                 )
                 return
-            current = self._pick.stage
-            allowed: dict[PickStage, set[PickStage]] = {
-                PickStage.SEARCH: {PickStage.COARSE_WORLD_PREGRASP},
-                PickStage.COARSE_WORLD_PREGRASP: {PickStage.STOP_AND_RELOCALIZE},
-                PickStage.STOP_AND_RELOCALIZE: {PickStage.CAMERA_SERVO_ALIGN},
-                PickStage.CAMERA_SERVO_ALIGN: {PickStage.CONFIDENCE_GATE, PickStage.STOP_AND_RELOCALIZE},
-                PickStage.CONFIDENCE_GATE: {PickStage.SHORT_APPROACH, PickStage.CAMERA_SERVO_ALIGN},
-                PickStage.SHORT_APPROACH: {PickStage.CLOSE_GRIPPER},
-                PickStage.CLOSE_GRIPPER: {PickStage.LIFT_AND_VERIFY},
-                PickStage.LIFT_AND_VERIFY: {PickStage.SEARCH},
-            }
-            if target_stage not in allowed.get(current, set()):
-                self._reply(
-                    ident,
-                    {
-                        "t": "ack",
-                        "ts": proto.now_s(),
-                        "ok": False,
-                        "reason": f"transition_not_allowed:{current.value}->{target_stage.value}",
-                        "device": self.device,
-                        "torque_enabled": self.torque_enabled,
-                    },
-                )
-                return
             # Manual stage forcing should also arm FSM.
             self._pick_enabled = True
             self._pick.manual_mode = True
@@ -964,7 +961,24 @@ class ControlHost:
                     self._pick.anchor_world_xyz = tuple(float(v) for v in self._pick.object_world_latest)
                     self._pick.anchor_world_ts = now
                     self._pick.anchor_confidence = max(float(self._pick.anchor_confidence), 0.5)
+                else:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "coarse_no_anchor: start perception and wait for detections",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    print("[pick] goto COARSE rejected: no anchor/object_world_latest", flush=True)
+                    return
             self._pick_set_stage(target_stage, now)
+            print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
+            if target_stage == PickStage.COARSE_WORLD_PREGRASP:
+                self._pick_execute_coarse_pregrasp(now, force=True)
             self._reply(
                 ident,
                 {
@@ -1581,6 +1595,13 @@ class ControlHost:
                     applied_hw, complete = self._apply_sim_q_target(self._pending_target_q)
                     if applied_hw:
                         self._target_u_state = proto.sim_q_to_control_u(self._pending_target_q, self.cfg)
+                        if complete:
+                            self._pending_target_q = None
+                    elif not self._has_hw():
+                        q_limited, complete = self._limit_target_q(self._pending_target_q)
+                        self.last_q = q_limited
+                        self.last_u = proto.sim_q_to_control_u(q_limited, self.cfg)
+                        self.last_state_ts = time.time()
                         if complete:
                             self._pending_target_q = None
             if (now - self._t_state) >= self._state_period:

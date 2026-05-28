@@ -68,6 +68,10 @@ def draw_pick_fsm_panel(panel) -> None:
             imgui.same_line()
             if imgui.button("Auto Mode"):
                 panel.service.pick_set_mode("auto")
+        reply_reason = str(state.reply_reason or "").strip()
+        if reply_reason:
+            ok_txt = "OK" if bool(state.reply_ok) else "FAIL"
+            imgui.text_wrapped(f"Last host ack ({ok_txt}): {reply_reason}")
         pick_stage = str(state.pick_stage or "").strip()
         if not pick_stage:
             imgui.text("Pick stage: -")
@@ -95,6 +99,9 @@ def draw_pick_fsm_panel(panel) -> None:
                 imgui.text("Manual next stage:")
                 for idx, stage_name in enumerate(next_options):
                     if imgui.button(f"{stage_name}##next_{idx}"):
+                        if not pick_stage:
+                            panel.service.pick_start()
+                        panel.service.pick_set_mode("manual")
                         panel.service.pick_force_stage(stage_name)
                     if (idx + 1) < len(next_options):
                         imgui.same_line()
