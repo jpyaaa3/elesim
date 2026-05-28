@@ -1216,7 +1216,13 @@ class ControlHost:
         if self._safety_fault:
             return False, False
         if not self._has_hw():
-            return False, False
+            # Sim-only mode: apply target directly to host state so sim receives updated q via broadcast.
+            self.last_q = q
+            self.last_u = proto.sim_q_to_control_u(q, self.cfg)
+            if self._target_u_state is None:
+                self._target_u_state = self.last_u
+            self.last_state_ts = time.time()
+            return True, True
         q_limited, complete = self._limit_target_q(q)
         motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
         try:
