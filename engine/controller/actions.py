@@ -64,13 +64,16 @@ class ControlService:
         self._config_path = None if config_path is None else str(config_path)
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
-        self._calibration_current_delta_ma = 500
+        self._calibration_current_delta_ma = 350
+        self._calibration_current_min_threshold_ma = 650
+        self._calibration_current_min_rise_ma = 200
         self._calibration_abort_current_ma = 2000
-        self._calibration_step_u = 2.0
-        self._calibration_poll_s = 0.15
-        self._calibration_ema_alpha = 0.25
+        self._calibration_step_u = 1.0
+        self._calibration_poll_s = 0.22
+        self._calibration_ema_alpha = 0.35
         self._calibration_release_consecutive = 3
-        self._calibration_baseline_samples = 3
+        self._calibration_baseline_samples = 4
+        self._calibration_feedback_reads = 6
         # Host motor_currents_ma keys use seg1/seg2; control-u axes use s1/s2.
         self._calibration_current_keys = {
             "s1": ("s1", "seg1"),
@@ -379,31 +382,47 @@ class ControlService:
                 return abs(int(value))
         return None
 
-    def _refresh_calibration_feedback(self, axis: str) -> tuple[Optional[HostState], Optional[int]]:
+    def _refresh_calibration_feedback(self, axis: str) -> tuple[Optional[HostState], Optional[int], float]:
         if self.client is None:
-            return None, None
+            return None, None, 0.0
         time.sleep(self._calibration_poll_s)
         host_state: Optional[HostState] = None
         current_val: Optional[int] = None
-        for _ in range(3):
+        peak_ma = 0.0
+        for _ in range(int(self._calibration_feedback_reads)):
             host_state = self.client.refresh_state()
             if host_state is not None:
-                current_val = self._calibration_current_for_axis(host_state, axis)
-            time.sleep(0.02)
-        return host_state, current_val
+                sample = self._calibration_current_for_axis(host_state, axis)
+                if sample is not None:
+                    current_val = int(sample)
+                    peak_ma = max(peak_ma, float(current_val))
+            time.sleep(0.03)
+        return host_state, current_val, peak_ma
 
     def _calibration_contact_threshold_ma(self, baseline_ma: float) -> float:
         relative = float(baseline_ma) + float(self._calibration_current_delta_ma)
-        absolute = float(self._calibration_current_threshold_ma)
-        return float(max(relative, absolute * 0.75))
+        return float(max(float(self._calibration_current_min_threshold_ma), relative))
+
+    def _calibration_is_contact(
+        self,
+        *,
+        baseline_ma: float,
+        threshold_ma: float,
+        peak_ma: float,
+        ema_ma: Optional[float],
+    ) -> bool:
+        reading = float(max(peak_ma, float(ema_ma if ema_ma is not None else 0.0)))
+        if reading >= float(threshold_ma):
+            return True
+        return (reading - float(baseline_ma)) >= float(self._calibration_current_min_rise_ma)
 
     def _calibration_measure_baseline(self, axis: str, display_u: float) -> float:
         self.apply_partial_control_u({axis: float(display_u)})
         samples: list[float] = []
         for _ in range(int(self._calibration_baseline_samples)):
-            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            _host_state, current_val, peak_ma = self._refresh_calibration_feedback(axis)
             if current_val is not None:
-                samples.append(float(current_val))
+                samples.append(float(max(current_val, peak_ma)))
         if not samples:
             raise RuntimeError(f"missing {axis} current feedback")
         return float(sum(samples) / len(samples))
@@ -433,17 +452,21 @@ class ControlService:
         start_u: float,
         lo: float,
         hi: float,
+        baseline_ma: float,
         threshold_ma: float,
     ) -> tuple[float, float, int]:
         step = float(self._calibration_step_u)
         direction = int(self._calibration_probe_display_direction(axis))
         display_u = float(start_u)
         ema: Optional[float] = None
+        peak_seen_ma = 0.0
+        baseline_ma = float(baseline_ma)
         self.apply_partial_control_u({axis: display_u})
-        _host_state, current_val = self._refresh_calibration_feedback(axis)
+        _host_state, current_val, peak_ma = self._refresh_calibration_feedback(axis)
         if _host_state is None or current_val is None:
             raise RuntimeError(f"missing {axis} current feedback")
-        ema = self._calibration_update_ema(ema, float(current_val))
+        peak_seen_ma = max(peak_seen_ma, float(peak_ma))
+        ema = self._calibration_update_ema(ema, float(peak_ma))
         while True:
             next_u = float(display_u) + float(direction) * step
             if direction < 0 and next_u < float(lo) - 1e-9:
@@ -452,15 +475,24 @@ class ControlService:
                 break
             display_u = float(max(lo, min(hi, next_u)))
             self.apply_partial_control_u({axis: display_u})
-            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            _host_state, current_val, peak_ma = self._refresh_calibration_feedback(axis)
             if _host_state is None or current_val is None:
                 raise RuntimeError(f"missing {axis} current feedback")
-            ema = self._calibration_update_ema(ema, float(current_val))
-            if float(ema) >= float(self._calibration_abort_current_ma):
+            peak_seen_ma = max(peak_seen_ma, float(peak_ma))
+            ema = self._calibration_update_ema(ema, float(peak_ma))
+            if float(max(peak_ma, ema)) >= float(self._calibration_abort_current_ma):
                 raise RuntimeError(f"{axis} current too high during calibration")
-            if float(ema) >= float(threshold_ma):
+            if self._calibration_is_contact(
+                baseline_ma=baseline_ma,
+                threshold_ma=threshold_ma,
+                peak_ma=peak_ma,
+                ema_ma=ema,
+            ):
                 return float(display_u), float(ema), direction
-        raise RuntimeError(f"no current rise on {axis}")
+        raise RuntimeError(
+            f"no current rise on {axis} "
+            f"(peak={peak_seen_ma:.0f}mA baseline={baseline_ma:.0f} thr={threshold_ma:.0f} end_u={display_u:.1f})"
+        )
 
     def _calibration_release_axis(
         self,
@@ -469,6 +501,7 @@ class ControlService:
         contact_u: float,
         lo: float,
         hi: float,
+        baseline_ma: float,
         threshold_ma: float,
         probe_direction: int,
         ema: float,
@@ -486,13 +519,18 @@ class ControlService:
                 break
             display_u = float(max(lo, min(hi, next_u)))
             self.apply_partial_control_u({axis: display_u})
-            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            _host_state, current_val, peak_ma = self._refresh_calibration_feedback(axis)
             if _host_state is None or current_val is None:
                 raise RuntimeError(f"missing {axis} current feedback")
-            ema = self._calibration_update_ema(ema, float(current_val))
-            if float(ema) >= float(self._calibration_abort_current_ma):
+            ema = self._calibration_update_ema(ema, float(peak_ma))
+            if float(max(peak_ma, ema)) >= float(self._calibration_abort_current_ma):
                 raise RuntimeError(f"{axis} current too high during release")
-            if float(ema) < float(threshold_ma):
+            if not self._calibration_is_contact(
+                baseline_ma=float(baseline_ma),
+                threshold_ma=threshold_ma,
+                peak_ma=peak_ma,
+                ema_ma=ema,
+            ):
                 clear_count += 1
                 if clear_count >= int(self._calibration_release_consecutive):
                     release_display = float(display_u)
@@ -548,6 +586,7 @@ class ControlService:
                         start_u=start_u,
                         lo=lo,
                         hi=hi,
+                        baseline_ma=baseline_ma,
                         threshold_ma=threshold_ma,
                     )
                     self.state.set_calibration_status(running=True, msg=f"releasing {axis}")
@@ -556,6 +595,7 @@ class ControlService:
                         contact_u=contact_u,
                         lo=lo,
                         hi=hi,
+                        baseline_ma=baseline_ma,
                         threshold_ma=threshold_ma,
                         probe_direction=probe_dir,
                         ema=ema,
