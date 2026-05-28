@@ -350,7 +350,11 @@ class ControlService:
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         addon_dir = os.path.join(repo_root, "addons", "autonomous_pick_place_app")
         main_py = os.path.join(addon_dir, "main.py")
-        detector_cfg = os.path.join(addon_dir, "configs", "detector.example.json")
+        mode_key = str(mode).strip().lower()
+        if mode_key == "camera":
+            detector_cfg = os.path.join(addon_dir, "configs", "detector.yolo.example.json")
+        else:
+            detector_cfg = os.path.join(addon_dir, "configs", "detector.example.json")
         if not os.path.isfile(main_py):
             return False, "addon main.py not found"
         if not os.path.isfile(detector_cfg):
@@ -361,7 +365,7 @@ class ControlService:
             "--detector-config",
             detector_cfg,
             "--mode",
-            str(mode),
+            mode_key,
             "--publish-host",
             "--host-endpoint",
             str(self.client.endpoint),
@@ -375,7 +379,7 @@ class ControlService:
             cmd.append("--no-show")
         try:
             self._perception_proc = subprocess.Popen(cmd, cwd=addon_dir)
-            return True, "perception started"
+            return True, f"perception started ({mode_key}, cfg={os.path.basename(detector_cfg)})"
         except Exception as exc:
             self._perception_proc = None
             return False, f"perception start failed: {exc}"
