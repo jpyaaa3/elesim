@@ -52,6 +52,7 @@ class PickContext:
     lift_start_z: Optional[float] = None
     stage_error_m: float = float("inf")
     stage_uncertainty: float = float("inf")
+    last_perception_ts: float = 0.0
 
 
 def filtered_camera_stats(
@@ -449,6 +450,7 @@ class ControlHost:
                 float(object_world_xyz[1]),
                 float(object_world_xyz[2]),
             )
+        self._pick.last_perception_ts = time.time()
 
     def _estimate_object_camera_stats(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         return filtered_camera_stats(list(self._pick.object_camera_samples), outlier_zscore=float(self.pick_fsm_cfg.outlier_zscore))
@@ -504,7 +506,8 @@ class ControlHost:
             self._pick_enabled = False
             return
         if self._pick.stage == PickStage.SEARCH:
-            if self._pick.object_world_latest is not None:
+            perception_fresh = (now - float(self._pick.last_perception_ts)) <= 1.0
+            if self._pick.object_world_latest is not None and perception_fresh:
                 self._pick_set_stage(PickStage.COARSE_WORLD_PREGRASP, now)
             return
         if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
@@ -534,6 +537,12 @@ class ControlHost:
                 self._pick_reset_to_search(now, increment_attempt=True)
             return
         if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
+            # Refresh mu/cov continuously during align; stale mu causes SEARCH<->ALIGN oscillation.
+            mu_new, cov_new = self._estimate_object_camera_stats()
+            if mu_new is not None and cov_new is not None:
+                self._pick.object_camera_mu = (float(mu_new[0]), float(mu_new[1]), float(mu_new[2]))
+                self._pick.object_camera_cov = cov_new
+                self._pick.stage_uncertainty = float(np.trace(cov_new))
             if self._pick.object_camera_mu is None:
                 self._pick_reset_to_search(now, increment_attempt=True)
                 return
