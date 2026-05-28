@@ -597,6 +597,18 @@ class ControlHost:
             pre = obj + off
             self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
             self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
+            look_dir = (obj - pre).reshape(3)
+            look_norm = float(np.linalg.norm(look_dir))
+            look_dir_world = None if look_norm <= 1e-9 else (look_dir / look_norm)
+            if look_dir_world is not None:
+                self._set_debug_marker(
+                    name="pregrasp_look_dir",
+                    pos=self._pick.pregrasp_world,
+                    direction=look_dir_world,
+                    color=[0.9, 0.9, 0.2, 0.95],
+                    radius=0.004,
+                    ttl_ms=300,
+                )
             # Send real motion command toward pregrasp using IK.
             if self.last_q is not None and (now - float(self._pick.coarse_last_cmd_ts)) >= 0.20:
                 try:
@@ -611,7 +623,7 @@ class ControlHost:
                     )
                     ik_res = ik_pipeline.solve_then_align(
                         target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
-                        target_dir_world=None,
+                        target_dir_world=look_dir_world,
                         context=self.ik_context,
                         position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
                         max_iters=80,
