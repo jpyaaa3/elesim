@@ -37,6 +37,7 @@ class ControlHost:
         ik_context: Optional[dict[str, Any]] = None,
         hand_eye_transform: Optional[Any] = None,
         hand_eye_parent_frame: str = "node9",
+        show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
@@ -52,6 +53,7 @@ class ControlHost:
         self.ik_context = dict(ik_context or {})
         self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
+        self.show_all_ports = bool(show_all_ports)
 
         self.ctx = zmq.Context.instance()
         self.sock = self.ctx.socket(zmq.ROUTER)
@@ -130,7 +132,15 @@ class ControlHost:
         if serial_list_ports is None:
             return []
         try:
-            return [str(p.device) for p in serial_list_ports.comports()]
+            ports = [str(p.device) for p in serial_list_ports.comports()]
+            if self.show_all_ports:
+                return ports
+            filtered: list[str] = []
+            for dev in ports:
+                base = os.path.basename(str(dev))
+                if base.startswith("ttyUSB") or base.startswith("ttyACM"):
+                    filtered.append(str(dev))
+            return filtered
         except Exception:
             return []
 
@@ -974,6 +984,7 @@ def run_host(
             ik_context=ik_context,
             hand_eye_transform=hand_eye_transform,
             hand_eye_parent_frame=hand_eye_parent_frame,
+            show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
         )
         print(f"[host] comm with ctrl by {bind_addr}")

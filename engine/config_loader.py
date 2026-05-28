@@ -44,6 +44,7 @@ class SimConfig:
     host_sim_port: str = "tcp://127.0.0.1:5556"
     host_feedback_port: str = "tcp://127.0.0.1:5557"
     hand_eye_config: str = ""
+    show_all_ports: bool = False
 
 
 @dataclass(frozen=True)
@@ -241,6 +242,7 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         host_sim_port=cp.get("runtime", "host_sim_port", fallback=sc0.host_sim_port),
         host_feedback_port=cp.get("runtime", "host_feedback_port", fallback=sc0.host_feedback_port),
         hand_eye_config=hand_eye_config,
+        show_all_ports=cp.getboolean("runtime", "show_all_ports", fallback=sc0.show_all_ports),
     )
 
 
