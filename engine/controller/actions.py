@@ -414,6 +414,18 @@ class ControlService:
         alpha = float(self._calibration_ema_alpha)
         return float(alpha * float(current_val) + (1.0 - alpha) * float(ema))
 
+    def _calibration_axis_command_direction(self, axis: str) -> int:
+        cfg = self.control_mapping()
+        dirs = tuple(int(v) for v in cfg.command_direction)
+        index = {"s1": 2, "s2": 3}.get(str(axis).strip().lower())
+        if index is None:
+            raise ValueError(f"unknown calibration axis: {axis}")
+        return int(dirs[index])
+
+    def _calibration_probe_display_direction(self, axis: str) -> int:
+        # UI/display u step that reduces commanded seg value (respects command_direction).
+        return -1 if self._calibration_axis_command_direction(axis) > 0 else +1
+
     def _calibration_probe_axis(
         self,
         axis: str,
@@ -424,32 +436,30 @@ class ControlService:
         threshold_ma: float,
     ) -> tuple[float, float, int]:
         step = float(self._calibration_step_u)
-        for direction in (-1, +1):
-            display_u = float(start_u)
-            ema: Optional[float] = None
+        direction = int(self._calibration_probe_display_direction(axis))
+        display_u = float(start_u)
+        ema: Optional[float] = None
+        self.apply_partial_control_u({axis: display_u})
+        _host_state, current_val = self._refresh_calibration_feedback(axis)
+        if _host_state is None or current_val is None:
+            raise RuntimeError(f"missing {axis} current feedback")
+        ema = self._calibration_update_ema(ema, float(current_val))
+        while True:
+            next_u = float(display_u) + float(direction) * step
+            if direction < 0 and next_u < float(lo) - 1e-9:
+                break
+            if direction > 0 and next_u > float(hi) + 1e-9:
+                break
+            display_u = float(max(lo, min(hi, next_u)))
             self.apply_partial_control_u({axis: display_u})
             _host_state, current_val = self._refresh_calibration_feedback(axis)
             if _host_state is None or current_val is None:
                 raise RuntimeError(f"missing {axis} current feedback")
             ema = self._calibration_update_ema(ema, float(current_val))
-            while True:
-                next_u = float(display_u) + float(direction) * step
-                if direction < 0 and next_u < float(lo) - 1e-9:
-                    break
-                if direction > 0 and next_u > float(hi) + 1e-9:
-                    break
-                display_u = float(max(lo, min(hi, next_u)))
-                self.apply_partial_control_u({axis: display_u})
-                _host_state, current_val = self._refresh_calibration_feedback(axis)
-                if _host_state is None or current_val is None:
-                    raise RuntimeError(f"missing {axis} current feedback")
-                ema = self._calibration_update_ema(ema, float(current_val))
-                if float(ema) >= float(self._calibration_abort_current_ma):
-                    raise RuntimeError(f"{axis} current too high during calibration")
-                if float(ema) >= float(threshold_ma):
-                    return float(display_u), float(ema), int(direction)
-            self.apply_partial_control_u({axis: float(start_u)})
-            _host_state, current_val = self._refresh_calibration_feedback(axis)
+            if float(ema) >= float(self._calibration_abort_current_ma):
+                raise RuntimeError(f"{axis} current too high during calibration")
+            if float(ema) >= float(threshold_ma):
+                return float(display_u), float(ema), direction
         raise RuntimeError(f"no current rise on {axis}")
 
     def _calibration_release_axis(
