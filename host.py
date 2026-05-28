@@ -655,7 +655,8 @@ class ControlHost:
                         self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
                     return
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
-                self._pick_hard_fail(now)
+                if self._pick_can_auto_advance():
+                    self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.STOP_AND_RELOCALIZE:
             mu, cov = self._estimate_object_camera_stats()
@@ -674,7 +675,8 @@ class ControlHost:
                         self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
                     return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
-                self._pick_hard_fail(now)
+                if self._pick_can_auto_advance():
+                    self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
             # Refresh mu/cov continuously during align; stale mu causes SEARCH<->ALIGN oscillation.
@@ -720,7 +722,8 @@ class ControlHost:
                     timeout_s=float(self.pick_fsm_cfg.align_timeout_s),
                     error_m=float(self._pick.stage_error_m),
                 ):
-                    self._pick_hard_fail(now)
+                    if self._pick_can_auto_advance():
+                        self._pick_hard_fail(now)
                 else:
                     self._pick_soft_fail()
                 return
@@ -794,7 +797,8 @@ class ControlHost:
             )
             self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
-                self._pick_hard_fail(now)
+                if self._pick_can_auto_advance():
+                    self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.CLOSE_GRIPPER:
             self.last_claw_closed = True
@@ -804,7 +808,8 @@ class ControlHost:
         if self._pick.stage == PickStage.LIFT_AND_VERIFY:
             if self.last_actual_tip_xyz is None:
                 if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
-                    self._pick_hard_fail(now)
+                    if self._pick_can_auto_advance():
+                        self._pick_hard_fail(now)
                 return
             cur_z = float(self.last_actual_tip_xyz[2])
             if self._pick.lift_start_z is None:
@@ -825,7 +830,8 @@ class ControlHost:
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
                 self.last_claw_closed = False
-                self._pick_hard_fail(now)
+                if self._pick_can_auto_advance():
+                    self._pick_hard_fail(now)
             return
 
     def _handle_pick_command(self, ident: bytes, msg: Dict[str, Any]) -> None:
