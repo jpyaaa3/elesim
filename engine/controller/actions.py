@@ -336,6 +336,10 @@ class ControlService:
         if self.client is not None:
             self.client.send_pick_command("goto_stage", stage=str(stage))
 
+    def pick_set_mode(self, mode: str) -> None:
+        if self.client is not None:
+            self.client.send_pick_command("set_mode", mode=str(mode))
+
     def perception_running(self) -> bool:
         return self._perception_proc is not None and self._perception_proc.poll() is None
 

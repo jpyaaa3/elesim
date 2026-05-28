@@ -323,10 +323,12 @@ class ControlClient:
     def disconnect_device(self) -> None:
         self._send({"t": "disconnect_device", "ts": time.time()})
 
-    def send_pick_command(self, cmd: str, *, stage: Optional[str] = None) -> None:
+    def send_pick_command(self, cmd: str, *, stage: Optional[str] = None, mode: Optional[str] = None) -> None:
         msg = {"t": "pick_cmd", "ts": time.time(), "cmd": str(cmd)}
         if stage is not None:
             msg["stage"] = str(stage)
+        if mode is not None:
+            msg["mode"] = str(mode)
         self._send(msg)
 
     def send_claw_command(self, *, claw_closed: bool, source: str = "target") -> None:

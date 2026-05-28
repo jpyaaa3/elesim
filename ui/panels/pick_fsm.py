@@ -59,6 +59,12 @@ def draw_pick_fsm_panel(panel) -> None:
             imgui.same_line()
             if imgui.button("Reset Attempt"):
                 panel.service.pick_reset()
+            imgui.same_line()
+            if imgui.button("Manual Mode"):
+                panel.service.pick_set_mode("manual")
+            imgui.same_line()
+            if imgui.button("Auto Mode"):
+                panel.service.pick_set_mode("auto")
         pick_stage = str(state.pick_stage or "").strip()
         if not pick_stage:
             imgui.text("Pick stage: -")

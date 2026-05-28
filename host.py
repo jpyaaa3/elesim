@@ -67,6 +67,7 @@ class PickContext:
     align_no_improve_count: int = 0
     coarse_last_cmd_ts: float = 0.0
     coarse_target_q: Optional[tuple[float, float, float, float]] = None
+    manual_mode: bool = False
 
 
 def filtered_camera_stats(
@@ -441,6 +442,9 @@ class ControlHost:
         self._pick.stage = stage
         self._pick.stage_enter_ts = float(now)
 
+    def _pick_can_auto_advance(self) -> bool:
+        return not bool(self._pick.manual_mode)
+
     def _pick_reset_to_search(self, now: float, *, increment_attempt: bool = False) -> None:
         if increment_attempt:
             self._pick.attempt += 1
@@ -572,6 +576,8 @@ class ControlHost:
             self._pick_enabled = False
             return
         if self._pick.stage == PickStage.SEARCH:
+            if self._pick.manual_mode:
+                return
             perception_fresh = (now - float(self._pick.last_perception_ts)) <= 1.0
             _mu_s, cov_s = self._estimate_object_camera_stats()
             stable_cov = bool(cov_s is not None and float(np.trace(cov_s)) <= float(self.pick_fsm_cfg.uncertainty_threshold))
@@ -630,7 +636,8 @@ class ControlHost:
                 dist = float(np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - pre))
                 self._pick.stage_error_m = dist
                 if dist <= reach_tol:
-                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
                     return
             elif self._pick.coarse_target_q is not None and self.last_q is not None:
                 q_now = np.array(
@@ -644,7 +651,8 @@ class ControlHost:
                 )
                 q_goal = np.asarray(self._pick.coarse_target_q, dtype=float).reshape(4)
                 if float(np.linalg.norm(q_now - q_goal)) <= 0.02:
-                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
                     return
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
                 self._pick_hard_fail(now)
@@ -662,7 +670,8 @@ class ControlHost:
                     self._pick.object_world_mu = (float(mu_world[0]), float(mu_world[1]), float(mu_world[2]))
                     self._pick_try_update_anchor(self._pick.object_world_mu)
                     self._set_debug_marker(name="object_mu_world", pos=self._pick.object_world_mu, color=[0.2, 0.95, 0.8, 0.95], radius=0.01, ttl_ms=300)
-                    self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
                     return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
                 self._pick_hard_fail(now)
@@ -694,11 +703,13 @@ class ControlHost:
                 self._pick.align_no_improve_count = 0
             self._pick.align_prev_error_m = float(self._pick.stage_error_m)
             if self._pick.stage_error_m <= float(self.pick_fsm_cfg.error_threshold_m):
-                self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
                 return
             if self._pick.align_no_improve_count >= 6:
                 # Direction mismatch/noisy servo oscillation: re-localize instead of burning attempts.
-                self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
                 self._pick.align_no_improve_count = 0
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.align_timeout_s):
@@ -738,10 +749,12 @@ class ControlHost:
                 uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
             ) and float(self._pick.score) >= float(self.pick_fsm_cfg.score_pass)
             if pass_gate:
-                self._pick_set_stage(PickStage.SHORT_APPROACH, now)
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.SHORT_APPROACH, now)
             else:
                 if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
-                    self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
                     self._pick_soft_fail()
                 else:
                     self._pick_hard_fail(now)
@@ -769,7 +782,8 @@ class ControlHost:
             desired_z = max(0.01, min(0.08, float(self.pick_fsm_cfg.short_approach_m)))
             err_z = float(self._pick.object_camera_mu[2]) - desired_z
             if abs(err_z) <= max(0.005, float(self.pick_fsm_cfg.error_threshold_m)):
-                self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
                 return
             dz = float(np.clip(err_z, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m)))
             self._pending_target_q = proto.SimQ(
@@ -784,7 +798,8 @@ class ControlHost:
             return
         if self._pick.stage == PickStage.CLOSE_GRIPPER:
             self.last_claw_closed = True
-            self._pick_set_stage(PickStage.LIFT_AND_VERIFY, now)
+            if self._pick_can_auto_advance():
+                self._pick_set_stage(PickStage.LIFT_AND_VERIFY, now)
             return
         if self._pick.stage == PickStage.LIFT_AND_VERIFY:
             if self.last_actual_tip_xyz is None:
@@ -818,6 +833,7 @@ class ControlHost:
         now = time.time()
         if cmd == "start":
             self._pick_enabled = True
+            self._pick.manual_mode = False
             self._pick_reset_to_search(now, increment_attempt=False)
             self._reply(
                 ident,
@@ -826,6 +842,7 @@ class ControlHost:
             return
         if cmd == "stop":
             self._pick_enabled = False
+            self._pick.manual_mode = False
             self._pick_reset_to_search(now, increment_attempt=False)
             self._reply(
                 ident,
@@ -835,6 +852,7 @@ class ControlHost:
         if cmd == "reset":
             self._pick.attempt = 0
             self._pick_enabled = bool(self.pick_fsm_cfg.enable)
+            self._pick.manual_mode = False
             self._pick_reset_to_search(now, increment_attempt=False)
             self._reply(
                 ident,
@@ -877,6 +895,7 @@ class ControlHost:
                 return
             # Manual stage forcing should also arm FSM.
             self._pick_enabled = True
+            self._pick.manual_mode = True
             # If user jumps to coarse without explicit anchor, fallback to latest perceived world point.
             if target_stage == PickStage.COARSE_WORLD_PREGRASP and self._pick.anchor_world_xyz is None:
                 if self._pick.object_world_latest is not None:
@@ -891,6 +910,27 @@ class ControlHost:
                     "ts": proto.now_s(),
                     "ok": True,
                     "reason": f"stage_forced:{target_stage.value}",
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            return
+        if cmd == "set_mode":
+            mode_raw = str(msg.get("mode", "")).strip().lower()
+            if mode_raw not in ("auto", "manual"):
+                self._reply(
+                    ident,
+                    {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_mode", "device": self.device, "torque_enabled": self.torque_enabled},
+                )
+                return
+            self._pick.manual_mode = bool(mode_raw == "manual")
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": True,
+                    "reason": f"mode_set:{mode_raw}",
                     "device": self.device,
                     "torque_enabled": self.torque_enabled,
                 },
