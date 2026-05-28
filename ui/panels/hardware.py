@@ -54,6 +54,15 @@ def draw_hardware_panel(panel) -> None:
                 imgui.text_colored(f"Host: {reply_reason}", 1.0, 0.35, 0.35)
         if str(state.safety_fault).strip():
             imgui.text_colored(f"Safety fault: {state.safety_fault}", 1.0, 0.25, 0.25)
+        pick_stage = str(state.pick_stage or "").strip()
+        if pick_stage:
+            pick_error_txt = "-" if state.pick_error_m is None else f"{float(state.pick_error_m):.4f} m"
+            pick_uncertainty_txt = "-" if state.pick_uncertainty is None else f"{float(state.pick_uncertainty):.6f}"
+            imgui.separator()
+            imgui.text(f"Pick stage: {pick_stage}")
+            imgui.text(f"Pick error: {pick_error_txt}")
+            imgui.text(f"Pick uncertainty: {pick_uncertainty_txt}")
+            imgui.text(f"Pick attempt: {int(state.pick_attempt)}")
         if state.motor_currents_ma:
             currents_text = ", ".join(f"{k}={int(v)}mA" for k, v in state.motor_currents_ma.items())
             imgui.text_wrapped(f"Currents: {currents_text}")

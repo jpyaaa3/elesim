@@ -20,6 +20,10 @@ class HostState:
     safety_fault: str
     actual_tip_xyz: Optional[tuple[float, float, float]]
     actual_tip_dir: Optional[tuple[float, float, float]]
+    pick_stage: str
+    pick_error_m: Optional[float]
+    pick_uncertainty: Optional[float]
+    pick_attempt: int
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]

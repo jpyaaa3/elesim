@@ -61,6 +61,10 @@ class ControlClient:
         self.last_safety_fault: str = ""
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
+        self.last_pick_stage: str = ""
+        self.last_pick_error_m: Optional[float] = None
+        self.last_pick_uncertainty: Optional[float] = None
+        self.last_pick_attempt: int = 0
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -95,6 +99,10 @@ class ControlClient:
             safety_fault=str(self.last_safety_fault),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
+            pick_stage=str(self.last_pick_stage),
+            pick_error_m=self.last_pick_error_m,
+            pick_uncertainty=self.last_pick_uncertainty,
+            pick_attempt=int(self.last_pick_attempt),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -168,6 +176,23 @@ class ControlClient:
                     float(actual_tip_dir_raw[1]),
                     float(actual_tip_dir_raw[2]),
                 )
+            if "pick_stage" in msg:
+                self.last_pick_stage = str(msg.get("pick_stage", ""))
+            if "pick_error_m" in msg:
+                try:
+                    self.last_pick_error_m = float(msg.get("pick_error_m"))
+                except (TypeError, ValueError):
+                    self.last_pick_error_m = None
+            if "pick_uncertainty" in msg:
+                try:
+                    self.last_pick_uncertainty = float(msg.get("pick_uncertainty"))
+                except (TypeError, ValueError):
+                    self.last_pick_uncertainty = None
+            if "pick_attempt" in msg:
+                try:
+                    self.last_pick_attempt = int(msg.get("pick_attempt", 0))
+                except (TypeError, ValueError):
+                    self.last_pick_attempt = 0
             self.is_connected = True
             return
 
@@ -207,6 +232,23 @@ class ControlClient:
                     float(actual_tip_dir_raw[1]),
                     float(actual_tip_dir_raw[2]),
                 )
+            if "pick_stage" in msg:
+                self.last_pick_stage = str(msg.get("pick_stage", ""))
+            if "pick_error_m" in msg:
+                try:
+                    self.last_pick_error_m = float(msg.get("pick_error_m"))
+                except (TypeError, ValueError):
+                    self.last_pick_error_m = None
+            if "pick_uncertainty" in msg:
+                try:
+                    self.last_pick_uncertainty = float(msg.get("pick_uncertainty"))
+                except (TypeError, ValueError):
+                    self.last_pick_uncertainty = None
+            if "pick_attempt" in msg:
+                try:
+                    self.last_pick_attempt = int(msg.get("pick_attempt", 0))
+                except (TypeError, ValueError):
+                    self.last_pick_attempt = 0
             self.is_connected = True
             if self.last_reply_reason == "":
                 self.last_reply_ok = True
