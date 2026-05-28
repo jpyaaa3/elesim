@@ -570,7 +570,8 @@ class ControlHost:
             PickStage.CAMERA_SERVO_ALIGN,
             PickStage.LIFT_AND_VERIFY,
         ):
-            self._pick_reset_to_search(now, increment_attempt=True)
+            if self._pick_can_auto_advance():
+                self._pick_reset_to_search(now, increment_attempt=True)
             return
         if self._pick.attempt >= int(self.pick_fsm_cfg.max_attempts):
             self._pick_enabled = False
