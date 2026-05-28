@@ -144,6 +144,10 @@ def pack_state(
     motor_currents_ma: Optional[dict[str, int]] = None,
     safety_fault: Optional[str] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
+    pick_stage: Optional[str] = None,
+    pick_error_m: Optional[float] = None,
+    pick_uncertainty: Optional[float] = None,
+    pick_attempt: Optional[int] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -203,6 +207,14 @@ def pack_state(
                 marker["ttl_ms"] = int(raw.get("ttl_ms", 0))
             packed_markers.append(marker)
         out["debug_markers"] = packed_markers
+    if pick_stage is not None:
+        out["pick_stage"] = str(pick_stage)
+    if pick_error_m is not None:
+        out["pick_error_m"] = float(pick_error_m)
+    if pick_uncertainty is not None:
+        out["pick_uncertainty"] = float(pick_uncertainty)
+    if pick_attempt is not None:
+        out["pick_attempt"] = int(pick_attempt)
     return out
 
 

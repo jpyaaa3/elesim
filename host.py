@@ -6,6 +6,9 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, Optional, Set
 
 import numpy as np
@@ -13,12 +16,70 @@ import zmq
 
 from engine.config_loader import load_app_config_from_ini
 from engine.config_loader import HardwareConfig
+from engine.config_loader import PickFsmConfig
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
 
 from serial.tools import list_ports as serial_list_ports
+
+
+class PickStage(str, Enum):
+    SEARCH = "SEARCH"
+    COARSE_WORLD_PREGRASP = "COARSE_WORLD_PREGRASP"
+    STOP_AND_RELOCALIZE = "STOP_AND_RELOCALIZE"
+    CAMERA_SERVO_ALIGN = "CAMERA_SERVO_ALIGN"
+    CONFIDENCE_GATE = "CONFIDENCE_GATE"
+    SHORT_APPROACH = "SHORT_APPROACH"
+    CLOSE_GRIPPER = "CLOSE_GRIPPER"
+    LIFT_AND_VERIFY = "LIFT_AND_VERIFY"
+
+
+@dataclass
+class PickContext:
+    stage: PickStage = PickStage.SEARCH
+    stage_enter_ts: float = 0.0
+    attempt: int = 0
+    object_camera_samples: deque[tuple[float, float, float]] = field(default_factory=deque)
+    object_world_latest: Optional[tuple[float, float, float]] = None
+    object_camera_mu: Optional[tuple[float, float, float]] = None
+    object_camera_cov: Optional[np.ndarray] = None
+    object_world_mu: Optional[tuple[float, float, float]] = None
+    desired_camera_object: tuple[float, float, float] = (0.0, 0.0, 0.2)
+    pregrasp_world: Optional[tuple[float, float, float]] = None
+    short_approach_world: Optional[tuple[float, float, float]] = None
+    lift_start_z: Optional[float] = None
+    stage_error_m: float = float("inf")
+    stage_uncertainty: float = float("inf")
+
+
+def filtered_camera_stats(
+    samples: list[tuple[float, float, float]] | np.ndarray, *, outlier_zscore: float
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    arr = np.asarray(samples, dtype=float)
+    if arr.ndim != 2 or arr.shape[0] < 3 or arr.shape[1] != 3:
+        return None, None
+    mean = np.mean(arr, axis=0)
+    std = np.std(arr, axis=0) + 1e-9
+    zscore = np.abs((arr - mean) / std)
+    keep = np.all(zscore <= float(outlier_zscore), axis=1)
+    filtered = arr[keep]
+    if filtered.shape[0] < 3:
+        filtered = arr
+    mu = np.mean(filtered, axis=0)
+    cov = np.cov(filtered.T)
+    if cov.shape != (3, 3):
+        cov = np.diag(np.array([1e-4, 1e-4, 1e-4], dtype=float))
+    return mu, cov
+
+
+def should_pass_confidence_gate(*, error_m: float, uncertainty: float, error_threshold_m: float, uncertainty_threshold: float) -> bool:
+    return float(error_m) <= float(error_threshold_m) and float(uncertainty) <= float(uncertainty_threshold)
+
+
+def should_stage_timeout(*, stage_elapsed_s: float, timeout_s: float) -> bool:
+    return float(stage_elapsed_s) > float(timeout_s)
 
 
 class ControlHost:
@@ -39,6 +100,7 @@ class ControlHost:
         hand_eye_parent_frame: str = "node9",
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
+        pick_fsm_cfg: Optional[PickFsmConfig] = None,
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
         hw_cmd_hz: float = 30.0,
@@ -54,6 +116,7 @@ class ControlHost:
         self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
         self.show_all_ports = bool(show_all_ports)
+        self.pick_fsm_cfg = pick_fsm_cfg or PickFsmConfig()
 
         self.ctx = zmq.Context.instance()
         self.sock = self.ctx.socket(zmq.ROUTER)
@@ -109,6 +172,9 @@ class ControlHost:
         self._last_motor_current_by_id: Dict[int, int] = {}
         self._safety_fault: str = ""
         self._yellow_zone_ids: Set[int] = set()
+        self._pick = PickContext()
+        self._pick.stage_enter_ts = time.time()
+        self._pick_enabled = bool(self.pick_fsm_cfg.enable)
         if not self._has_hw():
             self._set_virtual_neutral_state()
 
@@ -347,6 +413,225 @@ class ControlHost:
             ttl_ms=250,
         )
         return True, "perception markers updated", p_w
+
+    def _pick_set_stage(self, stage: PickStage, now: float) -> None:
+        self._pick.stage = stage
+        self._pick.stage_enter_ts = float(now)
+
+    def _pick_reset_to_search(self, now: float, *, increment_attempt: bool = False) -> None:
+        if increment_attempt:
+            self._pick.attempt += 1
+        self._pick.stage_error_m = float("inf")
+        self._pick.stage_uncertainty = float("inf")
+        self._pick.pregrasp_world = None
+        self._pick.short_approach_world = None
+        self._pick.object_camera_mu = None
+        self._pick.object_camera_cov = None
+        self._pick.object_world_mu = None
+        self._pick.lift_start_z = None
+        self._pick_set_stage(PickStage.SEARCH, now)
+
+    def _pick_record_perception_sample(
+        self, object_camera_xyz: tuple[float, float, float], object_world_xyz: Optional[tuple[float, float, float]]
+    ) -> None:
+        z = float(object_camera_xyz[2])
+        if z < float(self.pick_fsm_cfg.depth_min_m) or z > float(self.pick_fsm_cfg.depth_max_m):
+            return
+        window = max(3, int(self.pick_fsm_cfg.relocalize_window))
+        self._pick.object_camera_samples.append(
+            (float(object_camera_xyz[0]), float(object_camera_xyz[1]), float(object_camera_xyz[2]))
+        )
+        while len(self._pick.object_camera_samples) > window:
+            self._pick.object_camera_samples.popleft()
+        if object_world_xyz is not None:
+            self._pick.object_world_latest = (
+                float(object_world_xyz[0]),
+                float(object_world_xyz[1]),
+                float(object_world_xyz[2]),
+            )
+
+    def _estimate_object_camera_stats(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        return filtered_camera_stats(list(self._pick.object_camera_samples), outlier_zscore=float(self.pick_fsm_cfg.outlier_zscore))
+
+    def _camera_to_world_point(self, object_camera_xyz: np.ndarray) -> Optional[np.ndarray]:
+        if not self.ik_context or self.hand_eye_transform is None or self.last_q is None:
+            return None
+        q4 = np.array(
+            [
+                float(self.last_q.linear_m),
+                float(self.last_q.roll_rad),
+                float(self.last_q.theta1_rad),
+                float(self.last_q.theta2_rad),
+            ],
+            dtype=float,
+        )
+        try:
+            p_w = camera_point_to_world(
+                self.ik_context,
+                q4,
+                self.hand_eye_transform,
+                np.asarray(object_camera_xyz, dtype=float).reshape(3),
+                parent_frame=self.hand_eye_parent_frame,
+            )
+        except Exception:
+            return None
+        return np.asarray(p_w, dtype=float).reshape(3)
+
+    def _pick_cmd_world_target(self, world_xyz: tuple[float, float, float], *, seq: int) -> None:
+        if self.last_q is None:
+            return
+        self._pending_target_q = proto.SimQ(
+            linear_m=float(world_xyz[0]),
+            roll_rad=float(self.last_q.roll_rad),
+            theta1_rad=float(self.last_q.theta1_rad),
+            theta2_rad=float(self.last_q.theta2_rad),
+        )
+        self._pending_target_seq = int(seq)
+
+    def _tick_pick_fsm(self, now: float) -> None:
+        if not self._pick_enabled or self._safety_fault:
+            return
+        stage_elapsed = float(now - self._pick.stage_enter_ts)
+        if should_stage_timeout(stage_elapsed_s=stage_elapsed, timeout_s=float(self.pick_fsm_cfg.stage_timeout_s)) and self._pick.stage not in (
+            PickStage.SEARCH,
+            PickStage.STOP_AND_RELOCALIZE,
+            PickStage.CAMERA_SERVO_ALIGN,
+            PickStage.LIFT_AND_VERIFY,
+        ):
+            self._pick_reset_to_search(now, increment_attempt=True)
+            return
+        if self._pick.attempt >= int(self.pick_fsm_cfg.max_attempts):
+            self._pick_enabled = False
+            return
+        if self._pick.stage == PickStage.SEARCH:
+            if self._pick.object_world_latest is not None:
+                self._pick_set_stage(PickStage.COARSE_WORLD_PREGRASP, now)
+            return
+        if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
+            if self._pick.object_world_latest is None:
+                self._pick_reset_to_search(now)
+                return
+            obj = np.asarray(self._pick.object_world_latest, dtype=float)
+            off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
+            pre = obj + off
+            self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
+            self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
+            self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+            return
+        if self._pick.stage == PickStage.STOP_AND_RELOCALIZE:
+            mu, cov = self._estimate_object_camera_stats()
+            if mu is not None and cov is not None:
+                self._pick.object_camera_mu = (float(mu[0]), float(mu[1]), float(mu[2]))
+                self._pick.object_camera_cov = cov
+                self._pick.stage_uncertainty = float(np.trace(cov))
+                mu_world = self._camera_to_world_point(mu)
+                if mu_world is not None:
+                    self._pick.object_world_mu = (float(mu_world[0]), float(mu_world[1]), float(mu_world[2]))
+                    self._set_debug_marker(name="object_mu_world", pos=self._pick.object_world_mu, color=[0.2, 0.95, 0.8, 0.95], radius=0.01, ttl_ms=300)
+                    self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                    return
+            if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
+                self._pick_reset_to_search(now, increment_attempt=True)
+            return
+        if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
+            if self._pick.object_camera_mu is None:
+                self._pick_reset_to_search(now, increment_attempt=True)
+                return
+            mu = np.asarray(self._pick.object_camera_mu, dtype=float)
+            desired = np.asarray(self._pick.desired_camera_object, dtype=float)
+            err = desired - mu
+            self._pick.stage_error_m = float(np.linalg.norm(err))
+            if self._pick.stage_error_m <= float(self.pick_fsm_cfg.error_threshold_m):
+                self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
+                return
+            if stage_elapsed > float(self.pick_fsm_cfg.align_timeout_s):
+                self._pick_reset_to_search(now, increment_attempt=True)
+                return
+            if self.last_q is not None:
+                step = np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
+                next_q = proto.SimQ(
+                    linear_m=float(self.last_q.linear_m + step[2]),
+                    roll_rad=float(self.last_q.roll_rad),
+                    theta1_rad=float(self.last_q.theta1_rad + step[0]),
+                    theta2_rad=float(self.last_q.theta2_rad + step[1]),
+                )
+                self._pending_target_q = next_q
+                self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+            return
+        if self._pick.stage == PickStage.CONFIDENCE_GATE:
+            if should_pass_confidence_gate(
+                error_m=float(self._pick.stage_error_m),
+                uncertainty=float(self._pick.stage_uncertainty),
+                error_threshold_m=float(self.pick_fsm_cfg.error_threshold_m),
+                uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
+            ):
+                self._pick_set_stage(PickStage.SHORT_APPROACH, now)
+            else:
+                self._pick_reset_to_search(now, increment_attempt=True)
+            return
+        if self._pick.stage == PickStage.SHORT_APPROACH:
+            if self._pick.object_world_mu is None:
+                self._pick_reset_to_search(now, increment_attempt=True)
+                return
+            obj = np.asarray(self._pick.object_world_mu, dtype=float)
+            target = obj + np.array([0.0, 0.0, max(0.0, float(self.pick_fsm_cfg.short_approach_m))], dtype=float)
+            self._pick.short_approach_world = (float(target[0]), float(target[1]), float(target[2]))
+            self._set_debug_marker(
+                name="short_approach_target",
+                pos=self._pick.short_approach_world,
+                color=[0.95, 0.7, 0.1, 0.95],
+                radius=0.010,
+                ttl_ms=300,
+            )
+            if self._pick.object_camera_mu is None or self.last_q is None:
+                self._pick_reset_to_search(now, increment_attempt=True)
+                return
+            desired_z = max(0.01, min(0.08, float(self.pick_fsm_cfg.short_approach_m)))
+            err_z = float(self._pick.object_camera_mu[2]) - desired_z
+            if abs(err_z) <= max(0.005, float(self.pick_fsm_cfg.error_threshold_m)):
+                self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
+                return
+            dz = float(np.clip(err_z, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m)))
+            self._pending_target_q = proto.SimQ(
+                linear_m=float(self.last_q.linear_m + dz),
+                roll_rad=float(self.last_q.roll_rad),
+                theta1_rad=float(self.last_q.theta1_rad),
+                theta2_rad=float(self.last_q.theta2_rad),
+            )
+            self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+            if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
+                self._pick_reset_to_search(now, increment_attempt=True)
+            return
+        if self._pick.stage == PickStage.CLOSE_GRIPPER:
+            self.last_claw_closed = True
+            self._pick_set_stage(PickStage.LIFT_AND_VERIFY, now)
+            return
+        if self._pick.stage == PickStage.LIFT_AND_VERIFY:
+            if self.last_actual_tip_xyz is None:
+                if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
+                    self._pick_reset_to_search(now, increment_attempt=True)
+                return
+            cur_z = float(self.last_actual_tip_xyz[2])
+            if self._pick.lift_start_z is None:
+                self._pick.lift_start_z = cur_z
+                if self.last_q is not None:
+                    self._pending_target_q = proto.SimQ(
+                        linear_m=float(self.last_q.linear_m - float(self.pick_fsm_cfg.lift_height_m)),
+                        roll_rad=float(self.last_q.roll_rad),
+                        theta1_rad=float(self.last_q.theta1_rad),
+                        theta2_rad=float(self.last_q.theta2_rad),
+                    )
+                    self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+            lift_ok = (cur_z - float(self._pick.lift_start_z)) >= float(self.pick_fsm_cfg.lift_height_m) * 0.5
+            grip_ok = bool(self.last_claw_closed) and bool(self._claw_close_stalled)
+            if lift_ok or grip_ok:
+                self._pick.attempt = 0
+                self._pick_reset_to_search(now, increment_attempt=False)
+                return
+            if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
+                self.last_claw_closed = False
+                self._pick_reset_to_search(now, increment_attempt=True)
+            return
 
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
@@ -799,14 +1084,20 @@ class ControlHost:
             if source == "perception":
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
+                    object_camera_xyz = (
+                        float(object_camera_raw[0]),
+                        float(object_camera_raw[1]),
+                        float(object_camera_raw[2]),
+                    )
                     ok, reason, object_world = self._update_perception_markers(
-                        (
-                            float(object_camera_raw[0]),
-                            float(object_camera_raw[1]),
-                            float(object_camera_raw[2]),
-                        ),
+                        object_camera_xyz,
                         object_label=str(msg.get("object_label", "")),
                     )
+                    object_world_tuple: Optional[tuple[float, float, float]] = None
+                    if object_world is not None:
+                        p_w = np.asarray(object_world, dtype=float).reshape(3)
+                        object_world_tuple = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+                    self._pick_record_perception_sample(object_camera_xyz, object_world_tuple)
                     ack: Dict[str, Any] = {
                         "t": "ack",
                         "ts": proto.now_s(),
@@ -815,9 +1106,8 @@ class ControlHost:
                         "device": self.device,
                         "torque_enabled": self.torque_enabled,
                     }
-                    if object_world is not None:
-                        p_w = np.asarray(object_world, dtype=float).reshape(3)
-                        ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
+                    if object_world_tuple is not None:
+                        ack["object_world"] = [float(object_world_tuple[0]), float(object_world_tuple[1]), float(object_world_tuple[2])]
                     self._reply(ident, ack)
                     return
             seq = int(msg.get("seq", -1))
@@ -904,6 +1194,7 @@ class ControlHost:
                 self._t_read = now
                 self._read_hw_state()
                 self._update_claw_hw()
+            self._tick_pick_fsm(now)
             if self._pending_target_q is not None and (now - self._t_cmd) >= self._cmd_period:
                 self._t_cmd = now
                 applied = False
@@ -937,6 +1228,16 @@ class ControlHost:
                         motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                         safety_fault=(self._safety_fault or None),
                         debug_markers=self._active_debug_markers(),
+                        pick_stage=self._pick.stage.value,
+                        pick_error_m=(
+                            None if (not np.isfinite(float(self._pick.stage_error_m))) else float(self._pick.stage_error_m)
+                        ),
+                        pick_uncertainty=(
+                            None
+                            if (not np.isfinite(float(self._pick.stage_uncertainty)))
+                            else float(self._pick.stage_uncertainty)
+                        ),
+                        pick_attempt=int(self._pick.attempt),
                     )
                 )
 
@@ -986,6 +1287,7 @@ def run_host(
             hand_eye_parent_frame=hand_eye_parent_frame,
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
+            pick_fsm_cfg=bundle.pick_fsm_config,
         )
         print(f"[host] comm with ctrl by {bind_addr}")
         print(f"[host] comm with sim by {bundle.sim_config.host_sim_port}")

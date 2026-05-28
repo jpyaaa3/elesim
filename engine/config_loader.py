@@ -56,6 +56,27 @@ class HardwareConfig:
 
 
 @dataclass(frozen=True)
+class PickFsmConfig:
+    enable: bool = False
+    relocalize_window: int = 20
+    relocalize_timeout_s: float = 1.0
+    coarse_offset_m: Tuple[float, float, float] = (0.0, 0.0, 0.08)
+    short_approach_m: float = 0.04
+    align_step_m: float = 0.005
+    align_step_rad: float = 0.0
+    align_timeout_s: float = 1.5
+    error_threshold_m: float = 0.01
+    uncertainty_threshold: float = 0.001
+    lift_height_m: float = 0.04
+    lift_verify_timeout_s: float = 1.0
+    max_attempts: int = 3
+    depth_min_m: float = 0.05
+    depth_max_m: float = 1.5
+    outlier_zscore: float = 2.5
+    stage_timeout_s: float = 3.0
+
+
+@dataclass(frozen=True)
 class UrdfExportConfig:
     robot_name: str = "Robot"
     default_effort: float = 200.0
@@ -113,6 +134,7 @@ class AppConfigBundle:
     urdf_export_config: UrdfExportConfig
     ik_config: IkConfig
     mapping_config: proto.SimMappingConfig
+    pick_fsm_config: PickFsmConfig
 
 
 def _parse_vec3(text: str, default: Tuple[float, float, float]) -> Tuple[float, float, float]:
@@ -200,6 +222,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         urdf_export_config=UrdfExportConfig(),
         ik_config=IkConfig(),
         mapping_config=proto.SimMappingConfig(),
+        pick_fsm_config=PickFsmConfig(),
     )
 
 
@@ -335,6 +358,29 @@ def _load_ik_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) ->
     )
 
 
+def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickFsmConfig:
+    p0 = defaults.pick_fsm_config
+    return PickFsmConfig(
+        enable=cp.getboolean("pick_fsm", "enable", fallback=p0.enable),
+        relocalize_window=max(3, cp.getint("pick_fsm", "relocalize_window", fallback=p0.relocalize_window)),
+        relocalize_timeout_s=max(0.1, cp.getfloat("pick_fsm", "relocalize_timeout_s", fallback=p0.relocalize_timeout_s)),
+        coarse_offset_m=_parse_vec3(cp.get("pick_fsm", "coarse_offset_m", fallback=""), p0.coarse_offset_m),
+        short_approach_m=max(0.0, cp.getfloat("pick_fsm", "short_approach_m", fallback=p0.short_approach_m)),
+        align_step_m=max(0.0005, cp.getfloat("pick_fsm", "align_step_m", fallback=p0.align_step_m)),
+        align_step_rad=cp.getfloat("pick_fsm", "align_step_rad", fallback=p0.align_step_rad),
+        align_timeout_s=max(0.1, cp.getfloat("pick_fsm", "align_timeout_s", fallback=p0.align_timeout_s)),
+        error_threshold_m=max(0.0001, cp.getfloat("pick_fsm", "error_threshold_m", fallback=p0.error_threshold_m)),
+        uncertainty_threshold=max(1e-7, cp.getfloat("pick_fsm", "uncertainty_threshold", fallback=p0.uncertainty_threshold)),
+        lift_height_m=max(0.0, cp.getfloat("pick_fsm", "lift_height_m", fallback=p0.lift_height_m)),
+        lift_verify_timeout_s=max(0.1, cp.getfloat("pick_fsm", "lift_verify_timeout_s", fallback=p0.lift_verify_timeout_s)),
+        max_attempts=max(1, cp.getint("pick_fsm", "max_attempts", fallback=p0.max_attempts)),
+        depth_min_m=max(0.0, cp.getfloat("pick_fsm", "depth_min_m", fallback=p0.depth_min_m)),
+        depth_max_m=max(0.01, cp.getfloat("pick_fsm", "depth_max_m", fallback=p0.depth_max_m)),
+        outlier_zscore=max(0.1, cp.getfloat("pick_fsm", "outlier_zscore", fallback=p0.outlier_zscore)),
+        stage_timeout_s=max(0.5, cp.getfloat("pick_fsm", "stage_timeout_s", fallback=p0.stage_timeout_s)),
+    )
+
+
 def _build_mapping_config(joint_limit: JointLimit, hardware_config: HardwareConfig) -> proto.SimMappingConfig:
     return proto.SimMappingConfig(
         linear_q_min_m=-0.230,
@@ -368,6 +414,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     spawn_config_cfg = _load_spawn_config(cp, defaults)
     urdf_export_config_cfg = _load_urdf_export_config(cp, defaults)
     ik_config_cfg = _load_ik_config(cp, defaults)
+    pick_fsm_cfg = _load_pick_fsm_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -379,4 +426,5 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         urdf_export_config=urdf_export_config_cfg,
         ik_config=ik_config_cfg,
         mapping_config=mapping_config_cfg,
+        pick_fsm_config=pick_fsm_cfg,
     )
