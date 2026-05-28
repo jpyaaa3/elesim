@@ -148,6 +148,10 @@ def pack_state(
     pick_error_m: Optional[float] = None,
     pick_uncertainty: Optional[float] = None,
     pick_attempt: Optional[int] = None,
+    pick_anchor_age_s: Optional[float] = None,
+    pick_anchor_confidence: Optional[float] = None,
+    pick_dropout_count: Optional[int] = None,
+    pick_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -215,6 +219,14 @@ def pack_state(
         out["pick_uncertainty"] = float(pick_uncertainty)
     if pick_attempt is not None:
         out["pick_attempt"] = int(pick_attempt)
+    if pick_anchor_age_s is not None:
+        out["pick_anchor_age_s"] = float(pick_anchor_age_s)
+    if pick_anchor_confidence is not None:
+        out["pick_anchor_confidence"] = float(pick_anchor_confidence)
+    if pick_dropout_count is not None:
+        out["pick_dropout_count"] = int(pick_dropout_count)
+    if pick_score is not None:
+        out["pick_score"] = float(pick_score)
     return out
 
 

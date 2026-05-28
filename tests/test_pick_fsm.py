@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from host import PickContext, PickStage, filtered_camera_stats, should_pass_confidence_gate, should_stage_timeout
+from host import PickContext, PickStage, filtered_camera_stats, should_hard_fail, should_pass_confidence_gate, should_stage_timeout
 
 
 class TestPickEstimator(unittest.TestCase):
@@ -62,6 +62,34 @@ class TestPickContext(unittest.TestCase):
     def test_stage_timeout_transition_rule(self) -> None:
         self.assertFalse(should_stage_timeout(stage_elapsed_s=1.0, timeout_s=2.0))
         self.assertTrue(should_stage_timeout(stage_elapsed_s=2.1, timeout_s=2.0))
+
+    def test_context_has_anchor_and_score(self) -> None:
+        ctx = PickContext()
+        self.assertIsNone(ctx.anchor_world_xyz)
+        self.assertEqual(ctx.dropout_count, 0)
+        self.assertEqual(ctx.score, 0.0)
+
+
+class TestDropoutPolicy(unittest.TestCase):
+    def test_should_hard_fail(self) -> None:
+        self.assertFalse(
+            should_hard_fail(
+                dropout_count=2,
+                dropout_hard_limit=5,
+                stage_elapsed_s=2.0,
+                timeout_s=1.0,
+                error_m=0.2,
+            )
+        )
+        self.assertTrue(
+            should_hard_fail(
+                dropout_count=7,
+                dropout_hard_limit=5,
+                stage_elapsed_s=2.0,
+                timeout_s=1.0,
+                error_m=0.2,
+            )
+        )
 
 
 if __name__ == "__main__":

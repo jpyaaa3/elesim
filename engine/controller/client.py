@@ -65,6 +65,10 @@ class ControlClient:
         self.last_pick_error_m: Optional[float] = None
         self.last_pick_uncertainty: Optional[float] = None
         self.last_pick_attempt: int = 0
+        self.last_pick_anchor_age_s: Optional[float] = None
+        self.last_pick_anchor_confidence: Optional[float] = None
+        self.last_pick_dropout_count: int = 0
+        self.last_pick_score: Optional[float] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -103,6 +107,10 @@ class ControlClient:
             pick_error_m=self.last_pick_error_m,
             pick_uncertainty=self.last_pick_uncertainty,
             pick_attempt=int(self.last_pick_attempt),
+            pick_anchor_age_s=self.last_pick_anchor_age_s,
+            pick_anchor_confidence=self.last_pick_anchor_confidence,
+            pick_dropout_count=int(self.last_pick_dropout_count),
+            pick_score=self.last_pick_score,
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -193,6 +201,26 @@ class ControlClient:
                     self.last_pick_attempt = int(msg.get("pick_attempt", 0))
                 except (TypeError, ValueError):
                     self.last_pick_attempt = 0
+            if "pick_anchor_age_s" in msg:
+                try:
+                    self.last_pick_anchor_age_s = float(msg.get("pick_anchor_age_s"))
+                except (TypeError, ValueError):
+                    self.last_pick_anchor_age_s = None
+            if "pick_anchor_confidence" in msg:
+                try:
+                    self.last_pick_anchor_confidence = float(msg.get("pick_anchor_confidence"))
+                except (TypeError, ValueError):
+                    self.last_pick_anchor_confidence = None
+            if "pick_dropout_count" in msg:
+                try:
+                    self.last_pick_dropout_count = int(msg.get("pick_dropout_count", 0))
+                except (TypeError, ValueError):
+                    self.last_pick_dropout_count = 0
+            if "pick_score" in msg:
+                try:
+                    self.last_pick_score = float(msg.get("pick_score"))
+                except (TypeError, ValueError):
+                    self.last_pick_score = None
             self.is_connected = True
             return
 
@@ -249,6 +277,26 @@ class ControlClient:
                     self.last_pick_attempt = int(msg.get("pick_attempt", 0))
                 except (TypeError, ValueError):
                     self.last_pick_attempt = 0
+            if "pick_anchor_age_s" in msg:
+                try:
+                    self.last_pick_anchor_age_s = float(msg.get("pick_anchor_age_s"))
+                except (TypeError, ValueError):
+                    self.last_pick_anchor_age_s = None
+            if "pick_anchor_confidence" in msg:
+                try:
+                    self.last_pick_anchor_confidence = float(msg.get("pick_anchor_confidence"))
+                except (TypeError, ValueError):
+                    self.last_pick_anchor_confidence = None
+            if "pick_dropout_count" in msg:
+                try:
+                    self.last_pick_dropout_count = int(msg.get("pick_dropout_count", 0))
+                except (TypeError, ValueError):
+                    self.last_pick_dropout_count = 0
+            if "pick_score" in msg:
+                try:
+                    self.last_pick_score = float(msg.get("pick_score"))
+                except (TypeError, ValueError):
+                    self.last_pick_score = None
             self.is_connected = True
             if self.last_reply_reason == "":
                 self.last_reply_ok = True

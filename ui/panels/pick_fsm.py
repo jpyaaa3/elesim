@@ -56,7 +56,14 @@ def draw_pick_fsm_panel(panel) -> None:
             return
         pick_error_txt = "-" if state.pick_error_m is None else f"{float(state.pick_error_m):.4f} m"
         pick_uncertainty_txt = "-" if state.pick_uncertainty is None else f"{float(state.pick_uncertainty):.6f}"
+        anchor_age_txt = "-" if state.pick_anchor_age_s is None else f"{float(state.pick_anchor_age_s):.2f} s"
+        anchor_conf_txt = "-" if state.pick_anchor_confidence is None else f"{float(state.pick_anchor_confidence):.2f}"
+        score_txt = "-" if state.pick_score is None else f"{float(state.pick_score):.2f}"
         imgui.text(f"Pick stage: {pick_stage}")
         imgui.text(f"Pick error: {pick_error_txt}")
         imgui.text(f"Pick uncertainty: {pick_uncertainty_txt}")
         imgui.text(f"Pick attempt: {int(state.pick_attempt)}")
+        imgui.text(f"Anchor age: {anchor_age_txt}")
+        imgui.text(f"Anchor confidence: {anchor_conf_txt}")
+        imgui.text(f"Dropout count: {int(state.pick_dropout_count)}")
+        imgui.text(f"Score: {score_txt}")

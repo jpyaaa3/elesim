@@ -53,6 +53,14 @@ class PickContext:
     stage_error_m: float = float("inf")
     stage_uncertainty: float = float("inf")
     last_perception_ts: float = 0.0
+    anchor_world_xyz: Optional[tuple[float, float, float]] = None
+    anchor_world_ts: float = 0.0
+    anchor_confidence: float = 0.0
+    consecutive_detection_count: int = 0
+    dropout_count: int = 0
+    last_valid_camera_mu: Optional[tuple[float, float, float]] = None
+    last_valid_cov: Optional[np.ndarray] = None
+    score: float = 0.0
 
 
 def filtered_camera_stats(
@@ -81,6 +89,14 @@ def should_pass_confidence_gate(*, error_m: float, uncertainty: float, error_thr
 
 def should_stage_timeout(*, stage_elapsed_s: float, timeout_s: float) -> bool:
     return float(stage_elapsed_s) > float(timeout_s)
+
+
+def should_hard_fail(*, dropout_count: int, dropout_hard_limit: int, stage_elapsed_s: float, timeout_s: float, error_m: float) -> bool:
+    return (
+        int(dropout_count) > int(dropout_hard_limit)
+        and float(stage_elapsed_s) > float(timeout_s)
+        and float(error_m) > 1e-6
+    )
 
 
 class ControlHost:
@@ -430,7 +446,43 @@ class ControlHost:
         self._pick.object_camera_cov = None
         self._pick.object_world_mu = None
         self._pick.lift_start_z = None
+        self._pick.dropout_count = 0
+        self._pick.consecutive_detection_count = 0
         self._pick_set_stage(PickStage.SEARCH, now)
+
+    def _pick_soft_fail(self) -> None:
+        self._pick.dropout_count += 1
+        self._pick.score = float(self._pick.score) - 0.05
+
+    def _pick_hard_fail(self, now: float) -> None:
+        if bool(self.pick_fsm_cfg.attempt_hard_fail_only):
+            self._pick_reset_to_search(now, increment_attempt=True)
+        else:
+            self._pick_reset_to_search(now, increment_attempt=True)
+
+    def _pick_decay_score(self, dt_s: float) -> None:
+        self._pick.score = float(self._pick.score) - float(self.pick_fsm_cfg.score_decay_per_s) * max(float(dt_s), 0.0)
+        self._pick.score = float(max(min(self._pick.score, 10.0), -10.0))
+
+    def _pick_try_update_anchor(self, world_xyz: Optional[tuple[float, float, float]]) -> bool:
+        if world_xyz is None:
+            self._pick.consecutive_detection_count = 0
+            return False
+        p = np.asarray(world_xyz, dtype=float).reshape(3)
+        prev = self._pick.anchor_world_xyz
+        jump_ok = True
+        if prev is not None:
+            d = float(np.linalg.norm(p - np.asarray(prev, dtype=float).reshape(3)))
+            jump_ok = d <= float(self.pick_fsm_cfg.anchor_jump_limit_m)
+        if jump_ok:
+            self._pick.consecutive_detection_count += 1
+            self._pick.anchor_world_xyz = (float(p[0]), float(p[1]), float(p[2]))
+            self._pick.anchor_world_ts = time.time()
+            self._pick.anchor_confidence = float(min(1.0, self._pick.anchor_confidence + 0.25))
+            return True
+        self._pick.consecutive_detection_count = 0
+        self._pick.anchor_confidence = float(max(0.0, self._pick.anchor_confidence - 0.15))
+        return False
 
     def _pick_record_perception_sample(
         self, object_camera_xyz: tuple[float, float, float], object_world_xyz: Optional[tuple[float, float, float]]
@@ -450,6 +502,8 @@ class ControlHost:
                 float(object_world_xyz[1]),
                 float(object_world_xyz[2]),
             )
+            self._pick.dropout_count = 0
+            self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
         self._pick.last_perception_ts = time.time()
 
     def _estimate_object_camera_stats(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
@@ -494,6 +548,7 @@ class ControlHost:
         if not self._pick_enabled or self._safety_fault:
             return
         stage_elapsed = float(now - self._pick.stage_enter_ts)
+        self._pick_decay_score(self._state_period)
         if should_stage_timeout(stage_elapsed_s=stage_elapsed, timeout_s=float(self.pick_fsm_cfg.stage_timeout_s)) and self._pick.stage not in (
             PickStage.SEARCH,
             PickStage.STOP_AND_RELOCALIZE,
@@ -507,14 +562,20 @@ class ControlHost:
             return
         if self._pick.stage == PickStage.SEARCH:
             perception_fresh = (now - float(self._pick.last_perception_ts)) <= 1.0
-            if self._pick.object_world_latest is not None and perception_fresh:
+            _mu_s, cov_s = self._estimate_object_camera_stats()
+            stable_cov = bool(cov_s is not None and float(np.trace(cov_s)) <= float(self.pick_fsm_cfg.uncertainty_threshold))
+            stable = self._pick_try_update_anchor(self._pick.object_world_latest if (perception_fresh and stable_cov) else None)
+            if not stable:
+                self._pick_soft_fail()
+                return
+            if self._pick.consecutive_detection_count >= int(self.pick_fsm_cfg.search_stable_frames):
                 self._pick_set_stage(PickStage.COARSE_WORLD_PREGRASP, now)
             return
         if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
-            if self._pick.object_world_latest is None:
+            if self._pick.anchor_world_xyz is None:
                 self._pick_reset_to_search(now)
                 return
-            obj = np.asarray(self._pick.object_world_latest, dtype=float)
+            obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
             off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
             pre = obj + off
             self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
@@ -526,15 +587,18 @@ class ControlHost:
             if mu is not None and cov is not None:
                 self._pick.object_camera_mu = (float(mu[0]), float(mu[1]), float(mu[2]))
                 self._pick.object_camera_cov = cov
+                self._pick.last_valid_camera_mu = self._pick.object_camera_mu
+                self._pick.last_valid_cov = cov
                 self._pick.stage_uncertainty = float(np.trace(cov))
                 mu_world = self._camera_to_world_point(mu)
                 if mu_world is not None:
                     self._pick.object_world_mu = (float(mu_world[0]), float(mu_world[1]), float(mu_world[2]))
+                    self._pick_try_update_anchor(self._pick.object_world_mu)
                     self._set_debug_marker(name="object_mu_world", pos=self._pick.object_world_mu, color=[0.2, 0.95, 0.8, 0.95], radius=0.01, ttl_ms=300)
                     self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
                     return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
-                self._pick_reset_to_search(now, increment_attempt=True)
+                self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
             # Refresh mu/cov continuously during align; stale mu causes SEARCH<->ALIGN oscillation.
@@ -542,9 +606,16 @@ class ControlHost:
             if mu_new is not None and cov_new is not None:
                 self._pick.object_camera_mu = (float(mu_new[0]), float(mu_new[1]), float(mu_new[2]))
                 self._pick.object_camera_cov = cov_new
+                self._pick.last_valid_camera_mu = self._pick.object_camera_mu
+                self._pick.last_valid_cov = cov_new
                 self._pick.stage_uncertainty = float(np.trace(cov_new))
+                self._pick.dropout_count = 0
+            if self._pick.object_camera_mu is None and self._pick.last_valid_camera_mu is not None:
+                self._pick.object_camera_mu = self._pick.last_valid_camera_mu
+                self._pick.object_camera_cov = self._pick.last_valid_cov
+                self._pick_soft_fail()
             if self._pick.object_camera_mu is None:
-                self._pick_reset_to_search(now, increment_attempt=True)
+                self._pick_hard_fail(now)
                 return
             mu = np.asarray(self._pick.object_camera_mu, dtype=float)
             desired = np.asarray(self._pick.desired_camera_object, dtype=float)
@@ -554,7 +625,16 @@ class ControlHost:
                 self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.align_timeout_s):
-                self._pick_reset_to_search(now, increment_attempt=True)
+                if should_hard_fail(
+                    dropout_count=int(self._pick.dropout_count),
+                    dropout_hard_limit=int(self.pick_fsm_cfg.dropout_hard_limit),
+                    stage_elapsed_s=stage_elapsed,
+                    timeout_s=float(self.pick_fsm_cfg.align_timeout_s),
+                    error_m=float(self._pick.stage_error_m),
+                ):
+                    self._pick_hard_fail(now)
+                else:
+                    self._pick_soft_fail()
                 return
             if self.last_q is not None:
                 step = np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
@@ -568,21 +648,26 @@ class ControlHost:
                 self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
             return
         if self._pick.stage == PickStage.CONFIDENCE_GATE:
-            if should_pass_confidence_gate(
+            pass_gate = should_pass_confidence_gate(
                 error_m=float(self._pick.stage_error_m),
                 uncertainty=float(self._pick.stage_uncertainty),
                 error_threshold_m=float(self.pick_fsm_cfg.error_threshold_m),
                 uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
-            ):
+            ) and float(self._pick.score) >= float(self.pick_fsm_cfg.score_pass)
+            if pass_gate:
                 self._pick_set_stage(PickStage.SHORT_APPROACH, now)
             else:
-                self._pick_reset_to_search(now, increment_attempt=True)
+                if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
+                    self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                    self._pick_soft_fail()
+                else:
+                    self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.SHORT_APPROACH:
-            if self._pick.object_world_mu is None:
-                self._pick_reset_to_search(now, increment_attempt=True)
+            if self._pick.anchor_world_xyz is None:
+                self._pick_hard_fail(now)
                 return
-            obj = np.asarray(self._pick.object_world_mu, dtype=float)
+            obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
             target = obj + np.array([0.0, 0.0, max(0.0, float(self.pick_fsm_cfg.short_approach_m))], dtype=float)
             self._pick.short_approach_world = (float(target[0]), float(target[1]), float(target[2]))
             self._set_debug_marker(
@@ -593,7 +678,10 @@ class ControlHost:
                 ttl_ms=300,
             )
             if self._pick.object_camera_mu is None or self.last_q is None:
-                self._pick_reset_to_search(now, increment_attempt=True)
+                if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
+                    self._pick_soft_fail()
+                else:
+                    self._pick_hard_fail(now)
                 return
             desired_z = max(0.01, min(0.08, float(self.pick_fsm_cfg.short_approach_m)))
             err_z = float(self._pick.object_camera_mu[2]) - desired_z
@@ -609,7 +697,7 @@ class ControlHost:
             )
             self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
-                self._pick_reset_to_search(now, increment_attempt=True)
+                self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.CLOSE_GRIPPER:
             self.last_claw_closed = True
@@ -618,7 +706,7 @@ class ControlHost:
         if self._pick.stage == PickStage.LIFT_AND_VERIFY:
             if self.last_actual_tip_xyz is None:
                 if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
-                    self._pick_reset_to_search(now, increment_attempt=True)
+                    self._pick_hard_fail(now)
                 return
             cur_z = float(self.last_actual_tip_xyz[2])
             if self._pick.lift_start_z is None:
@@ -639,7 +727,7 @@ class ControlHost:
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
                 self.last_claw_closed = False
-                self._pick_reset_to_search(now, increment_attempt=True)
+                self._pick_hard_fail(now)
             return
 
     def _handle_pick_command(self, ident: bytes, msg: Dict[str, Any]) -> None:
@@ -1283,6 +1371,14 @@ class ControlHost:
                             else float(self._pick.stage_uncertainty)
                         ),
                         pick_attempt=int(self._pick.attempt),
+                        pick_anchor_age_s=(
+                            None
+                            if float(self._pick.anchor_world_ts) <= 0.0
+                            else float(max(0.0, now - float(self._pick.anchor_world_ts)))
+                        ),
+                        pick_anchor_confidence=float(self._pick.anchor_confidence),
+                        pick_dropout_count=int(self._pick.dropout_count),
+                        pick_score=float(self._pick.score),
                     )
                 )
 

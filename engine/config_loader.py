@@ -74,6 +74,14 @@ class PickFsmConfig:
     depth_max_m: float = 1.5
     outlier_zscore: float = 2.5
     stage_timeout_s: float = 3.0
+    search_stable_frames: int = 3
+    anchor_jump_limit_m: float = 0.05
+    dropout_soft_limit: int = 3
+    dropout_hard_limit: int = 8
+    score_pass: float = 1.0
+    score_decay_per_s: float = 0.2
+    score_reward_observation: float = 0.15
+    attempt_hard_fail_only: bool = True
 
 
 @dataclass(frozen=True)
@@ -378,6 +386,14 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         depth_max_m=max(0.01, cp.getfloat("pick_fsm", "depth_max_m", fallback=p0.depth_max_m)),
         outlier_zscore=max(0.1, cp.getfloat("pick_fsm", "outlier_zscore", fallback=p0.outlier_zscore)),
         stage_timeout_s=max(0.5, cp.getfloat("pick_fsm", "stage_timeout_s", fallback=p0.stage_timeout_s)),
+        search_stable_frames=max(1, cp.getint("pick_fsm", "search_stable_frames", fallback=p0.search_stable_frames)),
+        anchor_jump_limit_m=max(1e-4, cp.getfloat("pick_fsm", "anchor_jump_limit_m", fallback=p0.anchor_jump_limit_m)),
+        dropout_soft_limit=max(0, cp.getint("pick_fsm", "dropout_soft_limit", fallback=p0.dropout_soft_limit)),
+        dropout_hard_limit=max(1, cp.getint("pick_fsm", "dropout_hard_limit", fallback=p0.dropout_hard_limit)),
+        score_pass=cp.getfloat("pick_fsm", "score_pass", fallback=p0.score_pass),
+        score_decay_per_s=max(0.0, cp.getfloat("pick_fsm", "score_decay_per_s", fallback=p0.score_decay_per_s)),
+        score_reward_observation=max(0.0, cp.getfloat("pick_fsm", "score_reward_observation", fallback=p0.score_reward_observation)),
+        attempt_hard_fail_only=cp.getboolean("pick_fsm", "attempt_hard_fail_only", fallback=p0.attempt_hard_fail_only),
     )
 
 

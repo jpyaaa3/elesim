@@ -24,6 +24,10 @@ class HostState:
     pick_error_m: Optional[float]
     pick_uncertainty: Optional[float]
     pick_attempt: int
+    pick_anchor_age_s: Optional[float]
+    pick_anchor_confidence: Optional[float]
+    pick_dropout_count: int
+    pick_score: Optional[float]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
