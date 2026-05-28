@@ -8,6 +8,6 @@
   "child_frame": "camera_color_optical_frame",
   "measurement_reference_frame": "node9",
   "translation_in_node9_m": [-0.03, 0.01, 0.03],
-  "translation_m": [0.08, 0.03, -0.04],
+  "translation_m": [0.08, 0.025, -0.025],
   "quaternion_xyzw": [0.5, -0.5, 0.5, -0.5]
 }

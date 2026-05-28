@@ -4,7 +4,7 @@
   "device": 0,
   "target_label": "white_cup",
   "confidence_threshold": 0.35,
-  "iou_threshold": 0.45,
+  "iou_threshold": 0.3,
   "imgsz": 640,
   "min_area_px": 200,
   "z_min_m": 0.15,
