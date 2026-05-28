@@ -561,6 +561,7 @@ class ControlHost:
             theta2_rad=float(self.last_q.theta2_rad),
         )
         self._pending_target_seq = int(seq)
+        self.last_ik_target_xyz = (float(world_xyz[0]), float(world_xyz[1]), float(world_xyz[2]))
 
     def _tick_pick_fsm(self, now: float) -> None:
         if not self._pick_enabled or self._safety_fault:
@@ -600,10 +601,13 @@ class ControlHost:
             off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
             pre = obj + off
             self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
+            self.last_ik_target_xyz = self._pick.pregrasp_world
             self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
             look_dir = (obj - pre).reshape(3)
             look_norm = float(np.linalg.norm(look_dir))
             look_dir_world = None if look_norm <= 1e-9 else (look_dir / look_norm)
+            if look_dir_world is not None:
+                self.last_ik_target_dir = (float(look_dir_world[0]), float(look_dir_world[1]), float(look_dir_world[2]))
             if look_dir_world is not None:
                 self._set_debug_marker(
                     name="pregrasp_look_dir",
@@ -614,17 +618,20 @@ class ControlHost:
                     ttl_ms=300,
                 )
             # Send real motion command toward pregrasp using IK.
-            if self.last_q is not None and (now - float(self._pick.coarse_last_cmd_ts)) >= 0.20:
+            if (now - float(self._pick.coarse_last_cmd_ts)) >= 0.20:
                 try:
-                    current_seed = np.array(
-                        [
-                            float(self.last_q.linear_m),
-                            float(self.last_q.roll_rad),
-                            float(self.last_q.theta1_rad),
-                            float(self.last_q.theta2_rad),
-                        ],
-                        dtype=float,
-                    )
+                    if self.last_q is not None:
+                        current_seed = np.array(
+                            [
+                                float(self.last_q.linear_m),
+                                float(self.last_q.roll_rad),
+                                float(self.last_q.theta1_rad),
+                                float(self.last_q.theta2_rad),
+                            ],
+                            dtype=float,
+                        )
+                    else:
+                        current_seed = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
                     ik_res = ik_pipeline.solve_then_align(
                         target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
                         target_dir_world=look_dir_world,
@@ -733,6 +740,12 @@ class ControlHost:
             desired = np.asarray(self._pick.desired_camera_object, dtype=float)
             err = desired - mu
             self._pick.stage_error_m = float(np.linalg.norm(err))
+            if self._pick.pregrasp_world is not None:
+                self.last_ik_target_xyz = (
+                    float(self._pick.pregrasp_world[0]),
+                    float(self._pick.pregrasp_world[1]),
+                    float(self._pick.pregrasp_world[2]),
+                )
             if float(self._pick.stage_error_m) > float(self._pick.align_prev_error_m) + 1e-4:
                 self._pick.align_no_improve_count += 1
             else:
@@ -807,6 +820,7 @@ class ControlHost:
             obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
             target = obj + np.array([0.0, 0.0, max(0.0, float(self.pick_fsm_cfg.short_approach_m))], dtype=float)
             self._pick.short_approach_world = (float(target[0]), float(target[1]), float(target[2]))
+            self.last_ik_target_xyz = self._pick.short_approach_world
             self._set_debug_marker(
                 name="short_approach_target",
                 pos=self._pick.short_approach_world,
@@ -1216,13 +1230,7 @@ class ControlHost:
         if self._safety_fault:
             return False, False
         if not self._has_hw():
-            # Sim-only mode: apply target directly to host state so sim receives updated q via broadcast.
-            self.last_q = q
-            self.last_u = proto.sim_q_to_control_u(q, self.cfg)
-            if self._target_u_state is None:
-                self._target_u_state = self.last_u
-            self.last_state_ts = time.time()
-            return True, True
+            return False, False
         q_limited, complete = self._limit_target_q(q)
         motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
         try:
