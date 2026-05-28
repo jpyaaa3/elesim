@@ -152,6 +152,9 @@ def pack_state(
     pick_anchor_confidence: Optional[float] = None,
     pick_dropout_count: Optional[int] = None,
     pick_score: Optional[float] = None,
+    pick_track_state: Optional[str] = None,
+    pick_track_confidence: Optional[float] = None,
+    pick_depth_valid_ratio: Optional[float] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -227,6 +230,12 @@ def pack_state(
         out["pick_dropout_count"] = int(pick_dropout_count)
     if pick_score is not None:
         out["pick_score"] = float(pick_score)
+    if pick_track_state is not None:
+        out["pick_track_state"] = str(pick_track_state)
+    if pick_track_confidence is not None:
+        out["pick_track_confidence"] = float(pick_track_confidence)
+    if pick_depth_valid_ratio is not None:
+        out["pick_depth_valid_ratio"] = float(pick_depth_valid_ratio)
     return out
 
 

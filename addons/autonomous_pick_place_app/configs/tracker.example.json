@@ -1,0 +1,11 @@
+{
+  "tracker": {
+    "roi_scale": 1.5,
+    "window_size": 20,
+    "min_samples": 3,
+    "min_depth_valid_ratio": 0.15,
+    "lost_frames_threshold": 5,
+    "redetect_interval_frames": 3,
+    "sigma_ref": 0.05
+  }
+}

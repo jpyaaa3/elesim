@@ -69,6 +69,12 @@ class TestPickContext(unittest.TestCase):
         self.assertEqual(ctx.dropout_count, 0)
         self.assertEqual(ctx.score, 0.0)
 
+    def test_context_has_tracker_fields(self) -> None:
+        ctx = PickContext()
+        self.assertEqual(ctx.track_state, "")
+        self.assertEqual(ctx.track_confidence, 0.0)
+        self.assertIsNone(ctx.perception_mu_camera)
+
 
 class TestDropoutPolicy(unittest.TestCase):
     def test_should_hard_fail(self) -> None:

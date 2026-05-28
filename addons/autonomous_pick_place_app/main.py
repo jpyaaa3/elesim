@@ -20,6 +20,7 @@ from perception.depth_pose import CameraIntrinsics, estimate_object_position_cam
 from perception.detector import DetectionResult, ObjectDetector, create_detector, load_detector_config
 from perception.preview import close_preview, draw_detection_overlay, show_preview
 from perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError
+from perception.target_tracker import TargetTracker, TrackPacket
 from perception.yolo_detector import YoloUnavailableError
 
 from elesim_bridge.host_client import HostPublishError, publish_perceived_object
@@ -166,6 +167,44 @@ def _print_world_object(p_world: tuple[float, float, float] | None) -> None:
     print(f"[World]  p_world_object = {_format_vec(np.asarray(p_world))} m")
 
 
+def _track_payload_from_packet(packet: TrackPacket) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "track_state": str(packet.track_state),
+        "track_confidence": float(packet.track_confidence),
+        "bbox_xyxy": list(packet.bbox_xyxy),
+        "center_uv": list(packet.center_uv),
+        "depth_valid_ratio": float(packet.depth_valid_ratio),
+        "lost_count": int(packet.lost_count),
+    }
+    if packet.mu_camera is not None:
+        mu = np.asarray(packet.mu_camera, dtype=float).reshape(3)
+        out["mu_camera"] = [float(mu[0]), float(mu[1]), float(mu[2])]
+    if packet.sigma_camera is not None:
+        sig = np.asarray(packet.sigma_camera, dtype=float).reshape(3)
+        out["sigma_camera"] = [float(sig[0]), float(sig[1]), float(sig[2])]
+    return out
+
+
+def _publish_point_for_packet(packet: TrackPacket) -> Optional[np.ndarray]:
+    if packet.p_camera is not None and np.all(np.isfinite(packet.p_camera)):
+        return np.asarray(packet.p_camera, dtype=float).reshape(3)
+    if packet.mu_camera is not None and np.all(np.isfinite(packet.mu_camera)):
+        return np.asarray(packet.mu_camera, dtype=float).reshape(3)
+    return None
+
+
+def _print_track_packet(packet: TrackPacket) -> None:
+    p = _publish_point_for_packet(packet)
+    p_txt = _format_vec(p) if p is not None else "-"
+    mu_txt = _format_vec(packet.mu_camera) if packet.mu_camera is not None else "-"
+    sig_txt = _format_vec(packet.sigma_camera) if packet.sigma_camera is not None else "-"
+    print(
+        f"[Track] state={packet.track_state} conf={packet.track_confidence:.2f} "
+        f"depth_valid={packet.depth_valid_ratio:.2f} lost={packet.lost_count} "
+        f"p_cam={p_txt} mu={mu_txt} sigma={sig_txt}"
+    )
+
+
 def run_camera_session(
     *,
     detector: ObjectDetector,
@@ -186,12 +225,15 @@ def run_camera_session(
     frame_idx = 0
     found_once = False
     last_det_summary = ""
+    tracker = TargetTracker.from_config(detector_cfg)
+    h_img = 480
+    w_img = 640
 
     if show:
         cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
 
     print(
-        "[Camera] live capture started"
+        "[Camera] live capture started (YOLO lock + ROI depth tracker)"
         + (" (retry until detection)" if until_found else " (exit if first frame has no target)")
         + ("; stop after first detection" if stop_on_detect else "; runs until q/ESC")
         + ("; preview: q/ESC to quit" if show else "")
@@ -202,50 +244,61 @@ def run_camera_session(
             while True:
                 t0 = time.time()
                 frame = cam.capture()
-                all_dets = _list_frame_detections(detector, frame.color_bgr)
-                det = _pick_target_detection(all_dets, target_label)
-                status = "searching"
-                p_camera: Optional[np.ndarray] = None
-                obs: Optional[CameraObservation] = None
+                h_img = int(frame.intrinsics.height)
+                w_img = int(frame.intrinsics.width)
 
-                det_summary = _format_detection_summary(all_dets)
-                if det_summary != last_det_summary:
-                    if all_dets:
-                        print(f"[Detector] frame={frame_idx} detections: {det_summary}")
-                    elif frame_idx == 0 or last_det_summary:
-                        print(f"[Detector] frame={frame_idx} no detections above confidence")
-                    if target_label and all_dets and det is None:
-                        print(
-                            f"[Detector] target {target_label!r} not in frame "
-                            f"(model classes: {', '.join(model_classes[:20])}"
-                            + ("..." if len(model_classes) > 20 else "")
-                            + ")"
-                        )
-                    last_det_summary = det_summary
+                det: Optional[DetectionResult] = None
+                all_dets: list[DetectionResult] = []
+                if tracker.needs_yolo():
+                    all_dets = _list_frame_detections(detector, frame.color_bgr)
+                    det = _pick_target_detection(all_dets, target_label)
+                    if det is not None:
+                        if tracker.try_lock(det, width=w_img, height=h_img):
+                            print(
+                                f"[Track] YOLO lock label={det.label} bbox={_format_bbox(det.bbox_xyxy)} "
+                                f"-> TRACKING_3D"
+                            )
 
-                if det is not None:
-                    p_camera = measure_detection(
-                        det,
-                        depth_raw=frame.depth_raw,
-                        intrinsics=frame.intrinsics,
-                        depth_scale=frame.depth_scale,
-                        detector_cfg=detector_cfg,
-                    )
-                    if p_camera is not None:
-                        status = "detected"
-                        obs = build_camera_observation(
-                            detection_label=det.label,
-                            confidence=det.confidence,
-                            p_camera_object=p_camera,
-                        )
-                    else:
-                        status = "bbox_ok_depth_fail"
+                packet = tracker.update(
+                    depth_raw=frame.depth_raw,
+                    intrinsics=frame.intrinsics,
+                    depth_scale=frame.depth_scale,
+                )
+                status = str(packet.track_state).lower()
+                p_camera = _publish_point_for_packet(packet)
+
+                if tracker.needs_yolo():
+                    det_summary = _format_detection_summary(all_dets)
+                    if det_summary != last_det_summary:
+                        if all_dets:
+                            print(f"[Detector] frame={frame_idx} detections: {det_summary}")
+                        elif frame_idx == 0 or last_det_summary:
+                            print(f"[Detector] frame={frame_idx} no detections above confidence")
+                        if target_label and all_dets and det is None:
+                            print(
+                                f"[Detector] target {target_label!r} not in frame "
+                                f"(model classes: {', '.join(model_classes[:20])}"
+                                + ("..." if len(model_classes) > 20 else "")
+                                + ")"
+                            )
+                        last_det_summary = det_summary
 
                 if show:
+                    vis_det = det
+                    if vis_det is None and packet.bbox_xyxy != (0, 0, 0, 0):
+                        x0, y0, x1, y1 = packet.bbox_xyxy
+                        mask = np.zeros((h_img, w_img), dtype=np.uint8)
+                        mask[y0 : y1 + 1, x0 : x1 + 1] = 255
+                        vis_det = DetectionResult(
+                            mask=mask,
+                            bbox_xyxy=packet.bbox_xyxy,
+                            label=str(packet.label or target_label or "track"),
+                            confidence=float(packet.track_confidence),
+                        )
                     vis = draw_detection_overlay(
                         frame.color_bgr,
-                        det,
-                        status=status,
+                        vis_det,
+                        status=f"{status} conf={packet.track_confidence:.2f}",
                         target_label=target_label,
                         frame_idx=frame_idx,
                         p_camera=p_camera,
@@ -258,23 +311,23 @@ def run_camera_session(
                         print("[Camera] quit by user")
                         return 0
 
-                if obs is not None and det is not None:
+                if packet.should_publish_to_host and p_camera is not None:
                     if not found_once:
-                        print("[Camera] object detected")
+                        print("[Camera] tracker active (publish)")
                         found_once = True
-                    print_observation(obs, det=det)
+                    _print_track_packet(packet)
                     if verbose_debug:
-                        print(f"[Debug]  timestamp={obs.timestamp:.3f}")
+                        print(f"[Debug]  frame={frame_idx}")
                     if publish_host:
                         try:
                             p_world = publish_perceived_object(
                                 endpoint=host_endpoint,
-                                object_camera_xyz=obs.p_camera_object,
-                                label=obs.label,
+                                object_camera_xyz=p_camera,
+                                label=str(packet.label or target_label),
+                                track=_track_payload_from_packet(packet),
                             )
                             _print_world_object(p_world)
                         except HostPublishError as exc:
-                            # Keep perception loop alive even if host is temporarily unavailable/rejecting.
                             print(f"[Host] publish warning: {exc}", file=sys.stderr)
                     if stop_on_detect:
                         return 0
@@ -400,27 +453,28 @@ def main() -> int:
         if det is None:
             print("[Error] mock detector found no object", file=sys.stderr)
             return 1
-        p_camera = measure_detection(
-            det,
-            depth_raw=depth,
-            intrinsics=intrinsics,
-            depth_scale=depth_scale,
-            detector_cfg=detector_cfg,
-        )
+        tracker = TargetTracker.from_config(detector_cfg)
+        h_img = int(intrinsics.height)
+        w_img = int(intrinsics.width)
+        tracker.try_lock(det, width=w_img, height=h_img)
+        packet = tracker.update(depth_raw=depth, intrinsics=intrinsics, depth_scale=depth_scale)
+        p_camera = _publish_point_for_packet(packet)
         if p_camera is None:
-            print("[Error] depth measurement failed on mock frame", file=sys.stderr)
+            print("[Error] tracker produced no camera point on mock frame", file=sys.stderr)
             return 1
         obs = build_camera_observation(
-            detection_label=det.label,
-            confidence=det.confidence,
+            detection_label=str(packet.label or det.label),
+            confidence=float(packet.track_confidence),
             p_camera_object=p_camera,
         )
         print_observation(obs, det=det)
+        _print_track_packet(packet)
         if args.publish_host:
             p_world = publish_perceived_object(
                 endpoint=host_endpoint,
-                object_camera_xyz=obs.p_camera_object,
+                object_camera_xyz=p_camera,
                 label=obs.label,
+                track=_track_payload_from_packet(packet),
             )
             _print_world_object(p_world)
         return 0

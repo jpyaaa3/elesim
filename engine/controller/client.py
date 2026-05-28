@@ -69,6 +69,9 @@ class ControlClient:
         self.last_pick_anchor_confidence: Optional[float] = None
         self.last_pick_dropout_count: int = 0
         self.last_pick_score: Optional[float] = None
+        self.last_pick_track_state: str = ""
+        self.last_pick_track_confidence: Optional[float] = None
+        self.last_pick_depth_valid_ratio: Optional[float] = None
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
@@ -113,6 +116,9 @@ class ControlClient:
             pick_anchor_confidence=self.last_pick_anchor_confidence,
             pick_dropout_count=int(self.last_pick_dropout_count),
             pick_score=self.last_pick_score,
+            pick_track_state=str(self.last_pick_track_state),
+            pick_track_confidence=self.last_pick_track_confidence,
+            pick_depth_valid_ratio=self.last_pick_depth_valid_ratio,
             ik_target_xyz=self.last_ik_target_xyz,
             ik_target_dir=self.last_ik_target_dir,
             reply_ok=bool(self.last_reply_ok),
@@ -225,6 +231,18 @@ class ControlClient:
                     self.last_pick_score = float(msg.get("pick_score"))
                 except (TypeError, ValueError):
                     self.last_pick_score = None
+            if "pick_track_state" in msg:
+                self.last_pick_track_state = str(msg.get("pick_track_state", ""))
+            if "pick_track_confidence" in msg:
+                try:
+                    self.last_pick_track_confidence = float(msg.get("pick_track_confidence"))
+                except (TypeError, ValueError):
+                    self.last_pick_track_confidence = None
+            if "pick_depth_valid_ratio" in msg:
+                try:
+                    self.last_pick_depth_valid_ratio = float(msg.get("pick_depth_valid_ratio"))
+                except (TypeError, ValueError):
+                    self.last_pick_depth_valid_ratio = None
             self.is_connected = True
             return
 
@@ -301,6 +319,18 @@ class ControlClient:
                     self.last_pick_score = float(msg.get("pick_score"))
                 except (TypeError, ValueError):
                     self.last_pick_score = None
+            if "pick_track_state" in msg:
+                self.last_pick_track_state = str(msg.get("pick_track_state", ""))
+            if "pick_track_confidence" in msg:
+                try:
+                    self.last_pick_track_confidence = float(msg.get("pick_track_confidence"))
+                except (TypeError, ValueError):
+                    self.last_pick_track_confidence = None
+            if "pick_depth_valid_ratio" in msg:
+                try:
+                    self.last_pick_depth_valid_ratio = float(msg.get("pick_depth_valid_ratio"))
+                except (TypeError, ValueError):
+                    self.last_pick_depth_valid_ratio = None
             target_raw = msg.get("ik_target", None)
             if isinstance(target_raw, (list, tuple)) and len(target_raw) == 3:
                 self.last_ik_target_xyz = (

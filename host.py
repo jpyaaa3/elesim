@@ -68,6 +68,12 @@ class PickContext:
     coarse_last_cmd_ts: float = 0.0
     coarse_target_q: Optional[tuple[float, float, float, float]] = None
     manual_mode: bool = False
+    track_state: str = ""
+    track_confidence: float = 0.0
+    depth_valid_ratio: float = 0.0
+    track_lost_count: int = 0
+    perception_mu_camera: Optional[tuple[float, float, float]] = None
+    perception_sigma_camera: Optional[tuple[float, float, float]] = None
 
 
 def filtered_camera_stats(
@@ -503,27 +509,108 @@ class ControlHost:
         self._pick.anchor_confidence = float(max(0.0, self._pick.anchor_confidence - 0.15))
         return False
 
-    def _pick_record_perception_sample(
-        self, object_camera_xyz: tuple[float, float, float], object_world_xyz: Optional[tuple[float, float, float]]
+    def _pick_parse_vec3(self, raw: Any) -> Optional[tuple[float, float, float]]:
+        if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+            return None
+        try:
+            return (float(raw[0]), float(raw[1]), float(raw[2]))
+        except (TypeError, ValueError):
+            return None
+
+    def _pick_tracker_measurement_ok(self) -> bool:
+        state = str(self._pick.track_state or "").strip().upper()
+        if state in ("LOST", "SEARCH", ""):
+            return False
+        if float(self._pick.track_confidence) < float(self.pick_fsm_cfg.track_confidence_min):
+            return False
+        if float(self._pick.depth_valid_ratio) < float(self.pick_fsm_cfg.depth_valid_ratio_min):
+            return False
+        return True
+
+    def _pick_effective_camera_mu(self) -> Optional[tuple[float, float, float]]:
+        if bool(self.pick_fsm_cfg.use_perception_mu) and self._pick.perception_mu_camera is not None:
+            return self._pick.perception_mu_camera
+        if self._pick.object_camera_mu is not None:
+            return self._pick.object_camera_mu
+        return None
+
+    def _pick_apply_perception_mu_sigma(
+        self,
+        mu_camera: tuple[float, float, float],
+        sigma_camera: tuple[float, float, float],
+    ) -> None:
+        sig = np.asarray(sigma_camera, dtype=float).reshape(3)
+        sig = np.maximum(sig, 1e-6)
+        cov = np.diag(sig * sig)
+        self._pick.perception_mu_camera = tuple(float(v) for v in mu_camera)
+        self._pick.perception_sigma_camera = tuple(float(v) for v in sigma_camera)
+        self._pick.object_camera_mu = self._pick.perception_mu_camera
+        self._pick.object_camera_cov = cov
+        self._pick.last_valid_camera_mu = self._pick.object_camera_mu
+        self._pick.last_valid_cov = cov
+        self._pick.stage_uncertainty = float(np.trace(cov))
+
+    def _pick_record_perception_packet(
+        self,
+        msg: Dict[str, Any],
+        object_camera_xyz: tuple[float, float, float],
+        object_world_xyz: Optional[tuple[float, float, float]],
     ) -> None:
         z = float(object_camera_xyz[2])
         if z < float(self.pick_fsm_cfg.depth_min_m) or z > float(self.pick_fsm_cfg.depth_max_m):
             return
+
+        self._pick.track_state = str(msg.get("track_state", self._pick.track_state or "")).strip()
+        if "track_confidence" in msg:
+            try:
+                self._pick.track_confidence = float(msg.get("track_confidence"))
+            except (TypeError, ValueError):
+                pass
+        if "depth_valid_ratio" in msg:
+            try:
+                self._pick.depth_valid_ratio = float(msg.get("depth_valid_ratio"))
+            except (TypeError, ValueError):
+                pass
+        if "lost_count" in msg:
+            try:
+                self._pick.track_lost_count = int(msg.get("lost_count", 0))
+            except (TypeError, ValueError):
+                pass
+
+        tracker_ok = self._pick_tracker_measurement_ok()
+        mu_raw = self._pick_parse_vec3(msg.get("mu_camera", None))
+        sigma_raw = self._pick_parse_vec3(msg.get("sigma_camera", None))
+        if tracker_ok and mu_raw is not None and sigma_raw is not None:
+            self._pick_apply_perception_mu_sigma(mu_raw, sigma_raw)
+            self._pick.dropout_count = 0
+            self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
+        else:
+            state_up = str(self._pick.track_state or "").strip().upper()
+            if state_up in ("LOST", "SEARCH"):
+                self._pick_soft_fail()
+
         window = max(3, int(self.pick_fsm_cfg.relocalize_window))
         self._pick.object_camera_samples.append(
             (float(object_camera_xyz[0]), float(object_camera_xyz[1]), float(object_camera_xyz[2]))
         )
         while len(self._pick.object_camera_samples) > window:
             self._pick.object_camera_samples.popleft()
-        if object_world_xyz is not None:
+
+        if object_world_xyz is not None and tracker_ok:
             self._pick.object_world_latest = (
                 float(object_world_xyz[0]),
                 float(object_world_xyz[1]),
                 float(object_world_xyz[2]),
             )
-            self._pick.dropout_count = 0
-            self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
+            if not (mu_raw and sigma_raw):
+                self._pick.dropout_count = 0
+                self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
         self._pick.last_perception_ts = time.time()
+
+    def _pick_record_perception_sample(
+        self, object_camera_xyz: tuple[float, float, float], object_world_xyz: Optional[tuple[float, float, float]]
+    ) -> None:
+        self._pick_record_perception_packet({}, object_camera_xyz, object_world_xyz)
 
     def _manual_hold_stage(self, stage: PickStage) -> bool:
         return bool(self._pick.manual_mode) and self._pick.stage == stage
@@ -668,9 +755,21 @@ class ControlHost:
             if self._pick.manual_mode:
                 return
             perception_fresh = (now - float(self._pick.last_perception_ts)) <= 1.0
+            tracker_ready = (
+                str(self._pick.track_state or "").strip().upper() == "TRACKING_3D"
+                and float(self._pick.track_confidence) >= float(self.pick_fsm_cfg.search_track_conf_min)
+            )
             _mu_s, cov_s = self._estimate_object_camera_stats()
-            stable_cov = bool(cov_s is not None and float(np.trace(cov_s)) <= float(self.pick_fsm_cfg.uncertainty_threshold))
-            stable = self._pick_try_update_anchor(self._pick.object_world_latest if (perception_fresh and stable_cov) else None)
+            stable_cov = bool(
+                cov_s is not None and float(np.trace(cov_s)) <= float(self.pick_fsm_cfg.uncertainty_threshold)
+            )
+            if tracker_ready and self._pick.perception_mu_camera is not None:
+                stable_cov = bool(
+                    float(self._pick.stage_uncertainty) <= float(self.pick_fsm_cfg.uncertainty_threshold)
+                )
+            stable = self._pick_try_update_anchor(
+                self._pick.object_world_latest if (perception_fresh and stable_cov and (tracker_ready or _mu_s is not None)) else None
+            )
             if not stable:
                 self._pick_soft_fail()
                 return
@@ -719,21 +818,39 @@ class ControlHost:
         if self._pick.stage == PickStage.STOP_AND_RELOCALIZE:
             if self._manual_hold_stage(PickStage.STOP_AND_RELOCALIZE):
                 return
-            mu, cov = self._estimate_object_camera_stats()
-            if mu is not None and cov is not None:
-                self._pick.object_camera_mu = (float(mu[0]), float(mu[1]), float(mu[2]))
-                self._pick.object_camera_cov = cov
-                self._pick.last_valid_camera_mu = self._pick.object_camera_mu
-                self._pick.last_valid_cov = cov
-                self._pick.stage_uncertainty = float(np.trace(cov))
-                mu_world = self._camera_to_world_point(mu)
-                if mu_world is not None:
-                    self._pick.object_world_mu = (float(mu_world[0]), float(mu_world[1]), float(mu_world[2]))
-                    self._pick_try_update_anchor(self._pick.object_world_mu)
-                    self._set_debug_marker(name="object_mu_world", pos=self._pick.object_world_mu, color=[0.2, 0.95, 0.8, 0.95], radius=0.01, ttl_ms=300)
-                    if self._pick_can_auto_advance():
-                        self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
-                    return
+            if not self._pick_tracker_measurement_ok():
+                self._pick_soft_fail()
+            else:
+                mu_eff = self._pick_effective_camera_mu()
+                cov = self._pick.object_camera_cov
+                if mu_eff is None or cov is None:
+                    mu, cov_est = self._estimate_object_camera_stats()
+                    if mu is not None and cov_est is not None:
+                        self._pick.object_camera_mu = (float(mu[0]), float(mu[1]), float(mu[2]))
+                        self._pick.object_camera_cov = cov_est
+                        self._pick.stage_uncertainty = float(np.trace(cov_est))
+                        mu_eff = self._pick.object_camera_mu
+                        cov = cov_est
+                if mu_eff is not None and cov is not None:
+                    uncertainty = float(np.trace(cov))
+                    if uncertainty <= float(self.pick_fsm_cfg.uncertainty_threshold):
+                        self._pick.last_valid_camera_mu = mu_eff
+                        self._pick.last_valid_cov = cov
+                        mu_arr = np.asarray(mu_eff, dtype=float).reshape(3)
+                        mu_world = self._camera_to_world_point(mu_arr)
+                        if mu_world is not None:
+                            self._pick.object_world_mu = (float(mu_world[0]), float(mu_world[1]), float(mu_world[2]))
+                            self._pick_try_update_anchor(self._pick.object_world_mu)
+                            self._set_debug_marker(
+                                name="object_mu_world",
+                                pos=self._pick.object_world_mu,
+                                color=[0.2, 0.95, 0.8, 0.95],
+                                radius=0.01,
+                                ttl_ms=300,
+                            )
+                            if self._pick_can_auto_advance():
+                                self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                            return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
                 if self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
@@ -741,23 +858,28 @@ class ControlHost:
         if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
             if self._manual_hold_stage(PickStage.CAMERA_SERVO_ALIGN):
                 return
-            # Refresh mu/cov continuously during align; stale mu causes SEARCH<->ALIGN oscillation.
-            mu_new, cov_new = self._estimate_object_camera_stats()
-            if mu_new is not None and cov_new is not None:
-                self._pick.object_camera_mu = (float(mu_new[0]), float(mu_new[1]), float(mu_new[2]))
-                self._pick.object_camera_cov = cov_new
-                self._pick.last_valid_camera_mu = self._pick.object_camera_mu
-                self._pick.last_valid_cov = cov_new
-                self._pick.stage_uncertainty = float(np.trace(cov_new))
+            if not self._pick_tracker_measurement_ok():
+                self._pick_soft_fail()
+            elif self._pick_effective_camera_mu() is not None and self._pick.object_camera_cov is not None:
                 self._pick.dropout_count = 0
+            else:
+                mu_new, cov_new = self._estimate_object_camera_stats()
+                if mu_new is not None and cov_new is not None:
+                    self._pick.object_camera_mu = (float(mu_new[0]), float(mu_new[1]), float(mu_new[2]))
+                    self._pick.object_camera_cov = cov_new
+                    self._pick.last_valid_camera_mu = self._pick.object_camera_mu
+                    self._pick.last_valid_cov = cov_new
+                    self._pick.stage_uncertainty = float(np.trace(cov_new))
+                    self._pick.dropout_count = 0
             if self._pick.object_camera_mu is None and self._pick.last_valid_camera_mu is not None:
                 self._pick.object_camera_mu = self._pick.last_valid_camera_mu
                 self._pick.object_camera_cov = self._pick.last_valid_cov
                 self._pick_soft_fail()
-            if self._pick.object_camera_mu is None:
+            mu_tuple = self._pick_effective_camera_mu()
+            if mu_tuple is None:
                 self._pick_hard_fail(now)
                 return
-            mu = np.asarray(self._pick.object_camera_mu, dtype=float)
+            mu = np.asarray(mu_tuple, dtype=float)
             desired = np.asarray(self._pick.desired_camera_object, dtype=float)
             err = desired - mu
             self._pick.stage_error_m = float(np.linalg.norm(err))
@@ -815,12 +937,18 @@ class ControlHost:
         if self._pick.stage == PickStage.CONFIDENCE_GATE:
             if self._manual_hold_stage(PickStage.CONFIDENCE_GATE):
                 return
-            pass_gate = should_pass_confidence_gate(
-                error_m=float(self._pick.stage_error_m),
-                uncertainty=float(self._pick.stage_uncertainty),
-                error_threshold_m=float(self.pick_fsm_cfg.error_threshold_m),
-                uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
-            ) and float(self._pick.score) >= float(self.pick_fsm_cfg.score_pass)
+            pass_gate = (
+                should_pass_confidence_gate(
+                    error_m=float(self._pick.stage_error_m),
+                    uncertainty=float(self._pick.stage_uncertainty),
+                    error_threshold_m=float(self.pick_fsm_cfg.error_threshold_m),
+                    uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
+                )
+                and float(self._pick.score) >= float(self.pick_fsm_cfg.score_pass)
+                and self._pick_tracker_measurement_ok()
+                and float(self._pick.track_confidence) >= float(self.pick_fsm_cfg.track_confidence_min)
+                and float(self._pick.depth_valid_ratio) >= float(self.pick_fsm_cfg.depth_valid_ratio_min)
+            )
             if pass_gate:
                 if self._pick_can_auto_advance():
                     self._pick_set_stage(PickStage.SHORT_APPROACH, now)
@@ -849,19 +977,22 @@ class ControlHost:
                 radius=0.010,
                 ttl_ms=300,
             )
-            if self._pick.object_camera_mu is None or self.last_q is None:
-                if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
-                    self._pick_soft_fail()
-                else:
-                    self._pick_hard_fail(now)
+            if self.last_q is None:
+                if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
+                    if self._pick_can_auto_advance():
+                        self._pick_hard_fail(now)
                 return
-            desired_z = max(0.01, min(0.08, float(self.pick_fsm_cfg.short_approach_m)))
-            err_z = float(self._pick.object_camera_mu[2]) - desired_z
-            if abs(err_z) <= max(0.005, float(self.pick_fsm_cfg.error_threshold_m)):
-                if self._pick_can_auto_advance():
-                    self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
-                return
-            dz = float(np.clip(err_z, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m)))
+            reach_tol = max(0.01, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
+            if self.last_actual_tip_xyz is not None:
+                dist = float(
+                    np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - target)
+                )
+                self._pick.stage_error_m = dist
+                if dist <= reach_tol:
+                    if self._pick_can_auto_advance():
+                        self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
+                    return
+            dz = float(np.clip(float(self.pick_fsm_cfg.short_approach_m) * 0.25, 0.0, float(self.pick_fsm_cfg.align_step_m)))
             self._pending_target_q = proto.SimQ(
                 linear_m=float(self.last_q.linear_m + dz),
                 roll_rad=float(self.last_q.roll_rad),
@@ -1469,6 +1600,23 @@ class ControlHost:
                 )
                 return
             if source == "perception":
+                if (
+                    bool(self.pick_fsm_cfg.ignore_perception_in_short_approach)
+                    and self._pick_enabled
+                    and self._pick.stage == PickStage.SHORT_APPROACH
+                ):
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": True,
+                            "reason": "perception_ignored_short_approach",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
                     object_camera_xyz = (
@@ -1484,7 +1632,10 @@ class ControlHost:
                     if object_world is not None:
                         p_w = np.asarray(object_world, dtype=float).reshape(3)
                         object_world_tuple = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
-                    self._pick_record_perception_sample(object_camera_xyz, object_world_tuple)
+                    if self._pick_enabled:
+                        self._pick_record_perception_packet(msg, object_camera_xyz, object_world_tuple)
+                    else:
+                        self._pick_record_perception_sample(object_camera_xyz, object_world_tuple)
                     ack: Dict[str, Any] = {
                         "t": "ack",
                         "ts": proto.now_s(),
@@ -1640,6 +1791,9 @@ class ControlHost:
                         pick_anchor_confidence=float(self._pick.anchor_confidence),
                         pick_dropout_count=int(self._pick.dropout_count),
                         pick_score=float(self._pick.score),
+                        pick_track_state=str(self._pick.track_state or ""),
+                        pick_track_confidence=float(self._pick.track_confidence),
+                        pick_depth_valid_ratio=float(self._pick.depth_valid_ratio),
                     )
                 )
 

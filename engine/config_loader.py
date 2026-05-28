@@ -82,6 +82,11 @@ class PickFsmConfig:
     score_decay_per_s: float = 0.2
     score_reward_observation: float = 0.15
     attempt_hard_fail_only: bool = True
+    track_confidence_min: float = 0.5
+    depth_valid_ratio_min: float = 0.15
+    use_perception_mu: bool = True
+    ignore_perception_in_short_approach: bool = True
+    search_track_conf_min: float = 0.45
 
 
 @dataclass(frozen=True)
@@ -394,6 +399,13 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         score_decay_per_s=max(0.0, cp.getfloat("pick_fsm", "score_decay_per_s", fallback=p0.score_decay_per_s)),
         score_reward_observation=max(0.0, cp.getfloat("pick_fsm", "score_reward_observation", fallback=p0.score_reward_observation)),
         attempt_hard_fail_only=cp.getboolean("pick_fsm", "attempt_hard_fail_only", fallback=p0.attempt_hard_fail_only),
+        track_confidence_min=cp.getfloat("pick_fsm", "track_confidence_min", fallback=p0.track_confidence_min),
+        depth_valid_ratio_min=cp.getfloat("pick_fsm", "depth_valid_ratio_min", fallback=p0.depth_valid_ratio_min),
+        use_perception_mu=cp.getboolean("pick_fsm", "use_perception_mu", fallback=p0.use_perception_mu),
+        ignore_perception_in_short_approach=cp.getboolean(
+            "pick_fsm", "ignore_perception_in_short_approach", fallback=p0.ignore_perception_in_short_approach
+        ),
+        search_track_conf_min=cp.getfloat("pick_fsm", "search_track_conf_min", fallback=p0.search_track_conf_min),
     )
 
 

@@ -84,6 +84,9 @@ def draw_pick_fsm_panel(panel) -> None:
         anchor_age_txt = "-" if state.pick_anchor_age_s is None else f"{float(state.pick_anchor_age_s):.2f} s"
         anchor_conf_txt = "-" if state.pick_anchor_confidence is None else f"{float(state.pick_anchor_confidence):.2f}"
         score_txt = "-" if state.pick_score is None else f"{float(state.pick_score):.2f}"
+        track_state_txt = str(state.pick_track_state or "").strip() or "-"
+        track_conf_txt = "-" if state.pick_track_confidence is None else f"{float(state.pick_track_confidence):.2f}"
+        depth_valid_txt = "-" if state.pick_depth_valid_ratio is None else f"{float(state.pick_depth_valid_ratio):.2f}"
         imgui.text(f"Pick stage: {pick_stage}")
         imgui.text(f"Pick error: {pick_error_txt}")
         imgui.text(f"Pick uncertainty: {pick_uncertainty_txt}")
@@ -92,6 +95,9 @@ def draw_pick_fsm_panel(panel) -> None:
         imgui.text(f"Anchor confidence: {anchor_conf_txt}")
         imgui.text(f"Dropout count: {int(state.pick_dropout_count)}")
         imgui.text(f"Score: {score_txt}")
+        imgui.text(f"Track state: {track_state_txt}")
+        imgui.text(f"Track confidence: {track_conf_txt}")
+        imgui.text(f"Depth valid ratio: {depth_valid_txt}")
         if panel.service.has_client():
             next_options = _NEXT_STAGE_OPTIONS.get(pick_stage, [])
             if next_options:
