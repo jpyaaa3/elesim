@@ -33,12 +33,15 @@ def draw_pick_fsm_panel(panel) -> None:
         changed_mode, selected_mode = imgui.combo("Perception Mode", int(panel._pick_mode_idx), mode_labels)
         if changed_mode:
             panel._pick_mode_idx = int(selected_mode)
+        changed_preview, preview_on = imgui.checkbox("Show Camera Preview", bool(panel._pick_show_preview))
+        if changed_preview:
+            panel._pick_show_preview = bool(preview_on)
         if panel.service.has_client():
             if imgui.button("Start Perception"):
                 ok, msg = panel.service.start_perception_bridge(
                     target_label=str(panel._pick_target_label_draft),
                     mode=str(mode_labels[int(panel._pick_mode_idx)]),
-                    show_preview=False,
+                    show_preview=bool(panel._pick_show_preview),
                     publish_hz=10.0,
                 )
                 panel._pick_status_text = str(msg)
