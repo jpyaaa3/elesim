@@ -1797,7 +1797,7 @@ class ControlService:
 
     def _apply_pick_center_step(
         self, obs: VisualObservation, current_u: ControlU
-    ) -> tuple[ControlU, str]:
+    ) -> tuple[ControlU, str, float, float]:
         cfg = self._pick_config_effective()
         center_tol = float(cfg.center_tol)
         tu, tv = float(cfg.target_uv_u), float(cfg.target_uv_v)
@@ -1807,30 +1807,60 @@ class ControlService:
         v_delta = v - tv
         u_enter_v = center_tol * float(self._center_u_enter_v_ratio)
         v_align_tol = center_tol * float(self._pick_approach_v_hold_ratio)
-        force_axis: Optional[str] = None
-        if self._pick_center_phase == "v" and abs(u_delta) > center_tol:
-            self._pick_center_phase = "u"
-        if self._pick_center_phase == "u" and abs(u_delta) <= u_enter_v and abs(v_delta) > v_align_tol:
-            self._pick_center_phase = "v"
-        if abs(v_delta) > v_align_tol and abs(u_delta) <= center_tol:
-            force_axis = "v"
-        elif self._pick_center_phase == "v" and abs(v_delta) > v_align_tol:
-            force_axis = "v"
-        elif abs(u_delta) > center_tol:
-            force_axis = "u"
-        elif abs(v_delta) > v_align_tol:
-            force_axis = "v"
-        next_u, mode = self._apply_center_uv_step(
-            obs,
-            current_u,
-            center_tol=center_tol,
-            force_axis=force_axis,
-            u_active_tol=u_enter_v,
-            v_active_tol=v_align_tol,
-            seg_u_max=float(self._center_seg_step_max),
-            target_uv=(tu, tv),
-        )
-        return next_u, mode
+        seg_cap = float(self._center_seg_step_max)
+        if abs(v_delta) > 0.12:
+            seg_cap = float(self._visual_center_seg_u_max)
+        # Gripper align (2,0) = top-right: fix large v error first; do not let u steal v phase.
+        if abs(v_delta) > v_align_tol:
+            next_u, mode = self._apply_center_uv_step(
+                obs,
+                current_u,
+                center_tol=center_tol,
+                force_axis="v",
+                u_active_tol=u_enter_v,
+                v_active_tol=v_align_tol,
+                seg_u_max=seg_cap,
+                target_uv=(tu, tv),
+            )
+            v_cmd = float(tv - v)
+            seg_req = float(
+                np.clip(
+                    self._visual_center_v_gain * v_cmd,
+                    -seg_cap,
+                    seg_cap,
+                )
+            )
+            roll_req = 0.0
+            if abs(v_delta) > float(center_tol) * 1.5:
+                roll_req = float(
+                    np.clip(
+                        0.25 * self._visual_center_v_gain * v_cmd,
+                        -self._visual_center_roll_u_max * 0.5,
+                        self._visual_center_roll_u_max * 0.5,
+                    )
+                )
+            return next_u, mode, roll_req, seg_req
+        if abs(u_delta) > center_tol:
+            next_u, mode = self._apply_center_uv_step(
+                obs,
+                current_u,
+                center_tol=center_tol,
+                force_axis="u",
+                u_active_tol=u_enter_v,
+                v_active_tol=v_align_tol,
+                seg_u_max=seg_cap,
+                target_uv=(tu, tv),
+            )
+            u_err = float(tu - u)
+            roll_req = float(
+                np.clip(
+                    self._visual_center_u_gain * u_err,
+                    -self._visual_center_roll_u_max,
+                    self._visual_center_roll_u_max,
+                )
+            )
+            return next_u, mode, roll_req, 0.0
+        return current_u, "none", 0.0, 0.0
 
     def _wait_center_observation(
         self,
@@ -1962,10 +1992,10 @@ class ControlService:
                     return
                 print("[Pick] acquire | track locked")
 
-                current_u = self.current_control_u()
                 stale_count = 0
                 max_iters = int(pk.max_iters)
                 for it in range(max_iters):
+                    current_u = self.current_control_u()
                     step_idx = it + 1
                     if self._pick_stop_event.is_set():
                         print(f"[Pick] step {step_idx}/{max_iters} | stopped")
@@ -2013,9 +2043,13 @@ class ControlService:
                         return
 
                     center_mode = ""
+                    roll_req = 0.0
+                    seg_req = 0.0
                     if not conv.center_ok or not approach_uv_ok:
                         phase = ObjectPickPhase.CENTER
-                        next_u, center_mode = self._apply_pick_center_step(obs, current_u)
+                        next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
+                            obs, current_u
+                        )
                     else:
                         phase = ObjectPickPhase.APPROACH
                         next_u = self._apply_pick_approach_step(obs, current_u)
@@ -2035,6 +2069,8 @@ class ControlService:
                         dlinear=f"{du_linear:+.2f}",
                         droll=f"{du_roll:+.2f}",
                         dseg=f"{du_seg:+.2f}",
+                        req_roll=f"{roll_req:+.2f}",
+                        req_seg=f"{seg_req:+.2f}",
                     )
                     if center_mode:
                         pick_fields["mode"] = center_mode
@@ -2053,13 +2089,15 @@ class ControlService:
                         ):
                             self._pick_clamp_streak += 1
                             print(
-                                "[Pick] step %d/%d | command clamped (v align, seg/roll limit) | "
-                                "u_s1=%.1f u_s2=%.1f streak=%d"
+                                "[Pick] step %d/%d | no actuator change | mode=%s "
+                                "req_roll=%+.2f req_seg=%+.2f u_s1=%.1f streak=%d"
                                 % (
                                     step_idx,
                                     max_iters,
+                                    center_mode or "?",
+                                    float(roll_req),
+                                    float(seg_req),
                                     float(current_u.u_s1),
-                                    float(current_u.u_s2),
                                     int(self._pick_clamp_streak),
                                 )
                             )
@@ -2069,10 +2107,10 @@ class ControlService:
                                     failed=True,
                                     phase=ObjectPickPhase.FAILED.value,
                                     msg=(
-                                        "v align stalled at seg/roll limit | "
-                                        "delta_v=%+.3f target_v=%+.3f | reposition arm"
+                                        "v align stalled (no motion) | delta_v=%+.3f "
+                                        "target_v=%+.3f req_seg=%+.1f"
                                     )
-                                    % (float(v_d), float(tv)),
+                                    % (float(v_d), float(tv), float(seg_req)),
                                 )
                                 return
                         else:
