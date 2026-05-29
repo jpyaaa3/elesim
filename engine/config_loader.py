@@ -106,8 +106,8 @@ class PickFsmConfig:
     look_xy_threshold_m: float = 0.010
     look_xy_deadband_m: float = 0.008
     look_gain_theta1: float = 1.0
-    look_gain_theta2: float = 1.0
-    look_gain_roll: float = 1.0
+    look_gain_theta2: float = -1.0
+    look_gain_roll: float = -1.0
     look_heuristic_use_roll: bool = True
     look_max_step_rad: float = 0.02
     look_max_step_roll_rad: float = 0.02

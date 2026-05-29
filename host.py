@@ -150,6 +150,7 @@ class PickContext:
     look_cal_columns: list[np.ndarray] = field(default_factory=list)
     look_cal_baseline_e: Optional[np.ndarray] = None
     look_cal_q_anchor: Optional[tuple[float, float, float, float]] = None
+    look_last_perception_ts: float = 0.0
 
 
 def filtered_camera_stats(
@@ -552,32 +553,19 @@ class ControlHost:
             self._pick.align_no_improve_count = 0
             if self._pick_view_align_uses_servo():
                 self._pick_reset_look_servo_target()
+                self._pick_begin_look_cal(now, include_roll=False)
                 print("[pick] VIEW_ALIGN: servo mode (current q, no IK grid)", flush=True)
         if stage == PickStage.LOOK_ALIGN and prev != stage:
             self._pick.align_last_cmd_ts = 0.0
             self._pick.align_prev_error_m = float("inf")
             self._pick.align_no_improve_count = 0
-            self._pick.look_jacobian = None
-            self._pick.look_cal_columns = []
-            self._pick.look_cal_baseline_e = None
-            self._pick.look_cal_q_anchor = None
-            self._pick.look_cal_axis_idx = 0
+            self._pick.look_last_perception_ts = 0.0
             self._pick_reset_look_servo_target()
             cfg = self.pick_fsm_cfg
-            if bool(cfg.look_jacobian_include_roll):
-                self._pick.look_cal_axis_order = [0, 1, 2]
-            else:
-                self._pick.look_cal_axis_order = [1, 2]
-            skip_cal = self._pick_look_align_ok()
-            if str(cfg.look_servo_mode).strip().lower() == "jacobian" and not skip_cal:
-                self._pick.look_cal_phase = "running"
-                self._pick.look_cal_substep = "baseline_wait"
-                self._pick.look_cal_phase_ts = float(now)
-            else:
-                self._pick.look_cal_phase = "done" if skip_cal else ""
-                self._pick.look_cal_substep = ""
-                if skip_cal:
-                    print("[pick] LOOK_ALIGN: xy already within threshold, skip Jacobian cal", flush=True)
+            self._pick_begin_look_cal(
+                now,
+                include_roll=bool(cfg.look_jacobian_include_roll),
+            )
 
     def _pick_can_auto_advance(self) -> bool:
         """Uncommanded pick flow (e.g. TARGET_LOCK search). Manual mode stays on TARGET_LOCK."""
@@ -1239,6 +1227,38 @@ class ControlHost:
     def _pick_heuristic_uses_roll(self) -> bool:
         return bool(self.pick_fsm_cfg.look_heuristic_use_roll)
 
+    def _pick_begin_look_cal(self, now: float, *, include_roll: bool) -> None:
+        self._pick.look_jacobian = None
+        self._pick.look_cal_columns = []
+        self._pick.look_cal_baseline_e = None
+        self._pick.look_cal_q_anchor = None
+        self._pick.look_cal_axis_idx = 0
+        if include_roll:
+            self._pick.look_cal_axis_order = [0, 1, 2]
+        else:
+            self._pick.look_cal_axis_order = [1, 2]
+        skip_cal = self._pick_look_align_ok()
+        cfg = self.pick_fsm_cfg
+        if str(cfg.look_servo_mode).strip().lower() == "jacobian" and not skip_cal:
+            self._pick.look_cal_phase = "running"
+            self._pick.look_cal_substep = "baseline_wait"
+            self._pick.look_cal_phase_ts = float(now)
+        else:
+            self._pick.look_cal_phase = "done" if skip_cal else ""
+            self._pick.look_cal_substep = ""
+            if skip_cal:
+                print("[pick] LOOK_ALIGN: xy already within threshold, skip Jacobian cal", flush=True)
+
+    def _pick_servo_perception_ready(self, now: float) -> bool:
+        """Wait for a perception frame after the last motion command."""
+        if (now - float(self._pick.last_perception_ts)) > 0.35:
+            return False
+        if float(self._pick.align_last_cmd_ts) <= 0.0:
+            return True
+        if float(self._pick.last_perception_ts) <= float(self._pick.look_last_perception_ts) + 1e-6:
+            return (now - float(self._pick.align_last_cmd_ts)) >= 0.35
+        return True
+
     def _pick_motion_base_q(self) -> Optional[proto.SimQ]:
         if self._pending_target_q is not None:
             return self._pending_target_q
@@ -1563,6 +1583,8 @@ class ControlHost:
         if self.last_q is None:
             return False
         if not self._pick_motion_settled():
+            return False
+        if not self._pick_servo_perception_ready(now):
             return False
         xy_state = self._pick_look_camera_xy_state()
         if xy_state is None:
