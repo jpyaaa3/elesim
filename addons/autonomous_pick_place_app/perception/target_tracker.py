@@ -227,7 +227,7 @@ class TargetTracker:
     min_samples: int = 3
     min_depth_valid_ratio: float = 0.15
     min_depth_cluster_ratio: float = 0.20
-    z_cluster_tolerance_m: float = 0.06
+    z_cluster_tolerance_m: float = 0.2
     z_jump_tolerance_m: float = 0.10
     lost_frames_threshold: int = 3
     redetect_interval_frames: int = 3
@@ -267,7 +267,7 @@ class TargetTracker:
             min_samples=int(tracker_cfg.get("min_samples", 3)),
             min_depth_valid_ratio=float(tracker_cfg.get("min_depth_valid_ratio", 0.15)),
             min_depth_cluster_ratio=float(tracker_cfg.get("min_depth_cluster_ratio", 0.20)),
-            z_cluster_tolerance_m=float(tracker_cfg.get("z_cluster_tolerance_m", 0.06)),
+            z_cluster_tolerance_m=float(tracker_cfg.get("z_cluster_tolerance_m", 0.2)),
             z_jump_tolerance_m=float(tracker_cfg.get("z_jump_tolerance_m", 0.10)),
             lost_frames_threshold=int(tracker_cfg.get("lost_frames_threshold", 3)),
             redetect_interval_frames=int(tracker_cfg.get("redetect_interval_frames", 3)),

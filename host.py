@@ -29,6 +29,18 @@ from engine.pick_view_pregrasp import (
     generate_view_pregrasp_candidates,
     pick_best_visible_candidate,
 )
+from engine.pick_visual_servo import (
+    LookAlignLimits,
+    LookGains,
+    advance_allowed,
+    apply_q_delta,
+    camera_xy_error,
+    compute_advance_delta_q,
+    compute_backoff_delta_q,
+    compute_look_delta_q,
+    look_align_ok,
+    should_send_look_command,
+)
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import (
     camera_axes_world,
@@ -41,19 +53,37 @@ from serial.tools import list_ports as serial_list_ports
 
 
 class PickStage(str, Enum):
-    SEARCH = "SEARCH"
-    COARSE_WORLD_PREGRASP = "COARSE_WORLD_PREGRASP"
-    STOP_AND_RELOCALIZE = "STOP_AND_RELOCALIZE"
-    CAMERA_SERVO_ALIGN = "CAMERA_SERVO_ALIGN"
-    CONFIDENCE_GATE = "CONFIDENCE_GATE"
+    TARGET_LOCK = "TARGET_LOCK"
+    VIEW_ALIGN = "VIEW_ALIGN"
+    STOP_AND_CHECK = "STOP_AND_CHECK"
+    LOOK_ALIGN = "LOOK_ALIGN"
+    ADVANCE_SMALL = "ADVANCE_SMALL"
+    COMMIT_GATE = "COMMIT_GATE"
     SHORT_APPROACH = "SHORT_APPROACH"
     CLOSE_GRIPPER = "CLOSE_GRIPPER"
     LIFT_AND_VERIFY = "LIFT_AND_VERIFY"
 
 
+_PICK_STAGE_ALIASES: dict[str, PickStage] = {
+    "SEARCH": PickStage.TARGET_LOCK,
+    "TARGET_LOCK": PickStage.TARGET_LOCK,
+    "COARSE_WORLD_PREGRASP": PickStage.VIEW_ALIGN,
+    "STOP_AND_RELOCALIZE": PickStage.STOP_AND_CHECK,
+    "CAMERA_SERVO_ALIGN": PickStage.LOOK_ALIGN,
+    "CONFIDENCE_GATE": PickStage.COMMIT_GATE,
+}
+
+
+def resolve_pick_stage(stage_raw: str) -> PickStage:
+    key = str(stage_raw).strip().upper()
+    if key in _PICK_STAGE_ALIASES:
+        return _PICK_STAGE_ALIASES[key]
+    return PickStage(key)
+
+
 @dataclass
 class PickContext:
-    stage: PickStage = PickStage.SEARCH
+    stage: PickStage = PickStage.TARGET_LOCK
     stage_enter_ts: float = 0.0
     attempt: int = 0
     object_camera_samples: deque[tuple[float, float, float]] = field(default_factory=deque)
@@ -94,6 +124,7 @@ class PickContext:
     perception_mu_camera: Optional[tuple[float, float, float]] = None
     perception_sigma_camera: Optional[tuple[float, float, float]] = None
     last_object_camera: Optional[tuple[float, float, float]] = None
+    advance_count: int = 0
 
 
 def filtered_camera_stats(
@@ -224,6 +255,12 @@ class ControlHost:
         self._yellow_zone_ids: Set[int] = set()
         self._pick = PickContext()
         self._pick.stage_enter_ts = time.time()
+        _pcfg = self.pick_fsm_cfg
+        self._pick.desired_camera_object = (
+            float(_pcfg.desired_camera_xy_m[0]),
+            float(_pcfg.desired_camera_xy_m[1]),
+            float(_pcfg.desired_camera_z_m),
+        )
         self._pick_enabled = bool(self.pick_fsm_cfg.enable)
         if not self._has_hw():
             self._set_virtual_neutral_state()
@@ -468,7 +505,7 @@ class ControlHost:
         prev = self._pick.stage
         self._pick.stage = stage
         self._pick.stage_enter_ts = float(now)
-        if stage == PickStage.COARSE_WORLD_PREGRASP and prev != stage:
+        if stage == PickStage.VIEW_ALIGN and prev != stage:
             self._pick.coarse_last_cmd_ts = 0.0
             self._pick.coarse_target_q = None
             self._pick.coarse_view_planned = False
@@ -476,6 +513,10 @@ class ControlHost:
             self._pick.coarse_view_score = float("-inf")
             self._pick.coarse_predicted_camera = None
             self._pick.coarse_failed_tags.clear()
+        if stage == PickStage.LOOK_ALIGN and prev != stage:
+            self._pick.align_last_cmd_ts = 0.0
+            self._pick.align_prev_error_m = float("inf")
+            self._pick.align_no_improve_count = 0
 
     def _pick_can_auto_advance(self) -> bool:
         return not bool(self._pick.manual_mode)
@@ -504,7 +545,8 @@ class ControlHost:
         self._pick.coarse_predicted_camera = None
         self._pick.coarse_failed_tags.clear()
         self._pick.last_object_camera = None
-        self._pick_set_stage(PickStage.SEARCH, now)
+        self._pick.advance_count = 0
+        self._pick_set_stage(PickStage.TARGET_LOCK, now)
 
     def _pick_soft_fail(self) -> None:
         self._pick.dropout_count += 1
@@ -926,6 +968,149 @@ class ControlHost:
             return False
         return camera_visibility_ok(p_cam, limits)
 
+    def _pick_look_limits(self) -> LookAlignLimits:
+        cfg = self.pick_fsm_cfg
+        return LookAlignLimits(
+            xy_threshold_m=float(cfg.look_xy_threshold_m),
+            xy_deadband_m=float(cfg.look_xy_deadband_m),
+        )
+
+    def _pick_look_gains(self) -> LookGains:
+        cfg = self.pick_fsm_cfg
+        return LookGains(
+            theta1_per_error_x=float(cfg.look_gain_theta1),
+            theta2_per_error_y=float(cfg.look_gain_theta2),
+            max_step_rad=float(cfg.look_max_step_rad),
+        )
+
+    def _pick_desired_camera_xy(self) -> tuple[float, float]:
+        d = self._pick.desired_camera_object
+        return (float(d[0]), float(d[1]))
+
+    def _pick_camera_xy_state(self) -> Optional[tuple[float, float, float, float]]:
+        mu_tuple = self._pick_effective_camera_mu()
+        if mu_tuple is None:
+            return None
+        desired_xy = self._pick_desired_camera_xy()
+        ex, ey, norm_xy = camera_xy_error(mu_tuple, desired_xy)
+        mu_z = float(mu_tuple[2])
+        return ex, ey, norm_xy, mu_z
+
+    def _pick_look_align_ok(self) -> bool:
+        state = self._pick_camera_xy_state()
+        if state is None:
+            return False
+        ex, ey, _, _ = state
+        return look_align_ok(ex, ey, self._pick_look_limits())
+
+    def _pick_tracker_lost(self) -> bool:
+        state = str(self._pick.track_state or "").strip().upper()
+        if state == "LOST":
+            return True
+        if self._pick.stage == PickStage.TARGET_LOCK:
+            return False
+        return state in ("SEARCH", "")
+
+    def _pick_handle_tracker_lost(self, now: float) -> bool:
+        if not self._pick_tracker_lost():
+            return False
+        self._pending_target_q = None
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        if self.last_q is not None and float(self.pick_fsm_cfg.advance_backoff_m) > 0.0:
+            delta = compute_backoff_delta_q(float(self.pick_fsm_cfg.advance_backoff_m))
+            lin, roll, t1, t2 = apply_q_delta(
+                float(self.last_q.linear_m),
+                float(self.last_q.roll_rad),
+                float(self.last_q.theta1_rad),
+                float(self.last_q.theta2_rad),
+                delta,
+            )
+            self._pending_target_q = proto.SimQ(linear_m=lin, roll_rad=roll, theta1_rad=t1, theta2_rad=t2)
+            self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+            self._pick_flush_pending_motion_target(now)
+            print(
+                f"[pick] track lost ({self._pick.track_state}): backoff linear -{self.pick_fsm_cfg.advance_backoff_m:.3f}m",
+                flush=True,
+            )
+        self._pick.advance_count = 0
+        self._pick_set_stage(PickStage.TARGET_LOCK, now)
+        return True
+
+    def _pick_apply_q_delta_motion(self, delta, now: float) -> None:
+        if self.last_q is None:
+            return
+        lin, roll, t1, t2 = apply_q_delta(
+            float(self.last_q.linear_m),
+            float(self.last_q.roll_rad),
+            float(self.last_q.theta1_rad),
+            float(self.last_q.theta2_rad),
+            delta,
+        )
+        self._pending_target_q = proto.SimQ(linear_m=lin, roll_rad=roll, theta1_rad=t1, theta2_rad=t2)
+        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+        self._pick_flush_pending_motion_target(now)
+
+    def _pick_visual_servo_look_step(self, now: float) -> bool:
+        if self.last_q is None:
+            return False
+        xy_state = self._pick_camera_xy_state()
+        if xy_state is None:
+            return False
+        ex, ey, norm_xy, _z = xy_state
+        self._pick.stage_error_m = float(norm_xy)
+        limits = self._pick_look_limits()
+        if not should_send_look_command(ex, ey, limits):
+            return False
+        if (now - float(self._pick.align_last_cmd_ts)) < float(self.pick_fsm_cfg.look_cmd_period_s):
+            return False
+        if float(norm_xy) > float(self._pick.align_prev_error_m) + 1e-4:
+            self._pick.align_no_improve_count += 1
+        else:
+            self._pick.align_no_improve_count = 0
+        self._pick.align_prev_error_m = float(norm_xy)
+        delta = compute_look_delta_q(ex, ey, self._pick_look_gains(), limits=limits)
+        if (
+            abs(float(delta.linear_m)) < 1e-9
+            and abs(float(delta.roll_rad)) < 1e-9
+            and abs(float(delta.theta1_rad)) < 1e-9
+            and abs(float(delta.theta2_rad)) < 1e-9
+        ):
+            return False
+        self._pick_apply_q_delta_motion(delta, now)
+        self._pick.align_last_cmd_ts = float(now)
+        print(f"[pick] LOOK_ALIGN step ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f}", flush=True)
+        return True
+
+    def _pick_execute_advance_small(self, now: float) -> bool:
+        xy_state = self._pick_camera_xy_state()
+        if xy_state is None or self.last_q is None:
+            return False
+        ex, ey, _, _ = xy_state
+        if not advance_allowed(ex, ey, self._pick_look_limits()):
+            print(f"[pick] ADVANCE_SMALL blocked: xy not aligned ex={ex:+.4f} ey={ey:+.4f}", flush=True)
+            return False
+        if int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps):
+            print("[pick] ADVANCE_SMALL blocked: max_advance_steps reached", flush=True)
+            return False
+        step_m = float(self.pick_fsm_cfg.advance_step_m)
+        delta = compute_advance_delta_q(step_m)
+        self._pick_apply_q_delta_motion(delta, now)
+        self._pick.advance_count += 1
+        print(f"[pick] ADVANCE_SMALL +{step_m:.4f}m (count={self._pick.advance_count})", flush=True)
+        return True
+
+    def _pick_ready_for_commit(self) -> bool:
+        xy_state = self._pick_camera_xy_state()
+        if xy_state is None:
+            return False
+        ex, ey, _, mu_z = xy_state
+        if not look_align_ok(ex, ey, self._pick_look_limits()):
+            return False
+        if float(mu_z) > float(self.pick_fsm_cfg.commit_z_max_m):
+            return False
+        return True
+
     def _pick_apply_coarse_target_q(self, q: np.ndarray, now: float) -> None:
         self._pending_target_q = proto.SimQ(
             linear_m=float(q[0]),
@@ -1032,9 +1217,9 @@ class ControlHost:
         stage_elapsed = float(now - self._pick.stage_enter_ts)
         self._pick_decay_score(self._state_period)
         if should_stage_timeout(stage_elapsed_s=stage_elapsed, timeout_s=float(self.pick_fsm_cfg.stage_timeout_s)) and self._pick.stage not in (
-            PickStage.SEARCH,
-            PickStage.STOP_AND_RELOCALIZE,
-            PickStage.CAMERA_SERVO_ALIGN,
+            PickStage.TARGET_LOCK,
+            PickStage.STOP_AND_CHECK,
+            PickStage.LOOK_ALIGN,
             PickStage.LIFT_AND_VERIFY,
         ):
             if self._pick_can_auto_advance():
@@ -1043,8 +1228,10 @@ class ControlHost:
         if self._pick.attempt >= int(self.pick_fsm_cfg.max_attempts):
             self._pick_enabled = False
             return
-        if self._pick.stage == PickStage.SEARCH:
+        if self._pick.stage == PickStage.TARGET_LOCK:
             if self._pick.manual_mode:
+                return
+            if self._pick_handle_tracker_lost(now):
                 return
             perception_fresh = (now - float(self._pick.last_perception_ts)) <= 1.0
             tracker_ready = (
@@ -1066,12 +1253,12 @@ class ControlHost:
                 self._pick_soft_fail()
                 return
             if self._pick.consecutive_detection_count >= int(self.pick_fsm_cfg.search_stable_frames):
-                self._pick_set_stage(PickStage.COARSE_WORLD_PREGRASP, now)
+                self._pick_set_stage(PickStage.VIEW_ALIGN, now)
             return
-        if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
+        if self._pick.stage == PickStage.VIEW_ALIGN:
             if self._pick.anchor_world_xyz is None:
                 if not self._pick_bootstrap_anchor_from_perception(now):
-                    print(f"[pick] COARSE: {self._pick_explain_missing_anchor()}, returning to SEARCH", flush=True)
+                    print(f"[pick] VIEW_ALIGN: {self._pick_explain_missing_anchor()}, returning to TARGET_LOCK", flush=True)
                     self._pick_reset_to_search(now)
                     return
             self._pick_execute_coarse_pregrasp(now, force=False)
@@ -1100,13 +1287,13 @@ class ControlHost:
             if reached:
                 if self._pick_coarse_visibility_ok():
                     if self._pick_can_auto_advance():
-                        self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                        self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                     return
                 failed_tag = str(self._pick.coarse_candidate_tag or "").strip()
                 if failed_tag:
                     self._pick.coarse_failed_tags.add(failed_tag)
                 print(
-                    f"[pick] COARSE reached but visibility failed tag={failed_tag or 'unknown'} "
+                    f"[pick] VIEW_ALIGN reached but visibility failed tag={failed_tag or 'unknown'} "
                     f"pred={self._pick.coarse_predicted_camera} track={self._pick.track_state}",
                     flush=True,
                 )
@@ -1116,14 +1303,18 @@ class ControlHost:
                 if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s) and self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
                 return
-            if self._manual_hold_stage(PickStage.COARSE_WORLD_PREGRASP):
+            if self._pick_handle_tracker_lost(now):
+                return
+            if self._manual_hold_stage(PickStage.VIEW_ALIGN):
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
                 if self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
             return
-        if self._pick.stage == PickStage.STOP_AND_RELOCALIZE:
-            if self._manual_hold_stage(PickStage.STOP_AND_RELOCALIZE):
+        if self._pick.stage == PickStage.STOP_AND_CHECK:
+            if self._manual_hold_stage(PickStage.STOP_AND_CHECK):
+                return
+            if self._pick_handle_tracker_lost(now):
                 return
             if not self._pick_tracker_measurement_ok():
                 self._pick_soft_fail()
@@ -1156,14 +1347,16 @@ class ControlHost:
                                 ttl_ms=300,
                             )
                             if self._pick_can_auto_advance():
-                                self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                                self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                             return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
                 if self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
             return
-        if self._pick.stage == PickStage.CAMERA_SERVO_ALIGN:
-            if self._manual_hold_stage(PickStage.CAMERA_SERVO_ALIGN):
+        if self._pick.stage == PickStage.LOOK_ALIGN:
+            if self._manual_hold_stage(PickStage.LOOK_ALIGN):
+                return
+            if self._pick_handle_tracker_lost(now):
                 return
             if not self._pick_tracker_measurement_ok():
                 self._pick_soft_fail()
@@ -1182,33 +1375,34 @@ class ControlHost:
                 self._pick.object_camera_mu = self._pick.last_valid_camera_mu
                 self._pick.object_camera_cov = self._pick.last_valid_cov
                 self._pick_soft_fail()
-            mu_tuple = self._pick_effective_camera_mu()
-            if mu_tuple is None:
+            if self._pick_effective_camera_mu() is None:
                 self._pick_hard_fail(now)
                 return
-            mu = np.asarray(mu_tuple, dtype=float)
-            desired = np.asarray(self._pick.desired_camera_object, dtype=float)
-            err = desired - mu
-            self._pick.stage_error_m = float(np.linalg.norm(err))
+            xy_state = self._pick_camera_xy_state()
+            if xy_state is not None:
+                _ex, _ey, norm_xy, _mu_z = xy_state
+                self._pick.stage_error_m = float(norm_xy)
             if self._pick.pregrasp_world is not None:
                 self.last_ik_target_xyz = (
                     float(self._pick.pregrasp_world[0]),
                     float(self._pick.pregrasp_world[1]),
                     float(self._pick.pregrasp_world[2]),
                 )
-            if float(self._pick.stage_error_m) > float(self._pick.align_prev_error_m) + 1e-4:
-                self._pick.align_no_improve_count += 1
-            else:
-                self._pick.align_no_improve_count = 0
-            self._pick.align_prev_error_m = float(self._pick.stage_error_m)
-            if self._pick.stage_error_m <= float(self.pick_fsm_cfg.error_threshold_m):
+            if self._pick_ready_for_commit():
                 if self._pick_can_auto_advance():
-                    self._pick_set_stage(PickStage.CONFIDENCE_GATE, now)
+                    self._pick_set_stage(PickStage.COMMIT_GATE, now)
                 return
-            if self._pick.align_no_improve_count >= 6:
-                # Direction mismatch/noisy servo oscillation: re-localize instead of burning attempts.
+            if self._pick_look_align_ok():
+                if int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps):
+                    if self._pick_can_auto_advance():
+                        self._pick_hard_fail(now)
+                    return
                 if self._pick_can_auto_advance():
-                    self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
+                    self._pick_set_stage(PickStage.ADVANCE_SMALL, now)
+                return
+            if int(self._pick.align_no_improve_count) >= int(self.pick_fsm_cfg.align_no_improve_limit):
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
                 self._pick.align_no_improve_count = 0
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.align_timeout_s):
@@ -1224,31 +1418,30 @@ class ControlHost:
                 else:
                     self._pick_soft_fail()
                 return
-            if self.last_q is not None:
-                if (now - float(self._pick.align_last_cmd_ts)) < 0.10:
-                    return
-                if float(self._pick.stage_error_m) <= float(self.pick_fsm_cfg.error_threshold_m) * 1.5:
-                    return
-                # Negative feedback step; previous sign often moved away in real setup.
-                step = -np.clip(err, -float(self.pick_fsm_cfg.align_step_m), float(self.pick_fsm_cfg.align_step_m))
-                next_q = proto.SimQ(
-                    linear_m=float(self.last_q.linear_m + step[2]),
-                    roll_rad=float(self.last_q.roll_rad),
-                    theta1_rad=float(self.last_q.theta1_rad + step[0]),
-                    theta2_rad=float(self.last_q.theta2_rad + step[1]),
-                )
-                self._pending_target_q = next_q
-                self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
-                self._pick.align_last_cmd_ts = float(now)
+            self._pick_visual_servo_look_step(now)
             return
-        if self._pick.stage == PickStage.CONFIDENCE_GATE:
-            if self._manual_hold_stage(PickStage.CONFIDENCE_GATE):
+        if self._pick.stage == PickStage.ADVANCE_SMALL:
+            if self._pick_handle_tracker_lost(now):
+                return
+            if self._pick_execute_advance_small(now):
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
+            else:
+                if self._pick_can_auto_advance():
+                    self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+            return
+        if self._pick.stage == PickStage.COMMIT_GATE:
+            if self._manual_hold_stage(PickStage.COMMIT_GATE):
+                return
+            if self._pick_handle_tracker_lost(now):
                 return
             pass_gate = (
-                should_pass_confidence_gate(
+                self._pick_look_align_ok()
+                and self._pick_ready_for_commit()
+                and should_pass_confidence_gate(
                     error_m=float(self._pick.stage_error_m),
                     uncertainty=float(self._pick.stage_uncertainty),
-                    error_threshold_m=float(self.pick_fsm_cfg.error_threshold_m),
+                    error_threshold_m=float(self.pick_fsm_cfg.look_xy_threshold_m),
                     uncertainty_threshold=float(self.pick_fsm_cfg.uncertainty_threshold),
                 )
                 and float(self._pick.score) >= float(self.pick_fsm_cfg.score_pass)
@@ -1262,7 +1455,7 @@ class ControlHost:
             else:
                 if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
                     if self._pick_can_auto_advance():
-                        self._pick_set_stage(PickStage.CAMERA_SERVO_ALIGN, now)
+                        self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                     self._pick_soft_fail()
                 else:
                     self._pick_hard_fail(now)
@@ -1383,7 +1576,7 @@ class ControlHost:
         if cmd == "goto_stage":
             stage_raw = str(msg.get("stage", "")).strip().upper()
             try:
-                target_stage = PickStage(stage_raw)
+                target_stage = resolve_pick_stage(stage_raw)
             except Exception:
                 self._reply(
                     ident,
@@ -1394,7 +1587,7 @@ class ControlHost:
             self._pick_enabled = True
             self._pick.manual_mode = True
             # If user jumps to coarse without explicit anchor, fallback to latest perceived world point.
-            if target_stage == PickStage.COARSE_WORLD_PREGRASP and self._pick.anchor_world_xyz is None:
+            if target_stage == PickStage.VIEW_ALIGN and self._pick.anchor_world_xyz is None:
                 if not self._pick_bootstrap_anchor_from_perception(now):
                     reason = self._pick_explain_missing_anchor()
                     self._reply(
@@ -1413,10 +1606,14 @@ class ControlHost:
             self._pick_set_stage(target_stage, now)
             print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
             coarse_ok = True
-            if target_stage == PickStage.COARSE_WORLD_PREGRASP:
+            if target_stage == PickStage.VIEW_ALIGN:
                 coarse_ok = bool(self._pick_execute_coarse_pregrasp(now, force=True))
-            if target_stage == PickStage.COARSE_WORLD_PREGRASP and not coarse_ok:
-                self._pick_set_stage(PickStage.SEARCH, now)
+            if target_stage == PickStage.LOOK_ALIGN:
+                self._pick.align_last_cmd_ts = 0.0
+                self._pick.align_prev_error_m = float("inf")
+                self._pick.align_no_improve_count = 0
+            if target_stage == PickStage.VIEW_ALIGN and not coarse_ok:
+                self._pick_set_stage(PickStage.TARGET_LOCK, now)
                 self._reply(
                     ident,
                     {

@@ -10,7 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from host import PickContext, PickStage, filtered_camera_stats, should_hard_fail, should_pass_confidence_gate, should_stage_timeout
+from host import (
+    PickContext,
+    PickStage,
+    filtered_camera_stats,
+    resolve_pick_stage,
+    should_hard_fail,
+    should_pass_confidence_gate,
+    should_stage_timeout,
+)
 
 
 class TestPickEstimator(unittest.TestCase):
@@ -56,7 +64,13 @@ class TestPickGate(unittest.TestCase):
 class TestPickContext(unittest.TestCase):
     def test_context_defaults_stage(self) -> None:
         ctx = PickContext()
-        self.assertEqual(ctx.stage, PickStage.SEARCH)
+        self.assertEqual(ctx.stage, PickStage.TARGET_LOCK)
+
+    def test_resolve_pick_stage_aliases(self) -> None:
+        self.assertEqual(resolve_pick_stage("SEARCH"), PickStage.TARGET_LOCK)
+        self.assertEqual(resolve_pick_stage("COARSE_WORLD_PREGRASP"), PickStage.VIEW_ALIGN)
+        self.assertEqual(resolve_pick_stage("CAMERA_SERVO_ALIGN"), PickStage.LOOK_ALIGN)
+        self.assertEqual(resolve_pick_stage("LOOK_ALIGN"), PickStage.LOOK_ALIGN)
         self.assertIsNone(ctx.object_world_latest)
 
     def test_stage_timeout_transition_rule(self) -> None:

@@ -18,7 +18,7 @@
     "min_samples": 3,
     "min_depth_valid_ratio": 0.15,
     "min_depth_cluster_ratio": 0.20,
-    "z_cluster_tolerance_m": 0.06,
+    "z_cluster_tolerance_m": 0.2,
     "z_jump_tolerance_m": 0.10,
     "lost_frames_threshold": 3,
     "redetect_interval_frames": 3,

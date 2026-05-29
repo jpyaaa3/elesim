@@ -95,6 +95,19 @@ class PickFsmConfig:
     view_camera_z_target_m: float = 0.50
     view_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
     view_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
+    desired_camera_xy_m: Tuple[float, float] = (0.0, 0.0)
+    desired_camera_z_m: float = 0.10
+    look_xy_threshold_m: float = 0.010
+    look_xy_deadband_m: float = 0.008
+    look_gain_theta1: float = 1.0
+    look_gain_theta2: float = 1.0
+    look_max_step_rad: float = 0.02
+    advance_step_m: float = 0.003
+    advance_backoff_m: float = 0.015
+    look_cmd_period_s: float = 0.20
+    commit_z_max_m: float = 0.06
+    max_advance_steps: int = 20
+    align_no_improve_limit: int = 6
 
 
 @dataclass(frozen=True)
@@ -442,6 +455,26 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         view_height_offsets_m=_parse_float_tuple(
             cp.get("pick_fsm", "view_height_offsets_m", fallback=""), p0.view_height_offsets_m
         ),
+        desired_camera_xy_m=(
+            lambda _xy: (float(_xy[0]), float(_xy[1]))(
+                _parse_vec3(
+                    cp.get("pick_fsm", "desired_camera_xy_m", fallback=""),
+                    (p0.desired_camera_xy_m[0], p0.desired_camera_xy_m[1], 0.0),
+                )
+            )
+        ),
+        desired_camera_z_m=cp.getfloat("pick_fsm", "desired_camera_z_m", fallback=p0.desired_camera_z_m),
+        look_xy_threshold_m=max(1e-4, cp.getfloat("pick_fsm", "look_xy_threshold_m", fallback=p0.look_xy_threshold_m)),
+        look_xy_deadband_m=max(0.0, cp.getfloat("pick_fsm", "look_xy_deadband_m", fallback=p0.look_xy_deadband_m)),
+        look_gain_theta1=cp.getfloat("pick_fsm", "look_gain_theta1", fallback=p0.look_gain_theta1),
+        look_gain_theta2=cp.getfloat("pick_fsm", "look_gain_theta2", fallback=p0.look_gain_theta2),
+        look_max_step_rad=max(1e-4, cp.getfloat("pick_fsm", "look_max_step_rad", fallback=p0.look_max_step_rad)),
+        advance_step_m=max(0.0005, cp.getfloat("pick_fsm", "advance_step_m", fallback=p0.advance_step_m)),
+        advance_backoff_m=max(0.0, cp.getfloat("pick_fsm", "advance_backoff_m", fallback=p0.advance_backoff_m)),
+        look_cmd_period_s=max(0.05, cp.getfloat("pick_fsm", "look_cmd_period_s", fallback=p0.look_cmd_period_s)),
+        commit_z_max_m=max(0.01, cp.getfloat("pick_fsm", "commit_z_max_m", fallback=p0.commit_z_max_m)),
+        max_advance_steps=max(1, cp.getint("pick_fsm", "max_advance_steps", fallback=p0.max_advance_steps)),
+        align_no_improve_limit=max(1, cp.getint("pick_fsm", "align_no_improve_limit", fallback=p0.align_no_improve_limit)),
     )
 
 
