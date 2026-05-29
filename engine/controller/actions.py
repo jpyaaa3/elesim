@@ -258,7 +258,7 @@ class ControlService:
         """seg drives image v toward target_v (+seg lowers normalized v on this robot)."""
         g = float(self._visual_center_v_gain if gain is None else gain)
         v_delta = float(obs_v) - float(target_v)
-        return float(np.clip(g * v_delta, -float(cap), float(cap))
+        return float(np.clip(g * v_delta, -float(cap), float(cap)))
 
     def _visual_uv_centered(self, obs: VisualObservation, *, center_tol: Optional[float] = None) -> bool:
         tol = float(self.state.visual_center_tol if center_tol is None else center_tol)
@@ -1745,17 +1745,9 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
-            v_delta_cmd = float(v - tv)
             seg_du = self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
-            if abs(v_delta) > float(center_tol) * 1.5:
-                roll_du = float(
-                    np.clip(
-                        0.25 * self._visual_center_v_gain * v_delta_cmd,
-                        -self._visual_center_roll_u_max * 0.5,
-                        self._visual_center_roll_u_max * 0.5,
-                    )
-                )
-            mode = "uv_v_roll" if abs(roll_du) > 1e-9 else "uv_seg"
+            # roll is for u only; v alignment uses seg (do not flip roll sign here)
+            mode = "uv_seg"
         next_u = self._clamp_display_u(
             ControlU(
                 u_linear=float(current_u.u_linear),
@@ -1764,27 +1756,6 @@ class ControlService:
                 u_s2=float(current_u.u_s2 + seg_du),
             )
         )
-        if next_u == current_u and mode in ("uv_seg", "uv_v_roll"):
-            v_delta_cmd = float(v - tv)
-            if abs(v_delta_cmd) > float(center_tol):
-                roll_assist = float(
-                    np.clip(
-                        0.35 * self._visual_center_v_gain * v_delta_cmd,
-                        -self._visual_center_roll_u_max * 0.6,
-                        self._visual_center_roll_u_max * 0.6,
-                    )
-                )
-                if abs(roll_assist) > 1e-9:
-                    next_u = self._clamp_display_u(
-                        ControlU(
-                            u_linear=float(current_u.u_linear),
-                            u_roll=float(current_u.u_roll + roll_assist),
-                            u_s1=float(current_u.u_s1),
-                            u_s2=float(current_u.u_s2),
-                        )
-                    )
-                    if next_u != current_u:
-                        mode = "uv_roll_assist"
         if next_u == current_u:
             mode = "none"
         return next_u, mode
@@ -1821,24 +1792,10 @@ class ControlService:
                 seg_u_max=seg_cap,
                 target_uv=(tu, tv),
             )
-            v_delta_cmd = float(v - tv)
             seg_req = float(
-                np.clip(
-                    self._visual_center_v_gain * v_delta_cmd,
-                    -seg_cap,
-                    seg_cap,
-                )
+                self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
             )
-            roll_req = 0.0
-            if abs(v_delta) > float(center_tol) * 1.5:
-                roll_req = float(
-                    np.clip(
-                        0.25 * self._visual_center_v_gain * v_delta_cmd,
-                        -self._visual_center_roll_u_max * 0.5,
-                        self._visual_center_roll_u_max * 0.5,
-                    )
-                )
-            return next_u, mode, roll_req, seg_req
+            return next_u, mode, 0.0, seg_req
         if abs(u_delta) > center_tol:
             next_u, mode = self._apply_center_uv_step(
                 obs,
