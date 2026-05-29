@@ -91,8 +91,7 @@ class ControlService:
         self._visual_step_seg_rad = math.radians(6.0)
         self._visual_damping = 0.08
         self._visual_outer_iters = 12
-        self._visual_nudge_roll_u = 3.0
-        self._visual_nudge_tilt_u = 3.0
+        self._visual_manual_feature_step = 0.06
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -283,6 +282,41 @@ class ControlService:
         J = np.asarray(J, dtype=float)
         lam2 = float(damping) ** 2
         return J.T @ np.linalg.inv(J @ J.T + lam2 * np.eye(J.shape[0], dtype=float))
+
+    def _manual_visual_nudge(self, feature_delta: np.ndarray, *, status_prefix: str) -> None:
+        if self._visual_busy():
+            self.state.set_visual_status(running=False, failed=True, msg="busy")
+            return
+        if self.client is None:
+            self.state.set_visual_status(running=False, failed=True, msg="no feedback client")
+            return
+        host_state = self.client.refresh_state()
+        obs = self.current_visual_observation(host_state)
+        if obs is None:
+            self.state.set_visual_status(running=False, failed=True, msg="no valid observation")
+            return
+        q_cmd = self._q_array_from_state(host_state)
+        J = self._estimate_visual_jacobian(q_cmd, obs)
+        if float(np.linalg.norm(J)) <= 1e-9:
+            self.state.set_visual_status(running=False, failed=True, msg="degenerate visual jacobian")
+            return
+        dq = self._damped_pinv(J, self._visual_damping) @ np.asarray(feature_delta, dtype=float).reshape(3)
+        dq = np.asarray(dq, dtype=float).reshape(4)
+        dq[0] = float(np.clip(dq[0], -self._visual_step_linear_m, self._visual_step_linear_m))
+        dq[1] = float(np.clip(dq[1], -self._visual_step_roll_rad, self._visual_step_roll_rad))
+        dq[2] = float(np.clip(dq[2], -self._visual_step_seg_rad, self._visual_step_seg_rad))
+        dq[3] = float(np.clip(dq[3], -self._visual_step_seg_rad, self._visual_step_seg_rad))
+        new_state = self._command_q_and_wait(q_cmd + dq, timeout_s=1.0)
+        new_obs = self.current_visual_observation(new_state)
+        if new_obs is None:
+            self.state.set_visual_status(running=False, failed=True, msg=f"{status_prefix} | observation lost")
+            return
+        self.state.set_visual_status(
+            running=False,
+            failed=False,
+            msg="%s | uv=(%.3f, %.3f) scale=%.3f"
+            % (status_prefix, float(new_obs.center_uv[0]), float(new_obs.center_uv[1]), float(new_obs.scale)),
+        )
 
     def _offsets(self) -> dict[str, float]:
         linear, roll, s1, s2, _rev = self.state.offset_values()
@@ -886,21 +920,18 @@ class ControlService:
         self._ik_worker.start()
 
     def nudge_visual_pan(self, direction: int) -> None:
-        current_u = self.current_control_u()
-        new_roll = float(current_u.u_roll) + float(direction) * float(self._visual_nudge_roll_u)
-        cfg = self.control_mapping()
-        new_roll = float(np.clip(new_roll, cfg.roll_u_min, cfg.roll_u_max))
-        self.apply_partial_control_u({"roll": new_roll})
-        self.send_current_target(source="slider")
+        step = float(self._visual_manual_feature_step)
+        self._manual_visual_nudge(
+            np.array([float(direction) * step, 0.0, 0.0], dtype=float),
+            status_prefix="manual pan",
+        )
 
     def nudge_visual_tilt(self, direction: int) -> None:
-        current_u = self.current_control_u()
-        delta = float(direction) * float(self._visual_nudge_tilt_u)
-        cfg = self.control_mapping()
-        new_s1 = float(np.clip(float(current_u.u_s1) + delta, cfg.seg_u_min, cfg.seg_u_max))
-        new_s2 = float(np.clip(float(current_u.u_s2) + delta, cfg.seg_u_min, cfg.seg_u_max))
-        self.apply_partial_control_u({"s1": new_s1, "s2": new_s2})
-        self.send_current_target(source="slider")
+        step = float(self._visual_manual_feature_step)
+        self._manual_visual_nudge(
+            np.array([0.0, float(direction) * step, 0.0], dtype=float),
+            status_prefix="manual tilt",
+        )
 
     def stop_visual_servo(self) -> None:
         self._visual_stop_event.set()

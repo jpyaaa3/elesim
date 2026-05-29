@@ -116,16 +116,40 @@ def draw_ik_panel(panel) -> None:
         if imgui.button("Stop Visual Servo"):
             panel.service.stop_visual_servo()
 
-        if imgui.button("Pan Left"):
-            panel.service.nudge_visual_pan(-1)
+        clicked = imgui.button("Pan Left")
+        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        panel.run_repeat_button(
+            "visual_pan_left",
+            clicked=bool(clicked),
+            active=bool(active),
+            action=lambda: panel.service.nudge_visual_pan(-1),
+        )
         imgui.same_line()
-        if imgui.button("Pan Right"):
-            panel.service.nudge_visual_pan(+1)
-        if imgui.button("Tilt Up"):
-            panel.service.nudge_visual_tilt(-1)
+        clicked = imgui.button("Pan Right")
+        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        panel.run_repeat_button(
+            "visual_pan_right",
+            clicked=bool(clicked),
+            active=bool(active),
+            action=lambda: panel.service.nudge_visual_pan(+1),
+        )
+        clicked = imgui.button("Tilt Up")
+        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        panel.run_repeat_button(
+            "visual_tilt_up",
+            clicked=bool(clicked),
+            active=bool(active),
+            action=lambda: panel.service.nudge_visual_tilt(-1),
+        )
         imgui.same_line()
-        if imgui.button("Tilt Down"):
-            panel.service.nudge_visual_tilt(+1)
+        clicked = imgui.button("Tilt Down")
+        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        panel.run_repeat_button(
+            "visual_tilt_down",
+            clicked=bool(clicked),
+            active=bool(active),
+            action=lambda: panel.service.nudge_visual_tilt(+1),
+        )
 
         visual_status = "idle"
         if panel.state.visual_running:

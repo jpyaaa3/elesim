@@ -46,6 +46,7 @@ class ControlPanel:
         self._offset_s1_draft = float(s1_off)
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
+        self._repeat_button_deadlines: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop = True
@@ -59,6 +60,30 @@ class ControlPanel:
         self._offset_s1_draft = float(s1_off)
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
+
+    def run_repeat_button(
+        self,
+        key: str,
+        *,
+        clicked: bool,
+        active: bool,
+        action,
+        initial_delay_s: float = 0.35,
+        repeat_period_s: float = 0.08,
+    ) -> None:
+        now = float(time.time())
+        name = str(key)
+        if clicked:
+            action()
+            self._repeat_button_deadlines[name] = now + float(max(initial_delay_s, 0.01))
+            return
+        if not active:
+            self._repeat_button_deadlines.pop(name, None)
+            return
+        deadline = float(self._repeat_button_deadlines.get(name, now + float(max(initial_delay_s, 0.01))))
+        if now >= deadline:
+            action()
+            self._repeat_button_deadlines[name] = now + float(max(repeat_period_s, 0.01))
 
     def _draw_controls_window(self) -> None:
         if not self._ctrl_window_init:
