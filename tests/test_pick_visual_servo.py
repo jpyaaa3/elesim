@@ -131,6 +131,16 @@ class TestJacobianMath(unittest.TestCase):
         self.assertLess(delta.roll_rad, 0.0)
         self.assertGreater(delta.theta1_rad, 0.0)
 
+    def test_jacobian_look_delta_theta12_only(self) -> None:
+        limits = LookAlignLimits(xy_deadband_m=0.0)
+        gains = JacobianLookGains(gain=0.5, damping=0.01, max_step_theta_rad=0.05)
+        j = np.array([[0.17, 0.10], [-0.14, -0.03]], dtype=float)
+        e = np.array([0.15, 0.10], dtype=float)
+        delta = compute_jacobian_look_delta_q(e, j, gains, limits=limits, include_roll=False)
+        self.assertAlmostEqual(delta.roll_rad, 0.0)
+        self.assertNotAlmostEqual(delta.theta1_rad, 0.0)
+        self.assertNotAlmostEqual(delta.theta2_rad, 0.0)
+
     def test_apply_q_delta_to_tuple(self) -> None:
         q = (0.5, 0.1, 0.2, 0.3)
         out = apply_q_delta_to_tuple(q, compute_advance_delta_q(0.01))

@@ -553,7 +553,11 @@ class ControlHost:
             self._pick.align_no_improve_count = 0
             if self._pick_view_align_uses_servo():
                 self._pick_reset_look_servo_target()
-                self._pick_begin_look_cal(now, include_roll=False)
+                cfg = self.pick_fsm_cfg
+                self._pick_begin_look_cal(
+                    now,
+                    include_roll=bool(cfg.look_jacobian_include_roll),
+                )
                 print("[pick] VIEW_ALIGN: servo mode (current q, no IK grid)", flush=True)
         if stage == PickStage.LOOK_ALIGN and prev != stage:
             self._pick.align_last_cmd_ts = 0.0
@@ -1608,14 +1612,15 @@ class ControlHost:
             e = error_vector_2d(ex, ey)
             j_mat = self._pick.look_jacobian
             assert j_mat is not None
+            include_roll = int(j_mat.shape[1]) >= 3
             delta = compute_jacobian_look_delta_q(
                 e,
                 j_mat,
                 self._pick_jacobian_gains(),
                 limits=limits,
-                include_roll=bool(cfg.look_jacobian_include_roll),
+                include_roll=include_roll,
             )
-            mode_tag = "jacobian"
+            mode_tag = "jacobian" if include_roll else "jacobian_t12"
         else:
             delta = compute_look_delta_q(
                 ex,
