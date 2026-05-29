@@ -1125,7 +1125,7 @@ class ControlService:
         self._visual_stop_event.set()
         self.state.set_visual_status(running=False, failed=False, msg="stopped")
 
-    def start_visual_servo(self) -> None:
+    def _start_visual_controller(self, *, center_only: bool) -> None:
         if self._visual_busy():
             self.state.set_visual_status(running=False, failed=True, msg="busy")
             return
@@ -1138,7 +1138,11 @@ class ControlService:
             self.state.set_visual_status(running=False, failed=True, msg="no valid observation")
             return
         self._visual_stop_event.clear()
-        self.state.set_visual_status(running=True, failed=False, msg="visual servo running")
+        self.state.set_visual_status(
+            running=True,
+            failed=False,
+            msg=("centering object" if center_only else "visual servo running"),
+        )
 
         def _worker() -> None:
             try:
@@ -1153,17 +1157,31 @@ class ControlService:
                         self.state.set_visual_status(running=False, failed=True, msg="observation lost")
                         return
                     center_ok = max(abs(float(current_obs.center_uv[0])), abs(float(current_obs.center_uv[1]))) <= float(self.state.visual_center_tol)
-                    scale_ok = float(current_obs.scale) >= float(self.state.visual_target_scale) - float(self.state.visual_scale_tol)
+                    scale_ok = True if center_only else (
+                        float(current_obs.scale) >= float(self.state.visual_target_scale) - float(self.state.visual_scale_tol)
+                    )
                     if center_ok and scale_ok:
                         self.state.set_visual_status(
                             running=False,
                             failed=False,
-                            msg="converged | uv=(%.3f, %.3f) scale=%.3f"
-                            % (float(current_obs.center_uv[0]), float(current_obs.center_uv[1]), float(current_obs.scale)),
+                            msg=("%s | uv=(%.3f, %.3f) scale=%.3f"
+                                 % ("centered" if center_only else "converged",
+                                    float(current_obs.center_uv[0]),
+                                    float(current_obs.center_uv[1]),
+                                    float(current_obs.scale))),
                         )
                         return
 
                     linear_du, roll_du, seg_du = self._visual_candidate_delta(current_obs)
+                    if center_only:
+                        linear_du = 0.0
+                        # Centering mode is intentionally triangular:
+                        # 1. use roll to drive u toward zero
+                        # 2. only after u is within tolerance, use tilt (seg) to clean up v
+                        if abs(float(current_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                            seg_du = 0.0
+                        else:
+                            roll_du = 0.0
                     if abs(linear_du) <= 1e-9 and abs(roll_du) <= 1e-9 and abs(seg_du) <= 1e-9:
                         self.state.set_visual_status(
                             running=False,
@@ -1216,8 +1234,11 @@ class ControlService:
                     self.state.set_visual_status(
                         running=True,
                         failed=False,
-                        msg="tracking | uv=(%.3f, %.3f) scale=%.3f conf=%.2f"
+                        msg="%s | uv=(%.3f, %.3f) scale=%.3f conf=%.2f"
                         % (
+                            ("centering u" if center_only and abs(float(current_obs.center_uv[0])) > float(self.state.visual_center_tol) else
+                             "centering v" if center_only else
+                             "tracking"),
                             float(current_obs.center_uv[0]),
                             float(current_obs.center_uv[1]),
                             float(current_obs.scale),
@@ -1232,6 +1253,12 @@ class ControlService:
 
         self._visual_worker = threading.Thread(target=_worker, daemon=True)
         self._visual_worker.start()
+
+    def start_visual_servo(self) -> None:
+        self._start_visual_controller(center_only=False)
+
+    def start_visual_centering(self) -> None:
+        self._start_visual_controller(center_only=True)
 
     def request_ports(self) -> None:
         if self.client is not None:

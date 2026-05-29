@@ -113,23 +113,11 @@ def draw_ik_panel(panel) -> None:
         if imgui.button("Start Visual Servo"):
             panel.service.start_visual_servo()
         imgui.same_line()
+        if imgui.button("Center Object"):
+            panel.service.start_visual_centering()
+        imgui.same_line()
         if imgui.button("Stop Visual Servo"):
             panel.service.stop_visual_servo()
-
-        changed_pan_deg, pan_deg = imgui.input_float(
-            "pan angle [deg]",
-            float(panel._visual_pan_deg_draft),
-            step=1.0,
-            step_fast=5.0,
-            format="%.1f",
-        )
-        if changed_pan_deg:
-            panel._visual_pan_deg_draft = max(0.0, float(pan_deg))
-        if imgui.button("Apply Pan Left"):
-            panel.service.apply_visual_pan_angle(direction=-1, angle_deg=float(panel._visual_pan_deg_draft))
-        imgui.same_line()
-        if imgui.button("Apply Pan Right"):
-            panel.service.apply_visual_pan_angle(direction=+1, angle_deg=float(panel._visual_pan_deg_draft))
 
         changed_tilt_deg, tilt_deg = imgui.input_float(
             "tilt angle [deg]",
@@ -145,28 +133,6 @@ def draw_ik_panel(panel) -> None:
         imgui.same_line()
         if imgui.button("Apply Tilt Down"):
             panel.service.apply_visual_tilt_angle(direction=+1, angle_deg=float(panel._visual_tilt_deg_draft))
-
-        clicked = imgui.button("Pan Left")
-        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
-        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
-        active = bool(hovered and mouse_down)
-        panel.run_repeat_button(
-            "visual_pan_left",
-            clicked=bool(clicked),
-            active=bool(active),
-            action=lambda: panel.service.nudge_visual_pan(-1),
-        )
-        imgui.same_line()
-        clicked = imgui.button("Pan Right")
-        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
-        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
-        active = bool(hovered and mouse_down)
-        panel.run_repeat_button(
-            "visual_pan_right",
-            clicked=bool(clicked),
-            active=bool(active),
-            action=lambda: panel.service.nudge_visual_pan(+1),
-        )
         clicked = imgui.button("Tilt Up")
         hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
         mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
