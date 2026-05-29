@@ -99,6 +99,9 @@ class ControlService:
         self._visual_center_outer_iters = 40
         self._center_min_progress_uv = 0.012
         self._center_stall_steps = 3
+        self._center_u_enter_v_ratio = 0.5
+        self._center_seg_step_max = 1.0
+        self._center_seg_coupling_u = 0.05
         self._visual_u_deadband = 0.05
         self._visual_v_deadband = 0.05
         self._visual_scale_deadband = 0.01
@@ -1221,6 +1224,8 @@ class ControlService:
                     stall_count = 0
                     force_seg_only = False
                     last_mode = ""
+                    center_phase = "u"
+                    u_enter_v = center_tol * float(self._center_u_enter_v_ratio)
 
                     for step_idx in range(1, max_steps + 1):
                         if self._visual_stop_event.is_set():
@@ -1250,23 +1255,34 @@ class ControlService:
                         p_cam_ok = (
                             snapshot_p_cam is not None and float(snapshot_p_cam[2]) > 1e-6
                         )
-                        u_needs = abs(u0) > center_tol
                         v_needs = abs(v0) > center_tol
-                        # u: snapshot q-roll only (uv_roll reverses snapshot and causes oscillation).
-                        # v: image-uv seg only, after |u| is within tol (or forced by stall recovery).
-                        use_snapshot_roll = u_needs and p_cam_ok and not force_seg_only
+                        if center_phase == "v" and abs(u0) > center_tol:
+                            center_phase = "u"
+                        if center_phase == "u" and abs(u0) <= u_enter_v and v_needs:
+                            center_phase = "v"
+                        # u phase: snapshot q-roll (P-scaled). v phase: small uv_seg (seg couples into u).
+                        use_snapshot_roll = (
+                            center_phase == "u"
+                            and abs(u0) > u_enter_v
+                            and p_cam_ok
+                            and not force_seg_only
+                        )
                         step_mode = ""
                         prev_ts = float(current_obs.timestamp_s)
 
                         if use_snapshot_roll:
                             q_now = self._q_array_from_state(current_host)
-                            roll_delta = float(
+                            roll_raw = float(
                                 np.clip(
                                     math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])),
                                     -self._center_roll_rad_max,
                                     self._center_roll_rad_max,
                                 )
                             )
+                            roll_scale = float(
+                                np.clip(abs(u0) / max(center_tol, 1e-6), 0.25, 1.0)
+                            )
+                            roll_delta = roll_raw * roll_scale
                             q_try = np.asarray(q_now, dtype=float).copy()
                             q_try[1] += roll_delta
                             q_try = self._clamp_q(q_try)
@@ -1281,6 +1297,7 @@ class ControlService:
                                     mode=step_mode,
                                     uv=f"({u0:+.3f},{v0:+.3f})",
                                     droll_deg=f"{float(np.degrees(roll_delta)):+.2f}",
+                                    roll_scale=f"{roll_scale:.2f}",
                                 )
                                 self._command_q_and_wait(q_try, timeout_s=1.0)
                                 self.state.set_visual_status(
@@ -1291,9 +1308,9 @@ class ControlService:
                                 )
 
                         if not use_snapshot_roll:
-                            if v_needs or force_seg_only:
+                            if center_phase == "v" and (v_needs or force_seg_only):
                                 uv_force_axis: Optional[str] = "v"
-                            elif u_needs:
+                            elif abs(u0) > center_tol and not p_cam_ok:
                                 uv_force_axis = "u"
                             else:
                                 uv_force_axis = None
@@ -1302,6 +1319,7 @@ class ControlService:
                                 current_u,
                                 center_tol=center_tol,
                                 force_axis=uv_force_axis,
+                                seg_u_max=float(self._center_seg_step_max),
                             )
                             if step_mode == "none":
                                 print(
@@ -1358,6 +1376,16 @@ class ControlService:
 
                         nu = float(next_obs.center_uv[0])
                         nv = float(next_obs.center_uv[1])
+                        if step_mode == "uv_seg" and abs(nu) > center_tol and abs(nu) > abs(u0) + float(
+                            self._center_seg_coupling_u
+                        ):
+                            print(
+                                "[Visual] center step %d/%d | seg coupling | u %.3f -> %.3f, back to u phase"
+                                % (step_idx, max_steps, u0, nu)
+                            )
+                            center_phase = "u"
+                            force_seg_only = False
+                            stall_count = 0
                         progress = max(abs(nu - u0), abs(nv - v0))
                         if progress < min_progress_uv:
                             stall_count += 1
@@ -1395,6 +1423,7 @@ class ControlService:
                             uv=f"({nu:+.3f},{nv:+.3f})",
                             progress=f"{progress:.4f}",
                             last=step_mode,
+                            phase=center_phase,
                         )
                         last_mode = step_mode
                         current_host = next_host
@@ -1618,6 +1647,7 @@ class ControlService:
         *,
         center_tol: float,
         force_axis: Optional[str] = None,
+        seg_u_max: Optional[float] = None,
     ) -> tuple[ControlU, str]:
         roll_du = 0.0
         seg_du = 0.0
@@ -1626,6 +1656,7 @@ class ControlService:
         mode = "none"
         u_over = abs(float(obs.center_uv[0])) > float(center_tol)
         v_over = abs(float(obs.center_uv[1])) > float(center_tol)
+        seg_cap = float(self._visual_center_seg_u_max if seg_u_max is None else seg_u_max)
         if force_axis == "u" or (force_axis is None and u_over):
             roll_du = float(
                 np.clip(
@@ -1639,8 +1670,8 @@ class ControlService:
             seg_du = float(
                 np.clip(
                     self._visual_center_v_gain * v_err,
-                    -self._visual_center_seg_u_max,
-                    self._visual_center_seg_u_max,
+                    -seg_cap,
+                    seg_cap,
                 )
             )
             mode = "uv_seg"
