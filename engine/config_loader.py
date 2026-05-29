@@ -410,6 +410,10 @@ def _load_ik_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) ->
 
 def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickFsmConfig:
     p0 = defaults.pick_fsm_config
+    desired_xy_vec = _parse_vec3(
+        cp.get("pick_fsm", "desired_camera_xy_m", fallback=""),
+        (p0.desired_camera_xy_m[0], p0.desired_camera_xy_m[1], 0.0),
+    )
     return PickFsmConfig(
         enable=cp.getboolean("pick_fsm", "enable", fallback=p0.enable),
         relocalize_window=max(3, cp.getint("pick_fsm", "relocalize_window", fallback=p0.relocalize_window)),
@@ -455,14 +459,7 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         view_height_offsets_m=_parse_float_tuple(
             cp.get("pick_fsm", "view_height_offsets_m", fallback=""), p0.view_height_offsets_m
         ),
-        desired_camera_xy_m=(
-            lambda _xy: (float(_xy[0]), float(_xy[1]))(
-                _parse_vec3(
-                    cp.get("pick_fsm", "desired_camera_xy_m", fallback=""),
-                    (p0.desired_camera_xy_m[0], p0.desired_camera_xy_m[1], 0.0),
-                )
-            )
-        ),
+        desired_camera_xy_m=(float(desired_xy_vec[0]), float(desired_xy_vec[1])),
         desired_camera_z_m=cp.getfloat("pick_fsm", "desired_camera_z_m", fallback=p0.desired_camera_z_m),
         look_xy_threshold_m=max(1e-4, cp.getfloat("pick_fsm", "look_xy_threshold_m", fallback=p0.look_xy_threshold_m)),
         look_xy_deadband_m=max(0.0, cp.getfloat("pick_fsm", "look_xy_deadband_m", fallback=p0.look_xy_deadband_m)),
