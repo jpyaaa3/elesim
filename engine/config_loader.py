@@ -153,6 +153,7 @@ class PickConfig:
     quadrant_fill_min: float = 0.80
     approach_extend_m: float = 0.09
     approach_extend_step_m: float = 0.01
+    extend_axis_local: Tuple[float, float, float] = (0.0, 0.0, 1.0)
     grid_cols: int = 2
     grid_rows: int = 2
     target_grid_col: int = 1
@@ -338,6 +339,10 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         approach_extend_m=cp.getfloat("pick", "approach_extend_m", fallback=pk0.approach_extend_m),
         approach_extend_step_m=cp.getfloat(
             "pick", "approach_extend_step_m", fallback=pk0.approach_extend_step_m
+        ),
+        extend_axis_local=_parse_vec3(
+            cp.get("pick", "extend_axis_local", fallback=""),
+            pk0.extend_axis_local,
         ),
         grid_cols=int(grid_cols),
         grid_rows=int(grid_rows),

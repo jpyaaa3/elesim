@@ -1783,6 +1783,7 @@ class ControlService:
             quadrant_fill_min=float(pk.quadrant_fill_min),
             approach_extend_m=float(pk.approach_extend_m),
             approach_extend_step_m=float(pk.approach_extend_step_m),
+            extend_axis_local=tuple(pk.extend_axis_local),
             grid_cols=int(pk.grid_cols),
             grid_rows=int(pk.grid_rows),
             target_grid_col=int(pk.target_grid_col),
@@ -1829,9 +1830,9 @@ class ControlService:
         model: Any,
         q: np.ndarray,
         *,
-        axis_local: tuple[float, float, float] = (0.0, -1.0, 0.0),
+        axis_local: tuple[float, float, float] = (1.0, 0.0, 0.0),
     ) -> np.ndarray:
-        """Unit vector in world frame for a body-fixed axis (default EE local -Y)."""
+        """Unit vector in world frame for a body-fixed EE axis."""
         from engine.iklib.kinematics import _forward_link_tf
 
         context = model.context
@@ -1847,7 +1848,7 @@ class ControlService:
         local = np.asarray(axis_local, dtype=float).reshape(3)
         local_norm = float(np.linalg.norm(local))
         if local_norm <= 1e-9:
-            local = np.array([0.0, -1.0, 0.0], dtype=float)
+            local = np.array([1.0, 0.0, 0.0], dtype=float)
         else:
             local = local / local_norm
         direction = R_link @ approach_rot_tip @ local
@@ -1861,10 +1862,13 @@ class ControlService:
         distance_m: float,
         host_state: Optional[HostState] = None,
     ) -> float:
-        """Advance grasp point ``distance_m`` along EE local -Y via ``engine.ik.solve_then_align``."""
+        """Advance grasp point ``distance_m`` along configured EE-local axis via ``engine.ik.solve_then_align``."""
         delta = float(max(0.0, distance_m))
         if delta <= 1e-6:
             return 0.0
+        pk = self._pick_config_effective()
+        axis_local = tuple(float(v) for v in pk.extend_axis_local)
+        axis_label = "local(%.0f,%.0f,%.0f)" % axis_local
         try:
             model = self._pick_reach_model()
         except Exception as exc:
@@ -1873,7 +1877,7 @@ class ControlService:
 
         q0 = self._q_array_from_state(host_state)
         tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
-        axis_w = self._pick_ee_axis_world(model, q0, axis_local=(0.0, -1.0, 0.0))
+        axis_w = self._pick_ee_axis_world(model, q0, axis_local=axis_local)
         target = tip0 + axis_w * delta
         dir_hold = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
 
@@ -1928,12 +1932,12 @@ class ControlService:
                 converged=False,
                 failed=True,
                 err_m=float(result.position_error_m),
-                msg="no motion along local -Y",
+                msg="no motion along %s" % axis_label,
             )
-            print("[Pick] extend | no motion along local -Y")
+            print("[Pick] extend | no motion along %s" % axis_label)
             return 0.0
 
-        align_msg = "pick extend | local-Y %.0fmm" % (delta * 1000.0)
+        align_msg = "pick extend | %s +%.0fmm" % (axis_label, delta * 1000.0)
         if result.align_attempted:
             align_msg = "%s | dir %.1f -> %.1f deg" % (
                 align_msg,
