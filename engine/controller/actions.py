@@ -1181,7 +1181,7 @@ class ControlService:
                                 moved = True
                                 status_parts.append(f"roll={float(np.degrees(roll_delta)):.2f} deg")
                         if abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol):
-                            tilt_delta = -float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
+                            tilt_delta = float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
                             self._apply_manual_camera_rotation(
                                 right_angle_rad=0.0,
                                 up_angle_rad=float(tilt_delta),
