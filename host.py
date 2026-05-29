@@ -22,12 +22,14 @@ from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
 from engine.pick_view_pregrasp import (
     ViewPregraspCandidate,
+    ViewCandidateMetrics,
     ViewPregraspLimits,
     camera_visibility_ok,
-    camera_visibility_score,
-    camera_visibility_score_soft,
+    evaluate_view_candidate,
+    format_view_candidate_log,
     generate_view_pregrasp_candidates,
-    pick_best_visible_candidate,
+    pick_best_strict_candidate,
+    view_candidate_passes,
 )
 from engine.pick_visual_servo import (
     LookAlignLimits,
@@ -842,9 +844,20 @@ class ControlHost:
         pregrasp_world: tuple[float, float, float],
         look_dir_world: Optional[tuple[float, float, float]],
         current_seed: np.ndarray,
+        *,
+        position_only: bool = False,
     ):
         pos_tol = max(0.005, float(self.pick_fsm_cfg.error_threshold_m))
         target_world = np.asarray(pregrasp_world, dtype=float)
+        if position_only:
+            return ik_pipeline.solve_then_align(
+                target_world=target_world,
+                target_dir_world=None,
+                context=self.ik_context,
+                position_tol_m=pos_tol,
+                max_iters=80,
+                current_seed=current_seed,
+            )
         look_arr = None if look_dir_world is None else np.asarray(look_dir_world, dtype=float).reshape(3)
         ik_res = ik_pipeline.solve_then_align(
             target_world=target_world,
@@ -871,60 +884,78 @@ class ControlHost:
     ) -> Optional[tuple[Any, np.ndarray, float, Optional[np.ndarray]]]:
         if self._pick.anchor_world_xyz is None or not self.ik_context:
             return None
+        if self.hand_eye_transform is None:
+            return None
         obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
         cfg = self.pick_fsm_cfg
         candidates = generate_view_pregrasp_candidates(
             obj,
             base_offset_m=cfg.coarse_offset_m,
-            view_distance_m=float(cfg.view_distance_m),
+            view_distances_m=cfg.view_distances_m,
             lateral_offsets_m=cfg.view_lateral_offsets_m,
             height_offsets_m=cfg.view_height_offsets_m,
         )
         limits = self._pick_view_limits()
-        scored_rows: list[tuple[Any, np.ndarray, float, Optional[np.ndarray]]] = []
+        desired_xy = self._pick_desired_camera_xy()
+        look_dot_min = float(cfg.view_look_dot_min)
+        log_all = bool(cfg.view_log_all_candidates)
+        strict_rows: list[tuple[ViewPregraspCandidate, np.ndarray, ViewCandidateMetrics]] = []
+        total_ik_ok = 0
         for cand in candidates:
             if cand.tag in self._pick.coarse_failed_tags:
                 continue
-            ik_res = self._pick_solve_pregrasp_ik(cand.pregrasp_world, cand.look_dir_world, current_seed)
+            ik_res = self._pick_solve_pregrasp_ik(
+                cand.pregrasp_world,
+                None,
+                current_seed,
+                position_only=True,
+            )
             if (not ik_res.success) or ik_res.q is None:
                 continue
+            total_ik_ok += 1
             q = np.asarray(ik_res.q, dtype=float).reshape(4)
-            p_cam = self._pick_predict_object_camera_at_q(q, obj)
-            if self.hand_eye_transform is not None:
-                if p_cam is None:
-                    continue
-                score = camera_visibility_score(p_cam, limits)
-            else:
-                score = 0.0
-            scored_rows.append((cand, q, float(score), p_cam))
+            metrics = evaluate_view_candidate(
+                q,
+                obj,
+                ik_context=self.ik_context,
+                hand_eye_transform=self.hand_eye_transform,
+                parent_frame=self.hand_eye_parent_frame,
+                limits=limits,
+                desired_xy=desired_xy,
+            )
+            if metrics is None:
+                continue
+            if log_all:
+                print(f"[view_candidate] {format_view_candidate_log(cand, q, metrics, obj)}", flush=True)
+            if view_candidate_passes(metrics, limits=limits, look_dot_min=look_dot_min):
+                strict_rows.append((cand, q, metrics))
 
-        if not scored_rows:
-            return None
-
-        if self.hand_eye_transform is not None:
-            best_pair = pick_best_visible_candidate((row[0], row[2]) for row in scored_rows)
-            if best_pair is not None:
-                best_cand = best_pair[0]
-                for cand, q, score, p_cam in scored_rows:
-                    if cand is best_cand:
-                        return cand, q, score, p_cam
-            best_soft = max(scored_rows, key=lambda row: camera_visibility_score_soft(row[3], limits) if row[3] is not None else float("-inf"))
-            cand, q, _score, p_cam = best_soft
-            soft_score = camera_visibility_score_soft(p_cam, limits) if p_cam is not None else float("-inf")
+        if not strict_rows:
             print(
-                f"[pick] coarse view-pregrasp: no strict FOV match, using soft-best tag={cand.tag} score={soft_score:.3f}",
+                f"[view_align] no strict candidate (ik_ok={total_ik_ok} total_tags={len(candidates)} "
+                f"look_dot_min={look_dot_min:.2f})",
                 flush=True,
             )
-            return cand, q, float(soft_score), p_cam
+            return None
 
-        cand, q, score, p_cam = scored_rows[0]
-        return cand, q, score, p_cam
+        best = pick_best_strict_candidate(strict_rows)
+        if best is None:
+            return None
+        cand, q, metrics = best
+        print(
+            f"[view_align] selected tag={cand.tag} look_dot={metrics.look_dot:.3f} "
+            f"visible_pred={metrics.visible_pred} score={metrics.score:.4f} "
+            f"({len(strict_rows)} strict / {total_ik_ok} ik_ok)",
+            flush=True,
+        )
+        p_cam = np.asarray(metrics.p_camera, dtype=float).reshape(3)
+        return cand, q, float(metrics.score), p_cam
 
     def _pick_plan_coarse_offset_fallback(
         self,
         current_seed: np.ndarray,
     ) -> Optional[tuple[Any, np.ndarray, float, Optional[np.ndarray]]]:
-        if self._pick.anchor_world_xyz is None or not self.ik_context:
+        if self._pick.anchor_world_xyz is None or not self.ik_context or self.hand_eye_transform is None:
             return None
         obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
         pre = obj + np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float).reshape(3)
@@ -939,12 +970,26 @@ class ControlHost:
             look_dir_world=look_dir,
             tag="coarse_offset_fallback",
         )
-        ik_res = self._pick_solve_pregrasp_ik(cand.pregrasp_world, cand.look_dir_world, current_seed)
+        ik_res = self._pick_solve_pregrasp_ik(cand.pregrasp_world, None, current_seed, position_only=True)
         if (not ik_res.success) or ik_res.q is None:
             return None
         q = np.asarray(ik_res.q, dtype=float).reshape(4)
-        p_cam = self._pick_predict_object_camera_at_q(q, obj)
-        return cand, q, 0.0, p_cam
+        limits = self._pick_view_limits()
+        metrics = evaluate_view_candidate(
+            q,
+            obj,
+            ik_context=self.ik_context,
+            hand_eye_transform=self.hand_eye_transform,
+            parent_frame=self.hand_eye_parent_frame,
+            limits=limits,
+            desired_xy=self._pick_desired_camera_xy(),
+        )
+        if metrics is None or not view_candidate_passes(
+            metrics, limits=limits, look_dot_min=float(self.pick_fsm_cfg.view_look_dot_min)
+        ):
+            return None
+        p_cam = np.asarray(metrics.p_camera, dtype=float).reshape(3)
+        return cand, q, float(metrics.score), p_cam
 
     def _pick_coarse_visibility_ok(self) -> bool:
         limits = self._pick_view_limits()
@@ -1162,7 +1207,10 @@ class ControlHost:
             if plan is None:
                 plan = self._pick_plan_coarse_offset_fallback(current_seed)
             if plan is None:
-                print("[pick] coarse view-pregrasp planning failed (no IK solution)", flush=True)
+                print(
+                    "[pick] view_align_no_strict_candidate: no IK solution passes FOV+look_dot",
+                    flush=True,
+                )
                 return False
             cand, q, score, p_cam = plan
             self._pick.pregrasp_world = cand.pregrasp_world
@@ -1183,14 +1231,36 @@ class ControlHost:
                 radius=0.01,
                 ttl_ms=300,
             )
-            self._set_debug_marker(
-                name="pregrasp_look_dir",
-                pos=self._pick.pregrasp_world,
-                direction=np.asarray(cand.look_dir_world, dtype=float).reshape(3),
-                color=[0.9, 0.9, 0.2, 0.95],
-                radius=0.004,
-                ttl_ms=300,
-            )
+            if (
+                self.hand_eye_transform is not None
+                and self.ik_context
+                and self._pick.anchor_world_xyz is not None
+            ):
+                view_metrics = evaluate_view_candidate(
+                    q,
+                    self._pick.anchor_world_xyz,
+                    ik_context=self.ik_context,
+                    hand_eye_transform=self.hand_eye_transform,
+                    parent_frame=self.hand_eye_parent_frame,
+                    limits=self._pick_view_limits(),
+                    desired_xy=self._pick_desired_camera_xy(),
+                )
+                if view_metrics is not None:
+                    self._set_debug_marker(
+                        name="view_align_camera",
+                        pos=view_metrics.camera_world,
+                        color=[0.2, 0.5, 1.0, 0.95],
+                        radius=0.008,
+                        ttl_ms=300,
+                    )
+                    self._set_debug_marker(
+                        name="view_align_camera_look",
+                        pos=view_metrics.camera_world,
+                        direction=np.asarray(view_metrics.camera_look, dtype=float).reshape(3),
+                        color=[0.3, 0.7, 1.0, 0.95],
+                        radius=0.004,
+                        ttl_ms=300,
+                    )
             pred_txt = self._pick.coarse_predicted_camera if self._pick.coarse_predicted_camera is not None else "n/a"
             print(
                 f"[pick] coarse view-pregrasp tag={cand.tag} score={score:.3f} "
@@ -1287,7 +1357,7 @@ class ControlHost:
             if reached:
                 if self._pick_coarse_visibility_ok():
                     if self._pick_can_auto_advance():
-                        self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+                        self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
                     return
                 failed_tag = str(self._pick.coarse_candidate_tag or "").strip()
                 if failed_tag:
@@ -1620,12 +1690,12 @@ class ControlHost:
                         "t": "ack",
                         "ts": proto.now_s(),
                         "ok": False,
-                        "reason": "coarse_ik_failed: no reachable pregrasp (check anchor/hand-eye/IK)",
+                        "reason": "view_align_no_strict_candidate: no FOV+look_dot pregrasp (check anchor/hand-eye/IK)",
                         "device": self.device,
                         "torque_enabled": self.torque_enabled,
                     },
                 )
-                print("[pick] goto COARSE rejected: IK/planning failed", flush=True)
+                print("[pick] goto VIEW_ALIGN rejected: view_align_no_strict_candidate", flush=True)
                 return
             self._reply(
                 ident,
