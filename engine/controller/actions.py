@@ -97,6 +97,8 @@ class ControlService:
         self._visual_obs_stale_s = 0.75
         self._visual_outer_iters = 12
         self._visual_center_outer_iters = 40
+        self._center_min_progress_uv = 0.012
+        self._center_stall_steps = 3
         self._visual_u_deadband = 0.05
         self._visual_v_deadband = 0.05
         self._visual_scale_deadband = 0.01
@@ -1200,11 +1202,14 @@ class ControlService:
             try:
                 if center_only:
                     max_steps = int(self._visual_center_outer_iters)
+                    center_tol = float(self.state.visual_center_tol)
+                    min_progress_uv = float(self._center_min_progress_uv)
+                    stall_limit = int(self._center_stall_steps)
                     print(
                         "[Visual] center start | max_steps=%d tol=%.3f | uv=(%.3f, %.3f) scale=%.3f"
                         % (
                             max_steps,
-                            float(self.state.visual_center_tol),
+                            center_tol,
                             float(obs.center_uv[0]),
                             float(obs.center_uv[1]),
                             float(obs.scale),
@@ -1212,243 +1217,192 @@ class ControlService:
                     )
                     current_host = host_state
                     current_obs = obs
+                    current_u = self.current_control_u()
+                    stall_count = 0
+                    force_uv = False
+                    force_axis: Optional[str] = None
+                    last_mode = ""
+
                     for step_idx in range(1, max_steps + 1):
                         if self._visual_stop_event.is_set():
                             print(f"[Visual] center step {step_idx}/{max_steps} | stopped")
                             self.state.set_visual_status(running=False, failed=False, msg="stopped")
                             return
-                        snapshot_host = current_host
-                        snapshot_obs = current_obs
-                        if snapshot_obs is None:
+                        if current_obs is None:
                             print(f"[Visual] center step {step_idx}/{max_steps} | observation lost")
                             self.state.set_visual_status(running=False, failed=True, msg="observation lost")
                             return
-                        u0 = float(snapshot_obs.center_uv[0])
-                        v0 = float(snapshot_obs.center_uv[1])
-                        if max(abs(u0), abs(v0)) <= float(self.state.visual_center_tol):
+
+                        u0 = float(current_obs.center_uv[0])
+                        v0 = float(current_obs.center_uv[1])
+                        if max(abs(u0), abs(v0)) <= center_tol:
                             print(
                                 "[Visual] center step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
-                                % (step_idx, max_steps, u0, v0, float(snapshot_obs.scale))
+                                % (step_idx, max_steps, u0, v0, float(current_obs.scale))
                             )
                             self.state.set_visual_status(
                                 running=False,
                                 failed=False,
-                                msg="centered | uv=(%.3f, %.3f) scale=%.3f"
-                                % (
-                                    float(snapshot_obs.center_uv[0]),
-                                    float(snapshot_obs.center_uv[1]),
-                                    float(snapshot_obs.scale),
-                                ),
+                                msg="centered | uv=(%.3f, %.3f) scale=%.3f" % (u0, v0, float(current_obs.scale)),
                             )
                             return
-                        snapshot_p_cam = None if snapshot_host is None else snapshot_host.perceived_object_camera_xyz
-                        if snapshot_p_cam is not None and float(snapshot_p_cam[2]) > 1e-6:
-                            moved = False
-                            status_parts: list[str] = []
-                            q_now = self._q_array_from_state(snapshot_host)
-                            center_tol = float(self.state.visual_center_tol)
-                            correct_u = abs(u0) > center_tol
-                            if correct_u:
-                                roll_delta = float(np.clip(math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])), -self._center_roll_rad_max, self._center_roll_rad_max))
-                                q_try = np.asarray(q_now, dtype=float).copy()
-                                q_try[1] += roll_delta
-                                q_try = self._clamp_q(q_try)
-                                if not np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
-                                    self._log_visual_step(
-                                        "center",
-                                        step_idx,
-                                        max_steps,
-                                        mode="snapshot_q_roll",
-                                        uv=f"({u0:+.3f},{v0:+.3f})",
-                                        droll_deg=f"{float(np.degrees(roll_delta)):+.2f}",
-                                    )
-                                    state_after_roll = self._command_q_and_wait(q_try, timeout_s=1.0)
-                                    if state_after_roll is not None and state_after_roll.q is not None:
-                                        q_now = np.array(
-                                            [
-                                                float(state_after_roll.q.linear_m),
-                                                float(state_after_roll.q.roll_rad),
-                                                float(state_after_roll.q.theta1_rad),
-                                                float(state_after_roll.q.theta2_rad),
-                                            ],
-                                            dtype=float,
-                                        )
-                                    else:
-                                        q_now = q_try
-                                    moved = True
-                                    status_parts.append(f"roll={float(np.degrees(roll_delta)):.2f} deg")
-                            elif abs(v0) > center_tol:
-                                tilt_raw = float(self._center_tilt_step_scale) * math.atan2(
-                                    float(snapshot_p_cam[1]),
-                                    float(snapshot_p_cam[2]),
+
+                        snapshot_p_cam = None if current_host is None else current_host.perceived_object_camera_xyz
+                        use_snapshot_roll = (
+                            not force_uv
+                            and abs(u0) > center_tol
+                            and abs(u0) >= abs(v0)
+                            and snapshot_p_cam is not None
+                            and float(snapshot_p_cam[2]) > 1e-6
+                        )
+                        step_mode = ""
+                        prev_ts = float(current_obs.timestamp_s)
+
+                        if use_snapshot_roll:
+                            q_now = self._q_array_from_state(current_host)
+                            roll_delta = float(
+                                np.clip(
+                                    math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])),
+                                    -self._center_roll_rad_max,
+                                    self._center_roll_rad_max,
                                 )
-                                tilt_delta = float(
-                                    np.clip(tilt_raw, -self._center_tilt_rad_max, self._center_tilt_rad_max)
-                                )
-                                self._log_visual_step(
-                                    "center",
-                                    step_idx,
-                                    max_steps,
-                                    mode="snapshot_tilt",
-                                    uv=f"({u0:+.3f},{v0:+.3f})",
-                                    dtilt_deg=f"{float(np.degrees(tilt_delta)):+.2f}",
-                                )
-                                self._apply_manual_camera_rotation(
-                                    right_angle_rad=0.0,
-                                    up_angle_rad=float(tilt_delta),
-                                    status_prefix="center tilt snapshot",
-                                    stop_running_visual=False,
-                                    update_visual_status=False,
-                                )
-                                moved = True
-                                status_parts.append(f"tilt={float(np.degrees(tilt_delta)):.2f} deg")
-                            if not moved:
-                                self._log_visual_step(
-                                    "center",
-                                    step_idx,
-                                    max_steps,
-                                    mode="snapshot_no_move",
-                                    uv=f"({u0:+.3f},{v0:+.3f})",
-                                )
-                                self.state.set_visual_status(
-                                    running=False,
-                                    failed=False,
-                                    msg="within deadband | snapshot uv=(%.3f, %.3f)"
-                                    % (float(snapshot_obs.center_uv[0]), float(snapshot_obs.center_uv[1])),
-                                )
-                                return
-                            self.state.set_visual_status(
-                                running=True,
-                                failed=False,
-                                msg="center command sent | snapshot uv=(%.3f, %.3f) | %s"
-                                % (
-                                    float(snapshot_obs.center_uv[0]),
-                                    float(snapshot_obs.center_uv[1]),
-                                    ", ".join(status_parts),
-                                ),
                             )
-                            deadline = time.time() + 2.0
-                            next_host: Optional[HostState] = None
-                            next_obs: Optional[VisualObservation] = None
-                            prev_ts = float(snapshot_obs.timestamp_s)
-                            while time.time() < deadline:
-                                if self._visual_stop_event.is_set():
-                                    print(
-                                        f"[Visual] center step {step_idx}/{max_steps} | stopped during wait"
-                                    )
-                                    self.state.set_visual_status(running=False, failed=False, msg="stopped")
-                                    return
-                                time.sleep(0.05)
-                                polled_host = self.client.refresh_state()
-                                polled_obs = self.current_visual_observation(polled_host)
-                                if polled_obs is not None and float(polled_obs.timestamp_s) > prev_ts + 1e-6:
-                                    next_host = polled_host
-                                    next_obs = polled_obs
-                                    break
-                            if next_obs is None:
+                            q_try = np.asarray(q_now, dtype=float).copy()
+                            q_try[1] += roll_delta
+                            q_try = self._clamp_q(q_try)
+                            if np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
+                                use_snapshot_roll = False
+                            else:
+                                step_mode = "snapshot_q_roll"
                                 self._log_visual_step(
                                     "center",
                                     step_idx,
                                     max_steps,
-                                    mode="snapshot_wait_timeout",
+                                    mode=step_mode,
                                     uv=f"({u0:+.3f},{v0:+.3f})",
+                                    droll_deg=f"{float(np.degrees(roll_delta)):+.2f}",
+                                )
+                                self._command_q_and_wait(q_try, timeout_s=1.0)
+                                self.state.set_visual_status(
+                                    running=True,
+                                    failed=False,
+                                    msg="center | snapshot roll %.2f deg | uv=(%.3f, %.3f)"
+                                    % (float(np.degrees(roll_delta)), u0, v0),
+                                )
+
+                        if not use_snapshot_roll:
+                            next_u, step_mode = self._apply_center_uv_step(
+                                current_obs,
+                                current_u,
+                                center_tol=center_tol,
+                                force_axis=force_axis,
+                            )
+                            if step_mode == "none":
+                                print(
+                                    "[Visual] center step %d/%d | command clamped | uv=(%.3f, %.3f)"
+                                    % (step_idx, max_steps, u0, v0)
                                 )
                                 self.state.set_visual_status(
                                     running=False,
                                     failed=False,
-                                    msg="center command sent | awaiting new detection timed out",
+                                    msg="command clamped | uv=(%.3f, %.3f)" % (u0, v0),
                                 )
                                 return
+                            droll = float(next_u.u_roll - current_u.u_roll)
+                            dseg = float(next_u.u_s1 - current_u.u_s1)
                             self._log_visual_step(
                                 "center",
                                 step_idx,
                                 max_steps,
-                                mode="snapshot_wait_ok",
-                                uv=f"({float(next_obs.center_uv[0]):+.3f},{float(next_obs.center_uv[1]):+.3f})",
+                                mode=step_mode,
+                                uv=f"({u0:+.3f},{v0:+.3f})",
+                                droll=f"{droll:+.2f}",
+                                dseg=f"{dseg:+.2f}",
                             )
-                            current_host = next_host
-                            current_obs = next_obs
-                            continue
+                            self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                            current_u = next_u
+                            self.state.set_visual_status(
+                                running=True,
+                                failed=False,
+                                msg="center | %s | uv=(%.3f, %.3f)" % (step_mode, u0, v0),
+                            )
+
+                        next_host, next_obs = self._wait_center_observation(prev_ts=prev_ts)
+                        if self._visual_stop_event.is_set():
+                            print(
+                                f"[Visual] center step {step_idx}/{max_steps} | stopped during wait"
+                            )
+                            self.state.set_visual_status(running=False, failed=False, msg="stopped")
+                            return
+                        if next_obs is None:
+                            self._log_visual_step(
+                                "center",
+                                step_idx,
+                                max_steps,
+                                mode="wait_timeout",
+                                uv=f"({u0:+.3f},{v0:+.3f})",
+                                last=step_mode,
+                            )
+                            self.state.set_visual_status(
+                                running=False,
+                                failed=False,
+                                msg="awaiting new detection timed out",
+                            )
+                            return
+
+                        nu = float(next_obs.center_uv[0])
+                        nv = float(next_obs.center_uv[1])
+                        progress = max(abs(nu - u0), abs(nv - v0))
+                        if progress < min_progress_uv:
+                            stall_count += 1
+                            self._log_visual_step(
+                                "center",
+                                step_idx,
+                                max_steps,
+                                mode="stall",
+                                uv=f"({nu:+.3f},{nv:+.3f})",
+                                progress=f"{progress:.4f}",
+                                stall=f"{stall_count}/{stall_limit}",
+                                last=step_mode,
+                            )
+                            if stall_count >= stall_limit:
+                                stall_count = 0
+                                if step_mode == "snapshot_q_roll":
+                                    force_uv = True
+                                    force_axis = "v" if abs(nv) >= abs(nu) else "u"
+                                elif step_mode == "uv_seg":
+                                    force_uv = True
+                                    force_axis = "u"
+                                elif step_mode == "uv_roll":
+                                    force_uv = False
+                                    force_axis = "v"
+                                else:
+                                    force_uv = True
+                                    force_axis = None
+                                print(
+                                    "[Visual] center step %d/%d | stall recovery | force_uv=%s force_axis=%s"
+                                    % (step_idx, max_steps, force_uv, force_axis)
+                                )
+                        else:
+                            stall_count = 0
+                            force_uv = False
+                            force_axis = None
+
                         self._log_visual_step(
                             "center",
                             step_idx,
                             max_steps,
-                            mode="snapshot_skip",
-                            uv=f"({u0:+.3f},{v0:+.3f})",
-                            reason="no_p_cam",
+                            mode="wait_ok",
+                            uv=f"({nu:+.3f},{nv:+.3f})",
+                            progress=f"{progress:.4f}",
+                            last=step_mode,
                         )
-                    print(
-                        "[Visual] center | snapshot loop exhausted (%d steps), uv fallback"
-                        % max_steps
-                    )
-                    current_u = self.current_control_u()
-                    u_err = -float(snapshot_obs.center_uv[0])
-                    v_err = -float(snapshot_obs.center_uv[1])
-                    roll_du = 0.0
-                    seg_du = 0.0
-                    if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol):
-                        roll_du = float(np.clip(self._center_u_gain * u_err, -self._center_roll_u_max, self._center_roll_u_max))
-                        seg_du = 0.0
-                    else:
-                        seg_du = float(np.clip(self._center_v_gain * v_err, -self._center_seg_u_max, self._center_seg_u_max))
-                        roll_du = 0.0
+                        last_mode = step_mode
+                        current_host = next_host
+                        current_obs = next_obs
 
-                    moved = False
-                    axis = "u" if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol) else "v"
-                    self._log_visual_step(
-                        "center",
-                        max_steps,
-                        max_steps,
-                        mode=f"uv_{axis}",
-                        uv=f"({float(snapshot_obs.center_uv[0]):+.3f},{float(snapshot_obs.center_uv[1]):+.3f})",
-                        droll=f"{roll_du:+.2f}",
-                        dseg=f"{seg_du:+.2f}",
-                    )
-                    if abs(roll_du) > 1e-9:
-                        next_u = self._clamp_display_u(
-                            ControlU(
-                                u_linear=float(current_u.u_linear),
-                                u_roll=float(current_u.u_roll + roll_du),
-                                u_s1=float(current_u.u_s1),
-                                u_s2=float(current_u.u_s2),
-                            )
-                        )
-                        if next_u != current_u:
-                            self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
-                            current_u = next_u
-                            moved = True
-                    if abs(seg_du) > 1e-9:
-                        next_u = self._clamp_display_u(
-                            ControlU(
-                                u_linear=float(current_u.u_linear),
-                                u_roll=float(current_u.u_roll),
-                                u_s1=float(current_u.u_s1 + seg_du),
-                                u_s2=float(current_u.u_s2 + seg_du),
-                            )
-                        )
-                        if next_u != current_u:
-                            self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
-                            current_u = next_u
-                            moved = True
-                    if not moved:
-                        self.state.set_visual_status(
-                            running=False,
-                            failed=False,
-                            msg="within deadband | snapshot uv=(%.3f, %.3f)"
-                            % (float(snapshot_obs.center_uv[0]), float(snapshot_obs.center_uv[1])),
-                        )
-                        return
-                    self.state.set_visual_status(
-                        running=False,
-                        failed=False,
-                        msg="center command sent | snapshot uv=(%.3f, %.3f) scale=%.3f"
-                        % (
-                            float(snapshot_obs.center_uv[0]),
-                            float(snapshot_obs.center_uv[1]),
-                            float(snapshot_obs.scale),
-                        ),
-                    )
-                    return
+                    print(f"[Visual] center | iteration limit ({max_steps} steps) | last={last_mode}")
+                    self.state.set_visual_status(running=False, failed=True, msg="iteration limit")
 
                 max_steps = int(self._visual_outer_iters)
                 print(
@@ -1658,14 +1612,22 @@ class ControlService:
             time.sleep(0.05)
         return False
 
-    def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
-        cfg = self._pick_config_effective()
-        center_tol = float(cfg.center_tol)
+    def _apply_center_uv_step(
+        self,
+        obs: VisualObservation,
+        current_u: ControlU,
+        *,
+        center_tol: float,
+        force_axis: Optional[str] = None,
+    ) -> tuple[ControlU, str]:
         roll_du = 0.0
         seg_du = 0.0
         u_err = -float(obs.center_uv[0])
         v_err = -float(obs.center_uv[1])
-        if abs(float(obs.center_uv[0])) > center_tol:
+        mode = "none"
+        u_over = abs(float(obs.center_uv[0])) > float(center_tol)
+        v_over = abs(float(obs.center_uv[1])) > float(center_tol)
+        if force_axis == "u" or (force_axis is None and u_over):
             roll_du = float(
                 np.clip(
                     self._visual_center_u_gain * u_err,
@@ -1673,7 +1635,8 @@ class ControlService:
                     self._visual_center_roll_u_max,
                 )
             )
-        elif abs(float(obs.center_uv[1])) > center_tol:
+            mode = "uv_roll"
+        elif force_axis == "v" or (force_axis is None and v_over):
             seg_du = float(
                 np.clip(
                     self._visual_center_v_gain * v_err,
@@ -1681,7 +1644,8 @@ class ControlService:
                     self._visual_center_seg_u_max,
                 )
             )
-        return self._clamp_display_u(
+            mode = "uv_seg"
+        next_u = self._clamp_display_u(
             ControlU(
                 u_linear=float(current_u.u_linear),
                 u_roll=float(current_u.u_roll + roll_du),
@@ -1689,6 +1653,38 @@ class ControlService:
                 u_s2=float(current_u.u_s2 + seg_du),
             )
         )
+        if next_u == current_u:
+            mode = "none"
+        return next_u, mode
+
+    def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
+        cfg = self._pick_config_effective()
+        next_u, _mode = self._apply_center_uv_step(
+            obs,
+            current_u,
+            center_tol=float(cfg.center_tol),
+        )
+        return next_u
+
+    def _wait_center_observation(
+        self,
+        *,
+        prev_ts: float,
+        timeout_s: float = 2.0,
+    ) -> tuple[Optional[HostState], Optional[VisualObservation]]:
+        deadline = time.time() + float(timeout_s)
+        while time.time() < deadline:
+            if self._visual_stop_event.is_set():
+                return None, None
+            time.sleep(0.05)
+            polled_host = self.client.refresh_state() if self.client is not None else None
+            polled_obs = self.current_visual_observation(polled_host)
+            if polled_obs is None:
+                continue
+            if float(polled_obs.timestamp_s) <= float(prev_ts) + 1e-6:
+                continue
+            return polled_host, polled_obs
+        return None, None
 
     def _apply_pick_approach_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
         cfg = self._pick_config_effective()
