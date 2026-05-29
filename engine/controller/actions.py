@@ -245,6 +245,20 @@ class ControlService:
         du, dv, _, _ = self._visual_uv_errors(obs)
         return -du, -dv
 
+    def _center_seg_du(
+        self,
+        *,
+        target_v: float,
+        obs_v: float,
+        cap: float,
+        gain: Optional[float] = None,
+    ) -> float:
+        """seg drives image v toward target_v (this robot: +seg raises v)."""
+        g = float(self._visual_center_v_gain if gain is None else gain)
+        return float(
+            np.clip(g * (float(target_v) - float(obs_v)), -float(cap), float(cap))
+        )
+
     def _visual_uv_centered(self, obs: VisualObservation, *, center_tol: Optional[float] = None) -> bool:
         tol = float(self.state.visual_center_tol if center_tol is None else center_tol)
         du, dv, _, _ = self._visual_uv_errors(obs)
@@ -502,8 +516,13 @@ class ControlService:
         if abs(u_err) > float(self._visual_u_deadband):
             roll_du = float(np.clip(u_gain * u_err, -roll_max, roll_max))
         if abs(v_err) > float(self._visual_v_deadband):
-            v_delta = -float(v_err)
-            seg_du = float(np.clip(v_gain * v_delta, -seg_max, seg_max))
+            _, tv = self._visual_target_uv()
+            seg_du = self._center_seg_du(
+                target_v=tv,
+                obs_v=float(obs.center_uv[1]),
+                cap=seg_max,
+                gain=v_gain,
+            )
         if abs(scale_err) > float(self._visual_scale_deadband):
             # Display u_linear=0 is forward; decrease u to enlarge object scale.
             linear_du = float(
@@ -1725,14 +1744,7 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
-            # On this robot +seg lowers image v; use v_delta = obs - target.
-            seg_du = float(
-                np.clip(
-                    self._visual_center_v_gain * v_delta,
-                    -seg_cap,
-                    seg_cap,
-                )
-            )
+            seg_du = self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
             mode = "uv_seg"
         next_u = self._clamp_display_u(
             ControlU(
@@ -1827,12 +1839,10 @@ class ControlService:
         seg_du = 0.0
         v_hold_tol = center_tol * float(self._pick_approach_v_hold_ratio)
         if abs(v_delta) > v_hold_tol:
-            seg_du = float(
-                np.clip(
-                    self._visual_center_v_gain * v_delta,
-                    -float(self._pick_approach_seg_u_max),
-                    float(self._pick_approach_seg_u_max),
-                )
+            seg_du = self._center_seg_du(
+                target_v=tv,
+                obs_v=float(obs.center_uv[1]),
+                cap=float(self._pick_approach_seg_u_max),
             )
         roll_du = 0.0
         if abs(float(obs.center_uv[0]) - tu) > center_tol:

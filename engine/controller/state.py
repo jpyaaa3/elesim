@@ -53,7 +53,7 @@ class PanelState:
     visual_target_scale: float = 0.100
     visual_center_tol: float = 0.08
     visual_target_uv_u: float = 2.0 / 3.0
-    visual_target_uv_v: float = 0.5
+    visual_target_uv_v: float = -0.5
     visual_scale_tol: float = 0.01
     visual_confidence_min: float = 0.0
     visual_target_label: str = ""

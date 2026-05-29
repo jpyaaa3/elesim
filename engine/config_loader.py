@@ -136,7 +136,7 @@ class PickConfig:
     scale_tol: float = 0.01
     center_tol: float = 0.08
     target_uv_u: float = 2.0 / 3.0
-    target_uv_v: float = 0.5
+    target_uv_v: float = -0.5
     linear_step_u: float = 2.0
     linear_gain: float = 40.0
     max_iters: int = 80

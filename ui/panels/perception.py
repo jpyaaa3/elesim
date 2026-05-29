@@ -125,7 +125,7 @@ def draw_perception_panel(panel) -> None:
     )
     if changed_tv:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
-    imgui.text_wrapped("gripper align: 3x2 grid cell (2,0) -> u=+0.667, v=+0.5 (row 0 = bottom)")
+    imgui.text_wrapped("gripper align: 3x2 grid cell (2,0) -> u=+0.667, v=-0.5 (row 0 = top)")
 
     pick_running = bool(panel.state.pick_running)
     if pick_running:
