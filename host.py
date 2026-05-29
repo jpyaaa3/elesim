@@ -82,6 +82,7 @@ class ControlHost:
         self.last_perceived_object_label: str = ""
         self.last_perceived_object_confidence: float = 0.0
         self.last_perceived_object_camera_xyz: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
@@ -327,6 +328,11 @@ class ControlHost:
             return False, f"perception transform failed: {exc}", None
         p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
         p_w = np.asarray(object_world, dtype=float).reshape(3)
+        self.last_perceived_object_world_xyz = (
+            float(p_w[0]),
+            float(p_w[1]),
+            float(p_w[2]),
+        )
         label_txt = str(object_label).strip()
         print(
             f"[Perception] label={label_txt or '-'} "
@@ -897,7 +903,21 @@ class ControlHost:
                         object_label=self.last_perceived_object_label,
                     )
                 else:
-                    ok, reason = True, "perception image (depth invalid, uv/scale only)"
+                    ok, reason = True, "perception image (world frozen, uv/scale only)"
+                    object_world = self.last_perceived_object_world_xyz
+                    if object_world is not None:
+                        label_suffix = (
+                            f":{self.last_perceived_object_label}"
+                            if str(self.last_perceived_object_label).strip()
+                            else ""
+                        )
+                        self._set_debug_marker(
+                            name=f"perceived_object{label_suffix}",
+                            pos=object_world,
+                            color=[0.1, 0.95, 0.2, 0.95],
+                            radius=0.012,
+                            ttl_ms=30000,
+                        )
                 ack: Dict[str, Any] = {
                     "t": "ack",
                     "ts": proto.now_s(),

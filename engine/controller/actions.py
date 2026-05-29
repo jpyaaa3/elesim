@@ -80,9 +80,10 @@ class ControlService:
         self._pick_extend_done = False
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
+        self._pick_frozen_world_xyz: Optional[tuple[float, float, float]] = None
         self._pick_center_reenter_ratio = 1.5
         self._pick_approach_lost_ratio = 2.5
-        self._pick_approach_linear_step_scale = 2.0
+        self._pick_approach_linear_step_scale = 3.0
         self._pick_center_seg_u_max = 3.0
         self._pick_center_roll_u_max = 4.0
         self._pick_center_u_dominance_ratio = 2.0
@@ -1668,10 +1669,23 @@ class ControlService:
         cap = self._perception_capture
         return None if cap is None else cap.snapshot()
 
+    def _pick_frozen_world(self) -> Optional[tuple[float, float, float]]:
+        frozen = self._pick_frozen_world_xyz
+        if frozen is not None:
+            return tuple(frozen)
+        if self.state.perception_world_xyz is not None:
+            return tuple(self.state.perception_world_xyz)
+        if self.client is not None and self.client.last_object_world_xyz is not None:
+            return tuple(self.client.last_object_world_xyz)
+        return None
+
+    def _latch_pick_frozen_world(self) -> None:
+        self._pick_frozen_world_xyz = self._pick_frozen_world()
+
     def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
         world_xyz = snap.p_world
-        if bool(self.state.pick_running) and world_xyz is None:
-            world_xyz = self.state.perception_world_xyz
+        if bool(self.state.pick_running):
+            world_xyz = self._pick_frozen_world()
         self.state.set_perception_status(
             running=bool(snap.running),
             failed=bool(snap.failed),
@@ -1962,6 +1976,7 @@ class ControlService:
         self._pick_extend_done = False
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
+        self._pick_frozen_world_xyz = None
         self._pick_clamp_streak = 0
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
@@ -1991,6 +2006,7 @@ class ControlService:
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_clamp_streak = 0
+        self._latch_pick_frozen_world()
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
             running=True,
@@ -2298,6 +2314,7 @@ class ControlService:
                     msg=str(exc),
                 )
             finally:
+                self._pick_frozen_world_xyz = None
                 self._pick_worker = None
 
         self._pick_worker = threading.Thread(target=_worker, name="object-pick", daemon=True)
@@ -2326,8 +2343,10 @@ class ControlService:
             depth_valid=publish_depth,
         )
         if freeze_world:
-            frozen = self.state.perception_world_xyz
+            frozen = self._pick_frozen_world()
             return frozen if frozen is not None else p_world
+        if p_world is not None:
+            self._pick_frozen_world_xyz = tuple(p_world)
         return p_world
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:

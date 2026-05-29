@@ -233,7 +233,10 @@ class PanelState:
             self.perception_label = str(label)
             self.perception_confidence = float(confidence)
             self.perception_camera_xyz = None if camera_xyz is None else tuple(camera_xyz)
-            self.perception_world_xyz = None if world_xyz is None else tuple(world_xyz)
+            if world_xyz is not None:
+                self.perception_world_xyz = tuple(world_xyz)
+            elif not self.pick_running:
+                self.perception_world_xyz = None
             if str(tracker_phase).strip():
                 self.perception_tracker_phase = str(tracker_phase)
             self.perception_track_ok_frames = int(track_ok_frames)
