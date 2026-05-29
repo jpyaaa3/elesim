@@ -15,8 +15,35 @@ class ObjectPickPhase(str, Enum):
     ACQUIRE = "acquire"
     CENTER = "center"
     APPROACH = "approach"
+    EXTEND = "extend"
     DONE = "done"
     FAILED = "failed"
+
+
+def grid_cell_center_uv(
+    col: int,
+    row: int,
+    *,
+    grid_cols: int = 2,
+    grid_rows: int = 2,
+    row0_is_top: bool = True,
+) -> tuple[float, float]:
+    """Normalized image UV center of a grid cell; row 0 = top."""
+    c = int(col)
+    r = int(row)
+    if row0_is_top:
+        row_idx = float(r)
+    else:
+        row_idx = float(grid_rows - 1 - r)
+    u = 2.0 * (float(c) + 0.5) / float(max(grid_cols, 1)) - 1.0
+    v = 2.0 * (row_idx + 0.5) / float(max(grid_rows, 1)) - 1.0
+    return float(u), float(v)
+
+
+def quadrant_fill_target_scale(fill_ratio: float, *, quadrants: int = 4) -> float:
+    """Mask area / full image when object fills ``fill_ratio`` of one quadrant."""
+    q = max(int(quadrants), 1)
+    return float(max(0.0, min(1.0, float(fill_ratio) / float(q))))
 
 
 @dataclass(frozen=True)

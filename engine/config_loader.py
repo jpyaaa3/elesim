@@ -132,11 +132,18 @@ class PerceptionConfig:
 @dataclass(frozen=True)
 class PickConfig:
     enabled: bool = True
-    target_scale: float = 0.12
-    scale_tol: float = 0.01
+    target_scale: float = 0.20
+    scale_tol: float = 0.02
     center_tol: float = 0.08
-    target_uv_u: float = 2.0 / 3.0
+    target_uv_u: float = 0.5
     target_uv_v: float = -0.5
+    quadrant_fill_min: float = 0.80
+    approach_extend_m: float = 0.08
+    approach_extend_step_m: float = 0.01
+    grid_cols: int = 2
+    grid_rows: int = 2
+    target_grid_col: int = 1
+    target_grid_row: int = 0
     linear_step_u: float = 2.0
     linear_gain: float = 40.0
     max_iters: int = 80
@@ -252,14 +259,41 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
 
 
 def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickConfig:
+    from engine.controller.object_pick import grid_cell_center_uv, quadrant_fill_target_scale
+
     pk0 = defaults.pick_config
+    quadrant_fill = cp.getfloat("pick", "quadrant_fill_min", fallback=pk0.quadrant_fill_min)
+    scale_default = quadrant_fill_target_scale(quadrant_fill)
+    grid_cols = cp.getint("pick", "grid_cols", fallback=pk0.grid_cols)
+    grid_rows = cp.getint("pick", "grid_rows", fallback=pk0.grid_rows)
+    grid_col = cp.getint("pick", "target_grid_col", fallback=pk0.target_grid_col)
+    grid_row = cp.getint("pick", "target_grid_row", fallback=pk0.target_grid_row)
+    if cp.has_option("pick", "target_uv_u") and cp.has_option("pick", "target_uv_v"):
+        target_u = cp.getfloat("pick", "target_uv_u", fallback=pk0.target_uv_u)
+        target_v = cp.getfloat("pick", "target_uv_v", fallback=pk0.target_uv_v)
+    else:
+        target_u, target_v = grid_cell_center_uv(
+            grid_col,
+            grid_row,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
     return PickConfig(
         enabled=cp.getboolean("pick", "enabled", fallback=pk0.enabled),
-        target_scale=cp.getfloat("pick", "target_scale", fallback=pk0.target_scale),
+        target_scale=cp.getfloat("pick", "target_scale", fallback=scale_default),
         scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
         center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
-        target_uv_u=cp.getfloat("pick", "target_uv_u", fallback=pk0.target_uv_u),
-        target_uv_v=cp.getfloat("pick", "target_uv_v", fallback=pk0.target_uv_v),
+        target_uv_u=float(target_u),
+        target_uv_v=float(target_v),
+        quadrant_fill_min=float(quadrant_fill),
+        approach_extend_m=cp.getfloat("pick", "approach_extend_m", fallback=pk0.approach_extend_m),
+        approach_extend_step_m=cp.getfloat(
+            "pick", "approach_extend_step_m", fallback=pk0.approach_extend_step_m
+        ),
+        grid_cols=int(grid_cols),
+        grid_rows=int(grid_rows),
+        target_grid_col=int(grid_col),
+        target_grid_row=int(grid_row),
         linear_step_u=cp.getfloat("pick", "linear_step_u", fallback=pk0.linear_step_u),
         linear_gain=cp.getfloat("pick", "linear_gain", fallback=pk0.linear_gain),
         max_iters=cp.getint("pick", "max_iters", fallback=pk0.max_iters),

@@ -77,6 +77,9 @@ class ControlService:
         self._pick_approach_v_hold_ratio = 0.5
         self._pick_approach_seg_u_max = 0.35
         self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
         self._pick_center_reenter_ratio = 1.5
         self._pick_center_seg_u_max = 3.0
         self._pick_center_roll_u_max = 4.0
@@ -1689,12 +1692,82 @@ class ControlService:
             center_tol=float(self.state.visual_center_tol),
             target_uv_u=float(self.state.visual_target_uv_u),
             target_uv_v=float(self.state.visual_target_uv_v),
+            quadrant_fill_min=float(pk.quadrant_fill_min),
+            approach_extend_m=float(pk.approach_extend_m),
+            approach_extend_step_m=float(pk.approach_extend_step_m),
+            grid_cols=int(pk.grid_cols),
+            grid_rows=int(pk.grid_rows),
+            target_grid_col=int(pk.target_grid_col),
+            target_grid_row=int(pk.target_grid_row),
             linear_step_u=float(pk.linear_step_u),
             linear_gain=float(pk.linear_gain),
             max_iters=int(pk.max_iters),
             require_track_frames=int(pk.require_track_frames),
             acquire_timeout_s=float(pk.acquire_timeout_s),
         )
+
+    def _pick_reach_model(self):
+        from engine.iklib.kinematics import _ReachModel
+
+        self.refresh_ik_context()
+        limit = self._ik_context.get("limit")
+        if limit is None:
+            raise RuntimeError("ik context missing joint limit")
+        return _ReachModel(context=dict(self._ik_context), limit=limit)
+
+    def _pick_hold_align_display_u(
+        self,
+        obs: VisualObservation,
+        *,
+        center_tol: float,
+    ) -> bool:
+        """Re-apply roll/seg so gripper stays on target_uv after a Cartesian step."""
+        current_u = self.current_control_u()
+        next_u, mode, _, _ = self._apply_pick_center_step(obs, current_u)
+        if next_u == current_u or mode == "none":
+            return False
+        self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+        return True
+
+    def _pick_extend_cartesian_step(
+        self,
+        step_m: float,
+        host_state: Optional[HostState] = None,
+    ) -> float:
+        """Advance gripper along grasp axis (all 4 DOF via IK), not linear joint only."""
+        from engine.iklib.kinematics import _damped_pinv, _limited_step
+
+        delta = float(max(0.0, step_m))
+        if delta <= 1e-6:
+            return 0.0
+        try:
+            model = self._pick_reach_model()
+        except Exception as exc:
+            print(f"[Pick] extend | IK model unavailable: {exc}")
+            return 0.0
+        q0 = self._q_array_from_state(host_state)
+        tip0 = model.grasp_position(q0)
+        dir_w = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+        J = model.position_jacobian(q0)
+        dq = np.asarray(_damped_pinv(J) @ (dir_w * delta), dtype=float).reshape(4)
+        dq = np.asarray(
+            _limited_step(
+                dq,
+                max_linear_m=max(delta * 1.5, 0.002),
+                max_angle_rad=float(np.radians(3.5)),
+            ),
+            dtype=float,
+        )
+        q1 = model.clamp_q(q0 + dq)
+        if np.allclose(q1, q0, atol=1e-9, rtol=0.0):
+            return 0.0
+        tip1 = model.grasp_position(q1)
+        travel = float(np.dot(tip1 - tip0, dir_w))
+        self._command_q_and_wait(q1, timeout_s=1.5)
+        self._pick_extend_progress_m = float(
+            max(float(self._pick_extend_progress_m), max(0.0, travel))
+        )
+        return max(0.0, travel)
 
     def _wait_for_track_lock(self, *, timeout_s: float, require_frames: int) -> bool:
         deadline = time.time() + max(float(timeout_s), 0.1)
@@ -1895,6 +1968,9 @@ class ControlService:
         self._pick_stop_event.set()
         self._pick_center_phase = "u"
         self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
         self._pick_clamp_streak = 0
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
@@ -1920,6 +1996,9 @@ class ControlService:
         self._pick_stop_event.clear()
         self._pick_center_phase = "u"
         self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
         self._pick_clamp_streak = 0
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -1936,13 +2015,20 @@ class ControlService:
             try:
                 pk = self._pick_config_effective()
                 print(
-                    "[Pick] start | max_iters=%d target_scale=%.3f center_tol=%.3f target_uv=(%+.3f,%+.3f)"
+                    "[Pick] start | max_iters=%d grid=%dx%d cell=(%d,%d) target_uv=(%+.3f,%+.3f) "
+                    "target_scale=%.3f (quadrant %.0f%%) extend=%.0fmm center_tol=%.3f"
                     % (
                         int(pk.max_iters),
-                        float(pk.target_scale),
-                        float(pk.center_tol),
+                        int(pk.grid_cols),
+                        int(pk.grid_rows),
+                        int(pk.target_grid_col),
+                        int(pk.target_grid_row),
                         float(pk.target_uv_u),
                         float(pk.target_uv_v),
+                        float(pk.target_scale),
+                        float(pk.quadrant_fill_min) * 100.0,
+                        float(pk.approach_extend_m) * 1000.0,
+                        float(pk.center_tol),
                     )
                 )
                 if not self._wait_for_track_lock(
@@ -2001,7 +2087,74 @@ class ControlService:
                     )
                     if not use_approach and self._pick_center_lost(obs, center_tol=center_tol):
                         self._pick_approach_latched = False
+                    ext_target_m = float(pk.approach_extend_m)
+                    ext_step_m = float(pk.approach_extend_step_m)
                     if conv.center_ok and conv.scale_ok:
+                        if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
+                            remain_m = ext_target_m - float(self._pick_extend_progress_m)
+                            step_m = float(min(max(ext_step_m, 0.002), remain_m))
+                            self.state.set_pick_status(
+                                running=True,
+                                failed=False,
+                                phase=ObjectPickPhase.EXTEND.value,
+                                msg="extend %.0f/%.0f mm (aligned) | uv=(%.3f, %.3f)"
+                                % (
+                                    float(self._pick_extend_progress_m) * 1000.0,
+                                    ext_target_m * 1000.0,
+                                    conv.u_err,
+                                    conv.v_err,
+                                ),
+                            )
+                            traveled_m = self._pick_extend_cartesian_step(
+                                step_m, host_state
+                            )
+                            host_state = (
+                                self.client.refresh_state()
+                                if self.client is not None
+                                else None
+                            )
+                            hold_obs = self.current_visual_observation(host_state)
+                            held = False
+                            if hold_obs is not None:
+                                held = self._pick_hold_align_display_u(
+                                    hold_obs, center_tol=center_tol
+                                )
+                            print(
+                                "[Pick] step %d/%d | extend | cart=%.1fmm prog=%.0f/%.0fmm "
+                                "hold=%s | uv=(%.3f, %.3f) scale=%.3f"
+                                % (
+                                    step_idx,
+                                    max_iters,
+                                    traveled_m * 1000.0,
+                                    float(self._pick_extend_progress_m) * 1000.0,
+                                    ext_target_m * 1000.0,
+                                    str(held),
+                                    conv.u_err,
+                                    conv.v_err,
+                                    conv.scale,
+                                )
+                            )
+                            if traveled_m < step_m * 0.12:
+                                self._pick_extend_stall += 1
+                                if self._pick_extend_stall >= 8:
+                                    self.state.set_pick_status(
+                                        running=False,
+                                        failed=True,
+                                        phase=ObjectPickPhase.FAILED.value,
+                                        msg=(
+                                            "extend stalled | prog=%.0fmm target=%.0fmm"
+                                        )
+                                        % (
+                                            float(self._pick_extend_progress_m) * 1000.0,
+                                            ext_target_m * 1000.0,
+                                        ),
+                                    )
+                                    return
+                            else:
+                                self._pick_extend_stall = 0
+                            time.sleep(0.05)
+                            continue
+                        self._pick_extend_done = True
                         print(
                             "[Pick] step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
                             % (step_idx, max_iters, conv.u_err, conv.v_err, conv.scale)
@@ -2010,8 +2163,13 @@ class ControlService:
                             running=False,
                             failed=False,
                             phase=ObjectPickPhase.DONE.value,
-                            msg="pick ready | uv=(%.3f, %.3f) scale=%.3f (grasp manual)"
-                            % (conv.u_err, conv.v_err, conv.scale),
+                            msg="pick done | extend %.0fmm aligned | uv=(%.3f, %.3f) scale=%.3f"
+                            % (
+                                float(self._pick_extend_progress_m) * 1000.0,
+                                conv.u_err,
+                                conv.v_err,
+                                conv.scale,
+                            ),
                         )
                         return
 
