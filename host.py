@@ -140,6 +140,7 @@ class PickContext:
     advance_count: int = 0
     advance_max_notified: bool = False
     advance_executed_this_stage: bool = False
+    advance_hold_camera_xy: Optional[tuple[float, float]] = None
     look_jacobian: Optional[np.ndarray] = None
     look_cal_phase: str = ""
     look_cal_substep: str = ""
@@ -533,6 +534,11 @@ class ControlHost:
             self._pick.advance_max_notified = False
         if stage == PickStage.ADVANCE_SMALL and prev != stage:
             self._pick.advance_executed_this_stage = False
+            live = self._pick_live_object_camera()
+            if live is not None:
+                self._pick.advance_hold_camera_xy = (float(live[0]), float(live[1]))
+            else:
+                self._pick.advance_hold_camera_xy = self._pick_look_servo_desired_xy()
         if stage == PickStage.VIEW_ALIGN and prev != stage:
             self._pick.coarse_last_cmd_ts = 0.0
             self._pick.coarse_target_q = None
@@ -550,7 +556,7 @@ class ControlHost:
             self._pick.look_cal_baseline_e = None
             self._pick.look_cal_q_anchor = None
             self._pick.look_cal_axis_idx = 0
-            self._pick_sync_desired_camera_from_live()
+            self._pick_reset_look_servo_target()
             cfg = self.pick_fsm_cfg
             if bool(cfg.look_jacobian_include_roll):
                 self._pick.look_cal_axis_order = [0, 1, 2]
@@ -606,6 +612,7 @@ class ControlHost:
         self._pick.advance_count = 0
         self._pick.advance_max_notified = False
         self._pick.advance_executed_this_stage = False
+        self._pick.advance_hold_camera_xy = None
         self._pick.look_jacobian = None
         self._pick.look_cal_phase = ""
         self._pick.look_cal_substep = ""
@@ -1263,7 +1270,7 @@ class ControlHost:
             if mu_arr is None:
                 return None
             mu_tuple = (float(mu_arr[0]), float(mu_arr[1]), float(mu_arr[2]))
-        ex, ey, _norm = camera_xy_error(mu_tuple, self._pick_desired_camera_xy())
+        ex, ey, _norm = camera_xy_error(mu_tuple, self._pick_look_servo_desired_xy())
         return error_vector_2d(ex, ey)
 
     def _pick_jacobian_axis_eps(self, axis: int) -> float:
@@ -1397,22 +1404,34 @@ class ControlHost:
         self._pick.look_cal_phase_ts = float(now)
         return True
 
-    def _pick_sync_desired_camera_from_live(self) -> bool:
-        """Align LOOK/ADVANCE error target to current perception (not config 0,0)."""
+    def _pick_look_servo_desired_xy(self) -> tuple[float, float]:
+        """Image-center target for LOOK_ALIGN visual servo (config desired_camera_xy_m)."""
+        cfg = self.pick_fsm_cfg
+        return (float(cfg.desired_camera_xy_m[0]), float(cfg.desired_camera_xy_m[1]))
+
+    def _pick_reset_look_servo_target(self) -> None:
+        dx, dy = self._pick_look_servo_desired_xy()
+        dz = float(self._pick.desired_camera_object[2])
+        self._pick.desired_camera_object = (float(dx), float(dy), dz)
         live = self._pick_live_object_camera()
-        if live is None:
-            return False
-        old = self._pick.desired_camera_object
-        dz = float(old[2])
-        dx = float(live[0]) - float(old[0])
-        dy = float(live[1]) - float(old[1])
-        self._pick.desired_camera_object = (float(live[0]), float(live[1]), dz)
-        if float(np.hypot(dx, dy)) > 0.002:
+        if live is not None:
+            ex, ey, _ = camera_xy_error(live, (dx, dy))
             print(
-                f"[pick] desired_camera_xy synced to live ({live[0]:+.4f},{live[1]:+.4f})",
+                f"[pick] LOOK_ALIGN: servo toward center ({dx:+.4f},{dy:+.4f}) "
+                f"ex={ex:+.4f} ey={ey:+.4f}",
                 flush=True,
             )
-        return True
+        else:
+            print(
+                f"[pick] LOOK_ALIGN: servo toward center ({dx:+.4f},{dy:+.4f})",
+                flush=True,
+            )
+
+    def _pick_advance_hold_xy(self) -> tuple[float, float]:
+        hold = self._pick.advance_hold_camera_xy
+        if hold is not None:
+            return (float(hold[0]), float(hold[1]))
+        return self._pick_look_servo_desired_xy()
 
     def _pick_desired_camera_xy(self) -> tuple[float, float]:
         d = self._pick.desired_camera_object
@@ -1434,17 +1453,25 @@ class ControlHost:
                 return (float(live[0]), float(live[1]))
         return self._pick_desired_camera_xy()
 
-    def _pick_camera_xy_state(self) -> Optional[tuple[float, float, float, float]]:
+    def _pick_camera_xy_state(
+        self, *, desired_xy: Optional[tuple[float, float]] = None
+    ) -> Optional[tuple[float, float, float, float]]:
         mu_tuple = self._pick_effective_camera_mu()
         if mu_tuple is None:
             return None
-        desired_xy = self._pick_desired_camera_xy()
-        ex, ey, norm_xy = camera_xy_error(mu_tuple, desired_xy)
+        target = desired_xy if desired_xy is not None else self._pick_desired_camera_xy()
+        ex, ey, norm_xy = camera_xy_error(mu_tuple, target)
         mu_z = float(mu_tuple[2])
         return ex, ey, norm_xy, mu_z
 
+    def _pick_look_camera_xy_state(self) -> Optional[tuple[float, float, float, float]]:
+        return self._pick_camera_xy_state(desired_xy=self._pick_look_servo_desired_xy())
+
+    def _pick_advance_camera_xy_state(self) -> Optional[tuple[float, float, float, float]]:
+        return self._pick_camera_xy_state(desired_xy=self._pick_advance_hold_xy())
+
     def _pick_look_align_ok(self) -> bool:
-        state = self._pick_camera_xy_state()
+        state = self._pick_look_camera_xy_state()
         if state is None:
             return False
         ex, ey, _, _ = state
@@ -1505,7 +1532,7 @@ class ControlHost:
     def _pick_visual_servo_look_step(self, now: float) -> bool:
         if self.last_q is None:
             return False
-        xy_state = self._pick_camera_xy_state()
+        xy_state = self._pick_look_camera_xy_state()
         if xy_state is None:
             return False
         ex, ey, norm_xy, _z = xy_state
@@ -1555,7 +1582,7 @@ class ControlHost:
     def _pick_execute_advance_small(self, now: float) -> bool:
         if self._pick.advance_executed_this_stage:
             return False
-        xy_state = self._pick_camera_xy_state()
+        xy_state = self._pick_advance_camera_xy_state()
         if xy_state is None or self.last_q is None:
             return False
         ex, ey, _, _ = xy_state
@@ -1576,7 +1603,7 @@ class ControlHost:
         self._pick.advance_executed_this_stage = True
         self._pick.advance_max_notified = False
         z_tag = ""
-        xy_state = self._pick_camera_xy_state()
+        xy_state = self._pick_advance_camera_xy_state()
         if xy_state is not None:
             _ex, _ey, _norm, mu_z = xy_state
             z_tag = f" camera_z={float(mu_z):.3f}m"
@@ -1587,7 +1614,7 @@ class ControlHost:
         return True
 
     def _pick_ready_for_commit(self) -> bool:
-        xy_state = self._pick_camera_xy_state()
+        xy_state = self._pick_look_camera_xy_state()
         if xy_state is None:
             return False
         ex, ey, _, mu_z = xy_state
@@ -1929,7 +1956,7 @@ class ControlHost:
             if self._pick_effective_camera_mu() is None:
                 self._pick_hard_fail(now)
                 return
-            xy_state = self._pick_camera_xy_state()
+            xy_state = self._pick_look_camera_xy_state()
             if xy_state is not None:
                 _ex, _ey, norm_xy, _mu_z = xy_state
                 self._pick.stage_error_m = float(norm_xy)
