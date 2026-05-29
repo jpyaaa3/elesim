@@ -123,6 +123,7 @@ class PickFsmConfig:
     commit_z_max_m: float = 0.06
     max_advance_steps: int = 20
     align_no_improve_limit: int = 6
+    pick_chain_min_dwell_s: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -508,6 +509,7 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         commit_z_max_m=max(0.01, cp.getfloat("pick_fsm", "commit_z_max_m", fallback=p0.commit_z_max_m)),
         max_advance_steps=max(1, cp.getint("pick_fsm", "max_advance_steps", fallback=p0.max_advance_steps)),
         align_no_improve_limit=max(1, cp.getint("pick_fsm", "align_no_improve_limit", fallback=p0.align_no_improve_limit)),
+        pick_chain_min_dwell_s=max(0.05, cp.getfloat("pick_fsm", "pick_chain_min_dwell_s", fallback=p0.pick_chain_min_dwell_s)),
     )
 
 

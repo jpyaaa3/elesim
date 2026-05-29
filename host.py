@@ -138,6 +138,8 @@ class PickContext:
     perception_sigma_camera: Optional[tuple[float, float, float]] = None
     last_object_camera: Optional[tuple[float, float, float]] = None
     advance_count: int = 0
+    advance_max_notified: bool = False
+    advance_executed_this_stage: bool = False
     look_jacobian: Optional[np.ndarray] = None
     look_cal_phase: str = ""
     look_cal_substep: str = ""
@@ -527,6 +529,10 @@ class ControlHost:
         prev = self._pick.stage
         self._pick.stage = stage
         self._pick.stage_enter_ts = float(now)
+        if stage == PickStage.STOP_AND_CHECK and prev != stage:
+            self._pick.advance_max_notified = False
+        if stage == PickStage.ADVANCE_SMALL and prev != stage:
+            self._pick.advance_executed_this_stage = False
         if stage == PickStage.VIEW_ALIGN and prev != stage:
             self._pick.coarse_last_cmd_ts = 0.0
             self._pick.coarse_target_q = None
@@ -566,8 +572,12 @@ class ControlHost:
         return not bool(self._pick.manual_mode)
 
     def _pick_can_complete_stage(self) -> bool:
-        """Forward chain when stage goals are met (manual stage buttons still advance)."""
-        return True
+        """Auto chain between stages. Manual mode: use UI stage buttons only."""
+        return not bool(self._pick.manual_mode)
+
+    def _pick_chain_dwell_elapsed(self, now: float) -> bool:
+        elapsed = float(now) - float(self._pick.stage_enter_ts)
+        return elapsed >= float(self.pick_fsm_cfg.pick_chain_min_dwell_s)
 
     def _pick_reset_to_search(self, now: float, *, increment_attempt: bool = False) -> None:
         if increment_attempt:
@@ -594,6 +604,8 @@ class ControlHost:
         self._pick.coarse_failed_tags.clear()
         self._pick.last_object_camera = None
         self._pick.advance_count = 0
+        self._pick.advance_max_notified = False
+        self._pick.advance_executed_this_stage = False
         self._pick.look_jacobian = None
         self._pick.look_cal_phase = ""
         self._pick.look_cal_substep = ""
@@ -1390,12 +1402,16 @@ class ControlHost:
         live = self._pick_live_object_camera()
         if live is None:
             return False
-        dz = float(self._pick.desired_camera_object[2])
+        old = self._pick.desired_camera_object
+        dz = float(old[2])
+        dx = float(live[0]) - float(old[0])
+        dy = float(live[1]) - float(old[1])
         self._pick.desired_camera_object = (float(live[0]), float(live[1]), dz)
-        print(
-            f"[pick] desired_camera_xy synced to live ({live[0]:+.4f},{live[1]:+.4f})",
-            flush=True,
-        )
+        if float(np.hypot(dx, dy)) > 0.002:
+            print(
+                f"[pick] desired_camera_xy synced to live ({live[0]:+.4f},{live[1]:+.4f})",
+                flush=True,
+            )
         return True
 
     def _pick_desired_camera_xy(self) -> tuple[float, float]:
@@ -1537,6 +1553,8 @@ class ControlHost:
         return True
 
     def _pick_execute_advance_small(self, now: float) -> bool:
+        if self._pick.advance_executed_this_stage:
+            return False
         xy_state = self._pick_camera_xy_state()
         if xy_state is None or self.last_q is None:
             return False
@@ -1555,7 +1573,17 @@ class ControlHost:
         delta = compute_advance_delta_q(step_m)
         self._pick_apply_q_delta_motion(delta, now)
         self._pick.advance_count += 1
-        print(f"[pick] ADVANCE_SMALL +{step_m:.4f}m (count={self._pick.advance_count})", flush=True)
+        self._pick.advance_executed_this_stage = True
+        self._pick.advance_max_notified = False
+        z_tag = ""
+        xy_state = self._pick_camera_xy_state()
+        if xy_state is not None:
+            _ex, _ey, _norm, mu_z = xy_state
+            z_tag = f" camera_z={float(mu_z):.3f}m"
+        print(
+            f"[pick] ADVANCE_SMALL +{step_m:.4f}m (count={self._pick.advance_count}/{self.pick_fsm_cfg.max_advance_steps}){z_tag}",
+            flush=True,
+        )
         return True
 
     def _pick_ready_for_commit(self) -> bool:
@@ -1613,6 +1641,8 @@ class ControlHost:
         if not self._pick_coarse_visibility_ok():
             return
         if not self._pick_can_complete_stage():
+            return
+        if not self._pick_chain_dwell_elapsed(now):
             return
         print("[pick] VIEW_ALIGN current_pose visible -> LOOK_ALIGN", flush=True)
         self._pick_set_stage(PickStage.LOOK_ALIGN, now)
@@ -1783,7 +1813,7 @@ class ControlHost:
                 reached = float(np.linalg.norm(q_now - q_goal)) <= 0.02
             if reached:
                 if self._pick_coarse_visibility_ok():
-                    if self._pick_can_complete_stage():
+                    if self._pick_can_complete_stage() and self._pick_chain_dwell_elapsed(now):
                         if str(self._pick.coarse_candidate_tag or "") == "current_pose":
                             print("[pick] VIEW_ALIGN current_pose visible -> LOOK_ALIGN", flush=True)
                             self._pick_set_stage(PickStage.LOOK_ALIGN, now)
@@ -1844,7 +1874,7 @@ class ControlHost:
                                 radius=0.01,
                                 ttl_ms=300,
                             )
-                            if self._pick_can_complete_stage():
+                            if self._pick_can_complete_stage() and self._pick_chain_dwell_elapsed(now):
                                 if int(self._pick.advance_count) >= int(
                                     self.pick_fsm_cfg.max_advance_steps
                                 ):
@@ -1856,14 +1886,18 @@ class ControlHost:
                                         self._pick_set_stage(PickStage.COMMIT_GATE, now)
                                     elif self._pick_can_auto_advance():
                                         self._pick_hard_fail(now)
-                                    else:
+                                    elif not self._pick.advance_max_notified:
+                                        mu_z = float(mu_arr[2]) if mu_eff is not None else float("nan")
                                         print(
                                             f"[pick] STOP_AND_CHECK: max_advance_steps "
                                             f"({self._pick.advance_count}/"
-                                            f"{self.pick_fsm_cfg.max_advance_steps}); "
-                                            "manual: goto ADVANCE_SMALL to continue",
+                                            f"{self.pick_fsm_cfg.max_advance_steps}) "
+                                            f"camera_z={mu_z:.3f}m (commit_z_max="
+                                            f"{self.pick_fsm_cfg.commit_z_max_m:.3f}); "
+                                            "manual: goto ADVANCE_SMALL or LOOK_ALIGN to continue",
                                             flush=True,
                                         )
+                                        self._pick.advance_max_notified = True
                                 else:
                                     print("[pick] STOP_AND_CHECK complete -> LOOK_ALIGN", flush=True)
                                     self._pick_set_stage(PickStage.LOOK_ALIGN, now)
@@ -1911,12 +1945,16 @@ class ControlHost:
                 return
             if self._pick_look_align_ok():
                 if int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps):
-                    if self._pick_ready_for_commit() and self._pick_can_complete_stage():
+                    if (
+                        self._pick_ready_for_commit()
+                        and self._pick_can_complete_stage()
+                        and self._pick_chain_dwell_elapsed(now)
+                    ):
                         self._pick_set_stage(PickStage.COMMIT_GATE, now)
                     elif self._pick_can_auto_advance():
                         self._pick_hard_fail(now)
                     return
-                if self._pick_can_complete_stage():
+                if self._pick_can_complete_stage() and self._pick_chain_dwell_elapsed(now):
                     self._pick_set_stage(PickStage.ADVANCE_SMALL, now)
                 return
             if int(self._pick.align_no_improve_count) >= int(self.pick_fsm_cfg.align_no_improve_limit):
@@ -1945,8 +1983,9 @@ class ControlHost:
         if self._pick.stage == PickStage.ADVANCE_SMALL:
             if self._pick_handle_tracker_lost(now):
                 return
-            if self._pick_execute_advance_small(now):
-                if self._pick_can_complete_stage():
+            self._pick_execute_advance_small(now)
+            if self._pick.advance_executed_this_stage:
+                if self._pick_can_complete_stage() and self._pick_chain_dwell_elapsed(now):
                     self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
             else:
                 at_max = int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps)
@@ -2126,6 +2165,7 @@ class ControlHost:
             prev_count = int(self._pick.advance_count)
             if target_stage == PickStage.ADVANCE_SMALL:
                 self._pick.advance_count = 0
+                self._pick.advance_max_notified = False
                 if prev_count > 0:
                     print(
                         f"[pick] manual ADVANCE_SMALL: advance_count reset ({prev_count} -> 0)",
@@ -2136,6 +2176,7 @@ class ControlHost:
                 and prev_count >= int(self.pick_fsm_cfg.max_advance_steps)
             ):
                 self._pick.advance_count = 0
+                self._pick.advance_max_notified = False
                 print(
                     f"[pick] manual LOOK_ALIGN: advance_count reset ({prev_count} -> 0)",
                     flush=True,
