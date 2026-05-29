@@ -81,6 +81,7 @@ class ControlService:
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_center_reenter_ratio = 1.5
+        self._pick_approach_lost_ratio = 2.5
         self._pick_center_seg_u_max = 3.0
         self._pick_center_roll_u_max = 4.0
         self._pick_center_u_dominance_ratio = 2.0
@@ -1838,9 +1839,16 @@ class ControlService:
             mode = "none"
         return next_u, mode
 
-    def _pick_center_lost(self, obs: VisualObservation, *, center_tol: float) -> bool:
+    def _pick_center_lost(
+        self,
+        obs: VisualObservation,
+        *,
+        center_tol: float,
+        ratio: Optional[float] = None,
+    ) -> bool:
         u_d, v_d, _, _ = self._visual_uv_errors(obs)
-        tol = float(center_tol) * float(self._pick_center_reenter_ratio)
+        r = float(self._pick_center_reenter_ratio if ratio is None else ratio)
+        tol = float(center_tol) * r
         return abs(u_d) > tol or abs(v_d) > tol
 
     def _apply_pick_center_step(
@@ -1920,47 +1928,28 @@ class ControlService:
 
     def _apply_pick_approach_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
         cfg = self._pick_config_effective()
-        center_tol = float(cfg.center_tol)
-        tv = float(cfg.target_uv_v)
-        tu = float(cfg.target_uv_u)
-        u_err, v_err = self._uv_control_errors(obs)
-        v_delta = float(obs.center_uv[1]) - tv
+        # Hold gripper–object UV while advancing (do not only push dlinear).
+        aligned_u, _mode, _, _ = self._apply_pick_center_step(obs, current_u)
+        conv = evaluate_pick_convergence(obs, cfg=cfg)
         scale_err = float(cfg.target_scale) - float(obs.scale)
         linear_du = 0.0
         if scale_err > float(cfg.scale_tol):
+            forward_gain = 1.0 if conv.center_ok else 0.35
             # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
             linear_du = -float(
-                np.clip(
+                forward_gain
+                * np.clip(
                     float(cfg.linear_gain) * scale_err,
                     0.0,
                     float(cfg.linear_step_u),
                 )
             )
-        seg_du = 0.0
-        roll_du = 0.0
-        reenter_tol = float(center_tol) * float(self._pick_center_reenter_ratio)
-        u_delta = float(obs.center_uv[0]) - tu
-        if abs(u_delta) > reenter_tol or abs(v_delta) > reenter_tol:
-            if abs(v_delta) > reenter_tol:
-                seg_du = self._center_seg_du(
-                    target_v=tv,
-                    obs_v=float(obs.center_uv[1]),
-                    cap=float(self._pick_approach_seg_u_max),
-                )
-            if abs(u_delta) > reenter_tol:
-                roll_du = float(
-                    np.clip(
-                        self._visual_center_u_gain * u_err,
-                        -self._visual_center_roll_u_max,
-                        self._visual_center_roll_u_max,
-                    )
-                )
         return self._clamp_display_u(
             ControlU(
-                u_linear=float(current_u.u_linear + linear_du),
-                u_roll=float(current_u.u_roll + roll_du),
-                u_s1=float(current_u.u_s1 + seg_du),
-                u_s2=float(current_u.u_s2 + seg_du),
+                u_linear=float(aligned_u.u_linear + linear_du),
+                u_roll=float(aligned_u.u_roll),
+                u_s1=float(aligned_u.u_s1),
+                u_s2=float(aligned_u.u_s2),
             )
         )
 
@@ -2083,10 +2072,22 @@ class ControlService:
                     center_tol = float(pk.center_tol)
                     use_approach = bool(
                         self._pick_approach_latched
-                        and not self._pick_center_lost(obs, center_tol=center_tol)
+                        and not self._pick_center_lost(
+                            obs,
+                            center_tol=center_tol,
+                            ratio=float(self._pick_approach_lost_ratio),
+                        )
                     )
                     if not use_approach and self._pick_center_lost(obs, center_tol=center_tol):
                         self._pick_approach_latched = False
+                    # Recovered alignment but still too small in image → approach again.
+                    if (
+                        not use_approach
+                        and conv.center_ok
+                        and not conv.scale_ok
+                    ):
+                        self._pick_approach_latched = True
+                        use_approach = True
                     ext_target_m = float(pk.approach_extend_m)
                     ext_step_m = float(pk.approach_extend_step_m)
                     if conv.center_ok and conv.scale_ok:
