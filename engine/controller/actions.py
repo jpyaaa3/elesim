@@ -16,7 +16,12 @@ from engine.sag_model import load_sag_model_json
 
 from .client import ControlClient
 from .perception import VisualObservation, extract_visual_observation
-from .object_pick import ObjectPickPhase, evaluate_pick_convergence
+from .object_pick import (
+    ObjectPickPhase,
+    evaluate_pick_convergence,
+    pick_ready_for_extend,
+    pick_uv_deltas,
+)
 from .perception_capture import PerceptionCapture, PerceptionSnapshot, TrackerPhase
 from .state import HostState, PanelState
 
@@ -91,6 +96,10 @@ class ControlService:
         self._pick_clamp_stall_limit = 20
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale: Optional[float] = None
+        self._pick_approach_scale_plateau = False
         self._hand_eye_transform = None
         self._hand_eye_parent_frame = "node9"
         self._ik_worker: Optional[threading.Thread] = None
@@ -1727,6 +1736,11 @@ class ControlService:
             acquire_timeout_s=float(pk.acquire_timeout_s),
             scale_stuck_iters=int(pk.scale_stuck_iters),
             scale_stuck_ratio=float(pk.scale_stuck_ratio),
+            approach_min_scale=float(pk.approach_min_scale),
+            approach_min_steps=int(pk.approach_min_steps),
+            approach_loose_center_tol=float(pk.approach_loose_center_tol),
+            approach_scale_plateau_iters=int(pk.approach_scale_plateau_iters),
+            approach_scale_plateau_eps=float(pk.approach_scale_plateau_eps),
         )
 
     def _pick_reach_model(self):
@@ -1948,17 +1962,25 @@ class ControlService:
             return polled_host, polled_obs
         return None, None
 
-    def _apply_pick_approach_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
+    def _apply_pick_approach_step(
+        self, obs: VisualObservation, current_u: ControlU
+    ) -> tuple[ControlU, str, float, float, float]:
         cfg = self._pick_config_effective()
         # Hold gripper–object UV while advancing (do not only push dlinear).
-        aligned_u, _mode, _, _ = self._apply_pick_center_step(obs, current_u)
+        aligned_u, mode, roll_du, seg_du = self._apply_pick_center_step(obs, current_u)
         conv = evaluate_pick_convergence(obs, cfg=cfg)
         scale_err = float(cfg.target_scale) - float(obs.scale)
         linear_du = 0.0
         if scale_err > float(cfg.scale_tol):
             forward_gain = 1.0 if conv.center_ok else 0.35
-            # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
+            if bool(self._pick_scale_stuck_burst) or bool(self._pick_approach_scale_plateau):
+                forward_gain = 1.0
+            elif float(obs.scale) >= float(cfg.approach_min_scale):
+                forward_gain = max(forward_gain, 0.9)
             linear_cap = float(cfg.linear_step_u) * float(self._pick_approach_linear_step_scale)
+            if bool(self._pick_approach_scale_plateau):
+                linear_cap *= 1.5
+            # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
             linear_du = -float(
                 forward_gain
                 * np.clip(
@@ -1967,7 +1989,7 @@ class ControlService:
                     linear_cap,
                 )
             )
-        return self._clamp_display_u(
+        next_u = self._clamp_display_u(
             ControlU(
                 u_linear=float(aligned_u.u_linear + linear_du),
                 u_roll=float(aligned_u.u_roll),
@@ -1975,6 +1997,7 @@ class ControlService:
                 u_s2=float(aligned_u.u_s2),
             )
         )
+        return next_u, str(mode), float(roll_du), float(seg_du), float(linear_du)
 
     def stop_object_pick(self) -> None:
         self._pick_stop_event.set()
@@ -1987,6 +2010,10 @@ class ControlService:
         self._pick_clamp_streak = 0
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale = None
+        self._pick_approach_scale_plateau = False
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
     def start_object_pick(self) -> None:
@@ -2017,6 +2044,11 @@ class ControlService:
         self._pick_clamp_streak = 0
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale = None
+        self._pick_approach_scale_plateau = False
+        self._pick_extend_ready_logged = False
         self._latch_pick_frozen_world()
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -2163,9 +2195,48 @@ class ControlService:
                                 ),
                             )
                             return
+
+                    if use_approach:
+                        plateau_eps = float(pk.approach_scale_plateau_eps)
+                        if self._pick_approach_last_scale is not None and abs(
+                            float(conv.scale) - float(self._pick_approach_last_scale)
+                        ) < plateau_eps:
+                            self._pick_approach_plateau_iters += 1
+                        else:
+                            self._pick_approach_plateau_iters = 0
+                        self._pick_approach_last_scale = float(conv.scale)
+                        plateau_need = max(1, int(pk.approach_scale_plateau_iters))
+                        self._pick_approach_scale_plateau = (
+                            int(self._pick_approach_plateau_iters) >= plateau_need
+                        )
+                    else:
+                        self._pick_approach_plateau_iters = 0
+                        self._pick_approach_scale_plateau = False
+
+                    extend_ready, extend_reason = pick_ready_for_extend(
+                        obs,
+                        cfg=pk,
+                        approach_steps=int(self._pick_approach_steps),
+                        scale_plateau=bool(self._pick_approach_scale_plateau),
+                    )
                     ext_target_m = float(pk.approach_extend_m)
                     ext_step_m = float(pk.approach_extend_step_m)
-                    if conv.center_ok and conv.scale_ok:
+                    if extend_ready:
+                        if not bool(getattr(self, "_pick_extend_ready_logged", False)):
+                            du, dv = pick_uv_deltas(obs, cfg=pk)
+                            print(
+                                "[Pick] extend ready (%s) | scale=%.3f steps=%d "
+                                "plateau=%s | delta_u=%+.3f delta_v=%+.3f"
+                                % (
+                                    str(extend_reason),
+                                    float(conv.scale),
+                                    int(self._pick_approach_steps),
+                                    str(self._pick_approach_scale_plateau),
+                                    float(du),
+                                    float(dv),
+                                )
+                            )
+                            self._pick_extend_ready_logged = True
                         if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
                             remain_m = ext_target_m - float(self._pick_extend_progress_m)
                             step_m = float(min(max(ext_step_m, 0.002), remain_m))
@@ -2173,12 +2244,14 @@ class ControlService:
                                 running=True,
                                 failed=False,
                                 phase=ObjectPickPhase.EXTEND.value,
-                                msg="extend %.0f/%.0f mm (aligned) | uv=(%.3f, %.3f)"
+                                msg="extend %.0f/%.0f mm (%s) | uv=(%.3f, %.3f) scale=%.3f"
                                 % (
                                     float(self._pick_extend_progress_m) * 1000.0,
                                     ext_target_m * 1000.0,
+                                    str(extend_reason),
                                     conv.u_err,
                                     conv.v_err,
+                                    conv.scale,
                                 ),
                             )
                             traveled_m = self._pick_extend_cartesian_step(
@@ -2252,9 +2325,12 @@ class ControlService:
                     center_mode = ""
                     roll_req = 0.0
                     seg_req = 0.0
+                    linear_req = 0.0
                     if use_approach:
                         phase = ObjectPickPhase.APPROACH
-                        next_u = self._apply_pick_approach_step(obs, current_u)
+                        next_u, center_mode, roll_req, seg_req, linear_req = (
+                            self._apply_pick_approach_step(obs, current_u)
+                        )
                     else:
                         phase = ObjectPickPhase.CENTER
                         next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
@@ -2280,6 +2356,9 @@ class ControlService:
                         dseg=f"{du_seg:+.2f}",
                         req_roll=f"{roll_req:+.2f}",
                         req_seg=f"{seg_req:+.2f}",
+                        req_linear=f"{linear_req:+.2f}",
+                        plateau=str(self._pick_approach_scale_plateau),
+                        approach_n=int(self._pick_approach_steps),
                         tracker=str(self.state.perception_tracker_phase),
                         bbox=f"{int(bbox_wh[0])}x{int(bbox_wh[1])}",
                     )
@@ -2335,7 +2414,13 @@ class ControlService:
                                 % (float(current_u.u_linear), conv.scale, float(pk.target_scale)),
                             )
                             return
-                        if conv.center_ok and conv.scale_ok:
+                        extend_ready_clamp, _ = pick_ready_for_extend(
+                            obs,
+                            cfg=pk,
+                            approach_steps=int(self._pick_approach_steps),
+                            scale_plateau=bool(self._pick_approach_scale_plateau),
+                        )
+                        if extend_ready_clamp:
                             self.state.set_pick_status(
                                 running=False,
                                 failed=False,
@@ -2348,6 +2433,8 @@ class ControlService:
                         continue
 
                     self._pick_clamp_streak = 0
+                    if use_approach:
+                        self._pick_approach_steps += 1
                     self.state.set_pick_status(
                         running=True,
                         failed=False,

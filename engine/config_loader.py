@@ -157,6 +157,11 @@ class PickConfig:
     acquire_timeout_s: float = 30.0
     scale_stuck_iters: int = 40
     scale_stuck_ratio: float = 0.5
+    approach_min_scale: float = 0.09
+    approach_min_steps: int = 50
+    approach_loose_center_tol: float = 0.10
+    approach_scale_plateau_iters: int = 25
+    approach_scale_plateau_eps: float = 0.004
 
 
 @dataclass(frozen=True)
@@ -325,6 +330,17 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         acquire_timeout_s=cp.getfloat("pick", "acquire_timeout_s", fallback=pk0.acquire_timeout_s),
         scale_stuck_iters=cp.getint("pick", "scale_stuck_iters", fallback=pk0.scale_stuck_iters),
         scale_stuck_ratio=cp.getfloat("pick", "scale_stuck_ratio", fallback=pk0.scale_stuck_ratio),
+        approach_min_scale=cp.getfloat("pick", "approach_min_scale", fallback=pk0.approach_min_scale),
+        approach_min_steps=cp.getint("pick", "approach_min_steps", fallback=pk0.approach_min_steps),
+        approach_loose_center_tol=cp.getfloat(
+            "pick", "approach_loose_center_tol", fallback=pk0.approach_loose_center_tol
+        ),
+        approach_scale_plateau_iters=cp.getint(
+            "pick", "approach_scale_plateau_iters", fallback=pk0.approach_scale_plateau_iters
+        ),
+        approach_scale_plateau_eps=cp.getfloat(
+            "pick", "approach_scale_plateau_eps", fallback=pk0.approach_scale_plateau_eps
+        ),
     )
 
 

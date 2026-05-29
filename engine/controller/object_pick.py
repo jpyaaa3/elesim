@@ -55,6 +55,44 @@ class PickConvergence:
     scale: float
 
 
+def pick_uv_deltas(
+    obs: VisualObservation,
+    *,
+    cfg: PickConfig,
+) -> tuple[float, float]:
+    u = float(obs.center_uv[0])
+    v = float(obs.center_uv[1])
+    return u - float(cfg.target_uv_u), v - float(cfg.target_uv_v)
+
+
+def pick_ready_for_extend(
+    obs: VisualObservation,
+    *,
+    cfg: PickConfig,
+    approach_steps: int = 0,
+    scale_plateau: bool = False,
+) -> tuple[bool, str]:
+    """
+    Extend when strictly aligned, or after approach effort when CSRT scale stalls
+    (bbox area stops growing even as the arm advances).
+    """
+    conv = evaluate_pick_convergence(obs, cfg=cfg)
+    if conv.center_ok and conv.scale_ok:
+        return True, "aligned"
+    du, dv = pick_uv_deltas(obs, cfg=cfg)
+    loose = float(cfg.approach_loose_center_tol)
+    center_loose = abs(du) <= loose and abs(dv) <= loose
+    scale_floor = float(obs.scale) >= float(cfg.approach_min_scale)
+    min_steps = max(1, int(cfg.approach_min_steps))
+    if not scale_floor or not center_loose:
+        return False, ""
+    if bool(scale_plateau):
+        return True, "scale_plateau"
+    if int(approach_steps) >= min_steps:
+        return True, "approach_steps"
+    return False, ""
+
+
 def evaluate_pick_convergence(
     obs: VisualObservation,
     *,
