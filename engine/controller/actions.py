@@ -89,6 +89,8 @@ class ControlService:
         self._pick_center_u_dominance_ratio = 2.0
         self._pick_clamp_streak = 0
         self._pick_clamp_stall_limit = 20
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
         self._hand_eye_transform = None
         self._hand_eye_parent_frame = "node9"
         self._ik_worker: Optional[threading.Thread] = None
@@ -1697,6 +1699,9 @@ class ControlService:
             world_xyz=world_xyz,
             tracker_phase=str(snap.tracker_phase),
             track_ok_frames=int(snap.track_ok_frames),
+            image_scale=float(snap.image_scale),
+            bbox_wh=tuple(snap.bbox_wh),
+            tracker_backend=str(snap.tracker_backend),
         )
 
     def _pick_config_effective(self) -> PickConfig:
@@ -1720,6 +1725,8 @@ class ControlService:
             max_iters=int(pk.max_iters),
             require_track_frames=int(pk.require_track_frames),
             acquire_timeout_s=float(pk.acquire_timeout_s),
+            scale_stuck_iters=int(pk.scale_stuck_iters),
+            scale_stuck_ratio=float(pk.scale_stuck_ratio),
         )
 
     def _pick_reach_model(self):
@@ -1978,6 +1985,8 @@ class ControlService:
         self._pick_extend_stall = 0
         self._pick_frozen_world_xyz = None
         self._pick_clamp_streak = 0
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
     def start_object_pick(self) -> None:
@@ -2006,6 +2015,8 @@ class ControlService:
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_clamp_streak = 0
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
         self._latch_pick_frozen_world()
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -2106,6 +2117,52 @@ class ControlService:
                     ):
                         self._pick_approach_latched = True
                         use_approach = True
+
+                    scale_stuck_thresh = float(pk.target_scale) * float(pk.scale_stuck_ratio)
+                    stuck_lim = max(1, int(pk.scale_stuck_iters))
+                    if conv.scale_ok:
+                        self._pick_scale_stuck_iters = 0
+                        self._pick_scale_stuck_burst = False
+                    elif float(conv.scale) < scale_stuck_thresh:
+                        self._pick_scale_stuck_iters += 1
+                        if (
+                            not self._pick_scale_stuck_burst
+                            and self._pick_scale_stuck_iters >= stuck_lim
+                        ):
+                            self._pick_approach_latched = True
+                            use_approach = True
+                            self._pick_scale_stuck_burst = True
+                            print(
+                                "[Pick] scale_stuck | forcing approach | scale=%.3f "
+                                "target=%.3f tracker=%s"
+                                % (
+                                    float(conv.scale),
+                                    float(pk.target_scale),
+                                    str(self.state.perception_tracker_phase),
+                                )
+                            )
+                        elif (
+                            self._pick_scale_stuck_burst
+                            and self._pick_scale_stuck_iters >= stuck_lim * 2
+                        ):
+                            snap = self.perception_snapshot()
+                            bbox_wh = snap.bbox_wh if snap is not None else (0, 0)
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg=(
+                                    "scale stuck at %.3f (check tracker bbox %dx%d) | "
+                                    "target_scale=%.3f"
+                                )
+                                % (
+                                    float(conv.scale),
+                                    int(bbox_wh[0]),
+                                    int(bbox_wh[1]),
+                                    float(pk.target_scale),
+                                ),
+                            )
+                            return
                     ext_target_m = float(pk.approach_extend_m)
                     ext_step_m = float(pk.approach_extend_step_m)
                     if conv.center_ok and conv.scale_ok:
@@ -2208,6 +2265,8 @@ class ControlService:
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_seg = float(next_u.u_s1 - current_u.u_s1)
                     u_d, v_d, tu, tv = self._visual_uv_errors(obs)
+                    snap = self.perception_snapshot()
+                    bbox_wh = snap.bbox_wh if snap is not None else self.state.perception_bbox_wh
                     pick_fields: dict[str, object] = dict(
                         phase=phase.value,
                         uv=f"({conv.u_err:+.3f},{conv.v_err:+.3f})",
@@ -2221,6 +2280,8 @@ class ControlService:
                         dseg=f"{du_seg:+.2f}",
                         req_roll=f"{roll_req:+.2f}",
                         req_seg=f"{seg_req:+.2f}",
+                        tracker=str(self.state.perception_tracker_phase),
+                        bbox=f"{int(bbox_wh[0])}x{int(bbox_wh[1])}",
                     )
                     if center_mode:
                         pick_fields["mode"] = center_mode

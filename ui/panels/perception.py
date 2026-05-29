@@ -161,6 +161,16 @@ def draw_perception_panel(panel) -> None:
             int(panel.state.perception_track_ok_frames),
         )
     )
+    bw = panel.state.perception_bbox_wh
+    imgui.text(
+        "Scale: %.3f | bbox: %dx%d px | backend: %s"
+        % (
+            float(panel.state.perception_image_scale),
+            int(bw[0]),
+            int(bw[1]),
+            str(panel.state.perception_tracker_backend) or "—",
+        )
+    )
     if str(panel.state.perception_status_msg).strip():
         imgui.text_wrapped(str(panel.state.perception_status_msg))
 

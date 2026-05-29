@@ -68,6 +68,9 @@ class PanelState:
     perception_world_xyz: Optional[tuple[float, float, float]] = None
     perception_tracker_phase: str = "search"
     perception_track_ok_frames: int = 0
+    perception_image_scale: float = 0.0
+    perception_bbox_wh: tuple[int, int] = (0, 0)
+    perception_tracker_backend: str = ""
 
     pick_running: bool = False
     pick_failed: bool = False
@@ -224,6 +227,9 @@ class PanelState:
         world_xyz: Optional[tuple[float, float, float]] = None,
         tracker_phase: str = "",
         track_ok_frames: int = 0,
+        image_scale: float = -1.0,
+        bbox_wh: Optional[tuple[int, int]] = None,
+        tracker_backend: str = "",
     ) -> None:
         with self._lock:
             self.perception_running = bool(running)
@@ -240,6 +246,12 @@ class PanelState:
             if str(tracker_phase).strip():
                 self.perception_tracker_phase = str(tracker_phase)
             self.perception_track_ok_frames = int(track_ok_frames)
+            if float(image_scale) >= 0.0:
+                self.perception_image_scale = float(image_scale)
+            if bbox_wh is not None:
+                self.perception_bbox_wh = (int(bbox_wh[0]), int(bbox_wh[1]))
+            if str(tracker_backend).strip():
+                self.perception_tracker_backend = str(tracker_backend)
 
     def clear_perception_status(self) -> None:
         self.set_perception_status(running=False, failed=False, msg="")

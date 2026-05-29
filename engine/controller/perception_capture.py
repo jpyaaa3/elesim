@@ -47,6 +47,8 @@ class PerceptionSnapshot:
     track_ok_frames: int = 0
     depth_valid: bool = True
     image_scale: float = 0.0
+    bbox_wh: tuple[int, int] = (0, 0)
+    tracker_backend: str = ""
 
 
 class PerceptionCapture:
@@ -273,7 +275,9 @@ class PerceptionCapture:
             image_scale=scale,
             depth_valid=bool(depth_valid),
         )
-        self._set_snapshot(
+        x0, y0, x1, y1 = det.bbox_xyxy
+        bbox_wh = (int(max(0, x1 - x0)), int(max(0, y1 - y0)))
+        snap_extra: dict[str, Any] = dict(
             label=str(obs.label),
             confidence=float(obs.confidence),
             p_camera=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
@@ -283,7 +287,9 @@ class PerceptionCapture:
             failed=False,
             depth_valid=bool(depth_valid),
             image_scale=scale,
+            bbox_wh=bbox_wh,
         )
+        self._set_snapshot(**snap_extra)
         return p_world
 
     def _process_detection(
@@ -325,6 +331,93 @@ class PerceptionCapture:
             depth_valid=depth_valid,
         )
 
+    def _track_needs_redetect(
+        self,
+        *,
+        track_ok: int,
+        current_scale: float,
+        bbox_area: int,
+        init_bbox_area: int,
+        last_scale: Optional[float],
+        scale_stale_streak: int,
+    ) -> tuple[bool, int]:
+        cfg = self._config
+        min_frames = max(1, int(cfg.track_watchdog_min_frames))
+        if int(track_ok) < min_frames:
+            return False, int(scale_stale_streak)
+        stale_streak = int(scale_stale_streak)
+        if float(current_scale) < float(cfg.track_scale_min):
+            return True, stale_streak
+        shrink_ratio = float(cfg.track_bbox_shrink_ratio)
+        if int(init_bbox_area) > 0 and int(bbox_area) < int(init_bbox_area * shrink_ratio):
+            return True, stale_streak
+        eps = float(cfg.track_scale_stale_eps)
+        if last_scale is not None and abs(float(current_scale) - float(last_scale)) < eps:
+            stale_streak += 1
+        else:
+            stale_streak = 0
+        if stale_streak >= max(1, int(cfg.track_redetect_stale_frames)):
+            return True, stale_streak
+        return False, stale_streak
+
+    def _try_track_redetect(
+        self,
+        *,
+        frame: Any,
+        tracker: Any,
+        detector: Any,
+        target_label: str,
+        list_frame_detections: Any,
+        pick_target_detection: Any,
+        detection_scale: Any,
+        detection_init_bbox: Any,
+        bbox_xyxy_area: Any,
+        measure_detection: Any,
+        build_camera_observation: Any,
+        normalized_detection_center_uv: Any,
+        detector_cfg: dict,
+        img_w: int,
+        img_h: int,
+        current_scale: float,
+        init_bbox_area: int,
+    ) -> tuple[bool, int, Optional[Any], Optional[Any], str]:
+        """YOLO refresh while staying in TRACK. Returns reinited, init_area, det, p_world, suffix."""
+        cfg = self._config
+        all_dets = list_frame_detections(detector, frame.color_bgr)
+        yolo_det = pick_target_detection(all_dets, target_label)
+        if yolo_det is None:
+            return False, int(init_bbox_area), None, None, "redetect miss"
+        new_scale = float(
+            detection_scale(yolo_det, image_width=int(img_w), image_height=int(img_h))
+        )
+        min_scale = float(cfg.track_scale_min)
+        if new_scale <= max(float(current_scale) * 1.12, min_scale * 0.85):
+            return False, int(init_bbox_area), None, None, "redetect skip (small)"
+        init_bbox = detection_init_bbox(
+            yolo_det,
+            image_width=int(img_w),
+            image_height=int(img_h),
+            padding=float(cfg.track_init_bbox_padding),
+        )
+        if not tracker.init(frame.color_bgr, init_bbox):
+            err = str(tracker.last_init_error).strip()
+            suffix = "redetect init fail"
+            if err:
+                suffix += f": {err}"
+            return False, int(init_bbox_area), None, None, suffix
+        new_area = int(bbox_xyxy_area(init_bbox))
+        p_world = self._process_detection(
+            frame=frame,
+            det=yolo_det,
+            detector_cfg=detector_cfg,
+            measure_detection=measure_detection,
+            build_camera_observation=build_camera_observation,
+            detection_scale_fn=detection_scale,
+            normalized_center_uv_fn=normalized_detection_center_uv,
+            status_msg=f"track redetect ({tracker.backend_name}) scale {new_scale:.3f}",
+        )
+        return True, new_area, yolo_det, p_world, f"redetect ok scale={new_scale:.3f}"
+
     def _run_camera_search_track(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]
         detector_cfg = kwargs["detector_cfg"]
@@ -344,6 +437,9 @@ class PerceptionCapture:
         detection_from_bbox = kwargs["detection_from_bbox"]
         BboxTracker = kwargs["BboxTracker"]
 
+        _ensure_pick_place_path()
+        from perception.detection_utils import bbox_xyxy_area, detection_init_bbox  # type: ignore[import-not-found]
+
         cfg = self._config
         lost_limit = max(1, int(cfg.track_lost_frames))
         reacquire = bool(cfg.reacquire_on_lost)
@@ -355,6 +451,9 @@ class PerceptionCapture:
         frame_idx = 0
         tracked_label = target_label
         all_dets: list = []
+        init_bbox_area = 0
+        scale_stale_streak = 0
+        last_scale: Optional[float] = None
 
         self._set_snapshot(status_msg="searching (YOLO)", tracker_phase=phase.value)
 
@@ -385,11 +484,20 @@ class PerceptionCapture:
                         )
                         if p_world is not None:
                             p_camera = self.snapshot().p_camera
-                        if tracker.init(frame.color_bgr, yolo_det.bbox_xyxy):
+                        init_bbox = detection_init_bbox(
+                            yolo_det,
+                            image_width=img_w,
+                            image_height=img_h,
+                            padding=float(cfg.track_init_bbox_padding),
+                        )
+                        if tracker.init(frame.color_bgr, init_bbox):
                             tracked_label = str(yolo_det.label)
                             phase = TrackerPhase.TRACK
                             lost_streak = 0
                             track_ok = 1
+                            init_bbox_area = int(bbox_xyxy_area(init_bbox))
+                            scale_stale_streak = 0
+                            last_scale = float(self.snapshot().image_scale)
                             status = f"track init ({tracker.backend_name})"
                         else:
                             err = str(tracker.last_init_error).strip()
@@ -424,6 +532,51 @@ class PerceptionCapture:
                         )
                         if p_world is not None:
                             p_camera = self.snapshot().p_camera
+                        current_scale = float(self.snapshot().image_scale)
+                        bbox_area = int(bbox_xyxy_area(bbox))
+                        need_redetect, scale_stale_streak = self._track_needs_redetect(
+                            track_ok=int(track_ok),
+                            current_scale=current_scale,
+                            bbox_area=bbox_area,
+                            init_bbox_area=int(init_bbox_area),
+                            last_scale=last_scale,
+                            scale_stale_streak=int(scale_stale_streak),
+                        )
+                        last_scale = current_scale
+                        if need_redetect:
+                            reinited, init_bbox_area, redet, redet_world, suffix = (
+                                self._try_track_redetect(
+                                    frame=frame,
+                                    tracker=tracker,
+                                    detector=detector,
+                                    target_label=target_label,
+                                    list_frame_detections=list_frame_detections,
+                                    pick_target_detection=pick_target_detection,
+                                    detection_scale=detection_scale,
+                                    detection_init_bbox=detection_init_bbox,
+                                    bbox_xyxy_area=bbox_xyxy_area,
+                                    measure_detection=measure_detection,
+                                    build_camera_observation=build_camera_observation,
+                                    normalized_detection_center_uv=normalized_detection_center_uv,
+                                    detector_cfg=detector_cfg,
+                                    img_w=img_w,
+                                    img_h=img_h,
+                                    current_scale=current_scale,
+                                    init_bbox_area=int(init_bbox_area),
+                                )
+                            )
+                            if reinited:
+                                track_ok = 1
+                                scale_stale_streak = 0
+                                last_scale = float(self.snapshot().image_scale)
+                                if redet is not None:
+                                    det = redet
+                                if redet_world is not None:
+                                    p_world = redet_world
+                                    p_camera = self.snapshot().p_camera
+                                status = f"tracking ({tracker.backend_name}) | {suffix}"
+                            else:
+                                status = f"{status} | {suffix}"
                     else:
                         lost_streak += 1
                         status = f"track lost ({lost_streak}/{lost_limit})"
@@ -445,6 +598,7 @@ class PerceptionCapture:
                         lost_streak = 0
                     all_dets = []
 
+                snap = self.snapshot()
                 if show_preview:
                     vis = draw_detection_overlay(
                         frame.color_bgr,
@@ -456,6 +610,10 @@ class PerceptionCapture:
                         p_world=np.asarray(p_world) if p_world is not None else None,
                         all_detections=all_dets if phase == TrackerPhase.SEARCH else [],
                         model_classes=model_class_names(detector) if phase == TrackerPhase.SEARCH else [],
+                        image_scale=float(snap.image_scale),
+                        bbox_wh=tuple(snap.bbox_wh),
+                        tracker_phase=str(phase.value),
+                        tracker_backend=str(tracker.backend_name) if tracker.initialized else "",
                     )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
@@ -467,6 +625,7 @@ class PerceptionCapture:
                     status_msg=status,
                     tracker_phase=phase.value,
                     track_ok_frames=int(track_ok),
+                    tracker_backend=str(tracker.backend_name) if tracker.initialized else "",
                 )
                 frame_idx += 1
                 if publish_period > 0:
@@ -627,12 +786,20 @@ class PerceptionCapture:
             self._set_snapshot(running=False, failed=True, status_msg="mock: no detection")
             return
 
-        tracker = BboxTracker(tracker_type=str(self._config.tracker))
-        if not tracker.init(color, det.bbox_xyxy):
-            self._set_snapshot(running=False, failed=True, status_msg="mock: tracker init failed")
-            return
+        _ensure_pick_place_path()
+        from perception.detection_utils import detection_init_bbox  # type: ignore[import-not-found]
 
         img_h, img_w = color.shape[:2]
+        tracker = BboxTracker(tracker_type=str(self._config.tracker))
+        init_bbox = detection_init_bbox(
+            det,
+            image_width=img_w,
+            image_height=img_h,
+            padding=float(self._config.track_init_bbox_padding),
+        )
+        if not tracker.init(color, init_bbox):
+            self._set_snapshot(running=False, failed=True, status_msg="mock: tracker init failed")
+            return
         self._process_detection(
             frame=mf,
             det=det,

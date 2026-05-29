@@ -112,6 +112,10 @@ def draw_detection_overlay(
     p_world: Optional[np.ndarray] = None,
     all_detections: Optional[Sequence[DetectionResult]] = None,
     model_classes: Optional[Sequence[str]] = None,
+    image_scale: Optional[float] = None,
+    bbox_wh: Optional[tuple[int, int]] = None,
+    tracker_phase: str = "",
+    tracker_backend: str = "",
 ) -> np.ndarray:
     vis = np.asarray(color_bgr, dtype=np.uint8).copy()
     h, w = vis.shape[:2]
@@ -178,7 +182,19 @@ def draw_detection_overlay(
             cv2.LINE_AA,
         )
 
+    diag_parts: list[str] = []
+    if str(tracker_phase).strip():
+        diag_parts.append(f"phase={tracker_phase}")
+    if str(tracker_backend).strip():
+        diag_parts.append(f"trk={tracker_backend}")
+    if image_scale is not None:
+        diag_parts.append(f"scale={float(image_scale):.3f}")
+    if bbox_wh is not None:
+        diag_parts.append(f"bbox={int(bbox_wh[0])}x{int(bbox_wh[1])}px")
+
     line2 = f"status={status} frame={frame_idx}"
+    if diag_parts:
+        line2 += " | " + " ".join(diag_parts)
     if p_camera is not None:
         p = np.asarray(p_camera, dtype=float).reshape(3)
         line2 += f" | cam=[{p[0]:+.3f},{p[1]:+.3f},{p[2]:+.3f}]m"
@@ -198,7 +214,7 @@ def draw_detection_overlay(
     cv2.putText(
         vis,
         "q/ESC=quit",
-        (12, h - 36),
+        (12, h - 50),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
         (200, 200, 200),

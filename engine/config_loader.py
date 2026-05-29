@@ -118,6 +118,12 @@ class PerceptionConfig:
     tracker: str = "csrt"
     track_lost_frames: int = 15
     reacquire_on_lost: bool = True
+    track_scale_min: float = 0.05
+    track_scale_stale_eps: float = 0.002
+    track_redetect_stale_frames: int = 20
+    track_bbox_shrink_ratio: float = 0.55
+    track_init_bbox_padding: float = 1.25
+    track_watchdog_min_frames: int = 8
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -149,6 +155,8 @@ class PickConfig:
     max_iters: int = 80
     require_track_frames: int = 3
     acquire_timeout_s: float = 30.0
+    scale_stuck_iters: int = 40
+    scale_stuck_ratio: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -255,6 +263,22 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         tracker=cp.get("perception", "tracker", fallback=pc0.tracker),
         track_lost_frames=cp.getint("perception", "track_lost_frames", fallback=pc0.track_lost_frames),
         reacquire_on_lost=cp.getboolean("perception", "reacquire_on_lost", fallback=pc0.reacquire_on_lost),
+        track_scale_min=cp.getfloat("perception", "track_scale_min", fallback=pc0.track_scale_min),
+        track_scale_stale_eps=cp.getfloat(
+            "perception", "track_scale_stale_eps", fallback=pc0.track_scale_stale_eps
+        ),
+        track_redetect_stale_frames=cp.getint(
+            "perception", "track_redetect_stale_frames", fallback=pc0.track_redetect_stale_frames
+        ),
+        track_bbox_shrink_ratio=cp.getfloat(
+            "perception", "track_bbox_shrink_ratio", fallback=pc0.track_bbox_shrink_ratio
+        ),
+        track_init_bbox_padding=cp.getfloat(
+            "perception", "track_init_bbox_padding", fallback=pc0.track_init_bbox_padding
+        ),
+        track_watchdog_min_frames=cp.getint(
+            "perception", "track_watchdog_min_frames", fallback=pc0.track_watchdog_min_frames
+        ),
     )
 
 
@@ -299,6 +323,8 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         max_iters=cp.getint("pick", "max_iters", fallback=pk0.max_iters),
         require_track_frames=cp.getint("pick", "require_track_frames", fallback=pk0.require_track_frames),
         acquire_timeout_s=cp.getfloat("pick", "acquire_timeout_s", fallback=pk0.acquire_timeout_s),
+        scale_stuck_iters=cp.getint("pick", "scale_stuck_iters", fallback=pk0.scale_stuck_iters),
+        scale_stuck_ratio=cp.getfloat("pick", "scale_stuck_ratio", fallback=pk0.scale_stuck_ratio),
     )
 
 

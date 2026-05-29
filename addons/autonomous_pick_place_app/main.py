@@ -88,11 +88,11 @@ def build_camera_observation(
 
 
 def normalized_detection_center_uv(det: DetectionResult, *, image_width: int, image_height: int) -> tuple[float, float]:
-    x0, y0, x1, y1 = det.bbox_xyxy
-    cx = 0.5 * (float(x0) + float(x1))
-    cy = 0.5 * (float(y0) + float(y1))
+    from perception.detection_utils import detection_center_pixel
+
     w = max(int(image_width), 1)
     h = max(int(image_height), 1)
+    cx, cy = detection_center_pixel(det, image_width=w, image_height=h)
     u = 2.0 * (cx / float(w)) - 1.0
     v = 2.0 * (cy / float(h)) - 1.0
     return (float(u), float(v))
