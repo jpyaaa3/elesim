@@ -84,8 +84,8 @@ class ControlService:
         self._pick_center_reenter_ratio = 1.5
         self._pick_approach_lost_ratio = 2.5
         self._pick_approach_linear_step_scale = 3.0
-        self._pick_center_seg_u_max = 3.0
-        self._pick_center_roll_u_max = 4.0
+        self._pick_center_seg_u_max = 4.5
+        self._pick_center_roll_u_max = 5.0
         self._pick_center_u_dominance_ratio = 2.0
         self._pick_clamp_streak = 0
         self._pick_clamp_stall_limit = 20
