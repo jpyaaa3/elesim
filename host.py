@@ -334,19 +334,20 @@ class ControlHost:
             f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
         )
         label_suffix = f":{label_txt}" if label_txt else ""
+        marker_ttl_ms = 3000
         self._set_debug_marker(
             name=f"perceived_object{label_suffix}",
             pos=object_world,
             color=[0.1, 0.95, 0.2, 0.95],
             radius=0.012,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_optical",
             pos=camera_world,
             color=[0.1, 0.7, 1.0, 0.95],
             radius=0.010,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_look",
@@ -354,7 +355,7 @@ class ControlHost:
             direction=camera_look,
             color=[0.1, 0.7, 1.0, 0.95],
             radius=0.004,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_right",
@@ -362,9 +363,36 @@ class ControlHost:
             direction=camera_right,
             color=[1.0, 0.8, 0.2, 0.95],
             radius=0.004,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         return True, "perception markers updated", p_w
+
+    def _broadcast_state_now(self) -> None:
+        now = proto.now_s()
+        self._broadcast(
+            proto.pack_state(
+                u=self.last_u,
+                q=self.last_q,
+                ts=self.last_state_ts or now,
+                torque_enabled=self.torque_enabled,
+                ik_target_xyz=self.last_ik_target_xyz,
+                ik_target_dir=self.last_ik_target_dir,
+                actual_tip_xyz=self.last_actual_tip_xyz,
+                actual_tip_dir=self.last_actual_tip_dir,
+                perceived_object_label=(self.last_perceived_object_label or None),
+                perceived_object_confidence=self.last_perceived_object_confidence,
+                perceived_object_camera=self.last_perceived_object_camera_xyz,
+                perceived_center_uv=self.last_perceived_center_uv,
+                perceived_scale=self.last_perceived_scale,
+                perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
+                sag_model=self.last_sag_model,
+                claw_closed=self.last_claw_closed,
+                claw_current=self._last_claw_current,
+                motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
+                safety_fault=(self._safety_fault or None),
+                debug_markers=self._active_debug_markers(),
+            )
+        )
 
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
@@ -709,6 +737,13 @@ class ControlHost:
     def _handle_sim_feedback(self, msg: Dict[str, Any]) -> None:
         if str(msg.get("t", "")).lower() != "sim_state":
             return
+        if "q" in msg:
+            try:
+                self.last_q = proto.unpack_q(msg["q"])
+                self.last_u = proto.sim_q_to_control_u(self.last_q, self.cfg)
+                self.last_state_ts = float(msg.get("ts", proto.now_s()))
+            except (TypeError, ValueError):
+                pass
         actual_tip_raw = msg.get("actual_tip", None)
         if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
             self.last_actual_tip_xyz = (
@@ -858,6 +893,8 @@ class ControlHost:
                         p_w = np.asarray(object_world, dtype=float).reshape(3)
                         ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
                     self._reply(ident, ack)
+                    if bool(ok):
+                        self._broadcast_state_now()
                     return
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None

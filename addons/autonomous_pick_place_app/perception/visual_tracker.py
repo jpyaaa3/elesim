@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
@@ -10,27 +10,63 @@ import numpy as np
 from perception.detector import DetectionResult
 
 
-def _create_opencv_tracker(prefer: str = "csrt"):
-    kind = str(prefer).strip().lower()
-    creators = []
+def _iter_tracker_creators(prefer: str = "csrt") -> list[tuple[str, Callable[[], Any]]]:
+    kind = str(prefer).strip().lower() or "csrt"
+    legacy = getattr(cv2, "legacy", None)
+    out: list[tuple[str, Callable[[], Any]]] = []
+
+    def add(name: str, factory: Any) -> None:
+        if factory is not None and callable(factory):
+            out.append((name, factory))
+
     if kind in ("csrt", "auto"):
-        creators.append(("csrt", getattr(cv2, "TrackerCSRT_create", None)))
+        tracker_csrt = getattr(cv2, "TrackerCSRT", None)
+        if tracker_csrt is not None and hasattr(tracker_csrt, "create"):
+            add("csrt", tracker_csrt.create)
+        if legacy is not None:
+            add("csrt_legacy", getattr(legacy, "TrackerCSRT_create", None))
+        add("csrt_create", getattr(cv2, "TrackerCSRT_create", None))
+
     if kind in ("kcf", "auto", "csrt"):
-        creators.append(("kcf", getattr(cv2, "TrackerKCF_create", None)))
-    if kind == "mosse":
-        creators.append(("mosse", getattr(cv2, "legacy_TrackerMOSSE_create", None)))
-    for name, factory in creators:
-        if factory is None:
-            continue
+        tracker_kcf = getattr(cv2, "TrackerKCF", None)
+        if tracker_kcf is not None and hasattr(tracker_kcf, "create"):
+            add("kcf", tracker_kcf.create)
+        if legacy is not None:
+            add("kcf_legacy", getattr(legacy, "TrackerKCF_create", None))
+        add("kcf_create", getattr(cv2, "TrackerKCF_create", None))
+
+    if kind == "mosse" and legacy is not None:
+        add("mosse", getattr(legacy, "TrackerMOSSE_create", None))
+
+    return out
+
+
+def _create_opencv_tracker(prefer: str = "csrt"):
+    errors: list[str] = []
+    for name, factory in _iter_tracker_creators(prefer):
         try:
             tracker = factory()
             if tracker is not None:
                 return tracker, name
-        except Exception:
+        except Exception as exc:
+            errors.append(f"{name}: {exc}")
             continue
+    detail = "; ".join(errors[:4]) if errors else "no factories"
     raise RuntimeError(
-        "no OpenCV tracker available (install opencv-contrib-python for CSRT, or use KCF)"
+        f"no OpenCV tracker available ({detail}). "
+        "Try: pip install opencv-contrib-python"
     )
+
+
+def _tracker_init(tracker: Any, frame_bgr: np.ndarray, rect: tuple[int, int, int, int]) -> bool:
+    """Call OpenCV tracker.init; treat None return as success (common in OpenCV 4.x Python)."""
+    try:
+        retval = tracker.init(frame_bgr, rect)
+    except (cv2.error, Exception):
+        return False
+    if retval is None:
+        return True
+    return bool(retval)
 
 
 def bbox_xyxy_to_xywh(bbox_xyxy: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
@@ -83,6 +119,7 @@ class BboxTracker:
         self._tracker = None
         self._backend_name = ""
         self._initialized = False
+        self._last_init_error = ""
 
     @property
     def backend_name(self) -> str:
@@ -92,27 +129,40 @@ class BboxTracker:
     def initialized(self) -> bool:
         return bool(self._initialized)
 
+    @property
+    def last_init_error(self) -> str:
+        return str(self._last_init_error)
+
     def reset(self) -> None:
         self._tracker = None
         self._backend_name = ""
         self._initialized = False
+        self._last_init_error = ""
 
     def init(self, frame_bgr: np.ndarray, bbox_xyxy: tuple[int, int, int, int]) -> bool:
         self.reset()
         h, w = frame_bgr.shape[:2]
         bbox = clamp_bbox_xyxy(bbox_xyxy, image_width=w, image_height=h)
         rect = bbox_xyxy_to_xywh(bbox)
-        try:
-            tracker, name = _create_opencv_tracker(self._prefer)
-            ok = bool(tracker.init(frame_bgr, rect))
-            if not ok:
-                return False
-            self._tracker = tracker
-            self._backend_name = str(name)
-            self._initialized = True
-            return True
-        except Exception:
-            return False
+        errors: list[str] = []
+        for name, factory in _iter_tracker_creators(self._prefer):
+            try:
+                tracker = factory()
+                if tracker is None:
+                    continue
+                if not _tracker_init(tracker, frame_bgr, rect):
+                    errors.append(f"{name}: init returned false")
+                    continue
+                self._tracker = tracker
+                self._backend_name = str(name)
+                self._initialized = True
+                self._last_init_error = ""
+                return True
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
+                continue
+        self._last_init_error = "; ".join(errors[:3]) if errors else "unknown"
+        return False
 
     def update(self, frame_bgr: np.ndarray) -> Optional[tuple[int, int, int, int]]:
         if not self._initialized or self._tracker is None:

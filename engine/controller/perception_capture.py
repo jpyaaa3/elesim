@@ -350,28 +350,30 @@ class PerceptionCapture:
                     all_dets = list_frame_detections(detector, frame.color_bgr)
                     yolo_det = pick_target_detection(all_dets, target_label)
                     if yolo_det is not None:
+                        det = yolo_det
+                        p_world = self._process_detection(
+                            frame=frame,
+                            det=det,
+                            detector_cfg=detector_cfg,
+                            measure_detection=measure_detection,
+                            build_camera_observation=build_camera_observation,
+                            detection_scale_fn=detection_scale,
+                            normalized_center_uv_fn=normalized_detection_center_uv,
+                            status_msg="yolo detected",
+                        )
+                        if p_world is not None:
+                            p_camera = self.snapshot().p_camera
                         if tracker.init(frame.color_bgr, yolo_det.bbox_xyxy):
                             tracked_label = str(yolo_det.label)
                             phase = TrackerPhase.TRACK
                             lost_streak = 0
-                            track_ok = 0
-                            det = yolo_det
-                            status = "track init"
-                            p_world = self._process_detection(
-                                frame=frame,
-                                det=det,
-                                detector_cfg=detector_cfg,
-                                measure_detection=measure_detection,
-                                build_camera_observation=build_camera_observation,
-                                detection_scale_fn=detection_scale,
-                                normalized_center_uv_fn=normalized_detection_center_uv,
-                                status_msg="track init",
-                            )
-                            if p_world is not None:
-                                p_camera = self.snapshot().p_camera
-                                track_ok = 1
+                            track_ok = 1
+                            status = f"track init ({tracker.backend_name})"
                         else:
-                            status = "tracker init failed"
+                            err = str(tracker.last_init_error).strip()
+                            status = "tracker init failed (yolo ok)"
+                            if err:
+                                status += f": {err}"
                     else:
                         status = "searching"
 

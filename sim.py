@@ -1020,12 +1020,13 @@ class HostStateSubscriber:
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
             debug_markers_raw = msg.get("debug_markers", None)
-            if isinstance(debug_markers_raw, list):
+            if isinstance(debug_markers_raw, list) and debug_markers_raw:
                 next_markers: list[dict[str, Any]] = []
                 for raw in debug_markers_raw:
                     if isinstance(raw, dict):
                         next_markers.append(dict(raw))
-                self.last_debug_markers = next_markers
+                if next_markers:
+                    self.last_debug_markers = next_markers
 
 
 class HostFeedbackPublisher:
@@ -1040,32 +1041,48 @@ class HostFeedbackPublisher:
         self.sock.setsockopt(zmq.LINGER, 0)
         self.sock.connect(self.endpoint)
 
-    def send_actual_tip(
+    def send_sim_state(
         self,
+        *,
         actual_tip_xyz: Optional[np.ndarray],
         actual_tip_dir: Optional[np.ndarray] = None,
+        q: Optional[proto.SimQ] = None,
     ) -> None:
-        if actual_tip_xyz is None:
-            return
-        msg = {
-            "t": "sim_state",
-            "ts": time.time(),
-            "actual_tip": [
+        msg: dict[str, Any] = {"t": "sim_state", "ts": time.time()}
+        if actual_tip_xyz is not None:
+            msg["actual_tip"] = [
                 float(actual_tip_xyz[0]),
                 float(actual_tip_xyz[1]),
                 float(actual_tip_xyz[2]),
-            ],
-        }
+            ]
         if actual_tip_dir is not None:
             d = np.asarray(actual_tip_dir, dtype=float).reshape(3)
             norm = float(np.linalg.norm(d))
             if norm > 1e-9:
                 d = d / norm
                 msg["actual_tip_dir"] = [float(d[0]), float(d[1]), float(d[2])]
+        if q is not None:
+            msg["q"] = {
+                "linear_m": float(q.linear_m),
+                "roll_rad": float(q.roll_rad),
+                "theta1_rad": float(q.theta1_rad),
+                "theta2_rad": float(q.theta2_rad),
+            }
+        if len(msg) <= 2:
+            return
         try:
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
             pass
+
+    def send_actual_tip(
+        self,
+        actual_tip_xyz: Optional[np.ndarray],
+        actual_tip_dir: Optional[np.ndarray] = None,
+        *,
+        q: Optional[proto.SimQ] = None,
+    ) -> None:
+        self.send_sim_state(actual_tip_xyz=actual_tip_xyz, actual_tip_dir=actual_tip_dir, q=q)
 
     def close(self) -> None:
         try:
@@ -1340,7 +1357,7 @@ class SimRuntime:
                 sim_tip = a.sim_scene.actual_tip_world(a.layout)
                 sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                 if a.feedback_pub is not None:
-                    a.feedback_pub.send_actual_tip(sim_tip, sim_tip_dir)
+                    a.feedback_pub.send_actual_tip(sim_tip, sim_tip_dir, q=q_errmodel)
                 if a.spawn.draw_debug_markers and sim_tip is not None:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
                     if sim_tip_dir is not None:
