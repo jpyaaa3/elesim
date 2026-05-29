@@ -105,6 +105,24 @@ def camera_visibility_score(p_camera: Sequence[float], limits: ViewPregraspLimit
     return float(-(center_err + 0.5 * depth_err))
 
 
+def camera_visibility_score_soft(p_camera: Sequence[float], limits: ViewPregraspLimits) -> float:
+    """Finite ranking score; prefer in-FOV but still rank unreachable candidates."""
+    p = np.asarray(p_camera, dtype=float).reshape(3)
+    z = float(p[2])
+    if z <= 0.01:
+        return -1e6 + z
+    center_err = float(np.hypot(float(p[0]), float(p[1])))
+    depth_err = abs(z - float(limits.z_target_m))
+    pen_x = max(0.0, abs(float(p[0])) - float(limits.x_abs_max_m))
+    pen_y = max(0.0, abs(float(p[1])) - float(limits.y_abs_max_m))
+    pen_z = 0.0
+    if z < float(limits.z_min_m):
+        pen_z = float(limits.z_min_m) - z
+    elif z > float(limits.z_max_m):
+        pen_z = z - float(limits.z_max_m)
+    return float(-(center_err + 0.5 * depth_err + 5.0 * (pen_x + pen_y) + 3.0 * pen_z))
+
+
 def pick_best_visible_candidate(
     scored: Iterable[tuple[ViewPregraspCandidate, float]],
 ) -> Optional[tuple[ViewPregraspCandidate, float]]:

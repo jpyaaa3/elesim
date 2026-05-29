@@ -21,9 +21,11 @@ from engine.config_loader import PickFsmConfig
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
 from engine.pick_view_pregrasp import (
+    ViewPregraspCandidate,
     ViewPregraspLimits,
     camera_visibility_ok,
     camera_visibility_score,
+    camera_visibility_score_soft,
     generate_view_pregrasp_candidates,
     pick_best_visible_candidate,
 )
@@ -859,16 +861,48 @@ class ControlHost:
 
         if self.hand_eye_transform is not None:
             best_pair = pick_best_visible_candidate((row[0], row[2]) for row in scored_rows)
-            if best_pair is None:
-                return None
-            best_cand = best_pair[0]
-            for cand, q, score, p_cam in scored_rows:
-                if cand is best_cand:
-                    return cand, q, score, p_cam
-            return None
+            if best_pair is not None:
+                best_cand = best_pair[0]
+                for cand, q, score, p_cam in scored_rows:
+                    if cand is best_cand:
+                        return cand, q, score, p_cam
+            best_soft = max(scored_rows, key=lambda row: camera_visibility_score_soft(row[3], limits) if row[3] is not None else float("-inf"))
+            cand, q, _score, p_cam = best_soft
+            soft_score = camera_visibility_score_soft(p_cam, limits) if p_cam is not None else float("-inf")
+            print(
+                f"[pick] coarse view-pregrasp: no strict FOV match, using soft-best tag={cand.tag} score={soft_score:.3f}",
+                flush=True,
+            )
+            return cand, q, float(soft_score), p_cam
 
         cand, q, score, p_cam = scored_rows[0]
         return cand, q, score, p_cam
+
+    def _pick_plan_coarse_offset_fallback(
+        self,
+        current_seed: np.ndarray,
+    ) -> Optional[tuple[Any, np.ndarray, float, Optional[np.ndarray]]]:
+        if self._pick.anchor_world_xyz is None or not self.ik_context:
+            return None
+        obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
+        pre = obj + np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float).reshape(3)
+        look = obj - pre
+        look_n = float(np.linalg.norm(look))
+        if look_n <= 1e-9:
+            look_dir = (1.0, 0.0, 0.0)
+        else:
+            look_dir = (float(look[0] / look_n), float(look[1] / look_n), float(look[2] / look_n))
+        cand = ViewPregraspCandidate(
+            pregrasp_world=(float(pre[0]), float(pre[1]), float(pre[2])),
+            look_dir_world=look_dir,
+            tag="coarse_offset_fallback",
+        )
+        ik_res = self._pick_solve_pregrasp_ik(cand.pregrasp_world, cand.look_dir_world, current_seed)
+        if (not ik_res.success) or ik_res.q is None:
+            return None
+        q = np.asarray(ik_res.q, dtype=float).reshape(4)
+        p_cam = self._pick_predict_object_camera_at_q(q, obj)
+        return cand, q, 0.0, p_cam
 
     def _pick_coarse_visibility_ok(self) -> bool:
         limits = self._pick_view_limits()
@@ -902,6 +936,30 @@ class ControlHost:
         self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
         self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
         self._pick.coarse_last_cmd_ts = float(now)
+        self._t_cmd = 0.0
+
+    def _pick_flush_pending_motion_target(self, now: float) -> None:
+        if self._pending_target_q is None:
+            return
+        if self._pending_target_u is not None and self._pending_target_axes:
+            if self._apply_partial_u_target(self._pending_target_u, set(self._pending_target_axes)):
+                self._pending_target_u = None
+                self._pending_target_axes = set()
+                self._pending_target_q = None
+            return
+        applied_hw, complete = self._apply_sim_q_target(self._pending_target_q)
+        if applied_hw:
+            self._target_u_state = proto.sim_q_to_control_u(self._pending_target_q, self.cfg)
+            if complete:
+                self._pending_target_q = None
+        elif not self._has_hw():
+            q_limited, complete = self._limit_target_q(self._pending_target_q)
+            self.last_q = q_limited
+            self.last_u = proto.sim_q_to_control_u(q_limited, self.cfg)
+            self.last_state_ts = time.time()
+            if complete:
+                self._pending_target_q = None
+        self._t_cmd = float(now)
 
     def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
         if self._pick.anchor_world_xyz is None:
@@ -917,7 +975,9 @@ class ControlHost:
         if need_plan:
             plan = self._pick_plan_view_pregrasp(current_seed)
             if plan is None:
-                print("[pick] coarse view-pregrasp planning failed (no visible IK candidate)", flush=True)
+                plan = self._pick_plan_coarse_offset_fallback(current_seed)
+            if plan is None:
+                print("[pick] coarse view-pregrasp planning failed (no IK solution)", flush=True)
                 return False
             cand, q, score, p_cam = plan
             self._pick.pregrasp_world = cand.pregrasp_world
@@ -953,6 +1013,7 @@ class ControlHost:
                 flush=True,
             )
             self._pick_apply_coarse_target_q(q, now)
+            self._pick_flush_pending_motion_target(now)
             return True
 
         if (not force) and (now - float(self._pick.coarse_last_cmd_ts)) < 0.20:
@@ -961,6 +1022,7 @@ class ControlHost:
         if self._pick.coarse_target_q is not None:
             q = np.asarray(self._pick.coarse_target_q, dtype=float).reshape(4)
             self._pick_apply_coarse_target_q(q, now)
+            self._pick_flush_pending_motion_target(now)
             return True
         return False
 
@@ -1350,8 +1412,24 @@ class ControlHost:
                     return
             self._pick_set_stage(target_stage, now)
             print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
+            coarse_ok = True
             if target_stage == PickStage.COARSE_WORLD_PREGRASP:
-                self._pick_execute_coarse_pregrasp(now, force=True)
+                coarse_ok = bool(self._pick_execute_coarse_pregrasp(now, force=True))
+            if target_stage == PickStage.COARSE_WORLD_PREGRASP and not coarse_ok:
+                self._pick_set_stage(PickStage.SEARCH, now)
+                self._reply(
+                    ident,
+                    {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": False,
+                        "reason": "coarse_ik_failed: no reachable pregrasp (check anchor/hand-eye/IK)",
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                    },
+                )
+                print("[pick] goto COARSE rejected: IK/planning failed", flush=True)
+                return
             self._reply(
                 ident,
                 {

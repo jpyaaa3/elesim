@@ -56,6 +56,14 @@ class TestCameraVisibility(unittest.TestCase):
         off = camera_visibility_score((0.08, 0.05, 0.50), self.limits)
         self.assertGreater(center, off)
 
+    def test_soft_score_finite_outside_fov(self) -> None:
+        from engine.pick_view_pregrasp import camera_visibility_score_soft
+
+        inside = camera_visibility_score_soft((0.0, 0.0, 0.50), self.limits)
+        outside = camera_visibility_score_soft((0.30, 0.0, 0.50), self.limits)
+        self.assertGreater(inside, outside)
+        self.assertTrue(np.isfinite(outside))
+
     def test_pick_best_visible_candidate(self) -> None:
         cands = generate_view_pregrasp_candidates(
             (0.0, 0.0, 0.2),
