@@ -140,7 +140,7 @@ class PickConfig:
     enabled: bool = True
     target_scale: float = 0.16
     scale_tol: float = 0.02
-    center_tol: float = 0.08
+    center_tol: float = 0.10
     target_uv_u: float = 0.5
     target_uv_v: float = -0.5
     quadrant_fill_min: float = 0.80

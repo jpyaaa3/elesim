@@ -51,7 +51,7 @@ class PanelState:
     visual_failed: bool = False
     visual_status_msg: str = ""
     visual_target_scale: float = 0.16
-    visual_center_tol: float = 0.08
+    visual_center_tol: float = 0.10
     visual_target_uv_u: float = 0.5
     visual_target_uv_v: float = -0.5
     visual_scale_tol: float = 0.01

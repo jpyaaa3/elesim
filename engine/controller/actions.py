@@ -1961,11 +1961,11 @@ class ControlService:
         v = float(obs.center_uv[1])
         u_delta = u - tu
         v_delta = v - tv
-        v_align_tol = center_tol * float(self._pick_approach_v_hold_ratio)
+        # Same UV band as evaluate_pick_convergence (avoid center_ok False while still correcting).
+        u_over = abs(u_delta) > float(center_tol)
+        v_over = abs(v_delta) > float(center_tol)
         seg_cap = float(self._pick_center_seg_u_max)
         roll_cap = float(self._pick_center_roll_u_max)
-        u_over = abs(u_delta) > float(center_tol)
-        v_over = abs(v_delta) > float(v_align_tol)
         if not u_over and not v_over:
             return current_u, "none", 0.0, 0.0
 
