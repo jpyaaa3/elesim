@@ -76,6 +76,9 @@ class ControlService:
         self._pick_center_phase = "u"
         self._pick_approach_v_hold_ratio = 0.5
         self._pick_approach_seg_u_max = 0.35
+        self._pick_center_seg_u_max = 3.0
+        self._pick_center_roll_u_max = 4.0
+        self._pick_center_u_dominance_ratio = 2.0
         self._pick_clamp_streak = 0
         self._pick_clamp_stall_limit = 20
         self._hand_eye_transform = None
@@ -1775,48 +1778,50 @@ class ControlService:
         v = float(obs.center_uv[1])
         u_delta = u - tu
         v_delta = v - tv
-        u_enter_v = center_tol * float(self._center_u_enter_v_ratio)
         v_align_tol = center_tol * float(self._pick_approach_v_hold_ratio)
-        seg_cap = float(self._center_seg_step_max)
-        if abs(v_delta) > 0.12:
-            seg_cap = float(self._visual_center_seg_u_max)
-        # Gripper align (2,0) = top-right: fix large v error first; do not let u steal v phase.
-        if abs(v_delta) > v_align_tol:
-            next_u, mode = self._apply_center_uv_step(
-                obs,
-                current_u,
-                center_tol=center_tol,
-                force_axis="v",
-                u_active_tol=u_enter_v,
-                v_active_tol=v_align_tol,
-                seg_u_max=seg_cap,
-                target_uv=(tu, tv),
-            )
-            seg_req = float(
-                self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
-            )
-            return next_u, mode, 0.0, seg_req
-        if abs(u_delta) > center_tol:
-            next_u, mode = self._apply_center_uv_step(
-                obs,
-                current_u,
-                center_tol=center_tol,
-                force_axis="u",
-                u_active_tol=u_enter_v,
-                v_active_tol=v_align_tol,
-                seg_u_max=seg_cap,
-                target_uv=(tu, tv),
-            )
+        seg_cap = float(self._pick_center_seg_u_max)
+        roll_cap = float(self._pick_center_roll_u_max)
+        u_over = abs(u_delta) > float(center_tol)
+        v_over = abs(v_delta) > float(v_align_tol)
+        if not u_over and not v_over:
+            return current_u, "none", 0.0, 0.0
+
+        roll_du = 0.0
+        seg_du = 0.0
+        if u_over:
             u_err = float(tu - u)
-            roll_req = float(
+            roll_scale = float(
+                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.5, 2.5)
+            )
+            roll_du = float(
                 np.clip(
-                    self._visual_center_u_gain * u_err,
-                    -self._visual_center_roll_u_max,
-                    self._visual_center_roll_u_max,
+                    self._visual_center_u_gain * u_err * roll_scale,
+                    -roll_cap,
+                    roll_cap,
                 )
             )
-            return next_u, mode, roll_req, 0.0
-        return current_u, "none", 0.0, 0.0
+        if v_over:
+            seg_du = float(
+                self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
+            )
+
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll + roll_du),
+                u_s1=float(current_u.u_s1 + seg_du),
+                u_s2=float(current_u.u_s2 + seg_du),
+            )
+        )
+        if next_u == current_u:
+            return current_u, "none", roll_du, seg_du
+        if u_over and v_over:
+            mode = "pick_uv"
+        elif u_over:
+            mode = "uv_roll"
+        else:
+            mode = "uv_seg"
+        return next_u, mode, roll_du, seg_du
 
     def _wait_center_observation(
         self,
