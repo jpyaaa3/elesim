@@ -15,12 +15,14 @@ from engine.pick_view_pregrasp import (
     ViewCandidateMetrics,
     ViewPregraspCandidate,
     ViewPregraspLimits,
+    camera_visibility_fail_reasons,
     camera_visibility_ok,
     camera_visibility_score,
     generate_view_pregrasp_candidates,
     pick_best_strict_candidate,
     pick_best_visible_candidate,
     view_candidate_passes,
+    view_candidate_passes_strict,
     view_candidate_score,
 )
 
@@ -69,6 +71,11 @@ class TestCameraVisibility(unittest.TestCase):
 
     def test_visibility_rejects_far_lateral(self) -> None:
         self.assertFalse(camera_visibility_ok((0.25, 0.0, 0.50), self.limits))
+
+    def test_visibility_fail_reasons(self) -> None:
+        reasons = camera_visibility_fail_reasons((0.0, 0.30, 0.12), self.limits)
+        self.assertTrue(any("y_oob" in r for r in reasons))
+        self.assertTrue(any("z_low" in r for r in reasons))
 
     def test_score_prefers_center(self) -> None:
         center = camera_visibility_score((0.0, 0.0, 0.50), self.limits)
@@ -123,6 +130,55 @@ def _metrics(
         camera_look=(0.0, 0.0, 1.0),
         object_dir=(0.0, 0.0, 1.0),
     )
+
+
+class TestViewCandidateStrictPass(unittest.TestCase):
+    def setUp(self) -> None:
+        self.limits = ViewPregraspLimits()
+        self.metrics_ok = ViewCandidateMetrics(
+            p_camera=(0.0, 0.0, 0.50),
+            visible_pred=True,
+            look_dot=0.9,
+            score=-0.01,
+            camera_world=(0.0, 0.0, 0.0),
+            camera_look=(0.0, 0.0, 1.0),
+            object_dir=(0.0, 0.0, 1.0),
+        )
+        self.metrics_bad_look = ViewCandidateMetrics(
+            p_camera=(0.0, 0.0, 0.50),
+            visible_pred=True,
+            look_dot=0.3,
+            score=-0.01,
+            camera_world=(0.0, 0.0, 0.0),
+            camera_look=(0.0, 0.0, 1.0),
+            object_dir=(0.0, 0.0, 1.0),
+        )
+
+    def test_live_hold_current_pose(self) -> None:
+        live = (-0.023, -0.06, 0.395)
+        self.assertTrue(
+            view_candidate_passes_strict(
+                self.metrics_bad_look,
+                limits=self.limits,
+                look_dot_min=0.85,
+                tag="current_pose",
+                live_p_camera=live,
+                accept_current_if_live_visible=True,
+            )
+        )
+
+    def test_grid_still_requires_fk(self) -> None:
+        live = (-0.023, -0.06, 0.395)
+        self.assertFalse(
+            view_candidate_passes_strict(
+                self.metrics_bad_look,
+                limits=self.limits,
+                look_dot_min=0.85,
+                tag="grid_+0.00_+0.00_+0.00",
+                live_p_camera=live,
+                accept_current_if_live_visible=True,
+            )
+        )
 
 
 class TestViewCandidateStrict(unittest.TestCase):

@@ -91,6 +91,8 @@ class PickFsmConfig:
     view_distances_m: Tuple[float, ...] = (0.45, 0.55)
     view_look_dot_min: float = 0.85
     view_log_all_candidates: bool = True
+    view_accept_current_if_live_visible: bool = True
+    view_use_live_desired_xy: bool = True
     view_camera_z_min_m: float = 0.35
     view_camera_z_max_m: float = 0.70
     view_camera_x_abs_max_m: float = 0.15
@@ -466,6 +468,12 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         ),
         view_look_dot_min=max(0.0, min(1.0, cp.getfloat("pick_fsm", "view_look_dot_min", fallback=p0.view_look_dot_min))),
         view_log_all_candidates=cp.getboolean("pick_fsm", "view_log_all_candidates", fallback=p0.view_log_all_candidates),
+        view_accept_current_if_live_visible=cp.getboolean(
+            "pick_fsm", "view_accept_current_if_live_visible", fallback=p0.view_accept_current_if_live_visible
+        ),
+        view_use_live_desired_xy=cp.getboolean(
+            "pick_fsm", "view_use_live_desired_xy", fallback=p0.view_use_live_desired_xy
+        ),
         view_camera_z_min_m=cp.getfloat("pick_fsm", "view_camera_z_min_m", fallback=p0.view_camera_z_min_m),
         view_camera_z_max_m=cp.getfloat("pick_fsm", "view_camera_z_max_m", fallback=p0.view_camera_z_max_m),
         view_camera_x_abs_max_m=cp.getfloat("pick_fsm", "view_camera_x_abs_max_m", fallback=p0.view_camera_x_abs_max_m),

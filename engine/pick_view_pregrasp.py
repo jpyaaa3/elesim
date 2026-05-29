@@ -107,18 +107,31 @@ def generate_view_pregrasp_candidates(
     return out
 
 
-def camera_visibility_ok(p_camera: Sequence[float], limits: ViewPregraspLimits) -> bool:
+def camera_visibility_fail_reasons(
+    p_camera: Sequence[float],
+    limits: ViewPregraspLimits,
+) -> list[str]:
+    """Human-readable FOV failure tags for tuning VIEW_ALIGN."""
     p = np.asarray(p_camera, dtype=float).reshape(3)
-    z = float(p[2])
+    x, y, z = float(p[0]), float(p[1]), float(p[2])
+    reasons: list[str] = []
     if z <= 0.0:
-        return False
-    if z < float(limits.z_min_m) or z > float(limits.z_max_m):
-        return False
-    if abs(float(p[0])) > float(limits.x_abs_max_m):
-        return False
-    if abs(float(p[1])) > float(limits.y_abs_max_m):
-        return False
-    return True
+        reasons.append("behind_camera")
+    elif z < float(limits.z_min_m):
+        reasons.append(f"z_low({z:.3f}<{limits.z_min_m:.2f})")
+    elif z > float(limits.z_max_m):
+        reasons.append(f"z_high({z:.3f}>{limits.z_max_m:.2f})")
+    x_lim = float(limits.x_abs_max_m)
+    if abs(x) > x_lim:
+        reasons.append(f"x_oob({x:+.3f})")
+    y_lim = float(limits.y_abs_max_m)
+    if abs(y) > y_lim:
+        reasons.append(f"y_oob({y:+.3f})")
+    return reasons
+
+
+def camera_visibility_ok(p_camera: Sequence[float], limits: ViewPregraspLimits) -> bool:
+    return len(camera_visibility_fail_reasons(p_camera, limits)) == 0
 
 
 def evaluate_view_candidate(
@@ -194,6 +207,28 @@ def view_candidate_passes(
     return float(metrics.look_dot) >= float(look_dot_min)
 
 
+def view_candidate_passes_strict(
+    metrics: ViewCandidateMetrics,
+    *,
+    limits: ViewPregraspLimits,
+    look_dot_min: float = 0.85,
+    tag: str = "",
+    live_p_camera: Sequence[float] | None = None,
+    accept_current_if_live_visible: bool = False,
+) -> bool:
+    """Strict gate; current_pose may pass on live perception FOV when already visible."""
+    if view_candidate_passes(metrics, limits=limits, look_dot_min=look_dot_min):
+        return True
+    if (
+        accept_current_if_live_visible
+        and str(tag) == "current_pose"
+        and live_p_camera is not None
+        and camera_visibility_ok(live_p_camera, limits)
+    ):
+        return True
+    return False
+
+
 def view_candidate_score(
     p_camera: Sequence[float],
     *,
@@ -266,6 +301,8 @@ def format_view_candidate_log(
     q4: Sequence[float],
     metrics: ViewCandidateMetrics,
     object_world: Sequence[float],
+    *,
+    limits: ViewPregraspLimits,
 ) -> str:
     q = np.asarray(q4, dtype=float).reshape(4)
     p = metrics.p_camera
@@ -273,6 +310,8 @@ def format_view_candidate_log(
     cl = metrics.camera_look
     od = metrics.object_dir
     ow = np.asarray(object_world, dtype=float).reshape(3)
+    fov_fail = camera_visibility_fail_reasons(p, limits)
+    fov_txt = ",".join(fov_fail) if fov_fail else "ok"
     return (
         f"tag={cand.tag} "
         f"q=[{q[0]:+.4f},{q[1]:+.4f},{q[2]:+.4f},{q[3]:+.4f}] "
@@ -284,5 +323,6 @@ def format_view_candidate_log(
         f"look_dot={metrics.look_dot:.3f} "
         f"p_camera_pred=[{p[0]:+.4f},{p[1]:+.4f},{p[2]:+.4f}] "
         f"visible_pred={str(metrics.visible_pred).lower()} "
+        f"fov_fail={fov_txt} "
         f"score={metrics.score:.4f}"
     )

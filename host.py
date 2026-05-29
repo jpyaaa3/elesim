@@ -24,12 +24,14 @@ from engine.pick_view_pregrasp import (
     ViewPregraspCandidate,
     ViewCandidateMetrics,
     ViewPregraspLimits,
+    camera_visibility_fail_reasons,
     camera_visibility_ok,
     evaluate_view_candidate,
     format_view_candidate_log,
     generate_view_pregrasp_candidates,
     pick_best_strict_candidate,
     view_candidate_passes,
+    view_candidate_passes_strict,
 )
 from engine.pick_visual_servo import (
     LOOK_JACOBIAN_AXIS_NAMES,
@@ -919,6 +921,25 @@ class ControlHost:
             )
         return ik_res
 
+    def _pick_make_current_pose_candidate(
+        self,
+        object_world: np.ndarray,
+    ) -> Optional[ViewPregraspCandidate]:
+        if self.last_actual_tip_xyz is None:
+            return None
+        pre = np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3)
+        look = object_world - pre
+        look_n = float(np.linalg.norm(look))
+        if look_n <= 1e-9:
+            look_dir: tuple[float, float, float] = (1.0, 0.0, 0.0)
+        else:
+            look_dir = (float(look[0] / look_n), float(look[1] / look_n), float(look[2] / look_n))
+        return ViewPregraspCandidate(
+            pregrasp_world=(float(pre[0]), float(pre[1]), float(pre[2])),
+            look_dir_world=look_dir,
+            tag="current_pose",
+        )
+
     def _pick_plan_view_pregrasp(
         self,
         current_seed: np.ndarray,
@@ -929,32 +950,45 @@ class ControlHost:
             return None
         obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
         cfg = self.pick_fsm_cfg
-        candidates = generate_view_pregrasp_candidates(
+        grid_candidates = generate_view_pregrasp_candidates(
             obj,
             base_offset_m=cfg.coarse_offset_m,
             view_distances_m=cfg.view_distances_m,
             lateral_offsets_m=cfg.view_lateral_offsets_m,
             height_offsets_m=cfg.view_height_offsets_m,
         )
+        candidates: list[ViewPregraspCandidate] = []
+        current_cand = self._pick_make_current_pose_candidate(obj)
+        if current_cand is not None:
+            candidates.append(current_cand)
+        candidates.extend(grid_candidates)
         limits = self._pick_view_limits()
-        desired_xy = self._pick_desired_camera_xy()
+        desired_xy = self._pick_desired_camera_xy_for_view_plan()
+        live_p = self._pick_live_object_camera()
         look_dot_min = float(cfg.view_look_dot_min)
         log_all = bool(cfg.view_log_all_candidates)
+        accept_live_current = bool(cfg.view_accept_current_if_live_visible)
         strict_rows: list[tuple[ViewPregraspCandidate, np.ndarray, ViewCandidateMetrics]] = []
         total_ik_ok = 0
+        reject_fov: dict[str, int] = {}
+        reject_look_dot = 0
         for cand in candidates:
             if cand.tag in self._pick.coarse_failed_tags:
                 continue
-            ik_res = self._pick_solve_pregrasp_ik(
-                cand.pregrasp_world,
-                None,
-                current_seed,
-                position_only=True,
-            )
-            if (not ik_res.success) or ik_res.q is None:
-                continue
-            total_ik_ok += 1
-            q = np.asarray(ik_res.q, dtype=float).reshape(4)
+            if cand.tag == "current_pose":
+                q = np.asarray(self._pick_current_seed_q(), dtype=float).reshape(4)
+                total_ik_ok += 1
+            else:
+                ik_res = self._pick_solve_pregrasp_ik(
+                    cand.pregrasp_world,
+                    None,
+                    current_seed,
+                    position_only=True,
+                )
+                if (not ik_res.success) or ik_res.q is None:
+                    continue
+                total_ik_ok += 1
+                q = np.asarray(ik_res.q, dtype=float).reshape(4)
             metrics = evaluate_view_candidate(
                 q,
                 obj,
@@ -967,14 +1001,39 @@ class ControlHost:
             if metrics is None:
                 continue
             if log_all:
-                print(f"[view_candidate] {format_view_candidate_log(cand, q, metrics, obj)}", flush=True)
-            if view_candidate_passes(metrics, limits=limits, look_dot_min=look_dot_min):
+                print(
+                    f"[view_candidate] {format_view_candidate_log(cand, q, metrics, obj, limits=limits)}",
+                    flush=True,
+                )
+            passed_fk = view_candidate_passes(metrics, limits=limits, look_dot_min=look_dot_min)
+            passed = view_candidate_passes_strict(
+                metrics,
+                limits=limits,
+                look_dot_min=look_dot_min,
+                tag=str(cand.tag),
+                live_p_camera=live_p,
+                accept_current_if_live_visible=accept_live_current,
+            )
+            if passed:
                 strict_rows.append((cand, q, metrics))
+            else:
+                for reason in camera_visibility_fail_reasons(metrics.p_camera, limits):
+                    key = reason.split("(", 1)[0]
+                    reject_fov[key] = int(reject_fov.get(key, 0)) + 1
+                if metrics.visible_pred and float(metrics.look_dot) < look_dot_min:
+                    reject_look_dot += 1
+
+        if live_p is not None and bool(cfg.view_use_live_desired_xy):
+            print(
+                f"[view_align] plan desired_xy=({desired_xy[0]:+.4f},{desired_xy[1]:+.4f}) "
+                f"live_camera=({live_p[0]:+.4f},{live_p[1]:+.4f},{live_p[2]:+.4f})",
+                flush=True,
+            )
 
         if not strict_rows:
             print(
                 f"[view_align] no strict candidate (ik_ok={total_ik_ok} total_tags={len(candidates)} "
-                f"look_dot_min={look_dot_min:.2f})",
+                f"look_dot_min={look_dot_min:.2f} fov_reject={reject_fov} look_dot_reject={reject_look_dot})",
                 flush=True,
             )
             return None
@@ -983,10 +1042,19 @@ class ControlHost:
         if best is None:
             return None
         cand, q, metrics = best
+        live_note = ""
+        if (
+            str(cand.tag) == "current_pose"
+            and live_p is not None
+            and accept_live_current
+            and camera_visibility_ok(live_p, limits)
+            and not view_candidate_passes(metrics, limits=limits, look_dot_min=look_dot_min)
+        ):
+            live_note = " hold=live_visible"
         print(
-            f"[view_align] selected tag={cand.tag} look_dot={metrics.look_dot:.3f} "
-            f"visible_pred={metrics.visible_pred} score={metrics.score:.4f} "
-            f"({len(strict_rows)} strict / {total_ik_ok} ik_ok)",
+            f"[view_align] selected tag={cand.tag}{live_note} look_dot={metrics.look_dot:.3f} "
+            f"visible_pred={metrics.visible_pred} pred_camera={metrics.p_camera} "
+            f"score={metrics.score:.4f} ({len(strict_rows)} strict / {total_ik_ok} ik_ok)",
             flush=True,
         )
         p_cam = np.asarray(metrics.p_camera, dtype=float).reshape(3)
@@ -1242,6 +1310,22 @@ class ControlHost:
     def _pick_desired_camera_xy(self) -> tuple[float, float]:
         d = self._pick.desired_camera_object
         return (float(d[0]), float(d[1]))
+
+    def _pick_live_object_camera(self) -> Optional[tuple[float, float, float]]:
+        if self._pick.last_object_camera is not None:
+            return self._pick.last_object_camera
+        mu = self._pick_effective_camera_mu()
+        if mu is None:
+            return None
+        return (float(mu[0]), float(mu[1]), float(mu[2]))
+
+    def _pick_desired_camera_xy_for_view_plan(self) -> tuple[float, float]:
+        cfg = self.pick_fsm_cfg
+        if bool(cfg.view_use_live_desired_xy):
+            live = self._pick_live_object_camera()
+            if live is not None:
+                return (float(live[0]), float(live[1]))
+        return self._pick_desired_camera_xy()
 
     def _pick_camera_xy_state(self) -> Optional[tuple[float, float, float, float]]:
         mu_tuple = self._pick_effective_camera_mu()
