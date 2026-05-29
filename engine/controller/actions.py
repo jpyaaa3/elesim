@@ -502,7 +502,8 @@ class ControlService:
         if abs(u_err) > float(self._visual_u_deadband):
             roll_du = float(np.clip(u_gain * u_err, -roll_max, roll_max))
         if abs(v_err) > float(self._visual_v_deadband):
-            seg_du = float(np.clip(v_gain * v_err, -seg_max, seg_max))
+            v_delta = -float(v_err)
+            seg_du = float(np.clip(v_gain * v_delta, -seg_max, seg_max))
         if abs(scale_err) > float(self._visual_scale_deadband):
             # Display u_linear=0 is forward; decrease u to enlarge object scale.
             linear_du = float(
@@ -1692,6 +1693,7 @@ class ControlService:
         seg_u_max: Optional[float] = None,
         u_active_tol: Optional[float] = None,
         target_uv: Optional[tuple[float, float]] = None,
+        v_active_tol: Optional[float] = None,
     ) -> tuple[ControlU, str]:
         roll_du = 0.0
         seg_du = 0.0
@@ -1706,22 +1708,27 @@ class ControlService:
         u_err, v_err = -u_delta, -v_delta
         mode = "none"
         u_tol = float(u_active_tol if u_active_tol is not None else center_tol)
+        v_tol = float(v_active_tol if v_active_tol is not None else center_tol)
         u_over = abs(u_delta) > u_tol
-        v_over = abs(v_delta) > float(center_tol)
+        v_over = abs(v_delta) > v_tol
         seg_cap = float(self._visual_center_seg_u_max if seg_u_max is None else seg_u_max)
         if force_axis == "u" or (force_axis is None and u_over):
+            roll_scale = float(
+                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.2, 1.0)
+            )
             roll_du = float(
                 np.clip(
-                    self._visual_center_u_gain * u_err,
+                    self._visual_center_u_gain * u_err * roll_scale,
                     -self._visual_center_roll_u_max,
                     self._visual_center_roll_u_max,
                 )
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
+            # On this robot +seg lowers image v; use v_delta = obs - target.
             seg_du = float(
                 np.clip(
-                    self._visual_center_v_gain * v_err,
+                    self._visual_center_v_gain * v_delta,
                     -seg_cap,
                     seg_cap,
                 )
@@ -1753,16 +1760,19 @@ class ControlService:
         u_delta = u - tu
         v_delta = v - tv
         u_enter_v = center_tol * float(self._center_u_enter_v_ratio)
+        v_align_tol = center_tol * float(self._pick_approach_v_hold_ratio)
         force_axis: Optional[str] = None
         if self._pick_center_phase == "v" and abs(u_delta) > center_tol:
             self._pick_center_phase = "u"
-        if self._pick_center_phase == "u" and abs(u_delta) <= u_enter_v and abs(v_delta) > center_tol:
+        if self._pick_center_phase == "u" and abs(u_delta) <= u_enter_v and abs(v_delta) > v_align_tol:
             self._pick_center_phase = "v"
-        if self._pick_center_phase == "v" and abs(v_delta) > center_tol:
+        if abs(v_delta) > v_align_tol and abs(u_delta) <= center_tol:
+            force_axis = "v"
+        elif self._pick_center_phase == "v" and abs(v_delta) > v_align_tol:
             force_axis = "v"
         elif abs(u_delta) > center_tol:
             force_axis = "u"
-        elif abs(v_delta) > center_tol:
+        elif abs(v_delta) > v_align_tol:
             force_axis = "v"
         next_u, _mode = self._apply_center_uv_step(
             obs,
@@ -1770,6 +1780,7 @@ class ControlService:
             center_tol=center_tol,
             force_axis=force_axis,
             u_active_tol=u_enter_v,
+            v_active_tol=v_align_tol,
             seg_u_max=float(self._center_seg_step_max),
             target_uv=(tu, tv),
         )
@@ -1801,6 +1812,7 @@ class ControlService:
         tv = float(cfg.target_uv_v)
         tu = float(cfg.target_uv_u)
         u_err, v_err = self._uv_control_errors(obs)
+        v_delta = float(obs.center_uv[1]) - tv
         scale_err = float(cfg.target_scale) - float(obs.scale)
         linear_du = 0.0
         if scale_err > float(cfg.scale_tol):
@@ -1814,10 +1826,10 @@ class ControlService:
             )
         seg_du = 0.0
         v_hold_tol = center_tol * float(self._pick_approach_v_hold_ratio)
-        if abs(float(obs.center_uv[1]) - tv) > v_hold_tol:
+        if abs(v_delta) > v_hold_tol:
             seg_du = float(
                 np.clip(
-                    self._visual_center_v_gain * v_err,
+                    self._visual_center_v_gain * v_delta,
                     -float(self._pick_approach_seg_u_max),
                     float(self._pick_approach_seg_u_max),
                 )
@@ -2001,14 +2013,8 @@ class ControlService:
                                 % (conv.u_err, conv.v_err, conv.scale),
                             )
                             return
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="command clamped | uv=(%.3f, %.3f) scale=%.3f"
-                            % (conv.u_err, conv.v_err, conv.scale),
-                        )
-                        return
+                        time.sleep(0.05)
+                        continue
 
                     self.state.set_pick_status(
                         running=True,
