@@ -105,6 +105,16 @@ class PickFsmConfig:
     look_gain_theta1: float = 1.0
     look_gain_theta2: float = 1.0
     look_max_step_rad: float = 0.02
+    look_servo_mode: str = "jacobian"
+    look_jacobian_gain: float = 0.6
+    look_jacobian_damping: float = 0.02
+    look_jacobian_eps_roll_rad: float = 0.012
+    look_jacobian_eps_theta_rad: float = 0.012
+    look_jacobian_include_roll: bool = True
+    look_jacobian_cal_samples: int = 5
+    look_jacobian_settle_s: float = 0.30
+    look_jacobian_cal_timeout_s: float = 8.0
+    look_jacobian_column_norm_min: float = 1e-5
     advance_step_m: float = 0.003
     advance_backoff_m: float = 0.015
     look_cmd_period_s: float = 0.20
@@ -474,6 +484,16 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         look_gain_theta1=cp.getfloat("pick_fsm", "look_gain_theta1", fallback=p0.look_gain_theta1),
         look_gain_theta2=cp.getfloat("pick_fsm", "look_gain_theta2", fallback=p0.look_gain_theta2),
         look_max_step_rad=max(1e-4, cp.getfloat("pick_fsm", "look_max_step_rad", fallback=p0.look_max_step_rad)),
+        look_servo_mode=str(cp.get("pick_fsm", "look_servo_mode", fallback=p0.look_servo_mode)).strip().lower(),
+        look_jacobian_gain=max(0.01, cp.getfloat("pick_fsm", "look_jacobian_gain", fallback=p0.look_jacobian_gain)),
+        look_jacobian_damping=max(1e-6, cp.getfloat("pick_fsm", "look_jacobian_damping", fallback=p0.look_jacobian_damping)),
+        look_jacobian_eps_roll_rad=max(1e-4, cp.getfloat("pick_fsm", "look_jacobian_eps_roll_rad", fallback=p0.look_jacobian_eps_roll_rad)),
+        look_jacobian_eps_theta_rad=max(1e-4, cp.getfloat("pick_fsm", "look_jacobian_eps_theta_rad", fallback=p0.look_jacobian_eps_theta_rad)),
+        look_jacobian_include_roll=cp.getboolean("pick_fsm", "look_jacobian_include_roll", fallback=p0.look_jacobian_include_roll),
+        look_jacobian_cal_samples=max(3, cp.getint("pick_fsm", "look_jacobian_cal_samples", fallback=p0.look_jacobian_cal_samples)),
+        look_jacobian_settle_s=max(0.05, cp.getfloat("pick_fsm", "look_jacobian_settle_s", fallback=p0.look_jacobian_settle_s)),
+        look_jacobian_cal_timeout_s=max(1.0, cp.getfloat("pick_fsm", "look_jacobian_cal_timeout_s", fallback=p0.look_jacobian_cal_timeout_s)),
+        look_jacobian_column_norm_min=max(1e-9, cp.getfloat("pick_fsm", "look_jacobian_column_norm_min", fallback=p0.look_jacobian_column_norm_min)),
         advance_step_m=max(0.0005, cp.getfloat("pick_fsm", "advance_step_m", fallback=p0.advance_step_m)),
         advance_backoff_m=max(0.0, cp.getfloat("pick_fsm", "advance_backoff_m", fallback=p0.advance_backoff_m)),
         look_cmd_period_s=max(0.05, cp.getfloat("pick_fsm", "look_cmd_period_s", fallback=p0.look_cmd_period_s)),

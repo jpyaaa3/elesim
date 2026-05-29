@@ -11,15 +11,23 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engine.pick_visual_servo import (
+    JacobianLookGains,
     LookAlignLimits,
     LookGains,
     advance_allowed,
     apply_q_delta,
+    apply_q_delta_to_tuple,
     camera_xy_error,
     compute_advance_delta_q,
+    compute_jacobian_look_delta_q,
     compute_look_delta_q,
+    damped_pseudoinverse,
+    error_vector_2d,
+    estimate_jacobian_column,
+    jacobian_column_usable,
     look_align_ok,
     should_send_look_command,
+    stack_jacobian,
 )
 
 
@@ -34,6 +42,12 @@ class TestCameraXyError(unittest.TestCase):
         ex, ey, _ = camera_xy_error((0.02, -0.01, 0.5), (0.0, 0.0))
         self.assertAlmostEqual(ex, 0.02)
         self.assertAlmostEqual(ey, -0.01)
+
+    def test_error_vector_2d(self) -> None:
+        e = error_vector_2d(0.02, -0.01)
+        self.assertEqual(e.shape, (2,))
+        self.assertAlmostEqual(float(e[0]), 0.02)
+        self.assertAlmostEqual(float(e[1]), -0.01)
 
 
 class TestLookAlignGates(unittest.TestCase):
@@ -68,6 +82,46 @@ class TestLookDeltaQ(unittest.TestCase):
         self.assertAlmostEqual(roll, 0.1)
         self.assertAlmostEqual(t1, 0.2)
         self.assertAlmostEqual(t2, 0.3)
+
+
+class TestJacobianMath(unittest.TestCase):
+    def test_damped_pseudoinverse_recovers_error_direction(self) -> None:
+        j = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+        e = np.array([0.02, -0.01], dtype=float)
+        j_pinv = damped_pseudoinverse(j, 0.01)
+        recovered = j @ (j_pinv @ e)
+        np.testing.assert_allclose(recovered, e, atol=1e-4)
+
+    def test_estimate_jacobian_column(self) -> None:
+        e0 = np.array([0.01, 0.0])
+        e1 = np.array([0.02, 0.0])
+        col = estimate_jacobian_column(e0, e1, 0.01)
+        np.testing.assert_allclose(col, [1.0, 0.0], atol=1e-6)
+
+    def test_stack_jacobian_shape(self) -> None:
+        cols = [np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([0.5, 0.5])]
+        j = stack_jacobian(cols)
+        self.assertEqual(j.shape, (2, 3))
+
+    def test_jacobian_column_usable(self) -> None:
+        self.assertTrue(jacobian_column_usable([0.01, 0.0], norm_min=1e-5))
+        self.assertFalse(jacobian_column_usable([0.0, 0.0], norm_min=1e-5))
+
+    def test_jacobian_look_delta_reduces_error_diagonal(self) -> None:
+        limits = LookAlignLimits(xy_deadband_m=0.0)
+        gains = JacobianLookGains(gain=0.5, damping=0.01, max_step_roll_rad=0.05, max_step_theta_rad=0.05)
+        # roll -> ex, theta1 -> ey
+        j = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=float)
+        e = np.array([0.02, -0.01], dtype=float)
+        delta = compute_jacobian_look_delta_q(e, j, gains, limits=limits, include_roll=True)
+        self.assertAlmostEqual(delta.linear_m, 0.0)
+        self.assertLess(delta.roll_rad, 0.0)
+        self.assertGreater(delta.theta1_rad, 0.0)
+
+    def test_apply_q_delta_to_tuple(self) -> None:
+        q = (0.5, 0.1, 0.2, 0.3)
+        out = apply_q_delta_to_tuple(q, compute_advance_delta_q(0.01))
+        self.assertAlmostEqual(out[0], 0.51)
 
 
 if __name__ == "__main__":

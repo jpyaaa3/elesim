@@ -32,16 +32,25 @@ from engine.pick_view_pregrasp import (
     view_candidate_passes,
 )
 from engine.pick_visual_servo import (
+    LOOK_JACOBIAN_AXIS_NAMES,
+    JacobianLookGains,
     LookAlignLimits,
     LookGains,
+    Q4Delta,
     advance_allowed,
     apply_q_delta,
+    apply_q_delta_to_tuple,
     camera_xy_error,
     compute_advance_delta_q,
     compute_backoff_delta_q,
+    compute_jacobian_look_delta_q,
     compute_look_delta_q,
+    error_vector_2d,
+    estimate_jacobian_column,
+    jacobian_column_usable,
     look_align_ok,
     should_send_look_command,
+    stack_jacobian,
 )
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import (
@@ -127,6 +136,15 @@ class PickContext:
     perception_sigma_camera: Optional[tuple[float, float, float]] = None
     last_object_camera: Optional[tuple[float, float, float]] = None
     advance_count: int = 0
+    look_jacobian: Optional[np.ndarray] = None
+    look_cal_phase: str = ""
+    look_cal_substep: str = ""
+    look_cal_axis_idx: int = 0
+    look_cal_axis_order: list[int] = field(default_factory=list)
+    look_cal_phase_ts: float = 0.0
+    look_cal_columns: list[np.ndarray] = field(default_factory=list)
+    look_cal_baseline_e: Optional[np.ndarray] = None
+    look_cal_q_anchor: Optional[tuple[float, float, float, float]] = None
 
 
 def filtered_camera_stats(
@@ -519,6 +537,23 @@ class ControlHost:
             self._pick.align_last_cmd_ts = 0.0
             self._pick.align_prev_error_m = float("inf")
             self._pick.align_no_improve_count = 0
+            self._pick.look_jacobian = None
+            self._pick.look_cal_columns = []
+            self._pick.look_cal_baseline_e = None
+            self._pick.look_cal_q_anchor = None
+            self._pick.look_cal_axis_idx = 0
+            cfg = self.pick_fsm_cfg
+            if bool(cfg.look_jacobian_include_roll):
+                self._pick.look_cal_axis_order = [0, 1, 2]
+            else:
+                self._pick.look_cal_axis_order = [1, 2]
+            if str(cfg.look_servo_mode).strip().lower() == "jacobian":
+                self._pick.look_cal_phase = "running"
+                self._pick.look_cal_substep = "baseline_wait"
+                self._pick.look_cal_phase_ts = float(now)
+            else:
+                self._pick.look_cal_phase = ""
+                self._pick.look_cal_substep = ""
 
     def _pick_can_auto_advance(self) -> bool:
         return not bool(self._pick.manual_mode)
@@ -548,6 +583,12 @@ class ControlHost:
         self._pick.coarse_failed_tags.clear()
         self._pick.last_object_camera = None
         self._pick.advance_count = 0
+        self._pick.look_jacobian = None
+        self._pick.look_cal_phase = ""
+        self._pick.look_cal_substep = ""
+        self._pick.look_cal_columns = []
+        self._pick.look_cal_baseline_e = None
+        self._pick.look_cal_q_anchor = None
         self._pick_set_stage(PickStage.TARGET_LOCK, now)
 
     def _pick_soft_fail(self) -> None:
@@ -1028,6 +1069,176 @@ class ControlHost:
             max_step_rad=float(cfg.look_max_step_rad),
         )
 
+    def _pick_jacobian_gains(self) -> JacobianLookGains:
+        cfg = self.pick_fsm_cfg
+        max_step = float(cfg.look_max_step_rad)
+        return JacobianLookGains(
+            gain=float(cfg.look_jacobian_gain),
+            damping=float(cfg.look_jacobian_damping),
+            max_step_roll_rad=max_step,
+            max_step_theta_rad=max_step,
+            column_norm_min=float(cfg.look_jacobian_column_norm_min),
+        )
+
+    def _pick_use_jacobian_servo(self) -> bool:
+        if str(self.pick_fsm_cfg.look_servo_mode).strip().lower() != "jacobian":
+            return False
+        if self._pick.look_jacobian is None:
+            return False
+        return str(self._pick.look_cal_phase) in ("", "done")
+
+    def _pick_current_q_tuple(self) -> Optional[tuple[float, float, float, float]]:
+        if self.last_q is None:
+            return None
+        return (
+            float(self.last_q.linear_m),
+            float(self.last_q.roll_rad),
+            float(self.last_q.theta1_rad),
+            float(self.last_q.theta2_rad),
+        )
+
+    def _pick_apply_q_tuple(self, q: tuple[float, float, float, float], now: float) -> None:
+        self._pending_target_q = proto.SimQ(
+            linear_m=float(q[0]),
+            roll_rad=float(q[1]),
+            theta1_rad=float(q[2]),
+            theta2_rad=float(q[3]),
+        )
+        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+        self._pick_flush_pending_motion_target(now)
+
+    def _pick_measure_camera_error_vector(self) -> Optional[np.ndarray]:
+        mu_tuple = self._pick_effective_camera_mu()
+        if mu_tuple is None:
+            mu_arr, _cov = self._estimate_object_camera_stats()
+            if mu_arr is None:
+                return None
+            mu_tuple = (float(mu_arr[0]), float(mu_arr[1]), float(mu_arr[2]))
+        ex, ey, _norm = camera_xy_error(mu_tuple, self._pick_desired_camera_xy())
+        return error_vector_2d(ex, ey)
+
+    def _pick_jacobian_axis_eps(self, axis: int) -> float:
+        cfg = self.pick_fsm_cfg
+        if int(axis) == 0:
+            return float(cfg.look_jacobian_eps_roll_rad)
+        return float(cfg.look_jacobian_eps_theta_rad)
+
+    def _pick_jacobian_perturb_delta(self, axis: int, eps: float) -> Q4Delta:
+        ax = int(axis)
+        if ax == 0:
+            return Q4Delta(roll_rad=float(eps))
+        if ax == 1:
+            return Q4Delta(theta1_rad=float(eps))
+        if ax == 2:
+            return Q4Delta(theta2_rad=float(eps))
+        return Q4Delta()
+
+    def _pick_jacobian_calibrate_failed(self, reason: str) -> None:
+        self._pick.look_cal_phase = "failed"
+        self._pick.look_jacobian = None
+        self._pick.look_cal_substep = ""
+        print(f"[look_jacobian] calibration failed: {reason} (heuristic fallback)", flush=True)
+
+    def _pick_jacobian_calibrate_tick(self, now: float) -> bool:
+        """Run one calibration step. Returns True while calibration still in progress."""
+        if str(self._pick.look_cal_phase) != "running":
+            return False
+        cfg = self.pick_fsm_cfg
+        stage_elapsed = float(now - float(self._pick.stage_enter_ts))
+        if stage_elapsed > float(cfg.look_jacobian_cal_timeout_s):
+            self._pick_jacobian_calibrate_failed("timeout")
+            return False
+        if not self._pick_tracker_measurement_ok() or self._pick_effective_camera_mu() is None:
+            if (now - float(self._pick.look_cal_phase_ts)) > float(cfg.look_jacobian_cal_timeout_s) * 0.5:
+                self._pick_jacobian_calibrate_failed("no_track")
+            return True
+        settle_s = float(cfg.look_jacobian_settle_s)
+        settled = (now - float(self._pick.look_cal_phase_ts)) >= settle_s
+        axis_order = list(self._pick.look_cal_axis_order or [1, 2])
+        if self._pick.look_cal_axis_idx >= len(axis_order):
+            self._pick_jacobian_calibrate_failed("axis_index")
+            return False
+        axis = int(axis_order[self._pick.look_cal_axis_idx])
+        axis_name = LOOK_JACOBIAN_AXIS_NAMES[axis] if 0 <= axis < 3 else str(axis)
+        sub = str(self._pick.look_cal_substep or "baseline_wait")
+
+        if sub == "baseline_wait":
+            if not settled:
+                return True
+            e0 = self._pick_measure_camera_error_vector()
+            if e0 is None:
+                return True
+            q_now = self._pick_current_q_tuple()
+            if q_now is None:
+                self._pick_jacobian_calibrate_failed("no_q")
+                return False
+            self._pick.look_cal_baseline_e = np.asarray(e0, dtype=float).reshape(2)
+            self._pick.look_cal_q_anchor = q_now
+            eps = self._pick_jacobian_axis_eps(axis)
+            delta = self._pick_jacobian_perturb_delta(axis, eps)
+            q_pert = apply_q_delta_to_tuple(q_now, delta)
+            self._pick_apply_q_tuple(q_pert, now)
+            self._pick.look_cal_substep = "measure_wait"
+            self._pick.look_cal_phase_ts = float(now)
+            print(
+                f"[look_jacobian] perturb axis={axis_name} eps={eps:+.4f} "
+                f"e0=[{e0[0]:+.4f},{e0[1]:+.4f}]",
+                flush=True,
+            )
+            return True
+
+        if sub == "measure_wait":
+            if not settled:
+                return True
+            e1 = self._pick_measure_camera_error_vector()
+            e0 = self._pick.look_cal_baseline_e
+            q_anchor = self._pick.look_cal_q_anchor
+            if e1 is None or e0 is None or q_anchor is None:
+                self._pick_jacobian_calibrate_failed("measure")
+                return False
+            eps = self._pick_jacobian_axis_eps(axis)
+            col = estimate_jacobian_column(e0, e1, eps)
+            norm_min = float(cfg.look_jacobian_column_norm_min)
+            if not jacobian_column_usable(col, norm_min=norm_min):
+                self._pick_jacobian_calibrate_failed(f"singular_column_{axis_name}")
+                return False
+            self._pick.look_cal_columns.append(np.asarray(col, dtype=float).reshape(2))
+            de_norm = float(np.linalg.norm(np.asarray(e1) - np.asarray(e0)))
+            print(
+                f"[look_jacobian] column {axis_name} de_norm={de_norm:.5f} "
+                f"col=[{col[0]:+.5f},{col[1]:+.5f}]",
+                flush=True,
+            )
+            self._pick_apply_q_tuple(q_anchor, now)
+            self._pick.look_cal_substep = "restore_wait"
+            self._pick.look_cal_phase_ts = float(now)
+            return True
+
+        if sub == "restore_wait":
+            if not settled:
+                return True
+            self._pick.look_cal_axis_idx += 1
+            if self._pick.look_cal_axis_idx >= len(axis_order):
+                try:
+                    j_mat = stack_jacobian(self._pick.look_cal_columns)
+                except Exception as exc:
+                    self._pick_jacobian_calibrate_failed(str(exc))
+                    return False
+                self._pick.look_jacobian = j_mat
+                self._pick.look_cal_phase = "done"
+                self._pick.look_cal_substep = ""
+                print(f"[look_jacobian] J=\n{j_mat}", flush=True)
+                return False
+            self._pick.look_cal_substep = "baseline_wait"
+            self._pick.look_cal_phase_ts = float(now)
+            self._pick.look_cal_baseline_e = None
+            self._pick.look_cal_q_anchor = None
+            return True
+
+        self._pick.look_cal_substep = "baseline_wait"
+        self._pick.look_cal_phase_ts = float(now)
+        return True
+
     def _pick_desired_camera_xy(self) -> tuple[float, float]:
         d = self._pick.desired_camera_object
         return (float(d[0]), float(d[1]))
@@ -1114,7 +1325,22 @@ class ControlHost:
         else:
             self._pick.align_no_improve_count = 0
         self._pick.align_prev_error_m = float(norm_xy)
-        delta = compute_look_delta_q(ex, ey, self._pick_look_gains(), limits=limits)
+        cfg = self.pick_fsm_cfg
+        if self._pick_use_jacobian_servo():
+            e = error_vector_2d(ex, ey)
+            j_mat = self._pick.look_jacobian
+            assert j_mat is not None
+            delta = compute_jacobian_look_delta_q(
+                e,
+                j_mat,
+                self._pick_jacobian_gains(),
+                limits=limits,
+                include_roll=bool(cfg.look_jacobian_include_roll),
+            )
+            mode_tag = "jacobian"
+        else:
+            delta = compute_look_delta_q(ex, ey, self._pick_look_gains(), limits=limits)
+            mode_tag = "heuristic"
         if (
             abs(float(delta.linear_m)) < 1e-9
             and abs(float(delta.roll_rad)) < 1e-9
@@ -1124,7 +1350,11 @@ class ControlHost:
             return False
         self._pick_apply_q_delta_motion(delta, now)
         self._pick.align_last_cmd_ts = float(now)
-        print(f"[pick] LOOK_ALIGN step ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f}", flush=True)
+        print(
+            f"[pick] LOOK_ALIGN ({mode_tag}) ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f} "
+            f"droll={delta.roll_rad:+.4f} dt1={delta.theta1_rad:+.4f} dt2={delta.theta2_rad:+.4f}",
+            flush=True,
+        )
         return True
 
     def _pick_execute_advance_small(self, now: float) -> bool:
@@ -1487,6 +1717,9 @@ class ControlHost:
                         self._pick_hard_fail(now)
                 else:
                     self._pick_soft_fail()
+                return
+            if str(self._pick.look_cal_phase) == "running":
+                self._pick_jacobian_calibrate_tick(now)
                 return
             self._pick_visual_servo_look_step(now)
             return
