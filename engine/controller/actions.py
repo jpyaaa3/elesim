@@ -316,6 +316,49 @@ class ControlService:
             J[:, idx] = (look_try - look) / applied
         return J, look, right, up
 
+    def _apply_manual_camera_rotation(
+        self,
+        *,
+        right_angle_rad: float = 0.0,
+        up_angle_rad: float = 0.0,
+        status_prefix: str,
+    ) -> None:
+        if self._visual_worker is not None:
+            self.stop_visual_servo()
+        q_now = self._q_array_from_state(self.current_host_state())
+        jac_data = self._camera_look_jacobian(q_now)
+        if jac_data is None:
+            self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | camera model unavailable")
+            return
+        J, look, right, up = jac_data
+        desired = self._normalize_dir(
+            look
+            + float(right_angle_rad) * right
+            + float(up_angle_rad) * up
+        )
+        if desired is None:
+            self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | invalid target")
+            return
+        dlook = np.asarray(desired - look, dtype=float).reshape(3)
+        dq = np.linalg.pinv(J) @ dlook
+        dq = np.asarray(dq, dtype=float).reshape(4)
+        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
+        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
+        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        q_try = self._clamp_q(q_now + dq)
+        state = self._command_q_and_wait(q_try, timeout_s=1.0)
+        obs = self.current_visual_observation(state)
+        if obs is None:
+            self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | moved")
+            return
+        self.state.set_visual_status(
+            running=False,
+            failed=False,
+            msg="%s | uv=(%.3f, %.3f) scale=%.3f"
+            % (status_prefix, float(obs.center_uv[0]), float(obs.center_uv[1]), float(obs.scale)),
+        )
+
     def _visual_error_vec(self, obs: VisualObservation) -> np.ndarray:
         target_scale = float(self.state.visual_target_scale)
         return np.array(
@@ -1014,69 +1057,25 @@ class ControlService:
         self._ik_worker.start()
 
     def nudge_visual_pan(self, direction: int) -> None:
-        if self._visual_worker is not None:
-            self.stop_visual_servo()
-        q_now = self._q_array_from_state(self.current_host_state())
-        jac_data = self._camera_look_jacobian(q_now)
-        if jac_data is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual pan | camera model unavailable")
-            return
-        J, look, right, _up = jac_data
-        desired = self._normalize_dir(look + float(direction) * float(self._manual_camera_angle_step) * right)
-        if desired is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual pan | invalid target")
-            return
-        dlook = np.asarray(desired - look, dtype=float).reshape(3)
-        dq = np.linalg.pinv(J) @ dlook
-        dq = np.asarray(dq, dtype=float).reshape(4)
-        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
-        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
-        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        q_try = self._clamp_q(q_now + dq)
-        state = self._command_q_and_wait(q_try, timeout_s=1.0)
-        obs = self.current_visual_observation(state)
-        if obs is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual pan | moved")
-            return
-        self.state.set_visual_status(
-            running=False,
-            failed=False,
-            msg="manual pan | uv=(%.3f, %.3f) scale=%.3f"
-            % (float(obs.center_uv[0]), float(obs.center_uv[1]), float(obs.scale)),
-        )
+        self.apply_visual_pan_angle(direction=int(direction), angle_deg=float(np.degrees(self._manual_camera_angle_step)))
 
     def nudge_visual_tilt(self, direction: int) -> None:
-        if self._visual_worker is not None:
-            self.stop_visual_servo()
-        q_now = self._q_array_from_state(self.current_host_state())
-        jac_data = self._camera_look_jacobian(q_now)
-        if jac_data is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual tilt | camera model unavailable")
-            return
-        J, look, _right, up = jac_data
-        desired = self._normalize_dir(look + float(direction) * float(self._manual_camera_angle_step) * up)
-        if desired is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual tilt | invalid target")
-            return
-        dlook = np.asarray(desired - look, dtype=float).reshape(3)
-        dq = np.linalg.pinv(J) @ dlook
-        dq = np.asarray(dq, dtype=float).reshape(4)
-        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
-        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
-        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        q_try = self._clamp_q(q_now + dq)
-        state = self._command_q_and_wait(q_try, timeout_s=1.0)
-        obs = self.current_visual_observation(state)
-        if obs is None:
-            self.state.set_visual_status(running=False, failed=False, msg="manual tilt | moved")
-            return
-        self.state.set_visual_status(
-            running=False,
-            failed=False,
-            msg="manual tilt | uv=(%.3f, %.3f) scale=%.3f"
-            % (float(obs.center_uv[0]), float(obs.center_uv[1]), float(obs.scale)),
+        self.apply_visual_tilt_angle(direction=int(direction), angle_deg=float(np.degrees(self._manual_camera_angle_step)))
+
+    def apply_visual_pan_angle(self, *, direction: int, angle_deg: float) -> None:
+        angle_rad = math.radians(max(0.0, float(angle_deg)))
+        self._apply_manual_camera_rotation(
+            right_angle_rad=float(direction) * angle_rad,
+            up_angle_rad=0.0,
+            status_prefix="manual pan",
+        )
+
+    def apply_visual_tilt_angle(self, *, direction: int, angle_deg: float) -> None:
+        angle_rad = math.radians(max(0.0, float(angle_deg)))
+        self._apply_manual_camera_rotation(
+            right_angle_rad=0.0,
+            up_angle_rad=float(direction) * angle_rad,
+            status_prefix="manual tilt",
         )
 
     def stop_visual_servo(self) -> None:

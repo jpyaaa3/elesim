@@ -47,6 +47,8 @@ class ControlPanel:
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
         self._repeat_button_deadlines: dict[str, float] = {}
+        self._visual_pan_deg_draft = 10.0
+        self._visual_tilt_deg_draft = 10.0
 
     def stop(self) -> None:
         self._stop = True
