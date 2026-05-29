@@ -16,7 +16,7 @@ from engine.sag_model import load_sag_model_json
 
 from .client import ControlClient
 from .perception import VisualObservation, extract_visual_observation
-from .object_pick import ObjectPickPhase, evaluate_pick_convergence
+from .object_pick import ObjectPickPhase, evaluate_pick_convergence, pick_ready_for_extend
 from .perception_capture import PerceptionCapture, PerceptionSnapshot, TrackerPhase
 from .state import HostState, PanelState
 
@@ -116,7 +116,7 @@ class ControlService:
         self._center_min_progress_uv = 0.012
         self._center_stall_steps = 3
         self._center_u_enter_v_ratio = 0.5
-        self._center_seg_step_max = 1.0
+        self._center_seg_step_max = 2.0
         self._center_seg_coupling_u = 0.05
         self._visual_u_deadband = 0.05
         self._visual_v_deadband = 0.05
@@ -127,10 +127,10 @@ class ControlService:
         self._visual_u_gain = 14.0
         self._visual_v_gain = 12.0
         self._visual_scale_gain = 60.0
-        self._visual_center_roll_u_max = 3.0
-        self._visual_center_seg_u_max = 3.0
-        self._visual_center_u_gain = 8.0
-        self._visual_center_v_gain = 8.0
+        self._visual_center_roll_u_max = 4.0
+        self._visual_center_seg_u_max = 4.0
+        self._visual_center_u_gain = 10.0
+        self._visual_center_v_gain = 10.0
         self._center_roll_u_max = 4.0
         self._center_seg_u_max = 4.0
         self._center_u_gain = 10.0
@@ -1828,7 +1828,7 @@ class ControlService:
         seg_cap = float(self._visual_center_seg_u_max if seg_u_max is None else seg_u_max)
         if force_axis == "u" or (force_axis is None and u_over):
             roll_scale = float(
-                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.2, 1.0)
+                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.35, 1.5)
             )
             roll_du = float(
                 np.clip(
@@ -1889,7 +1889,7 @@ class ControlService:
         if u_over:
             u_err = float(tu - u)
             roll_scale = float(
-                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.5, 2.5)
+                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.5, 3.0)
             )
             roll_du = float(
                 np.clip(
@@ -1949,16 +1949,14 @@ class ControlService:
         scale_err = float(cfg.target_scale) - float(obs.scale)
         linear_du = 0.0
         if scale_err > float(cfg.scale_tol):
-            forward_gain = 1.0 if conv.center_ok else 0.35
+            forward_gain = 1.0 if conv.center_ok else 0.5
             # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
             linear_cap = float(cfg.linear_step_u) * float(self._pick_approach_linear_step_scale)
+            linear_cmd = float(cfg.linear_gain) * scale_err
+            if scale_err < 0.08:
+                linear_cmd = max(linear_cmd, 1.5)
             linear_du = -float(
-                forward_gain
-                * np.clip(
-                    float(cfg.linear_gain) * scale_err,
-                    0.0,
-                    linear_cap,
-                )
+                forward_gain * np.clip(linear_cmd, 0.0, linear_cap)
             )
         return self._clamp_display_u(
             ControlU(
@@ -2085,7 +2083,8 @@ class ControlService:
                     stale_count = 0
 
                     conv = evaluate_pick_convergence(obs, cfg=pk)
-                    if conv.center_ok:
+                    ready = pick_ready_for_extend(obs, cfg=pk)
+                    if ready.center_ok:
                         self._pick_approach_latched = True
                     center_tol = float(pk.center_tol)
                     use_approach = bool(
@@ -2101,14 +2100,14 @@ class ControlService:
                     # Recovered alignment but still too small in image → approach again.
                     if (
                         not use_approach
-                        and conv.center_ok
-                        and not conv.scale_ok
+                        and ready.center_ok
+                        and not ready.scale_ok
                     ):
                         self._pick_approach_latched = True
                         use_approach = True
                     ext_target_m = float(pk.approach_extend_m)
                     ext_step_m = float(pk.approach_extend_step_m)
-                    if conv.center_ok and conv.scale_ok:
+                    if ready.center_ok and ready.scale_ok:
                         if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
                             remain_m = ext_target_m - float(self._pick_extend_progress_m)
                             step_m = float(min(max(ext_step_m, 0.002), remain_m))
@@ -2216,6 +2215,7 @@ class ControlService:
                         scale=f"{conv.scale:.3f}",
                         center_ok=str(conv.center_ok),
                         scale_ok=str(conv.scale_ok),
+                        ready_ok=str(ready.center_ok and ready.scale_ok),
                         dlinear=f"{du_linear:+.2f}",
                         droll=f"{du_roll:+.2f}",
                         dseg=f"{du_seg:+.2f}",
@@ -2274,7 +2274,7 @@ class ControlService:
                                 % (float(current_u.u_linear), conv.scale, float(pk.target_scale)),
                             )
                             return
-                        if conv.center_ok and conv.scale_ok:
+                        if ready.center_ok and ready.scale_ok:
                             self.state.set_pick_status(
                                 running=False,
                                 failed=False,
