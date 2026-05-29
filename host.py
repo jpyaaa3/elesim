@@ -1545,7 +1545,11 @@ class ControlHost:
             print(f"[pick] ADVANCE_SMALL blocked: xy not aligned ex={ex:+.4f} ey={ey:+.4f}", flush=True)
             return False
         if int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps):
-            print("[pick] ADVANCE_SMALL blocked: max_advance_steps reached", flush=True)
+            print(
+                f"[pick] ADVANCE_SMALL blocked: max_advance_steps reached "
+                f"(count={self._pick.advance_count}/{self.pick_fsm_cfg.max_advance_steps})",
+                flush=True,
+            )
             return False
         step_m = float(self.pick_fsm_cfg.advance_step_m)
         delta = compute_advance_delta_q(step_m)
@@ -1841,8 +1845,28 @@ class ControlHost:
                                 ttl_ms=300,
                             )
                             if self._pick_can_complete_stage():
-                                print("[pick] STOP_AND_CHECK complete -> LOOK_ALIGN", flush=True)
-                                self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+                                if int(self._pick.advance_count) >= int(
+                                    self.pick_fsm_cfg.max_advance_steps
+                                ):
+                                    if self._pick_ready_for_commit():
+                                        print(
+                                            "[pick] STOP_AND_CHECK: max_advance_steps -> COMMIT_GATE",
+                                            flush=True,
+                                        )
+                                        self._pick_set_stage(PickStage.COMMIT_GATE, now)
+                                    elif self._pick_can_auto_advance():
+                                        self._pick_hard_fail(now)
+                                    else:
+                                        print(
+                                            f"[pick] STOP_AND_CHECK: max_advance_steps "
+                                            f"({self._pick.advance_count}/"
+                                            f"{self.pick_fsm_cfg.max_advance_steps}); "
+                                            "manual: goto ADVANCE_SMALL to continue",
+                                            flush=True,
+                                        )
+                                else:
+                                    print("[pick] STOP_AND_CHECK complete -> LOOK_ALIGN", flush=True)
+                                    self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                             return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
                 if self._pick_can_auto_advance():
@@ -1887,7 +1911,9 @@ class ControlHost:
                 return
             if self._pick_look_align_ok():
                 if int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps):
-                    if self._pick_can_auto_advance():
+                    if self._pick_ready_for_commit() and self._pick_can_complete_stage():
+                        self._pick_set_stage(PickStage.COMMIT_GATE, now)
+                    elif self._pick_can_auto_advance():
                         self._pick_hard_fail(now)
                     return
                 if self._pick_can_complete_stage():
@@ -1923,7 +1949,13 @@ class ControlHost:
                 if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
             else:
-                if self._pick_can_complete_stage():
+                at_max = int(self._pick.advance_count) >= int(self.pick_fsm_cfg.max_advance_steps)
+                if at_max:
+                    if self._pick_ready_for_commit() and self._pick_can_complete_stage():
+                        self._pick_set_stage(PickStage.COMMIT_GATE, now)
+                    elif not self._pick.manual_mode and self._pick_can_complete_stage():
+                        self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
+                elif self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.LOOK_ALIGN, now)
             return
         if self._pick.stage == PickStage.COMMIT_GATE:
@@ -2091,6 +2123,23 @@ class ControlHost:
                     )
                     print(f"[pick] goto COARSE rejected: {reason}", flush=True)
                     return
+            prev_count = int(self._pick.advance_count)
+            if target_stage == PickStage.ADVANCE_SMALL:
+                self._pick.advance_count = 0
+                if prev_count > 0:
+                    print(
+                        f"[pick] manual ADVANCE_SMALL: advance_count reset ({prev_count} -> 0)",
+                        flush=True,
+                    )
+            elif (
+                target_stage == PickStage.LOOK_ALIGN
+                and prev_count >= int(self.pick_fsm_cfg.max_advance_steps)
+            ):
+                self._pick.advance_count = 0
+                print(
+                    f"[pick] manual LOOK_ALIGN: advance_count reset ({prev_count} -> 0)",
+                    flush=True,
+                )
             self._pick_set_stage(target_stage, now)
             print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
             coarse_ok = True
