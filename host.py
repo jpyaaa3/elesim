@@ -501,6 +501,7 @@ class ControlHost:
         self._pick.coarse_view_score = float("-inf")
         self._pick.coarse_predicted_camera = None
         self._pick.coarse_failed_tags.clear()
+        self._pick.last_object_camera = None
         self._pick_set_stage(PickStage.SEARCH, now)
 
     def _pick_soft_fail(self) -> None:
@@ -904,8 +905,9 @@ class ControlHost:
 
     def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
         if self._pick.anchor_world_xyz is None:
-            print("[pick] coarse skipped: no anchor (start perception first)", flush=True)
-            return False
+            if not self._pick_bootstrap_anchor_from_perception(now):
+                print(f"[pick] coarse skipped: {self._pick_explain_missing_anchor()}", flush=True)
+                return False
         if not self.ik_context:
             print("[pick] coarse skipped: IK context unavailable", flush=True)
             return False
@@ -1006,9 +1008,10 @@ class ControlHost:
             return
         if self._pick.stage == PickStage.COARSE_WORLD_PREGRASP:
             if self._pick.anchor_world_xyz is None:
-                print("[pick] COARSE: no anchor, returning to SEARCH", flush=True)
-                self._pick_reset_to_search(now)
-                return
+                if not self._pick_bootstrap_anchor_from_perception(now):
+                    print(f"[pick] COARSE: {self._pick_explain_missing_anchor()}, returning to SEARCH", flush=True)
+                    self._pick_reset_to_search(now)
+                    return
             self._pick_execute_coarse_pregrasp(now, force=False)
             pre = np.asarray(self._pick.pregrasp_world, dtype=float) if self._pick.pregrasp_world is not None else None
             if pre is None:
@@ -1330,23 +1333,20 @@ class ControlHost:
             self._pick.manual_mode = True
             # If user jumps to coarse without explicit anchor, fallback to latest perceived world point.
             if target_stage == PickStage.COARSE_WORLD_PREGRASP and self._pick.anchor_world_xyz is None:
-                if self._pick.object_world_latest is not None:
-                    self._pick.anchor_world_xyz = tuple(float(v) for v in self._pick.object_world_latest)
-                    self._pick.anchor_world_ts = now
-                    self._pick.anchor_confidence = max(float(self._pick.anchor_confidence), 0.5)
-                else:
+                if not self._pick_bootstrap_anchor_from_perception(now):
+                    reason = self._pick_explain_missing_anchor()
                     self._reply(
                         ident,
                         {
                             "t": "ack",
                             "ts": proto.now_s(),
                             "ok": False,
-                            "reason": "coarse_no_anchor: start perception and wait for detections",
+                            "reason": reason,
                             "device": self.device,
                             "torque_enabled": self.torque_enabled,
                         },
                     )
-                    print("[pick] goto COARSE rejected: no anchor/object_world_latest", flush=True)
+                    print(f"[pick] goto COARSE rejected: {reason}", flush=True)
                     return
             self._pick_set_stage(target_stage, now)
             print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
