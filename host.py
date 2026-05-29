@@ -946,6 +946,50 @@ class ControlHost:
             tag="current_pose",
         )
 
+    def _pick_try_plan_current_pose(
+        self,
+        obj: np.ndarray,
+        *,
+        limits: ViewPregraspLimits,
+        desired_xy: tuple[float, float],
+        live_p: Optional[tuple[float, float, float]],
+        look_dot_min: float,
+        accept_live_current: bool,
+        log: bool,
+    ) -> Optional[tuple[ViewPregraspCandidate, np.ndarray, ViewCandidateMetrics]]:
+        if "current_pose" in self._pick.coarse_failed_tags:
+            return None
+        current_cand = self._pick_make_current_pose_candidate(obj)
+        if current_cand is None:
+            return None
+        q = np.asarray(self._pick_current_seed_q(), dtype=float).reshape(4)
+        metrics = evaluate_view_candidate(
+            q,
+            obj,
+            ik_context=self.ik_context,
+            hand_eye_transform=self.hand_eye_transform,
+            parent_frame=self.hand_eye_parent_frame,
+            limits=limits,
+            desired_xy=desired_xy,
+        )
+        if metrics is None:
+            return None
+        if log:
+            print(
+                f"[view_candidate] {format_view_candidate_log(current_cand, q, metrics, obj, limits=limits)}",
+                flush=True,
+            )
+        if not view_candidate_passes_strict(
+            metrics,
+            limits=limits,
+            look_dot_min=look_dot_min,
+            tag="current_pose",
+            live_p_camera=live_p,
+            accept_current_if_live_visible=accept_live_current,
+        ):
+            return None
+        return current_cand, q, metrics
+
     def _pick_plan_view_pregrasp(
         self,
         current_seed: np.ndarray,
@@ -956,6 +1000,39 @@ class ControlHost:
             return None
         obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
         cfg = self.pick_fsm_cfg
+        limits = self._pick_view_limits()
+        desired_xy = self._pick_desired_camera_xy_for_view_plan()
+        live_p = self._pick_live_object_camera()
+        look_dot_min = float(cfg.view_look_dot_min)
+        log_all = bool(cfg.view_log_all_candidates)
+        accept_live_current = bool(cfg.view_accept_current_if_live_visible)
+
+        if live_p is not None and bool(cfg.view_use_live_desired_xy):
+            print(
+                f"[view_align] plan desired_xy=({desired_xy[0]:+.4f},{desired_xy[1]:+.4f}) "
+                f"live_camera=({live_p[0]:+.4f},{live_p[1]:+.4f},{live_p[2]:+.4f})",
+                flush=True,
+            )
+
+        fast = self._pick_try_plan_current_pose(
+            obj,
+            limits=limits,
+            desired_xy=desired_xy,
+            live_p=live_p,
+            look_dot_min=look_dot_min,
+            accept_live_current=accept_live_current,
+            log=log_all,
+        )
+        if fast is not None:
+            cand, q, metrics = fast
+            print(
+                f"[view_align] selected tag={cand.tag} (fast path) look_dot={metrics.look_dot:.3f} "
+                f"visible_pred={metrics.visible_pred} pred_camera={metrics.p_camera} score={metrics.score:.4f}",
+                flush=True,
+            )
+            p_cam = np.asarray(metrics.p_camera, dtype=float).reshape(3)
+            return cand, q, float(metrics.score), p_cam
+
         grid_candidates = generate_view_pregrasp_candidates(
             obj,
             base_offset_m=cfg.coarse_offset_m,
@@ -963,38 +1040,23 @@ class ControlHost:
             lateral_offsets_m=cfg.view_lateral_offsets_m,
             height_offsets_m=cfg.view_height_offsets_m,
         )
-        candidates: list[ViewPregraspCandidate] = []
-        current_cand = self._pick_make_current_pose_candidate(obj)
-        if current_cand is not None:
-            candidates.append(current_cand)
-        candidates.extend(grid_candidates)
-        limits = self._pick_view_limits()
-        desired_xy = self._pick_desired_camera_xy_for_view_plan()
-        live_p = self._pick_live_object_camera()
-        look_dot_min = float(cfg.view_look_dot_min)
-        log_all = bool(cfg.view_log_all_candidates)
-        accept_live_current = bool(cfg.view_accept_current_if_live_visible)
         strict_rows: list[tuple[ViewPregraspCandidate, np.ndarray, ViewCandidateMetrics]] = []
         total_ik_ok = 0
         reject_fov: dict[str, int] = {}
         reject_look_dot = 0
-        for cand in candidates:
+        for cand in grid_candidates:
             if cand.tag in self._pick.coarse_failed_tags:
                 continue
-            if cand.tag == "current_pose":
-                q = np.asarray(self._pick_current_seed_q(), dtype=float).reshape(4)
-                total_ik_ok += 1
-            else:
-                ik_res = self._pick_solve_pregrasp_ik(
-                    cand.pregrasp_world,
-                    None,
-                    current_seed,
-                    position_only=True,
-                )
-                if (not ik_res.success) or ik_res.q is None:
-                    continue
-                total_ik_ok += 1
-                q = np.asarray(ik_res.q, dtype=float).reshape(4)
+            ik_res = self._pick_solve_pregrasp_ik(
+                cand.pregrasp_world,
+                None,
+                current_seed,
+                position_only=True,
+            )
+            if (not ik_res.success) or ik_res.q is None:
+                continue
+            total_ik_ok += 1
+            q = np.asarray(ik_res.q, dtype=float).reshape(4)
             metrics = evaluate_view_candidate(
                 q,
                 obj,
@@ -1028,13 +1090,6 @@ class ControlHost:
                     reject_fov[key] = int(reject_fov.get(key, 0)) + 1
                 if metrics.visible_pred and float(metrics.look_dot) < look_dot_min:
                     reject_look_dot += 1
-
-        if live_p is not None and bool(cfg.view_use_live_desired_xy):
-            print(
-                f"[view_align] plan desired_xy=({desired_xy[0]:+.4f},{desired_xy[1]:+.4f}) "
-                f"live_camera=({live_p[0]:+.4f},{live_p[1]:+.4f},{live_p[2]:+.4f})",
-                flush=True,
-            )
 
         if not strict_rows:
             print(
@@ -1511,6 +1566,19 @@ class ControlHost:
                 self._pending_target_q = None
         self._t_cmd = float(now)
 
+    def _pick_advance_after_view_align(self, now: float) -> None:
+        """When already visible at current_pose, skip STOP_AND_CHECK and start LOOK_ALIGN."""
+        if self._pick.stage != PickStage.VIEW_ALIGN:
+            return
+        if str(self._pick.coarse_candidate_tag or "") != "current_pose":
+            return
+        if not self._pick_coarse_visibility_ok():
+            return
+        if not self._pick_can_complete_stage():
+            return
+        print("[pick] VIEW_ALIGN current_pose visible -> LOOK_ALIGN", flush=True)
+        self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+
     def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
         if self._pick.anchor_world_xyz is None:
             if not self._pick_bootstrap_anchor_from_perception(now):
@@ -1589,6 +1657,7 @@ class ControlHost:
             )
             self._pick_apply_coarse_target_q(q, now)
             self._pick_flush_pending_motion_target(now)
+            self._pick_advance_after_view_align(now)
             return True
 
         if (not force) and (now - float(self._pick.coarse_last_cmd_ts)) < 0.20:
@@ -1677,8 +1746,12 @@ class ControlHost:
             if reached:
                 if self._pick_coarse_visibility_ok():
                     if self._pick_can_complete_stage():
-                        print("[pick] VIEW_ALIGN complete -> STOP_AND_CHECK", flush=True)
-                        self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
+                        if str(self._pick.coarse_candidate_tag or "") == "current_pose":
+                            print("[pick] VIEW_ALIGN current_pose visible -> LOOK_ALIGN", flush=True)
+                            self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+                        else:
+                            print("[pick] VIEW_ALIGN complete -> STOP_AND_CHECK", flush=True)
+                            self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
                     return
                 failed_tag = str(self._pick.coarse_candidate_tag or "").strip()
                 if failed_tag:
@@ -1989,6 +2062,8 @@ class ControlHost:
             coarse_ok = True
             if target_stage == PickStage.VIEW_ALIGN:
                 coarse_ok = bool(self._pick_execute_coarse_pregrasp(now, force=True))
+                if coarse_ok:
+                    self._pick_advance_after_view_align(now)
             if target_stage == PickStage.LOOK_ALIGN:
                 self._pick.align_last_cmd_ts = 0.0
                 self._pick.align_prev_error_m = float("inf")
