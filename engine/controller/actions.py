@@ -96,6 +96,7 @@ class ControlService:
         }
         self._visual_obs_stale_s = 0.75
         self._visual_outer_iters = 12
+        self._visual_center_outer_iters = 40
         self._visual_u_deadband = 0.05
         self._visual_v_deadband = 0.05
         self._visual_scale_deadband = 0.01
@@ -105,11 +106,17 @@ class ControlService:
         self._visual_u_gain = 14.0
         self._visual_v_gain = 12.0
         self._visual_scale_gain = 60.0
-        self._center_roll_u_max = 18.0
-        self._center_seg_u_max = 16.0
-        self._center_u_gain = 36.0
-        self._center_v_gain = 30.0
-        self._center_roll_rad_max = math.radians(28.0)
+        self._visual_center_roll_u_max = 3.0
+        self._visual_center_seg_u_max = 3.0
+        self._visual_center_u_gain = 8.0
+        self._visual_center_v_gain = 8.0
+        self._center_roll_u_max = 4.0
+        self._center_seg_u_max = 4.0
+        self._center_u_gain = 10.0
+        self._center_v_gain = 10.0
+        self._center_roll_rad_max = math.radians(6.0)
+        self._center_tilt_rad_max = math.radians(6.0)
+        self._center_tilt_step_scale = 0.5
         self._manual_camera_angle_step = math.radians(2.5)
         self._manual_camera_linear_m_max = 0.002
         self._manual_camera_roll_rad_max = math.radians(4.0)
@@ -434,15 +441,30 @@ class ControlService:
         err = self._visual_error_vec(obs)
         return float(4.0 * err[0] ** 2 + 4.0 * err[1] ** 2 + err[2] ** 2)
 
-    def _visual_candidate_delta(self, obs: VisualObservation) -> tuple[float, float, float]:
+    def _visual_candidate_delta(
+        self,
+        obs: VisualObservation,
+        *,
+        center_only: bool = False,
+    ) -> tuple[float, float, float]:
         u_err, v_err, scale_err = [float(v) for v in self._visual_error_vec(obs)]
         roll_du = 0.0
         seg_du = 0.0
         linear_du = 0.0
+        if center_only:
+            u_gain = float(self._visual_center_u_gain)
+            v_gain = float(self._visual_center_v_gain)
+            roll_max = float(self._visual_center_roll_u_max)
+            seg_max = float(self._visual_center_seg_u_max)
+        else:
+            u_gain = float(self._visual_u_gain)
+            v_gain = float(self._visual_v_gain)
+            roll_max = float(self._visual_auto_roll_u_max)
+            seg_max = float(self._visual_auto_seg_u_max)
         if abs(u_err) > float(self._visual_u_deadband):
-            roll_du = float(np.clip(self._visual_u_gain * u_err, -self._visual_auto_roll_u_max, self._visual_auto_roll_u_max))
+            roll_du = float(np.clip(u_gain * u_err, -roll_max, roll_max))
         if abs(v_err) > float(self._visual_v_deadband):
-            seg_du = float(np.clip(self._visual_v_gain * v_err, -self._visual_auto_seg_u_max, self._visual_auto_seg_u_max))
+            seg_du = float(np.clip(v_gain * v_err, -seg_max, seg_max))
         if abs(scale_err) > float(self._visual_scale_deadband):
             linear_du = float(np.clip(self._visual_scale_gain * scale_err, -self._visual_auto_linear_u_max, self._visual_auto_linear_u_max))
         return linear_du, roll_du, seg_du
@@ -1168,7 +1190,7 @@ class ControlService:
                 if center_only:
                     current_host = host_state
                     current_obs = obs
-                    for _ in range(int(self._visual_outer_iters)):
+                    for _ in range(int(self._visual_center_outer_iters)):
                         if self._visual_stop_event.is_set():
                             self.state.set_visual_status(running=False, failed=False, msg="stopped")
                             return
@@ -1216,7 +1238,13 @@ class ControlService:
                                     moved = True
                                     status_parts.append(f"roll={float(np.degrees(roll_delta)):.2f} deg")
                             if abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol):
-                                tilt_delta = float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
+                                tilt_raw = float(self._center_tilt_step_scale) * math.atan2(
+                                    float(snapshot_p_cam[1]),
+                                    float(snapshot_p_cam[2]),
+                                )
+                                tilt_delta = float(
+                                    np.clip(tilt_raw, -self._center_tilt_rad_max, self._center_tilt_rad_max)
+                                )
                                 self._apply_manual_camera_rotation(
                                     right_angle_rad=0.0,
                                     up_angle_rad=float(tilt_delta),
@@ -1352,7 +1380,7 @@ class ControlService:
                         )
                         return
 
-                    linear_du, roll_du, seg_du = self._visual_candidate_delta(current_obs)
+                    linear_du, roll_du, seg_du = self._visual_candidate_delta(current_obs, center_only=center_only)
                     if center_only:
                         linear_du = 0.0
                         # Centering mode is intentionally triangular:
@@ -1501,17 +1529,17 @@ class ControlService:
         if abs(float(obs.center_uv[0])) > center_tol:
             roll_du = float(
                 np.clip(
-                    self._visual_u_gain * u_err,
-                    -self._visual_auto_roll_u_max,
-                    self._visual_auto_roll_u_max,
+                    self._visual_center_u_gain * u_err,
+                    -self._visual_center_roll_u_max,
+                    self._visual_center_roll_u_max,
                 )
             )
         elif abs(float(obs.center_uv[1])) > center_tol:
             seg_du = float(
                 np.clip(
-                    self._visual_v_gain * v_err,
-                    -self._visual_auto_seg_u_max,
-                    self._visual_auto_seg_u_max,
+                    self._visual_center_v_gain * v_err,
+                    -self._visual_center_seg_u_max,
+                    self._visual_center_seg_u_max,
                 )
             )
         return self._clamp_display_u(
