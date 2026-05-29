@@ -1596,8 +1596,10 @@ class ControlHost:
             return False
         if (now - float(self._pick.align_last_cmd_ts)) < float(self.pick_fsm_cfg.look_cmd_period_s):
             return False
-        if float(norm_xy) > float(self._pick.align_prev_error_m) + 1e-4:
+        if float(norm_xy) >= float(self._pick.align_prev_error_m) - 1e-4:
             self._pick.align_no_improve_count += 1
+            if self._pick.align_no_improve_count >= 2:
+                return False
         else:
             self._pick.align_no_improve_count = 0
         self._pick.align_prev_error_m = float(norm_xy)
@@ -1632,6 +1634,7 @@ class ControlHost:
             return False
         self._pick_apply_q_delta_motion(delta, now)
         self._pick.align_last_cmd_ts = float(now)
+        self._pick.look_last_perception_ts = float(self._pick.last_perception_ts)
         stage_tag = "VIEW_ALIGN" if self._pick.stage == PickStage.VIEW_ALIGN else "LOOK_ALIGN"
         print(
             f"[pick] {stage_tag} ({mode_tag}) ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f} "
@@ -1652,7 +1655,14 @@ class ControlHost:
                 return
         self._pick.coarse_candidate_tag = "current_pose"
         self._pick.coarse_view_planned = True
-        self._pick_visual_servo_look_step(now, heuristic_only=True)
+        if str(self._pick.look_cal_phase) == "running":
+            self._pick_jacobian_calibrate_tick(now)
+            return
+        cfg = self.pick_fsm_cfg
+        use_heuristic = str(cfg.look_servo_mode).strip().lower() != "jacobian"
+        if self._pick.look_jacobian is None and str(self._pick.look_cal_phase) == "failed":
+            use_heuristic = True
+        self._pick_visual_servo_look_step(now, heuristic_only=use_heuristic)
         if self._pick_handle_tracker_lost(now):
             return
         if self._pick_coarse_visibility_ok() and self._pick_look_align_ok():

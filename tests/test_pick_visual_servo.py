@@ -78,15 +78,15 @@ class TestLookDeltaQ(unittest.TestCase):
     def test_look_heuristic_roll_for_ex(self) -> None:
         limits = LookAlignLimits()
         gains = LookGains(
-            roll_per_error_x=1.0,
-            theta2_per_error_y=1.0,
+            roll_per_error_x=-1.0,
+            theta2_per_error_y=-1.0,
             max_step_rad=0.02,
             max_step_roll_rad=0.02,
         )
         delta = compute_look_delta_q(0.02, -0.01, gains, limits=limits, use_roll=True)
-        self.assertAlmostEqual(delta.roll_rad, -0.02)
+        self.assertAlmostEqual(delta.roll_rad, +0.02)
         self.assertAlmostEqual(delta.theta1_rad, 0.0)
-        self.assertAlmostEqual(delta.theta2_rad, 0.01)
+        self.assertAlmostEqual(delta.theta2_rad, -0.01)
 
     def test_advance_only_changes_linear(self) -> None:
         delta = compute_advance_delta_q(0.003)
