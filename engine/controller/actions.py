@@ -1146,6 +1146,62 @@ class ControlService:
 
         def _worker() -> None:
             try:
+                if center_only:
+                    snapshot_obs = obs
+                    current_u = self.current_control_u()
+                    _linear_du, roll_du, seg_du = self._visual_candidate_delta(snapshot_obs)
+                    if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                        seg_du = 0.0
+                    else:
+                        roll_du = 0.0
+
+                    moved = False
+                    if abs(roll_du) > 1e-9:
+                        next_u = self._clamp_display_u(
+                            ControlU(
+                                u_linear=float(current_u.u_linear),
+                                u_roll=float(current_u.u_roll + roll_du),
+                                u_s1=float(current_u.u_s1),
+                                u_s2=float(current_u.u_s2),
+                            )
+                        )
+                        if next_u != current_u:
+                            self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                            current_u = next_u
+                            moved = True
+                    if abs(seg_du) > 1e-9:
+                        next_u = self._clamp_display_u(
+                            ControlU(
+                                u_linear=float(current_u.u_linear),
+                                u_roll=float(current_u.u_roll),
+                                u_s1=float(current_u.u_s1 + seg_du),
+                                u_s2=float(current_u.u_s2 + seg_du),
+                            )
+                        )
+                        if next_u != current_u:
+                            self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                            current_u = next_u
+                            moved = True
+                    if not moved:
+                        self.state.set_visual_status(
+                            running=False,
+                            failed=False,
+                            msg="within deadband | snapshot uv=(%.3f, %.3f)"
+                            % (float(snapshot_obs.center_uv[0]), float(snapshot_obs.center_uv[1])),
+                        )
+                        return
+                    self.state.set_visual_status(
+                        running=False,
+                        failed=False,
+                        msg="center command sent | snapshot uv=(%.3f, %.3f) scale=%.3f"
+                        % (
+                            float(snapshot_obs.center_uv[0]),
+                            float(snapshot_obs.center_uv[1]),
+                            float(snapshot_obs.scale),
+                        ),
+                    )
+                    return
+
                 current_obs = obs
                 current_u = self.current_control_u()
                 stale_count = 0
