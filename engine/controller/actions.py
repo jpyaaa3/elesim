@@ -76,6 +76,8 @@ class ControlService:
         self._pick_center_phase = "u"
         self._pick_approach_v_hold_ratio = 0.5
         self._pick_approach_seg_u_max = 0.35
+        self._pick_clamp_streak = 0
+        self._pick_clamp_stall_limit = 20
         self._hand_eye_transform = None
         self._hand_eye_parent_frame = "node9"
         self._ik_worker: Optional[threading.Thread] = None
@@ -1744,8 +1746,17 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
+            v_cmd = float(tv - v)
             seg_du = self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
-            mode = "uv_seg"
+            if abs(v_delta) > float(center_tol) * 1.5:
+                roll_du = float(
+                    np.clip(
+                        0.25 * self._visual_center_v_gain * v_cmd,
+                        -self._visual_center_roll_u_max * 0.5,
+                        self._visual_center_roll_u_max * 0.5,
+                    )
+                )
+            mode = "uv_v_roll" if abs(roll_du) > 1e-9 else "uv_seg"
         next_u = self._clamp_display_u(
             ControlU(
                 u_linear=float(current_u.u_linear),
@@ -1754,6 +1765,27 @@ class ControlService:
                 u_s2=float(current_u.u_s2 + seg_du),
             )
         )
+        if next_u == current_u and mode in ("uv_seg", "uv_v_roll"):
+            v_cmd = float(tv - v)
+            if abs(v_cmd) > float(center_tol):
+                roll_assist = float(
+                    np.clip(
+                        0.35 * self._visual_center_v_gain * v_cmd,
+                        -self._visual_center_roll_u_max * 0.6,
+                        self._visual_center_roll_u_max * 0.6,
+                    )
+                )
+                if abs(roll_assist) > 1e-9:
+                    next_u = self._clamp_display_u(
+                        ControlU(
+                            u_linear=float(current_u.u_linear),
+                            u_roll=float(current_u.u_roll + roll_assist),
+                            u_s1=float(current_u.u_s1),
+                            u_s2=float(current_u.u_s2),
+                        )
+                    )
+                    if next_u != current_u:
+                        mode = "uv_roll_assist"
         if next_u == current_u:
             mode = "none"
         return next_u, mode
@@ -1763,7 +1795,9 @@ class ControlService:
         v_tol = float(center_tol) * float(self._pick_approach_v_hold_ratio)
         return abs(u_d) <= float(center_tol) and abs(v_d) <= v_tol
 
-    def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
+    def _apply_pick_center_step(
+        self, obs: VisualObservation, current_u: ControlU
+    ) -> tuple[ControlU, str]:
         cfg = self._pick_config_effective()
         center_tol = float(cfg.center_tol)
         tu, tv = float(cfg.target_uv_u), float(cfg.target_uv_v)
@@ -1786,7 +1820,7 @@ class ControlService:
             force_axis = "u"
         elif abs(v_delta) > v_align_tol:
             force_axis = "v"
-        next_u, _mode = self._apply_center_uv_step(
+        next_u, mode = self._apply_center_uv_step(
             obs,
             current_u,
             center_tol=center_tol,
@@ -1796,7 +1830,7 @@ class ControlService:
             seg_u_max=float(self._center_seg_step_max),
             target_uv=(tu, tv),
         )
-        return next_u
+        return next_u, mode
 
     def _wait_center_observation(
         self,
@@ -1865,6 +1899,7 @@ class ControlService:
     def stop_object_pick(self) -> None:
         self._pick_stop_event.set()
         self._pick_center_phase = "u"
+        self._pick_clamp_streak = 0
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
     def start_object_pick(self) -> None:
@@ -1888,6 +1923,7 @@ class ControlService:
         cfg = self._pick_config_effective()
         self._pick_stop_event.clear()
         self._pick_center_phase = "u"
+        self._pick_clamp_streak = 0
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
             running=True,
@@ -1976,9 +2012,10 @@ class ControlService:
                         )
                         return
 
+                    center_mode = ""
                     if not conv.center_ok or not approach_uv_ok:
                         phase = ObjectPickPhase.CENTER
-                        next_u = self._apply_pick_center_step(obs, current_u)
+                        next_u, center_mode = self._apply_pick_center_step(obs, current_u)
                     else:
                         phase = ObjectPickPhase.APPROACH
                         next_u = self._apply_pick_approach_step(obs, current_u)
@@ -1987,10 +2024,7 @@ class ControlService:
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_seg = float(next_u.u_s1 - current_u.u_s1)
                     u_d, v_d, tu, tv = self._visual_uv_errors(obs)
-                    self._log_visual_step(
-                        "pick",
-                        step_idx,
-                        max_iters,
+                    pick_fields: dict[str, object] = dict(
                         phase=phase.value,
                         uv=f"({conv.u_err:+.3f},{conv.v_err:+.3f})",
                         target=f"({tu:+.3f},{tv:+.3f})",
@@ -2002,9 +2036,47 @@ class ControlService:
                         droll=f"{du_roll:+.2f}",
                         dseg=f"{du_seg:+.2f}",
                     )
+                    if center_mode:
+                        pick_fields["mode"] = center_mode
+                    self._log_visual_step(
+                        "pick",
+                        step_idx,
+                        max_iters,
+                        **pick_fields,
+                    )
 
                     if next_u == current_u:
-                        print(f"[Pick] step {step_idx}/{max_iters} | command clamped")
+                        v_align_tol = float(pk.center_tol) * float(self._pick_approach_v_hold_ratio)
+                        if phase == ObjectPickPhase.CENTER and (
+                            abs(u_d) <= float(pk.center_tol)
+                            and abs(v_d) > v_align_tol
+                        ):
+                            self._pick_clamp_streak += 1
+                            print(
+                                "[Pick] step %d/%d | command clamped (v align, seg/roll limit) | "
+                                "u_s1=%.1f u_s2=%.1f streak=%d"
+                                % (
+                                    step_idx,
+                                    max_iters,
+                                    float(current_u.u_s1),
+                                    float(current_u.u_s2),
+                                    int(self._pick_clamp_streak),
+                                )
+                            )
+                            if self._pick_clamp_streak >= int(self._pick_clamp_stall_limit):
+                                self.state.set_pick_status(
+                                    running=False,
+                                    failed=True,
+                                    phase=ObjectPickPhase.FAILED.value,
+                                    msg=(
+                                        "v align stalled at seg/roll limit | "
+                                        "delta_v=%+.3f target_v=%+.3f | reposition arm"
+                                    )
+                                    % (float(v_d), float(tv)),
+                                )
+                                return
+                        else:
+                            print(f"[Pick] step {step_idx}/{max_iters} | command clamped")
                         if phase == ObjectPickPhase.APPROACH and not conv.scale_ok:
                             self.state.set_pick_status(
                                 running=False,
@@ -2026,6 +2098,7 @@ class ControlService:
                         time.sleep(0.05)
                         continue
 
+                    self._pick_clamp_streak = 0
                     self.state.set_pick_status(
                         running=True,
                         failed=False,
