@@ -39,8 +39,12 @@ def evaluate_pick_convergence(
     center_tol = float(cfg.center_tol)
     scale_tol = float(cfg.scale_tol)
     target_scale = float(cfg.target_scale)
+    tu = float(cfg.target_uv_u)
+    tv = float(cfg.target_uv_v)
+    u_delta = u - tu
+    v_delta = v - tv
     return PickConvergence(
-        center_ok=abs(u) <= center_tol and abs(v) <= center_tol,
+        center_ok=abs(u_delta) <= center_tol and abs(v_delta) <= center_tol,
         scale_ok=scale >= target_scale - scale_tol,
         u_err=u,
         v_err=v,

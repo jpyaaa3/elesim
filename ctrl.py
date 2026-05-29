@@ -35,6 +35,8 @@ def main() -> None:
     state.visual_target_label = str(perception_cfg.target_label).strip()
     state.visual_target_scale = float(pick_cfg.target_scale)
     state.visual_center_tol = float(pick_cfg.center_tol)
+    state.visual_target_uv_u = float(pick_cfg.target_uv_u)
+    state.visual_target_uv_v = float(pick_cfg.target_uv_v)
     state.visual_scale_tol = float(pick_cfg.scale_tol)
 
     service = ControlService(

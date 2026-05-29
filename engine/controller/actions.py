@@ -229,6 +229,24 @@ class ControlService:
             min_confidence=float(self.state.visual_confidence_min),
         )
 
+    def _visual_target_uv(self) -> tuple[float, float]:
+        return (float(self.state.visual_target_uv_u), float(self.state.visual_target_uv_v))
+
+    def _visual_uv_errors(self, obs: VisualObservation) -> tuple[float, float, float, float]:
+        tu, tv = self._visual_target_uv()
+        u = float(obs.center_uv[0])
+        v = float(obs.center_uv[1])
+        return u - tu, v - tv, tu, tv
+
+    def _uv_control_errors(self, obs: VisualObservation) -> tuple[float, float]:
+        du, dv, _, _ = self._visual_uv_errors(obs)
+        return -du, -dv
+
+    def _visual_uv_centered(self, obs: VisualObservation, *, center_tol: Optional[float] = None) -> bool:
+        tol = float(self.state.visual_center_tol if center_tol is None else center_tol)
+        du, dv, _, _ = self._visual_uv_errors(obs)
+        return abs(du) <= tol and abs(dv) <= tol
+
     def _visual_busy(self) -> bool:
         return self._ik_worker is not None or self._visual_worker is not None or self._pick_worker is not None
 
@@ -436,11 +454,12 @@ class ControlService:
         )
 
     def _visual_error_vec(self, obs: VisualObservation) -> np.ndarray:
+        u_err, v_err = self._uv_control_errors(obs)
         target_scale = float(self.state.visual_target_scale)
         return np.array(
             [
-                -float(obs.center_uv[0]),
-                -float(obs.center_uv[1]),
+                float(u_err),
+                float(v_err),
                 float(target_scale - obs.scale),
             ],
             dtype=float,
@@ -1213,13 +1232,16 @@ class ControlService:
                 if center_only:
                     max_steps = int(self._visual_center_outer_iters)
                     center_tol = float(self.state.visual_center_tol)
+                    target_u, target_v = self._visual_target_uv()
                     min_progress_uv = float(self._center_min_progress_uv)
                     stall_limit = int(self._center_stall_steps)
                     print(
-                        "[Visual] center start | max_steps=%d tol=%.3f | uv=(%.3f, %.3f) scale=%.3f"
+                        "[Visual] center start | max_steps=%d tol=%.3f target_uv=(%+.3f,%+.3f) | uv=(%.3f, %.3f) scale=%.3f"
                         % (
                             max_steps,
                             center_tol,
+                            target_u,
+                            target_v,
                             float(obs.center_uv[0]),
                             float(obs.center_uv[1]),
                             float(obs.scale),
@@ -1246,15 +1268,18 @@ class ControlService:
 
                         u0 = float(current_obs.center_uv[0])
                         v0 = float(current_obs.center_uv[1])
-                        if max(abs(u0), abs(v0)) <= center_tol:
+                        u_delta0 = u0 - target_u
+                        v_delta0 = v0 - target_v
+                        if self._visual_uv_centered(current_obs, center_tol=center_tol):
                             print(
-                                "[Visual] center step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
-                                % (step_idx, max_steps, u0, v0, float(current_obs.scale))
+                                "[Visual] center step %d/%d | done | uv=(%.3f, %.3f) target_uv=(%+.3f,%+.3f) scale=%.3f"
+                                % (step_idx, max_steps, u0, v0, target_u, target_v, float(current_obs.scale))
                             )
                             self.state.set_visual_status(
                                 running=False,
                                 failed=False,
-                                msg="centered | uv=(%.3f, %.3f) scale=%.3f" % (u0, v0, float(current_obs.scale)),
+                                msg="centered | uv=(%.3f, %.3f) target=(%+.3f,%+.3f) scale=%.3f"
+                                % (u0, v0, target_u, target_v, float(current_obs.scale)),
                             )
                             return
 
@@ -1262,17 +1287,17 @@ class ControlService:
                         p_cam_ok = (
                             snapshot_p_cam is not None and float(snapshot_p_cam[2]) > 1e-6
                         )
-                        v_needs = abs(v0) > center_tol
-                        if center_phase == "v" and abs(u0) > center_tol:
+                        v_needs = abs(v_delta0) > center_tol
+                        if center_phase == "v" and abs(u_delta0) > center_tol:
                             center_phase = "u"
-                        if center_phase == "u" and abs(u0) <= u_enter_v and v_needs:
+                        if center_phase == "u" and abs(u_delta0) <= u_enter_v and v_needs:
                             center_phase = "v"
-                        # u phase: snapshot q-roll (P-scaled). v phase: small uv_seg (seg couples into u).
                         use_snapshot_roll = (
                             center_phase == "u"
-                            and abs(u0) > u_enter_v
+                            and abs(u_delta0) > u_enter_v
                             and p_cam_ok
                             and not force_seg_only
+                            and abs(target_u) < 0.05
                         )
                         step_mode = ""
                         prev_ts = float(current_obs.timestamp_s)
@@ -1287,7 +1312,7 @@ class ControlService:
                                 )
                             )
                             roll_scale = float(
-                                np.clip(abs(u0) / max(center_tol, 1e-6), 0.25, 1.0)
+                                np.clip(abs(u_delta0) / max(center_tol, 1e-6), 0.25, 1.0)
                             )
                             roll_delta = roll_raw * roll_scale
                             q_try = np.asarray(q_now, dtype=float).copy()
@@ -1317,7 +1342,7 @@ class ControlService:
                         if not use_snapshot_roll:
                             if center_phase == "v" and (v_needs or force_seg_only):
                                 uv_force_axis: Optional[str] = "v"
-                            elif abs(u0) > center_tol and not p_cam_ok:
+                            elif abs(u_delta0) > center_tol and not p_cam_ok:
                                 uv_force_axis = "u"
                             else:
                                 uv_force_axis = None
@@ -1327,6 +1352,8 @@ class ControlService:
                                 center_tol=center_tol,
                                 force_axis=uv_force_axis,
                                 seg_u_max=float(self._center_seg_step_max),
+                                u_active_tol=u_enter_v,
+                                target_uv=(target_u, target_v),
                             )
                             if step_mode == "none":
                                 print(
@@ -1383,7 +1410,8 @@ class ControlService:
 
                         nu = float(next_obs.center_uv[0])
                         nv = float(next_obs.center_uv[1])
-                        if step_mode == "uv_seg" and abs(nu) > center_tol and abs(nu) > abs(u0) + float(
+                        nu_delta = nu - target_u
+                        if step_mode == "uv_seg" and abs(nu_delta) > center_tol and abs(nu_delta) > abs(u_delta0) + float(
                             self._center_seg_coupling_u
                         ):
                             print(
@@ -1462,7 +1490,7 @@ class ControlService:
                         print(f"[Visual] servo step {step_idx}/{max_steps} | observation lost")
                         self.state.set_visual_status(running=False, failed=True, msg="observation lost")
                         return
-                    center_ok = max(abs(float(current_obs.center_uv[0])), abs(float(current_obs.center_uv[1]))) <= float(self.state.visual_center_tol)
+                    center_ok = self._visual_uv_centered(current_obs)
                     scale_ok = True if center_only else (
                         float(current_obs.scale) >= float(self.state.visual_target_scale) - float(self.state.visual_scale_tol)
                     )
@@ -1491,10 +1519,9 @@ class ControlService:
                     linear_du, roll_du, seg_du = self._visual_candidate_delta(current_obs, center_only=center_only)
                     if center_only:
                         linear_du = 0.0
-                        # Centering mode is intentionally triangular:
-                        # 1. use roll to drive u toward zero
-                        # 2. only after u is within tolerance, use tilt (seg) to clean up v
-                        if abs(float(current_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                        u_delta, v_delta, _, _ = self._visual_uv_errors(current_obs)
+                        center_tol = float(self.state.visual_center_tol)
+                        if abs(u_delta) > center_tol:
                             seg_du = 0.0
                         else:
                             roll_du = 0.0
@@ -1557,7 +1584,7 @@ class ControlService:
                         failed=False,
                         msg="%s | uv=(%.3f, %.3f) scale=%.3f conf=%.2f"
                         % (
-                            ("centering u" if center_only and abs(float(current_obs.center_uv[0])) > float(self.state.visual_center_tol) else
+                            ("centering u" if center_only and abs(self._visual_uv_errors(current_obs)[0]) > float(self.state.visual_center_tol) else
                              "centering v" if center_only else
                              "tracking"),
                             float(current_obs.center_uv[0]),
@@ -1608,6 +1635,9 @@ class ControlService:
         return None if cap is None else cap.snapshot()
 
     def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
+        world_xyz = snap.p_world
+        if bool(self.state.pick_running) and world_xyz is None:
+            world_xyz = self.state.perception_world_xyz
         self.state.set_perception_status(
             running=bool(snap.running),
             failed=bool(snap.failed),
@@ -1616,7 +1646,7 @@ class ControlService:
             label=str(snap.label),
             confidence=float(snap.confidence),
             camera_xyz=snap.p_camera,
-            world_xyz=snap.p_world,
+            world_xyz=world_xyz,
             tracker_phase=str(snap.tracker_phase),
             track_ok_frames=int(snap.track_ok_frames),
         )
@@ -1628,6 +1658,8 @@ class ControlService:
             target_scale=float(self.state.visual_target_scale),
             scale_tol=float(self.state.visual_scale_tol),
             center_tol=float(self.state.visual_center_tol),
+            target_uv_u=float(self.state.visual_target_uv_u),
+            target_uv_v=float(self.state.visual_target_uv_v),
             linear_step_u=float(pk.linear_step_u),
             linear_gain=float(pk.linear_gain),
             max_iters=int(pk.max_iters),
@@ -1656,15 +1688,23 @@ class ControlService:
         force_axis: Optional[str] = None,
         seg_u_max: Optional[float] = None,
         u_active_tol: Optional[float] = None,
+        target_uv: Optional[tuple[float, float]] = None,
     ) -> tuple[ControlU, str]:
         roll_du = 0.0
         seg_du = 0.0
-        u_err = -float(obs.center_uv[0])
-        v_img = float(obs.center_uv[1])
+        if target_uv is None:
+            tu, tv = self._visual_target_uv()
+        else:
+            tu, tv = float(target_uv[0]), float(target_uv[1])
+        u = float(obs.center_uv[0])
+        v = float(obs.center_uv[1])
+        u_delta = u - tu
+        v_delta = v - tv
+        u_err, v_err = -u_delta, -v_delta
         mode = "none"
         u_tol = float(u_active_tol if u_active_tol is not None else center_tol)
-        u_over = abs(float(obs.center_uv[0])) > u_tol
-        v_over = abs(v_img) > float(center_tol)
+        u_over = abs(u_delta) > u_tol
+        v_over = abs(v_delta) > float(center_tol)
         seg_cap = float(self._visual_center_seg_u_max if seg_u_max is None else seg_u_max)
         if force_axis == "u" or (force_axis is None and u_over):
             roll_du = float(
@@ -1676,10 +1716,9 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
-            # +v in image = object below center; +seg_du reduces v on this rig.
             seg_du = float(
                 np.clip(
-                    self._visual_center_v_gain * v_img,
+                    self._visual_center_v_gain * v_err,
                     -seg_cap,
                     seg_cap,
                 )
@@ -1700,12 +1739,14 @@ class ControlService:
     def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
         cfg = self._pick_config_effective()
         center_tol = float(cfg.center_tol)
+        tu, tv = float(cfg.target_uv_u), float(cfg.target_uv_v)
         next_u, _mode = self._apply_center_uv_step(
             obs,
             current_u,
             center_tol=center_tol,
             u_active_tol=center_tol * float(self._center_u_enter_v_ratio),
             seg_u_max=float(self._center_seg_step_max),
+            target_uv=(tu, tv),
         )
         return next_u
 
@@ -1790,8 +1831,14 @@ class ControlService:
             try:
                 pk = self._pick_config_effective()
                 print(
-                    "[Pick] start | max_iters=%d target_scale=%.3f center_tol=%.3f"
-                    % (int(pk.max_iters), float(pk.target_scale), float(pk.center_tol))
+                    "[Pick] start | max_iters=%d target_scale=%.3f center_tol=%.3f target_uv=(%+.3f,%+.3f)"
+                    % (
+                        int(pk.max_iters),
+                        float(pk.target_scale),
+                        float(pk.center_tol),
+                        float(pk.target_uv_u),
+                        float(pk.target_uv_v),
+                    )
                 )
                 if not self._wait_for_track_lock(
                     timeout_s=float(pk.acquire_timeout_s),
@@ -1951,14 +1998,20 @@ class ControlService:
     ) -> Optional[tuple[float, float, float]]:
         if self.client is None:
             return None
-        return self.client.send_perception_observation(
+        freeze_world = bool(self.state.pick_running)
+        publish_depth = bool(depth_valid) and not freeze_world
+        p_world = self.client.send_perception_observation(
             object_camera_xyz=object_camera_xyz,
             label=label,
             confidence=confidence,
             image_center_uv=image_center_uv,
             image_scale=image_scale,
-            depth_valid=bool(depth_valid),
+            depth_valid=publish_depth,
         )
+        if freeze_world:
+            frozen = self.state.perception_world_xyz
+            return frozen if frozen is not None else p_world
+        return p_world
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
         if self._perception_capture is not None and self._perception_capture.is_running():

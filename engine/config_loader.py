@@ -135,6 +135,8 @@ class PickConfig:
     target_scale: float = 0.12
     scale_tol: float = 0.01
     center_tol: float = 0.08
+    target_uv_u: float = 2.0 / 3.0
+    target_uv_v: float = 0.0
     linear_step_u: float = 2.0
     linear_gain: float = 40.0
     max_iters: int = 80
@@ -256,6 +258,8 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         target_scale=cp.getfloat("pick", "target_scale", fallback=pk0.target_scale),
         scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
         center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
+        target_uv_u=cp.getfloat("pick", "target_uv_u", fallback=pk0.target_uv_u),
+        target_uv_v=cp.getfloat("pick", "target_uv_v", fallback=pk0.target_uv_v),
         linear_step_u=cp.getfloat("pick", "linear_step_u", fallback=pk0.linear_step_u),
         linear_gain=cp.getfloat("pick", "linear_gain", fallback=pk0.linear_gain),
         max_iters=cp.getint("pick", "max_iters", fallback=pk0.max_iters),

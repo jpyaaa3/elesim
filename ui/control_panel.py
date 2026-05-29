@@ -54,6 +54,8 @@ class ControlPanel:
         self.state.visual_target_label = str(pc.target_label).strip()
         self.state.visual_target_scale = float(pk.target_scale)
         self.state.visual_center_tol = float(pk.center_tol)
+        self.state.visual_target_uv_u = float(pk.target_uv_u)
+        self.state.visual_target_uv_v = float(pk.target_uv_v)
         self.state.visual_scale_tol = float(pk.scale_tol)
         self._ctrl_window_init = False
         self._port_input = ""

@@ -305,7 +305,8 @@ class ControlClient:
         now = time.time()
         with self._io_lock:
             self.tx_seq += 1
-            self.last_object_world_xyz = None
+            if bool(depth_valid):
+                self.last_object_world_xyz = None
             try:
                 self.sock.send_json(
                     {
@@ -331,6 +332,8 @@ class ControlClient:
                 self.last_reply_ok = False
                 self.last_reply_reason = f"transport send failed: {exc}"
                 return None
+            if not bool(depth_valid):
+                return self.last_object_world_xyz
             deadline = time.time() + max(float(wait_ack_s), 0.0)
             while time.time() < deadline:
                 self._poll_unlocked()

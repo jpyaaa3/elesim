@@ -106,6 +106,26 @@ def draw_perception_panel(panel) -> None:
     if changed_scale:
         panel.state.visual_target_scale = max(0.001, float(target_scale))
 
+    changed_tu, target_uv_u = imgui.input_float(
+        "gripper target u",
+        float(panel.state.visual_target_uv_u),
+        step=0.05,
+        step_fast=0.1,
+        format="%.3f",
+    )
+    if changed_tu:
+        panel.state.visual_target_uv_u = max(-1.0, min(1.0, float(target_uv_u)))
+
+    changed_tv, target_uv_v = imgui.input_float(
+        "gripper target v",
+        float(panel.state.visual_target_uv_v),
+        step=0.05,
+        step_fast=0.1,
+        format="%.3f",
+    )
+    if changed_tv:
+        panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
+
     pick_running = bool(panel.state.pick_running)
     if pick_running:
         if imgui.button("Stop Object Pick"):
