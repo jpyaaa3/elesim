@@ -255,11 +255,10 @@ class ControlService:
         cap: float,
         gain: Optional[float] = None,
     ) -> float:
-        """seg drives image v toward target_v (this robot: +seg raises v)."""
+        """seg drives image v toward target_v (+seg lowers normalized v on this robot)."""
         g = float(self._visual_center_v_gain if gain is None else gain)
-        return float(
-            np.clip(g * (float(target_v) - float(obs_v)), -float(cap), float(cap))
-        )
+        v_delta = float(obs_v) - float(target_v)
+        return float(np.clip(g * v_delta, -float(cap), float(cap))
 
     def _visual_uv_centered(self, obs: VisualObservation, *, center_tol: Optional[float] = None) -> bool:
         tol = float(self.state.visual_center_tol if center_tol is None else center_tol)
@@ -1746,12 +1745,12 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
-            v_cmd = float(tv - v)
+            v_delta_cmd = float(v - tv)
             seg_du = self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
             if abs(v_delta) > float(center_tol) * 1.5:
                 roll_du = float(
                     np.clip(
-                        0.25 * self._visual_center_v_gain * v_cmd,
+                        0.25 * self._visual_center_v_gain * v_delta_cmd,
                         -self._visual_center_roll_u_max * 0.5,
                         self._visual_center_roll_u_max * 0.5,
                     )
@@ -1766,11 +1765,11 @@ class ControlService:
             )
         )
         if next_u == current_u and mode in ("uv_seg", "uv_v_roll"):
-            v_cmd = float(tv - v)
-            if abs(v_cmd) > float(center_tol):
+            v_delta_cmd = float(v - tv)
+            if abs(v_delta_cmd) > float(center_tol):
                 roll_assist = float(
                     np.clip(
-                        0.35 * self._visual_center_v_gain * v_cmd,
+                        0.35 * self._visual_center_v_gain * v_delta_cmd,
                         -self._visual_center_roll_u_max * 0.6,
                         self._visual_center_roll_u_max * 0.6,
                     )
@@ -1822,10 +1821,10 @@ class ControlService:
                 seg_u_max=seg_cap,
                 target_uv=(tu, tv),
             )
-            v_cmd = float(tv - v)
+            v_delta_cmd = float(v - tv)
             seg_req = float(
                 np.clip(
-                    self._visual_center_v_gain * v_cmd,
+                    self._visual_center_v_gain * v_delta_cmd,
                     -seg_cap,
                     seg_cap,
                 )
@@ -1834,7 +1833,7 @@ class ControlService:
             if abs(v_delta) > float(center_tol) * 1.5:
                 roll_req = float(
                     np.clip(
-                        0.25 * self._visual_center_v_gain * v_cmd,
+                        0.25 * self._visual_center_v_gain * v_delta_cmd,
                         -self._visual_center_roll_u_max * 0.5,
                         self._visual_center_roll_u_max * 0.5,
                     )
