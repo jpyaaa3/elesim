@@ -76,6 +76,8 @@ class ControlService:
         self._pick_center_phase = "u"
         self._pick_approach_v_hold_ratio = 0.5
         self._pick_approach_seg_u_max = 0.35
+        self._pick_approach_latched = False
+        self._pick_center_reenter_ratio = 1.5
         self._pick_center_seg_u_max = 3.0
         self._pick_center_roll_u_max = 4.0
         self._pick_center_u_dominance_ratio = 2.0
@@ -1763,10 +1765,10 @@ class ControlService:
             mode = "none"
         return next_u, mode
 
-    def _pick_approach_uv_ok(self, obs: VisualObservation, *, center_tol: float) -> bool:
+    def _pick_center_lost(self, obs: VisualObservation, *, center_tol: float) -> bool:
         u_d, v_d, _, _ = self._visual_uv_errors(obs)
-        v_tol = float(center_tol) * float(self._pick_approach_v_hold_ratio)
-        return abs(u_d) <= float(center_tol) and abs(v_d) <= v_tol
+        tol = float(center_tol) * float(self._pick_center_reenter_ratio)
+        return abs(u_d) > tol or abs(v_d) > tol
 
     def _apply_pick_center_step(
         self, obs: VisualObservation, current_u: ControlU
@@ -1862,22 +1864,24 @@ class ControlService:
                 )
             )
         seg_du = 0.0
-        v_hold_tol = center_tol * float(self._pick_approach_v_hold_ratio)
-        if abs(v_delta) > v_hold_tol:
-            seg_du = self._center_seg_du(
-                target_v=tv,
-                obs_v=float(obs.center_uv[1]),
-                cap=float(self._pick_approach_seg_u_max),
-            )
         roll_du = 0.0
-        if abs(float(obs.center_uv[0]) - tu) > center_tol:
-            roll_du = float(
-                np.clip(
-                    self._visual_center_u_gain * u_err,
-                    -self._visual_center_roll_u_max,
-                    self._visual_center_roll_u_max,
+        reenter_tol = float(center_tol) * float(self._pick_center_reenter_ratio)
+        u_delta = float(obs.center_uv[0]) - tu
+        if abs(u_delta) > reenter_tol or abs(v_delta) > reenter_tol:
+            if abs(v_delta) > reenter_tol:
+                seg_du = self._center_seg_du(
+                    target_v=tv,
+                    obs_v=float(obs.center_uv[1]),
+                    cap=float(self._pick_approach_seg_u_max),
                 )
-            )
+            if abs(u_delta) > reenter_tol:
+                roll_du = float(
+                    np.clip(
+                        self._visual_center_u_gain * u_err,
+                        -self._visual_center_roll_u_max,
+                        self._visual_center_roll_u_max,
+                    )
+                )
         return self._clamp_display_u(
             ControlU(
                 u_linear=float(current_u.u_linear + linear_du),
@@ -1890,6 +1894,7 @@ class ControlService:
     def stop_object_pick(self) -> None:
         self._pick_stop_event.set()
         self._pick_center_phase = "u"
+        self._pick_approach_latched = False
         self._pick_clamp_streak = 0
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
@@ -1914,6 +1919,7 @@ class ControlService:
         cfg = self._pick_config_effective()
         self._pick_stop_event.clear()
         self._pick_center_phase = "u"
+        self._pick_approach_latched = False
         self._pick_clamp_streak = 0
         self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -1986,9 +1992,15 @@ class ControlService:
                     stale_count = 0
 
                     conv = evaluate_pick_convergence(obs, cfg=pk)
-                    approach_uv_ok = self._pick_approach_uv_ok(
-                        obs, center_tol=float(pk.center_tol)
+                    if conv.center_ok:
+                        self._pick_approach_latched = True
+                    center_tol = float(pk.center_tol)
+                    use_approach = bool(
+                        self._pick_approach_latched
+                        and not self._pick_center_lost(obs, center_tol=center_tol)
                     )
+                    if not use_approach and self._pick_center_lost(obs, center_tol=center_tol):
+                        self._pick_approach_latched = False
                     if conv.center_ok and conv.scale_ok:
                         print(
                             "[Pick] step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
@@ -2006,14 +2018,14 @@ class ControlService:
                     center_mode = ""
                     roll_req = 0.0
                     seg_req = 0.0
-                    if not conv.center_ok or not approach_uv_ok:
+                    if use_approach:
+                        phase = ObjectPickPhase.APPROACH
+                        next_u = self._apply_pick_approach_step(obs, current_u)
+                    else:
                         phase = ObjectPickPhase.CENTER
                         next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
                             obs, current_u
                         )
-                    else:
-                        phase = ObjectPickPhase.APPROACH
-                        next_u = self._apply_pick_approach_step(obs, current_u)
 
                     du_linear = float(next_u.u_linear - current_u.u_linear)
                     du_roll = float(next_u.u_roll - current_u.u_roll)
