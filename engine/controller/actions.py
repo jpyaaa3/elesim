@@ -359,8 +359,10 @@ class ControlService:
         right_angle_rad: float = 0.0,
         up_angle_rad: float = 0.0,
         status_prefix: str,
+        stop_running_visual: bool = True,
+        update_visual_status: bool = True,
     ) -> None:
-        if self._visual_worker is not None:
+        if stop_running_visual and self._visual_worker is not None:
             self.stop_visual_servo()
         q_now = self._q_array_from_state(self.current_host_state())
         jac_data = self._camera_look_jacobian(q_now)
@@ -411,6 +413,8 @@ class ControlService:
                 )
             else:
                 q_cmd = q_try
+        if not update_visual_status:
+            return
         obs = self.current_visual_observation(state)
         if obs is None:
             self.state.set_visual_status(
@@ -1242,7 +1246,9 @@ class ControlService:
                             moved = False
                             status_parts: list[str] = []
                             q_now = self._q_array_from_state(snapshot_host)
-                            if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                            center_tol = float(self.state.visual_center_tol)
+                            correct_u = abs(u0) > center_tol
+                            if correct_u:
                                 roll_delta = float(np.clip(math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])), -self._center_roll_rad_max, self._center_roll_rad_max))
                                 q_try = np.asarray(q_now, dtype=float).copy()
                                 q_try[1] += roll_delta
@@ -1271,7 +1277,7 @@ class ControlService:
                                         q_now = q_try
                                     moved = True
                                     status_parts.append(f"roll={float(np.degrees(roll_delta)):.2f} deg")
-                            if abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol):
+                            elif abs(v0) > center_tol:
                                 tilt_raw = float(self._center_tilt_step_scale) * math.atan2(
                                     float(snapshot_p_cam[1]),
                                     float(snapshot_p_cam[2]),
@@ -1291,6 +1297,8 @@ class ControlService:
                                     right_angle_rad=0.0,
                                     up_angle_rad=float(tilt_delta),
                                     status_prefix="center tilt snapshot",
+                                    stop_running_visual=False,
+                                    update_visual_status=False,
                                 )
                                 moved = True
                                 status_parts.append(f"tilt={float(np.degrees(tilt_delta)):.2f} deg")
@@ -1325,6 +1333,9 @@ class ControlService:
                             prev_ts = float(snapshot_obs.timestamp_s)
                             while time.time() < deadline:
                                 if self._visual_stop_event.is_set():
+                                    print(
+                                        f"[Visual] center step {step_idx}/{max_steps} | stopped during wait"
+                                    )
                                     self.state.set_visual_status(running=False, failed=False, msg="stopped")
                                     return
                                 time.sleep(0.05)
