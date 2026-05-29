@@ -100,6 +100,8 @@ class ControlService:
         self._manual_camera_linear_m_max = 0.002
         self._manual_camera_roll_rad_max = math.radians(4.0)
         self._manual_camera_seg_rad_max = math.radians(3.0)
+        self._manual_camera_angle_tol_rad = math.radians(0.75)
+        self._manual_camera_iters = 8
         if self._config_path:
             try:
                 bundle = load_app_config_from_ini(self._config_path)
@@ -316,6 +318,17 @@ class ControlService:
             J[:, idx] = (look_try - look) / applied
         return J, look, right, up
 
+    @staticmethod
+    def _vector_angle_rad(a: np.ndarray, b: np.ndarray) -> float:
+        va = np.asarray(a, dtype=float).reshape(3)
+        vb = np.asarray(b, dtype=float).reshape(3)
+        na = float(np.linalg.norm(va))
+        nb = float(np.linalg.norm(vb))
+        if na <= 1e-12 or nb <= 1e-12:
+            return float("inf")
+        cosang = float(np.clip(np.dot(va, vb) / (na * nb), -1.0, 1.0))
+        return float(math.acos(cosang))
+
     def _apply_manual_camera_rotation(
         self,
         *,
@@ -339,24 +352,54 @@ class ControlService:
         if desired is None:
             self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | invalid target")
             return
-        dlook = np.asarray(desired - look, dtype=float).reshape(3)
-        dq = np.linalg.pinv(J) @ dlook
-        dq = np.asarray(dq, dtype=float).reshape(4)
-        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
-        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
-        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
-        q_try = self._clamp_q(q_now + dq)
-        state = self._command_q_and_wait(q_try, timeout_s=1.0)
+        state: Optional[HostState] = None
+        final_err_deg = float("inf")
+        q_cmd = np.asarray(q_now, dtype=float).reshape(4).copy()
+        for _ in range(int(self._manual_camera_iters)):
+            jac_data_now = self._camera_look_jacobian(q_cmd)
+            if jac_data_now is None:
+                self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | camera model unavailable")
+                return
+            J_now, look_now, _right_now, _up_now = jac_data_now
+            final_err_deg = float(np.degrees(self._vector_angle_rad(look_now, desired)))
+            if final_err_deg <= float(np.degrees(self._manual_camera_angle_tol_rad)):
+                break
+            dlook = np.asarray(desired - look_now, dtype=float).reshape(3)
+            dq = np.linalg.pinv(J_now) @ dlook
+            dq = np.asarray(dq, dtype=float).reshape(4)
+            dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
+            dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
+            dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+            dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+            q_try = self._clamp_q(q_cmd + dq)
+            if np.allclose(q_try, q_cmd, atol=1e-9, rtol=0.0):
+                break
+            state = self._command_q_and_wait(q_try, timeout_s=1.0)
+            if state is not None and state.q is not None:
+                q_cmd = np.array(
+                    [
+                        float(state.q.linear_m),
+                        float(state.q.roll_rad),
+                        float(state.q.theta1_rad),
+                        float(state.q.theta2_rad),
+                    ],
+                    dtype=float,
+                )
+            else:
+                q_cmd = q_try
         obs = self.current_visual_observation(state)
         if obs is None:
-            self.state.set_visual_status(running=False, failed=False, msg=f"{status_prefix} | moved")
+            self.state.set_visual_status(
+                running=False,
+                failed=False,
+                msg=f"{status_prefix} | moved | residual {final_err_deg:.2f} deg",
+            )
             return
         self.state.set_visual_status(
             running=False,
             failed=False,
-            msg="%s | uv=(%.3f, %.3f) scale=%.3f"
-            % (status_prefix, float(obs.center_uv[0]), float(obs.center_uv[1]), float(obs.scale)),
+            msg="%s | uv=(%.3f, %.3f) scale=%.3f | residual %.2f deg"
+            % (status_prefix, float(obs.center_uv[0]), float(obs.center_uv[1]), float(obs.scale), float(final_err_deg)),
         )
 
     def _visual_error_vec(self, obs: VisualObservation) -> np.ndarray:
