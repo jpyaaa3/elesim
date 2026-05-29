@@ -1219,8 +1219,7 @@ class ControlService:
                     current_obs = obs
                     current_u = self.current_control_u()
                     stall_count = 0
-                    force_uv = False
-                    force_axis: Optional[str] = None
+                    force_seg_only = False
                     last_mode = ""
 
                     for step_idx in range(1, max_steps + 1):
@@ -1248,13 +1247,14 @@ class ControlService:
                             return
 
                         snapshot_p_cam = None if current_host is None else current_host.perceived_object_camera_xyz
-                        use_snapshot_roll = (
-                            not force_uv
-                            and abs(u0) > center_tol
-                            and abs(u0) >= abs(v0)
-                            and snapshot_p_cam is not None
-                            and float(snapshot_p_cam[2]) > 1e-6
+                        p_cam_ok = (
+                            snapshot_p_cam is not None and float(snapshot_p_cam[2]) > 1e-6
                         )
+                        u_needs = abs(u0) > center_tol
+                        v_needs = abs(v0) > center_tol
+                        # u: snapshot q-roll only (uv_roll reverses snapshot and causes oscillation).
+                        # v: image-uv seg only, after |u| is within tol (or forced by stall recovery).
+                        use_snapshot_roll = u_needs and p_cam_ok and not force_seg_only
                         step_mode = ""
                         prev_ts = float(current_obs.timestamp_s)
 
@@ -1291,11 +1291,17 @@ class ControlService:
                                 )
 
                         if not use_snapshot_roll:
+                            if v_needs or force_seg_only:
+                                uv_force_axis: Optional[str] = "v"
+                            elif u_needs:
+                                uv_force_axis = "u"
+                            else:
+                                uv_force_axis = None
                             next_u, step_mode = self._apply_center_uv_step(
                                 current_obs,
                                 current_u,
                                 center_tol=center_tol,
-                                force_axis=force_axis,
+                                force_axis=uv_force_axis,
                             )
                             if step_mode == "none":
                                 print(
@@ -1368,25 +1374,18 @@ class ControlService:
                             if stall_count >= stall_limit:
                                 stall_count = 0
                                 if step_mode == "snapshot_q_roll":
-                                    force_uv = True
-                                    force_axis = "v" if abs(nv) >= abs(nu) else "u"
+                                    force_seg_only = True
                                 elif step_mode == "uv_seg":
-                                    force_uv = True
-                                    force_axis = "u"
-                                elif step_mode == "uv_roll":
-                                    force_uv = False
-                                    force_axis = "v"
+                                    force_seg_only = False
                                 else:
-                                    force_uv = True
-                                    force_axis = None
+                                    force_seg_only = True
                                 print(
-                                    "[Visual] center step %d/%d | stall recovery | force_uv=%s force_axis=%s"
-                                    % (step_idx, max_steps, force_uv, force_axis)
+                                    "[Visual] center step %d/%d | stall recovery | force_seg_only=%s"
+                                    % (step_idx, max_steps, force_seg_only)
                                 )
                         else:
                             stall_count = 0
-                            force_uv = False
-                            force_axis = None
+                            force_seg_only = False
 
                         self._log_visual_step(
                             "center",
