@@ -177,11 +177,6 @@ class PerceptionCapture:
         mode = str(cfg.mode).strip().lower()
         use_search_track = str(cfg.pipeline).strip().lower() in ("search_track", "search-track", "track")
 
-        if show_preview:
-            import cv2
-
-            cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
-
         common = dict(
             detector=detector,
             detector_cfg=detector_cfg,

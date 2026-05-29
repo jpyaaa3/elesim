@@ -211,7 +211,9 @@ def run_camera_session(
     last_det_summary = ""
 
     if show:
-        cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
+        from perception.preview import open_preview_window
+
+        open_preview_window(_PREVIEW_WINDOW)
 
     print(
         "[Camera] live capture started"
