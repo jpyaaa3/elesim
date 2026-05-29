@@ -82,6 +82,7 @@ class ControlService:
         self._pick_extend_stall = 0
         self._pick_center_reenter_ratio = 1.5
         self._pick_approach_lost_ratio = 2.5
+        self._pick_approach_linear_step_scale = 2.0
         self._pick_center_seg_u_max = 3.0
         self._pick_center_roll_u_max = 4.0
         self._pick_center_u_dominance_ratio = 2.0
@@ -1936,12 +1937,13 @@ class ControlService:
         if scale_err > float(cfg.scale_tol):
             forward_gain = 1.0 if conv.center_ok else 0.35
             # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
+            linear_cap = float(cfg.linear_step_u) * float(self._pick_approach_linear_step_scale)
             linear_du = -float(
                 forward_gain
                 * np.clip(
                     float(cfg.linear_gain) * scale_err,
                     0.0,
-                    float(cfg.linear_step_u),
+                    linear_cap,
                 )
             )
         return self._clamp_display_u(
