@@ -499,7 +499,9 @@ class ControlService:
         if abs(u_err) > float(self._visual_u_deadband):
             roll_du = float(np.clip(u_gain * u_err, -roll_max, roll_max))
         if abs(v_err) > float(self._visual_v_deadband):
-            seg_du = float(np.clip(v_gain * v_err, -seg_max, seg_max))
+            # +v_delta (object below target in image) -> +seg to raise bbox v.
+            v_delta = -float(v_err)
+            seg_du = float(np.clip(v_gain * v_delta, -seg_max, seg_max))
         if abs(scale_err) > float(self._visual_scale_deadband):
             # Display u_linear=0 is forward; decrease u to enlarge object scale.
             linear_du = float(
@@ -1716,9 +1718,10 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
+            # Image v grows downward; drive seg with v_delta (not -v_delta / v_err).
             seg_du = float(
                 np.clip(
-                    self._visual_center_v_gain * v_err,
+                    self._visual_center_v_gain * v_delta,
                     -seg_cap,
                     seg_cap,
                 )
@@ -1911,12 +1914,15 @@ class ControlService:
                     du_linear = float(next_u.u_linear - current_u.u_linear)
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_seg = float(next_u.u_s1 - current_u.u_s1)
+                    u_d, v_d, tu, tv = self._visual_uv_errors(obs)
                     self._log_visual_step(
                         "pick",
                         step_idx,
                         max_iters,
                         phase=phase.value,
                         uv=f"({conv.u_err:+.3f},{conv.v_err:+.3f})",
+                        target=f"({tu:+.3f},{tv:+.3f})",
+                        delta=f"({u_d:+.3f},{v_d:+.3f})",
                         scale=f"{conv.scale:.3f}",
                         center_ok=str(conv.center_ok),
                         scale_ok=str(conv.scale_ok),
