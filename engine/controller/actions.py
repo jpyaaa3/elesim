@@ -8,8 +8,9 @@ from typing import Any, Optional
 
 import numpy as np
 
+from addons.perception_bridge.hand_eye import camera_axes_world, load_hand_eye_transform
 from engine import ik as ik_pipeline
-from engine.config_loader import IkConfig
+from engine.config_loader import IkConfig, load_app_config_from_ini
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
 
@@ -63,6 +64,8 @@ class ControlService:
         self._ik_cfg = ik_cfg or IkConfig()
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
+        self._hand_eye_transform = None
+        self._hand_eye_parent_frame = "node9"
         self._ik_worker: Optional[threading.Thread] = None
         self._visual_worker: Optional[threading.Thread] = None
         self._visual_stop_event = threading.Event()
@@ -87,14 +90,25 @@ class ControlService:
         self._visual_u_deadband = 0.05
         self._visual_v_deadband = 0.05
         self._visual_scale_deadband = 0.01
-        self._visual_manual_roll_u = 3.0
-        self._visual_manual_seg_u = 2.0
         self._visual_auto_roll_u_max = 6.0
         self._visual_auto_seg_u_max = 5.0
         self._visual_auto_linear_u_max = 6.0
         self._visual_u_gain = 14.0
         self._visual_v_gain = 12.0
         self._visual_scale_gain = 60.0
+        self._manual_camera_angle_step = math.radians(2.5)
+        self._manual_camera_linear_m_max = 0.002
+        self._manual_camera_roll_rad_max = math.radians(4.0)
+        self._manual_camera_seg_rad_max = math.radians(3.0)
+        if self._config_path:
+            try:
+                bundle = load_app_config_from_ini(self._config_path)
+                hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
+                if hand_eye_path:
+                    self._hand_eye_transform, hand_eye_meta = load_hand_eye_transform(hand_eye_path)
+                    self._hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
+            except Exception:
+                self._hand_eye_transform = None
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -252,6 +266,55 @@ class ControlService:
             u_s1=float(np.clip(display_u.u_s1, cfg.seg_u_min, cfg.seg_u_max)),
             u_s2=float(np.clip(display_u.u_s2, cfg.seg_u_min, cfg.seg_u_max)),
         )
+
+    def _command_q_and_wait(self, q: np.ndarray, *, timeout_s: float = 1.0) -> Optional[HostState]:
+        q_cmd = self._clamp_q(q)
+        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        return self._send_state_q_and_wait(timeout_s=float(timeout_s), source="slider")
+
+    def _camera_axes_from_q(self, q: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        if self._hand_eye_transform is None:
+            return None
+        try:
+            origin, look_vec, right_vec = camera_axes_world(
+                self._ik_context,
+                np.asarray(q, dtype=float).reshape(4),
+                self._hand_eye_transform,
+                parent_frame=self._hand_eye_parent_frame,
+                axis_len_m=0.08,
+            )
+        except Exception:
+            return None
+        look = self._normalize_dir(look_vec)
+        right = self._normalize_dir(right_vec)
+        if look is None or right is None:
+            return None
+        up = self._normalize_dir(np.cross(look, right))
+        if up is None:
+            return None
+        return np.asarray(origin, dtype=float).reshape(3), look, right, up
+
+    def _camera_look_jacobian(self, q: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        axes = self._camera_axes_from_q(q)
+        if axes is None:
+            return None
+        _origin, look, right, up = axes
+        J = np.zeros((3, 4), dtype=float)
+        eps = np.array([0.002, math.radians(2.0), math.radians(2.0), math.radians(2.0)], dtype=float)
+        q_base = np.asarray(q, dtype=float).reshape(4)
+        for idx in range(4):
+            q_try = q_base.copy()
+            q_try[idx] += eps[idx]
+            q_try = self._clamp_q(q_try)
+            applied = float(q_try[idx] - q_base[idx])
+            if abs(applied) <= 1e-9:
+                continue
+            axes_try = self._camera_axes_from_q(q_try)
+            if axes_try is None:
+                continue
+            _origin_try, look_try, _right_try, _up_try = axes_try
+            J[:, idx] = (look_try - look) / applied
+        return J, look, right, up
 
     def _visual_error_vec(self, obs: VisualObservation) -> np.ndarray:
         target_scale = float(self.state.visual_target_scale)
@@ -951,19 +1014,27 @@ class ControlService:
         self._ik_worker.start()
 
     def nudge_visual_pan(self, direction: int) -> None:
-        if self._visual_busy():
-            self.state.set_visual_status(running=False, failed=True, msg="busy")
+        if self._visual_worker is not None:
+            self.stop_visual_servo()
+        q_now = self._q_array_from_state(self.current_host_state())
+        jac_data = self._camera_look_jacobian(q_now)
+        if jac_data is None:
+            self.state.set_visual_status(running=False, failed=False, msg="manual pan | camera model unavailable")
             return
-        current_u = self.current_control_u()
-        candidate = self._clamp_display_u(
-            ControlU(
-                u_linear=float(current_u.u_linear),
-                u_roll=float(current_u.u_roll + float(direction) * self._visual_manual_roll_u),
-                u_s1=float(current_u.u_s1),
-                u_s2=float(current_u.u_s2),
-            )
-        )
-        state = self._send_display_control_u_and_wait(candidate, timeout_s=1.0, source="slider")
+        J, look, right, _up = jac_data
+        desired = self._normalize_dir(look + float(direction) * float(self._manual_camera_angle_step) * right)
+        if desired is None:
+            self.state.set_visual_status(running=False, failed=False, msg="manual pan | invalid target")
+            return
+        dlook = np.asarray(desired - look, dtype=float).reshape(3)
+        dq = np.linalg.pinv(J) @ dlook
+        dq = np.asarray(dq, dtype=float).reshape(4)
+        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
+        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
+        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        q_try = self._clamp_q(q_now + dq)
+        state = self._command_q_and_wait(q_try, timeout_s=1.0)
         obs = self.current_visual_observation(state)
         if obs is None:
             self.state.set_visual_status(running=False, failed=False, msg="manual pan | moved")
@@ -976,19 +1047,27 @@ class ControlService:
         )
 
     def nudge_visual_tilt(self, direction: int) -> None:
-        if self._visual_busy():
-            self.state.set_visual_status(running=False, failed=True, msg="busy")
+        if self._visual_worker is not None:
+            self.stop_visual_servo()
+        q_now = self._q_array_from_state(self.current_host_state())
+        jac_data = self._camera_look_jacobian(q_now)
+        if jac_data is None:
+            self.state.set_visual_status(running=False, failed=False, msg="manual tilt | camera model unavailable")
             return
-        current_u = self.current_control_u()
-        candidate = self._clamp_display_u(
-            ControlU(
-                u_linear=float(current_u.u_linear),
-                u_roll=float(current_u.u_roll),
-                u_s1=float(current_u.u_s1 + float(direction) * self._visual_manual_seg_u),
-                u_s2=float(current_u.u_s2 + float(direction) * self._visual_manual_seg_u),
-            )
-        )
-        state = self._send_display_control_u_and_wait(candidate, timeout_s=1.0, source="slider")
+        J, look, _right, up = jac_data
+        desired = self._normalize_dir(look + float(direction) * float(self._manual_camera_angle_step) * up)
+        if desired is None:
+            self.state.set_visual_status(running=False, failed=False, msg="manual tilt | invalid target")
+            return
+        dlook = np.asarray(desired - look, dtype=float).reshape(3)
+        dq = np.linalg.pinv(J) @ dlook
+        dq = np.asarray(dq, dtype=float).reshape(4)
+        dq[0] = float(np.clip(dq[0], -self._manual_camera_linear_m_max, self._manual_camera_linear_m_max))
+        dq[1] = float(np.clip(dq[1], -self._manual_camera_roll_rad_max, self._manual_camera_roll_rad_max))
+        dq[2] = float(np.clip(dq[2], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        dq[3] = float(np.clip(dq[3], -self._manual_camera_seg_rad_max, self._manual_camera_seg_rad_max))
+        q_try = self._clamp_q(q_now + dq)
+        state = self._command_q_and_wait(q_try, timeout_s=1.0)
         obs = self.current_visual_observation(state)
         if obs is None:
             self.state.set_visual_status(running=False, failed=False, msg="manual tilt | moved")

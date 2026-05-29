@@ -117,7 +117,9 @@ def draw_ik_panel(panel) -> None:
             panel.service.stop_visual_servo()
 
         clicked = imgui.button("Pan Left")
-        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
+        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
+        active = bool(hovered and mouse_down)
         panel.run_repeat_button(
             "visual_pan_left",
             clicked=bool(clicked),
@@ -126,7 +128,9 @@ def draw_ik_panel(panel) -> None:
         )
         imgui.same_line()
         clicked = imgui.button("Pan Right")
-        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
+        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
+        active = bool(hovered and mouse_down)
         panel.run_repeat_button(
             "visual_pan_right",
             clicked=bool(clicked),
@@ -134,7 +138,9 @@ def draw_ik_panel(panel) -> None:
             action=lambda: panel.service.nudge_visual_pan(+1),
         )
         clicked = imgui.button("Tilt Up")
-        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
+        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
+        active = bool(hovered and mouse_down)
         panel.run_repeat_button(
             "visual_tilt_up",
             clicked=bool(clicked),
@@ -143,7 +149,9 @@ def draw_ik_panel(panel) -> None:
         )
         imgui.same_line()
         clicked = imgui.button("Tilt Down")
-        active = bool(getattr(imgui, "is_item_active", lambda: False)())
+        hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
+        mouse_down = bool(getattr(imgui, "is_mouse_down", lambda _btn=0: False)(0))
+        active = bool(hovered and mouse_down)
         panel.run_repeat_button(
             "visual_tilt_down",
             clicked=bool(clicked),
