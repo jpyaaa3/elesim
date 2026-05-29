@@ -91,6 +91,7 @@ class PickContext:
     track_lost_count: int = 0
     perception_mu_camera: Optional[tuple[float, float, float]] = None
     perception_sigma_camera: Optional[tuple[float, float, float]] = None
+    last_object_camera: Optional[tuple[float, float, float]] = None
 
 
 def filtered_camera_stats(
@@ -536,6 +537,64 @@ class ControlHost:
         self._pick.anchor_confidence = float(max(0.0, self._pick.anchor_confidence - 0.15))
         return False
 
+    def _pick_camera_point_to_world(
+        self, object_camera_xyz: Sequence[float]
+    ) -> Optional[tuple[float, float, float]]:
+        p_w = self._camera_to_world_point(np.asarray(object_camera_xyz, dtype=float).reshape(3))
+        if p_w is None:
+            return None
+        return (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+
+    def _pick_resolve_anchor_world(self) -> Optional[tuple[float, float, float]]:
+        if self._pick.anchor_world_xyz is not None:
+            return self._pick.anchor_world_xyz
+        if self._pick.object_world_latest is not None:
+            return self._pick.object_world_latest
+        if self._pick.object_world_mu is not None:
+            return self._pick.object_world_mu
+        mu = self._pick_effective_camera_mu()
+        if mu is not None:
+            world = self._pick_camera_point_to_world(mu)
+            if world is not None:
+                return world
+        if self._pick.last_object_camera is not None:
+            world = self._pick_camera_point_to_world(self._pick.last_object_camera)
+            if world is not None:
+                return world
+        if self._pick.object_camera_samples:
+            world = self._pick_camera_point_to_world(self._pick.object_camera_samples[-1])
+            if world is not None:
+                return world
+        return None
+
+    def _pick_explain_missing_anchor(self) -> str:
+        if (time.time() - float(self._pick.last_perception_ts)) > 1.5:
+            return "coarse_no_anchor: no recent perception packets (check host endpoint / Start Perception)"
+        if self.last_q is None:
+            return "coarse_no_anchor: robot q unavailable (wait for sim/ctrl feedback)"
+        if not self.ik_context or self.hand_eye_transform is None:
+            return "coarse_no_anchor: hand-eye or IK context missing (check hand_eye_config)"
+        if self._pick.last_object_camera is None and not self._pick.object_camera_samples:
+            return "coarse_no_anchor: perception connected but no object_camera yet"
+        state = str(self._pick.track_state or "").strip().upper()
+        if state in ("LOST", "SEARCH", ""):
+            return f"coarse_no_anchor: tracker not locked yet (state={state or 'unknown'})"
+        return (
+            "coarse_no_anchor: cannot transform object to world "
+            f"(track={state}, conf={self._pick.track_confidence:.2f})"
+        )
+
+    def _pick_bootstrap_anchor_from_perception(self, now: float) -> bool:
+        resolved = self._pick_resolve_anchor_world()
+        if resolved is None:
+            return False
+        self._pick.anchor_world_xyz = resolved
+        self._pick.anchor_world_ts = float(now)
+        self._pick.anchor_confidence = max(float(self._pick.anchor_confidence), 0.5)
+        if self._pick.object_world_latest is None:
+            self._pick.object_world_latest = resolved
+        return True
+
     def _pick_parse_vec3(self, raw: Any) -> Optional[tuple[float, float, float]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 3:
             return None
@@ -583,10 +642,11 @@ class ControlHost:
         object_camera_xyz: tuple[float, float, float],
         object_world_xyz: Optional[tuple[float, float, float]],
     ) -> None:
-        z = float(object_camera_xyz[2])
-        if z < float(self.pick_fsm_cfg.depth_min_m) or z > float(self.pick_fsm_cfg.depth_max_m):
-            return
-
+        self._pick.last_object_camera = (
+            float(object_camera_xyz[0]),
+            float(object_camera_xyz[1]),
+            float(object_camera_xyz[2]),
+        )
         self._pick.track_state = str(msg.get("track_state", self._pick.track_state or "")).strip()
         if "track_confidence" in msg:
             try:
@@ -603,6 +663,12 @@ class ControlHost:
                 self._pick.track_lost_count = int(msg.get("lost_count", 0))
             except (TypeError, ValueError):
                 pass
+        self._pick.last_perception_ts = time.time()
+
+        z = float(object_camera_xyz[2])
+        depth_ok = float(self.pick_fsm_cfg.depth_min_m) <= z <= float(self.pick_fsm_cfg.depth_max_m)
+        if not depth_ok:
+            return
 
         tracker_ok = self._pick_tracker_measurement_ok()
         mu_raw = self._pick_parse_vec3(msg.get("mu_camera", None))
@@ -623,16 +689,20 @@ class ControlHost:
         while len(self._pick.object_camera_samples) > window:
             self._pick.object_camera_samples.popleft()
 
-        if object_world_xyz is not None and tracker_ok:
+        if object_world_xyz is not None:
             self._pick.object_world_latest = (
                 float(object_world_xyz[0]),
                 float(object_world_xyz[1]),
                 float(object_world_xyz[2]),
             )
-            if not (mu_raw and sigma_raw):
-                self._pick.dropout_count = 0
-                self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
-        self._pick.last_perception_ts = time.time()
+            if tracker_ok:
+                if not (mu_raw and sigma_raw):
+                    self._pick.dropout_count = 0
+                    self._pick.score = float(self._pick.score) + float(self.pick_fsm_cfg.score_reward_observation)
+        elif self._pick.last_object_camera is not None:
+            world_est = self._pick_camera_point_to_world(self._pick.last_object_camera)
+            if world_est is not None:
+                self._pick.object_world_latest = world_est
 
     def _pick_record_perception_sample(
         self, object_camera_xyz: tuple[float, float, float], object_world_xyz: Optional[tuple[float, float, float]]
