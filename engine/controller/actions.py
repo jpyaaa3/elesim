@@ -83,6 +83,7 @@ class ControlService:
         self._pick_approach_seg_u_max = 0.35
         self._pick_approach_latched = False
         self._pick_extend_done = False
+        self._pick_extend_latched = False
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_frozen_world_xyz: Optional[tuple[float, float, float]] = None
@@ -1802,7 +1803,7 @@ class ControlService:
         travel = float(np.dot(tip1 - tip0, dir_w))
         self._command_q_and_wait(q1, timeout_s=1.5)
         self._pick_extend_progress_m = float(
-            max(float(self._pick_extend_progress_m), max(0.0, travel))
+            self._pick_extend_progress_m + max(0.0, travel)
         )
         return max(0.0, travel)
 
@@ -2004,6 +2005,7 @@ class ControlService:
         self._pick_center_phase = "u"
         self._pick_approach_latched = False
         self._pick_extend_done = False
+        self._pick_extend_latched = False
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_frozen_world_xyz = None
@@ -2039,6 +2041,7 @@ class ControlService:
         self._pick_center_phase = "u"
         self._pick_approach_latched = False
         self._pick_extend_done = False
+        self._pick_extend_latched = False
         self._pick_extend_progress_m = 0.0
         self._pick_extend_stall = 0
         self._pick_clamp_streak = 0
@@ -2196,47 +2199,51 @@ class ControlService:
                             )
                             return
 
-                    if use_approach:
-                        plateau_eps = float(pk.approach_scale_plateau_eps)
-                        if self._pick_approach_last_scale is not None and abs(
-                            float(conv.scale) - float(self._pick_approach_last_scale)
-                        ) < plateau_eps:
-                            self._pick_approach_plateau_iters += 1
+                    if not bool(self._pick_extend_latched):
+                        if use_approach:
+                            plateau_eps = float(pk.approach_scale_plateau_eps)
+                            if self._pick_approach_last_scale is not None and abs(
+                                float(conv.scale) - float(self._pick_approach_last_scale)
+                            ) < plateau_eps:
+                                self._pick_approach_plateau_iters += 1
+                            else:
+                                self._pick_approach_plateau_iters = 0
+                            self._pick_approach_last_scale = float(conv.scale)
+                            plateau_need = max(1, int(pk.approach_scale_plateau_iters))
+                            self._pick_approach_scale_plateau = (
+                                int(self._pick_approach_plateau_iters) >= plateau_need
+                            )
                         else:
                             self._pick_approach_plateau_iters = 0
-                        self._pick_approach_last_scale = float(conv.scale)
-                        plateau_need = max(1, int(pk.approach_scale_plateau_iters))
-                        self._pick_approach_scale_plateau = (
-                            int(self._pick_approach_plateau_iters) >= plateau_need
-                        )
-                    else:
-                        self._pick_approach_plateau_iters = 0
-                        self._pick_approach_scale_plateau = False
+                            self._pick_approach_scale_plateau = False
 
-                    extend_ready, extend_reason = pick_ready_for_extend(
-                        obs,
-                        cfg=pk,
-                        approach_steps=int(self._pick_approach_steps),
-                        scale_plateau=bool(self._pick_approach_scale_plateau),
-                    )
+                        extend_ready, extend_reason = pick_ready_for_extend(
+                            obs,
+                            cfg=pk,
+                            approach_steps=int(self._pick_approach_steps),
+                            scale_plateau=bool(self._pick_approach_scale_plateau),
+                        )
+                        if extend_ready:
+                            self._pick_extend_latched = True
+                            if not bool(self._pick_extend_ready_logged):
+                                du, dv = pick_uv_deltas(obs, cfg=pk)
+                                print(
+                                    "[Pick] extend ready (%s) | scale=%.3f steps=%d "
+                                    "plateau=%s | delta_u=%+.3f delta_v=%+.3f"
+                                    % (
+                                        str(extend_reason),
+                                        float(conv.scale),
+                                        int(self._pick_approach_steps),
+                                        str(self._pick_approach_scale_plateau),
+                                        float(du),
+                                        float(dv),
+                                    )
+                                )
+                                self._pick_extend_ready_logged = True
+
                     ext_target_m = float(pk.approach_extend_m)
                     ext_step_m = float(pk.approach_extend_step_m)
-                    if extend_ready:
-                        if not bool(getattr(self, "_pick_extend_ready_logged", False)):
-                            du, dv = pick_uv_deltas(obs, cfg=pk)
-                            print(
-                                "[Pick] extend ready (%s) | scale=%.3f steps=%d "
-                                "plateau=%s | delta_u=%+.3f delta_v=%+.3f"
-                                % (
-                                    str(extend_reason),
-                                    float(conv.scale),
-                                    int(self._pick_approach_steps),
-                                    str(self._pick_approach_scale_plateau),
-                                    float(du),
-                                    float(dv),
-                                )
-                            )
-                            self._pick_extend_ready_logged = True
+                    if bool(self._pick_extend_latched):
                         if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
                             remain_m = ext_target_m - float(self._pick_extend_progress_m)
                             step_m = float(min(max(ext_step_m, 0.002), remain_m))
@@ -2244,11 +2251,10 @@ class ControlService:
                                 running=True,
                                 failed=False,
                                 phase=ObjectPickPhase.EXTEND.value,
-                                msg="extend %.0f/%.0f mm (%s) | uv=(%.3f, %.3f) scale=%.3f"
+                                msg="extend %.0f/%.0f mm | uv=(%.3f, %.3f) scale=%.3f"
                                 % (
                                     float(self._pick_extend_progress_m) * 1000.0,
                                     ext_target_m * 1000.0,
-                                    str(extend_reason),
                                     conv.u_err,
                                     conv.v_err,
                                     conv.scale,
@@ -2257,27 +2263,15 @@ class ControlService:
                             traveled_m = self._pick_extend_cartesian_step(
                                 step_m, host_state
                             )
-                            host_state = (
-                                self.client.refresh_state()
-                                if self.client is not None
-                                else None
-                            )
-                            hold_obs = self.current_visual_observation(host_state)
-                            held = False
-                            if hold_obs is not None:
-                                held = self._pick_hold_align_display_u(
-                                    hold_obs, center_tol=center_tol
-                                )
                             print(
                                 "[Pick] step %d/%d | extend | cart=%.1fmm prog=%.0f/%.0fmm "
-                                "hold=%s | uv=(%.3f, %.3f) scale=%.3f"
+                                "| uv=(%.3f, %.3f) scale=%.3f"
                                 % (
                                     step_idx,
                                     max_iters,
                                     traveled_m * 1000.0,
                                     float(self._pick_extend_progress_m) * 1000.0,
                                     ext_target_m * 1000.0,
-                                    str(held),
                                     conv.u_err,
                                     conv.v_err,
                                     conv.scale,
@@ -2312,7 +2306,7 @@ class ControlService:
                             running=False,
                             failed=False,
                             phase=ObjectPickPhase.DONE.value,
-                            msg="pick done | extend %.0fmm aligned | uv=(%.3f, %.3f) scale=%.3f"
+                            msg="pick done | extend %.0fmm | uv=(%.3f, %.3f) scale=%.3f"
                             % (
                                 float(self._pick_extend_progress_m) * 1000.0,
                                 conv.u_err,
