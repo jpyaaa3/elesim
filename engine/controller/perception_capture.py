@@ -95,11 +95,11 @@ class PerceptionCapture:
         if self._on_snapshot is not None:
             self._on_snapshot(self.snapshot())
 
-    def running(self) -> bool:
+    def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
-        if self.running():
+        if self.is_running():
             return
         self._stop_event.clear()
         self._set_snapshot(
@@ -136,7 +136,11 @@ class PerceptionCapture:
                 _pick_target_detection,
             )
             from perception.detector import create_detector, load_detector_config  # type: ignore[import-not-found]
-            from perception.preview import close_preview, draw_detection_overlay, show_preview  # type: ignore[import-not-found]
+            from perception.preview import (  # type: ignore[import-not-found]
+                close_preview,
+                draw_detection_overlay,
+                show_preview as render_preview_frame,
+            )
             from perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError  # type: ignore[import-not-found]
             from perception.visual_tracker import BboxTracker, detection_from_bbox  # type: ignore[import-not-found]
             from perception.yolo_detector import YoloUnavailableError  # type: ignore[import-not-found]
@@ -172,7 +176,7 @@ class PerceptionCapture:
             return
 
         target_label = str(detector_cfg.get("target_label", "") or "")
-        show_preview = bool(cfg.show_preview)
+        enable_preview = bool(cfg.show_preview)
         publish_period = (1.0 / float(cfg.publish_hz)) if float(cfg.publish_hz) > 0 else 0.0
         mode = str(cfg.mode).strip().lower()
         use_search_track = str(cfg.pipeline).strip().lower() in ("search_track", "search-track", "track")
@@ -187,9 +191,9 @@ class PerceptionCapture:
             list_frame_detections=_list_frame_detections,
             pick_target_detection=_pick_target_detection,
             model_class_names=_model_class_names,
-            show_preview=show_preview,
+            show_preview=enable_preview,
             draw_detection_overlay=draw_detection_overlay,
-            show_preview_fn=show_preview,
+            show_preview_fn=render_preview_frame,
             target_label=target_label,
             detection_from_bbox=detection_from_bbox,
             BboxTracker=BboxTracker,

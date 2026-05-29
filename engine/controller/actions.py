@@ -1576,7 +1576,7 @@ class ControlService:
             msg="acquiring target",
         )
 
-        if self._perception_capture is None or not self._perception_capture.running():
+        if self._perception_capture is None or not self._perception_capture.is_running():
             self.start_perception_capture()
 
         def _worker() -> None:
@@ -1700,7 +1700,7 @@ class ControlService:
         )
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
-        if self._perception_capture is not None and self._perception_capture.running():
+        if self._perception_capture is not None and self._perception_capture.is_running():
             self.state.set_perception_status(running=True, failed=False, msg="already running")
             return
         if self.client is None:
