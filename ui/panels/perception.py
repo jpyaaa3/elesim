@@ -127,7 +127,7 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
     imgui.text_wrapped(
         "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=-0.5 | "
-        "approach when mask >= 80% of one quadrant (scale~0.20) then +80mm along grasp axis (UV held)"
+        "approach when scale >= ~0.16 then +90mm along grasp axis (UV held)"
     )
 
     pick_running = bool(panel.state.pick_running)

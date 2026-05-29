@@ -77,36 +77,3 @@ def evaluate_pick_convergence(
         v_err=v,
         scale=scale,
     )
-
-
-def pick_ready_for_extend(
-    obs: VisualObservation,
-    *,
-    cfg: PickConfig,
-    center_relax: float = 1.6,
-    scale_relax: float = 2.0,
-) -> PickConvergence:
-    """Strict convergence, with slightly relaxed margins when almost there."""
-    conv = evaluate_pick_convergence(obs, cfg=cfg)
-    if conv.center_ok and conv.scale_ok:
-        return conv
-    u = float(obs.center_uv[0])
-    v = float(obs.center_uv[1])
-    scale = float(obs.scale)
-    center_tol = float(cfg.center_tol)
-    scale_tol = float(cfg.scale_tol)
-    target_scale = float(cfg.target_scale)
-    tu = float(cfg.target_uv_u)
-    tv = float(cfg.target_uv_v)
-    u_delta = u - tu
-    v_delta = v - tv
-    ct = center_tol * float(center_relax)
-    center_ok = conv.center_ok or (abs(u_delta) <= ct and abs(v_delta) <= ct)
-    scale_ok = conv.scale_ok or scale >= target_scale - scale_tol * float(scale_relax)
-    return PickConvergence(
-        center_ok=bool(center_ok),
-        scale_ok=bool(scale_ok),
-        u_err=u,
-        v_err=v,
-        scale=scale,
-    )
