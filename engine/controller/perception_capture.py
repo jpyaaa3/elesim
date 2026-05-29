@@ -45,6 +45,8 @@ class PerceptionSnapshot:
     last_update_s: float
     tracker_phase: str = TrackerPhase.SEARCH.value
     track_ok_frames: int = 0
+    depth_valid: bool = True
+    image_scale: float = 0.0
 
 
 class PerceptionCapture:
@@ -234,6 +236,17 @@ class PerceptionCapture:
 
                 close_preview(_PREVIEW_WINDOW)
 
+    def _fallback_p_camera(self, detector_cfg: dict) -> tuple[float, float, float]:
+        snap = self.snapshot()
+        if snap.p_camera is not None:
+            return (
+                float(snap.p_camera[0]),
+                float(snap.p_camera[1]),
+                float(snap.p_camera[2]),
+            )
+        z_nom = float(detector_cfg.get("z_nom_m", 0.35))
+        return (0.0, 0.0, max(0.05, z_nom))
+
     def _publish_observation(
         self,
         *,
@@ -244,16 +257,21 @@ class PerceptionCapture:
         detection_scale_fn: Any,
         normalized_center_uv_fn: Any,
         status_msg: str,
+        depth_valid: bool = True,
     ) -> Optional[tuple[float, float, float]]:
         p_cam = np.asarray(obs.p_camera_object, dtype=float).reshape(3)
         uv = normalized_center_uv_fn(det, image_width=image_width, image_height=image_height)
-        scale = detection_scale_fn(det, image_width=image_width, image_height=image_height)
+        scale = float(detection_scale_fn(det, image_width=image_width, image_height=image_height))
+        msg = str(status_msg)
+        if not depth_valid:
+            msg = f"{msg} | depth invalid (uv/scale only)"
         p_world = self._publish_fn(
             object_camera_xyz=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
             label=str(obs.label),
             confidence=float(obs.confidence),
             image_center_uv=uv,
-            image_scale=float(scale),
+            image_scale=scale,
+            depth_valid=bool(depth_valid),
         )
         self._set_snapshot(
             label=str(obs.label),
@@ -261,8 +279,10 @@ class PerceptionCapture:
             p_camera=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
             p_world=p_world,
             last_update_s=float(time.time()),
-            status_msg=str(status_msg),
+            status_msg=msg,
             failed=False,
+            depth_valid=bool(depth_valid),
+            image_scale=scale,
         )
         return p_world
 
@@ -285,8 +305,9 @@ class PerceptionCapture:
             depth_scale=frame.depth_scale,
             detector_cfg=detector_cfg,
         )
-        if p_camera is None:
-            return None
+        depth_valid = p_camera is not None
+        if not depth_valid:
+            p_camera = np.asarray(self._fallback_p_camera(detector_cfg), dtype=float)
         obs = build_camera_observation(
             detection_label=det.label,
             confidence=det.confidence,
@@ -301,6 +322,7 @@ class PerceptionCapture:
             detection_scale_fn=detection_scale_fn,
             normalized_center_uv_fn=normalized_center_uv_fn,
             status_msg=status_msg,
+            depth_valid=depth_valid,
         )
 
     def _run_camera_search_track(self, **kwargs: Any) -> None:

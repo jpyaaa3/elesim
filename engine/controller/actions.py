@@ -1947,6 +1947,7 @@ class ControlService:
         confidence: float,
         image_center_uv: tuple[float, float],
         image_scale: float,
+        depth_valid: bool = True,
     ) -> Optional[tuple[float, float, float]]:
         if self.client is None:
             return None
@@ -1956,6 +1957,7 @@ class ControlService:
             confidence=confidence,
             image_center_uv=image_center_uv,
             image_scale=image_scale,
+            depth_valid=bool(depth_valid),
         )
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Any, Optional
 
@@ -43,6 +44,7 @@ class ControlClient:
 
         self.poller = zmq.Poller()
         self.poller.register(self.sock, zmq.POLLIN)
+        self._io_lock = threading.Lock()
 
         self.is_connected = True
         self.tx_seq = 0
@@ -144,14 +146,19 @@ class ControlClient:
                 self.last_perceived_timestamp_s = 0.0
 
     def _send(self, msg: dict) -> None:
-        try:
-            self.sock.send_json(msg, flags=zmq.NOBLOCK)
-        except zmq.ZMQError as exc:
-            self.is_connected = False
-            self.last_reply_ok = False
-            self.last_reply_reason = f"transport send failed: {exc}"
+        with self._io_lock:
+            try:
+                self.sock.send_json(msg, flags=zmq.NOBLOCK)
+            except zmq.ZMQError as exc:
+                self.is_connected = False
+                self.last_reply_ok = False
+                self.last_reply_reason = f"transport send failed: {exc}"
 
     def poll(self) -> None:
+        with self._io_lock:
+            self._poll_unlocked()
+
+    def _poll_unlocked(self) -> None:
         try:
             events = dict(self.poller.poll(timeout=0))
         except zmq.ZMQError as exc:
@@ -292,35 +299,45 @@ class ControlClient:
         confidence: float = 0.0,
         image_center_uv: tuple[float, float],
         image_scale: float,
-        wait_ack_s: float = 0.25,
+        depth_valid: bool = True,
+        wait_ack_s: float = 0.08,
     ) -> Optional[tuple[float, float, float]]:
         now = time.time()
-        self.tx_seq += 1
-        self.last_object_world_xyz = None
-        self._send(
-            {
-                "t": "target",
-                "ts": now,
-                "seq": self.tx_seq,
-                "source": "perception",
-                "object_camera": [
-                    float(object_camera_xyz[0]),
-                    float(object_camera_xyz[1]),
-                    float(object_camera_xyz[2]),
-                ],
-                "object_label": str(label),
-                "object_confidence": float(confidence),
-                "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
-                "image_scale": float(image_scale),
-            }
-        )
-        deadline = time.time() + max(float(wait_ack_s), 0.0)
-        while time.time() < deadline:
-            self.poll()
-            if self.last_object_world_xyz is not None:
-                return self.last_object_world_xyz
-            time.sleep(0.01)
-        return self.last_object_world_xyz
+        with self._io_lock:
+            self.tx_seq += 1
+            self.last_object_world_xyz = None
+            try:
+                self.sock.send_json(
+                    {
+                        "t": "target",
+                        "ts": now,
+                        "seq": self.tx_seq,
+                        "source": "perception",
+                        "object_camera": [
+                            float(object_camera_xyz[0]),
+                            float(object_camera_xyz[1]),
+                            float(object_camera_xyz[2]),
+                        ],
+                        "object_label": str(label),
+                        "object_confidence": float(confidence),
+                        "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
+                        "image_scale": float(image_scale),
+                        "depth_valid": bool(depth_valid),
+                    },
+                    flags=zmq.NOBLOCK,
+                )
+            except zmq.ZMQError as exc:
+                self.is_connected = False
+                self.last_reply_ok = False
+                self.last_reply_reason = f"transport send failed: {exc}"
+                return None
+            deadline = time.time() + max(float(wait_ack_s), 0.0)
+            while time.time() < deadline:
+                self._poll_unlocked()
+                if self.last_object_world_xyz is not None:
+                    return self.last_object_world_xyz
+                time.sleep(0.005)
+            return self.last_object_world_xyz
 
     def send_claw_command(self, *, claw_closed: bool, source: str = "target") -> None:
         now = time.time()

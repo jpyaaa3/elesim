@@ -850,52 +850,68 @@ class ControlHost:
                 )
                 return
             if source == "perception":
+                center_uv_raw = msg.get("image_center_uv", None)
+                if not (isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2):
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "perception missing image_center_uv",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
+                self.last_perceived_center_uv = (
+                    float(center_uv_raw[0]),
+                    float(center_uv_raw[1]),
+                )
+                scale_raw = msg.get("image_scale", None)
+                if scale_raw is not None:
+                    try:
+                        self.last_perceived_scale = float(scale_raw)
+                    except (TypeError, ValueError):
+                        self.last_perceived_scale = None
+                confidence_raw = msg.get("object_confidence", None)
+                if confidence_raw is not None:
+                    try:
+                        self.last_perceived_object_confidence = float(confidence_raw)
+                    except (TypeError, ValueError):
+                        self.last_perceived_object_confidence = 0.0
+                self.last_perceived_object_label = str(msg.get("object_label", ""))
+                self.last_perceived_timestamp_s = float(proto.now_s())
+                depth_valid = bool(msg.get("depth_valid", True))
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
-                    center_uv_raw = msg.get("image_center_uv", None)
-                    if isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2:
-                        self.last_perceived_center_uv = (
-                            float(center_uv_raw[0]),
-                            float(center_uv_raw[1]),
-                        )
-                    scale_raw = msg.get("image_scale", None)
-                    if scale_raw is not None:
-                        try:
-                            self.last_perceived_scale = float(scale_raw)
-                        except (TypeError, ValueError):
-                            self.last_perceived_scale = None
-                    confidence_raw = msg.get("object_confidence", None)
-                    if confidence_raw is not None:
-                        try:
-                            self.last_perceived_object_confidence = float(confidence_raw)
-                        except (TypeError, ValueError):
-                            self.last_perceived_object_confidence = 0.0
-                    self.last_perceived_object_label = str(msg.get("object_label", ""))
-                    self.last_perceived_timestamp_s = float(proto.now_s())
                     self.last_perceived_object_camera_xyz = (
                         float(object_camera_raw[0]),
                         float(object_camera_raw[1]),
                         float(object_camera_raw[2]),
                     )
+                object_world = None
+                if depth_valid and self.last_perceived_object_camera_xyz is not None:
                     ok, reason, object_world = self._update_perception_markers(
                         self.last_perceived_object_camera_xyz,
                         object_label=self.last_perceived_object_label,
                     )
-                    ack: Dict[str, Any] = {
-                        "t": "ack",
-                        "ts": proto.now_s(),
-                        "ok": bool(ok),
-                        "reason": str(reason),
-                        "device": self.device,
-                        "torque_enabled": self.torque_enabled,
-                    }
-                    if object_world is not None:
-                        p_w = np.asarray(object_world, dtype=float).reshape(3)
-                        ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
-                    self._reply(ident, ack)
-                    if bool(ok):
-                        self._broadcast_state_now()
-                    return
+                else:
+                    ok, reason = True, "perception image (depth invalid, uv/scale only)"
+                ack: Dict[str, Any] = {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                }
+                if object_world is not None:
+                    p_w = np.asarray(object_world, dtype=float).reshape(3)
+                    ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
+                self._reply(ident, ack)
+                self._broadcast_state_now()
+                return
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None
             partial_u_mode = False
