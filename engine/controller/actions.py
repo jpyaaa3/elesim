@@ -326,7 +326,13 @@ class ControlService:
         arr[3] = float(np.clip(arr[3], cfg.seg2_q_min_rad, cfg.seg2_q_max_rad))
         return arr
 
-    def _send_state_q_and_wait(self, *, timeout_s: float = 1.0, source: str = "ik") -> Optional[HostState]:
+    def _send_state_q_and_wait(
+        self,
+        *,
+        timeout_s: float = 1.0,
+        source: str = "ik",
+        force: bool = False,
+    ) -> Optional[HostState]:
         q_cmd = np.array(
             [
                 float(self.state.linear),
@@ -336,7 +342,7 @@ class ControlService:
             ],
             dtype=float,
         )
-        self.send_current_target(source=source)
+        self.send_current_target(source=source, force=force)
         return self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
 
     def _send_display_control_u_and_wait(self, display_u: ControlU, *, timeout_s: float = 1.0, source: str = "ik") -> Optional[HostState]:
@@ -358,10 +364,51 @@ class ControlService:
             u_s2=float(np.clip(display_u.u_s2, cfg.seg_u_min, cfg.seg_u_max)),
         )
 
-    def _command_q_and_wait(self, q: np.ndarray, *, timeout_s: float = 1.0) -> Optional[HostState]:
+    def _command_q_and_wait(
+        self,
+        q: np.ndarray,
+        *,
+        timeout_s: float = 1.0,
+        source: str = "slider",
+        force: bool = False,
+    ) -> Optional[HostState]:
         q_cmd = self._clamp_q(q)
         self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
-        return self._send_state_q_and_wait(timeout_s=float(timeout_s), source="slider")
+        return self._send_state_q_and_wait(
+            timeout_s=float(timeout_s), source=source, force=force
+        )
+
+    def _apply_ik_solution_to_host(
+        self,
+        q: np.ndarray,
+        *,
+        ik_target: np.ndarray,
+        ik_target_dir: np.ndarray,
+        err_m: float,
+        status_msg: str,
+        timeout_s: float = 2.0,
+    ) -> Optional[HostState]:
+        """Same path as UI Solve IK: update panel target + q, then send to sim/host."""
+        q_cmd = self._clamp_q(q)
+        target = np.asarray(ik_target, dtype=float).reshape(3)
+        direction = np.asarray(ik_target_dir, dtype=float).reshape(3)
+        dnorm = float(np.linalg.norm(direction))
+        if dnorm > 1e-9:
+            direction = direction / dnorm
+        self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
+        self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
+        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        self.state.set_ik_status(
+            running=False,
+            converged=True,
+            failed=False,
+            err_m=float(err_m),
+            msg=str(status_msg),
+        )
+        return self._send_state_q_and_wait(
+            timeout_s=float(timeout_s), source="ik", force=True
+        )
 
     def _camera_axes_from_q(self, q: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
         if self._hand_eye_transform is None:
@@ -749,8 +796,10 @@ class ControlService:
         self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=180.0, u_s2=180.0, apply_offset=False)
         self.send_current_target(source="slider")
 
-    def send_current_target(self, *, source: str) -> None:
-        if self.client is not None and ((not self.state.paused) or (source == "target")):
+    def send_current_target(self, *, source: str, force: bool = False) -> None:
+        if self.client is not None and (
+            force or (not self.state.paused) or (source == "target")
+        ):
             self.client.send_target_values(
                 linear_m=float(self.state.linear),
                 roll_rad=float(self.state.roll),
@@ -761,7 +810,7 @@ class ControlService:
                 target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
                 sag_model=(dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}),
                 claw_closed=bool(self.state.claw_closed),
-                force=bool(source == "target"),
+                force=force or bool(source == "target"),
             )
 
     def send_current_target_meta(self, *, source: str = "target") -> None:
@@ -1807,13 +1856,13 @@ class ControlService:
             return np.asarray(model.grasp_direction(q4), dtype=float).reshape(3)
         return direction / norm
 
-    def _pick_extend_cartesian_step(
+    def _pick_extend_cartesian(
         self,
-        step_m: float,
+        distance_m: float,
         host_state: Optional[HostState] = None,
     ) -> float:
-        """Advance grasp point ``step_m`` along end-effector local +X via position IK."""
-        delta = float(max(0.0, step_m))
+        """Advance grasp point ``distance_m`` along EE local +X via ``engine.ik.solve_then_align``."""
+        delta = float(max(0.0, distance_m))
         if delta <= 1e-6:
             return 0.0
         try:
@@ -1841,6 +1890,13 @@ class ControlService:
             print("[Pick] extend | missing ik_context fields")
             return 0.0
 
+        self.state.set_ik_status(
+            running=True,
+            converged=False,
+            failed=False,
+            err_m=float("inf"),
+            msg="pick extend IK",
+        )
         result = ik_pipeline.solve_then_align(
             target_world=target,
             target_dir_world=dir_hold,
@@ -1850,6 +1906,13 @@ class ControlService:
             current_seed=q0,
         )
         if not result.success or result.q is None:
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(result.position_error_m),
+                msg=str(result.reason),
+            )
             print(
                 "[Pick] extend | IK failed | reason=%s err=%.4fm"
                 % (str(result.reason), float(result.position_error_m))
@@ -1860,20 +1923,45 @@ class ControlService:
         tip1 = np.asarray(model.grasp_position(q1), dtype=float).reshape(3)
         travel = float(np.dot(tip1 - tip0, axis_w))
         if travel < 1e-6:
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(result.position_error_m),
+                msg="no motion along local +X",
+            )
             print("[Pick] extend | no motion along local +X")
             return 0.0
 
-        self._command_q_and_wait(q1, timeout_s=1.5)
+        align_msg = "pick extend | local+X %.0fmm" % (delta * 1000.0)
+        if result.align_attempted:
+            align_msg = "%s | dir %.1f -> %.1f deg" % (
+                align_msg,
+                float(np.degrees(result.initial_direction_angle_rad)),
+                float(np.degrees(result.direction_angle_rad)),
+            )
+        self._apply_ik_solution_to_host(
+            q1,
+            ik_target=target,
+            ik_target_dir=dir_hold,
+            err_m=float(result.position_error_m),
+            status_msg=align_msg,
+            timeout_s=3.0,
+        )
         self._pick_extend_progress_m = float(
             self._pick_extend_progress_m + max(0.0, travel)
         )
         print(
-            "[Pick] extend | IK local+X | step=%.1fmm travel=%.1fmm prog=%.0f/%.0fmm"
+            "[Pick] extend | solve_then_align | dist=%.0fmm travel=%.0fmm prog=%.0f/%.0fmm "
+            "| target=(%.3f, %.3f, %.3f)"
             % (
                 delta * 1000.0,
                 travel * 1000.0,
                 float(self._pick_extend_progress_m) * 1000.0,
                 float(self._pick_config_effective().approach_extend_m) * 1000.0,
+                float(target[0]),
+                float(target[1]),
+                float(target[2]),
             )
         )
         return max(0.0, travel)
@@ -2345,11 +2433,9 @@ class ControlService:
                                 self._pick_extend_ready_logged = True
 
                     ext_target_m = float(pk.approach_extend_m)
-                    ext_step_m = float(pk.approach_extend_step_m)
                     if bool(self._pick_extend_latched):
                         if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
                             remain_m = ext_target_m - float(self._pick_extend_progress_m)
-                            step_m = float(min(max(ext_step_m, 0.002), remain_m))
                             self.state.set_pick_status(
                                 running=True,
                                 failed=False,
@@ -2363,8 +2449,8 @@ class ControlService:
                                     conv.scale,
                                 ),
                             )
-                            traveled_m = self._pick_extend_cartesian_step(
-                                step_m, host_state
+                            traveled_m = self._pick_extend_cartesian(
+                                remain_m, host_state
                             )
                             print(
                                 "[Pick] step %d/%d | extend | cart=%.1fmm prog=%.0f/%.0fmm "
@@ -2380,9 +2466,9 @@ class ControlService:
                                     conv.scale,
                                 )
                             )
-                            if traveled_m < step_m * 0.12:
+                            if traveled_m < remain_m * 0.25:
                                 self._pick_extend_stall += 1
-                                if self._pick_extend_stall >= 8:
+                                if self._pick_extend_stall >= 2:
                                     self.state.set_pick_status(
                                         running=False,
                                         failed=True,
