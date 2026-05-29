@@ -73,23 +73,20 @@ def pick_ready_for_extend(
     scale_plateau: bool = False,
 ) -> tuple[bool, str]:
     """
-    Extend when strictly aligned, or after approach effort when CSRT scale stalls
-    (bbox area stops growing even as the arm advances).
+    Extend only when UV is aligned and image scale is at target (or plateaued there).
+
+    ``approach_steps`` is ignored (kept for logging only). Do not extend on loose
+    center or low scale just because approach ran many iterations.
     """
+    _ = int(approach_steps)
     conv = evaluate_pick_convergence(obs, cfg=cfg)
-    if conv.center_ok and conv.scale_ok:
-        return True, "aligned"
-    du, dv = pick_uv_deltas(obs, cfg=cfg)
-    loose = float(cfg.approach_loose_center_tol)
-    center_loose = abs(du) <= loose and abs(dv) <= loose
-    scale_floor = float(obs.scale) >= float(cfg.approach_min_scale)
-    min_steps = max(1, int(cfg.approach_min_steps))
-    if not scale_floor or not center_loose:
+    if not conv.center_ok:
         return False, ""
-    if bool(scale_plateau):
+    if conv.scale_ok:
+        return True, "aligned"
+    scale_need = float(cfg.target_scale) - float(cfg.scale_tol)
+    if bool(scale_plateau) and float(obs.scale) >= scale_need:
         return True, "scale_plateau"
-    if int(approach_steps) >= min_steps:
-        return True, "approach_steps"
     return False, ""
 
 

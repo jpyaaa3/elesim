@@ -1,4 +1,4 @@
-"""Tests for pick extend readiness when CSRT scale stalls."""
+"""Tests for pick extend readiness gates."""
 
 from __future__ import annotations
 
@@ -10,44 +10,71 @@ from engine.controller.perception import VisualObservation
 
 
 class PickExtendReadyTests(unittest.TestCase):
-    def test_approach_steps_allow_extend_when_scale_floor_met(self) -> None:
+    def test_aligned_requires_center_and_scale(self) -> None:
         cfg = PickConfig(
             target_scale=0.16,
             scale_tol=0.02,
             center_tol=0.06,
             target_uv_u=0.5,
             target_uv_v=-0.5,
-            approach_min_scale=0.09,
-            approach_min_steps=50,
-            approach_loose_center_tol=0.10,
         )
-        obs = VisualObservation(
-            label="ball",
-            confidence=0.9,
-            center_uv=(0.584, -0.537),
-            scale=0.101,
-            timestamp_s=1.0,
-        )
-        ready, reason = pick_ready_for_extend(
-            obs, cfg=cfg, approach_steps=77, scale_plateau=False
-        )
-        self.assertTrue(ready)
-        self.assertEqual(reason, "approach_steps")
-
-    def test_scale_plateau_path(self) -> None:
-        cfg = PickConfig(approach_min_scale=0.09, approach_loose_center_tol=0.10)
         obs = VisualObservation(
             label="ball",
             confidence=0.9,
             center_uv=(0.51, -0.51),
-            scale=0.10,
+            scale=0.15,
+            timestamp_s=1.0,
+        )
+        ready, reason = pick_ready_for_extend(obs, cfg=cfg)
+        self.assertTrue(ready)
+        self.assertEqual(reason, "aligned")
+
+    def test_many_approach_steps_not_enough(self) -> None:
+        cfg = PickConfig(target_scale=0.16, scale_tol=0.02, center_tol=0.06)
+        obs = VisualObservation(
+            label="ball",
+            confidence=0.9,
+            center_uv=(0.58, -0.54),
+            scale=0.129,
+            timestamp_s=1.0,
+        )
+        ready, _ = pick_ready_for_extend(
+            obs, cfg=cfg, approach_steps=100, scale_plateau=False
+        )
+        self.assertFalse(ready)
+
+    def test_scale_plateau_at_target_with_center(self) -> None:
+        cfg = PickConfig(
+            target_scale=0.16,
+            scale_tol=0.02,
+            center_tol=0.06,
+            target_uv_u=0.5,
+            target_uv_v=-0.5,
+        )
+        obs = VisualObservation(
+            label="ball",
+            confidence=0.9,
+            center_uv=(0.50, -0.50),
+            scale=0.145,
             timestamp_s=1.0,
         )
         ready, reason = pick_ready_for_extend(
-            obs, cfg=cfg, approach_steps=10, scale_plateau=True
+            obs, cfg=cfg, approach_steps=5, scale_plateau=True
         )
         self.assertTrue(ready)
         self.assertEqual(reason, "scale_plateau")
+
+    def test_scale_ok_without_center_fails(self) -> None:
+        cfg = PickConfig(target_scale=0.16, scale_tol=0.02, center_tol=0.06)
+        obs = VisualObservation(
+            label="ball",
+            confidence=0.9,
+            center_uv=(0.58, -0.54),
+            scale=0.16,
+            timestamp_s=1.0,
+        )
+        ready, _ = pick_ready_for_extend(obs, cfg=cfg)
+        self.assertFalse(ready)
 
 
 if __name__ == "__main__":
