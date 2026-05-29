@@ -67,6 +67,7 @@ class ControlClient:
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
+        self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -196,6 +197,13 @@ class ControlClient:
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
             self._update_perception_fields(msg)
+            object_world_raw = msg.get("object_world", None)
+            if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
+                self.last_object_world_xyz = (
+                    float(object_world_raw[0]),
+                    float(object_world_raw[1]),
+                    float(object_world_raw[2]),
+                )
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -275,6 +283,44 @@ class ControlClient:
 
     def disconnect_device(self) -> None:
         self._send({"t": "disconnect_device", "ts": time.time()})
+
+    def send_perception_observation(
+        self,
+        *,
+        object_camera_xyz: tuple[float, float, float],
+        label: str = "",
+        confidence: float = 0.0,
+        image_center_uv: tuple[float, float],
+        image_scale: float,
+        wait_ack_s: float = 0.25,
+    ) -> Optional[tuple[float, float, float]]:
+        now = time.time()
+        self.tx_seq += 1
+        self.last_object_world_xyz = None
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": "perception",
+                "object_camera": [
+                    float(object_camera_xyz[0]),
+                    float(object_camera_xyz[1]),
+                    float(object_camera_xyz[2]),
+                ],
+                "object_label": str(label),
+                "object_confidence": float(confidence),
+                "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
+                "image_scale": float(image_scale),
+            }
+        )
+        deadline = time.time() + max(float(wait_ack_s), 0.0)
+        while time.time() < deadline:
+            self.poll()
+            if self.last_object_world_xyz is not None:
+                return self.last_object_world_xyz
+            time.sleep(0.01)
+        return self.last_object_world_xyz
 
     def send_claw_command(self, *, claw_closed: bool, source: str = "target") -> None:
         now = time.time()

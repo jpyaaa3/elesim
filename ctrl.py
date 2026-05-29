@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -30,6 +30,13 @@ def main() -> None:
         sag_model_path="",
         raw_sag_model=None,
     )
+    perception_cfg = bundle.perception_config
+    pick_cfg = bundle.pick_config
+    state.visual_target_label = str(perception_cfg.target_label).strip()
+    state.visual_target_scale = float(pick_cfg.target_scale)
+    state.visual_center_tol = float(pick_cfg.center_tol)
+    state.visual_scale_tol = float(pick_cfg.scale_tol)
+
     service = ControlService(
         state,
         client=link,
@@ -37,11 +44,15 @@ def main() -> None:
         ik_cfg=bundle.ik_config,
         ik_context=ik_context,
         config_path=args.config,
+        perception_cfg=perception_cfg,
+        pick_cfg=pick_cfg,
     )
     gui = ControlPanel(
         state,
         service,
         use_hardware=bool(bundle.sim_config.use_hardware),
+        perception_cfg=perception_cfg,
+        pick_cfg=pick_cfg,
     )
     try:
         service.refresh_host_state()

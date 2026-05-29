@@ -56,6 +56,22 @@ class PanelState:
     visual_confidence_min: float = 0.0
     visual_target_label: str = ""
 
+    perception_running: bool = False
+    perception_failed: bool = False
+    perception_status_msg: str = ""
+    perception_frame_idx: int = 0
+    perception_label: str = ""
+    perception_confidence: float = 0.0
+    perception_camera_xyz: Optional[tuple[float, float, float]] = None
+    perception_world_xyz: Optional[tuple[float, float, float]] = None
+    perception_tracker_phase: str = "search"
+    perception_track_ok_frames: int = 0
+
+    pick_running: bool = False
+    pick_failed: bool = False
+    pick_phase: str = "idle"
+    pick_status_msg: str = ""
+
     target_x: float = 0.50
     target_y: float = 0.00
     target_z: float = 1.00
@@ -192,6 +208,53 @@ class PanelState:
 
     def clear_visual_status(self) -> None:
         self.set_visual_status(running=False, failed=False, msg="")
+
+    def set_perception_status(
+        self,
+        *,
+        running: bool,
+        failed: bool,
+        msg: str,
+        frame_idx: int = 0,
+        label: str = "",
+        confidence: float = 0.0,
+        camera_xyz: Optional[tuple[float, float, float]] = None,
+        world_xyz: Optional[tuple[float, float, float]] = None,
+        tracker_phase: str = "",
+        track_ok_frames: int = 0,
+    ) -> None:
+        with self._lock:
+            self.perception_running = bool(running)
+            self.perception_failed = bool(failed)
+            self.perception_status_msg = str(msg)
+            self.perception_frame_idx = int(frame_idx)
+            self.perception_label = str(label)
+            self.perception_confidence = float(confidence)
+            self.perception_camera_xyz = None if camera_xyz is None else tuple(camera_xyz)
+            self.perception_world_xyz = None if world_xyz is None else tuple(world_xyz)
+            if str(tracker_phase).strip():
+                self.perception_tracker_phase = str(tracker_phase)
+            self.perception_track_ok_frames = int(track_ok_frames)
+
+    def clear_perception_status(self) -> None:
+        self.set_perception_status(running=False, failed=False, msg="")
+
+    def set_pick_status(
+        self,
+        *,
+        running: bool,
+        failed: bool,
+        phase: str,
+        msg: str = "",
+    ) -> None:
+        with self._lock:
+            self.pick_running = bool(running)
+            self.pick_failed = bool(failed)
+            self.pick_phase = str(phase)
+            self.pick_status_msg = str(msg)
+
+    def clear_pick_status(self) -> None:
+        self.set_pick_status(running=False, failed=False, phase="idle", msg="")
 
     def set_ik_solution(self, roll: float, theta1: float, theta2: float) -> None:
         with self._lock:

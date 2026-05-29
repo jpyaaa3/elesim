@@ -2,7 +2,7 @@
   "type": "yolo",
   "model": "/home/hckang/continuum_app/autonomous_pick_place_app/yolov8n-seg.pt",
   "device": 0,
-  "target_label": "white_cup",
+  "target_label": "sports ball",
   "confidence_threshold": 0.35,
   "iou_threshold": 0.3,
   "imgsz": 640,

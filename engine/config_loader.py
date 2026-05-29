@@ -6,6 +6,7 @@ from __future__ import annotations
 import configparser
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
 from engine.joint_defs import JointLimit
@@ -104,6 +105,44 @@ class SpawnConfig:
 
 
 @dataclass(frozen=True)
+class PerceptionConfig:
+    enabled: bool = True
+    detector_config: str = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
+    mode: str = "camera"
+    detector: str = "config"
+    target_label: str = "sports ball"
+    yolo_device: str = ""
+    publish_hz: float = 10.0
+    show_preview: bool = True
+    pipeline: str = "search_track"
+    tracker: str = "csrt"
+    track_lost_frames: int = 15
+    reacquire_on_lost: bool = True
+
+    def resolved_detector_config_path(self) -> Path:
+        raw = str(self.detector_config).strip()
+        if not raw:
+            raw = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
+        path = Path(raw)
+        if path.is_absolute():
+            return path
+        return Path(PROJECT_ROOT) / path
+
+
+@dataclass(frozen=True)
+class PickConfig:
+    enabled: bool = True
+    target_scale: float = 0.12
+    scale_tol: float = 0.01
+    center_tol: float = 0.08
+    linear_step_u: float = 2.0
+    linear_gain: float = 40.0
+    max_iters: int = 40
+    require_track_frames: int = 3
+    acquire_timeout_s: float = 30.0
+
+
+@dataclass(frozen=True)
 class AppConfigBundle:
     sim_param: SimParam
     sim_config: SimConfig
@@ -112,6 +151,8 @@ class AppConfigBundle:
     spawn_config: SpawnConfig
     urdf_export_config: UrdfExportConfig
     ik_config: IkConfig
+    perception_config: PerceptionConfig
+    pick_config: PickConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -190,6 +231,39 @@ def _parse_direction4(text: str, *, key: str) -> Tuple[int, int, int, int]:
     return (values[0], values[1], values[2], values[3])
 
 
+def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PerceptionConfig:
+    pc0 = defaults.perception_config
+    return PerceptionConfig(
+        enabled=cp.getboolean("perception", "enabled", fallback=pc0.enabled),
+        detector_config=cp.get("perception", "detector_config", fallback=pc0.detector_config),
+        mode=cp.get("perception", "mode", fallback=pc0.mode),
+        detector=cp.get("perception", "detector", fallback=pc0.detector),
+        target_label=cp.get("perception", "target_label", fallback=pc0.target_label),
+        yolo_device=cp.get("perception", "yolo_device", fallback=pc0.yolo_device),
+        publish_hz=cp.getfloat("perception", "publish_hz", fallback=pc0.publish_hz),
+        show_preview=cp.getboolean("perception", "show_preview", fallback=pc0.show_preview),
+        pipeline=cp.get("perception", "pipeline", fallback=pc0.pipeline),
+        tracker=cp.get("perception", "tracker", fallback=pc0.tracker),
+        track_lost_frames=cp.getint("perception", "track_lost_frames", fallback=pc0.track_lost_frames),
+        reacquire_on_lost=cp.getboolean("perception", "reacquire_on_lost", fallback=pc0.reacquire_on_lost),
+    )
+
+
+def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickConfig:
+    pk0 = defaults.pick_config
+    return PickConfig(
+        enabled=cp.getboolean("pick", "enabled", fallback=pk0.enabled),
+        target_scale=cp.getfloat("pick", "target_scale", fallback=pk0.target_scale),
+        scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
+        center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
+        linear_step_u=cp.getfloat("pick", "linear_step_u", fallback=pk0.linear_step_u),
+        linear_gain=cp.getfloat("pick", "linear_gain", fallback=pk0.linear_gain),
+        max_iters=cp.getint("pick", "max_iters", fallback=pk0.max_iters),
+        require_track_frames=cp.getint("pick", "require_track_frames", fallback=pk0.require_track_frames),
+        acquire_timeout_s=cp.getfloat("pick", "acquire_timeout_s", fallback=pk0.acquire_timeout_s),
+    )
+
+
 def _default_app_config_bundle() -> AppConfigBundle:
     return AppConfigBundle(
         sim_param=SimParam(),
@@ -199,6 +273,8 @@ def _default_app_config_bundle() -> AppConfigBundle:
         spawn_config=SpawnConfig(),
         urdf_export_config=UrdfExportConfig(),
         ik_config=IkConfig(),
+        perception_config=PerceptionConfig(),
+        pick_config=PickConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -368,6 +444,8 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     spawn_config_cfg = _load_spawn_config(cp, defaults)
     urdf_export_config_cfg = _load_urdf_export_config(cp, defaults)
     ik_config_cfg = _load_ik_config(cp, defaults)
+    perception_config_cfg = _load_perception_config(cp, defaults)
+    pick_config_cfg = _load_pick_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -378,5 +456,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         spawn_config=spawn_config_cfg,
         urdf_export_config=urdf_export_config_cfg,
         ik_config=ik_config_cfg,
+        perception_config=perception_config_cfg,
+        pick_config=pick_config_cfg,
         mapping_config=mapping_config_cfg,
     )

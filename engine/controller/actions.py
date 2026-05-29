@@ -10,12 +10,14 @@ import numpy as np
 
 from addons.perception_bridge.hand_eye import camera_axes_world, load_hand_eye_transform
 from engine import ik as ik_pipeline
-from engine.config_loader import IkConfig, load_app_config_from_ini
+from engine.config_loader import IkConfig, PerceptionConfig, PickConfig, load_app_config_from_ini
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
 
 from .client import ControlClient
 from .perception import VisualObservation, extract_visual_observation
+from .object_pick import ObjectPickPhase, evaluate_pick_convergence
+from .perception_capture import PerceptionCapture, PerceptionSnapshot, TrackerPhase
 from .state import HostState, PanelState
 
 
@@ -57,6 +59,8 @@ class ControlService:
         ik_cfg: Optional[IkConfig] = None,
         ik_context: Optional[dict[str, Any]] = None,
         config_path: Optional[str] = None,
+        perception_cfg: Optional[PerceptionConfig] = None,
+        pick_cfg: Optional[PickConfig] = None,
     ) -> None:
         self.state = state
         self.client = client
@@ -64,6 +68,11 @@ class ControlService:
         self._ik_cfg = ik_cfg or IkConfig()
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
+        self._perception_cfg = perception_cfg or PerceptionConfig()
+        self._pick_cfg = pick_cfg or PickConfig()
+        self._perception_capture: Optional[PerceptionCapture] = None
+        self._pick_worker: Optional[threading.Thread] = None
+        self._pick_stop_event = threading.Event()
         self._hand_eye_transform = None
         self._hand_eye_parent_frame = "node9"
         self._ik_worker: Optional[threading.Thread] = None
@@ -209,7 +218,10 @@ class ControlService:
         )
 
     def _visual_busy(self) -> bool:
-        return self._ik_worker is not None or self._visual_worker is not None
+        return self._ik_worker is not None or self._visual_worker is not None or self._pick_worker is not None
+
+    def _pick_busy(self) -> bool:
+        return self._pick_worker is not None
 
     def _q_array_from_state(self, host_state: Optional[HostState] = None) -> np.ndarray:
         src = host_state if host_state is not None else self.current_host_state()
@@ -660,6 +672,8 @@ class ControlService:
 
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._visual_busy():
+            return
+        if self._pick_busy():
             return
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -1433,7 +1447,289 @@ class ControlService:
         if self.client is not None:
             self.client.torque_off()
 
+    def perception_snapshot(self) -> Optional[PerceptionSnapshot]:
+        cap = self._perception_capture
+        return None if cap is None else cap.snapshot()
+
+    def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
+        self.state.set_perception_status(
+            running=bool(snap.running),
+            failed=bool(snap.failed),
+            msg=str(snap.status_msg),
+            frame_idx=int(snap.frame_idx),
+            label=str(snap.label),
+            confidence=float(snap.confidence),
+            camera_xyz=snap.p_camera,
+            world_xyz=snap.p_world,
+            tracker_phase=str(snap.tracker_phase),
+            track_ok_frames=int(snap.track_ok_frames),
+        )
+
+    def _pick_config_effective(self) -> PickConfig:
+        pk = self._pick_cfg
+        return PickConfig(
+            enabled=bool(pk.enabled),
+            target_scale=float(self.state.visual_target_scale),
+            scale_tol=float(self.state.visual_scale_tol),
+            center_tol=float(self.state.visual_center_tol),
+            linear_step_u=float(pk.linear_step_u),
+            linear_gain=float(pk.linear_gain),
+            max_iters=int(pk.max_iters),
+            require_track_frames=int(pk.require_track_frames),
+            acquire_timeout_s=float(pk.acquire_timeout_s),
+        )
+
+    def _wait_for_track_lock(self, *, timeout_s: float, require_frames: int) -> bool:
+        deadline = time.time() + max(float(timeout_s), 0.1)
+        while time.time() < deadline:
+            if self._pick_stop_event.is_set():
+                return False
+            cap = self._perception_capture
+            if cap is not None and cap.track_ok_frames() >= int(require_frames):
+                if cap.tracker_phase() == TrackerPhase.TRACK.value:
+                    return True
+            time.sleep(0.05)
+        return False
+
+    def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
+        cfg = self._pick_config_effective()
+        center_tol = float(cfg.center_tol)
+        roll_du = 0.0
+        seg_du = 0.0
+        u_err = -float(obs.center_uv[0])
+        v_err = -float(obs.center_uv[1])
+        if abs(float(obs.center_uv[0])) > center_tol:
+            roll_du = float(
+                np.clip(
+                    self._visual_u_gain * u_err,
+                    -self._visual_auto_roll_u_max,
+                    self._visual_auto_roll_u_max,
+                )
+            )
+        elif abs(float(obs.center_uv[1])) > center_tol:
+            seg_du = float(
+                np.clip(
+                    self._visual_v_gain * v_err,
+                    -self._visual_auto_seg_u_max,
+                    self._visual_auto_seg_u_max,
+                )
+            )
+        return self._clamp_display_u(
+            ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll + roll_du),
+                u_s1=float(current_u.u_s1 + seg_du),
+                u_s2=float(current_u.u_s2 + seg_du),
+            )
+        )
+
+    def _apply_pick_approach_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
+        cfg = self._pick_config_effective()
+        scale_err = float(cfg.target_scale) - float(obs.scale)
+        linear_du = 0.0
+        if scale_err > float(cfg.scale_tol):
+            linear_du = float(
+                np.clip(
+                    float(cfg.linear_gain) * scale_err,
+                    0.0,
+                    float(cfg.linear_step_u),
+                )
+            )
+        return self._clamp_display_u(
+            ControlU(
+                u_linear=float(current_u.u_linear + linear_du),
+                u_roll=float(current_u.u_roll),
+                u_s1=float(current_u.u_s1),
+                u_s2=float(current_u.u_s2),
+            )
+        )
+
+    def stop_object_pick(self) -> None:
+        self._pick_stop_event.set()
+        self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
+
+    def start_object_pick(self) -> None:
+        if self._pick_busy() or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+
+        cfg = self._pick_config_effective()
+        self._pick_stop_event.clear()
+        self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.ACQUIRE.value,
+            msg="acquiring target",
+        )
+
+        if self._perception_capture is None or not self._perception_capture.running():
+            self.start_perception_capture()
+
+        def _worker() -> None:
+            try:
+                pk = self._pick_config_effective()
+                if not self._wait_for_track_lock(
+                    timeout_s=float(pk.acquire_timeout_s),
+                    require_frames=int(pk.require_track_frames),
+                ):
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="track acquire timeout",
+                    )
+                    return
+
+                current_u = self.current_control_u()
+                stale_count = 0
+                for it in range(int(pk.max_iters)):
+                    if self._pick_stop_event.is_set():
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.IDLE.value,
+                            msg="stopped",
+                        )
+                        return
+
+                    host_state = self.client.refresh_state() if self.client is not None else None
+                    obs = self.current_visual_observation(host_state)
+                    if obs is None:
+                        stale_count += 1
+                        if stale_count >= 3:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg="observation lost",
+                            )
+                            return
+                        time.sleep(0.05)
+                        continue
+                    stale_count = 0
+
+                    conv = evaluate_pick_convergence(obs, cfg=pk)
+                    if conv.center_ok and conv.scale_ok:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.DONE.value,
+                            msg="pick ready | uv=(%.3f, %.3f) scale=%.3f (grasp manual)"
+                            % (conv.u_err, conv.v_err, conv.scale),
+                        )
+                        return
+
+                    if not conv.center_ok:
+                        phase = ObjectPickPhase.CENTER
+                        next_u = self._apply_pick_center_step(obs, current_u)
+                    else:
+                        phase = ObjectPickPhase.APPROACH
+                        next_u = self._apply_pick_approach_step(obs, current_u)
+
+                    if next_u == current_u:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.DONE.value,
+                            msg="command clamped | uv=(%.3f, %.3f) scale=%.3f"
+                            % (conv.u_err, conv.v_err, conv.scale),
+                        )
+                        return
+
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=phase.value,
+                        msg="%s | uv=(%.3f, %.3f) scale=%.3f"
+                        % (phase.value, conv.u_err, conv.v_err, conv.scale),
+                    )
+                    self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                    current_u = next_u
+                    time.sleep(0.05)
+
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="iteration limit",
+                )
+            except Exception as exc:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=str(exc),
+                )
+            finally:
+                self._pick_worker = None
+
+        self._pick_worker = threading.Thread(target=_worker, name="object-pick", daemon=True)
+        self._pick_worker.start()
+
+    def _publish_perception_to_host(
+        self,
+        *,
+        object_camera_xyz: tuple[float, float, float],
+        label: str,
+        confidence: float,
+        image_center_uv: tuple[float, float],
+        image_scale: float,
+    ) -> Optional[tuple[float, float, float]]:
+        if self.client is None:
+            return None
+        return self.client.send_perception_observation(
+            object_camera_xyz=object_camera_xyz,
+            label=label,
+            confidence=confidence,
+            image_center_uv=image_center_uv,
+            image_scale=image_scale,
+        )
+
+    def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
+        if self._perception_capture is not None and self._perception_capture.running():
+            self.state.set_perception_status(running=True, failed=False, msg="already running")
+            return
+        if self.client is None:
+            self.state.set_perception_status(running=False, failed=True, msg="no host client")
+            return
+        cfg = config or self._perception_cfg
+        self._perception_cfg = cfg
+        self.state.visual_target_label = str(cfg.target_label).strip()
+        self._perception_capture = PerceptionCapture(
+            cfg,
+            publish_fn=self._publish_perception_to_host,
+            on_snapshot=self._on_perception_snapshot,
+        )
+        self.state.set_perception_status(running=True, failed=False, msg="starting")
+        self._perception_capture.start()
+
+    def stop_perception_capture(self) -> None:
+        cap = self._perception_capture
+        if cap is not None:
+            cap.stop()
+        self.state.set_perception_status(running=False, failed=False, msg="stopped")
+
+    def update_perception_config(self, config: PerceptionConfig) -> None:
+        self._perception_cfg = config
+        self.state.visual_target_label = str(config.target_label).strip()
+
     def close(self) -> None:
         self._visual_stop_event.set()
+        self.stop_object_pick()
+        self.stop_perception_capture()
         if self.client is not None:
             self.client.close()
