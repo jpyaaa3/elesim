@@ -544,18 +544,22 @@ class ControlHost:
             self._pick.look_cal_baseline_e = None
             self._pick.look_cal_q_anchor = None
             self._pick.look_cal_axis_idx = 0
+            self._pick_sync_desired_camera_from_live()
             cfg = self.pick_fsm_cfg
             if bool(cfg.look_jacobian_include_roll):
                 self._pick.look_cal_axis_order = [0, 1, 2]
             else:
                 self._pick.look_cal_axis_order = [1, 2]
-            if str(cfg.look_servo_mode).strip().lower() == "jacobian":
+            skip_cal = self._pick_look_align_ok()
+            if str(cfg.look_servo_mode).strip().lower() == "jacobian" and not skip_cal:
                 self._pick.look_cal_phase = "running"
                 self._pick.look_cal_substep = "baseline_wait"
                 self._pick.look_cal_phase_ts = float(now)
             else:
-                self._pick.look_cal_phase = ""
+                self._pick.look_cal_phase = "done" if skip_cal else ""
                 self._pick.look_cal_substep = ""
+                if skip_cal:
+                    print("[pick] LOOK_ALIGN: xy already within threshold, skip Jacobian cal", flush=True)
 
     def _pick_can_auto_advance(self) -> bool:
         """Uncommanded pick flow (e.g. TARGET_LOCK search). Manual mode stays on TARGET_LOCK."""
@@ -700,7 +704,9 @@ class ControlHost:
 
     def _pick_tracker_measurement_ok(self) -> bool:
         state = str(self._pick.track_state or "").strip().upper()
-        if state in ("LOST", "SEARCH", ""):
+        if state in ("LOST", "SEARCH"):
+            return False
+        if state == "" and self._pick_live_object_camera() is None:
             return False
         if float(self._pick.track_confidence) < float(self.pick_fsm_cfg.track_confidence_min):
             return False
@@ -1212,6 +1218,8 @@ class ControlHost:
     def _pick_use_jacobian_servo(self) -> bool:
         if str(self.pick_fsm_cfg.look_servo_mode).strip().lower() != "jacobian":
             return False
+        if str(self._pick.look_cal_phase) == "running":
+            return False
         if self._pick.look_jacobian is None:
             return False
         return str(self._pick.look_cal_phase) in ("", "done")
@@ -1328,17 +1336,23 @@ class ControlHost:
             eps = self._pick_jacobian_axis_eps(axis)
             col = estimate_jacobian_column(e0, e1, eps)
             norm_min = float(cfg.look_jacobian_column_norm_min)
-            if not jacobian_column_usable(col, norm_min=norm_min):
-                self._pick_jacobian_calibrate_failed(f"singular_column_{axis_name}")
-                return False
-            self._pick.look_cal_columns.append(np.asarray(col, dtype=float).reshape(2))
             de_norm = float(np.linalg.norm(np.asarray(e1) - np.asarray(e0)))
+            self._pick_apply_q_tuple(q_anchor, now)
+            if not jacobian_column_usable(col, norm_min=norm_min):
+                print(
+                    f"[look_jacobian] skip singular column {axis_name} de_norm={de_norm:.5f} "
+                    f"col_norm={float(np.linalg.norm(col)):.6f}",
+                    flush=True,
+                )
+                self._pick.look_cal_substep = "restore_wait"
+                self._pick.look_cal_phase_ts = float(now)
+                return True
+            self._pick.look_cal_columns.append(np.asarray(col, dtype=float).reshape(2))
             print(
                 f"[look_jacobian] column {axis_name} de_norm={de_norm:.5f} "
                 f"col=[{col[0]:+.5f},{col[1]:+.5f}]",
                 flush=True,
             )
-            self._pick_apply_q_tuple(q_anchor, now)
             self._pick.look_cal_substep = "restore_wait"
             self._pick.look_cal_phase_ts = float(now)
             return True
@@ -1348,6 +1362,9 @@ class ControlHost:
                 return True
             self._pick.look_cal_axis_idx += 1
             if self._pick.look_cal_axis_idx >= len(axis_order):
+                if not self._pick.look_cal_columns:
+                    self._pick_jacobian_calibrate_failed("no_usable_columns")
+                    return False
                 try:
                     j_mat = stack_jacobian(self._pick.look_cal_columns)
                 except Exception as exc:
@@ -1366,6 +1383,19 @@ class ControlHost:
 
         self._pick.look_cal_substep = "baseline_wait"
         self._pick.look_cal_phase_ts = float(now)
+        return True
+
+    def _pick_sync_desired_camera_from_live(self) -> bool:
+        """Align LOOK/ADVANCE error target to current perception (not config 0,0)."""
+        live = self._pick_live_object_camera()
+        if live is None:
+            return False
+        dz = float(self._pick.desired_camera_object[2])
+        self._pick.desired_camera_object = (float(live[0]), float(live[1]), dz)
+        print(
+            f"[pick] desired_camera_xy synced to live ({live[0]:+.4f},{live[1]:+.4f})",
+            flush=True,
+        )
         return True
 
     def _pick_desired_camera_xy(self) -> tuple[float, float]:
@@ -1410,7 +1440,11 @@ class ControlHost:
             return True
         if self._pick.stage == PickStage.TARGET_LOCK:
             return False
-        return state in ("SEARCH", "")
+        if state == "SEARCH":
+            return True
+        if state == "":
+            return self._pick_live_object_camera() is None
+        return False
 
     def _pick_handle_tracker_lost(self, now: float) -> bool:
         if not self._pick_tracker_lost():
