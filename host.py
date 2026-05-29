@@ -800,6 +800,7 @@ class ControlHost:
         self._pick_record_perception_packet({}, object_camera_xyz, object_world_xyz)
 
     def _manual_hold_stage(self, stage: PickStage) -> bool:
+        """Manual mode blocks auto stage transitions via _pick_can_auto_advance(), not control ticks."""
         return bool(self._pick.manual_mode) and self._pick.stage == stage
 
     def _estimate_object_camera_stats(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
@@ -1689,15 +1690,11 @@ class ControlHost:
                 return
             if self._pick_handle_tracker_lost(now):
                 return
-            if self._manual_hold_stage(PickStage.VIEW_ALIGN):
-                return
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):
                 if self._pick_can_auto_advance():
                     self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.STOP_AND_CHECK:
-            if self._manual_hold_stage(PickStage.STOP_AND_CHECK):
-                return
             if self._pick_handle_tracker_lost(now):
                 return
             if not self._pick_tracker_measurement_ok():
@@ -1738,8 +1735,6 @@ class ControlHost:
                     self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.LOOK_ALIGN:
-            if self._manual_hold_stage(PickStage.LOOK_ALIGN):
-                return
             if self._pick_handle_tracker_lost(now):
                 return
             if not self._pick_tracker_measurement_ok():
@@ -1818,8 +1813,6 @@ class ControlHost:
                     self._pick_set_stage(PickStage.LOOK_ALIGN, now)
             return
         if self._pick.stage == PickStage.COMMIT_GATE:
-            if self._manual_hold_stage(PickStage.COMMIT_GATE):
-                return
             if self._pick_handle_tracker_lost(now):
                 return
             pass_gate = (
@@ -1848,8 +1841,6 @@ class ControlHost:
                     self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.SHORT_APPROACH:
-            if self._manual_hold_stage(PickStage.SHORT_APPROACH):
-                return
             if self._pick.anchor_world_xyz is None:
                 self._pick_hard_fail(now)
                 return
@@ -1892,15 +1883,11 @@ class ControlHost:
                     self._pick_hard_fail(now)
             return
         if self._pick.stage == PickStage.CLOSE_GRIPPER:
-            if self._manual_hold_stage(PickStage.CLOSE_GRIPPER):
-                return
             self.last_claw_closed = True
             if self._pick_can_auto_advance():
                 self._pick_set_stage(PickStage.LIFT_AND_VERIFY, now)
             return
         if self._pick.stage == PickStage.LIFT_AND_VERIFY:
-            if self._manual_hold_stage(PickStage.LIFT_AND_VERIFY):
-                return
             if self.last_actual_tip_xyz is None:
                 if stage_elapsed > float(self.pick_fsm_cfg.lift_verify_timeout_s):
                     if self._pick_can_auto_advance():
