@@ -1767,14 +1767,44 @@ class ControlService:
         self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
         return True
 
+    def _pick_ee_axis_world(
+        self,
+        model: Any,
+        q: np.ndarray,
+        *,
+        axis_local: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    ) -> np.ndarray:
+        """Unit vector in world frame for a body-fixed axis (default EE local +X)."""
+        from engine.iklib.kinematics import _forward_link_tf
+
+        context = model.context
+        q4 = model.clamp_q(q)
+        link_tf = _forward_link_tf(context, q4)
+        term = str(context["terminal_link_name"])
+        if term not in link_tf:
+            raise RuntimeError(f"terminal link missing from FK: {term}")
+        _p_link, R_link = link_tf[term]
+        approach_rot_tip = np.asarray(
+            context.get("approach_rot_tip", np.eye(3)), dtype=float
+        ).reshape(3, 3)
+        local = np.asarray(axis_local, dtype=float).reshape(3)
+        local_norm = float(np.linalg.norm(local))
+        if local_norm <= 1e-9:
+            local = np.array([1.0, 0.0, 0.0], dtype=float)
+        else:
+            local = local / local_norm
+        direction = R_link @ approach_rot_tip @ local
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1e-9:
+            return np.asarray(model.grasp_direction(q4), dtype=float).reshape(3)
+        return direction / norm
+
     def _pick_extend_cartesian_step(
         self,
         step_m: float,
         host_state: Optional[HostState] = None,
     ) -> float:
-        """Advance gripper along grasp axis (all 4 DOF via IK), not linear joint only."""
-        from engine.iklib.kinematics import _damped_pinv, _limited_step
-
+        """Advance grasp point ``step_m`` along end-effector local +X via position IK."""
         delta = float(max(0.0, step_m))
         if delta <= 1e-6:
             return 0.0
@@ -1783,27 +1813,60 @@ class ControlService:
         except Exception as exc:
             print(f"[Pick] extend | IK model unavailable: {exc}")
             return 0.0
+
         q0 = self._q_array_from_state(host_state)
-        tip0 = model.grasp_position(q0)
-        dir_w = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
-        J = model.position_jacobian(q0)
-        dq = np.asarray(_damped_pinv(J) @ (dir_w * delta), dtype=float).reshape(4)
-        dq = np.asarray(
-            _limited_step(
-                dq,
-                max_linear_m=max(delta * 1.5, 0.002),
-                max_angle_rad=float(np.radians(3.5)),
-            ),
-            dtype=float,
+        tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+        axis_w = self._pick_ee_axis_world(model, q0, axis_local=(1.0, 0.0, 0.0))
+        target = tip0 + axis_w * delta
+        dir_hold = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        required = (
+            "limit",
+            "fk_joint_chain",
+            "terminal_link_name",
+            "old_tip_local_offset",
+            "grasp_offset_node_local",
         )
-        q1 = model.clamp_q(q0 + dq)
-        if np.allclose(q1, q0, atol=1e-9, rtol=0.0):
+        if any(k not in ctx for k in required):
+            print("[Pick] extend | missing ik_context fields")
             return 0.0
-        tip1 = model.grasp_position(q1)
-        travel = float(np.dot(tip1 - tip0, dir_w))
+
+        result = ik_pipeline.solve_then_align(
+            target_world=target,
+            target_dir_world=dir_hold,
+            context=ctx,
+            position_tol_m=max(float(self._ik_cfg.tol), 1e-4),
+            max_iters=max(int(self._ik_cfg.max_iters), 1),
+            current_seed=q0,
+        )
+        if not result.success or result.q is None:
+            print(
+                "[Pick] extend | IK failed | reason=%s err=%.4fm"
+                % (str(result.reason), float(result.position_error_m))
+            )
+            return 0.0
+
+        q1 = np.asarray(result.q, dtype=float).reshape(4)
+        tip1 = np.asarray(model.grasp_position(q1), dtype=float).reshape(3)
+        travel = float(np.dot(tip1 - tip0, axis_w))
+        if travel < 1e-6:
+            print("[Pick] extend | no motion along local +X")
+            return 0.0
+
         self._command_q_and_wait(q1, timeout_s=1.5)
         self._pick_extend_progress_m = float(
             self._pick_extend_progress_m + max(0.0, travel)
+        )
+        print(
+            "[Pick] extend | IK local+X | step=%.1fmm travel=%.1fmm prog=%.0f/%.0fmm"
+            % (
+                delta * 1000.0,
+                travel * 1000.0,
+                float(self._pick_extend_progress_m) * 1000.0,
+                float(self._pick_config_effective().approach_extend_m) * 1000.0,
+            )
         )
         return max(0.0, travel)
 
