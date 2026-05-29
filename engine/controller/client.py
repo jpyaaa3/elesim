@@ -61,6 +61,11 @@ class ControlClient:
         self.last_safety_fault: str = ""
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_label: str = ""
+        self.last_perceived_object_confidence: float = 0.0
+        self.last_perceived_center_uv: Optional[tuple[float, float]] = None
+        self.last_perceived_scale: Optional[float] = None
+        self.last_perceived_timestamp_s: float = 0.0
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -95,11 +100,38 @@ class ControlClient:
             safety_fault=str(self.last_safety_fault),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
+            perceived_object_label=str(self.last_perceived_object_label),
+            perceived_object_confidence=float(self.last_perceived_object_confidence),
+            perceived_center_uv=self.last_perceived_center_uv,
+            perceived_scale=self.last_perceived_scale,
+            perceived_timestamp_s=float(self.last_perceived_timestamp_s),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
             u=self.last_u,
         )
+
+    def _update_perception_fields(self, msg: dict[str, Any]) -> None:
+        if "perceived_object_label" in msg:
+            self.last_perceived_object_label = str(msg.get("perceived_object_label", ""))
+        if "perceived_object_confidence" in msg:
+            try:
+                self.last_perceived_object_confidence = float(msg.get("perceived_object_confidence", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_object_confidence = 0.0
+        center_uv_raw = msg.get("perceived_center_uv", None)
+        if isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2:
+            self.last_perceived_center_uv = (float(center_uv_raw[0]), float(center_uv_raw[1]))
+        if "perceived_scale" in msg:
+            try:
+                self.last_perceived_scale = float(msg.get("perceived_scale", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_scale = None
+        if "perceived_timestamp_s" in msg:
+            try:
+                self.last_perceived_timestamp_s = float(msg.get("perceived_timestamp_s", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_timestamp_s = 0.0
 
     def _send(self, msg: dict) -> None:
         try:
@@ -154,6 +186,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -193,6 +226,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (

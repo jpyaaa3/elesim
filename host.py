@@ -79,6 +79,11 @@ class ControlHost:
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_label: str = ""
+        self.last_perceived_object_confidence: float = 0.0
+        self.last_perceived_center_uv: Optional[tuple[float, float]] = None
+        self.last_perceived_scale: Optional[float] = None
+        self.last_perceived_timestamp_s: float = 0.0
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self._last_hw_pos_by_id: Dict[int, int] = {}
@@ -168,6 +173,11 @@ class ControlHost:
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
             self.last_actual_tip_dir = None
+            self.last_perceived_object_label = ""
+            self.last_perceived_object_confidence = 0.0
+            self.last_perceived_center_uv = None
+            self.last_perceived_scale = None
+            self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -799,13 +809,33 @@ class ControlHost:
             if source == "perception":
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
+                    center_uv_raw = msg.get("image_center_uv", None)
+                    if isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2:
+                        self.last_perceived_center_uv = (
+                            float(center_uv_raw[0]),
+                            float(center_uv_raw[1]),
+                        )
+                    scale_raw = msg.get("image_scale", None)
+                    if scale_raw is not None:
+                        try:
+                            self.last_perceived_scale = float(scale_raw)
+                        except (TypeError, ValueError):
+                            self.last_perceived_scale = None
+                    confidence_raw = msg.get("object_confidence", None)
+                    if confidence_raw is not None:
+                        try:
+                            self.last_perceived_object_confidence = float(confidence_raw)
+                        except (TypeError, ValueError):
+                            self.last_perceived_object_confidence = 0.0
+                    self.last_perceived_object_label = str(msg.get("object_label", ""))
+                    self.last_perceived_timestamp_s = float(proto.now_s())
                     ok, reason, object_world = self._update_perception_markers(
                         (
                             float(object_camera_raw[0]),
                             float(object_camera_raw[1]),
                             float(object_camera_raw[2]),
                         ),
-                        object_label=str(msg.get("object_label", "")),
+                        object_label=self.last_perceived_object_label,
                     )
                     ack: Dict[str, Any] = {
                         "t": "ack",
@@ -931,6 +961,11 @@ class ControlHost:
                         ik_target_dir=self.last_ik_target_dir,
                         actual_tip_xyz=self.last_actual_tip_xyz,
                         actual_tip_dir=self.last_actual_tip_dir,
+                        perceived_object_label=(self.last_perceived_object_label or None),
+                        perceived_object_confidence=self.last_perceived_object_confidence,
+                        perceived_center_uv=self.last_perceived_center_uv,
+                        perceived_scale=self.last_perceived_scale,
+                        perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         claw_current=self._last_claw_current,

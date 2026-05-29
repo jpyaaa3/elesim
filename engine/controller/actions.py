@@ -14,6 +14,7 @@ from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q
 from engine.sag_model import load_sag_model_json
 
 from .client import ControlClient
+from .perception import VisualObservation, extract_visual_observation
 from .state import HostState, PanelState
 
 
@@ -63,6 +64,8 @@ class ControlService:
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
         self._ik_worker: Optional[threading.Thread] = None
+        self._visual_worker: Optional[threading.Thread] = None
+        self._visual_stop_event = threading.Event()
         self._calibration_current_threshold_ma = 1400
         self._calibration_current_delta_ma = 350
         self._calibration_current_min_threshold_ma = 650
@@ -79,6 +82,17 @@ class ControlService:
             "s1": ("s1", "seg1"),
             "s2": ("s2", "seg2"),
         }
+        self._visual_obs_stale_s = 0.75
+        self._visual_probe_linear_m = 0.004
+        self._visual_probe_roll_rad = math.radians(3.0)
+        self._visual_probe_seg_rad = math.radians(3.0)
+        self._visual_step_linear_m = 0.010
+        self._visual_step_roll_rad = math.radians(6.0)
+        self._visual_step_seg_rad = math.radians(6.0)
+        self._visual_damping = 0.08
+        self._visual_outer_iters = 12
+        self._visual_nudge_roll_u = 3.0
+        self._visual_nudge_tilt_u = 3.0
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -161,6 +175,114 @@ class ControlService:
         if self.client is None:
             return None
         return self.client.get_state()
+
+    def current_visual_observation(self, host_state: Optional[HostState] = None) -> Optional[VisualObservation]:
+        state = host_state if host_state is not None else self.current_host_state()
+        return extract_visual_observation(
+            state,
+            target_label=str(self.state.visual_target_label),
+            stale_timeout_s=float(self._visual_obs_stale_s),
+            min_confidence=float(self.state.visual_confidence_min),
+        )
+
+    def _visual_busy(self) -> bool:
+        return self._ik_worker is not None or self._visual_worker is not None
+
+    def _q_array_from_state(self, host_state: Optional[HostState] = None) -> np.ndarray:
+        src = host_state if host_state is not None else self.current_host_state()
+        if src is not None and src.q is not None:
+            return np.array(
+                [
+                    float(src.q.linear_m),
+                    float(src.q.roll_rad),
+                    float(src.q.theta1_rad),
+                    float(src.q.theta2_rad),
+                ],
+                dtype=float,
+            )
+        return np.array(
+            [
+                float(self.state.linear),
+                float(self.state.roll),
+                float(self.state.theta1),
+                float(self.state.theta2),
+            ],
+            dtype=float,
+        )
+
+    def _clamp_q(self, q: np.ndarray) -> np.ndarray:
+        arr = np.asarray(q, dtype=float).reshape(4).copy()
+        cfg = self._mapping_cfg
+        arr[0] = float(np.clip(arr[0], cfg.linear_q_min_m, cfg.linear_q_max_m))
+        arr[1] = float(np.clip(arr[1], cfg.roll_q_min_rad, cfg.roll_q_max_rad))
+        arr[2] = float(np.clip(arr[2], cfg.seg1_q_min_rad, cfg.seg1_q_max_rad))
+        arr[3] = float(np.clip(arr[3], cfg.seg2_q_min_rad, cfg.seg2_q_max_rad))
+        return arr
+
+    def _command_q_and_wait(self, q: np.ndarray, *, timeout_s: float = 1.0) -> Optional[HostState]:
+        q_cmd = self._clamp_q(q)
+        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        self.send_current_target(source="ik")
+        return self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+
+    @staticmethod
+    def _visual_feature_vec(obs: VisualObservation) -> np.ndarray:
+        return np.array(
+            [
+                float(obs.center_uv[0]),
+                float(obs.center_uv[1]),
+                float(obs.scale),
+            ],
+            dtype=float,
+        )
+
+    def _visual_error_vec(self, obs: VisualObservation) -> np.ndarray:
+        target_scale = float(self.state.visual_target_scale)
+        return np.array(
+            [
+                -float(obs.center_uv[0]),
+                -float(obs.center_uv[1]),
+                float(target_scale - obs.scale),
+            ],
+            dtype=float,
+        )
+
+    def _visual_cost(self, obs: VisualObservation) -> float:
+        err = self._visual_error_vec(obs)
+        return float(4.0 * err[0] ** 2 + 4.0 * err[1] ** 2 + err[2] ** 2)
+
+    def _estimate_visual_jacobian(self, base_q: np.ndarray, base_obs: VisualObservation) -> np.ndarray:
+        eps = np.array(
+            [
+                float(self._visual_probe_linear_m),
+                float(self._visual_probe_roll_rad),
+                float(self._visual_probe_seg_rad),
+                float(self._visual_probe_seg_rad),
+            ],
+            dtype=float,
+        )
+        base_feat = self._visual_feature_vec(base_obs)
+        J = np.zeros((3, 4), dtype=float)
+        for idx in range(4):
+            q_try = base_q.copy()
+            q_try[idx] += eps[idx]
+            q_try = self._clamp_q(q_try)
+            applied = float(q_try[idx] - base_q[idx])
+            if abs(applied) <= 1e-9:
+                continue
+            state = self._command_q_and_wait(q_try, timeout_s=0.8)
+            obs = self.current_visual_observation(state)
+            if obs is None:
+                self._command_q_and_wait(base_q, timeout_s=0.8)
+                continue
+            J[:, idx] = (self._visual_feature_vec(obs) - base_feat) / applied
+            self._command_q_and_wait(base_q, timeout_s=0.8)
+        return J
+
+    def _damped_pinv(self, J: np.ndarray, damping: float) -> np.ndarray:
+        J = np.asarray(J, dtype=float)
+        lam2 = float(damping) ** 2
+        return J.T @ np.linalg.inv(J @ J.T + lam2 * np.eye(J.shape[0], dtype=float))
 
     def _offsets(self) -> dict[str, float]:
         linear, roll, s1, s2, _rev = self.state.offset_values()
@@ -318,7 +440,7 @@ class ControlService:
             self.client.send_claw_command(claw_closed=bool(closed), source="target")
 
     def _start_position_solve(self, target: np.ndarray) -> None:
-        if self.state.ik_running or self._ik_worker is not None:
+        if self.state.ik_running or self._visual_busy():
             return
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -542,7 +664,7 @@ class ControlService:
         return float(release_display)
 
     def start_calibration(self) -> None:
-        if self._ik_worker is not None:
+        if self._visual_busy():
             self.state.set_calibration_status(running=False, msg="busy")
             return
         if self.client is None:
@@ -618,7 +740,7 @@ class ControlService:
         self._start_position_solve(target)
 
     def start_tweak(self) -> None:
-        if self.state.ik_running or self._ik_worker is not None:
+        if self.state.ik_running or self._visual_busy():
             return
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -763,6 +885,114 @@ class ControlService:
         self._ik_worker = threading.Thread(target=_worker, daemon=True)
         self._ik_worker.start()
 
+    def nudge_visual_pan(self, direction: int) -> None:
+        current_u = self.current_control_u()
+        new_roll = float(current_u.u_roll) + float(direction) * float(self._visual_nudge_roll_u)
+        cfg = self.control_mapping()
+        new_roll = float(np.clip(new_roll, cfg.roll_u_min, cfg.roll_u_max))
+        self.apply_partial_control_u({"roll": new_roll})
+        self.send_current_target(source="slider")
+
+    def nudge_visual_tilt(self, direction: int) -> None:
+        current_u = self.current_control_u()
+        delta = float(direction) * float(self._visual_nudge_tilt_u)
+        cfg = self.control_mapping()
+        new_s1 = float(np.clip(float(current_u.u_s1) + delta, cfg.seg_u_min, cfg.seg_u_max))
+        new_s2 = float(np.clip(float(current_u.u_s2) + delta, cfg.seg_u_min, cfg.seg_u_max))
+        self.apply_partial_control_u({"s1": new_s1, "s2": new_s2})
+        self.send_current_target(source="slider")
+
+    def stop_visual_servo(self) -> None:
+        self._visual_stop_event.set()
+        self.state.set_visual_status(running=False, failed=False, msg="stopped")
+
+    def start_visual_servo(self) -> None:
+        if self._visual_busy():
+            self.state.set_visual_status(running=False, failed=True, msg="busy")
+            return
+        if self.client is None:
+            self.state.set_visual_status(running=False, failed=True, msg="no feedback client")
+            return
+        host_state = self.client.refresh_state()
+        obs = self.current_visual_observation(host_state)
+        if obs is None:
+            self.state.set_visual_status(running=False, failed=True, msg="no valid observation")
+            return
+        self._visual_stop_event.clear()
+        self.state.set_visual_status(running=True, failed=False, msg="visual servo running")
+
+        def _worker() -> None:
+            try:
+                q_cmd = self._q_array_from_state(host_state)
+                current_obs = obs
+                current_state = host_state
+                for _ in range(int(self._visual_outer_iters)):
+                    if self._visual_stop_event.is_set():
+                        self.state.set_visual_status(running=False, failed=False, msg="stopped")
+                        return
+                    if current_obs is None:
+                        self.state.set_visual_status(running=False, failed=True, msg="observation lost")
+                        return
+                    center_ok = max(abs(float(current_obs.center_uv[0])), abs(float(current_obs.center_uv[1]))) <= float(self.state.visual_center_tol)
+                    scale_ok = float(current_obs.scale) >= float(self.state.visual_target_scale) - float(self.state.visual_scale_tol)
+                    if center_ok and scale_ok:
+                        self.state.set_visual_status(
+                            running=False,
+                            failed=False,
+                            msg="converged | uv=(%.3f, %.3f) scale=%.3f"
+                            % (float(current_obs.center_uv[0]), float(current_obs.center_uv[1]), float(current_obs.scale)),
+                        )
+                        return
+
+                    J = self._estimate_visual_jacobian(q_cmd, current_obs)
+                    if float(np.linalg.norm(J)) <= 1e-9:
+                        self.state.set_visual_status(running=False, failed=True, msg="degenerate visual jacobian")
+                        return
+                    err = self._visual_error_vec(current_obs)
+                    dq = self._damped_pinv(J, self._visual_damping) @ err
+                    dq = np.asarray(dq, dtype=float).reshape(4)
+                    dq[0] = float(np.clip(dq[0], -self._visual_step_linear_m, self._visual_step_linear_m))
+                    dq[1] = float(np.clip(dq[1], -self._visual_step_roll_rad, self._visual_step_roll_rad))
+                    dq[2] = float(np.clip(dq[2], -self._visual_step_seg_rad, self._visual_step_seg_rad))
+                    dq[3] = float(np.clip(dq[3], -self._visual_step_seg_rad, self._visual_step_seg_rad))
+                    q_try = self._clamp_q(q_cmd + dq)
+                    new_state = self._command_q_and_wait(q_try, timeout_s=1.0)
+                    new_obs = self.current_visual_observation(new_state)
+                    if new_state is None or new_obs is None:
+                        self.state.set_visual_status(running=False, failed=True, msg="observation lost after step")
+                        return
+                    if self._visual_cost(new_obs) > self._visual_cost(current_obs) + 1e-6:
+                        self._command_q_and_wait(q_cmd, timeout_s=0.8)
+                        self.state.set_visual_status(
+                            running=False,
+                            failed=True,
+                            msg="no improvement | uv=(%.3f, %.3f) scale=%.3f"
+                            % (float(new_obs.center_uv[0]), float(new_obs.center_uv[1]), float(new_obs.scale)),
+                        )
+                        return
+                    q_cmd = self._q_array_from_state(new_state)
+                    current_state = new_state
+                    current_obs = new_obs
+                    self.state.set_visual_status(
+                        running=True,
+                        failed=False,
+                        msg="tracking | uv=(%.3f, %.3f) scale=%.3f conf=%.2f"
+                        % (
+                            float(current_obs.center_uv[0]),
+                            float(current_obs.center_uv[1]),
+                            float(current_obs.scale),
+                            float(current_obs.confidence),
+                        ),
+                    )
+                self.state.set_visual_status(running=False, failed=True, msg="iteration limit")
+            except Exception as exc:
+                self.state.set_visual_status(running=False, failed=True, msg=f"visual servo failed: {exc}")
+            finally:
+                self._visual_worker = None
+
+        self._visual_worker = threading.Thread(target=_worker, daemon=True)
+        self._visual_worker.start()
+
     def request_ports(self) -> None:
         if self.client is not None:
             self.client.request_ports()
@@ -784,5 +1014,6 @@ class ControlService:
             self.client.torque_off()
 
     def close(self) -> None:
+        self._visual_stop_event.set()
         if self.client is not None:
             self.client.close()

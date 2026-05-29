@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import imgui
+import time
 
 
 def draw_ik_panel(panel) -> None:
@@ -59,3 +60,78 @@ def draw_ik_panel(panel) -> None:
         imgui.text(f"IK status: {status} | err: {panel.state.ik_err_m*1000:.2f} mm")
         if str(panel.state.ik_status_msg).strip():
             imgui.text_wrapped(str(panel.state.ik_status_msg))
+
+        imgui.separator()
+        obs = panel.service.current_visual_observation(panel._host_state)
+        perceived_label = ""
+        perceived_conf = 0.0
+        perceived_uv = None
+        perceived_scale = None
+        perceived_age = None
+        if obs is not None:
+            perceived_label = str(obs.label)
+            perceived_conf = float(obs.confidence)
+            perceived_uv = tuple(obs.center_uv)
+            perceived_scale = float(obs.scale)
+            perceived_age = max(0.0, float(time.time() - float(obs.timestamp_s)))
+        elif panel._host_state is not None and float(panel._host_state.perceived_timestamp_s) > 0.0:
+            perceived_label = str(panel._host_state.perceived_object_label)
+            perceived_conf = float(panel._host_state.perceived_object_confidence)
+            perceived_uv = panel._host_state.perceived_center_uv
+            perceived_scale = panel._host_state.perceived_scale
+            perceived_age = max(0.0, float(time.time() - float(panel._host_state.perceived_timestamp_s)))
+
+        imgui.text("Visual Servo")
+        label_text = perceived_label if perceived_label else "(none)"
+        imgui.text(f"Detection: {label_text} | conf: {perceived_conf:.2f}")
+        if perceived_uv is None or perceived_scale is None:
+            imgui.text("Observation: unavailable")
+        else:
+            imgui.text(
+                "Observation: uv=(%.3f, %.3f) scale=%.4f age=%.2fs"
+                % (float(perceived_uv[0]), float(perceived_uv[1]), float(perceived_scale), float(perceived_age or 0.0))
+            )
+
+        changed_scale, new_scale = imgui.input_float(
+            "target scale",
+            float(panel.state.visual_target_scale),
+            step=0.01,
+            step_fast=0.05,
+            format="%.3f",
+        )
+        if changed_scale:
+            panel.state.visual_target_scale = max(0.001, float(new_scale))
+
+        changed_label, new_label = imgui.input_text(
+            "visual label",
+            str(panel.state.visual_target_label),
+            64,
+        )
+        if changed_label:
+            panel.state.visual_target_label = str(new_label).strip()
+
+        if imgui.button("Start Visual Servo"):
+            panel.service.start_visual_servo()
+        imgui.same_line()
+        if imgui.button("Stop Visual Servo"):
+            panel.service.stop_visual_servo()
+
+        if imgui.button("Pan Left"):
+            panel.service.nudge_visual_pan(-1)
+        imgui.same_line()
+        if imgui.button("Pan Right"):
+            panel.service.nudge_visual_pan(+1)
+        if imgui.button("Tilt Up"):
+            panel.service.nudge_visual_tilt(-1)
+        imgui.same_line()
+        if imgui.button("Tilt Down"):
+            panel.service.nudge_visual_tilt(+1)
+
+        visual_status = "idle"
+        if panel.state.visual_running:
+            visual_status = "running"
+        if panel.state.visual_failed:
+            visual_status = "failed"
+        imgui.text(f"Visual status: {visual_status}")
+        if str(panel.state.visual_status_msg).strip():
+            imgui.text_wrapped(str(panel.state.visual_status_msg))

@@ -20,6 +20,11 @@ class HostState:
     safety_fault: str
     actual_tip_xyz: Optional[tuple[float, float, float]]
     actual_tip_dir: Optional[tuple[float, float, float]]
+    perceived_object_label: str
+    perceived_object_confidence: float
+    perceived_center_uv: Optional[tuple[float, float]]
+    perceived_scale: Optional[float]
+    perceived_timestamp_s: float
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
@@ -41,6 +46,14 @@ class PanelState:
     claw_closed: bool = False
     calibration_running: bool = False
     calibration_status_msg: str = ""
+    visual_running: bool = False
+    visual_failed: bool = False
+    visual_status_msg: str = ""
+    visual_target_scale: float = 0.100
+    visual_center_tol: float = 0.08
+    visual_scale_tol: float = 0.01
+    visual_confidence_min: float = 0.0
+    visual_target_label: str = ""
 
     target_x: float = 0.50
     target_y: float = 0.00
@@ -169,6 +182,15 @@ class PanelState:
 
     def clear_ik_status(self) -> None:
         self.set_ik_status(running=False, converged=False, failed=False, err_m=0.0, msg="")
+
+    def set_visual_status(self, *, running: bool, failed: bool, msg: str) -> None:
+        with self._lock:
+            self.visual_running = bool(running)
+            self.visual_failed = bool(failed)
+            self.visual_status_msg = str(msg)
+
+    def clear_visual_status(self) -> None:
+        self.set_visual_status(running=False, failed=False, msg="")
 
     def set_ik_solution(self, roll: float, theta1: float, theta2: float) -> None:
         with self._lock:

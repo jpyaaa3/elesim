@@ -6,7 +6,7 @@ from .actions import (
     resolve_sag_model_path,
 )
 from .client import ControlClient
-from .perception import PerceptionState
+from .perception import VisualObservation, extract_visual_observation
 from .state import HostState, PanelState
 
 __all__ = [
@@ -15,7 +15,8 @@ __all__ = [
     "ControlService",
     "HostState",
     "PanelState",
-    "PerceptionState",
+    "VisualObservation",
+    "extract_visual_observation",
     "load_sag_model_or_empty",
     "resolve_initial_sag_model",
     "resolve_sag_model_path",

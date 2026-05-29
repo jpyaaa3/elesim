@@ -143,6 +143,11 @@ def pack_state(
     claw_current: Optional[int] = None,
     motor_currents_ma: Optional[dict[str, int]] = None,
     safety_fault: Optional[str] = None,
+    perceived_object_label: Optional[str] = None,
+    perceived_object_confidence: Optional[float] = None,
+    perceived_center_uv: Optional[tuple[float, float]] = None,
+    perceived_scale: Optional[float] = None,
+    perceived_timestamp_s: Optional[float] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
@@ -176,6 +181,16 @@ def pack_state(
         out["motor_currents_ma"] = {str(k): int(v) for k, v in motor_currents_ma.items()}
     if safety_fault is not None:
         out["safety_fault"] = str(safety_fault)
+    if perceived_object_label is not None:
+        out["perceived_object_label"] = str(perceived_object_label)
+    if perceived_object_confidence is not None:
+        out["perceived_object_confidence"] = float(perceived_object_confidence)
+    if perceived_center_uv is not None:
+        out["perceived_center_uv"] = [float(perceived_center_uv[0]), float(perceived_center_uv[1])]
+    if perceived_scale is not None:
+        out["perceived_scale"] = float(perceived_scale)
+    if perceived_timestamp_s is not None:
+        out["perceived_timestamp_s"] = float(perceived_timestamp_s)
     if debug_markers is not None:
         packed_markers: list[dict[str, Any]] = []
         for raw in list(debug_markers):

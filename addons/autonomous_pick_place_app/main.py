@@ -87,6 +87,29 @@ def build_camera_observation(
     )
 
 
+def normalized_detection_center_uv(det: DetectionResult, *, image_width: int, image_height: int) -> tuple[float, float]:
+    x0, y0, x1, y1 = det.bbox_xyxy
+    cx = 0.5 * (float(x0) + float(x1))
+    cy = 0.5 * (float(y0) + float(y1))
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    u = 2.0 * (cx / float(w)) - 1.0
+    v = 2.0 * (cy / float(h)) - 1.0
+    return (float(u), float(v))
+
+
+def detection_scale(det: DetectionResult, *, image_width: int, image_height: int) -> float:
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    img_area = float(w * h)
+    if isinstance(det.mask, np.ndarray) and det.mask.size > 0:
+        area = float(np.count_nonzero(det.mask))
+    else:
+        x0, y0, x1, y1 = det.bbox_xyxy
+        area = float(max(0, x1 - x0) * max(0, y1 - y0))
+    return float(max(0.0, min(1.0, area / img_area)))
+
+
 def resolve_detector_cfg(
     file_cfg: dict[str, Any],
     *,
@@ -266,10 +289,14 @@ def run_camera_session(
                     if verbose_debug:
                         print(f"[Debug]  timestamp={obs.timestamp:.3f}")
                     if publish_host:
+                        img_h, img_w = frame.color_bgr.shape[:2]
                         p_world = publish_perceived_object(
                             endpoint=host_endpoint,
                             object_camera_xyz=obs.p_camera_object,
                             label=obs.label,
+                            confidence=float(obs.confidence),
+                            image_center_uv=normalized_detection_center_uv(det, image_width=img_w, image_height=img_h),
+                            image_scale=detection_scale(det, image_width=img_w, image_height=img_h),
                         )
                         _print_world_object(p_world)
                     if stop_on_detect:
@@ -413,10 +440,14 @@ def main() -> int:
         )
         print_observation(obs, det=det)
         if args.publish_host:
+            img_h, img_w = color.shape[:2]
             p_world = publish_perceived_object(
                 endpoint=host_endpoint,
                 object_camera_xyz=obs.p_camera_object,
                 label=obs.label,
+                confidence=float(obs.confidence),
+                image_center_uv=normalized_detection_center_uv(det, image_width=img_w, image_height=img_h),
+                image_scale=detection_scale(det, image_width=img_w, image_height=img_h),
             )
             _print_world_object(p_world)
         return 0

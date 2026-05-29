@@ -1,0 +1,483 @@
+Elesim WIP Session Save
+Date: 2026-05-29
+Repo: /home/user/dev/ws/humble_ws/elesim_wip
+
+==================================================
+1. CURRENT ARCHITECTURE
+==================================================
+
+The project is currently organized like this:
+
+- sim.py
+  - Runs Genesis simulation
+  - Computes robot state
+  - Sends feedback to host
+  - Draws debug markers
+
+- host.py
+  - ZMQ hub between ctrl / sim / external perception app
+  - Drives hardware when hardware is enabled
+  - Handles current limiting / safety fault
+  - Converts perception camera-frame coordinates into world coordinates
+  - Broadcasts debug markers and state
+
+- ctrl.py
+  - IMPORTANT: currently restored to launcher-only
+  - It should stay thin
+  - Real logic is in engine/controller/* and ui/*
+
+- engine/ik.py
+  - Public IK facade
+  - solve_then_align / tweak helpers
+
+- engine/iklib/*
+  - Internal IK implementation
+  - solver.py
+  - aligner.py
+  - tweaker.py
+  - kinematics.py
+
+- engine/controller/*
+  - Non-UI application/controller layer
+  - state.py
+  - client.py
+  - actions.py
+  - perception.py
+
+- ui/*
+  - imgui-specific UI layer
+  - ui/control_panel.py
+  - ui/panels/hardware.py
+  - ui/panels/control_4dof.py
+  - ui/panels/ik.py
+  - ui/panels/sag.py
+
+- addons/autonomous_pick_place_app
+  - External companion perception app
+  - Uses camera / detector
+  - Sends object_camera coordinates to host
+
+- addons/perception_bridge/*
+  - hand-eye and transform helpers used by host
+
+
+==================================================
+2. CTRL.PY RECOVERY
+==================================================
+
+At one point another Codex session overwrote ctrl.py with an old monolithic version
+(~1500 lines, containing HostState, ControlClient, ControlService, imgui code all
+inside ctrl.py).
+
+This broke the new split architecture because:
+- engine/controller/* still existed
+- ui/* still existed
+- but the running app did not use them anymore
+
+This has already been repaired.
+
+Current ctrl.py is launcher-only again and wires together:
+- engine.controller.ControlClient
+- engine.controller.ControlService
+- engine.controller.PanelState
+- ui.control_panel.ControlPanel
+
+If ctrl.py ever becomes a monolith again, that is a regression.
+
+
+==================================================
+3. IK / ALIGN / TWEAK STATUS
+==================================================
+
+Current intended roles:
+
+- Solve IK
+  - solve position
+  - then align direction if possible
+
+- Align
+  - open-loop alignment step
+  - conceptually:
+    1. find a 4DOF position solution
+    2. lock roll
+    3. search 3DOF feasible space for better direction
+
+- Tweak
+  - closed-loop fine adjustment
+  - position-priority
+  - direction is secondary / nullspace improvement
+  - uses actual_tip_xyz + actual_tip_dir when feedback exists
+  - supports accept/reject, rollback, step shrink
+
+Important note:
+- Tweak is better than before, but still not fully proven on real hardware.
+- In simulation it is plausible.
+- On real hardware it still needs validation.
+
+
+==================================================
+4. DIRECTION / WHITE ARROW HISTORY
+==================================================
+
+This session spent a lot of effort on white arrow direction issues.
+
+Observed issues:
+- 180 degree reversal
+- sag contribution appearing as if rotated by 90 degrees
+
+Working convention target:
+- use a gripper forward axis convention consistently
+- white arrow, IK direction cost, align, and tweak must all use the same convention
+
+Status:
+- heavily improved and reworked several times
+- but this area should still be visually re-verified in simulator
+- do not assume it is mathematically perfect without another check
+
+
+==================================================
+5. SAFETY / CURRENT LIMITING
+==================================================
+
+Current protection policy in host.py:
+
+- yellow zone starts at 1800 mA
+- red line is 2500 mA
+
+Behavior:
+- yellow zone:
+  - command scaling decreases linearly
+- red zone:
+  - safety trip / fault
+
+host.py logs:
+- yellow zone entry
+- yellow zone clear
+- red zone trip
+
+Hardware panel already shows:
+- safety_fault
+- motor_currents_ma
+
+This was important because the geared mechanism is not backdrivable and motors
+can die if pushed into load too aggressively.
+
+
+==================================================
+6. 4-DOF OFFSET / CALIBRATION FEATURE
+==================================================
+
+This is one of the biggest additions in this session.
+
+Files:
+- engine/controller/state.py
+- engine/controller/actions.py
+- ui/control_panel.py
+- ui/panels/control_4dof.py
+
+Feature:
+- Each axis has offset input + Apply button
+  - linear
+  - roll
+  - seg1
+  - seg2
+
+Meaning:
+- UI keeps showing vanilla display coordinates
+- actual sent value is display + offset
+
+Example:
+- seg1 offset = -10
+- UI slider 0
+- actual sent seg1 = -10
+
+Calibration:
+- only for seg1 and seg2
+- slowly move toward end
+- detect current rise
+- slowly release
+- detect first released point
+- write that value into offset
+- apply automatically
+
+Current calibration constants in engine/controller/actions.py:
+- threshold = 1400 mA
+- abort = 2000 mA
+- EMA based
+
+UI shows calibration status message.
+
+
+==================================================
+7. EXTEND ARM BUTTON
+==================================================
+
+There used to be a Reset/Home naming issue.
+
+The command is not a logical reset and not a universally agreed "home".
+Its actual purpose is to send the arm to a predefined extended pose.
+
+Current button label:
+- "Extend Arm"
+
+Current behavior:
+- sends actual values corresponding to:
+  - linear = 15
+  - roll = 180
+  - seg1 = 180
+  - seg2 = 180
+
+Important:
+- Extend Arm intentionally SKIPS offsets
+- this guarantees it always goes to the same actual physical pose
+- normal slider operations still apply offsets
+
+
+==================================================
+8. UI WINDOW SIZE
+==================================================
+
+Current initial window size logic is in ui/control_panel.py.
+
+Policy:
+- width = 40% of screen
+- height = 50% of screen
+
+For 1920x1080:
+- 768 x 540
+
+
+==================================================
+9. SAG MODEL PANEL STATUS
+==================================================
+
+File:
+- ui/panels/sag.py
+
+Changes made:
+
+1. Status text simplified
+Old confusing behavior:
+- "Applied model: ..."
+- "loaded: ..."
+
+Current behavior:
+- if nothing loaded:
+  - "Model not loaded"
+- if loaded:
+  - "Model loaded: <path>"
+- if failed:
+  - red error text
+
+2. Browse button added
+- button appears to the left of Load Model
+
+3. Browse default directory
+- opens project assets/ by default
+- if a current path exists, it prefers that directory
+- if invalid, falls back to assets/
+
+4. No auto-load at startup
+- application no longer auto-applies sag_model.json at startup
+- initial state should be "Model not loaded"
+
+
+==================================================
+10. NO-SAG MODEL
+==================================================
+
+File created:
+- assets/no_sag.json
+
+Purpose:
+- explicit zero-sag model
+- can be loaded from Sag Model panel
+- useful when user wants "no sag compensation" without ambiguity
+
+
+==================================================
+11. GRIPPER / FRAME CHANGES
+==================================================
+
+Several gripper-related adjustments were made:
+
+- physics recomputed for:
+  - gripper_base
+  - gripper_claw_left
+  - gripper_claw_right
+
+- white point / grasp point / related frame positions were adjusted
+  after claw reach changed
+
+- entire gripper base attachment was shifted by +Y 12 mm
+
+This means if grasp markers or gripper physical alignment seem odd later,
+check gripper frame JSONs and physics JSONs before assuming IK is wrong.
+
+
+==================================================
+12. PERCEPTION / AUTONOMOUS_PICK_PLACE_APP
+==================================================
+
+The design philosophy is:
+- keep perception outside core Elesim
+- use a companion app
+
+Current structure:
+- addons/autonomous_pick_place_app
+  - computes object_camera in camera optical frame
+  - sends it to host
+
+- host.py
+  - converts object_camera -> object_world
+  - broadcasts debug markers to sim
+  - returns object_world inside ACK back to external app
+
+- sim.py
+  - only renders markers
+
+So the path is:
+- camera app -> host (5555) -> sim markers
+
+Additional improvement:
+- host ACK now includes object_world
+- autonomous_pick_place_app prints both camera-frame and world-frame results
+
+Files involved:
+- host.py
+- addons/autonomous_pick_place_app/elesim_bridge/host_client.py
+- addons/autonomous_pick_place_app/main.py
+
+Also:
+- host logs perception success with camera/world coordinates
+
+
+==================================================
+13. UPDATES / DIFF FOLDER HISTORY
+==================================================
+
+There used to be external code snapshots in updates/ and diff/.
+
+Important conclusions:
+- useful ideas were imported
+- autonomous_pick_place_app is now in addons/
+- perception bridge helpers are now in addons/perception_bridge/
+- diff host behavior (returning object_world in ACK) was incorporated
+
+Current project should no longer depend on updates/ for execution.
+
+
+==================================================
+14. USB PORT FILTERING
+==================================================
+
+Problem:
+- server environments often show many irrelevant tty devices
+
+Solution added:
+- config.ini now has:
+  - show_all_ports = false
+
+Behavior:
+- if false:
+  - only ttyUSB* and ttyACM* are shown
+- if true:
+  - all serial ports are shown
+
+Files changed:
+- config.ini
+- engine/config_loader.py
+- host.py
+
+
+==================================================
+15. WHAT WAS BROKEN BY FOREIGN OVERWRITE
+==================================================
+
+What definitely regressed when another Codex session overwrote files:
+
+- ctrl.py became a monolith again
+- split architecture stopped being used
+- offset UI disappeared from runtime
+- Calibration button disappeared from runtime
+- new tweak path became hidden behind old ctrl implementation
+
+What survived:
+- host.py still kept most safety/current-limit logic
+- actual_tip_dir feedback path remained
+- perception world-ack path remained
+- autonomous_pick_place_app world logging path remained
+
+So the main recovery action was restoring ctrl.py to launcher-only.
+
+
+==================================================
+16. IMPORTANT CURRENT FILES TO CHECK FIRST NEXT TIME
+==================================================
+
+If continuing later, check these first:
+
+- ctrl.py
+  - must remain launcher-only
+
+- engine/controller/actions.py
+  - offset logic
+  - calibration logic
+  - tweak loop
+  - Extend Arm behavior
+
+- ui/panels/control_4dof.py
+  - offset editors
+  - Calibration button
+  - Extend Arm button
+
+- ui/panels/sag.py
+  - Browse / Load Model
+  - Model loaded / Model not loaded text
+
+- host.py
+  - current limiting
+  - safety fault
+  - perception object_world ACK
+  - port filtering
+
+
+==================================================
+17. KNOWN REMAINING RISKS / TODO
+==================================================
+
+1. White arrow / direction convention should still be visually re-verified.
+
+2. Tweak is structurally much better, but real hardware validation is still needed.
+
+3. ctrl UI still does not fully expose typed perception world state in a polished way.
+
+4. host.py and sim.py are still large files and could be split further later.
+
+
+==================================================
+18. SUMMARY OF THE MOST IMPORTANT CURRENT BEHAVIOR
+==================================================
+
+- ctrl.py is thin again
+- engine/controller/* + ui/* are the live execution path
+- offset/calibration is implemented and live
+- Extend Arm ignores offsets and goes to the fixed physical pose
+- Sag model is not auto-loaded at startup
+- no_sag.json exists
+- host filters ports by default
+- host returns object_world to perception app ACK
+- hardware panel already shows motor currents and safety fault
+
+
+==================================================
+19. RECOMMENDED NEXT STARTING POINT
+==================================================
+
+When resuming a future session, a good first instruction would be:
+
+"Please verify that ctrl.py is still launcher-only, then re-check offset/calibration,
+Extend Arm, sag browse/load, and the current perception world-ack path."
+
+That should quickly detect if another overwrite/regression happened.
+
