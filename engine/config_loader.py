@@ -140,7 +140,14 @@ class PickConfig:
     enabled: bool = True
     target_scale: float = 0.16
     scale_tol: float = 0.02
-    center_tol: float = 0.10
+    center_tol: float = 0.12
+    center_u_gain: float = 18.0
+    center_v_gain: float = 18.0
+    center_roll_max: float = 6.0
+    center_seg_max: float = 6.0
+    center_error_scale_max: float = 3.5
+    center_stuck_iters: int = 30
+    center_stuck_max_uv: float = 0.14
     target_uv_u: float = 0.5
     target_uv_v: float = -0.5
     quadrant_fill_min: float = 0.80
@@ -312,6 +319,19 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         target_scale=cp.getfloat("pick", "target_scale", fallback=scale_default),
         scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
         center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
+        center_u_gain=cp.getfloat("pick", "center_u_gain", fallback=pk0.center_u_gain),
+        center_v_gain=cp.getfloat("pick", "center_v_gain", fallback=pk0.center_v_gain),
+        center_roll_max=cp.getfloat("pick", "center_roll_max", fallback=pk0.center_roll_max),
+        center_seg_max=cp.getfloat("pick", "center_seg_max", fallback=pk0.center_seg_max),
+        center_error_scale_max=cp.getfloat(
+            "pick", "center_error_scale_max", fallback=pk0.center_error_scale_max
+        ),
+        center_stuck_iters=cp.getint(
+            "pick", "center_stuck_iters", fallback=pk0.center_stuck_iters
+        ),
+        center_stuck_max_uv=cp.getfloat(
+            "pick", "center_stuck_max_uv", fallback=pk0.center_stuck_max_uv
+        ),
         target_uv_u=float(target_u),
         target_uv_v=float(target_v),
         quadrant_fill_min=float(quadrant_fill),

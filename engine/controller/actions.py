@@ -97,6 +97,7 @@ class ControlService:
         self._pick_clamp_stall_limit = 20
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
         self._pick_approach_steps = 0
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale: Optional[float] = None
@@ -1721,6 +1722,13 @@ class ControlService:
             target_scale=float(self.state.visual_target_scale),
             scale_tol=float(self.state.visual_scale_tol),
             center_tol=float(self.state.visual_center_tol),
+            center_u_gain=float(pk.center_u_gain),
+            center_v_gain=float(pk.center_v_gain),
+            center_roll_max=float(pk.center_roll_max),
+            center_seg_max=float(pk.center_seg_max),
+            center_error_scale_max=float(pk.center_error_scale_max),
+            center_stuck_iters=int(pk.center_stuck_iters),
+            center_stuck_max_uv=float(pk.center_stuck_max_uv),
             target_uv_u=float(self.state.visual_target_uv_u),
             target_uv_v=float(self.state.visual_target_uv_v),
             quadrant_fill_min=float(pk.quadrant_fill_min),
@@ -1964,8 +1972,11 @@ class ControlService:
         # Same UV band as evaluate_pick_convergence (avoid center_ok False while still correcting).
         u_over = abs(u_delta) > float(center_tol)
         v_over = abs(v_delta) > float(center_tol)
-        seg_cap = float(self._pick_center_seg_u_max)
-        roll_cap = float(self._pick_center_roll_u_max)
+        seg_cap = float(cfg.center_seg_max)
+        roll_cap = float(cfg.center_roll_max)
+        u_gain = float(cfg.center_u_gain)
+        v_gain = float(cfg.center_v_gain)
+        err_scale_max = float(cfg.center_error_scale_max)
         if not u_over and not v_over:
             return current_u, "none", 0.0, 0.0
 
@@ -1974,18 +1985,18 @@ class ControlService:
         if u_over:
             u_err = float(tu - u)
             roll_scale = float(
-                np.clip(abs(u_delta) / max(float(center_tol), 1e-6), 0.5, 2.5)
+                np.clip(
+                    abs(u_delta) / max(float(center_tol), 1e-6), 0.5, err_scale_max
+                )
             )
             roll_du = float(
-                np.clip(
-                    self._visual_center_u_gain * u_err * roll_scale,
-                    -roll_cap,
-                    roll_cap,
-                )
+                np.clip(u_gain * u_err * roll_scale, -roll_cap, roll_cap)
             )
         if v_over:
             seg_du = float(
-                self._center_seg_du(target_v=tv, obs_v=v, cap=seg_cap)
+                self._center_seg_du(
+                    target_v=tv, obs_v=v, cap=seg_cap, gain=v_gain
+                )
             )
 
         next_u = self._clamp_display_u(
@@ -2075,6 +2086,7 @@ class ControlService:
         self._pick_clamp_streak = 0
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
         self._pick_approach_steps = 0
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale = None
@@ -2110,6 +2122,7 @@ class ControlService:
         self._pick_clamp_streak = 0
         self._pick_scale_stuck_iters = 0
         self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
         self._pick_approach_steps = 0
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale = None
@@ -2194,8 +2207,10 @@ class ControlService:
                     stale_count = 0
 
                     conv = evaluate_pick_convergence(obs, cfg=pk)
+                    u_d, v_d, _, _ = self._visual_uv_errors(obs)
                     if conv.center_ok:
                         self._pick_approach_latched = True
+                        self._pick_center_stuck_iters = 0
                     center_tol = float(pk.center_tol)
                     use_approach = bool(
                         self._pick_approach_latched
@@ -2215,6 +2230,31 @@ class ControlService:
                     ):
                         self._pick_approach_latched = True
                         use_approach = True
+
+                    if (
+                        not use_approach
+                        and conv.scale_ok
+                        and not conv.center_ok
+                        and max(abs(float(u_d)), abs(float(v_d)))
+                        <= float(pk.center_stuck_max_uv)
+                    ):
+                        self._pick_center_stuck_iters += 1
+                        center_stuck_lim = max(1, int(pk.center_stuck_iters))
+                        if self._pick_center_stuck_iters >= center_stuck_lim:
+                            self._pick_approach_latched = True
+                            use_approach = True
+                            print(
+                                "[Pick] center_stuck | forcing approach | scale=%.3f "
+                                "delta=(%+.3f,%+.3f) tol=%.3f"
+                                % (
+                                    float(conv.scale),
+                                    float(u_d),
+                                    float(v_d),
+                                    float(pk.center_tol),
+                                )
+                            )
+                    elif not conv.scale_ok or conv.center_ok:
+                        self._pick_center_stuck_iters = 0
 
                     scale_stuck_thresh = float(pk.target_scale) * float(pk.scale_stuck_ratio)
                     stuck_lim = max(1, int(pk.scale_stuck_iters))
