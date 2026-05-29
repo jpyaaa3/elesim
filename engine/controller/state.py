@@ -22,6 +22,7 @@ class HostState:
     actual_tip_dir: Optional[tuple[float, float, float]]
     perceived_object_label: str
     perceived_object_confidence: float
+    perceived_object_camera_xyz: Optional[tuple[float, float, float]]
     perceived_center_uv: Optional[tuple[float, float]]
     perceived_scale: Optional[float]
     perceived_timestamp_s: float

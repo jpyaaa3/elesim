@@ -145,6 +145,7 @@ def pack_state(
     safety_fault: Optional[str] = None,
     perceived_object_label: Optional[str] = None,
     perceived_object_confidence: Optional[float] = None,
+    perceived_object_camera: Optional[tuple[float, float, float]] = None,
     perceived_center_uv: Optional[tuple[float, float]] = None,
     perceived_scale: Optional[float] = None,
     perceived_timestamp_s: Optional[float] = None,
@@ -185,6 +186,12 @@ def pack_state(
         out["perceived_object_label"] = str(perceived_object_label)
     if perceived_object_confidence is not None:
         out["perceived_object_confidence"] = float(perceived_object_confidence)
+    if perceived_object_camera is not None:
+        out["perceived_object_camera"] = [
+            float(perceived_object_camera[0]),
+            float(perceived_object_camera[1]),
+            float(perceived_object_camera[2]),
+        ]
     if perceived_center_uv is not None:
         out["perceived_center_uv"] = [float(perceived_center_uv[0]), float(perceived_center_uv[1])]
     if perceived_scale is not None:

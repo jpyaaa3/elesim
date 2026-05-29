@@ -96,6 +96,11 @@ class ControlService:
         self._visual_u_gain = 14.0
         self._visual_v_gain = 12.0
         self._visual_scale_gain = 60.0
+        self._center_roll_u_max = 18.0
+        self._center_seg_u_max = 16.0
+        self._center_u_gain = 36.0
+        self._center_v_gain = 30.0
+        self._center_roll_rad_max = math.radians(28.0)
         self._manual_camera_angle_step = math.radians(2.5)
         self._manual_camera_linear_m_max = 0.002
         self._manual_camera_roll_rad_max = math.radians(4.0)
@@ -1147,12 +1152,61 @@ class ControlService:
         def _worker() -> None:
             try:
                 if center_only:
+                    snapshot_host = host_state
                     snapshot_obs = obs
+                    snapshot_p_cam = None if snapshot_host is None else snapshot_host.perceived_object_camera_xyz
+                    if (
+                        snapshot_p_cam is not None
+                        and float(snapshot_p_cam[2]) > 1e-6
+                        and abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol)
+                    ):
+                        roll_delta = float(np.clip(math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])), -self._center_roll_rad_max, self._center_roll_rad_max))
+                        q_now = self._q_array_from_state(snapshot_host)
+                        q_try = np.asarray(q_now, dtype=float).copy()
+                        q_try[1] += roll_delta
+                        q_try = self._clamp_q(q_try)
+                        if np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
+                            self.state.set_visual_status(
+                                running=False,
+                                failed=False,
+                                msg="within deadband | snapshot uv=(%.3f, %.3f)"
+                                % (float(snapshot_obs.center_uv[0]), float(snapshot_obs.center_uv[1])),
+                            )
+                            return
+                        self._command_q_and_wait(q_try, timeout_s=1.0)
+                        self.state.set_visual_status(
+                            running=False,
+                            failed=False,
+                            msg="center roll sent | snapshot uv=(%.3f, %.3f) pan=%.2f deg"
+                            % (
+                                float(snapshot_obs.center_uv[0]),
+                                float(snapshot_obs.center_uv[1]),
+                                float(np.degrees(roll_delta)),
+                            ),
+                        )
+                        return
+                    if (
+                        snapshot_p_cam is not None
+                        and float(snapshot_p_cam[2]) > 1e-6
+                        and abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol)
+                    ):
+                        tilt_delta = -float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
+                        self._apply_manual_camera_rotation(
+                            right_angle_rad=0.0,
+                            up_angle_rad=float(tilt_delta),
+                            status_prefix="center tilt snapshot",
+                        )
+                        return
                     current_u = self.current_control_u()
-                    _linear_du, roll_du, seg_du = self._visual_candidate_delta(snapshot_obs)
+                    u_err = -float(snapshot_obs.center_uv[0])
+                    v_err = -float(snapshot_obs.center_uv[1])
+                    roll_du = 0.0
+                    seg_du = 0.0
                     if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                        roll_du = float(np.clip(self._center_u_gain * u_err, -self._center_roll_u_max, self._center_roll_u_max))
                         seg_du = 0.0
                     else:
+                        seg_du = float(np.clip(self._center_v_gain * v_err, -self._center_seg_u_max, self._center_seg_u_max))
                         roll_du = 0.0
 
                     moved = False

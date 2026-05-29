@@ -81,6 +81,7 @@ class ControlHost:
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_perceived_object_label: str = ""
         self.last_perceived_object_confidence: float = 0.0
+        self.last_perceived_object_camera_xyz: Optional[tuple[float, float, float]] = None
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
@@ -175,6 +176,7 @@ class ControlHost:
             self.last_actual_tip_dir = None
             self.last_perceived_object_label = ""
             self.last_perceived_object_confidence = 0.0
+            self.last_perceived_object_camera_xyz = None
             self.last_perceived_center_uv = None
             self.last_perceived_scale = None
             self.last_perceived_timestamp_s = 0.0
@@ -226,6 +228,12 @@ class ControlHost:
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
             self.last_actual_tip_dir = None
+            self.last_perceived_object_label = ""
+            self.last_perceived_object_confidence = 0.0
+            self.last_perceived_object_camera_xyz = None
+            self.last_perceived_center_uv = None
+            self.last_perceived_scale = None
+            self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -829,12 +837,13 @@ class ControlHost:
                             self.last_perceived_object_confidence = 0.0
                     self.last_perceived_object_label = str(msg.get("object_label", ""))
                     self.last_perceived_timestamp_s = float(proto.now_s())
+                    self.last_perceived_object_camera_xyz = (
+                        float(object_camera_raw[0]),
+                        float(object_camera_raw[1]),
+                        float(object_camera_raw[2]),
+                    )
                     ok, reason, object_world = self._update_perception_markers(
-                        (
-                            float(object_camera_raw[0]),
-                            float(object_camera_raw[1]),
-                            float(object_camera_raw[2]),
-                        ),
+                        self.last_perceived_object_camera_xyz,
                         object_label=self.last_perceived_object_label,
                     )
                     ack: Dict[str, Any] = {
@@ -963,6 +972,7 @@ class ControlHost:
                         actual_tip_dir=self.last_actual_tip_dir,
                         perceived_object_label=(self.last_perceived_object_label or None),
                         perceived_object_confidence=self.last_perceived_object_confidence,
+                        perceived_object_camera=self.last_perceived_object_camera_xyz,
                         perceived_center_uv=self.last_perceived_center_uv,
                         perceived_scale=self.last_perceived_scale,
                         perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
