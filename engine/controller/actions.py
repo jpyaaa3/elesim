@@ -1155,17 +1155,41 @@ class ControlService:
                     snapshot_host = host_state
                     snapshot_obs = obs
                     snapshot_p_cam = None if snapshot_host is None else snapshot_host.perceived_object_camera_xyz
-                    if (
-                        snapshot_p_cam is not None
-                        and float(snapshot_p_cam[2]) > 1e-6
-                        and abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol)
-                    ):
-                        roll_delta = float(np.clip(math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])), -self._center_roll_rad_max, self._center_roll_rad_max))
+                    if snapshot_p_cam is not None and float(snapshot_p_cam[2]) > 1e-6:
+                        moved = False
+                        status_parts: list[str] = []
                         q_now = self._q_array_from_state(snapshot_host)
-                        q_try = np.asarray(q_now, dtype=float).copy()
-                        q_try[1] += roll_delta
-                        q_try = self._clamp_q(q_try)
-                        if np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
+                        if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol):
+                            roll_delta = float(np.clip(math.atan2(float(snapshot_p_cam[0]), float(snapshot_p_cam[2])), -self._center_roll_rad_max, self._center_roll_rad_max))
+                            q_try = np.asarray(q_now, dtype=float).copy()
+                            q_try[1] += roll_delta
+                            q_try = self._clamp_q(q_try)
+                            if not np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
+                                state_after_roll = self._command_q_and_wait(q_try, timeout_s=1.0)
+                                if state_after_roll is not None and state_after_roll.q is not None:
+                                    q_now = np.array(
+                                        [
+                                            float(state_after_roll.q.linear_m),
+                                            float(state_after_roll.q.roll_rad),
+                                            float(state_after_roll.q.theta1_rad),
+                                            float(state_after_roll.q.theta2_rad),
+                                        ],
+                                        dtype=float,
+                                    )
+                                else:
+                                    q_now = q_try
+                                moved = True
+                                status_parts.append(f"roll={float(np.degrees(roll_delta)):.2f} deg")
+                        if abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol):
+                            tilt_delta = -float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
+                            self._apply_manual_camera_rotation(
+                                right_angle_rad=0.0,
+                                up_angle_rad=float(tilt_delta),
+                                status_prefix="center tilt snapshot",
+                            )
+                            moved = True
+                            status_parts.append(f"tilt={float(np.degrees(tilt_delta)):.2f} deg")
+                        if not moved:
                             self.state.set_visual_status(
                                 running=False,
                                 failed=False,
@@ -1173,28 +1197,15 @@ class ControlService:
                                 % (float(snapshot_obs.center_uv[0]), float(snapshot_obs.center_uv[1])),
                             )
                             return
-                        self._command_q_and_wait(q_try, timeout_s=1.0)
                         self.state.set_visual_status(
                             running=False,
                             failed=False,
-                            msg="center roll sent | snapshot uv=(%.3f, %.3f) pan=%.2f deg"
+                            msg="center command sent | snapshot uv=(%.3f, %.3f) | %s"
                             % (
                                 float(snapshot_obs.center_uv[0]),
                                 float(snapshot_obs.center_uv[1]),
-                                float(np.degrees(roll_delta)),
+                                ", ".join(status_parts),
                             ),
-                        )
-                        return
-                    if (
-                        snapshot_p_cam is not None
-                        and float(snapshot_p_cam[2]) > 1e-6
-                        and abs(float(snapshot_obs.center_uv[1])) > float(self.state.visual_center_tol)
-                    ):
-                        tilt_delta = -float(math.atan2(float(snapshot_p_cam[1]), float(snapshot_p_cam[2])))
-                        self._apply_manual_camera_rotation(
-                            right_angle_rad=0.0,
-                            up_angle_rad=float(tilt_delta),
-                            status_prefix="center tilt snapshot",
                         )
                         return
                     current_u = self.current_control_u()
