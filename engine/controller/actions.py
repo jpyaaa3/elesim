@@ -1191,37 +1191,24 @@ class ControlService:
                         )
                         return
 
-                    candidate_u = current_u
-                    candidate_obs = current_obs
-                    if abs(roll_du) > 1e-9:
-                        candidate_u, candidate_obs = self._best_visual_candidate_for_axis(
-                            current_u,
-                            current_obs,
-                            roll_du=float(roll_du),
+                    next_u = self._clamp_display_u(
+                        ControlU(
+                            u_linear=float(current_u.u_linear + linear_du),
+                            u_roll=float(current_u.u_roll + roll_du),
+                            u_s1=float(current_u.u_s1 + seg_du),
+                            u_s2=float(current_u.u_s2 + seg_du),
                         )
-                    if candidate_u == current_u and abs(seg_du) > 1e-9:
-                        candidate_u, candidate_obs = self._best_visual_candidate_for_axis(
-                            current_u,
-                            current_obs,
-                            seg_du=float(seg_du),
-                        )
-                    if candidate_u == current_u and abs(linear_du) > 1e-9:
-                        candidate_u, candidate_obs = self._best_visual_candidate_for_axis(
-                            current_u,
-                            current_obs,
-                            linear_du=float(linear_du),
-                        )
-                    if candidate_u == current_u:
+                    )
+                    if next_u == current_u:
                         self.state.set_visual_status(
                             running=False,
                             failed=True,
-                            msg="no improvement | uv=(%.3f, %.3f) scale=%.3f"
+                            msg="command clamped | uv=(%.3f, %.3f) scale=%.3f"
                             % (float(current_obs.center_uv[0]), float(current_obs.center_uv[1]), float(current_obs.scale)),
                         )
                         return
-                    current_u = candidate_u
-                    current_obs = candidate_obs
-                    host_now = self.client.refresh_state()
+                    host_now = self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                    current_u = next_u
                     latest_obs = self.current_visual_observation(host_now)
                     if latest_obs is None:
                         stale_count += 1
