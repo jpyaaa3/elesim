@@ -482,7 +482,14 @@ class ControlService:
         if abs(v_err) > float(self._visual_v_deadband):
             seg_du = float(np.clip(v_gain * v_err, -seg_max, seg_max))
         if abs(scale_err) > float(self._visual_scale_deadband):
-            linear_du = float(np.clip(self._visual_scale_gain * scale_err, -self._visual_auto_linear_u_max, self._visual_auto_linear_u_max))
+            # Display u_linear=0 is forward; decrease u to enlarge object scale.
+            linear_du = float(
+                np.clip(
+                    -self._visual_scale_gain * scale_err,
+                    -self._visual_auto_linear_u_max,
+                    self._visual_auto_linear_u_max,
+                )
+            )
         return linear_du, roll_du, seg_du
 
     def _apply_visual_candidate(
@@ -1721,7 +1728,8 @@ class ControlService:
         scale_err = float(cfg.target_scale) - float(obs.scale)
         linear_du = 0.0
         if scale_err > float(cfg.scale_tol):
-            linear_du = float(
+            # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
+            linear_du = -float(
                 np.clip(
                     float(cfg.linear_gain) * scale_err,
                     0.0,
@@ -1866,10 +1874,28 @@ class ControlService:
 
                     if next_u == current_u:
                         print(f"[Pick] step {step_idx}/{max_iters} | command clamped")
+                        if phase == ObjectPickPhase.APPROACH and not conv.scale_ok:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg="approach linear limit | u_linear=%.1f scale=%.3f target=%.3f"
+                                % (float(current_u.u_linear), conv.scale, float(pk.target_scale)),
+                            )
+                            return
+                        if conv.center_ok and conv.scale_ok:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=False,
+                                phase=ObjectPickPhase.DONE.value,
+                                msg="pick ready | uv=(%.3f, %.3f) scale=%.3f (grasp manual)"
+                                % (conv.u_err, conv.v_err, conv.scale),
+                            )
+                            return
                         self.state.set_pick_status(
                             running=False,
-                            failed=False,
-                            phase=ObjectPickPhase.DONE.value,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
                             msg="command clamped | uv=(%.3f, %.3f) scale=%.3f"
                             % (conv.u_err, conv.v_err, conv.scale),
                         )
