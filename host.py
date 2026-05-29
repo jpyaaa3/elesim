@@ -547,6 +547,12 @@ class ControlHost:
             self._pick.coarse_view_score = float("-inf")
             self._pick.coarse_predicted_camera = None
             self._pick.coarse_failed_tags.clear()
+            self._pick.align_last_cmd_ts = 0.0
+            self._pick.align_prev_error_m = float("inf")
+            self._pick.align_no_improve_count = 0
+            if self._pick_view_align_uses_servo():
+                self._pick_reset_look_servo_target()
+                print("[pick] VIEW_ALIGN: servo mode (current q, no IK grid)", flush=True)
         if stage == PickStage.LOOK_ALIGN and prev != stage:
             self._pick.align_last_cmd_ts = 0.0
             self._pick.align_prev_error_m = float("inf")
@@ -1015,6 +1021,9 @@ class ControlHost:
             return None
         return current_cand, q, metrics
 
+    def _pick_view_align_uses_servo(self) -> bool:
+        return str(self.pick_fsm_cfg.view_align_mode).strip().lower() == "servo"
+
     def _pick_plan_view_pregrasp(
         self,
         current_seed: np.ndarray,
@@ -1025,6 +1034,8 @@ class ControlHost:
             return None
         obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
         cfg = self.pick_fsm_cfg
+        if self._pick_view_align_uses_servo():
+            return None
         limits = self._pick_view_limits()
         desired_xy = self._pick_desired_camera_xy_for_view_plan()
         live_p = self._pick_live_object_camera()
@@ -1529,7 +1540,7 @@ class ControlHost:
         self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
         self._pick_flush_pending_motion_target(now)
 
-    def _pick_visual_servo_look_step(self, now: float) -> bool:
+    def _pick_visual_servo_look_step(self, now: float, *, heuristic_only: bool = False) -> bool:
         if self.last_q is None:
             return False
         xy_state = self._pick_look_camera_xy_state()
@@ -1548,7 +1559,7 @@ class ControlHost:
             self._pick.align_no_improve_count = 0
         self._pick.align_prev_error_m = float(norm_xy)
         cfg = self.pick_fsm_cfg
-        if self._pick_use_jacobian_servo():
+        if (not heuristic_only) and self._pick_use_jacobian_servo():
             e = error_vector_2d(ex, ey)
             j_mat = self._pick.look_jacobian
             assert j_mat is not None
@@ -1572,12 +1583,37 @@ class ControlHost:
             return False
         self._pick_apply_q_delta_motion(delta, now)
         self._pick.align_last_cmd_ts = float(now)
+        stage_tag = "VIEW_ALIGN" if self._pick.stage == PickStage.VIEW_ALIGN else "LOOK_ALIGN"
         print(
-            f"[pick] LOOK_ALIGN ({mode_tag}) ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f} "
+            f"[pick] {stage_tag} ({mode_tag}) ex={ex:+.4f} ey={ey:+.4f} norm={norm_xy:.4f} "
             f"droll={delta.roll_rad:+.4f} dt1={delta.theta1_rad:+.4f} dt2={delta.theta2_rad:+.4f}",
             flush=True,
         )
         return True
+
+    def _pick_tick_view_align_servo(self, now: float) -> None:
+        """Center object in camera using q-space micro-steps at current pose (no IK grid)."""
+        if self._pick.anchor_world_xyz is None:
+            if not self._pick_bootstrap_anchor_from_perception(now):
+                print(
+                    f"[pick] VIEW_ALIGN: {self._pick_explain_missing_anchor()}, returning to TARGET_LOCK",
+                    flush=True,
+                )
+                self._pick_reset_to_search(now)
+                return
+        self._pick.coarse_candidate_tag = "current_pose"
+        self._pick.coarse_view_planned = True
+        self._pick_visual_servo_look_step(now, heuristic_only=True)
+        if self._pick_handle_tracker_lost(now):
+            return
+        if self._pick_coarse_visibility_ok() and self._pick_look_align_ok():
+            if self._pick_can_complete_stage() and self._pick_chain_dwell_elapsed(now):
+                print("[pick] VIEW_ALIGN servo: visible and centered -> LOOK_ALIGN", flush=True)
+                self._pick_set_stage(PickStage.LOOK_ALIGN, now)
+            return
+        stage_elapsed = float(now - self._pick.stage_enter_ts)
+        if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s) and self._pick_can_auto_advance():
+            self._pick_hard_fail(now)
 
     def _pick_execute_advance_small(self, now: float) -> bool:
         if self._pick.advance_executed_this_stage:
@@ -1750,8 +1786,9 @@ class ControlHost:
                 f"pred_camera={pred_txt} pregrasp={self._pick.pregrasp_world}",
                 flush=True,
             )
-            self._pick_apply_coarse_target_q(q, now)
-            self._pick_flush_pending_motion_target(now)
+            if str(cand.tag) != "current_pose":
+                self._pick_apply_coarse_target_q(q, now)
+                self._pick_flush_pending_motion_target(now)
             self._pick_advance_after_view_align(now)
             return True
 
@@ -1810,6 +1847,9 @@ class ControlHost:
                 self._pick_set_stage(PickStage.VIEW_ALIGN, now)
             return
         if self._pick.stage == PickStage.VIEW_ALIGN:
+            if self._pick_view_align_uses_servo():
+                self._pick_tick_view_align_servo(now)
+                return
             if self._pick.anchor_world_xyz is None:
                 if not self._pick_bootstrap_anchor_from_perception(now):
                     print(f"[pick] VIEW_ALIGN: {self._pick_explain_missing_anchor()}, returning to TARGET_LOCK", flush=True)
@@ -2212,9 +2252,14 @@ class ControlHost:
             print(f"[pick] goto stage {target_stage.value} (manual)", flush=True)
             coarse_ok = True
             if target_stage == PickStage.VIEW_ALIGN:
-                coarse_ok = bool(self._pick_execute_coarse_pregrasp(now, force=True))
-                if coarse_ok:
-                    self._pick_advance_after_view_align(now)
+                if self._pick_view_align_uses_servo():
+                    self._pick.coarse_candidate_tag = "current_pose"
+                    self._pick.coarse_view_planned = True
+                    coarse_ok = True
+                else:
+                    coarse_ok = bool(self._pick_execute_coarse_pregrasp(now, force=True))
+                    if coarse_ok:
+                        self._pick_advance_after_view_align(now)
             if target_stage == PickStage.LOOK_ALIGN:
                 self._pick.align_last_cmd_ts = 0.0
                 self._pick.align_prev_error_m = float("inf")

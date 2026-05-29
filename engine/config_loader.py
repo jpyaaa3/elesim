@@ -93,6 +93,7 @@ class PickFsmConfig:
     view_log_all_candidates: bool = True
     view_accept_current_if_live_visible: bool = True
     view_use_live_desired_xy: bool = True
+    view_align_mode: str = "servo"
     view_camera_z_min_m: float = 0.35
     view_camera_z_max_m: float = 0.70
     view_camera_x_abs_max_m: float = 0.15
@@ -475,6 +476,7 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         view_use_live_desired_xy=cp.getboolean(
             "pick_fsm", "view_use_live_desired_xy", fallback=p0.view_use_live_desired_xy
         ),
+        view_align_mode=str(cp.get("pick_fsm", "view_align_mode", fallback=p0.view_align_mode)).strip().lower(),
         view_camera_z_min_m=cp.getfloat("pick_fsm", "view_camera_z_min_m", fallback=p0.view_camera_z_min_m),
         view_camera_z_max_m=cp.getfloat("pick_fsm", "view_camera_z_max_m", fallback=p0.view_camera_z_max_m),
         view_camera_x_abs_max_m=cp.getfloat("pick_fsm", "view_camera_x_abs_max_m", fallback=p0.view_camera_x_abs_max_m),
