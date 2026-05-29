@@ -107,7 +107,10 @@ class PickFsmConfig:
     look_xy_deadband_m: float = 0.008
     look_gain_theta1: float = 1.0
     look_gain_theta2: float = 1.0
+    look_gain_roll: float = 1.0
+    look_heuristic_use_roll: bool = True
     look_max_step_rad: float = 0.02
+    look_max_step_roll_rad: float = 0.02
     look_servo_mode: str = "jacobian"
     look_jacobian_gain: float = 0.6
     look_jacobian_damping: float = 0.02
@@ -494,7 +497,14 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
         look_xy_deadband_m=max(0.0, cp.getfloat("pick_fsm", "look_xy_deadband_m", fallback=p0.look_xy_deadband_m)),
         look_gain_theta1=cp.getfloat("pick_fsm", "look_gain_theta1", fallback=p0.look_gain_theta1),
         look_gain_theta2=cp.getfloat("pick_fsm", "look_gain_theta2", fallback=p0.look_gain_theta2),
+        look_gain_roll=cp.getfloat("pick_fsm", "look_gain_roll", fallback=p0.look_gain_roll),
+        look_heuristic_use_roll=cp.getboolean(
+            "pick_fsm", "look_heuristic_use_roll", fallback=p0.look_heuristic_use_roll
+        ),
         look_max_step_rad=max(1e-4, cp.getfloat("pick_fsm", "look_max_step_rad", fallback=p0.look_max_step_rad)),
+        look_max_step_roll_rad=max(
+            1e-4, cp.getfloat("pick_fsm", "look_max_step_roll_rad", fallback=p0.look_max_step_roll_rad)
+        ),
         look_servo_mode=str(cp.get("pick_fsm", "look_servo_mode", fallback=p0.look_servo_mode)).strip().lower(),
         look_jacobian_gain=max(0.01, cp.getfloat("pick_fsm", "look_jacobian_gain", fallback=p0.look_jacobian_gain)),
         look_jacobian_damping=max(1e-6, cp.getfloat("pick_fsm", "look_jacobian_damping", fallback=p0.look_jacobian_damping)),

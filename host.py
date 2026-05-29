@@ -1231,8 +1231,26 @@ class ControlHost:
         return LookGains(
             theta1_per_error_x=float(cfg.look_gain_theta1),
             theta2_per_error_y=float(cfg.look_gain_theta2),
+            roll_per_error_x=float(cfg.look_gain_roll),
             max_step_rad=float(cfg.look_max_step_rad),
+            max_step_roll_rad=float(cfg.look_max_step_roll_rad),
         )
+
+    def _pick_heuristic_uses_roll(self) -> bool:
+        return bool(self.pick_fsm_cfg.look_heuristic_use_roll)
+
+    def _pick_motion_base_q(self) -> Optional[proto.SimQ]:
+        if self._pending_target_q is not None:
+            return self._pending_target_q
+        return self.last_q
+
+    def _pick_motion_settled(self) -> bool:
+        if self._pending_target_q is None:
+            return True
+        if not self._has_hw():
+            return True
+        _q_lim, complete = self._limit_target_q(self._pending_target_q)
+        return bool(complete)
 
     def _pick_jacobian_gains(self) -> JacobianLookGains:
         cfg = self.pick_fsm_cfg
@@ -1527,13 +1545,14 @@ class ControlHost:
         return True
 
     def _pick_apply_q_delta_motion(self, delta, now: float) -> None:
-        if self.last_q is None:
+        base = self._pick_motion_base_q()
+        if base is None:
             return
         lin, roll, t1, t2 = apply_q_delta(
-            float(self.last_q.linear_m),
-            float(self.last_q.roll_rad),
-            float(self.last_q.theta1_rad),
-            float(self.last_q.theta2_rad),
+            float(base.linear_m),
+            float(base.roll_rad),
+            float(base.theta1_rad),
+            float(base.theta2_rad),
             delta,
         )
         self._pending_target_q = proto.SimQ(linear_m=lin, roll_rad=roll, theta1_rad=t1, theta2_rad=t2)
@@ -1542,6 +1561,8 @@ class ControlHost:
 
     def _pick_visual_servo_look_step(self, now: float, *, heuristic_only: bool = False) -> bool:
         if self.last_q is None:
+            return False
+        if not self._pick_motion_settled():
             return False
         xy_state = self._pick_look_camera_xy_state()
         if xy_state is None:
@@ -1572,8 +1593,14 @@ class ControlHost:
             )
             mode_tag = "jacobian"
         else:
-            delta = compute_look_delta_q(ex, ey, self._pick_look_gains(), limits=limits)
-            mode_tag = "heuristic"
+            delta = compute_look_delta_q(
+                ex,
+                ey,
+                self._pick_look_gains(),
+                limits=limits,
+                use_roll=self._pick_heuristic_uses_roll(),
+            )
+            mode_tag = "heuristic+roll" if self._pick_heuristic_uses_roll() else "heuristic"
         if (
             abs(float(delta.linear_m)) < 1e-9
             and abs(float(delta.roll_rad)) < 1e-9

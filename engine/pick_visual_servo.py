@@ -21,7 +21,9 @@ class LookAlignLimits:
 class LookGains:
     theta1_per_error_x: float = 1.0
     theta2_per_error_y: float = 1.0
+    roll_per_error_x: float = 1.0
     max_step_rad: float = 0.02
+    max_step_roll_rad: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -117,14 +119,21 @@ def compute_look_delta_q(
     gains: LookGains,
     *,
     limits: LookAlignLimits,
+    use_roll: bool = False,
 ) -> Q4Delta:
-    """Map camera x/y error to theta1/theta2 steps only (no linear motion)."""
+    """Map camera x/y error to roll/theta steps (no linear motion)."""
     if not should_send_look_command(ex, ey, limits):
         return Q4Delta()
     max_step = float(max(gains.max_step_rad, 1e-6))
-    d_theta1 = float(np.clip(-float(gains.theta1_per_error_x) * float(ex), -max_step, max_step))
+    max_roll = float(max(gains.max_step_roll_rad, 1e-6))
+    d_roll = 0.0
+    d_theta1 = 0.0
+    if use_roll:
+        d_roll = float(np.clip(-float(gains.roll_per_error_x) * float(ex), -max_roll, max_roll))
+    else:
+        d_theta1 = float(np.clip(-float(gains.theta1_per_error_x) * float(ex), -max_step, max_step))
     d_theta2 = float(np.clip(-float(gains.theta2_per_error_y) * float(ey), -max_step, max_step))
-    return Q4Delta(theta1_rad=d_theta1, theta2_rad=d_theta2)
+    return Q4Delta(roll_rad=d_roll, theta1_rad=d_theta1, theta2_rad=d_theta2)
 
 
 def compute_jacobian_look_delta_q(
