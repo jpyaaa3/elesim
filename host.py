@@ -9,7 +9,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Sequence, Set
 
 import numpy as np
 import zmq
@@ -20,8 +20,20 @@ from engine.config_loader import HardwareConfig
 from engine.config_loader import PickFsmConfig
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
+from engine.pick_view_pregrasp import (
+    ViewPregraspLimits,
+    camera_visibility_ok,
+    camera_visibility_score,
+    generate_view_pregrasp_candidates,
+    pick_best_visible_candidate,
+)
 import engine.protocol as proto
-from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
+from addons.perception_bridge.hand_eye import (
+    camera_axes_world,
+    camera_point_to_world,
+    load_hand_eye_transform,
+    world_point_to_camera,
+)
 
 from serial.tools import list_ports as serial_list_ports
 
@@ -67,6 +79,11 @@ class PickContext:
     align_no_improve_count: int = 0
     coarse_last_cmd_ts: float = 0.0
     coarse_target_q: Optional[tuple[float, float, float, float]] = None
+    coarse_view_planned: bool = False
+    coarse_candidate_tag: str = ""
+    coarse_view_score: float = float("-inf")
+    coarse_predicted_camera: Optional[tuple[float, float, float]] = None
+    coarse_failed_tags: Set[str] = field(default_factory=set)
     manual_mode: bool = False
     track_state: str = ""
     track_confidence: float = 0.0
@@ -451,6 +468,11 @@ class ControlHost:
         if stage == PickStage.COARSE_WORLD_PREGRASP and prev != stage:
             self._pick.coarse_last_cmd_ts = 0.0
             self._pick.coarse_target_q = None
+            self._pick.coarse_view_planned = False
+            self._pick.coarse_candidate_tag = ""
+            self._pick.coarse_view_score = float("-inf")
+            self._pick.coarse_predicted_camera = None
+            self._pick.coarse_failed_tags.clear()
 
     def _pick_can_auto_advance(self) -> bool:
         return not bool(self._pick.manual_mode)
@@ -473,6 +495,11 @@ class ControlHost:
         self._pick.align_no_improve_count = 0
         self._pick.coarse_last_cmd_ts = 0.0
         self._pick.coarse_target_q = None
+        self._pick.coarse_view_planned = False
+        self._pick.coarse_candidate_tag = ""
+        self._pick.coarse_view_score = float("-inf")
+        self._pick.coarse_predicted_camera = None
+        self._pick.coarse_failed_tags.clear()
         self._pick_set_stage(PickStage.SEARCH, now)
 
     def _pick_soft_fail(self) -> None:
@@ -654,36 +681,19 @@ class ControlHost:
         self._pending_target_seq = int(seq)
         self.last_ik_target_xyz = (float(world_xyz[0]), float(world_xyz[1]), float(world_xyz[2]))
 
-    def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
-        if self._pick.anchor_world_xyz is None:
-            print("[pick] coarse skipped: no anchor (start perception first)", flush=True)
-            return False
-        if not self.ik_context:
-            print("[pick] coarse skipped: IK context unavailable", flush=True)
-            return False
-        obj = np.asarray(self._pick.anchor_world_xyz, dtype=float)
-        off = np.asarray(self.pick_fsm_cfg.coarse_offset_m, dtype=float)
-        pre = obj + off
-        self._pick.pregrasp_world = (float(pre[0]), float(pre[1]), float(pre[2]))
-        self.last_ik_target_xyz = self._pick.pregrasp_world
-        self._set_debug_marker(name="pregrasp_target", pos=self._pick.pregrasp_world, color=[1.0, 0.3, 0.2, 0.95], radius=0.01, ttl_ms=300)
-        look_dir = (obj - pre).reshape(3)
-        look_norm = float(np.linalg.norm(look_dir))
-        look_dir_world = None if look_norm <= 1e-9 else (look_dir / look_norm)
-        if look_dir_world is not None:
-            self.last_ik_target_dir = (float(look_dir_world[0]), float(look_dir_world[1]), float(look_dir_world[2]))
-            self._set_debug_marker(
-                name="pregrasp_look_dir",
-                pos=self._pick.pregrasp_world,
-                direction=look_dir_world,
-                color=[0.9, 0.9, 0.2, 0.95],
-                radius=0.004,
-                ttl_ms=300,
-            )
-        if (not force) and (now - float(self._pick.coarse_last_cmd_ts)) < 0.20:
-            return bool(self._pick.coarse_target_q is not None)
+    def _pick_view_limits(self) -> ViewPregraspLimits:
+        cfg = self.pick_fsm_cfg
+        return ViewPregraspLimits(
+            z_min_m=float(cfg.view_camera_z_min_m),
+            z_max_m=float(cfg.view_camera_z_max_m),
+            x_abs_max_m=float(cfg.view_camera_x_abs_max_m),
+            y_abs_max_m=float(cfg.view_camera_y_abs_max_m),
+            z_target_m=float(cfg.view_camera_z_target_m),
+        )
+
+    def _pick_current_seed_q(self) -> np.ndarray:
         if self.last_q is not None:
-            current_seed = np.array(
+            return np.array(
                 [
                     float(self.last_q.linear_m),
                     float(self.last_q.roll_rad),
@@ -692,47 +702,195 @@ class ControlHost:
                 ],
                 dtype=float,
             )
-        else:
-            current_seed = np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+        return np.array([0.0, 0.0, 0.0, 0.0], dtype=float)
+
+    def _pick_predict_object_camera_at_q(
+        self,
+        q4: Sequence[float],
+        object_world: Sequence[float],
+    ) -> Optional[np.ndarray]:
+        if not self.ik_context or self.hand_eye_transform is None:
+            return None
         try:
+            return world_point_to_camera(
+                self.ik_context,
+                q4,
+                self.hand_eye_transform,
+                np.asarray(object_world, dtype=float).reshape(3),
+                parent_frame=self.hand_eye_parent_frame,
+            )
+        except Exception:
+            return None
+
+    def _pick_solve_pregrasp_ik(
+        self,
+        pregrasp_world: tuple[float, float, float],
+        look_dir_world: Optional[tuple[float, float, float]],
+        current_seed: np.ndarray,
+    ):
+        pos_tol = max(0.005, float(self.pick_fsm_cfg.error_threshold_m))
+        target_world = np.asarray(pregrasp_world, dtype=float)
+        look_arr = None if look_dir_world is None else np.asarray(look_dir_world, dtype=float).reshape(3)
+        ik_res = ik_pipeline.solve_then_align(
+            target_world=target_world,
+            target_dir_world=look_arr,
+            context=self.ik_context,
+            position_tol_m=pos_tol,
+            max_iters=80,
+            current_seed=current_seed,
+        )
+        if (not ik_res.success) or ik_res.q is None:
             ik_res = ik_pipeline.solve_then_align(
-                target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
-                target_dir_world=look_dir_world,
+                target_world=target_world,
+                target_dir_world=None,
                 context=self.ik_context,
-                position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
+                position_tol_m=pos_tol,
                 max_iters=80,
                 current_seed=current_seed,
             )
+        return ik_res
+
+    def _pick_plan_view_pregrasp(
+        self,
+        current_seed: np.ndarray,
+    ) -> Optional[tuple[Any, np.ndarray, float, Optional[np.ndarray]]]:
+        if self._pick.anchor_world_xyz is None or not self.ik_context:
+            return None
+        obj = np.asarray(self._pick.anchor_world_xyz, dtype=float).reshape(3)
+        cfg = self.pick_fsm_cfg
+        candidates = generate_view_pregrasp_candidates(
+            obj,
+            base_offset_m=cfg.coarse_offset_m,
+            view_distance_m=float(cfg.view_distance_m),
+            lateral_offsets_m=cfg.view_lateral_offsets_m,
+            height_offsets_m=cfg.view_height_offsets_m,
+        )
+        limits = self._pick_view_limits()
+        scored_rows: list[tuple[Any, np.ndarray, float, Optional[np.ndarray]]] = []
+        for cand in candidates:
+            if cand.tag in self._pick.coarse_failed_tags:
+                continue
+            ik_res = self._pick_solve_pregrasp_ik(cand.pregrasp_world, cand.look_dir_world, current_seed)
             if (not ik_res.success) or ik_res.q is None:
-                ik_res = ik_pipeline.solve_then_align(
-                    target_world=np.asarray(self._pick.pregrasp_world, dtype=float),
-                    target_dir_world=None,
-                    context=self.ik_context,
-                    position_tol_m=max(0.005, float(self.pick_fsm_cfg.error_threshold_m)),
-                    max_iters=80,
-                    current_seed=current_seed,
-                )
-            if ik_res.success and ik_res.q is not None:
-                q = np.asarray(ik_res.q, dtype=float).reshape(4)
-                self._pending_target_q = proto.SimQ(
-                    linear_m=float(q[0]),
-                    roll_rad=float(q[1]),
-                    theta1_rad=float(q[2]),
-                    theta2_rad=float(q[3]),
-                )
-                self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-                self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
-                self._pick.coarse_last_cmd_ts = float(now)
-                print(
-                    f"[pick] coarse IK ok pregrasp={self._pick.pregrasp_world} q={self._pick.coarse_target_q}",
-                    flush=True,
-                )
-                return True
-            print("[pick] coarse IK failed (dir+pos and pos-only)", flush=True)
+                continue
+            q = np.asarray(ik_res.q, dtype=float).reshape(4)
+            p_cam = self._pick_predict_object_camera_at_q(q, obj)
+            if self.hand_eye_transform is not None:
+                if p_cam is None:
+                    continue
+                score = camera_visibility_score(p_cam, limits)
+            else:
+                score = 0.0
+            scored_rows.append((cand, q, float(score), p_cam))
+
+        if not scored_rows:
+            return None
+
+        if self.hand_eye_transform is not None:
+            best_pair = pick_best_visible_candidate((row[0], row[2]) for row in scored_rows)
+            if best_pair is None:
+                return None
+            best_cand = best_pair[0]
+            for cand, q, score, p_cam in scored_rows:
+                if cand is best_cand:
+                    return cand, q, score, p_cam
+            return None
+
+        cand, q, score, p_cam = scored_rows[0]
+        return cand, q, score, p_cam
+
+    def _pick_coarse_visibility_ok(self) -> bool:
+        limits = self._pick_view_limits()
+        mu = self._pick_effective_camera_mu()
+        if mu is not None and self._pick_tracker_measurement_ok():
+            return camera_visibility_ok(mu, limits)
+        if self._pick.anchor_world_xyz is None:
             return False
-        except Exception as exc:
-            print(f"[pick] coarse IK exception: {exc}", flush=True)
+        q4 = self._pick.coarse_target_q
+        if q4 is None and self.last_q is not None:
+            q4 = (
+                float(self.last_q.linear_m),
+                float(self.last_q.roll_rad),
+                float(self.last_q.theta1_rad),
+                float(self.last_q.theta2_rad),
+            )
+        if q4 is None:
             return False
+        p_cam = self._pick_predict_object_camera_at_q(q4, self._pick.anchor_world_xyz)
+        if p_cam is None:
+            return False
+        return camera_visibility_ok(p_cam, limits)
+
+    def _pick_apply_coarse_target_q(self, q: np.ndarray, now: float) -> None:
+        self._pending_target_q = proto.SimQ(
+            linear_m=float(q[0]),
+            roll_rad=float(q[1]),
+            theta1_rad=float(q[2]),
+            theta2_rad=float(q[3]),
+        )
+        self._pick.coarse_target_q = (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+        self._pending_target_seq = int(max(self._pending_target_seq, 0) + 1)
+        self._pick.coarse_last_cmd_ts = float(now)
+
+    def _pick_execute_coarse_pregrasp(self, now: float, *, force: bool = False) -> bool:
+        if self._pick.anchor_world_xyz is None:
+            print("[pick] coarse skipped: no anchor (start perception first)", flush=True)
+            return False
+        if not self.ik_context:
+            print("[pick] coarse skipped: IK context unavailable", flush=True)
+            return False
+
+        current_seed = self._pick_current_seed_q()
+        need_plan = bool(force or (not self._pick.coarse_view_planned) or self._pick.coarse_target_q is None)
+        if need_plan:
+            plan = self._pick_plan_view_pregrasp(current_seed)
+            if plan is None:
+                print("[pick] coarse view-pregrasp planning failed (no visible IK candidate)", flush=True)
+                return False
+            cand, q, score, p_cam = plan
+            self._pick.pregrasp_world = cand.pregrasp_world
+            self._pick.coarse_candidate_tag = str(cand.tag)
+            self._pick.coarse_view_score = float(score)
+            if p_cam is not None:
+                pc = np.asarray(p_cam, dtype=float).reshape(3)
+                self._pick.coarse_predicted_camera = (float(pc[0]), float(pc[1]), float(pc[2]))
+            else:
+                self._pick.coarse_predicted_camera = None
+            self._pick.coarse_view_planned = True
+            self.last_ik_target_xyz = self._pick.pregrasp_world
+            self.last_ik_target_dir = cand.look_dir_world
+            self._set_debug_marker(
+                name="pregrasp_target",
+                pos=self._pick.pregrasp_world,
+                color=[1.0, 0.3, 0.2, 0.95],
+                radius=0.01,
+                ttl_ms=300,
+            )
+            self._set_debug_marker(
+                name="pregrasp_look_dir",
+                pos=self._pick.pregrasp_world,
+                direction=np.asarray(cand.look_dir_world, dtype=float).reshape(3),
+                color=[0.9, 0.9, 0.2, 0.95],
+                radius=0.004,
+                ttl_ms=300,
+            )
+            pred_txt = self._pick.coarse_predicted_camera if self._pick.coarse_predicted_camera is not None else "n/a"
+            print(
+                f"[pick] coarse view-pregrasp tag={cand.tag} score={score:.3f} "
+                f"pred_camera={pred_txt} pregrasp={self._pick.pregrasp_world}",
+                flush=True,
+            )
+            self._pick_apply_coarse_target_q(q, now)
+            return True
+
+        if (not force) and (now - float(self._pick.coarse_last_cmd_ts)) < 0.20:
+            return bool(self._pick.coarse_target_q is not None)
+
+        if self._pick.coarse_target_q is not None:
+            q = np.asarray(self._pick.coarse_target_q, dtype=float).reshape(4)
+            self._pick_apply_coarse_target_q(q, now)
+            return True
+        return False
 
     def _tick_pick_fsm(self, now: float) -> None:
         if not self._pick_enabled or self._safety_fault:
@@ -787,13 +945,11 @@ class ControlHost:
                 return
             # Transition only after actual approach to pregrasp (or timeout), not immediately.
             reach_tol = max(0.02, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
+            reached = False
             if self.last_actual_tip_xyz is not None:
                 dist = float(np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - pre))
                 self._pick.stage_error_m = dist
-                if dist <= reach_tol:
-                    if self._pick_can_auto_advance():
-                        self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
-                    return
+                reached = dist <= reach_tol
             elif self._pick.coarse_target_q is not None and self.last_q is not None:
                 q_now = np.array(
                     [
@@ -805,10 +961,26 @@ class ControlHost:
                     dtype=float,
                 )
                 q_goal = np.asarray(self._pick.coarse_target_q, dtype=float).reshape(4)
-                if float(np.linalg.norm(q_now - q_goal)) <= 0.02:
+                reached = float(np.linalg.norm(q_now - q_goal)) <= 0.02
+            if reached:
+                if self._pick_coarse_visibility_ok():
                     if self._pick_can_auto_advance():
                         self._pick_set_stage(PickStage.STOP_AND_RELOCALIZE, now)
                     return
+                failed_tag = str(self._pick.coarse_candidate_tag or "").strip()
+                if failed_tag:
+                    self._pick.coarse_failed_tags.add(failed_tag)
+                print(
+                    f"[pick] COARSE reached but visibility failed tag={failed_tag or 'unknown'} "
+                    f"pred={self._pick.coarse_predicted_camera} track={self._pick.track_state}",
+                    flush=True,
+                )
+                self._pick.coarse_view_planned = False
+                self._pick.coarse_target_q = None
+                self._pick_execute_coarse_pregrasp(now, force=True)
+                if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s) and self._pick_can_auto_advance():
+                    self._pick_hard_fail(now)
+                return
             if self._manual_hold_stage(PickStage.COARSE_WORLD_PREGRASP):
                 return
             if stage_elapsed > float(self.pick_fsm_cfg.stage_timeout_s):

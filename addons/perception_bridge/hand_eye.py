@@ -44,6 +44,19 @@ def camera_world_transform(
     return T_world_parent @ np.asarray(T_parent_camera, dtype=float).reshape(4, 4)
 
 
+def world_point_to_camera(
+    context: dict[str, Any],
+    q4: Sequence[float],
+    T_parent_camera: np.ndarray,
+    point_world: np.ndarray | list[float],
+    *,
+    parent_frame: str,
+) -> np.ndarray:
+    T_world_camera = camera_world_transform(context, q4, T_parent_camera, parent_frame=parent_frame)
+    T_camera_world = np.linalg.inv(np.asarray(T_world_camera, dtype=float).reshape(4, 4))
+    return transform_point(T_camera_world, point_world)
+
+
 def camera_point_to_world(
     context: dict[str, Any],
     q4: Sequence[float],

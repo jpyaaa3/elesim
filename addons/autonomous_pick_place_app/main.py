@@ -20,7 +20,7 @@ from perception.depth_pose import CameraIntrinsics, estimate_object_position_cam
 from perception.detector import DetectionResult, ObjectDetector, create_detector, load_detector_config
 from perception.preview import close_preview, draw_detection_overlay, show_preview
 from perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError
-from perception.target_tracker import TargetTracker, TrackPacket
+from perception.target_tracker import TargetTracker, TrackPacket, TrackState
 from perception.yolo_detector import YoloUnavailableError
 
 from elesim_bridge.host_client import HostPublishError, publish_perceived_object
@@ -247,17 +247,25 @@ def run_camera_session(
                 h_img = int(frame.intrinsics.height)
                 w_img = int(frame.intrinsics.width)
 
+                run_yolo = tracker.needs_yolo()
                 det: Optional[DetectionResult] = None
                 all_dets: list[DetectionResult] = []
-                if tracker.needs_yolo():
+                if run_yolo:
                     all_dets = _list_frame_detections(detector, frame.color_bgr)
                     det = _pick_target_detection(all_dets, target_label)
-                    if det is not None:
-                        if tracker.try_lock(det, width=w_img, height=h_img):
+                    if tracker.state == TrackState.SEARCH:
+                        if det is not None and tracker.try_lock(det, width=w_img, height=h_img):
                             print(
                                 f"[Track] YOLO lock label={det.label} bbox={_format_bbox(det.bbox_xyxy)} "
                                 f"-> TRACKING_3D"
                             )
+                    elif tracker.state == TrackState.LOST:
+                        if det is not None and tracker.try_lock(det, width=w_img, height=h_img):
+                            print(f"[Track] YOLO re-lock label={det.label} -> TRACKING_3D")
+                    else:
+                        ok = tracker.apply_yolo_verification(det, width=w_img, height=h_img)
+                        if not ok:
+                            print("[Track] YOLO verify failed: target not visible in frame")
 
                 packet = tracker.update(
                     depth_raw=frame.depth_raw,
@@ -267,7 +275,7 @@ def run_camera_session(
                 status = str(packet.track_state).lower()
                 p_camera = _publish_point_for_packet(packet)
 
-                if tracker.needs_yolo():
+                if run_yolo:
                     det_summary = _format_detection_summary(all_dets)
                     if det_summary != last_det_summary:
                         if all_dets:
@@ -285,7 +293,7 @@ def run_camera_session(
 
                 if show:
                     vis_det = det
-                    if vis_det is None and packet.bbox_xyxy != (0, 0, 0, 0):
+                    if vis_det is None and packet.show_bbox:
                         x0, y0, x1, y1 = packet.bbox_xyxy
                         mask = np.zeros((h_img, w_img), dtype=np.uint8)
                         mask[y0 : y1 + 1, x0 : x1 + 1] = 255

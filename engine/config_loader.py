@@ -87,6 +87,14 @@ class PickFsmConfig:
     use_perception_mu: bool = True
     ignore_perception_in_short_approach: bool = True
     search_track_conf_min: float = 0.45
+    view_distance_m: float = 0.45
+    view_camera_z_min_m: float = 0.35
+    view_camera_z_max_m: float = 0.70
+    view_camera_x_abs_max_m: float = 0.15
+    view_camera_y_abs_max_m: float = 0.12
+    view_camera_z_target_m: float = 0.50
+    view_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
+    view_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
 
 
 @dataclass(frozen=True)
@@ -161,6 +169,22 @@ def _parse_vec3(text: str, default: Tuple[float, float, float]) -> Tuple[float, 
         return (float(parts[0]), float(parts[1]), float(parts[2]))
     except Exception:
         return default
+
+
+def _parse_float_tuple(text: str, default: Tuple[float, ...]) -> Tuple[float, ...]:
+    raw = str(text).strip()
+    if not raw:
+        return default
+    out: list[float] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(float(part))
+        except Exception:
+            continue
+    return tuple(out) if out else default
 
 
 def _parse_optional_float(text: str, default: Optional[float]) -> Optional[float]:
@@ -406,6 +430,18 @@ def _load_pick_fsm_config(cp: configparser.ConfigParser, defaults: AppConfigBund
             "pick_fsm", "ignore_perception_in_short_approach", fallback=p0.ignore_perception_in_short_approach
         ),
         search_track_conf_min=cp.getfloat("pick_fsm", "search_track_conf_min", fallback=p0.search_track_conf_min),
+        view_distance_m=max(0.05, cp.getfloat("pick_fsm", "view_distance_m", fallback=p0.view_distance_m)),
+        view_camera_z_min_m=cp.getfloat("pick_fsm", "view_camera_z_min_m", fallback=p0.view_camera_z_min_m),
+        view_camera_z_max_m=cp.getfloat("pick_fsm", "view_camera_z_max_m", fallback=p0.view_camera_z_max_m),
+        view_camera_x_abs_max_m=cp.getfloat("pick_fsm", "view_camera_x_abs_max_m", fallback=p0.view_camera_x_abs_max_m),
+        view_camera_y_abs_max_m=cp.getfloat("pick_fsm", "view_camera_y_abs_max_m", fallback=p0.view_camera_y_abs_max_m),
+        view_camera_z_target_m=cp.getfloat("pick_fsm", "view_camera_z_target_m", fallback=p0.view_camera_z_target_m),
+        view_lateral_offsets_m=_parse_float_tuple(
+            cp.get("pick_fsm", "view_lateral_offsets_m", fallback=""), p0.view_lateral_offsets_m
+        ),
+        view_height_offsets_m=_parse_float_tuple(
+            cp.get("pick_fsm", "view_height_offsets_m", fallback=""), p0.view_height_offsets_m
+        ),
     )
 
 

@@ -104,8 +104,8 @@ class TestTargetTracker(unittest.TestCase):
         self.assertEqual(packet.track_state, TrackState.SEARCH.value)
         self.assertFalse(packet.publishable)
 
-    def test_needs_yolo_only_in_search_and_lost(self) -> None:
-        tracker = TargetTracker(redetect_interval_frames=2)
+    def test_needs_yolo_in_search_lost_and_tracking(self) -> None:
+        tracker = TargetTracker(redetect_interval_frames=2, verify_interval_frames=4)
         self.assertTrue(tracker.needs_yolo())
         det = DetectionResult(
             mask=np.zeros((480, 640), dtype=np.uint8),
@@ -114,12 +114,41 @@ class TestTargetTracker(unittest.TestCase):
             confidence=1.0,
         )
         tracker.try_lock(det, width=640, height=480)
-        self.assertFalse(tracker.needs_yolo())
-        tracker.state = TrackState.LOST
         tracker._frame_idx = 0
         self.assertTrue(tracker.needs_yolo())
         tracker._frame_idx = 1
         self.assertFalse(tracker.needs_yolo())
+        tracker._frame_idx = 4
+        self.assertTrue(tracker.needs_yolo())
+
+    def test_wrong_depth_cluster_causes_lost(self) -> None:
+        depth_obj, intrinsics, scale = _synthetic_frame(z_m=0.65)
+        tracker = TargetTracker(
+            window_size=5,
+            min_samples=2,
+            min_depth_cluster_ratio=0.20,
+            z_cluster_tolerance_m=0.05,
+            lost_frames_threshold=3,
+            verify_interval_frames=100,
+        )
+        det = DetectionResult(
+            mask=np.zeros((480, 640), dtype=np.uint8),
+            bbox_xyxy=(300, 220, 340, 260),
+            label="obj",
+            confidence=0.9,
+        )
+        tracker.try_lock(det, width=640, height=480)
+        for _ in range(4):
+            tracker.update(depth_raw=depth_obj, intrinsics=intrinsics, depth_scale=scale)
+
+        depth_far = depth_obj.copy()
+        depth_far[:, :] = int(round(1.20 / scale))
+        packet = None
+        for _ in range(5):
+            packet = tracker.update(depth_raw=depth_far, intrinsics=intrinsics, depth_scale=scale)
+        assert packet is not None
+        self.assertEqual(packet.track_state, TrackState.LOST.value)
+        self.assertEqual(packet.bbox_xyxy, (0, 0, 0, 0))
 
 
 if __name__ == "__main__":
