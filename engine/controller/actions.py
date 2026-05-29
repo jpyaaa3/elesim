@@ -1655,14 +1655,16 @@ class ControlService:
         center_tol: float,
         force_axis: Optional[str] = None,
         seg_u_max: Optional[float] = None,
+        u_active_tol: Optional[float] = None,
     ) -> tuple[ControlU, str]:
         roll_du = 0.0
         seg_du = 0.0
         u_err = -float(obs.center_uv[0])
-        v_err = -float(obs.center_uv[1])
+        v_img = float(obs.center_uv[1])
         mode = "none"
-        u_over = abs(float(obs.center_uv[0])) > float(center_tol)
-        v_over = abs(float(obs.center_uv[1])) > float(center_tol)
+        u_tol = float(u_active_tol if u_active_tol is not None else center_tol)
+        u_over = abs(float(obs.center_uv[0])) > u_tol
+        v_over = abs(v_img) > float(center_tol)
         seg_cap = float(self._visual_center_seg_u_max if seg_u_max is None else seg_u_max)
         if force_axis == "u" or (force_axis is None and u_over):
             roll_du = float(
@@ -1674,9 +1676,10 @@ class ControlService:
             )
             mode = "uv_roll"
         elif force_axis == "v" or (force_axis is None and v_over):
+            # +v in image = object below center; +seg_du reduces v on this rig.
             seg_du = float(
                 np.clip(
-                    self._visual_center_v_gain * v_err,
+                    self._visual_center_v_gain * v_img,
                     -seg_cap,
                     seg_cap,
                 )
@@ -1696,10 +1699,13 @@ class ControlService:
 
     def _apply_pick_center_step(self, obs: VisualObservation, current_u: ControlU) -> ControlU:
         cfg = self._pick_config_effective()
+        center_tol = float(cfg.center_tol)
         next_u, _mode = self._apply_center_uv_step(
             obs,
             current_u,
-            center_tol=float(cfg.center_tol),
+            center_tol=center_tol,
+            u_active_tol=center_tol * float(self._center_u_enter_v_ratio),
+            seg_u_max=float(self._center_seg_step_max),
         )
         return next_u
 
