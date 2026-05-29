@@ -558,7 +558,12 @@ class ControlHost:
                 self._pick.look_cal_substep = ""
 
     def _pick_can_auto_advance(self) -> bool:
+        """Uncommanded pick flow (e.g. TARGET_LOCK search). Manual mode stays on TARGET_LOCK."""
         return not bool(self._pick.manual_mode)
+
+    def _pick_can_complete_stage(self) -> bool:
+        """Forward chain when stage goals are met (manual stage buttons still advance)."""
+        return True
 
     def _pick_reset_to_search(self, now: float, *, increment_attempt: bool = False) -> None:
         if increment_attempt:
@@ -1652,12 +1657,12 @@ class ControlHost:
                 return
             # Transition only after actual approach to pregrasp (or timeout), not immediately.
             reach_tol = max(0.02, float(self.pick_fsm_cfg.error_threshold_m) * 2.0)
-            reached = False
-            if self.last_actual_tip_xyz is not None:
+            reached = str(self._pick.coarse_candidate_tag or "") == "current_pose"
+            if not reached and self.last_actual_tip_xyz is not None:
                 dist = float(np.linalg.norm(np.asarray(self.last_actual_tip_xyz, dtype=float).reshape(3) - pre))
                 self._pick.stage_error_m = dist
                 reached = dist <= reach_tol
-            elif self._pick.coarse_target_q is not None and self.last_q is not None:
+            elif not reached and self._pick.coarse_target_q is not None and self.last_q is not None:
                 q_now = np.array(
                     [
                         float(self.last_q.linear_m),
@@ -1671,7 +1676,8 @@ class ControlHost:
                 reached = float(np.linalg.norm(q_now - q_goal)) <= 0.02
             if reached:
                 if self._pick_coarse_visibility_ok():
-                    if self._pick_can_auto_advance():
+                    if self._pick_can_complete_stage():
+                        print("[pick] VIEW_ALIGN complete -> STOP_AND_CHECK", flush=True)
                         self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
                     return
                 failed_tag = str(self._pick.coarse_candidate_tag or "").strip()
@@ -1727,7 +1733,8 @@ class ControlHost:
                                 radius=0.01,
                                 ttl_ms=300,
                             )
-                            if self._pick_can_auto_advance():
+                            if self._pick_can_complete_stage():
+                                print("[pick] STOP_AND_CHECK complete -> LOOK_ALIGN", flush=True)
                                 self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                             return
             if stage_elapsed > float(self.pick_fsm_cfg.relocalize_timeout_s):
@@ -1768,7 +1775,7 @@ class ControlHost:
                     float(self._pick.pregrasp_world[2]),
                 )
             if self._pick_ready_for_commit():
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.COMMIT_GATE, now)
                 return
             if self._pick_look_align_ok():
@@ -1776,11 +1783,11 @@ class ControlHost:
                     if self._pick_can_auto_advance():
                         self._pick_hard_fail(now)
                     return
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.ADVANCE_SMALL, now)
                 return
             if int(self._pick.align_no_improve_count) >= int(self.pick_fsm_cfg.align_no_improve_limit):
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
                 self._pick.align_no_improve_count = 0
                 return
@@ -1806,10 +1813,10 @@ class ControlHost:
             if self._pick_handle_tracker_lost(now):
                 return
             if self._pick_execute_advance_small(now):
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.STOP_AND_CHECK, now)
             else:
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.LOOK_ALIGN, now)
             return
         if self._pick.stage == PickStage.COMMIT_GATE:
@@ -1830,11 +1837,11 @@ class ControlHost:
                 and float(self._pick.depth_valid_ratio) >= float(self.pick_fsm_cfg.depth_valid_ratio_min)
             )
             if pass_gate:
-                if self._pick_can_auto_advance():
+                if self._pick_can_complete_stage():
                     self._pick_set_stage(PickStage.SHORT_APPROACH, now)
             else:
                 if int(self._pick.dropout_count) <= int(self.pick_fsm_cfg.dropout_soft_limit):
-                    if self._pick_can_auto_advance():
+                    if self._pick_can_complete_stage():
                         self._pick_set_stage(PickStage.LOOK_ALIGN, now)
                     self._pick_soft_fail()
                 else:
@@ -1867,7 +1874,7 @@ class ControlHost:
                 )
                 self._pick.stage_error_m = dist
                 if dist <= reach_tol:
-                    if self._pick_can_auto_advance():
+                    if self._pick_can_complete_stage():
                         self._pick_set_stage(PickStage.CLOSE_GRIPPER, now)
                     return
             dz = float(np.clip(float(self.pick_fsm_cfg.short_approach_m) * 0.25, 0.0, float(self.pick_fsm_cfg.align_step_m)))
@@ -1884,7 +1891,7 @@ class ControlHost:
             return
         if self._pick.stage == PickStage.CLOSE_GRIPPER:
             self.last_claw_closed = True
-            if self._pick_can_auto_advance():
+            if self._pick_can_complete_stage():
                 self._pick_set_stage(PickStage.LIFT_AND_VERIFY, now)
             return
         if self._pick.stage == PickStage.LIFT_AND_VERIFY:
