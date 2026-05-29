@@ -441,6 +441,13 @@ class ControlService:
         err = self._visual_error_vec(obs)
         return float(4.0 * err[0] ** 2 + 4.0 * err[1] ** 2 + err[2] ** 2)
 
+    @staticmethod
+    def _log_visual_step(tag: str, step_idx: int, step_max: int, **fields: object) -> None:
+        parts = [f"[Visual] {tag} step {int(step_idx)}/{int(step_max)}"]
+        for key, value in fields.items():
+            parts.append(f"{key}={value}")
+        print(" | ".join(parts))
+
     def _visual_candidate_delta(
         self,
         obs: VisualObservation,
@@ -1188,18 +1195,37 @@ class ControlService:
         def _worker() -> None:
             try:
                 if center_only:
+                    max_steps = int(self._visual_center_outer_iters)
+                    print(
+                        "[Visual] center start | max_steps=%d tol=%.3f | uv=(%.3f, %.3f) scale=%.3f"
+                        % (
+                            max_steps,
+                            float(self.state.visual_center_tol),
+                            float(obs.center_uv[0]),
+                            float(obs.center_uv[1]),
+                            float(obs.scale),
+                        )
+                    )
                     current_host = host_state
                     current_obs = obs
-                    for _ in range(int(self._visual_center_outer_iters)):
+                    for step_idx in range(1, max_steps + 1):
                         if self._visual_stop_event.is_set():
+                            print(f"[Visual] center step {step_idx}/{max_steps} | stopped")
                             self.state.set_visual_status(running=False, failed=False, msg="stopped")
                             return
                         snapshot_host = current_host
                         snapshot_obs = current_obs
                         if snapshot_obs is None:
+                            print(f"[Visual] center step {step_idx}/{max_steps} | observation lost")
                             self.state.set_visual_status(running=False, failed=True, msg="observation lost")
                             return
-                        if max(abs(float(snapshot_obs.center_uv[0])), abs(float(snapshot_obs.center_uv[1]))) <= float(self.state.visual_center_tol):
+                        u0 = float(snapshot_obs.center_uv[0])
+                        v0 = float(snapshot_obs.center_uv[1])
+                        if max(abs(u0), abs(v0)) <= float(self.state.visual_center_tol):
+                            print(
+                                "[Visual] center step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
+                                % (step_idx, max_steps, u0, v0, float(snapshot_obs.scale))
+                            )
                             self.state.set_visual_status(
                                 running=False,
                                 failed=False,
@@ -1222,6 +1248,14 @@ class ControlService:
                                 q_try[1] += roll_delta
                                 q_try = self._clamp_q(q_try)
                                 if not np.allclose(q_try, q_now, atol=1e-9, rtol=0.0):
+                                    self._log_visual_step(
+                                        "center",
+                                        step_idx,
+                                        max_steps,
+                                        mode="snapshot_q_roll",
+                                        uv=f"({u0:+.3f},{v0:+.3f})",
+                                        droll_deg=f"{float(np.degrees(roll_delta)):+.2f}",
+                                    )
                                     state_after_roll = self._command_q_and_wait(q_try, timeout_s=1.0)
                                     if state_after_roll is not None and state_after_roll.q is not None:
                                         q_now = np.array(
@@ -1245,6 +1279,14 @@ class ControlService:
                                 tilt_delta = float(
                                     np.clip(tilt_raw, -self._center_tilt_rad_max, self._center_tilt_rad_max)
                                 )
+                                self._log_visual_step(
+                                    "center",
+                                    step_idx,
+                                    max_steps,
+                                    mode="snapshot_tilt",
+                                    uv=f"({u0:+.3f},{v0:+.3f})",
+                                    dtilt_deg=f"{float(np.degrees(tilt_delta)):+.2f}",
+                                )
                                 self._apply_manual_camera_rotation(
                                     right_angle_rad=0.0,
                                     up_angle_rad=float(tilt_delta),
@@ -1253,6 +1295,13 @@ class ControlService:
                                 moved = True
                                 status_parts.append(f"tilt={float(np.degrees(tilt_delta)):.2f} deg")
                             if not moved:
+                                self._log_visual_step(
+                                    "center",
+                                    step_idx,
+                                    max_steps,
+                                    mode="snapshot_no_move",
+                                    uv=f"({u0:+.3f},{v0:+.3f})",
+                                )
                                 self.state.set_visual_status(
                                     running=False,
                                     failed=False,
@@ -1286,15 +1335,41 @@ class ControlService:
                                     next_obs = polled_obs
                                     break
                             if next_obs is None:
+                                self._log_visual_step(
+                                    "center",
+                                    step_idx,
+                                    max_steps,
+                                    mode="snapshot_wait_timeout",
+                                    uv=f"({u0:+.3f},{v0:+.3f})",
+                                )
                                 self.state.set_visual_status(
                                     running=False,
                                     failed=False,
                                     msg="center command sent | awaiting new detection timed out",
                                 )
                                 return
+                            self._log_visual_step(
+                                "center",
+                                step_idx,
+                                max_steps,
+                                mode="snapshot_wait_ok",
+                                uv=f"({float(next_obs.center_uv[0]):+.3f},{float(next_obs.center_uv[1]):+.3f})",
+                            )
                             current_host = next_host
                             current_obs = next_obs
                             continue
+                        self._log_visual_step(
+                            "center",
+                            step_idx,
+                            max_steps,
+                            mode="snapshot_skip",
+                            uv=f"({u0:+.3f},{v0:+.3f})",
+                            reason="no_p_cam",
+                        )
+                    print(
+                        "[Visual] center | snapshot loop exhausted (%d steps), uv fallback"
+                        % max_steps
+                    )
                     current_u = self.current_control_u()
                     u_err = -float(snapshot_obs.center_uv[0])
                     v_err = -float(snapshot_obs.center_uv[1])
@@ -1308,6 +1383,16 @@ class ControlService:
                         roll_du = 0.0
 
                     moved = False
+                    axis = "u" if abs(float(snapshot_obs.center_uv[0])) > float(self.state.visual_center_tol) else "v"
+                    self._log_visual_step(
+                        "center",
+                        max_steps,
+                        max_steps,
+                        mode=f"uv_{axis}",
+                        uv=f"({float(snapshot_obs.center_uv[0]):+.3f},{float(snapshot_obs.center_uv[1]):+.3f})",
+                        droll=f"{roll_du:+.2f}",
+                        dseg=f"{seg_du:+.2f}",
+                    )
                     if abs(roll_du) > 1e-9:
                         next_u = self._clamp_display_u(
                             ControlU(
@@ -1354,14 +1439,27 @@ class ControlService:
                     )
                     return
 
+                max_steps = int(self._visual_outer_iters)
+                print(
+                    "[Visual] servo start | max_steps=%d | uv=(%.3f, %.3f) scale=%.3f target_scale=%.3f"
+                    % (
+                        max_steps,
+                        float(obs.center_uv[0]),
+                        float(obs.center_uv[1]),
+                        float(obs.scale),
+                        float(self.state.visual_target_scale),
+                    )
+                )
                 current_obs = obs
                 current_u = self.current_control_u()
                 stale_count = 0
-                for _ in range(int(self._visual_outer_iters)):
+                for step_idx in range(1, max_steps + 1):
                     if self._visual_stop_event.is_set():
+                        print(f"[Visual] servo step {step_idx}/{max_steps} | stopped")
                         self.state.set_visual_status(running=False, failed=False, msg="stopped")
                         return
                     if current_obs is None:
+                        print(f"[Visual] servo step {step_idx}/{max_steps} | observation lost")
                         self.state.set_visual_status(running=False, failed=True, msg="observation lost")
                         return
                     center_ok = max(abs(float(current_obs.center_uv[0])), abs(float(current_obs.center_uv[1]))) <= float(self.state.visual_center_tol)
@@ -1369,6 +1467,16 @@ class ControlService:
                         float(current_obs.scale) >= float(self.state.visual_target_scale) - float(self.state.visual_scale_tol)
                     )
                     if center_ok and scale_ok:
+                        print(
+                            "[Visual] servo step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
+                            % (
+                                step_idx,
+                                max_steps,
+                                float(current_obs.center_uv[0]),
+                                float(current_obs.center_uv[1]),
+                                float(current_obs.scale),
+                            )
+                        )
                         self.state.set_visual_status(
                             running=False,
                             failed=False,
@@ -1391,6 +1499,14 @@ class ControlService:
                         else:
                             roll_du = 0.0
                     if abs(linear_du) <= 1e-9 and abs(roll_du) <= 1e-9 and abs(seg_du) <= 1e-9:
+                        self._log_visual_step(
+                            "servo",
+                            step_idx,
+                            max_steps,
+                            mode="deadband",
+                            uv=f"({float(current_obs.center_uv[0]):+.3f},{float(current_obs.center_uv[1]):+.3f})",
+                            scale=f"{float(current_obs.scale):.3f}",
+                        )
                         self.state.set_visual_status(
                             running=False,
                             failed=False,
@@ -1399,6 +1515,16 @@ class ControlService:
                         )
                         return
 
+                    self._log_visual_step(
+                        "servo",
+                        step_idx,
+                        max_steps,
+                        uv=f"({float(current_obs.center_uv[0]):+.3f},{float(current_obs.center_uv[1]):+.3f})",
+                        scale=f"{float(current_obs.scale):.3f}",
+                        dlinear=f"{linear_du:+.2f}",
+                        droll=f"{roll_du:+.2f}",
+                        dseg=f"{seg_du:+.2f}",
+                    )
                     next_u = self._clamp_display_u(
                         ControlU(
                             u_linear=float(current_u.u_linear + linear_du),
@@ -1440,8 +1566,10 @@ class ControlService:
                             float(current_obs.confidence),
                         ),
                     )
+                print(f"[Visual] servo | iteration limit ({max_steps} steps)")
                 self.state.set_visual_status(running=False, failed=True, msg="iteration limit")
             except Exception as exc:
+                print(f"[Visual] failed: {exc}")
                 self.state.set_visual_status(running=False, failed=True, msg=f"visual servo failed: {exc}")
             finally:
                 self._visual_worker = None
@@ -1610,10 +1738,15 @@ class ControlService:
         def _worker() -> None:
             try:
                 pk = self._pick_config_effective()
+                print(
+                    "[Pick] start | max_iters=%d target_scale=%.3f center_tol=%.3f"
+                    % (int(pk.max_iters), float(pk.target_scale), float(pk.center_tol))
+                )
                 if not self._wait_for_track_lock(
                     timeout_s=float(pk.acquire_timeout_s),
                     require_frames=int(pk.require_track_frames),
                 ):
+                    print("[Pick] acquire | track lock timeout")
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
@@ -1621,11 +1754,15 @@ class ControlService:
                         msg="track acquire timeout",
                     )
                     return
+                print("[Pick] acquire | track locked")
 
                 current_u = self.current_control_u()
                 stale_count = 0
-                for it in range(int(pk.max_iters)):
+                max_iters = int(pk.max_iters)
+                for it in range(max_iters):
+                    step_idx = it + 1
                     if self._pick_stop_event.is_set():
+                        print(f"[Pick] step {step_idx}/{max_iters} | stopped")
                         self.state.set_pick_status(
                             running=False,
                             failed=False,
@@ -1638,6 +1775,7 @@ class ControlService:
                     obs = self.current_visual_observation(host_state)
                     if obs is None:
                         stale_count += 1
+                        print(f"[Pick] step {step_idx}/{max_iters} | stale obs ({stale_count}/3)")
                         if stale_count >= 3:
                             self.state.set_pick_status(
                                 running=False,
@@ -1652,6 +1790,10 @@ class ControlService:
 
                     conv = evaluate_pick_convergence(obs, cfg=pk)
                     if conv.center_ok and conv.scale_ok:
+                        print(
+                            "[Pick] step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
+                            % (step_idx, max_iters, conv.u_err, conv.v_err, conv.scale)
+                        )
                         self.state.set_pick_status(
                             running=False,
                             failed=False,
@@ -1668,7 +1810,25 @@ class ControlService:
                         phase = ObjectPickPhase.APPROACH
                         next_u = self._apply_pick_approach_step(obs, current_u)
 
+                    du_linear = float(next_u.u_linear - current_u.u_linear)
+                    du_roll = float(next_u.u_roll - current_u.u_roll)
+                    du_seg = float(next_u.u_s1 - current_u.u_s1)
+                    self._log_visual_step(
+                        "pick",
+                        step_idx,
+                        max_iters,
+                        phase=phase.value,
+                        uv=f"({conv.u_err:+.3f},{conv.v_err:+.3f})",
+                        scale=f"{conv.scale:.3f}",
+                        center_ok=str(conv.center_ok),
+                        scale_ok=str(conv.scale_ok),
+                        dlinear=f"{du_linear:+.2f}",
+                        droll=f"{du_roll:+.2f}",
+                        dseg=f"{du_seg:+.2f}",
+                    )
+
                     if next_u == current_u:
+                        print(f"[Pick] step {step_idx}/{max_iters} | command clamped")
                         self.state.set_pick_status(
                             running=False,
                             failed=False,
@@ -1689,6 +1849,7 @@ class ControlService:
                     current_u = next_u
                     time.sleep(0.05)
 
+                print(f"[Pick] iteration limit ({max_iters} steps)")
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
@@ -1696,6 +1857,7 @@ class ControlService:
                     msg="iteration limit",
                 )
             except Exception as exc:
+                print(f"[Pick] failed: {exc}")
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
