@@ -113,6 +113,17 @@ class ControlService:
         self._pick_equal_sag_estimate: Optional[EqualSagEstimate] = None
         self._pick_equal_sag_model: Optional[dict[str, Any]] = None
         self._pick_equal_sag_attempted = False
+        self._pick_search_origin_u: Optional[ControlU] = None
+        self._pick_search_step_index = 0
+        self._pick_search_max_steps = 48
+        self._pick_search_roll_step_u = 6.0
+        self._pick_search_seg_step_u = 6.0
+        self._pick_search_roll_max_u = 36.0
+        self._pick_search_seg_max_u = 30.0
+        self._pick_fov_search_steps_total = 0
+        self._pick_center_steps_total = 0
+        self._pick_fov_reacquire_roll_u = 0.0
+        self._pick_fov_reacquire_seg_u = 0.0
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
         self._calibration_current_delta_ma = 350
@@ -251,6 +262,119 @@ class ControlService:
 
     def _pick_busy(self) -> bool:
         return self._pick_worker is not None
+
+    def _reset_pick_search_state(self) -> None:
+        self._pick_search_origin_u = None
+        self._pick_search_step_index = 0
+
+    def _reset_pick_drift_accounting(self) -> None:
+        self._pick_fov_search_steps_total = 0
+        self._pick_center_steps_total = 0
+        self._pick_fov_reacquire_roll_u = 0.0
+        self._pick_fov_reacquire_seg_u = 0.0
+
+    def _capture_pick_reacquire_offset(self) -> None:
+        if self._pick_search_origin_u is None or self._pick_search_step_index <= 0:
+            return
+        current = self.current_control_u()
+        origin = self._pick_search_origin_u
+        self._pick_fov_reacquire_roll_u = float(current.u_roll - origin.u_roll)
+        self._pick_fov_reacquire_seg_u = float(current.u_s1 - origin.u_s1)
+
+    @staticmethod
+    def _pick_search_offset_for_index(
+        index: int,
+        *,
+        roll_step: float,
+        seg_step: float,
+        roll_max: float,
+        seg_max: float,
+    ) -> tuple[float, float]:
+        if int(index) <= 0:
+            return 0.0, 0.0
+        slot = (int(index) - 1) % 8
+        level = (int(index) - 1) // 8 + 1
+        roll_amp = min(float(level) * float(roll_step), float(roll_max))
+        seg_amp = min(float(level) * float(seg_step), float(seg_max))
+        pattern = (
+            (+roll_amp, 0.0),
+            (-roll_amp, 0.0),
+            (0.0, +seg_amp),
+            (0.0, -seg_amp),
+            (+roll_amp, +seg_amp),
+            (+roll_amp, -seg_amp),
+            (-roll_amp, +seg_amp),
+            (-roll_amp, -seg_amp),
+        )
+        return pattern[slot]
+
+    def _track_locked(self, *, require_frames: int) -> bool:
+        cap = self._perception_capture
+        return (
+            cap is not None
+            and cap.tracker_phase() == TrackerPhase.TRACK.value
+            and cap.track_ok_frames() >= int(require_frames)
+        )
+
+    def _pick_apply_fov_search_step(self, *, reason: str) -> bool:
+        cap = self._perception_capture
+        if cap is not None:
+            cap.request_refresh()
+        if self._pick_search_step_index >= int(self._pick_search_max_steps):
+            return False
+        if self._pick_search_origin_u is None:
+            self._pick_search_origin_u = self.current_control_u()
+        origin = self._pick_search_origin_u
+        roll_off, seg_off = self._pick_search_offset_for_index(
+            int(self._pick_search_step_index),
+            roll_step=float(self._pick_search_roll_step_u),
+            seg_step=float(self._pick_search_seg_step_u),
+            roll_max=float(self._pick_search_roll_max_u),
+            seg_max=float(self._pick_search_seg_max_u),
+        )
+        self._pick_search_step_index += 1
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(origin.u_linear),
+                u_roll=float(origin.u_roll + roll_off),
+                u_s1=float(origin.u_s1 + seg_off),
+                u_s2=float(origin.u_s2 + seg_off),
+            )
+        )
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.ACQUIRE.value,
+            msg=(
+                "fov search %d/%d | %s | droll=%+.1f dseg=%+.1f"
+                % (
+                    int(self._pick_search_step_index),
+                    int(self._pick_search_max_steps),
+                    str(reason),
+                    float(next_u.u_roll - origin.u_roll),
+                    float(next_u.u_s1 - origin.u_s1),
+                )
+            ),
+        )
+        print(
+            "[Pick] fov_search step %d/%d | %s | u=(%.1f, %.1f, %.1f, %.1f)"
+            % (
+                int(self._pick_search_step_index),
+                int(self._pick_search_max_steps),
+                str(reason),
+                float(next_u.u_linear),
+                float(next_u.u_roll),
+                float(next_u.u_s1),
+                float(next_u.u_s2),
+            )
+        )
+        self._send_display_control_u_and_wait(next_u, timeout_s=0.8, source="ik")
+        self._pick_fov_search_steps_total += 1
+        self._pick_fov_reacquire_roll_u = float(next_u.u_roll - origin.u_roll)
+        self._pick_fov_reacquire_seg_u = float(next_u.u_s1 - origin.u_s1)
+        if cap is not None:
+            cap.request_refresh()
+        return True
 
     def _q_array_from_state(self, host_state: Optional[HostState] = None) -> np.ndarray:
         src = host_state if host_state is not None else self.current_host_state()
@@ -1057,8 +1181,9 @@ class ControlService:
             )
             self._send_equal_sag_markers()
         print(
-            "[Pick] equal_sag %s | drift=%.1fmm seg1=%+.3fdeg seg2=%+.3fdeg "
-            "residual=%.1fmm cond=%.1f reason=%s"
+            "[Pick] equal_sag %s | total_drift=%.1fmm seg1=%+.3fdeg seg2=%+.3fdeg "
+            "residual=%.1fmm cond=%.1f search_steps=%d center_steps=%d approach_steps=%d "
+            "reacquire_u=(roll=%+.1f, seg=%+.1f) reason=%s"
             % (
                 "accepted" if bool(estimate.accepted) else "rejected",
                 drift_mm,
@@ -1066,6 +1191,11 @@ class ControlService:
                 float(estimate.seg2_equal_offset_deg),
                 float(estimate.residual_m) * 1000.0,
                 float(estimate.condition),
+                int(self._pick_fov_search_steps_total),
+                int(self._pick_center_steps_total),
+                int(self._pick_approach_steps),
+                float(self._pick_fov_reacquire_roll_u),
+                float(self._pick_fov_reacquire_seg_u),
                 str(estimate.reason),
             )
         )
@@ -1451,13 +1581,18 @@ class ControlService:
 
     def _wait_for_track_lock(self, *, timeout_s: float, require_frames: int) -> bool:
         deadline = time.time() + max(float(timeout_s), 0.1)
+        next_search_wall = time.time() + 0.6
         while time.time() < deadline:
             if self._pick_stop_event.is_set():
                 return False
-            cap = self._perception_capture
-            if cap is not None and cap.track_ok_frames() >= int(require_frames):
-                if cap.tracker_phase() == TrackerPhase.TRACK.value:
-                    return True
+            if self._track_locked(require_frames=int(require_frames)):
+                self._reset_pick_search_state()
+                return True
+            if time.time() >= next_search_wall:
+                moved = self._pick_apply_fov_search_step(reason="acquire")
+                next_search_wall = time.time() + 0.6
+                if not moved:
+                    return False
             time.sleep(0.05)
         return False
 
@@ -1585,6 +1720,8 @@ class ControlService:
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale = None
         self._pick_approach_scale_plateau = False
+        self._reset_pick_search_state()
+        self._reset_pick_drift_accounting()
         self._reset_pick_equal_sag_state()
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
@@ -1623,6 +1760,8 @@ class ControlService:
         self._pick_approach_last_scale = None
         self._pick_approach_scale_plateau = False
         self._pick_extend_ready_logged = False
+        self._reset_pick_search_state()
+        self._reset_pick_drift_accounting()
         self._reset_pick_equal_sag_state()
         self._latch_pick_frozen_world()
         self._pick_latch_initial_ready_pose()
@@ -1693,16 +1832,22 @@ class ControlService:
                         stale_count += 1
                         print(f"[Pick] step {step_idx}/{max_iters} | stale obs ({stale_count}/3)")
                         if stale_count >= 3:
+                            if self._pick_apply_fov_search_step(reason="observation_lost"):
+                                stale_count = 0
+                                time.sleep(0.05)
+                                continue
                             self.state.set_pick_status(
                                 running=False,
                                 failed=True,
                                 phase=ObjectPickPhase.FAILED.value,
-                                msg="observation lost",
+                                msg="observation lost | fov search exhausted",
                             )
                             return
                         time.sleep(0.05)
                         continue
                     stale_count = 0
+                    self._capture_pick_reacquire_offset()
+                    self._reset_pick_search_state()
 
                     self._pick_latch_initial_ready_pose()
                     conv = evaluate_pick_convergence(obs, cfg=pk)
@@ -2030,6 +2175,8 @@ class ControlService:
                     self._pick_clamp_streak = 0
                     if use_approach:
                         self._pick_approach_steps += 1
+                    elif phase == ObjectPickPhase.CENTER:
+                        self._pick_center_steps_total += 1
                     self.state.set_pick_status(
                         running=True,
                         failed=False,
