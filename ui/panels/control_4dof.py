@@ -29,6 +29,8 @@ def draw_control_4dof_panel(panel) -> None:
         return
 
     link_state = panel._host_state if panel._host_state is not None else None
+    if link_state is not None and bool(link_state.torque_enabled) and bool(panel.state.torque_lock_bypass):
+        panel.state.set_torque_lock_bypass(False)
     torque_lock_bypass = bool(
         panel.state.torque_lock_bypass
         and panel.service.has_client()

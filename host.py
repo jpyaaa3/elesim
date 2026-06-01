@@ -782,7 +782,8 @@ class ControlHost:
         if t == "torque_on":
             ok = True
             try:
-                self.torque_on()
+                resume = bool(msg.get("resume", False))
+                self.torque_on(configure_modes=not resume, set_profiles=not resume)
             except Exception:
                 ok = False
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "torque_enabled": self.torque_enabled})

@@ -65,6 +65,7 @@ class PerceptionCapture:
         self._publish_fn = publish_fn
         self._on_snapshot = on_snapshot
         self._stop_event = threading.Event()
+        self._refresh_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._snapshot = PerceptionSnapshot(
@@ -105,7 +106,10 @@ class PerceptionCapture:
     def start(self) -> None:
         if self.is_running():
             return
+        if self._thread is not None and not self._thread.is_alive():
+            self._thread = None
         self._stop_event.clear()
+        self._refresh_event.clear()
         self._set_snapshot(
             running=True,
             failed=False,
@@ -117,13 +121,25 @@ class PerceptionCapture:
         self._thread = threading.Thread(target=self._run, name="perception-capture", daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, *, timeout_s: float = 5.0) -> bool:
         self._stop_event.set()
         thread = self._thread
         if thread is not None:
-            thread.join(timeout=2.0)
+            thread.join(timeout=max(float(timeout_s), 0.1))
+            if thread.is_alive():
+                self._set_snapshot(running=True, status_msg="stopping")
+                return False
         self._thread = None
+        self._refresh_event.clear()
         self._set_snapshot(running=False, status_msg="stopped")
+        return True
+
+    def request_refresh(self) -> bool:
+        if not self.is_running():
+            return False
+        self._refresh_event.set()
+        self._set_snapshot(status_msg="refresh requested (YOLO)")
+        return True
 
     def _run(self) -> None:
         _ensure_pick_place_path()
@@ -466,6 +482,17 @@ class PerceptionCapture:
                 status = phase.value
                 p_camera = None
                 p_world = None
+                manual_refresh = self._refresh_event.is_set()
+                if manual_refresh:
+                    self._refresh_event.clear()
+                    tracker.reset()
+                    phase = TrackerPhase.SEARCH
+                    lost_streak = 0
+                    track_ok = 0
+                    scale_stale_streak = 0
+                    init_bbox_area = 0
+                    last_scale = None
+                    status = "refreshing (YOLO)"
 
                 if phase == TrackerPhase.SEARCH:
                     all_dets = list_frame_detections(detector, frame.color_bgr)
@@ -505,7 +532,7 @@ class PerceptionCapture:
                             if err:
                                 status += f": {err}"
                     else:
-                        status = "searching"
+                        status = "refresh miss" if manual_refresh else "searching"
 
                 elif phase == TrackerPhase.TRACK:
                     bbox = tracker.update(frame.color_bgr)

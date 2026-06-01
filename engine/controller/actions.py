@@ -843,9 +843,9 @@ class ControlService:
         if self.client is not None:
             self.client.disconnect_device()
 
-    def torque_on(self) -> None:
+    def torque_on(self, *, resume: bool = False) -> None:
         if self.client is not None:
-            self.client.torque_on()
+            self.client.torque_on(resume=bool(resume))
 
     def torque_off(self) -> None:
         if self.client is not None:
@@ -1844,8 +1844,22 @@ class ControlService:
     def stop_perception_capture(self) -> None:
         cap = self._perception_capture
         if cap is not None:
-            cap.stop()
+            stopped = cap.stop()
+            if not stopped:
+                self.state.set_perception_status(running=True, failed=False, msg="stopping")
+                return
+        self._perception_capture = None
         self.state.set_perception_status(running=False, failed=False, msg="stopped")
+
+    def refresh_perception_capture(self) -> None:
+        cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
+            return
+        if cap.request_refresh():
+            self.state.set_perception_status(running=True, failed=False, msg="refresh requested (YOLO)")
+        else:
+            self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
 
     def update_perception_config(self, config: PerceptionConfig) -> None:
         self._perception_cfg = config

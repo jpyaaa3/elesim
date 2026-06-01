@@ -276,8 +276,14 @@ class ControlClient:
     def estop(self) -> None:
         self._send({"t": "estop", "ts": time.time()})
 
-    def torque_on(self) -> None:
-        self._send({"t": "torque_on", "ts": time.time()})
+    def torque_on(self, *, resume: bool = False) -> None:
+        self._send(
+            {
+                "t": "torque_on",
+                "ts": time.time(),
+                "resume": bool(resume),
+            }
+        )
 
     def torque_off(self) -> None:
         self._send({"t": "torque_off", "ts": time.time()})

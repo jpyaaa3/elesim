@@ -103,11 +103,17 @@ def draw_perception_panel(panel) -> None:
     if running:
         if imgui.button("Stop Perception"):
             panel.service.stop_perception_capture()
+        imgui.same_line()
+        if imgui.button("Refresh"):
+            panel.service.refresh_perception_capture()
     else:
         if imgui.button("Start Perception"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
             panel.service.start_perception_capture(config=cfg)
+        imgui.same_line()
+        if imgui.button("Refresh"):
+            panel.service.refresh_perception_capture()
 
     imgui.separator()
     imgui.text("Object Pick (YOLO once + CSRT + linear approach)")

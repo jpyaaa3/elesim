@@ -64,8 +64,10 @@ def draw_hardware_panel(panel) -> None:
             currents_text = ", ".join(f"{k}={int(v)}mA" for k, v in state.motor_currents_ma.items())
             imgui.text_wrapped(f"Currents: {currents_text}")
         if imgui.button("Torque On"):
-            panel.state.set_torque_lock_bypass(False)
-            panel.service.torque_on()
+            resume = bool(panel.state.torque_lock_bypass and not bool(state.torque_enabled))
+            panel.service.torque_on(resume=resume)
+            if not resume:
+                panel.state.set_torque_lock_bypass(False)
         imgui.same_line()
         if imgui.button("Torque Off"):
             panel.state.set_torque_lock_bypass(False)
