@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import imgui
+import math
 
 from ui.helpers import begin_disabled_ui, end_disabled_ui
 
@@ -95,6 +96,19 @@ def draw_control_4dof_panel(panel) -> None:
             "Tip xyz [m]: (%.3f, %.3f, %.3f)"
             % (float(tip_xyz[0]), float(tip_xyz[1]), float(tip_xyz[2]))
         )
+    tip_dir = link_state.actual_tip_dir if link_state is not None else None
+    if tip_dir is None:
+        imgui.text("Tip dir: unavailable")
+    else:
+        dx, dy, dz = float(tip_dir[0]), float(tip_dir[1]), float(tip_dir[2])
+        norm = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if norm <= 1e-9:
+            imgui.text("Tip dir: unavailable")
+        else:
+            imgui.text(
+                "Tip dir: (%.3f, %.3f, %.3f)"
+                % (dx / norm, dy / norm, dz / norm)
+            )
 
     if imgui.button("Open Gripper"):
         panel.state.set_claw_closed(False)

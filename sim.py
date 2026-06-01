@@ -1336,7 +1336,7 @@ class SimRuntime:
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
                 if ik_target is not None and a.spawn.draw_debug_markers:
-                    a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (0.1, 0.95, 0.2, 0.9))
+                    a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
                     if ik_target_dir is not None:
                         desired_dir = np.asarray(ik_target_dir, dtype=float).reshape(3)
                         dnorm = float(np.linalg.norm(desired_dir))
@@ -1346,7 +1346,7 @@ class SimRuntime:
                                 "_ik_target_marker_dir",
                                 ik_target,
                                 desired_dir / dnorm,
-                                (0.1, 0.95, 0.2, 0.9),
+                                (1.0, 0.4, 0.4, 0.9),
                             )
                 q_errmodel = a._errmodel_q() if a._has_state_source() else None
                 if q_errmodel is not None:
