@@ -58,6 +58,12 @@ from .pick_visual_servo import (
     stack_jacobian,
 )
 from .ready_pose import compute_ready_pose_target
+from .uv_jacobian import (
+    UV_CONTROL_AXIS_NAMES,
+    broyden_update_uv_jacobian,
+    default_uv_jacobian,
+    solve_uv_control_delta,
+)
 
 __all__ = [
     "LOOK_JACOBIAN_AXIS_NAMES",
@@ -66,6 +72,7 @@ __all__ = [
     "LookAlignLimits",
     "LookGains",
     "Q4Delta",
+    "UV_CONTROL_AXIS_NAMES",
     "ViewCandidateMetrics",
     "ViewPregraspCandidate",
     "ViewPregraspLimits",
@@ -73,6 +80,7 @@ __all__ = [
     "apply_equal_sag_offsets",
     "apply_q_delta",
     "apply_q_delta_to_tuple",
+    "broyden_update_uv_jacobian",
     "camera_visibility_fail_reasons",
     "camera_visibility_ok",
     "camera_visibility_score",
@@ -84,6 +92,7 @@ __all__ = [
     "compute_look_delta_q",
     "compute_ready_pose_target",
     "damped_pseudoinverse",
+    "default_uv_jacobian",
     "error_vector_2d",
     "estimate_jacobian_column",
     "estimate_equal_sag_from_ready_pose_drift",
@@ -96,6 +105,7 @@ __all__ = [
     "pick_best_visible_candidate",
     "q4_tuple_to_delta",
     "should_send_look_command",
+    "solve_uv_control_delta",
     "solve_equal_sag_offsets",
     "stack_jacobian",
     "view_candidate_passes",

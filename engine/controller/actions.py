@@ -17,6 +17,11 @@ from engine.visual_servoing.equal_sag_probe import (
     apply_equal_sag_offsets,
     estimate_equal_sag_from_ready_pose_drift,
 )
+from engine.visual_servoing.uv_jacobian import (
+    broyden_update_uv_jacobian,
+    default_uv_jacobian,
+    solve_uv_control_delta,
+)
 
 from .client import ControlClient
 from .perception import VisualObservation, extract_visual_observation
@@ -116,22 +121,43 @@ class ControlService:
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
         self._pick_search_max_steps = 48
-        self._pick_search_roll_step_u = 6.0
-        self._pick_search_seg_step_u = 6.0
+        self._pick_aim_step_scale = 0.35
+        self._pick_aim_command_timeout_s = 1.2
+        self._pick_aim_settle_s = 0.25
+        self._pick_search_roll_step_u = 3.0
+        self._pick_search_seg_step_u = 3.0
         self._pick_search_roll_max_u = 36.0
         self._pick_search_seg_max_u = 30.0
+        self._pick_prev_seen_uv: Optional[tuple[float, float]] = None
+        self._pick_prev_seen_uv_wall = 0.0
         self._pick_last_seen_uv: Optional[tuple[float, float]] = None
         self._pick_last_seen_uv_wall = 0.0
+        self._pick_last_seen_uv_delta: Optional[tuple[float, float]] = None
         self._pick_lost_follow_count = 0
         self._pick_lost_follow_max_steps = 18
         self._pick_lost_follow_uv_timeout_s = 4.0
-        self._pick_lost_follow_roll_step_u = 4.0
-        self._pick_lost_follow_seg_step_u = 3.0
-        self._pick_lost_fallback_seg1_step_u = 2.0
+        self._pick_lost_follow_roll_step_u = 1.5
+        self._pick_lost_follow_seg_step_u = 1.2
+        self._pick_lost_fallback_seg1_step_u = 0.8
+        self._pick_uv_jacobian = default_uv_jacobian(
+            center_u_gain=float(self._pick_cfg.center_u_gain),
+            center_v_gain=float(self._pick_cfg.center_v_gain),
+        )
+        self._pick_uv_jacobian_last_u3: Optional[np.ndarray] = None
+        self._pick_uv_jacobian_last_uv: Optional[np.ndarray] = None
+        self._pick_uv_jacobian_update_count = 0
         self._pick_fov_search_steps_total = 0
         self._pick_center_steps_total = 0
         self._pick_fov_reacquire_roll_u = 0.0
         self._pick_fov_reacquire_seg_u = 0.0
+        self._ready_pose_waypoint_spacing_m = 0.10
+        self._ready_pose_direction_spacing_deg = 10.0
+        self._ready_pose_min_waypoints = 2
+        self._ready_pose_max_waypoints = 20
+        self._ready_pose_safe_uv_abs = 0.65
+        self._ready_pose_step_timeout_s = 1.2
+        self._ready_pose_settle_s = 0.30
+        self._ready_pose_observation_timeout_s = 0.90
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
         self._calibration_current_delta_ma = 350
@@ -265,6 +291,54 @@ class ControlService:
         du, dv, _, _ = self._visual_uv_errors(obs)
         return abs(du) <= tol and abs(dv) <= tol
 
+    @staticmethod
+    def _control_u3(display_u: ControlU) -> np.ndarray:
+        return np.array(
+            [
+                float(display_u.u_roll),
+                float(display_u.u_s1),
+                float(display_u.u_s2),
+            ],
+            dtype=float,
+        )
+
+    def _reset_pick_uv_jacobian(self) -> None:
+        cfg = self._pick_config_effective()
+        self._pick_uv_jacobian = default_uv_jacobian(
+            center_u_gain=float(cfg.center_u_gain),
+            center_v_gain=float(cfg.center_v_gain),
+        )
+        self._pick_uv_jacobian_last_u3 = None
+        self._pick_uv_jacobian_last_uv = None
+        self._pick_uv_jacobian_update_count = 0
+
+    def _update_pick_uv_jacobian(
+        self,
+        *,
+        current_u: ControlU,
+        obs: VisualObservation,
+    ) -> None:
+        u3 = self._control_u3(current_u)
+        uv = np.asarray(obs.center_uv, dtype=float).reshape(2)
+        if (
+            self._pick_uv_jacobian_last_u3 is not None
+            and self._pick_uv_jacobian_last_uv is not None
+        ):
+            control_delta = u3 - self._pick_uv_jacobian_last_u3
+            uv_delta = uv - self._pick_uv_jacobian_last_uv
+            before = np.asarray(self._pick_uv_jacobian, dtype=float).copy()
+            self._pick_uv_jacobian = broyden_update_uv_jacobian(
+                before,
+                control_delta=control_delta,
+                uv_delta=uv_delta,
+                alpha=0.35,
+                min_control_norm=0.35,
+            )
+            if not np.allclose(before, self._pick_uv_jacobian):
+                self._pick_uv_jacobian_update_count += 1
+        self._pick_uv_jacobian_last_u3 = u3
+        self._pick_uv_jacobian_last_uv = uv
+
     def _visual_busy(self) -> bool:
         return self._ik_worker is not None or self._pick_worker is not None
 
@@ -290,12 +364,59 @@ class ControlService:
         self._pick_fov_reacquire_roll_u = float(current.u_roll - origin.u_roll)
         self._pick_fov_reacquire_seg_u = float(current.u_s1 - origin.u_s1)
 
+    def _reset_pick_last_seen_uv(self) -> None:
+        self._pick_prev_seen_uv = None
+        self._pick_prev_seen_uv_wall = 0.0
+        self._pick_last_seen_uv = None
+        self._pick_last_seen_uv_wall = 0.0
+        self._pick_last_seen_uv_delta = None
+
     def _record_pick_last_seen_uv(self, obs: VisualObservation) -> None:
-        self._pick_last_seen_uv = (
+        now = time.time()
+        prev = self._pick_last_seen_uv
+        prev_wall = float(self._pick_last_seen_uv_wall)
+        current = (
             float(obs.center_uv[0]),
             float(obs.center_uv[1]),
         )
-        self._pick_last_seen_uv_wall = time.time()
+        self._pick_prev_seen_uv = prev
+        self._pick_prev_seen_uv_wall = prev_wall
+        if prev is not None and now >= prev_wall:
+            self._pick_last_seen_uv_delta = (
+                float(current[0] - prev[0]),
+                float(current[1] - prev[1]),
+            )
+        else:
+            self._pick_last_seen_uv_delta = None
+        self._pick_last_seen_uv = current
+        self._pick_last_seen_uv_wall = now
+
+    def _pick_lost_exit_uv_delta(
+        self,
+        *,
+        target_u: float,
+        target_v: float,
+        velocity_tol: float,
+        position_tol: float,
+    ) -> tuple[float, float, str]:
+        delta = self._pick_last_seen_uv_delta
+        if delta is not None:
+            du_vel = float(delta[0])
+            dv_vel = float(delta[1])
+            if abs(du_vel) > float(velocity_tol) or abs(dv_vel) > float(velocity_tol):
+                return du_vel, dv_vel, "uv_velocity"
+        last_uv = self._pick_last_seen_uv
+        if last_uv is None:
+            return 0.0, 0.0, "none"
+        du_pos = float(last_uv[0]) - float(target_u)
+        dv_pos = float(last_uv[1]) - float(target_v)
+        if abs(du_pos) <= float(position_tol) and abs(dv_pos) <= float(position_tol):
+            return 0.0, 0.0, "none"
+        return (
+            du_pos,
+            dv_pos,
+            "last_uv_position",
+        )
 
     @staticmethod
     def _pick_search_offset_for_index(
@@ -347,28 +468,43 @@ class ControlService:
         s1_du = 0.0
         s2_du = 0.0
         mode = "seg1_fallback"
+        exit_du = 0.0
+        exit_dv = 0.0
+        exit_mode = "none"
         last_uv = self._pick_last_seen_uv
         last_age_s = time.time() - float(self._pick_last_seen_uv_wall)
         if (
             last_uv is not None
             and 0.0 <= last_age_s <= float(self._pick_lost_follow_uv_timeout_s)
         ):
-            du = float(last_uv[0]) - tu
-            dv = float(last_uv[1]) - tv
-            dir_tol = max(float(cfg.center_tol) * 0.5, 0.03)
-            if abs(du) > dir_tol:
-                # Same sign convention as centering: object at +u needs negative roll.
-                roll_du = -math.copysign(float(self._pick_lost_follow_roll_step_u), du)
-            if abs(dv) > dir_tol:
-                # Same sign convention as _center_seg_du.
-                seg_du = math.copysign(float(self._pick_lost_follow_seg_step_u), dv)
-                s1_du = seg_du
-                s2_du = seg_du
-            if abs(roll_du) > 1e-9 or abs(s1_du) > 1e-9 or abs(s2_du) > 1e-9:
-                mode = "last_uv"
+            velocity_tol = max(float(cfg.center_tol) * 0.2, 0.01)
+            position_tol = max(float(cfg.center_tol) * 0.5, 0.03)
+            exit_du, exit_dv, exit_mode = self._pick_lost_exit_uv_delta(
+                target_u=tu,
+                target_v=tv,
+                velocity_tol=velocity_tol,
+                position_tol=position_tol,
+            )
+            if abs(exit_du) > velocity_tol or abs(exit_dv) > velocity_tol:
+                du3 = solve_uv_control_delta(
+                    uv_error=(float(exit_du), float(exit_dv)),
+                    jacobian=self._pick_uv_jacobian,
+                    damping=0.03,
+                    gain=1.0,
+                    max_abs_delta=(
+                        float(self._pick_lost_follow_roll_step_u),
+                        float(self._pick_lost_follow_seg_step_u),
+                        float(self._pick_lost_follow_seg_step_u),
+                    ),
+                )
+                roll_du = float(du3[0])
+                s1_du = float(du3[1])
+                s2_du = float(du3[2])
+                mode = exit_mode
 
         if mode == "seg1_fallback":
-            s1_du = float(self._pick_lost_fallback_seg1_step_u)
+            # On this arm, decreasing seg1 display-u raises the camera/head.
+            s1_du = -float(self._pick_lost_fallback_seg1_step_u)
 
         next_u = self._clamp_display_u(
             ControlU(
@@ -407,7 +543,7 @@ class ControlService:
         )
         print(
             "[Pick] lost_follow step %d/%d | %s | mode=%s last_uv=%s age=%.2fs "
-            "| u=(%.1f, %.1f, %.1f, %.1f)"
+            "exit_uv=(%+.3f,%+.3f) exit_mode=%s | u=(%.1f, %.1f, %.1f, %.1f)"
             % (
                 int(self._pick_lost_follow_count),
                 int(self._pick_lost_follow_max_steps),
@@ -417,13 +553,21 @@ class ControlService:
                 if last_uv is None
                 else "(%+.3f,%+.3f)" % (float(last_uv[0]), float(last_uv[1])),
                 float(last_age_s),
+                float(exit_du),
+                float(exit_dv),
+                str(exit_mode),
                 float(next_u.u_linear),
                 float(next_u.u_roll),
                 float(next_u.u_s1),
                 float(next_u.u_s2),
             )
         )
-        self._send_display_control_u_and_wait(next_u, timeout_s=0.8, source="ik")
+        self._send_display_control_u_and_wait(
+            next_u,
+            timeout_s=float(self._pick_aim_command_timeout_s),
+            source="ik",
+        )
+        time.sleep(float(self._pick_aim_settle_s))
         if cap is not None:
             cap.request_refresh()
         return True
@@ -480,7 +624,12 @@ class ControlService:
                 float(next_u.u_s2),
             )
         )
-        self._send_display_control_u_and_wait(next_u, timeout_s=0.8, source="ik")
+        self._send_display_control_u_and_wait(
+            next_u,
+            timeout_s=float(self._pick_aim_command_timeout_s),
+            source="ik",
+        )
+        time.sleep(float(self._pick_aim_settle_s))
         self._pick_fov_search_steps_total += 1
         self._pick_fov_reacquire_roll_u = float(next_u.u_roll - origin.u_roll)
         self._pick_fov_reacquire_seg_u = float(next_u.u_s1 - origin.u_s1)
@@ -1364,6 +1513,417 @@ class ControlService:
             return dict(self._pick_equal_sag_model)
         return dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
 
+    @staticmethod
+    def _unit_vec3(v: Any, *, fallback: tuple[float, float, float] = (1.0, 0.0, 0.0)) -> np.ndarray:
+        arr = np.asarray(v, dtype=float).reshape(3)
+        norm = float(np.linalg.norm(arr))
+        if norm <= 1e-9:
+            return np.asarray(fallback, dtype=float).reshape(3)
+        return arr / norm
+
+    def _interpolate_ready_direction(
+        self,
+        d0: np.ndarray,
+        d1: np.ndarray,
+        t: float,
+    ) -> np.ndarray:
+        a = self._unit_vec3(d0)
+        b = self._unit_vec3(d1)
+        # Normalized lerp is enough for a grasp direction vector; avoid the
+        # near-antiparallel zero vector by snapping to the target direction.
+        mixed = (1.0 - float(t)) * a + float(t) * b
+        if float(np.linalg.norm(mixed)) <= 1e-6:
+            return b
+        return self._unit_vec3(mixed)
+
+    def _ready_pose_waypoint_count(
+        self,
+        p0: np.ndarray,
+        p1: np.ndarray,
+        d0: np.ndarray,
+        d1: np.ndarray,
+    ) -> int:
+        distance_m = float(np.linalg.norm(np.asarray(p1, dtype=float) - np.asarray(p0, dtype=float)))
+        pos_n = int(math.ceil(distance_m / max(float(self._ready_pose_waypoint_spacing_m), 1e-6)))
+        dot = float(np.clip(np.dot(self._unit_vec3(d0), self._unit_vec3(d1)), -1.0, 1.0))
+        angle_deg = float(math.degrees(math.acos(dot)))
+        dir_n = int(math.ceil(angle_deg / max(float(self._ready_pose_direction_spacing_deg), 1e-6)))
+        return int(
+            max(
+                int(self._ready_pose_min_waypoints),
+                min(max(pos_n, dir_n), int(self._ready_pose_max_waypoints)),
+            )
+        )
+
+    def _ready_pose_uv_safe(self, obs: VisualObservation) -> bool:
+        u = float(obs.center_uv[0])
+        v = float(obs.center_uv[1])
+        limit = float(self._ready_pose_safe_uv_abs)
+        return abs(u) <= limit and abs(v) <= limit
+
+    def _send_ready_pose_waypoint_markers(
+        self,
+        *,
+        p0: np.ndarray,
+        p1: np.ndarray,
+        d0: np.ndarray,
+        d1: np.ndarray,
+        waypoint_count: int,
+    ) -> None:
+        if self.client is None:
+            return
+        n = int(max(waypoint_count, 1))
+        max_n = int(max(self._ready_pose_max_waypoints, n))
+        base_color = [0.72, 1.0, 0.28, 0.78]
+        line_color = [0.72, 1.0, 0.28, 0.52]
+        markers: list[dict[str, Any]] = []
+        # Expire markers from a previous longer path.
+        for idx in range(1, max_n + 1):
+            markers.append(
+                {
+                    "name": f"ready_path_wp_{idx:02d}",
+                    "frame": "world",
+                    "pos": [float(v) for v in p0],
+                    "color": [0.72, 1.0, 0.28, 0.0],
+                    "radius": 0.001,
+                    "ttl_ms": 1,
+                }
+            )
+            markers.append(
+                {
+                    "name": f"ready_path_seg_{idx:02d}",
+                    "frame": "world",
+                    "pos": [float(v) for v in p0],
+                    "dir": [1.0, 0.0, 0.0],
+                    "color": [0.72, 1.0, 0.28, 0.0],
+                    "radius": 0.001,
+                    "length": 0.001,
+                    "ttl_ms": 1,
+                }
+            )
+
+        prev = np.asarray(p0, dtype=float).reshape(3)
+        for idx in range(1, n + 1):
+            t = float(idx) / float(n)
+            point = (1.0 - t) * np.asarray(p0, dtype=float).reshape(3) + t * np.asarray(p1, dtype=float).reshape(3)
+            seg = point - prev
+            seg_len = float(np.linalg.norm(seg))
+            if seg_len > 1e-9:
+                markers.append(
+                    {
+                        "name": f"ready_path_seg_{idx:02d}",
+                        "frame": "world",
+                        "pos": [float(v) for v in prev],
+                        "dir": [float(v) for v in seg],
+                        "color": line_color,
+                        "radius": 0.004,
+                        "length": seg_len,
+                        "ttl_ms": 30000,
+                    }
+                )
+            if idx < n:
+                d_i = self._interpolate_ready_direction(d0, d1, t)
+                markers.append(
+                    {
+                        "name": f"ready_path_wp_{idx:02d}",
+                        "frame": "world",
+                        "pos": [float(v) for v in point],
+                        "dir": [float(v) for v in d_i],
+                        "color": base_color,
+                        "radius": 0.009,
+                        "length": 0.055,
+                        "ttl_ms": 30000,
+                    }
+                )
+            prev = point
+        self.client.send_debug_markers(markers, source="target")
+
+    def _wait_ready_pose_observation(self) -> tuple[Optional[HostState], Optional[VisualObservation]]:
+        if self.client is None:
+            return None, None
+        cap = self._perception_capture
+        deadline = time.time() + max(float(self._ready_pose_observation_timeout_s), 0.05)
+        last_state: Optional[HostState] = None
+        while time.time() < deadline:
+            if cap is not None:
+                cap.request_refresh()
+            host_state = self.client.refresh_state()
+            last_state = host_state
+            obs = self.current_visual_observation(host_state)
+            if obs is not None:
+                self._record_pick_last_seen_uv(obs)
+                return host_state, obs
+            time.sleep(0.05)
+        return last_state, None
+
+    def _latch_ready_pose_baseline(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        model: Any,
+        q: np.ndarray,
+        reason: str,
+    ) -> tuple[float, float, float]:
+        q4 = self._clamp_q(np.asarray(q, dtype=float).reshape(4))
+        baseline = tuple(float(v) for v in np.asarray(model.grasp_position(q4), dtype=float).reshape(3))
+        direction = self._pick_ready_direction()
+        self._pick_initial_object_world_xyz = tuple(float(v) for v in object_world)
+        self._pick_initial_ready_pose_world_xyz = baseline
+        self._pick_frozen_world_xyz = tuple(float(v) for v in object_world)
+        self.state.set_target(float(baseline[0]), float(baseline[1]), float(baseline[2]))
+        self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
+        if self.client is not None:
+            self.client.send_debug_markers(
+                [
+                    {
+                        "name": "ready_pose_baseline",
+                        "frame": "world",
+                        "pos": [float(v) for v in baseline],
+                        "dir": [float(v) for v in direction],
+                        "color": [0.72, 1.0, 0.28, 0.95],
+                        "radius": 0.016,
+                        "ttl_ms": 30000,
+                    }
+                ],
+                source="target",
+            )
+        print(
+            "[Pick] ready baseline | %s | baseline=(%.3f, %.3f, %.3f)"
+            % (str(reason), float(baseline[0]), float(baseline[1]), float(baseline[2]))
+        )
+        return baseline
+
+    def _start_guarded_ready_pose(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        target: np.ndarray,
+        direction: np.ndarray,
+        actual_offset_m: float,
+    ) -> None:
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        ctx["sag_model"] = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+        required = ("limit", "fk_joint_chain", "terminal_link_name", "old_tip_local_offset", "grasp_offset_node_local")
+        if any(k not in ctx for k in required):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="missing IK context",
+            )
+            return
+        try:
+            model = self._pick_reach_model(ctx.get("sag_model"))
+        except Exception as exc:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg=f"reach model failed: {exc}",
+            )
+            return
+
+        host_state = self.client.refresh_state()
+        q0 = self._q_array_from_state(host_state)
+        p0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+        d0 = self._unit_vec3(model.grasp_direction(q0))
+        p1 = np.asarray(target, dtype=float).reshape(3)
+        d1 = self._unit_vec3(direction)
+        waypoint_count = self._ready_pose_waypoint_count(p0, p1, d0, d1)
+        self._send_ready_pose_waypoint_markers(
+            p0=p0,
+            p1=p1,
+            d0=d0,
+            d1=d1,
+            waypoint_count=int(waypoint_count),
+        )
+
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.READY.value,
+            msg=(
+                "ready guarded path | waypoints=%d spacing=%.0fmm safe=%.2f"
+                % (
+                    int(waypoint_count),
+                    float(self._ready_pose_waypoint_spacing_m) * 1000.0,
+                    float(self._ready_pose_safe_uv_abs),
+                )
+            ),
+        )
+        self.state.set_ik_status(
+            running=True,
+            converged=False,
+            failed=False,
+            err_m=float("inf"),
+            msg="ready guarded path",
+        )
+        print(
+            "[Pick] ready guarded start | waypoints=%d dist=%.0fmm safe=%.2f "
+            "settle=%.2fs obs_timeout=%.2fs"
+            % (
+                int(waypoint_count),
+                float(np.linalg.norm(p1 - p0)) * 1000.0,
+                float(self._ready_pose_safe_uv_abs),
+                float(self._ready_pose_settle_s),
+                float(self._ready_pose_observation_timeout_s),
+            )
+        )
+
+        def _finish(
+            *,
+            q: np.ndarray,
+            reason: str,
+            failed: bool = False,
+            err_m: float = 0.0,
+            obs: Optional[VisualObservation] = None,
+        ) -> None:
+            baseline = self._latch_ready_pose_baseline(
+                object_world=object_world,
+                model=model,
+                q=q,
+                reason=reason,
+            )
+            uv_msg = ""
+            if obs is not None:
+                uv_msg = " | uv=(%+.3f,%+.3f)" % (
+                    float(obs.center_uv[0]),
+                    float(obs.center_uv[1]),
+                )
+            self.state.set_pick_status(
+                running=False,
+                failed=bool(failed),
+                phase=(ObjectPickPhase.FAILED.value if bool(failed) else ObjectPickPhase.DONE.value),
+                msg=(
+                    "ready %s | %s | baseline=(%.3f, %.3f, %.3f)%s"
+                    % (
+                        "failed" if bool(failed) else "guarded",
+                        str(reason),
+                        float(baseline[0]),
+                        float(baseline[1]),
+                        float(baseline[2]),
+                        uv_msg,
+                    )
+                ),
+            )
+            self.state.set_ik_status(
+                running=False,
+                converged=not bool(failed),
+                failed=bool(failed),
+                err_m=float(err_m),
+                msg=str(reason),
+            )
+
+        def _worker() -> None:
+            q_seed = self._clamp_q(q0)
+            last_q = q_seed.copy()
+            try:
+                _, initial_obs = self._wait_ready_pose_observation()
+                if initial_obs is None:
+                    _finish(q=last_q, reason="no live visual observation", failed=True)
+                    return
+                if not self._ready_pose_uv_safe(initial_obs):
+                    _finish(q=last_q, reason="initial outside safe box", obs=initial_obs)
+                    return
+
+                max_iters = max(int(self._ik_cfg.max_iters), 1)
+                for idx in range(1, int(waypoint_count) + 1):
+                    if self._pick_stop_event.is_set():
+                        _finish(q=last_q, reason="stopped", failed=True)
+                        return
+                    t = float(idx) / float(max(int(waypoint_count), 1))
+                    p_i = (1.0 - t) * p0 + t * p1
+                    d_i = self._interpolate_ready_direction(d0, d1, t)
+                    result = ik_pipeline.solve_then_align(
+                        target_world=p_i,
+                        target_dir_world=d_i,
+                        context=ctx,
+                        position_tol_m=float(self._ik_cfg.tol),
+                        max_iters=max_iters,
+                        current_seed=q_seed,
+                    )
+                    if (not result.success) or result.q is None:
+                        _finish(
+                            q=last_q,
+                            reason="waypoint %d/%d IK failed: %s"
+                            % (int(idx), int(waypoint_count), str(result.reason)),
+                            failed=(idx <= 1),
+                            err_m=float(result.position_error_m),
+                        )
+                        return
+                    q_next = self._clamp_q(np.asarray(result.q, dtype=float).reshape(4))
+                    self.state.set_target(float(p_i[0]), float(p_i[1]), float(p_i[2]))
+                    self.state.set_target_dir(float(d_i[0]), float(d_i[1]), float(d_i[2]))
+                    self.state.set_ik_status(
+                        running=True,
+                        converged=False,
+                        failed=False,
+                        err_m=float(result.position_error_m),
+                        msg="ready waypoint %d/%d" % (int(idx), int(waypoint_count)),
+                    )
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=ObjectPickPhase.READY.value,
+                        msg=(
+                            "ready waypoint %d/%d | err=%.1fmm"
+                            % (
+                                int(idx),
+                                int(waypoint_count),
+                                float(result.position_error_m) * 1000.0,
+                            )
+                        ),
+                    )
+                    self._command_q_and_wait(
+                        q_next,
+                        timeout_s=float(self._ready_pose_step_timeout_s),
+                        source="ik",
+                        force=True,
+                    )
+                    time.sleep(float(self._ready_pose_settle_s))
+                    host_after, obs_after = self._wait_ready_pose_observation()
+                    last_q = self._q_array_from_state(host_after) if host_after is not None else q_next
+                    q_seed = self._clamp_q(last_q)
+                    if obs_after is None:
+                        _finish(
+                            q=last_q,
+                            reason="waypoint %d/%d observation lost" % (int(idx), int(waypoint_count)),
+                        )
+                        return
+                    if not self._ready_pose_uv_safe(obs_after):
+                        _finish(
+                            q=last_q,
+                            reason="waypoint %d/%d outside safe box" % (int(idx), int(waypoint_count)),
+                            obs=obs_after,
+                        )
+                        return
+                    print(
+                        "[Pick] ready waypoint %d/%d | uv=(%+.3f,%+.3f) err=%.1fmm"
+                        % (
+                            int(idx),
+                            int(waypoint_count),
+                            float(obs_after.center_uv[0]),
+                            float(obs_after.center_uv[1]),
+                            float(result.position_error_m) * 1000.0,
+                        )
+                    )
+
+                _finish(q=last_q, reason="complete", err_m=0.0)
+            finally:
+                self._pick_worker = None
+
+        self._pick_worker = threading.Thread(target=_worker, name="ready-pose", daemon=True)
+        self._pick_worker.start()
+
     def start_ready_pose(self) -> None:
         if self.state.ik_running or self._visual_busy():
             self.state.set_pick_status(
@@ -1373,9 +1933,18 @@ class ControlService:
                 msg="busy",
             )
             return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+        self._reset_pick_last_seen_uv()
+        self._reset_pick_uv_jacobian()
         host_state: Optional[HostState] = None
-        if self.client is not None:
-            host_state = self.client.refresh_state()
+        host_state = self.client.refresh_state()
         obs = self.current_visual_observation(host_state)
         if obs is not None:
             self._record_pick_last_seen_uv(obs)
@@ -1416,7 +1985,7 @@ class ControlService:
             return
 
         self._pick_initial_object_world_xyz = tuple(float(v) for v in object_world)
-        self._pick_initial_ready_pose_world_xyz = tuple(float(v) for v in target)
+        self._pick_initial_ready_pose_world_xyz = None
         self._pick_frozen_world_xyz = tuple(float(v) for v in object_world)
 
         actual_offset_m = float(
@@ -1493,7 +2062,12 @@ class ControlService:
                 float(actual_offset_m) * 1000.0,
             )
         )
-        self._start_position_solve(np.asarray(target, dtype=float))
+        self._start_guarded_ready_pose(
+            object_world=tuple(float(v) for v in object_world),
+            target=np.asarray(target, dtype=float),
+            direction=np.asarray(direction, dtype=float),
+            actual_offset_m=float(actual_offset_m),
+        )
 
     def _latch_pick_frozen_world(self) -> None:
         self._pick_frozen_world_xyz = self._pick_frozen_world()
@@ -1796,50 +2370,48 @@ class ControlService:
         # Same UV band as evaluate_pick_convergence (avoid center_ok False while still correcting).
         u_over = abs(u_delta) > float(center_tol)
         v_over = abs(v_delta) > float(center_tol)
-        seg_cap = float(cfg.center_seg_max)
-        roll_cap = float(cfg.center_roll_max)
-        u_gain = float(cfg.center_u_gain)
-        v_gain = float(cfg.center_v_gain)
-        err_scale_max = float(cfg.center_error_scale_max)
+        step_scale = float(max(min(float(self._pick_aim_step_scale), 1.0), 0.05))
+        seg_cap = float(cfg.center_seg_max) * step_scale
+        roll_cap = float(cfg.center_roll_max) * step_scale
         if not u_over and not v_over:
             return current_u, "none", 0.0, 0.0
 
-        roll_du = 0.0
-        seg_du = 0.0
-        if u_over:
-            u_err = float(tu - u)
-            roll_scale = float(
-                np.clip(
-                    abs(u_delta) / max(float(center_tol), 1e-6), 0.5, err_scale_max
-                )
-            )
-            roll_du = float(
-                np.clip(u_gain * u_err * roll_scale, -roll_cap, roll_cap)
-            )
-        if v_over:
-            seg_du = float(
-                self._center_seg_du(
-                    target_v=tv, obs_v=v, cap=seg_cap, gain=v_gain
-                )
-            )
+        self._update_pick_uv_jacobian(current_u=current_u, obs=obs)
+        uv_error = np.array(
+            [
+                float(u_delta) if bool(u_over) else 0.0,
+                float(v_delta) if bool(v_over) else 0.0,
+            ],
+            dtype=float,
+        )
+        du3 = solve_uv_control_delta(
+            uv_error=uv_error,
+            jacobian=self._pick_uv_jacobian,
+            damping=0.03,
+            gain=1.0,
+            max_abs_delta=(roll_cap, seg_cap, seg_cap),
+        )
+        roll_du = float(du3[0])
+        s1_du = float(du3[1])
+        s2_du = float(du3[2])
 
         next_u = self._clamp_display_u(
             ControlU(
                 u_linear=float(current_u.u_linear),
                 u_roll=float(current_u.u_roll + roll_du),
-                u_s1=float(current_u.u_s1 + seg_du),
-                u_s2=float(current_u.u_s2 + seg_du),
+                u_s1=float(current_u.u_s1 + s1_du),
+                u_s2=float(current_u.u_s2 + s2_du),
             )
         )
         if next_u == current_u:
-            return current_u, "none", roll_du, seg_du
+            return current_u, "none", roll_du, max(abs(s1_du), abs(s2_du))
         if u_over and v_over:
-            mode = "pick_uv"
+            mode = "uv_jacobian"
         elif u_over:
-            mode = "uv_roll"
+            mode = "uv_jacobian_u"
         else:
-            mode = "uv_seg"
-        return next_u, mode, roll_du, seg_du
+            mode = "uv_jacobian_v"
+        return next_u, mode, roll_du, max(abs(s1_du), abs(s2_du))
 
     def _apply_pick_approach_step(
         self, obs: VisualObservation, current_u: ControlU
@@ -1881,6 +2453,8 @@ class ControlService:
     def stop_object_pick(self) -> None:
         self._pick_stop_event.set()
         self._pick_center_phase = "u"
+        self._reset_pick_last_seen_uv()
+        self._reset_pick_uv_jacobian()
         self._pick_approach_latched = False
         self._pick_extend_done = False
         self._pick_extend_latched = False
@@ -1929,6 +2503,8 @@ class ControlService:
             )
             return
 
+        self._reset_pick_last_seen_uv()
+        self._reset_pick_uv_jacobian()
         host_state = self.client.refresh_state()
         obs = self.current_visual_observation(host_state)
         if obs is not None:
@@ -1965,12 +2541,15 @@ class ControlService:
             try:
                 pk = self._pick_config_effective()
                 print(
-                    "[Aim] start | max_iters=%d target_uv=(%+.3f,%+.3f) center_tol=%.3f"
+                    "[Aim] start | max_iters=%d target_uv=(%+.3f,%+.3f) center_tol=%.3f "
+                    "step_scale=%.2f settle=%.2fs"
                     % (
                         int(pk.max_iters),
                         float(pk.target_uv_u),
                         float(pk.target_uv_v),
                         float(pk.center_tol),
+                        float(self._pick_aim_step_scale),
+                        float(self._pick_aim_settle_s),
                     )
                 )
                 if not self._wait_for_track_lock(
@@ -2073,7 +2652,8 @@ class ControlService:
                         obs, current_u
                     )
                     du_roll = float(next_u.u_roll - current_u.u_roll)
-                    du_seg = float(next_u.u_s1 - current_u.u_s1)
+                    du_s1 = float(next_u.u_s1 - current_u.u_s1)
+                    du_s2 = float(next_u.u_s2 - current_u.u_s2)
                     snap = self.perception_snapshot()
                     bbox_wh = snap.bbox_wh if snap is not None else self.state.perception_bbox_wh
                     self._log_visual_step(
@@ -2086,10 +2666,12 @@ class ControlService:
                         delta=f"({u_d:+.3f},{v_d:+.3f})",
                         scale=f"{conv.scale:.3f}",
                         droll=f"{du_roll:+.2f}",
-                        dseg=f"{du_seg:+.2f}",
+                        ds1=f"{du_s1:+.2f}",
+                        ds2=f"{du_s2:+.2f}",
                         req_roll=f"{roll_req:+.2f}",
                         req_seg=f"{seg_req:+.2f}",
                         mode=center_mode,
+                        j_updates=int(self._pick_uv_jacobian_update_count),
                         tracker=str(self.state.perception_tracker_phase),
                         bbox=f"{int(bbox_wh[0])}x{int(bbox_wh[1])}",
                     )
@@ -2121,8 +2703,12 @@ class ControlService:
                             % (float(conv.u_err), float(conv.v_err), float(tu), float(tv))
                         ),
                     )
-                    self._send_display_control_u_and_wait(next_u, timeout_s=0.8, source="ik")
-                    time.sleep(0.05)
+                    self._send_display_control_u_and_wait(
+                        next_u,
+                        timeout_s=float(self._pick_aim_command_timeout_s),
+                        source="ik",
+                    )
+                    time.sleep(float(self._pick_aim_settle_s))
 
                 self.state.set_pick_status(
                     running=False,

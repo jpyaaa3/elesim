@@ -161,8 +161,9 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "Ready Pose records the initial standoff target. Aim reacquires/centers the object "
-        "and draws the orange corrected-ready marker. Tweak moves to that corrected marker."
+        "Ready Pose follows guarded waypoints and records the actual stop baseline. "
+        "Aim recenters from that baseline and draws the orange corrected-ready marker. "
+        "Tweak moves to that corrected marker."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
