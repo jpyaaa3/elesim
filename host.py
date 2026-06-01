@@ -80,6 +80,7 @@ class ControlHost:
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_ready_pose_dir: tuple[float, float, float] = (1.0, 0.0, 0.0)
+        self.last_ready_pose_standoff_m: float = float(self.pick_config.ready_pose_standoff_m)
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_perceived_object_label: str = ""
@@ -316,7 +317,7 @@ class ControlHost:
             target = compute_ready_pose_target(
                 (float(obj[0]), float(obj[1]), float(obj[2])),
                 direction,
-                standoff_m=float(self.pick_config.ready_pose_standoff_m),
+                standoff_m=float(self.last_ready_pose_standoff_m),
             )
         except ValueError:
             return
@@ -1016,6 +1017,13 @@ class ControlHost:
                     float(ready_pose_dir_raw[1]),
                     float(ready_pose_dir_raw[2]),
                 )
+            ready_pose_standoff_raw = msg.get("ready_pose_standoff_m", None)
+            if ready_pose_standoff_raw is not None:
+                try:
+                    self.last_ready_pose_standoff_m = max(0.0, float(ready_pose_standoff_raw))
+                except (TypeError, ValueError):
+                    pass
+            if ready_pose_dir_raw is not None or ready_pose_standoff_raw is not None:
                 if self.last_perceived_object_world_xyz is not None:
                     self._set_ready_pose_markers(self.last_perceived_object_world_xyz, ttl_ms=30000)
             sag_raw = msg.get("sag_model", None)
@@ -1028,6 +1036,7 @@ class ControlHost:
                     target_raw is None
                     and target_dir_raw is None
                     and ready_pose_dir_raw is None
+                    and ready_pose_standoff_raw is None
                     and sag_raw is None
                     and "claw_closed" not in msg
                 ):

@@ -55,6 +55,7 @@ class PanelState:
     visual_scale_tol: float = 0.01
     visual_confidence_min: float = 0.0
     visual_target_label: str = ""
+    visual_ready_distance_m: float = 0.20
     visual_target_dir_x: float = 1.0
     visual_target_dir_y: float = 0.0
     visual_target_dir_z: float = 0.0

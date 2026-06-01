@@ -6,6 +6,17 @@ from engine.config_loader import PerceptionConfig
 
 
 def _draw_ready_pose_dir_editor(panel) -> None:
+    changed_dist, ready_dist = imgui.input_float(
+        "ready distance [m]",
+        float(panel.state.visual_ready_distance_m),
+        step=0.01,
+        step_fast=0.05,
+        format="%.3f",
+    )
+    if changed_dist:
+        panel.state.visual_ready_distance_m = max(0.0, float(ready_dist))
+        panel.service.send_ready_pose_meta(source="target")
+
     dir_ret = imgui.input_float3(
         "ready target dir",
         panel.state.visual_target_dir_x,

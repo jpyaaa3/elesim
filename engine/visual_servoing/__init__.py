@@ -28,6 +28,12 @@ from .pick_view_pregrasp import (
     view_candidate_passes_strict,
     view_candidate_score,
 )
+from .equal_sag_probe import (
+    EqualSagEstimate,
+    apply_equal_sag_offsets,
+    estimate_equal_sag_from_ready_pose_drift,
+    solve_equal_sag_offsets,
+)
 from .pick_visual_servo import (
     LOOK_JACOBIAN_AXIS_NAMES,
     JacobianLookGains,
@@ -55,6 +61,7 @@ from .ready_pose import compute_ready_pose_target
 
 __all__ = [
     "LOOK_JACOBIAN_AXIS_NAMES",
+    "EqualSagEstimate",
     "JacobianLookGains",
     "LookAlignLimits",
     "LookGains",
@@ -63,6 +70,7 @@ __all__ = [
     "ViewPregraspCandidate",
     "ViewPregraspLimits",
     "advance_allowed",
+    "apply_equal_sag_offsets",
     "apply_q_delta",
     "apply_q_delta_to_tuple",
     "camera_visibility_fail_reasons",
@@ -78,6 +86,7 @@ __all__ = [
     "damped_pseudoinverse",
     "error_vector_2d",
     "estimate_jacobian_column",
+    "estimate_equal_sag_from_ready_pose_drift",
     "evaluate_view_candidate",
     "format_view_candidate_log",
     "generate_view_pregrasp_candidates",
@@ -87,6 +96,7 @@ __all__ = [
     "pick_best_visible_candidate",
     "q4_tuple_to_delta",
     "should_send_look_command",
+    "solve_equal_sag_offsets",
     "stack_jacobian",
     "view_candidate_passes",
     "view_candidate_passes_strict",

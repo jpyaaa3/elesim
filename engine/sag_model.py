@@ -165,6 +165,14 @@ def _eval_c_family_scalar(theta_deg: float, family: str, params: list[float] | t
     raise ValueError(f"unknown sag C family: {family}")
 
 
+def _equal_offset_errors_deg(model: dict[str, Any], *, seg_index: int, count: int) -> np.ndarray:
+    key = "seg1_equal_offset_deg" if int(seg_index) == 1 else "seg2_equal_offset_deg"
+    if key not in model:
+        return np.zeros((max(int(count), 0),), dtype=float)
+    offset = float(model.get(key, 0.0))
+    return np.full((max(int(count), 0),), offset, dtype=float)
+
+
 def segment_errors_from_model(
     sag_model: dict[str, Any] | None,
     *,
@@ -177,6 +185,7 @@ def segment_errors_from_model(
     n = max(int(count), 0)
     if n <= 0:
         return np.zeros((0,), dtype=float)
+    equal_offset = _equal_offset_errors_deg(model, seg_index=seg_index, count=n)
     mode = str(model.get("model_type", "") or "").strip().lower()
     seg_tag = "1" if int(seg_index) == 1 else "2"
     refined_keys = (
@@ -199,7 +208,7 @@ def segment_errors_from_model(
         c_theta = float(theta1) if int(seg_index) == 1 else float(theta2)
         c = _eval_c_family_scalar(c_theta, c_family, c_params)
         features = np.asarray([float(theta1), float(theta2), float(theta1) * float(theta2)], dtype=float)
-        return float(c) * (a + b @ features)
+        return float(c) * (a + b @ features) + equal_offset
     if any(k in model for k in ("seg1_distribution", "seg1_amplitude", "seg2_distribution", "seg2_amplitude")):
         if int(seg_index) == 1:
             return segment_errors_deg(
@@ -208,12 +217,12 @@ def segment_errors_from_model(
                 n,
                 theta1=theta1,
                 theta2=theta2,
-            )
+            ) + equal_offset
         return segment_errors_deg(
             str(model.get("seg2_distribution", "") or ""),
             str(model.get("seg2_amplitude", "") or ""),
             n,
             theta1=theta1,
             theta2=theta2,
-        )
-    return np.zeros((n,), dtype=float)
+        ) + equal_offset
+    return equal_offset

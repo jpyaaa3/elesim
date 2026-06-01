@@ -395,6 +395,7 @@ class ControlClient:
         self,
         *,
         target_dir: tuple[float, float, float],
+        standoff_m: float,
         source: str = "target",
     ) -> None:
         now = time.time()
@@ -406,6 +407,7 @@ class ControlClient:
                 "seq": self.tx_seq,
                 "source": str(source),
                 "ready_pose_dir": [float(target_dir[0]), float(target_dir[1]), float(target_dir[2])],
+                "ready_pose_standoff_m": float(standoff_m),
             }
         )
 

@@ -50,13 +50,14 @@ def draw_hardware_panel(panel) -> None:
             panel._port_input = ""
         reply_reason = str(state.reply_reason or "").strip()
         if reply_reason:
+            is_perception_reason = reply_reason.lower().startswith("perception")
             if bool(state.reply_ok):
                 if reply_reason == "ports":
                     if not ports:
                         imgui.text("No serial ports found")
-                else:
+                elif not is_perception_reason:
                     imgui.text(f"Host: {reply_reason}")
-            else:
+            elif not is_perception_reason:
                 imgui.text_colored(f"Host: {reply_reason}", 1.0, 0.35, 0.35)
         if str(state.safety_fault).strip():
             imgui.text_colored(f"Safety fault: {state.safety_fault}", 1.0, 0.25, 0.25)

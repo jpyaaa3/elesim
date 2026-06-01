@@ -12,6 +12,11 @@ from engine import ik as ik_pipeline
 from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
+from engine.visual_servoing.equal_sag_probe import (
+    EqualSagEstimate,
+    apply_equal_sag_offsets,
+    estimate_equal_sag_from_ready_pose_drift,
+)
 
 from .client import ControlClient
 from .perception import VisualObservation, extract_visual_observation
@@ -99,6 +104,15 @@ class ControlService:
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale: Optional[float] = None
         self._pick_approach_scale_plateau = False
+        self._pick_initial_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_initial_ready_pose_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_centered_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_centered_ready_pose_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_ready_pose_drift_world: Optional[tuple[float, float, float]] = None
+        self._pick_corrected_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_equal_sag_estimate: Optional[EqualSagEstimate] = None
+        self._pick_equal_sag_model: Optional[dict[str, Any]] = None
+        self._pick_equal_sag_attempted = False
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
         self._calibration_current_delta_ma = 350
@@ -520,6 +534,7 @@ class ControlService:
                     float(self.state.visual_target_dir_y),
                     float(self.state.visual_target_dir_z),
                 ),
+                standoff_m=float(self.state.visual_ready_distance_m),
                 source=source,
             )
 
@@ -876,6 +891,190 @@ class ControlService:
             return tuple(self.client.last_object_world_xyz)
         return None
 
+    def _pick_latest_object_world(self) -> Optional[tuple[float, float, float]]:
+        if self.client is not None and self.client.last_object_world_xyz is not None:
+            return tuple(self.client.last_object_world_xyz)
+        if self.state.perception_world_xyz is not None:
+            return tuple(self.state.perception_world_xyz)
+        return None
+
+    def _pick_ready_direction(self) -> tuple[float, float, float]:
+        return (
+            float(self.state.visual_target_dir_x),
+            float(self.state.visual_target_dir_y),
+            float(self.state.visual_target_dir_z),
+        )
+
+    def _compute_pick_ready_pose(
+        self, object_world: tuple[float, float, float]
+    ) -> Optional[tuple[float, float, float]]:
+        try:
+            return compute_ready_pose_target(
+                tuple(float(v) for v in object_world),
+                self._pick_ready_direction(),
+                standoff_m=float(self._pick_config_effective().ready_pose_standoff_m),
+            )
+        except ValueError:
+            return None
+
+    def _reset_pick_equal_sag_state(self) -> None:
+        self._pick_initial_object_world_xyz = None
+        self._pick_initial_ready_pose_world_xyz = None
+        self._pick_centered_object_world_xyz = None
+        self._pick_centered_ready_pose_world_xyz = None
+        self._pick_ready_pose_drift_world = None
+        self._pick_corrected_object_world_xyz = None
+        self._pick_equal_sag_estimate = None
+        self._pick_equal_sag_model = None
+        self._pick_equal_sag_attempted = False
+
+    def _pick_latch_initial_ready_pose(self) -> bool:
+        if self._pick_initial_ready_pose_world_xyz is not None:
+            return True
+        object_world = self._pick_latest_object_world() or self._pick_frozen_world()
+        if object_world is None:
+            return False
+        ready_pose = self._compute_pick_ready_pose(object_world)
+        if ready_pose is None:
+            return False
+        self._pick_initial_object_world_xyz = tuple(float(v) for v in object_world)
+        self._pick_initial_ready_pose_world_xyz = tuple(float(v) for v in ready_pose)
+        if self._pick_frozen_world_xyz is None:
+            self._pick_frozen_world_xyz = tuple(float(v) for v in object_world)
+        print(
+            "[Pick] equal_sag latch | initial_object=(%.3f, %.3f, %.3f) "
+            "initial_ready=(%.3f, %.3f, %.3f)"
+            % (
+                float(object_world[0]),
+                float(object_world[1]),
+                float(object_world[2]),
+                float(ready_pose[0]),
+                float(ready_pose[1]),
+                float(ready_pose[2]),
+            )
+        )
+        return True
+
+    def _send_equal_sag_markers(self) -> None:
+        if self.client is None:
+            return
+        corrected_object = self._pick_corrected_object_world_xyz
+        centered_ready = self._pick_centered_ready_pose_world_xyz
+        drift = self._pick_ready_pose_drift_world
+        if corrected_object is None:
+            return
+        corrected_ready = self._compute_pick_ready_pose(corrected_object)
+        markers: list[dict[str, Any]] = [
+            {
+                "name": "equal_sag_corrected_object",
+                "frame": "world",
+                "pos": [float(v) for v in corrected_object],
+                "color": [1.0, 0.55, 0.05, 0.92],
+                "radius": 0.012,
+                "ttl_ms": 30000,
+            }
+        ]
+        if corrected_ready is not None:
+            direction = self._pick_ready_direction()
+            markers.append(
+                {
+                    "name": "equal_sag_corrected_ready",
+                    "frame": "world",
+                    "pos": [float(v) for v in corrected_ready],
+                    "dir": [float(v) for v in direction],
+                    "color": [1.0, 0.75, 0.12, 0.95],
+                    "radius": 0.011,
+                    "ttl_ms": 30000,
+                }
+            )
+        if centered_ready is not None and drift is not None:
+            drift_len = float(np.linalg.norm(np.asarray(drift, dtype=float).reshape(3)))
+            markers.append(
+                {
+                    "name": "equal_sag_ready_drift",
+                    "frame": "world",
+                    "pos": [float(v) for v in centered_ready],
+                    "dir": [float(v) for v in drift],
+                    "color": [1.0, 0.42, 0.08, 0.70],
+                    "radius": 0.005,
+                    "length": drift_len,
+                    "ttl_ms": 30000,
+                }
+            )
+        self.client.send_debug_markers(markers, source="target")
+
+    def _pick_try_estimate_equal_sag(self, host_state: Optional[HostState]) -> None:
+        if bool(self._pick_equal_sag_attempted):
+            return
+        if not self._pick_latch_initial_ready_pose():
+            return
+        centered_object = self._pick_latest_object_world()
+        if centered_object is None:
+            return
+        centered_ready = self._compute_pick_ready_pose(centered_object)
+        if centered_ready is None or self._pick_initial_ready_pose_world_xyz is None:
+            return
+        self._pick_equal_sag_attempted = True
+        self._pick_centered_object_world_xyz = tuple(float(v) for v in centered_object)
+        self._pick_centered_ready_pose_world_xyz = tuple(float(v) for v in centered_ready)
+        drift = (
+            np.asarray(self._pick_initial_ready_pose_world_xyz, dtype=float).reshape(3)
+            - np.asarray(centered_ready, dtype=float).reshape(3)
+        )
+        self._pick_ready_pose_drift_world = tuple(float(v) for v in drift)
+        corrected_object = np.asarray(centered_object, dtype=float).reshape(3) + drift
+        self._pick_corrected_object_world_xyz = tuple(float(v) for v in corrected_object)
+
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        base_sag = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+        q4 = self._q_array_from_state(host_state)
+        try:
+            estimate = estimate_equal_sag_from_ready_pose_drift(
+                context=ctx,
+                q4=q4,
+                ready_pose_drift_world=drift,
+                sag_model=base_sag,
+            )
+        except Exception as exc:
+            estimate = EqualSagEstimate(
+                accepted=False,
+                seg1_equal_offset_deg=0.0,
+                seg2_equal_offset_deg=0.0,
+                drift_world=tuple(float(v) for v in drift),
+                reconstructed_drift_world=(0.0, 0.0, 0.0),
+                residual_m=float(np.linalg.norm(drift)),
+                condition=float("inf"),
+                reason=f"estimate_failed: {exc}",
+            )
+        self._pick_equal_sag_estimate = estimate
+        drift_mm = float(np.linalg.norm(drift) * 1000.0)
+        if bool(estimate.accepted):
+            self._pick_equal_sag_model = apply_equal_sag_offsets(
+                base_sag,
+                seg1_equal_offset_deg=float(estimate.seg1_equal_offset_deg),
+                seg2_equal_offset_deg=float(estimate.seg2_equal_offset_deg),
+            )
+            self._send_equal_sag_markers()
+        print(
+            "[Pick] equal_sag %s | drift=%.1fmm seg1=%+.3fdeg seg2=%+.3fdeg "
+            "residual=%.1fmm cond=%.1f reason=%s"
+            % (
+                "accepted" if bool(estimate.accepted) else "rejected",
+                drift_mm,
+                float(estimate.seg1_equal_offset_deg),
+                float(estimate.seg2_equal_offset_deg),
+                float(estimate.residual_m) * 1000.0,
+                float(estimate.condition),
+                str(estimate.reason),
+            )
+        )
+
+    def _pick_final_sag_model(self) -> dict[str, Any]:
+        if isinstance(self._pick_equal_sag_model, dict):
+            return dict(self._pick_equal_sag_model)
+        return dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+
     def start_ready_pose(self) -> None:
         if self.state.ik_running or self._visual_busy():
             self.state.set_pick_status(
@@ -1034,7 +1233,7 @@ class ControlService:
             target_uv_u=float(self.state.visual_target_uv_u),
             target_uv_v=float(self.state.visual_target_uv_v),
             quadrant_fill_min=float(pk.quadrant_fill_min),
-            ready_pose_standoff_m=float(pk.ready_pose_standoff_m),
+            ready_pose_standoff_m=float(self.state.visual_ready_distance_m),
             approach_extend_m=float(pk.approach_extend_m),
             approach_extend_step_m=float(pk.approach_extend_step_m),
             grid_cols=int(pk.grid_cols),
@@ -1055,14 +1254,17 @@ class ControlService:
             approach_scale_plateau_eps=float(pk.approach_scale_plateau_eps),
         )
 
-    def _pick_reach_model(self):
+    def _pick_reach_model(self, sag_model: Optional[dict[str, Any]] = None):
         from engine.iklib.kinematics import _ReachModel
 
         self.refresh_ik_context()
         limit = self._ik_context.get("limit")
         if limit is None:
             raise RuntimeError("ik context missing joint limit")
-        return _ReachModel(context=dict(self._ik_context), limit=limit)
+        ctx = dict(self._ik_context)
+        if sag_model is not None:
+            ctx["sag_model"] = dict(sag_model)
+        return _ReachModel(context=ctx, limit=limit)
 
     def _pick_hold_align_display_u(
         self,
@@ -1120,7 +1322,8 @@ class ControlService:
         if delta <= 1e-6:
             return 0.0
         try:
-            model = self._pick_reach_model()
+            sag_model = self._pick_final_sag_model()
+            model = self._pick_reach_model(sag_model=sag_model)
         except Exception as exc:
             print(f"[Pick] extend | IK model unavailable: {exc}")
             return 0.0
@@ -1129,10 +1332,35 @@ class ControlService:
         tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
         axis_w = self._pick_ee_axis_world(model, q0, axis_local=(0.0, 0.0, -1.0))
         target = tip0 + axis_w * delta
+        target_mode = "cartesian"
+        corrected = self._pick_corrected_object_world_xyz
+        estimate = self._pick_equal_sag_estimate
+        if corrected is not None and estimate is not None and bool(estimate.accepted):
+            corrected_target = np.asarray(corrected, dtype=float).reshape(3)
+            to_corrected = corrected_target - tip0
+            axial_m = float(np.dot(to_corrected, axis_w))
+            lateral_m = float(np.linalg.norm(to_corrected - axis_w * axial_m))
+            max_axial_m = max(0.18, float(delta) * 3.0)
+            max_lateral_m = max(0.045, float(delta) * 0.8)
+            if 0.002 <= axial_m <= max_axial_m and lateral_m <= max_lateral_m:
+                target = corrected_target
+                target_mode = "equal_sag_corrected_object"
+            else:
+                print(
+                    "[Pick] equal_sag target fallback | axial=%.1fmm lateral=%.1fmm "
+                    "limits=(%.1f, %.1f)mm"
+                    % (
+                        axial_m * 1000.0,
+                        lateral_m * 1000.0,
+                        max_axial_m * 1000.0,
+                        max_lateral_m * 1000.0,
+                    )
+                )
         dir_hold = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
 
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
+        ctx["sag_model"] = dict(sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -1187,7 +1415,7 @@ class ControlService:
             print("[Pick] extend | no motion along local -Z")
             return 0.0
 
-        align_msg = "pick extend | local-Z %.0fmm" % (delta * 1000.0)
+        align_msg = "pick extend | %s %.0fmm" % (str(target_mode), delta * 1000.0)
         if result.align_attempted:
             align_msg = "%s | dir %.1f -> %.1f deg" % (
                 align_msg,
@@ -1206,9 +1434,10 @@ class ControlService:
             self._pick_extend_progress_m + max(0.0, travel)
         )
         print(
-            "[Pick] extend | solve_then_align | dist=%.0fmm travel=%.0fmm prog=%.0f/%.0fmm "
+            "[Pick] extend | solve_then_align | mode=%s dist=%.0fmm travel=%.0fmm prog=%.0f/%.0fmm "
             "| target=(%.3f, %.3f, %.3f)"
             % (
+                str(target_mode),
                 delta * 1000.0,
                 travel * 1000.0,
                 float(self._pick_extend_progress_m) * 1000.0,
@@ -1356,6 +1585,7 @@ class ControlService:
         self._pick_approach_plateau_iters = 0
         self._pick_approach_last_scale = None
         self._pick_approach_scale_plateau = False
+        self._reset_pick_equal_sag_state()
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
 
     def start_object_pick(self) -> None:
@@ -1393,7 +1623,9 @@ class ControlService:
         self._pick_approach_last_scale = None
         self._pick_approach_scale_plateau = False
         self._pick_extend_ready_logged = False
+        self._reset_pick_equal_sag_state()
         self._latch_pick_frozen_world()
+        self._pick_latch_initial_ready_pose()
         if not str(self.state.visual_target_label).strip():
             self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -1472,9 +1704,11 @@ class ControlService:
                         continue
                     stale_count = 0
 
+                    self._pick_latch_initial_ready_pose()
                     conv = evaluate_pick_convergence(obs, cfg=pk)
                     u_d, v_d, _, _ = self._visual_uv_errors(obs)
                     if conv.center_ok:
+                        self._pick_try_estimate_equal_sag(host_state)
                         self._pick_approach_latched = True
                         self._pick_center_stuck_iters = 0
                     center_tol = float(pk.center_tol)
@@ -1842,7 +2076,9 @@ class ControlService:
         if self.client is None:
             return None
         freeze_world = bool(self.state.pick_running)
-        publish_depth = bool(depth_valid) and not freeze_world
+        publish_depth = bool(depth_valid) and (
+            not freeze_world or not bool(self._pick_equal_sag_attempted)
+        )
         p_world = self.client.send_perception_observation(
             object_camera_xyz=object_camera_xyz,
             label=label,
