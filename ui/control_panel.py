@@ -8,10 +8,13 @@ import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
 from engine.controller import ControlService, HostState, PanelState
+from engine.config_loader import PerceptionConfig, PickConfig
+
 from .panels import (
     draw_control_4dof_panel,
     draw_hardware_panel,
     draw_ik_panel,
+    draw_perception_panel,
     draw_sag_panel,
 )
 
@@ -25,15 +28,35 @@ class ControlPanel:
         service: ControlService,
         *,
         use_hardware: bool = False,
+        perception_cfg: PerceptionConfig | None = None,
+        pick_cfg: PickConfig | None = None,
     ):
         self.state = state
         self.service = service
         self._use_hardware = bool(use_hardware)
+        pc = perception_cfg or PerceptionConfig()
+        pk = pick_cfg or PickConfig()
         self._stop = False
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
         self._ik_header_init_open = False
+        self._perception_header_init_open = False
         self._sag_header_init_open = False
+        self._perception_config_path_draft = str(pc.detector_config)
+        self._perception_mode_draft = str(pc.mode)
+        self._perception_detector_draft = str(pc.detector)
+        self._perception_target_label_draft = str(pc.target_label)
+        self._perception_yolo_device_draft = str(pc.yolo_device)
+        self._perception_publish_hz_draft = float(pc.publish_hz)
+        self._perception_show_preview_draft = bool(pc.show_preview)
+        self._perception_pipeline_draft = str(pc.pipeline)
+        self._perception_tracker_draft = str(pc.tracker)
+        self.state.visual_target_label = str(pc.target_label).strip()
+        self.state.visual_target_scale = float(pk.target_scale)
+        self.state.visual_center_tol = float(pk.center_tol)
+        self.state.visual_target_uv_u = float(pk.target_uv_u)
+        self.state.visual_target_uv_v = float(pk.target_uv_v)
+        self.state.visual_scale_tol = float(pk.scale_tol)
         self._ctrl_window_init = False
         self._port_input = ""
         self._host_state: Optional[HostState] = None
@@ -68,14 +91,21 @@ class ControlPanel:
             imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
             self._ctrl_window_init = True
         imgui.begin("###arm_control_window", True)
-        draw_hardware_panel(self)
-        if self._use_hardware and self.service.has_client():
+        base_item_width = max(120.0, float(imgui.get_content_region_available_width()) * 0.45)
+        imgui.push_item_width(base_item_width)
+        try:
+            draw_hardware_panel(self)
+            if self._use_hardware and self.service.has_client():
+                imgui.separator()
+            draw_perception_panel(self)
             imgui.separator()
-        draw_control_4dof_panel(self)
-        imgui.separator()
-        draw_ik_panel(self)
-        imgui.separator()
-        draw_sag_panel(self)
+            draw_control_4dof_panel(self)
+            imgui.separator()
+            draw_ik_panel(self)
+            imgui.separator()
+            draw_sag_panel(self)
+        finally:
+            imgui.pop_item_width()
         imgui.end()
 
     def run(self) -> None:
@@ -92,8 +122,8 @@ class ControlPanel:
                 width = int(getattr(mode.size, "width", 0) or 0)
                 height = int(getattr(mode.size, "height", 0) or 0)
                 if width > 0 and height > 0:
-                    win_w = max(640, int(width * 0.4))
-                    win_h = max(540, int(height * 0.5))
+                    win_w = int(width * 0.3)
+                    win_h = int(height * 0.9)
         window = glfw.create_window(win_w, win_h, "Arm Control", None, None)
         if not window:
             glfw.terminate()

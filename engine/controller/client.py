@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Any, Optional
 
@@ -43,6 +44,7 @@ class ControlClient:
 
         self.poller = zmq.Poller()
         self.poller.register(self.sock, zmq.POLLIN)
+        self._io_lock = threading.Lock()
 
         self.is_connected = True
         self.tx_seq = 0
@@ -61,6 +63,13 @@ class ControlClient:
         self.last_safety_fault: str = ""
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_label: str = ""
+        self.last_perceived_object_confidence: float = 0.0
+        self.last_perceived_object_camera_xyz: Optional[tuple[float, float, float]] = None
+        self.last_perceived_center_uv: Optional[tuple[float, float]] = None
+        self.last_perceived_scale: Optional[float] = None
+        self.last_perceived_timestamp_s: float = 0.0
+        self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -95,21 +104,61 @@ class ControlClient:
             safety_fault=str(self.last_safety_fault),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
+            perceived_object_label=str(self.last_perceived_object_label),
+            perceived_object_confidence=float(self.last_perceived_object_confidence),
+            perceived_object_camera_xyz=self.last_perceived_object_camera_xyz,
+            perceived_center_uv=self.last_perceived_center_uv,
+            perceived_scale=self.last_perceived_scale,
+            perceived_timestamp_s=float(self.last_perceived_timestamp_s),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
             u=self.last_u,
         )
 
+    def _update_perception_fields(self, msg: dict[str, Any]) -> None:
+        if "perceived_object_label" in msg:
+            self.last_perceived_object_label = str(msg.get("perceived_object_label", ""))
+        if "perceived_object_confidence" in msg:
+            try:
+                self.last_perceived_object_confidence = float(msg.get("perceived_object_confidence", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_object_confidence = 0.0
+        object_camera_raw = msg.get("perceived_object_camera", None)
+        if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
+            self.last_perceived_object_camera_xyz = (
+                float(object_camera_raw[0]),
+                float(object_camera_raw[1]),
+                float(object_camera_raw[2]),
+            )
+        center_uv_raw = msg.get("perceived_center_uv", None)
+        if isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2:
+            self.last_perceived_center_uv = (float(center_uv_raw[0]), float(center_uv_raw[1]))
+        if "perceived_scale" in msg:
+            try:
+                self.last_perceived_scale = float(msg.get("perceived_scale", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_scale = None
+        if "perceived_timestamp_s" in msg:
+            try:
+                self.last_perceived_timestamp_s = float(msg.get("perceived_timestamp_s", 0.0))
+            except (TypeError, ValueError):
+                self.last_perceived_timestamp_s = 0.0
+
     def _send(self, msg: dict) -> None:
-        try:
-            self.sock.send_json(msg, flags=zmq.NOBLOCK)
-        except zmq.ZMQError as exc:
-            self.is_connected = False
-            self.last_reply_ok = False
-            self.last_reply_reason = f"transport send failed: {exc}"
+        with self._io_lock:
+            try:
+                self.sock.send_json(msg, flags=zmq.NOBLOCK)
+            except zmq.ZMQError as exc:
+                self.is_connected = False
+                self.last_reply_ok = False
+                self.last_reply_reason = f"transport send failed: {exc}"
 
     def poll(self) -> None:
+        with self._io_lock:
+            self._poll_unlocked()
+
+    def _poll_unlocked(self) -> None:
         try:
             events = dict(self.poller.poll(timeout=0))
         except zmq.ZMQError as exc:
@@ -154,6 +203,14 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_perception_fields(msg)
+            object_world_raw = msg.get("object_world", None)
+            if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
+                self.last_object_world_xyz = (
+                    float(object_world_raw[0]),
+                    float(object_world_raw[1]),
+                    float(object_world_raw[2]),
+                )
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -193,6 +250,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -232,6 +290,57 @@ class ControlClient:
 
     def disconnect_device(self) -> None:
         self._send({"t": "disconnect_device", "ts": time.time()})
+
+    def send_perception_observation(
+        self,
+        *,
+        object_camera_xyz: tuple[float, float, float],
+        label: str = "",
+        confidence: float = 0.0,
+        image_center_uv: tuple[float, float],
+        image_scale: float,
+        depth_valid: bool = True,
+        wait_ack_s: float = 0.08,
+    ) -> Optional[tuple[float, float, float]]:
+        now = time.time()
+        with self._io_lock:
+            self.tx_seq += 1
+            if bool(depth_valid):
+                self.last_object_world_xyz = None
+            try:
+                self.sock.send_json(
+                    {
+                        "t": "target",
+                        "ts": now,
+                        "seq": self.tx_seq,
+                        "source": "perception",
+                        "object_camera": [
+                            float(object_camera_xyz[0]),
+                            float(object_camera_xyz[1]),
+                            float(object_camera_xyz[2]),
+                        ],
+                        "object_label": str(label),
+                        "object_confidence": float(confidence),
+                        "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
+                        "image_scale": float(image_scale),
+                        "depth_valid": bool(depth_valid),
+                    },
+                    flags=zmq.NOBLOCK,
+                )
+            except zmq.ZMQError as exc:
+                self.is_connected = False
+                self.last_reply_ok = False
+                self.last_reply_reason = f"transport send failed: {exc}"
+                return None
+            if not bool(depth_valid):
+                return self.last_object_world_xyz
+            deadline = time.time() + max(float(wait_ack_s), 0.0)
+            while time.time() < deadline:
+                self._poll_unlocked()
+                if self.last_object_world_xyz is not None:
+                    return self.last_object_world_xyz
+                time.sleep(0.005)
+            return self.last_object_world_xyz
 
     def send_claw_command(self, *, claw_closed: bool, source: str = "target") -> None:
         now = time.time()

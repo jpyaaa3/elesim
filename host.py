@@ -79,6 +79,13 @@ class ControlHost:
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_label: str = ""
+        self.last_perceived_object_confidence: float = 0.0
+        self.last_perceived_object_camera_xyz: Optional[tuple[float, float, float]] = None
+        self.last_perceived_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self.last_perceived_center_uv: Optional[tuple[float, float]] = None
+        self.last_perceived_scale: Optional[float] = None
+        self.last_perceived_timestamp_s: float = 0.0
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self._last_hw_pos_by_id: Dict[int, int] = {}
@@ -168,6 +175,12 @@ class ControlHost:
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
             self.last_actual_tip_dir = None
+            self.last_perceived_object_label = ""
+            self.last_perceived_object_confidence = 0.0
+            self.last_perceived_object_camera_xyz = None
+            self.last_perceived_center_uv = None
+            self.last_perceived_scale = None
+            self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -216,6 +229,12 @@ class ControlHost:
             self.last_ik_target_dir = None
             self.last_actual_tip_xyz = None
             self.last_actual_tip_dir = None
+            self.last_perceived_object_label = ""
+            self.last_perceived_object_confidence = 0.0
+            self.last_perceived_object_camera_xyz = None
+            self.last_perceived_center_uv = None
+            self.last_perceived_scale = None
+            self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._last_hw_pos_by_id = {}
@@ -309,6 +328,11 @@ class ControlHost:
             return False, f"perception transform failed: {exc}", None
         p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
         p_w = np.asarray(object_world, dtype=float).reshape(3)
+        self.last_perceived_object_world_xyz = (
+            float(p_w[0]),
+            float(p_w[1]),
+            float(p_w[2]),
+        )
         label_txt = str(object_label).strip()
         print(
             f"[Perception] label={label_txt or '-'} "
@@ -316,19 +340,20 @@ class ControlHost:
             f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
         )
         label_suffix = f":{label_txt}" if label_txt else ""
+        marker_ttl_ms = 3000
         self._set_debug_marker(
             name=f"perceived_object{label_suffix}",
             pos=object_world,
             color=[0.1, 0.95, 0.2, 0.95],
             radius=0.012,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_optical",
             pos=camera_world,
             color=[0.1, 0.7, 1.0, 0.95],
             radius=0.010,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_look",
@@ -336,7 +361,7 @@ class ControlHost:
             direction=camera_look,
             color=[0.1, 0.7, 1.0, 0.95],
             radius=0.004,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         self._set_debug_marker(
             name="camera_right",
@@ -344,9 +369,36 @@ class ControlHost:
             direction=camera_right,
             color=[1.0, 0.8, 0.2, 0.95],
             radius=0.004,
-            ttl_ms=250,
+            ttl_ms=marker_ttl_ms,
         )
         return True, "perception markers updated", p_w
+
+    def _broadcast_state_now(self) -> None:
+        now = proto.now_s()
+        self._broadcast(
+            proto.pack_state(
+                u=self.last_u,
+                q=self.last_q,
+                ts=self.last_state_ts or now,
+                torque_enabled=self.torque_enabled,
+                ik_target_xyz=self.last_ik_target_xyz,
+                ik_target_dir=self.last_ik_target_dir,
+                actual_tip_xyz=self.last_actual_tip_xyz,
+                actual_tip_dir=self.last_actual_tip_dir,
+                perceived_object_label=(self.last_perceived_object_label or None),
+                perceived_object_confidence=self.last_perceived_object_confidence,
+                perceived_object_camera=self.last_perceived_object_camera_xyz,
+                perceived_center_uv=self.last_perceived_center_uv,
+                perceived_scale=self.last_perceived_scale,
+                perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
+                sag_model=self.last_sag_model,
+                claw_closed=self.last_claw_closed,
+                claw_current=self._last_claw_current,
+                motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
+                safety_fault=(self._safety_fault or None),
+                debug_markers=self._active_debug_markers(),
+            )
+        )
 
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
@@ -691,6 +743,13 @@ class ControlHost:
     def _handle_sim_feedback(self, msg: Dict[str, Any]) -> None:
         if str(msg.get("t", "")).lower() != "sim_state":
             return
+        if "q" in msg:
+            try:
+                self.last_q = proto.unpack_q(msg["q"])
+                self.last_u = proto.sim_q_to_control_u(self.last_q, self.cfg)
+                self.last_state_ts = float(msg.get("ts", proto.now_s()))
+            except (TypeError, ValueError):
+                pass
         actual_tip_raw = msg.get("actual_tip", None)
         if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
             self.last_actual_tip_xyz = (
@@ -797,29 +856,82 @@ class ControlHost:
                 )
                 return
             if source == "perception":
+                center_uv_raw = msg.get("image_center_uv", None)
+                if not (isinstance(center_uv_raw, (list, tuple)) and len(center_uv_raw) == 2):
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "perception missing image_center_uv",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
+                self.last_perceived_center_uv = (
+                    float(center_uv_raw[0]),
+                    float(center_uv_raw[1]),
+                )
+                scale_raw = msg.get("image_scale", None)
+                if scale_raw is not None:
+                    try:
+                        self.last_perceived_scale = float(scale_raw)
+                    except (TypeError, ValueError):
+                        self.last_perceived_scale = None
+                confidence_raw = msg.get("object_confidence", None)
+                if confidence_raw is not None:
+                    try:
+                        self.last_perceived_object_confidence = float(confidence_raw)
+                    except (TypeError, ValueError):
+                        self.last_perceived_object_confidence = 0.0
+                self.last_perceived_object_label = str(msg.get("object_label", ""))
+                self.last_perceived_timestamp_s = float(proto.now_s())
+                depth_valid = bool(msg.get("depth_valid", True))
                 object_camera_raw = msg.get("object_camera", None)
                 if isinstance(object_camera_raw, (list, tuple)) and len(object_camera_raw) == 3:
-                    ok, reason, object_world = self._update_perception_markers(
-                        (
-                            float(object_camera_raw[0]),
-                            float(object_camera_raw[1]),
-                            float(object_camera_raw[2]),
-                        ),
-                        object_label=str(msg.get("object_label", "")),
+                    self.last_perceived_object_camera_xyz = (
+                        float(object_camera_raw[0]),
+                        float(object_camera_raw[1]),
+                        float(object_camera_raw[2]),
                     )
-                    ack: Dict[str, Any] = {
-                        "t": "ack",
-                        "ts": proto.now_s(),
-                        "ok": bool(ok),
-                        "reason": str(reason),
-                        "device": self.device,
-                        "torque_enabled": self.torque_enabled,
-                    }
+                object_world = None
+                if depth_valid and self.last_perceived_object_camera_xyz is not None:
+                    ok, reason, object_world = self._update_perception_markers(
+                        self.last_perceived_object_camera_xyz,
+                        object_label=self.last_perceived_object_label,
+                    )
+                else:
+                    ok, reason = True, "perception image (world frozen, uv/scale only)"
+                    object_world = self.last_perceived_object_world_xyz
                     if object_world is not None:
-                        p_w = np.asarray(object_world, dtype=float).reshape(3)
-                        ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
-                    self._reply(ident, ack)
-                    return
+                        label_suffix = (
+                            f":{self.last_perceived_object_label}"
+                            if str(self.last_perceived_object_label).strip()
+                            else ""
+                        )
+                        self._set_debug_marker(
+                            name=f"perceived_object{label_suffix}",
+                            pos=object_world,
+                            color=[0.1, 0.95, 0.2, 0.95],
+                            radius=0.012,
+                            ttl_ms=30000,
+                        )
+                ack: Dict[str, Any] = {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                }
+                if object_world is not None:
+                    p_w = np.asarray(object_world, dtype=float).reshape(3)
+                    ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
+                self._reply(ident, ack)
+                self._broadcast_state_now()
+                return
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None
             partial_u_mode = False
@@ -931,6 +1043,12 @@ class ControlHost:
                         ik_target_dir=self.last_ik_target_dir,
                         actual_tip_xyz=self.last_actual_tip_xyz,
                         actual_tip_dir=self.last_actual_tip_dir,
+                        perceived_object_label=(self.last_perceived_object_label or None),
+                        perceived_object_confidence=self.last_perceived_object_confidence,
+                        perceived_object_camera=self.last_perceived_object_camera_xyz,
+                        perceived_center_uv=self.last_perceived_center_uv,
+                        perceived_scale=self.last_perceived_scale,
+                        perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         claw_current=self._last_claw_current,

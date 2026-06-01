@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,6 +32,19 @@ from engine.config_loader import (
 from engine.motor import estimate_ideal_sim_rates
 from builder.urdf_converter import convert_manifest_file
 from engine.sag_model import segment_errors_from_model
+
+
+def _ensure_genesis_cache_dir() -> None:
+    """
+    Genesis viewer may try to write a temporary video under ~/.cache/genesis
+    even when the app did not explicitly request recording.
+    """
+    cache_root = os.environ.get("XDG_CACHE_HOME", "").strip()
+    if cache_root:
+        cache_dir = Path(cache_root).expanduser() / "genesis"
+    else:
+        cache_dir = Path.home() / ".cache" / "genesis"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _to_numpy_1d(raw) -> np.ndarray:
@@ -1196,6 +1210,7 @@ class RuntimePrep:
         backend = gs.gpu if a.cfg.use_gpu else gs.cpu
         backend_name = "gpu" if a.cfg.use_gpu else "cpu"
         print(f"[runtime] genesis backend requested: {backend_name}")
+        _ensure_genesis_cache_dir()
         try:
             gs.init(backend=backend, logging_level="warning")
         except TypeError:

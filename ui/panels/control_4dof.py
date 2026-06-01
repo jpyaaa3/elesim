@@ -36,7 +36,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_linear, u_linear = imgui.slider_float(
-        "linear [u]", float(u_now.u_linear),
+        "linear [u] |", float(u_now.u_linear),
         float(cfg.linear_u_min), float(cfg.linear_u_max),
         format="%.1f"
     )
@@ -45,7 +45,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_rdeg, u_roll = imgui.slider_float(
-        "roll [u]", float(u_now.u_roll),
+        "roll [u]   |", float(u_now.u_roll),
         float(cfg.roll_u_min), float(cfg.roll_u_max),
         format="%.1f"
     )
@@ -54,7 +54,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_s1, u_s1 = imgui.slider_float(
-        "seg1 [u]", float(u_now.u_s1),
+        "seg1 [u]   |", float(u_now.u_s1),
         float(cfg.seg_u_min), float(cfg.seg_u_max),
         format="%.1f"
     )
@@ -63,7 +63,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_s2, u_s2 = imgui.slider_float(
-        "seg2 [u]", float(u_now.u_s2),
+        "seg2 [u]   |", float(u_now.u_s2),
         float(cfg.seg_u_min), float(cfg.seg_u_max),
         format="%.1f"
     )

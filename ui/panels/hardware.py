@@ -4,13 +4,17 @@ import imgui
 
 
 def draw_hardware_panel(panel) -> None:
-    if (not panel._use_hardware) or (not panel.service.has_client()):
-        return
     if not panel._hw_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._hw_header_init_open = True
     if imgui.collapsing_header("Hardware", visible=True)[0]:
+        if not panel._use_hardware:
+            imgui.text("Simulation Only - Please connect the robot!")
+            return
+        if not panel.service.has_client():
+            imgui.text("Host: OFF")
+            return
         state = panel._host_state if panel._host_state is not None else panel.service.current_host_state()
         if state is None:
             imgui.text("Host: OFF")

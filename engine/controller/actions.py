@@ -9,11 +9,19 @@ from typing import Any, Optional
 import numpy as np
 
 from engine import ik as ik_pipeline
-from engine.config_loader import IkConfig
+from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
 
 from .client import ControlClient
+from .perception import VisualObservation, extract_visual_observation
+from .object_pick import (
+    ObjectPickPhase,
+    evaluate_pick_convergence,
+    pick_ready_for_extend,
+    pick_uv_deltas,
+)
+from .perception_capture import PerceptionCapture, PerceptionSnapshot, TrackerPhase
 from .state import HostState, PanelState
 
 
@@ -55,6 +63,8 @@ class ControlService:
         ik_cfg: Optional[IkConfig] = None,
         ik_context: Optional[dict[str, Any]] = None,
         config_path: Optional[str] = None,
+        perception_cfg: Optional[PerceptionConfig] = None,
+        pick_cfg: Optional[PickConfig] = None,
     ) -> None:
         self.state = state
         self.client = client
@@ -62,6 +72,32 @@ class ControlService:
         self._ik_cfg = ik_cfg or IkConfig()
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
+        self._perception_cfg = perception_cfg or PerceptionConfig()
+        self._pick_cfg = pick_cfg or PickConfig()
+        self._perception_capture: Optional[PerceptionCapture] = None
+        self._pick_worker: Optional[threading.Thread] = None
+        self._pick_stop_event = threading.Event()
+        self._pick_center_phase = "u"
+        self._pick_approach_v_hold_ratio = 0.5
+        self._pick_approach_seg_u_max = 0.35
+        self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_latched = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
+        self._pick_frozen_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_center_reenter_ratio = 1.5
+        self._pick_approach_lost_ratio = 2.5
+        self._pick_approach_linear_step_scale = 3.0
+        self._pick_clamp_streak = 0
+        self._pick_clamp_stall_limit = 20
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale: Optional[float] = None
+        self._pick_approach_scale_plateau = False
         self._ik_worker: Optional[threading.Thread] = None
         self._calibration_current_threshold_ma = 1400
         self._calibration_current_delta_ma = 350
@@ -79,6 +115,7 @@ class ControlService:
             "s1": ("s1", "seg1"),
             "s2": ("s2", "seg2"),
         }
+        self._visual_obs_stale_s = 0.75
 
     @staticmethod
     def _normalize_dir(vec: np.ndarray) -> Optional[np.ndarray]:
@@ -161,6 +198,174 @@ class ControlService:
         if self.client is None:
             return None
         return self.client.get_state()
+
+    def current_visual_observation(self, host_state: Optional[HostState] = None) -> Optional[VisualObservation]:
+        state = host_state if host_state is not None else self.current_host_state()
+        return extract_visual_observation(
+            state,
+            target_label=str(self.state.visual_target_label),
+            stale_timeout_s=float(self._visual_obs_stale_s),
+            min_confidence=float(self.state.visual_confidence_min),
+        )
+
+    def _visual_target_uv(self) -> tuple[float, float]:
+        return (float(self.state.visual_target_uv_u), float(self.state.visual_target_uv_v))
+
+    def _visual_uv_errors(self, obs: VisualObservation) -> tuple[float, float, float, float]:
+        tu, tv = self._visual_target_uv()
+        u = float(obs.center_uv[0])
+        v = float(obs.center_uv[1])
+        return u - tu, v - tv, tu, tv
+
+    def _uv_control_errors(self, obs: VisualObservation) -> tuple[float, float]:
+        du, dv, _, _ = self._visual_uv_errors(obs)
+        return -du, -dv
+
+    def _center_seg_du(
+        self,
+        *,
+        target_v: float,
+        obs_v: float,
+        cap: float,
+        gain: float,
+    ) -> float:
+        """seg drives image v toward target_v (+seg lowers normalized v on this robot)."""
+        g = float(gain)
+        v_delta = float(obs_v) - float(target_v)
+        return float(np.clip(g * v_delta, -float(cap), float(cap)))
+
+    def _visual_uv_centered(self, obs: VisualObservation, *, center_tol: Optional[float] = None) -> bool:
+        tol = float(self.state.visual_center_tol if center_tol is None else center_tol)
+        du, dv, _, _ = self._visual_uv_errors(obs)
+        return abs(du) <= tol and abs(dv) <= tol
+
+    def _visual_busy(self) -> bool:
+        return self._ik_worker is not None or self._pick_worker is not None
+
+    def _pick_busy(self) -> bool:
+        return self._pick_worker is not None
+
+    def _q_array_from_state(self, host_state: Optional[HostState] = None) -> np.ndarray:
+        src = host_state if host_state is not None else self.current_host_state()
+        if src is not None and src.q is not None:
+            return np.array(
+                [
+                    float(src.q.linear_m),
+                    float(src.q.roll_rad),
+                    float(src.q.theta1_rad),
+                    float(src.q.theta2_rad),
+                ],
+                dtype=float,
+            )
+        return np.array(
+            [
+                float(self.state.linear),
+                float(self.state.roll),
+                float(self.state.theta1),
+                float(self.state.theta2),
+            ],
+            dtype=float,
+        )
+
+    def _clamp_q(self, q: np.ndarray) -> np.ndarray:
+        arr = np.asarray(q, dtype=float).reshape(4).copy()
+        cfg = self._mapping_cfg
+        arr[0] = float(np.clip(arr[0], cfg.linear_q_min_m, cfg.linear_q_max_m))
+        arr[1] = float(np.clip(arr[1], cfg.roll_q_min_rad, cfg.roll_q_max_rad))
+        arr[2] = float(np.clip(arr[2], cfg.seg1_q_min_rad, cfg.seg1_q_max_rad))
+        arr[3] = float(np.clip(arr[3], cfg.seg2_q_min_rad, cfg.seg2_q_max_rad))
+        return arr
+
+    def _send_state_q_and_wait(
+        self,
+        *,
+        timeout_s: float = 1.0,
+        source: str = "ik",
+        force: bool = False,
+    ) -> Optional[HostState]:
+        q_cmd = np.array(
+            [
+                float(self.state.linear),
+                float(self.state.roll),
+                float(self.state.theta1),
+                float(self.state.theta2),
+            ],
+            dtype=float,
+        )
+        self.send_current_target(source=source, force=force)
+        return self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+
+    def _send_display_control_u_and_wait(self, display_u: ControlU, *, timeout_s: float = 1.0, source: str = "ik") -> Optional[HostState]:
+        self.apply_control_u(
+            u_linear=float(display_u.u_linear),
+            u_roll=float(display_u.u_roll),
+            u_s1=float(display_u.u_s1),
+            u_s2=float(display_u.u_s2),
+            apply_offset=True,
+        )
+        return self._send_state_q_and_wait(timeout_s=float(timeout_s), source=source)
+
+    def _clamp_display_u(self, display_u: ControlU) -> ControlU:
+        cfg = self.control_mapping()
+        return ControlU(
+            u_linear=float(np.clip(display_u.u_linear, cfg.linear_u_min, cfg.linear_u_max)),
+            u_roll=float(np.clip(display_u.u_roll, cfg.roll_u_min, cfg.roll_u_max)),
+            u_s1=float(np.clip(display_u.u_s1, cfg.seg_u_min, cfg.seg_u_max)),
+            u_s2=float(np.clip(display_u.u_s2, cfg.seg_u_min, cfg.seg_u_max)),
+        )
+
+    def _command_q_and_wait(
+        self,
+        q: np.ndarray,
+        *,
+        timeout_s: float = 1.0,
+        source: str = "slider",
+        force: bool = False,
+    ) -> Optional[HostState]:
+        q_cmd = self._clamp_q(q)
+        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        return self._send_state_q_and_wait(
+            timeout_s=float(timeout_s), source=source, force=force
+        )
+
+    def _apply_ik_solution_to_host(
+        self,
+        q: np.ndarray,
+        *,
+        ik_target: np.ndarray,
+        ik_target_dir: np.ndarray,
+        err_m: float,
+        status_msg: str,
+        timeout_s: float = 2.0,
+    ) -> Optional[HostState]:
+        """Same path as UI Solve IK: update panel target + q, then send to sim/host."""
+        q_cmd = self._clamp_q(q)
+        target = np.asarray(ik_target, dtype=float).reshape(3)
+        direction = np.asarray(ik_target_dir, dtype=float).reshape(3)
+        dnorm = float(np.linalg.norm(direction))
+        if dnorm > 1e-9:
+            direction = direction / dnorm
+        self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
+        self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
+        self.state.set_q(float(q_cmd[0]), float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        self.state.set_ik_solution(float(q_cmd[1]), float(q_cmd[2]), float(q_cmd[3]))
+        self.state.set_ik_status(
+            running=False,
+            converged=True,
+            failed=False,
+            err_m=float(err_m),
+            msg=str(status_msg),
+        )
+        return self._send_state_q_and_wait(
+            timeout_s=float(timeout_s), source="ik", force=True
+        )
+
+    @staticmethod
+    def _log_visual_step(tag: str, step_idx: int, step_max: int, **fields: object) -> None:
+        parts = [f"[Visual] {tag} step {int(step_idx)}/{int(step_max)}"]
+        for key, value in fields.items():
+            parts.append(f"{key}={value}")
+        print(" | ".join(parts))
 
     def _offsets(self) -> dict[str, float]:
         linear, roll, s1, s2, _rev = self.state.offset_values()
@@ -284,8 +489,10 @@ class ControlService:
         self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=180.0, u_s2=180.0, apply_offset=False)
         self.send_current_target(source="slider")
 
-    def send_current_target(self, *, source: str) -> None:
-        if self.client is not None and ((not self.state.paused) or (source == "target")):
+    def send_current_target(self, *, source: str, force: bool = False) -> None:
+        if self.client is not None and (
+            force or (not self.state.paused) or (source == "target")
+        ):
             self.client.send_target_values(
                 linear_m=float(self.state.linear),
                 roll_rad=float(self.state.roll),
@@ -296,7 +503,7 @@ class ControlService:
                 target_dir=(float(self.state.target_vx), float(self.state.target_vy), float(self.state.target_vz)),
                 sag_model=(dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}),
                 claw_closed=bool(self.state.claw_closed),
-                force=bool(source == "target"),
+                force=force or bool(source == "target"),
             )
 
     def send_current_target_meta(self, *, source: str = "target") -> None:
@@ -318,7 +525,9 @@ class ControlService:
             self.client.send_claw_command(claw_closed=bool(closed), source="target")
 
     def _start_position_solve(self, target: np.ndarray) -> None:
-        if self.state.ik_running or self._ik_worker is not None:
+        if self.state.ik_running or self._visual_busy():
+            return
+        if self._pick_busy():
             return
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -542,7 +751,7 @@ class ControlService:
         return float(release_display)
 
     def start_calibration(self) -> None:
-        if self._ik_worker is not None:
+        if self._visual_busy():
             self.state.set_calibration_status(running=False, msg="busy")
             return
         if self.client is None:
@@ -618,7 +827,7 @@ class ControlService:
         self._start_position_solve(target)
 
     def start_tweak(self) -> None:
-        if self.state.ik_running or self._ik_worker is not None:
+        if self.state.ik_running or self._visual_busy():
             return
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -783,6 +992,912 @@ class ControlService:
         if self.client is not None:
             self.client.torque_off()
 
+    def perception_snapshot(self) -> Optional[PerceptionSnapshot]:
+        cap = self._perception_capture
+        return None if cap is None else cap.snapshot()
+
+    def _pick_frozen_world(self) -> Optional[tuple[float, float, float]]:
+        frozen = self._pick_frozen_world_xyz
+        if frozen is not None:
+            return tuple(frozen)
+        if self.state.perception_world_xyz is not None:
+            return tuple(self.state.perception_world_xyz)
+        if self.client is not None and self.client.last_object_world_xyz is not None:
+            return tuple(self.client.last_object_world_xyz)
+        return None
+
+    def _latch_pick_frozen_world(self) -> None:
+        self._pick_frozen_world_xyz = self._pick_frozen_world()
+
+    def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
+        world_xyz = snap.p_world
+        if bool(self.state.pick_running):
+            world_xyz = self._pick_frozen_world()
+        self.state.set_perception_status(
+            running=bool(snap.running),
+            failed=bool(snap.failed),
+            msg=str(snap.status_msg),
+            frame_idx=int(snap.frame_idx),
+            label=str(snap.label),
+            confidence=float(snap.confidence),
+            camera_xyz=snap.p_camera,
+            world_xyz=world_xyz,
+            tracker_phase=str(snap.tracker_phase),
+            track_ok_frames=int(snap.track_ok_frames),
+            image_scale=float(snap.image_scale),
+            bbox_wh=tuple(snap.bbox_wh),
+            tracker_backend=str(snap.tracker_backend),
+        )
+
+    def _pick_config_effective(self) -> PickConfig:
+        pk = self._pick_cfg
+        return PickConfig(
+            enabled=bool(pk.enabled),
+            target_scale=float(self.state.visual_target_scale),
+            scale_tol=float(self.state.visual_scale_tol),
+            center_tol=float(self.state.visual_center_tol),
+            center_u_gain=float(pk.center_u_gain),
+            center_v_gain=float(pk.center_v_gain),
+            center_roll_max=float(pk.center_roll_max),
+            center_seg_max=float(pk.center_seg_max),
+            center_error_scale_max=float(pk.center_error_scale_max),
+            center_stuck_iters=int(pk.center_stuck_iters),
+            center_stuck_max_uv=float(pk.center_stuck_max_uv),
+            target_uv_u=float(self.state.visual_target_uv_u),
+            target_uv_v=float(self.state.visual_target_uv_v),
+            quadrant_fill_min=float(pk.quadrant_fill_min),
+            approach_extend_m=float(pk.approach_extend_m),
+            approach_extend_step_m=float(pk.approach_extend_step_m),
+            grid_cols=int(pk.grid_cols),
+            grid_rows=int(pk.grid_rows),
+            target_grid_col=int(pk.target_grid_col),
+            target_grid_row=int(pk.target_grid_row),
+            linear_step_u=float(pk.linear_step_u),
+            linear_gain=float(pk.linear_gain),
+            max_iters=int(pk.max_iters),
+            require_track_frames=int(pk.require_track_frames),
+            acquire_timeout_s=float(pk.acquire_timeout_s),
+            scale_stuck_iters=int(pk.scale_stuck_iters),
+            scale_stuck_ratio=float(pk.scale_stuck_ratio),
+            approach_min_scale=float(pk.approach_min_scale),
+            approach_min_steps=int(pk.approach_min_steps),
+            approach_loose_center_tol=float(pk.approach_loose_center_tol),
+            approach_scale_plateau_iters=int(pk.approach_scale_plateau_iters),
+            approach_scale_plateau_eps=float(pk.approach_scale_plateau_eps),
+        )
+
+    def _pick_reach_model(self):
+        from engine.iklib.kinematics import _ReachModel
+
+        self.refresh_ik_context()
+        limit = self._ik_context.get("limit")
+        if limit is None:
+            raise RuntimeError("ik context missing joint limit")
+        return _ReachModel(context=dict(self._ik_context), limit=limit)
+
+    def _pick_hold_align_display_u(
+        self,
+        obs: VisualObservation,
+        *,
+        center_tol: float,
+    ) -> bool:
+        """Re-apply roll/seg so gripper stays on target_uv after a Cartesian step."""
+        current_u = self.current_control_u()
+        next_u, mode, _, _ = self._apply_pick_center_step(obs, current_u)
+        if next_u == current_u or mode == "none":
+            return False
+        self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+        return True
+
+    def _pick_ee_axis_world(
+        self,
+        model: Any,
+        q: np.ndarray,
+        *,
+        axis_local: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    ) -> np.ndarray:
+        """Unit vector in world frame for a body-fixed axis (default EE local +X)."""
+        from engine.iklib.kinematics import _forward_link_tf
+
+        context = model.context
+        q4 = model.clamp_q(q)
+        link_tf = _forward_link_tf(context, q4)
+        term = str(context["terminal_link_name"])
+        if term not in link_tf:
+            raise RuntimeError(f"terminal link missing from FK: {term}")
+        _p_link, R_link = link_tf[term]
+        approach_rot_tip = np.asarray(
+            context.get("approach_rot_tip", np.eye(3)), dtype=float
+        ).reshape(3, 3)
+        local = np.asarray(axis_local, dtype=float).reshape(3)
+        local_norm = float(np.linalg.norm(local))
+        if local_norm <= 1e-9:
+            local = np.array([1.0, 0.0, 0.0], dtype=float)
+        else:
+            local = local / local_norm
+        direction = R_link @ approach_rot_tip @ local
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1e-9:
+            return np.asarray(model.grasp_direction(q4), dtype=float).reshape(3)
+        return direction / norm
+
+    def _pick_extend_cartesian(
+        self,
+        distance_m: float,
+        host_state: Optional[HostState] = None,
+    ) -> float:
+        """Advance grasp point ``distance_m`` along EE local -Z via ``engine.ik.solve_then_align``."""
+        delta = float(max(0.0, distance_m))
+        if delta <= 1e-6:
+            return 0.0
+        try:
+            model = self._pick_reach_model()
+        except Exception as exc:
+            print(f"[Pick] extend | IK model unavailable: {exc}")
+            return 0.0
+
+        q0 = self._q_array_from_state(host_state)
+        tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+        axis_w = self._pick_ee_axis_world(model, q0, axis_local=(0.0, 0.0, -1.0))
+        target = tip0 + axis_w * delta
+        dir_hold = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        required = (
+            "limit",
+            "fk_joint_chain",
+            "terminal_link_name",
+            "old_tip_local_offset",
+            "grasp_offset_node_local",
+        )
+        if any(k not in ctx for k in required):
+            print("[Pick] extend | missing ik_context fields")
+            return 0.0
+
+        self.state.set_ik_status(
+            running=True,
+            converged=False,
+            failed=False,
+            err_m=float("inf"),
+            msg="pick extend IK",
+        )
+        result = ik_pipeline.solve_then_align(
+            target_world=target,
+            target_dir_world=dir_hold,
+            context=ctx,
+            position_tol_m=max(float(self._ik_cfg.tol), 1e-4),
+            max_iters=max(int(self._ik_cfg.max_iters), 1),
+            current_seed=q0,
+        )
+        if not result.success or result.q is None:
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(result.position_error_m),
+                msg=str(result.reason),
+            )
+            print(
+                "[Pick] extend | IK failed | reason=%s err=%.4fm"
+                % (str(result.reason), float(result.position_error_m))
+            )
+            return 0.0
+
+        q1 = np.asarray(result.q, dtype=float).reshape(4)
+        tip1 = np.asarray(model.grasp_position(q1), dtype=float).reshape(3)
+        travel = float(np.dot(tip1 - tip0, axis_w))
+        if travel < 1e-6:
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(result.position_error_m),
+                msg="no motion along local -Z",
+            )
+            print("[Pick] extend | no motion along local -Z")
+            return 0.0
+
+        align_msg = "pick extend | local-Z %.0fmm" % (delta * 1000.0)
+        if result.align_attempted:
+            align_msg = "%s | dir %.1f -> %.1f deg" % (
+                align_msg,
+                float(np.degrees(result.initial_direction_angle_rad)),
+                float(np.degrees(result.direction_angle_rad)),
+            )
+        self._apply_ik_solution_to_host(
+            q1,
+            ik_target=target,
+            ik_target_dir=dir_hold,
+            err_m=float(result.position_error_m),
+            status_msg=align_msg,
+            timeout_s=3.0,
+        )
+        self._pick_extend_progress_m = float(
+            self._pick_extend_progress_m + max(0.0, travel)
+        )
+        print(
+            "[Pick] extend | solve_then_align | dist=%.0fmm travel=%.0fmm prog=%.0f/%.0fmm "
+            "| target=(%.3f, %.3f, %.3f)"
+            % (
+                delta * 1000.0,
+                travel * 1000.0,
+                float(self._pick_extend_progress_m) * 1000.0,
+                float(self._pick_config_effective().approach_extend_m) * 1000.0,
+                float(target[0]),
+                float(target[1]),
+                float(target[2]),
+            )
+        )
+        return max(0.0, travel)
+
+    def _wait_for_track_lock(self, *, timeout_s: float, require_frames: int) -> bool:
+        deadline = time.time() + max(float(timeout_s), 0.1)
+        while time.time() < deadline:
+            if self._pick_stop_event.is_set():
+                return False
+            cap = self._perception_capture
+            if cap is not None and cap.track_ok_frames() >= int(require_frames):
+                if cap.tracker_phase() == TrackerPhase.TRACK.value:
+                    return True
+            time.sleep(0.05)
+        return False
+
+    def _pick_center_lost(
+        self,
+        obs: VisualObservation,
+        *,
+        center_tol: float,
+        ratio: Optional[float] = None,
+    ) -> bool:
+        u_d, v_d, _, _ = self._visual_uv_errors(obs)
+        r = float(self._pick_center_reenter_ratio if ratio is None else ratio)
+        tol = float(center_tol) * r
+        return abs(u_d) > tol or abs(v_d) > tol
+
+    def _apply_pick_center_step(
+        self, obs: VisualObservation, current_u: ControlU
+    ) -> tuple[ControlU, str, float, float]:
+        cfg = self._pick_config_effective()
+        center_tol = float(cfg.center_tol)
+        tu, tv = float(cfg.target_uv_u), float(cfg.target_uv_v)
+        u = float(obs.center_uv[0])
+        v = float(obs.center_uv[1])
+        u_delta = u - tu
+        v_delta = v - tv
+        # Same UV band as evaluate_pick_convergence (avoid center_ok False while still correcting).
+        u_over = abs(u_delta) > float(center_tol)
+        v_over = abs(v_delta) > float(center_tol)
+        seg_cap = float(cfg.center_seg_max)
+        roll_cap = float(cfg.center_roll_max)
+        u_gain = float(cfg.center_u_gain)
+        v_gain = float(cfg.center_v_gain)
+        err_scale_max = float(cfg.center_error_scale_max)
+        if not u_over and not v_over:
+            return current_u, "none", 0.0, 0.0
+
+        roll_du = 0.0
+        seg_du = 0.0
+        if u_over:
+            u_err = float(tu - u)
+            roll_scale = float(
+                np.clip(
+                    abs(u_delta) / max(float(center_tol), 1e-6), 0.5, err_scale_max
+                )
+            )
+            roll_du = float(
+                np.clip(u_gain * u_err * roll_scale, -roll_cap, roll_cap)
+            )
+        if v_over:
+            seg_du = float(
+                self._center_seg_du(
+                    target_v=tv, obs_v=v, cap=seg_cap, gain=v_gain
+                )
+            )
+
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll + roll_du),
+                u_s1=float(current_u.u_s1 + seg_du),
+                u_s2=float(current_u.u_s2 + seg_du),
+            )
+        )
+        if next_u == current_u:
+            return current_u, "none", roll_du, seg_du
+        if u_over and v_over:
+            mode = "pick_uv"
+        elif u_over:
+            mode = "uv_roll"
+        else:
+            mode = "uv_seg"
+        return next_u, mode, roll_du, seg_du
+
+    def _apply_pick_approach_step(
+        self, obs: VisualObservation, current_u: ControlU
+    ) -> tuple[ControlU, str, float, float, float]:
+        cfg = self._pick_config_effective()
+        # Hold gripper–object UV while advancing (do not only push dlinear).
+        aligned_u, mode, roll_du, seg_du = self._apply_pick_center_step(obs, current_u)
+        conv = evaluate_pick_convergence(obs, cfg=cfg)
+        scale_err = float(cfg.target_scale) - float(obs.scale)
+        linear_du = 0.0
+        if scale_err > float(cfg.scale_tol):
+            forward_gain = 1.0 if conv.center_ok else 0.35
+            if bool(self._pick_scale_stuck_burst) or bool(self._pick_approach_scale_plateau):
+                forward_gain = 1.0
+            elif float(obs.scale) >= float(cfg.approach_min_scale):
+                forward_gain = max(forward_gain, 0.9)
+            linear_cap = float(cfg.linear_step_u) * float(self._pick_approach_linear_step_scale)
+            if bool(self._pick_approach_scale_plateau):
+                linear_cap *= 1.5
+            # Display u_linear→0 is forward (see protocol linear mapping + command_direction).
+            linear_du = -float(
+                forward_gain
+                * np.clip(
+                    float(cfg.linear_gain) * scale_err,
+                    0.0,
+                    linear_cap,
+                )
+            )
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(aligned_u.u_linear + linear_du),
+                u_roll=float(aligned_u.u_roll),
+                u_s1=float(aligned_u.u_s1),
+                u_s2=float(aligned_u.u_s2),
+            )
+        )
+        return next_u, str(mode), float(roll_du), float(seg_du), float(linear_du)
+
+    def stop_object_pick(self) -> None:
+        self._pick_stop_event.set()
+        self._pick_center_phase = "u"
+        self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_latched = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
+        self._pick_frozen_world_xyz = None
+        self._pick_clamp_streak = 0
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale = None
+        self._pick_approach_scale_plateau = False
+        self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="stopped")
+
+    def start_object_pick(self) -> None:
+        if self._pick_busy() or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+
+        cfg = self._pick_config_effective()
+        self._pick_stop_event.clear()
+        self._pick_center_phase = "u"
+        self._pick_approach_latched = False
+        self._pick_extend_done = False
+        self._pick_extend_latched = False
+        self._pick_extend_progress_m = 0.0
+        self._pick_extend_stall = 0
+        self._pick_clamp_streak = 0
+        self._pick_scale_stuck_iters = 0
+        self._pick_scale_stuck_burst = False
+        self._pick_center_stuck_iters = 0
+        self._pick_approach_steps = 0
+        self._pick_approach_plateau_iters = 0
+        self._pick_approach_last_scale = None
+        self._pick_approach_scale_plateau = False
+        self._pick_extend_ready_logged = False
+        self._latch_pick_frozen_world()
+        self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.ACQUIRE.value,
+            msg="acquiring target",
+        )
+
+        if self._perception_capture is None or not self._perception_capture.is_running():
+            self.start_perception_capture()
+
+        def _worker() -> None:
+            try:
+                pk = self._pick_config_effective()
+                print(
+                    "[Pick] start | max_iters=%d grid=%dx%d cell=(%d,%d) target_uv=(%+.3f,%+.3f) "
+                    "target_scale=%.3f (quadrant %.0f%%) extend=%.0fmm center_tol=%.3f"
+                    % (
+                        int(pk.max_iters),
+                        int(pk.grid_cols),
+                        int(pk.grid_rows),
+                        int(pk.target_grid_col),
+                        int(pk.target_grid_row),
+                        float(pk.target_uv_u),
+                        float(pk.target_uv_v),
+                        float(pk.target_scale),
+                        float(pk.quadrant_fill_min) * 100.0,
+                        float(pk.approach_extend_m) * 1000.0,
+                        float(pk.center_tol),
+                    )
+                )
+                if not self._wait_for_track_lock(
+                    timeout_s=float(pk.acquire_timeout_s),
+                    require_frames=int(pk.require_track_frames),
+                ):
+                    print("[Pick] acquire | track lock timeout")
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="track acquire timeout",
+                    )
+                    return
+                print("[Pick] acquire | track locked")
+
+                stale_count = 0
+                max_iters = int(pk.max_iters)
+                for it in range(max_iters):
+                    current_u = self.current_control_u()
+                    step_idx = it + 1
+                    if self._pick_stop_event.is_set():
+                        print(f"[Pick] step {step_idx}/{max_iters} | stopped")
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.IDLE.value,
+                            msg="stopped",
+                        )
+                        return
+
+                    host_state = self.client.refresh_state() if self.client is not None else None
+                    obs = self.current_visual_observation(host_state)
+                    if obs is None:
+                        stale_count += 1
+                        print(f"[Pick] step {step_idx}/{max_iters} | stale obs ({stale_count}/3)")
+                        if stale_count >= 3:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg="observation lost",
+                            )
+                            return
+                        time.sleep(0.05)
+                        continue
+                    stale_count = 0
+
+                    conv = evaluate_pick_convergence(obs, cfg=pk)
+                    u_d, v_d, _, _ = self._visual_uv_errors(obs)
+                    if conv.center_ok:
+                        self._pick_approach_latched = True
+                        self._pick_center_stuck_iters = 0
+                    center_tol = float(pk.center_tol)
+                    use_approach = bool(
+                        self._pick_approach_latched
+                        and not self._pick_center_lost(
+                            obs,
+                            center_tol=center_tol,
+                            ratio=float(self._pick_approach_lost_ratio),
+                        )
+                    )
+                    if not use_approach and self._pick_center_lost(obs, center_tol=center_tol):
+                        self._pick_approach_latched = False
+                    # Recovered alignment but still too small in image → approach again.
+                    if (
+                        not use_approach
+                        and conv.center_ok
+                        and not conv.scale_ok
+                    ):
+                        self._pick_approach_latched = True
+                        use_approach = True
+
+                    if (
+                        not use_approach
+                        and conv.scale_ok
+                        and not conv.center_ok
+                        and max(abs(float(u_d)), abs(float(v_d)))
+                        <= float(pk.center_stuck_max_uv)
+                    ):
+                        self._pick_center_stuck_iters += 1
+                        center_stuck_lim = max(1, int(pk.center_stuck_iters))
+                        if self._pick_center_stuck_iters >= center_stuck_lim:
+                            self._pick_approach_latched = True
+                            use_approach = True
+                            print(
+                                "[Pick] center_stuck | forcing approach | scale=%.3f "
+                                "delta=(%+.3f,%+.3f) tol=%.3f"
+                                % (
+                                    float(conv.scale),
+                                    float(u_d),
+                                    float(v_d),
+                                    float(pk.center_tol),
+                                )
+                            )
+                    elif not conv.scale_ok or conv.center_ok:
+                        self._pick_center_stuck_iters = 0
+
+                    scale_stuck_thresh = float(pk.target_scale) * float(pk.scale_stuck_ratio)
+                    stuck_lim = max(1, int(pk.scale_stuck_iters))
+                    if conv.scale_ok:
+                        self._pick_scale_stuck_iters = 0
+                        self._pick_scale_stuck_burst = False
+                    elif float(conv.scale) < scale_stuck_thresh:
+                        self._pick_scale_stuck_iters += 1
+                        if (
+                            not self._pick_scale_stuck_burst
+                            and self._pick_scale_stuck_iters >= stuck_lim
+                        ):
+                            self._pick_approach_latched = True
+                            use_approach = True
+                            self._pick_scale_stuck_burst = True
+                            print(
+                                "[Pick] scale_stuck | forcing approach | scale=%.3f "
+                                "target=%.3f tracker=%s"
+                                % (
+                                    float(conv.scale),
+                                    float(pk.target_scale),
+                                    str(self.state.perception_tracker_phase),
+                                )
+                            )
+                        elif (
+                            self._pick_scale_stuck_burst
+                            and self._pick_scale_stuck_iters >= stuck_lim * 2
+                        ):
+                            snap = self.perception_snapshot()
+                            bbox_wh = snap.bbox_wh if snap is not None else (0, 0)
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg=(
+                                    "scale stuck at %.3f (check tracker bbox %dx%d) | "
+                                    "target_scale=%.3f"
+                                )
+                                % (
+                                    float(conv.scale),
+                                    int(bbox_wh[0]),
+                                    int(bbox_wh[1]),
+                                    float(pk.target_scale),
+                                ),
+                            )
+                            return
+
+                    if not bool(self._pick_extend_latched):
+                        if use_approach:
+                            plateau_eps = float(pk.approach_scale_plateau_eps)
+                            if self._pick_approach_last_scale is not None and abs(
+                                float(conv.scale) - float(self._pick_approach_last_scale)
+                            ) < plateau_eps:
+                                self._pick_approach_plateau_iters += 1
+                            else:
+                                self._pick_approach_plateau_iters = 0
+                            self._pick_approach_last_scale = float(conv.scale)
+                            plateau_need = max(1, int(pk.approach_scale_plateau_iters))
+                            self._pick_approach_scale_plateau = (
+                                int(self._pick_approach_plateau_iters) >= plateau_need
+                            )
+                        else:
+                            self._pick_approach_plateau_iters = 0
+                            self._pick_approach_scale_plateau = False
+
+                        extend_ready, extend_reason = pick_ready_for_extend(
+                            obs,
+                            cfg=pk,
+                            approach_steps=int(self._pick_approach_steps),
+                            scale_plateau=bool(self._pick_approach_scale_plateau),
+                        )
+                        if extend_ready:
+                            self._pick_extend_latched = True
+                            if not bool(self._pick_extend_ready_logged):
+                                du, dv = pick_uv_deltas(obs, cfg=pk)
+                                print(
+                                    "[Pick] extend ready (%s) | scale=%.3f steps=%d "
+                                    "plateau=%s | delta_u=%+.3f delta_v=%+.3f"
+                                    % (
+                                        str(extend_reason),
+                                        float(conv.scale),
+                                        int(self._pick_approach_steps),
+                                        str(self._pick_approach_scale_plateau),
+                                        float(du),
+                                        float(dv),
+                                    )
+                                )
+                                self._pick_extend_ready_logged = True
+
+                    ext_target_m = float(pk.approach_extend_m)
+                    if bool(self._pick_extend_latched):
+                        if float(self._pick_extend_progress_m) < ext_target_m - 1e-3:
+                            remain_m = ext_target_m - float(self._pick_extend_progress_m)
+                            self.state.set_pick_status(
+                                running=True,
+                                failed=False,
+                                phase=ObjectPickPhase.EXTEND.value,
+                                msg="extend %.0f/%.0f mm | uv=(%.3f, %.3f) scale=%.3f"
+                                % (
+                                    float(self._pick_extend_progress_m) * 1000.0,
+                                    ext_target_m * 1000.0,
+                                    conv.u_err,
+                                    conv.v_err,
+                                    conv.scale,
+                                ),
+                            )
+                            traveled_m = self._pick_extend_cartesian(
+                                remain_m, host_state
+                            )
+                            print(
+                                "[Pick] step %d/%d | extend | cart=%.1fmm prog=%.0f/%.0fmm "
+                                "| uv=(%.3f, %.3f) scale=%.3f"
+                                % (
+                                    step_idx,
+                                    max_iters,
+                                    traveled_m * 1000.0,
+                                    float(self._pick_extend_progress_m) * 1000.0,
+                                    ext_target_m * 1000.0,
+                                    conv.u_err,
+                                    conv.v_err,
+                                    conv.scale,
+                                )
+                            )
+                            if traveled_m < remain_m * 0.25:
+                                self._pick_extend_stall += 1
+                                if self._pick_extend_stall >= 2:
+                                    self.state.set_pick_status(
+                                        running=False,
+                                        failed=True,
+                                        phase=ObjectPickPhase.FAILED.value,
+                                        msg=(
+                                            "extend stalled | prog=%.0fmm target=%.0fmm"
+                                        )
+                                        % (
+                                            float(self._pick_extend_progress_m) * 1000.0,
+                                            ext_target_m * 1000.0,
+                                        ),
+                                    )
+                                    return
+                            else:
+                                self._pick_extend_stall = 0
+                            time.sleep(0.05)
+                            continue
+                        self._pick_extend_done = True
+                        print(
+                            "[Pick] step %d/%d | done | uv=(%.3f, %.3f) scale=%.3f"
+                            % (step_idx, max_iters, conv.u_err, conv.v_err, conv.scale)
+                        )
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.DONE.value,
+                            msg="pick done | extend %.0fmm | uv=(%.3f, %.3f) scale=%.3f"
+                            % (
+                                float(self._pick_extend_progress_m) * 1000.0,
+                                conv.u_err,
+                                conv.v_err,
+                                conv.scale,
+                            ),
+                        )
+                        return
+
+                    center_mode = ""
+                    roll_req = 0.0
+                    seg_req = 0.0
+                    linear_req = 0.0
+                    if use_approach:
+                        phase = ObjectPickPhase.APPROACH
+                        next_u, center_mode, roll_req, seg_req, linear_req = (
+                            self._apply_pick_approach_step(obs, current_u)
+                        )
+                    else:
+                        phase = ObjectPickPhase.CENTER
+                        next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
+                            obs, current_u
+                        )
+
+                    du_linear = float(next_u.u_linear - current_u.u_linear)
+                    du_roll = float(next_u.u_roll - current_u.u_roll)
+                    du_seg = float(next_u.u_s1 - current_u.u_s1)
+                    u_d, v_d, tu, tv = self._visual_uv_errors(obs)
+                    snap = self.perception_snapshot()
+                    bbox_wh = snap.bbox_wh if snap is not None else self.state.perception_bbox_wh
+                    pick_fields: dict[str, object] = dict(
+                        phase=phase.value,
+                        uv=f"({conv.u_err:+.3f},{conv.v_err:+.3f})",
+                        target=f"({tu:+.3f},{tv:+.3f})",
+                        delta=f"({u_d:+.3f},{v_d:+.3f})",
+                        scale=f"{conv.scale:.3f}",
+                        center_ok=str(conv.center_ok),
+                        scale_ok=str(conv.scale_ok),
+                        dlinear=f"{du_linear:+.2f}",
+                        droll=f"{du_roll:+.2f}",
+                        dseg=f"{du_seg:+.2f}",
+                        req_roll=f"{roll_req:+.2f}",
+                        req_seg=f"{seg_req:+.2f}",
+                        req_linear=f"{linear_req:+.2f}",
+                        plateau=str(self._pick_approach_scale_plateau),
+                        approach_n=int(self._pick_approach_steps),
+                        tracker=str(self.state.perception_tracker_phase),
+                        bbox=f"{int(bbox_wh[0])}x{int(bbox_wh[1])}",
+                    )
+                    if center_mode:
+                        pick_fields["mode"] = center_mode
+                    self._log_visual_step(
+                        "pick",
+                        step_idx,
+                        max_iters,
+                        **pick_fields,
+                    )
+
+                    if next_u == current_u:
+                        v_align_tol = float(pk.center_tol) * float(self._pick_approach_v_hold_ratio)
+                        if phase == ObjectPickPhase.CENTER and (
+                            abs(u_d) <= float(pk.center_tol)
+                            and abs(v_d) > v_align_tol
+                        ):
+                            self._pick_clamp_streak += 1
+                            print(
+                                "[Pick] step %d/%d | no actuator change | mode=%s "
+                                "req_roll=%+.2f req_seg=%+.2f u_s1=%.1f streak=%d"
+                                % (
+                                    step_idx,
+                                    max_iters,
+                                    center_mode or "?",
+                                    float(roll_req),
+                                    float(seg_req),
+                                    float(current_u.u_s1),
+                                    int(self._pick_clamp_streak),
+                                )
+                            )
+                            if self._pick_clamp_streak >= int(self._pick_clamp_stall_limit):
+                                self.state.set_pick_status(
+                                    running=False,
+                                    failed=True,
+                                    phase=ObjectPickPhase.FAILED.value,
+                                    msg=(
+                                        "v align stalled (no motion) | delta_v=%+.3f "
+                                        "target_v=%+.3f req_seg=%+.1f"
+                                    )
+                                    % (float(v_d), float(tv), float(seg_req)),
+                                )
+                                return
+                        else:
+                            print(f"[Pick] step {step_idx}/{max_iters} | command clamped")
+                        if phase == ObjectPickPhase.APPROACH and not conv.scale_ok:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg="approach linear limit | u_linear=%.1f scale=%.3f target=%.3f"
+                                % (float(current_u.u_linear), conv.scale, float(pk.target_scale)),
+                            )
+                            return
+                        extend_ready_clamp, _ = pick_ready_for_extend(
+                            obs,
+                            cfg=pk,
+                            approach_steps=int(self._pick_approach_steps),
+                            scale_plateau=bool(self._pick_approach_scale_plateau),
+                        )
+                        if extend_ready_clamp:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=False,
+                                phase=ObjectPickPhase.DONE.value,
+                                msg="pick ready | uv=(%.3f, %.3f) scale=%.3f (grasp manual)"
+                                % (conv.u_err, conv.v_err, conv.scale),
+                            )
+                            return
+                        time.sleep(0.05)
+                        continue
+
+                    self._pick_clamp_streak = 0
+                    if use_approach:
+                        self._pick_approach_steps += 1
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=phase.value,
+                        msg="%s | uv=(%.3f, %.3f) scale=%.3f"
+                        % (phase.value, conv.u_err, conv.v_err, conv.scale),
+                    )
+                    self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                    current_u = next_u
+                    time.sleep(0.05)
+
+                print(f"[Pick] iteration limit ({max_iters} steps)")
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="iteration limit",
+                )
+            except Exception as exc:
+                print(f"[Pick] failed: {exc}")
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=str(exc),
+                )
+            finally:
+                self._pick_frozen_world_xyz = None
+                self._pick_worker = None
+
+        self._pick_worker = threading.Thread(target=_worker, name="object-pick", daemon=True)
+        self._pick_worker.start()
+
+    def _publish_perception_to_host(
+        self,
+        *,
+        object_camera_xyz: tuple[float, float, float],
+        label: str,
+        confidence: float,
+        image_center_uv: tuple[float, float],
+        image_scale: float,
+        depth_valid: bool = True,
+    ) -> Optional[tuple[float, float, float]]:
+        if self.client is None:
+            return None
+        freeze_world = bool(self.state.pick_running)
+        publish_depth = bool(depth_valid) and not freeze_world
+        p_world = self.client.send_perception_observation(
+            object_camera_xyz=object_camera_xyz,
+            label=label,
+            confidence=confidence,
+            image_center_uv=image_center_uv,
+            image_scale=image_scale,
+            depth_valid=publish_depth,
+        )
+        if freeze_world:
+            frozen = self._pick_frozen_world()
+            return frozen if frozen is not None else p_world
+        if p_world is not None:
+            self._pick_frozen_world_xyz = tuple(p_world)
+        return p_world
+
+    def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
+        if self._perception_capture is not None and self._perception_capture.is_running():
+            self.state.set_perception_status(running=True, failed=False, msg="already running")
+            return
+        if self.client is None:
+            self.state.set_perception_status(running=False, failed=True, msg="no host client")
+            return
+        cfg = config or self._perception_cfg
+        self._perception_cfg = cfg
+        self.state.visual_target_label = str(cfg.target_label).strip()
+        self._perception_capture = PerceptionCapture(
+            cfg,
+            publish_fn=self._publish_perception_to_host,
+            on_snapshot=self._on_perception_snapshot,
+        )
+        self.state.set_perception_status(running=True, failed=False, msg="starting")
+        self._perception_capture.start()
+
+    def stop_perception_capture(self) -> None:
+        cap = self._perception_capture
+        if cap is not None:
+            cap.stop()
+        self.state.set_perception_status(running=False, failed=False, msg="stopped")
+
+    def update_perception_config(self, config: PerceptionConfig) -> None:
+        self._perception_cfg = config
+        self.state.visual_target_label = str(config.target_label).strip()
+
     def close(self) -> None:
+        self.stop_object_pick()
+        self.stop_perception_capture()
         if self.client is not None:
             self.client.close()

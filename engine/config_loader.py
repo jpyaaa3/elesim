@@ -6,6 +6,7 @@ from __future__ import annotations
 import configparser
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
 from engine.joint_defs import JointLimit
@@ -104,6 +105,73 @@ class SpawnConfig:
 
 
 @dataclass(frozen=True)
+class PerceptionConfig:
+    enabled: bool = True
+    detector_config: str = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
+    mode: str = "camera"
+    detector: str = "config"
+    target_label: str = "sports ball"
+    yolo_device: str = ""
+    publish_hz: float = 10.0
+    show_preview: bool = True
+    pipeline: str = "search_track"
+    tracker: str = "csrt"
+    track_lost_frames: int = 15
+    reacquire_on_lost: bool = True
+    track_scale_min: float = 0.05
+    track_scale_stale_eps: float = 0.002
+    track_redetect_stale_frames: int = 20
+    track_bbox_shrink_ratio: float = 0.55
+    track_init_bbox_padding: float = 1.25
+    track_watchdog_min_frames: int = 8
+
+    def resolved_detector_config_path(self) -> Path:
+        raw = str(self.detector_config).strip()
+        if not raw:
+            raw = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
+        path = Path(raw)
+        if path.is_absolute():
+            return path
+        return Path(PROJECT_ROOT) / path
+
+
+@dataclass(frozen=True)
+class PickConfig:
+    enabled: bool = True
+    target_scale: float = 0.16
+    scale_tol: float = 0.02
+    center_tol: float = 0.12
+    center_u_gain: float = 18.0
+    center_v_gain: float = 18.0
+    center_roll_max: float = 6.0
+    center_seg_max: float = 6.0
+    center_error_scale_max: float = 3.5
+    center_stuck_iters: int = 30
+    center_stuck_max_uv: float = 0.14
+    target_uv_u: float = 0.5
+    target_uv_v: float = 0.0
+    quadrant_fill_min: float = 0.80
+    approach_extend_m: float = 0.09
+    approach_extend_step_m: float = 0.01
+    grid_cols: int = 2
+    grid_rows: int = 2
+    target_grid_col: int = 1
+    target_grid_row: int = 0
+    linear_step_u: float = 2.0
+    linear_gain: float = 40.0
+    max_iters: int = 80
+    require_track_frames: int = 3
+    acquire_timeout_s: float = 30.0
+    scale_stuck_iters: int = 40
+    scale_stuck_ratio: float = 0.5
+    approach_min_scale: float = 0.09
+    approach_min_steps: int = 50
+    approach_loose_center_tol: float = 0.10
+    approach_scale_plateau_iters: int = 25
+    approach_scale_plateau_eps: float = 0.004
+
+
+@dataclass(frozen=True)
 class AppConfigBundle:
     sim_param: SimParam
     sim_config: SimConfig
@@ -112,6 +180,8 @@ class AppConfigBundle:
     spawn_config: SpawnConfig
     urdf_export_config: UrdfExportConfig
     ik_config: IkConfig
+    perception_config: PerceptionConfig
+    pick_config: PickConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -190,6 +260,110 @@ def _parse_direction4(text: str, *, key: str) -> Tuple[int, int, int, int]:
     return (values[0], values[1], values[2], values[3])
 
 
+def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PerceptionConfig:
+    pc0 = defaults.perception_config
+    return PerceptionConfig(
+        enabled=cp.getboolean("perception", "enabled", fallback=pc0.enabled),
+        detector_config=cp.get("perception", "detector_config", fallback=pc0.detector_config),
+        mode=cp.get("perception", "mode", fallback=pc0.mode),
+        detector=cp.get("perception", "detector", fallback=pc0.detector),
+        target_label=cp.get("perception", "target_label", fallback=pc0.target_label),
+        yolo_device=cp.get("perception", "yolo_device", fallback=pc0.yolo_device),
+        publish_hz=cp.getfloat("perception", "publish_hz", fallback=pc0.publish_hz),
+        show_preview=cp.getboolean("perception", "show_preview", fallback=pc0.show_preview),
+        pipeline=cp.get("perception", "pipeline", fallback=pc0.pipeline),
+        tracker=cp.get("perception", "tracker", fallback=pc0.tracker),
+        track_lost_frames=cp.getint("perception", "track_lost_frames", fallback=pc0.track_lost_frames),
+        reacquire_on_lost=cp.getboolean("perception", "reacquire_on_lost", fallback=pc0.reacquire_on_lost),
+        track_scale_min=cp.getfloat("perception", "track_scale_min", fallback=pc0.track_scale_min),
+        track_scale_stale_eps=cp.getfloat(
+            "perception", "track_scale_stale_eps", fallback=pc0.track_scale_stale_eps
+        ),
+        track_redetect_stale_frames=cp.getint(
+            "perception", "track_redetect_stale_frames", fallback=pc0.track_redetect_stale_frames
+        ),
+        track_bbox_shrink_ratio=cp.getfloat(
+            "perception", "track_bbox_shrink_ratio", fallback=pc0.track_bbox_shrink_ratio
+        ),
+        track_init_bbox_padding=cp.getfloat(
+            "perception", "track_init_bbox_padding", fallback=pc0.track_init_bbox_padding
+        ),
+        track_watchdog_min_frames=cp.getint(
+            "perception", "track_watchdog_min_frames", fallback=pc0.track_watchdog_min_frames
+        ),
+    )
+
+
+def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickConfig:
+    from engine.controller.object_pick import grid_cell_center_uv, quadrant_fill_target_scale
+
+    pk0 = defaults.pick_config
+    quadrant_fill = cp.getfloat("pick", "quadrant_fill_min", fallback=pk0.quadrant_fill_min)
+    scale_default = quadrant_fill_target_scale(quadrant_fill)
+    grid_cols = cp.getint("pick", "grid_cols", fallback=pk0.grid_cols)
+    grid_rows = cp.getint("pick", "grid_rows", fallback=pk0.grid_rows)
+    grid_col = cp.getint("pick", "target_grid_col", fallback=pk0.target_grid_col)
+    grid_row = cp.getint("pick", "target_grid_row", fallback=pk0.target_grid_row)
+    if cp.has_option("pick", "target_uv_u") and cp.has_option("pick", "target_uv_v"):
+        target_u = cp.getfloat("pick", "target_uv_u", fallback=pk0.target_uv_u)
+        target_v = cp.getfloat("pick", "target_uv_v", fallback=pk0.target_uv_v)
+    else:
+        target_u, target_v = grid_cell_center_uv(
+            grid_col,
+            grid_row,
+            grid_cols=grid_cols,
+            grid_rows=grid_rows,
+        )
+    return PickConfig(
+        enabled=cp.getboolean("pick", "enabled", fallback=pk0.enabled),
+        target_scale=cp.getfloat("pick", "target_scale", fallback=scale_default),
+        scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
+        center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
+        center_u_gain=cp.getfloat("pick", "center_u_gain", fallback=pk0.center_u_gain),
+        center_v_gain=cp.getfloat("pick", "center_v_gain", fallback=pk0.center_v_gain),
+        center_roll_max=cp.getfloat("pick", "center_roll_max", fallback=pk0.center_roll_max),
+        center_seg_max=cp.getfloat("pick", "center_seg_max", fallback=pk0.center_seg_max),
+        center_error_scale_max=cp.getfloat(
+            "pick", "center_error_scale_max", fallback=pk0.center_error_scale_max
+        ),
+        center_stuck_iters=cp.getint(
+            "pick", "center_stuck_iters", fallback=pk0.center_stuck_iters
+        ),
+        center_stuck_max_uv=cp.getfloat(
+            "pick", "center_stuck_max_uv", fallback=pk0.center_stuck_max_uv
+        ),
+        target_uv_u=float(target_u),
+        target_uv_v=float(target_v),
+        quadrant_fill_min=float(quadrant_fill),
+        approach_extend_m=cp.getfloat("pick", "approach_extend_m", fallback=pk0.approach_extend_m),
+        approach_extend_step_m=cp.getfloat(
+            "pick", "approach_extend_step_m", fallback=pk0.approach_extend_step_m
+        ),
+        grid_cols=int(grid_cols),
+        grid_rows=int(grid_rows),
+        target_grid_col=int(grid_col),
+        target_grid_row=int(grid_row),
+        linear_step_u=cp.getfloat("pick", "linear_step_u", fallback=pk0.linear_step_u),
+        linear_gain=cp.getfloat("pick", "linear_gain", fallback=pk0.linear_gain),
+        max_iters=cp.getint("pick", "max_iters", fallback=pk0.max_iters),
+        require_track_frames=cp.getint("pick", "require_track_frames", fallback=pk0.require_track_frames),
+        acquire_timeout_s=cp.getfloat("pick", "acquire_timeout_s", fallback=pk0.acquire_timeout_s),
+        scale_stuck_iters=cp.getint("pick", "scale_stuck_iters", fallback=pk0.scale_stuck_iters),
+        scale_stuck_ratio=cp.getfloat("pick", "scale_stuck_ratio", fallback=pk0.scale_stuck_ratio),
+        approach_min_scale=cp.getfloat("pick", "approach_min_scale", fallback=pk0.approach_min_scale),
+        approach_min_steps=cp.getint("pick", "approach_min_steps", fallback=pk0.approach_min_steps),
+        approach_loose_center_tol=cp.getfloat(
+            "pick", "approach_loose_center_tol", fallback=pk0.approach_loose_center_tol
+        ),
+        approach_scale_plateau_iters=cp.getint(
+            "pick", "approach_scale_plateau_iters", fallback=pk0.approach_scale_plateau_iters
+        ),
+        approach_scale_plateau_eps=cp.getfloat(
+            "pick", "approach_scale_plateau_eps", fallback=pk0.approach_scale_plateau_eps
+        ),
+    )
+
+
 def _default_app_config_bundle() -> AppConfigBundle:
     return AppConfigBundle(
         sim_param=SimParam(),
@@ -199,6 +373,8 @@ def _default_app_config_bundle() -> AppConfigBundle:
         spawn_config=SpawnConfig(),
         urdf_export_config=UrdfExportConfig(),
         ik_config=IkConfig(),
+        perception_config=PerceptionConfig(),
+        pick_config=PickConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -368,6 +544,8 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     spawn_config_cfg = _load_spawn_config(cp, defaults)
     urdf_export_config_cfg = _load_urdf_export_config(cp, defaults)
     ik_config_cfg = _load_ik_config(cp, defaults)
+    perception_config_cfg = _load_perception_config(cp, defaults)
+    pick_config_cfg = _load_pick_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -378,5 +556,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         spawn_config=spawn_config_cfg,
         urdf_export_config=urdf_export_config_cfg,
         ik_config=ik_config_cfg,
+        perception_config=perception_config_cfg,
+        pick_config=pick_config_cfg,
         mapping_config=mapping_config_cfg,
     )

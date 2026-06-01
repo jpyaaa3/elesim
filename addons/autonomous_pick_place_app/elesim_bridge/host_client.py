@@ -54,6 +54,9 @@ def publish_perceived_object(
     endpoint: str,
     object_camera_xyz: tuple[float, float, float] | list[float],
     label: str = "",
+    confidence: float | None = None,
+    image_center_uv: tuple[float, float] | list[float] | None = None,
+    image_scale: float | None = None,
     timeout_ms: int = 500,
 ) -> tuple[float, float, float] | None:
     """
@@ -82,17 +85,21 @@ def publish_perceived_object(
 
     try:
         sock.send_json({"t": "hello", "ts": time.time()}, flags=0)
-        sock.send_json(
-            {
-                "t": "target",
-                "ts": time.time(),
-                "seq": 1,
-                "source": "perception",
-                "object_camera": p,
-                "object_label": str(label),
-            },
-            flags=0,
-        )
+        payload = {
+            "t": "target",
+            "ts": time.time(),
+            "seq": 1,
+            "source": "perception",
+            "object_camera": p,
+            "object_label": str(label),
+        }
+        if confidence is not None:
+            payload["object_confidence"] = float(confidence)
+        if image_center_uv is not None:
+            payload["image_center_uv"] = [float(image_center_uv[0]), float(image_center_uv[1])]
+        if image_scale is not None:
+            payload["image_scale"] = float(image_scale)
+        sock.send_json(payload, flags=0)
         acks = _wait_acks(sock, poller=poller, count=2, timeout_ms=timeout_ms)
         if not acks:
             raise HostPublishError(

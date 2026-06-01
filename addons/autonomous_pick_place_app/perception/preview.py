@@ -2,12 +2,66 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
 from typing import Optional, Sequence
 
 import cv2
 import numpy as np
 
 from perception.detector import DetectionResult
+
+_cv2_gui_env_ready = False
+_open_preview_windows: set[str] = set()
+
+
+def ensure_cv2_gui_env() -> None:
+    """Point OpenCV Qt highgui at system fonts (avoids missing cv2/qt/fonts in venv)."""
+    global _cv2_gui_env_ready
+    if _cv2_gui_env_ready:
+        return
+    _cv2_gui_env_ready = True
+
+    system_font_dirs = [
+        "/usr/share/fonts/truetype/dejavu",
+        "/usr/share/fonts/truetype/liberation",
+        "/usr/share/fonts/truetype",
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/System/Library/Fonts",
+        "/Library/Fonts",
+    ]
+    font_dir: Optional[str] = None
+    for candidate in system_font_dirs:
+        if os.path.isdir(candidate):
+            font_dir = candidate
+            break
+
+    if font_dir:
+        os.environ.setdefault("QT_QPA_FONTDIR", font_dir)
+
+    if not sys.platform.startswith("linux") or not font_dir:
+        return
+
+    try:
+        cv2_dir = Path(cv2.__file__).resolve().parent
+        qt_fonts = cv2_dir / "qt" / "fonts"
+        if qt_fonts.exists():
+            return
+        qt_fonts.parent.mkdir(parents=True, exist_ok=True)
+        qt_fonts.symlink_to(font_dir, target_is_directory=True)
+    except OSError:
+        pass
+
+
+def open_preview_window(window_name: str) -> None:
+    ensure_cv2_gui_env()
+    name = str(window_name)
+    if name in _open_preview_windows:
+        return
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+    _open_preview_windows.add(name)
 
 
 def _draw_class_panel(
@@ -58,6 +112,10 @@ def draw_detection_overlay(
     p_world: Optional[np.ndarray] = None,
     all_detections: Optional[Sequence[DetectionResult]] = None,
     model_classes: Optional[Sequence[str]] = None,
+    image_scale: Optional[float] = None,
+    bbox_wh: Optional[tuple[int, int]] = None,
+    tracker_phase: str = "",
+    tracker_backend: str = "",
 ) -> np.ndarray:
     vis = np.asarray(color_bgr, dtype=np.uint8).copy()
     h, w = vis.shape[:2]
@@ -124,7 +182,19 @@ def draw_detection_overlay(
             cv2.LINE_AA,
         )
 
+    diag_parts: list[str] = []
+    if str(tracker_phase).strip():
+        diag_parts.append(f"phase={tracker_phase}")
+    if str(tracker_backend).strip():
+        diag_parts.append(f"trk={tracker_backend}")
+    if image_scale is not None:
+        diag_parts.append(f"scale={float(image_scale):.3f}")
+    if bbox_wh is not None:
+        diag_parts.append(f"bbox={int(bbox_wh[0])}x{int(bbox_wh[1])}px")
+
     line2 = f"status={status} frame={frame_idx}"
+    if diag_parts:
+        line2 += " | " + " ".join(diag_parts)
     if p_camera is not None:
         p = np.asarray(p_camera, dtype=float).reshape(3)
         line2 += f" | cam=[{p[0]:+.3f},{p[1]:+.3f},{p[2]:+.3f}]m"
@@ -144,7 +214,7 @@ def draw_detection_overlay(
     cv2.putText(
         vis,
         "q/ESC=quit",
-        (12, h - 36),
+        (12, h - 50),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
         (200, 200, 200),
@@ -156,12 +226,15 @@ def draw_detection_overlay(
 
 def show_preview(window_name: str, image_bgr: np.ndarray) -> int:
     """Show frame; returns waitKey code (lower 8 bits)."""
-    cv2.imshow(window_name, image_bgr)
+    open_preview_window(window_name)
+    cv2.imshow(str(window_name), image_bgr)
     return int(cv2.waitKey(1)) & 0xFF
 
 
 def close_preview(window_name: str) -> None:
+    name = str(window_name)
     try:
-        cv2.destroyWindow(window_name)
+        cv2.destroyWindow(name)
     except Exception:
         pass
+    _open_preview_windows.discard(name)
