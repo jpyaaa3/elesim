@@ -128,7 +128,7 @@ def draw_perception_panel(panel) -> None:
             panel.service.refresh_perception_capture()
 
     imgui.separator()
-    imgui.text("Object Pick (YOLO once + CSRT + linear approach)")
+    imgui.text("Aim (YOLO/CSRT centering + equal-sag correction)")
 
     changed_scale, target_scale = imgui.input_float(
         "pick target scale",
@@ -161,32 +161,35 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=0.0 | "
-        "approach when scale >= ~0.16 then +90mm along grasp axis (UV held)"
+        "Ready Pose records the initial standoff target. Aim reacquires/centers the object "
+        "and draws the orange corrected-ready marker. Tweak moves to that corrected marker."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
 
     pick_running = bool(panel.state.pick_running)
     if pick_running:
-        if imgui.button("Stop Object Pick"):
-            panel.service.stop_object_pick()
+        if imgui.button("Stop Aim"):
+            panel.service.stop_aim()
     else:
         if imgui.button("Ready Pose"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
             panel.service.start_ready_pose()
         imgui.same_line()
-        if imgui.button("Start Object Pick"):
+        if imgui.button("Aim"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
-            panel.service.start_object_pick()
+            panel.service.start_aim()
+        imgui.same_line()
+        if imgui.button("Tweak"):
+            panel.service.start_equal_sag_tweak()
 
     pick_phase = str(panel.state.pick_phase) or "idle"
     pick_status = "running" if pick_running else "idle"
     if panel.state.pick_failed:
         pick_status = "failed"
-    imgui.text(f"Pick: {pick_status} | phase: {pick_phase}")
+    imgui.text(f"Aim: {pick_status} | phase: {pick_phase}")
     if str(panel.state.pick_status_msg).strip():
         imgui.text_wrapped(str(panel.state.pick_status_msg))
 
