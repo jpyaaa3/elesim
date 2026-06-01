@@ -151,7 +151,7 @@ class PickConfig:
     target_uv_u: float = 0.5
     target_uv_v: float = 0.0
     quadrant_fill_min: float = 0.80
-    ready_pose_standoff_m: float = 0.20
+    ready_pose_standoff_m: float = 0.30
     approach_extend_m: float = 0.09
     approach_extend_step_m: float = 0.01
     grid_cols: int = 2

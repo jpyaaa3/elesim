@@ -10,10 +10,10 @@ class ReadyPoseTests(unittest.TestCase):
         target = compute_ready_pose_target(
             (1.0, 2.0, 3.0),
             (2.0, 0.0, 0.0),
-            standoff_m=0.20,
+            standoff_m=0.30,
         )
 
-        self.assertAlmostEqual(target[0], 0.80)
+        self.assertAlmostEqual(target[0], 0.70)
         self.assertAlmostEqual(target[1], 2.0)
         self.assertAlmostEqual(target[2], 3.0)
 
@@ -22,18 +22,18 @@ class ReadyPoseTests(unittest.TestCase):
             compute_ready_pose_target(
                 (1.0, 2.0, 3.0),
                 (0.0, 0.0, 0.0),
-                standoff_m=0.20,
+                standoff_m=0.30,
             )
 
     def test_ready_pose_normalizes_diagonal_direction(self) -> None:
         target = compute_ready_pose_target(
             (1.0, 1.0, 1.0),
             (3.0, 4.0, 0.0),
-            standoff_m=0.20,
+            standoff_m=0.30,
         )
 
-        self.assertAlmostEqual(target[0], 0.88)
-        self.assertAlmostEqual(target[1], 0.84)
+        self.assertAlmostEqual(target[0], 0.82)
+        self.assertAlmostEqual(target[1], 0.76)
         self.assertAlmostEqual(target[2], 1.0)
 
 
