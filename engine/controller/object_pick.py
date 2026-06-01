@@ -108,7 +108,7 @@ def evaluate_pick_convergence(
     return PickConvergence(
         center_ok=abs(u_delta) <= center_tol and abs(v_delta) <= center_tol,
         scale_ok=scale >= target_scale - scale_tol,
-        u_err=u,
-        v_err=v,
+        u_err=u_delta,
+        v_err=v_delta,
         scale=scale,
     )

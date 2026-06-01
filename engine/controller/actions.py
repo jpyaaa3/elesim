@@ -1405,7 +1405,8 @@ class ControlService:
         self._pick_approach_scale_plateau = False
         self._pick_extend_ready_logged = False
         self._latch_pick_frozen_world()
-        self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
+        if not str(self.state.visual_target_label).strip():
+            self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
             running=True,
             failed=False,

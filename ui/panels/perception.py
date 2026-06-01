@@ -126,7 +126,7 @@ def draw_perception_panel(panel) -> None:
     if changed_tv:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
     imgui.text_wrapped(
-        "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=-0.5 | "
+        "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=0.0 | "
         "approach when scale >= ~0.16 then +90mm along grasp axis (UV held)"
     )
 
@@ -136,6 +136,8 @@ def draw_perception_panel(panel) -> None:
             panel.service.stop_object_pick()
     else:
         if imgui.button("Start Object Pick"):
+            cfg = _build_perception_config(panel)
+            panel.service.update_perception_config(cfg)
             panel.service.start_object_pick()
 
     pick_phase = str(panel.state.pick_phase) or "idle"
