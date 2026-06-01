@@ -51,6 +51,7 @@ from .pick_visual_servo import (
     should_send_look_command,
     stack_jacobian,
 )
+from .ready_pose import compute_ready_pose_target
 
 __all__ = [
     "LOOK_JACOBIAN_AXIS_NAMES",
@@ -73,6 +74,7 @@ __all__ = [
     "compute_backoff_delta_q",
     "compute_jacobian_look_delta_q",
     "compute_look_delta_q",
+    "compute_ready_pose_target",
     "damped_pseudoinverse",
     "error_vector_2d",
     "estimate_jacobian_column",

@@ -221,6 +221,8 @@ def pack_state(
                 marker["color"] = [float(v) for v in color]
             if "radius" in raw:
                 marker["radius"] = float(raw.get("radius", 0.0))
+            if "length" in raw:
+                marker["length"] = float(raw.get("length", 0.0))
             if "ttl_ms" in raw:
                 marker["ttl_ms"] = int(raw.get("ttl_ms", 0))
             packed_markers.append(marker)

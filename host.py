@@ -11,10 +11,10 @@ from typing import Any, Dict, Optional, Set
 import numpy as np
 import zmq
 
-from engine.config_loader import load_app_config_from_ini
-from engine.config_loader import HardwareConfig
+from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
+from engine.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
 
@@ -37,6 +37,7 @@ class ControlHost:
         ik_context: Optional[dict[str, Any]] = None,
         hand_eye_transform: Optional[Any] = None,
         hand_eye_parent_frame: str = "node9",
+        pick_config: Optional[PickConfig] = None,
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         state_hz: float = 10.0,
@@ -53,6 +54,7 @@ class ControlHost:
         self.ik_context = dict(ik_context or {})
         self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
+        self.pick_config = pick_config or PickConfig()
         self.show_all_ports = bool(show_all_ports)
 
         self.ctx = zmq.Context.instance()
@@ -77,6 +79,7 @@ class ControlHost:
         self.torque_enabled: bool = False
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
+        self.last_ready_pose_dir: tuple[float, float, float] = (1.0, 0.0, 0.0)
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
         self.last_perceived_object_label: str = ""
@@ -116,6 +119,7 @@ class ControlHost:
         self._last_motor_current_by_id: Dict[int, int] = {}
         self._safety_fault: str = ""
         self._yellow_zone_ids: Set[int] = set()
+        self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
         if not self._has_hw():
             self._set_virtual_neutral_state()
 
@@ -277,6 +281,7 @@ class ControlHost:
         direction: Optional[Any] = None,
         color: Optional[list[float]] = None,
         radius: Optional[float] = None,
+        length: Optional[float] = None,
         ttl_ms: int = 250,
     ) -> None:
         marker: dict[str, Any] = {
@@ -292,7 +297,49 @@ class ControlHost:
             marker["color"] = [float(v) for v in color]
         if radius is not None:
             marker["radius"] = float(radius)
+        if length is not None:
+            marker["length"] = float(length)
         self._debug_markers_by_name[str(name)] = marker
+
+    def _ready_pose_direction(self) -> tuple[float, float, float]:
+        direction = np.asarray(self.last_ready_pose_dir, dtype=float).reshape(3)
+        if float(np.linalg.norm(direction)) <= 1e-9 and self.last_ik_target_dir is not None:
+            direction = np.asarray(self.last_ik_target_dir, dtype=float).reshape(3)
+        if float(np.linalg.norm(direction)) <= 1e-9:
+            direction = np.array([1.0, 0.0, 0.0], dtype=float)
+        return (float(direction[0]), float(direction[1]), float(direction[2]))
+
+    def _set_ready_pose_markers(self, object_world: Any, *, ttl_ms: int) -> None:
+        obj = np.asarray(object_world, dtype=float).reshape(3)
+        direction = self._ready_pose_direction()
+        try:
+            target = compute_ready_pose_target(
+                (float(obj[0]), float(obj[1]), float(obj[2])),
+                direction,
+                standoff_m=float(self.pick_config.ready_pose_standoff_m),
+            )
+        except ValueError:
+            return
+        target_arr = np.asarray(target, dtype=float).reshape(3)
+        standoff_vec = target_arr - obj
+        actual_offset_m = float(np.linalg.norm(standoff_vec))
+        self._set_debug_marker(
+            name="ready_pose",
+            pos=target,
+            direction=direction,
+            color=[0.72, 1.0, 0.28, 0.95],
+            radius=0.014,
+            ttl_ms=int(ttl_ms),
+        )
+        self._set_debug_marker(
+            name="ready_pose_standoff",
+            pos=(float(obj[0]), float(obj[1]), float(obj[2])),
+            direction=(float(standoff_vec[0]), float(standoff_vec[1]), float(standoff_vec[2])),
+            color=[0.72, 1.0, 0.28, 0.60],
+            radius=0.006,
+            length=actual_offset_m,
+            ttl_ms=int(ttl_ms),
+        )
 
     def _update_perception_markers(
         self, object_camera_xyz: tuple[float, float, float], *, object_label: str = ""
@@ -371,6 +418,7 @@ class ControlHost:
             radius=0.004,
             ttl_ms=marker_ttl_ms,
         )
+        self._set_ready_pose_markers(object_world, ttl_ms=marker_ttl_ms)
         return True, "perception markers updated", p_w
 
     def _broadcast_state_now(self) -> None:
@@ -417,6 +465,7 @@ class ControlHost:
             if not (isinstance(color, (list, tuple)) and len(color) in (3, 4)):
                 color = None
             radius = raw.get("radius", None)
+            length = raw.get("length", None)
             ttl_ms = int(raw.get("ttl_ms", 250))
             self._set_debug_marker(
                 name=name,
@@ -425,6 +474,7 @@ class ControlHost:
                 direction=direction,
                 color=list(color) if color is not None else None,
                 radius=float(radius) if radius is not None else None,
+                length=float(length) if length is not None else None,
                 ttl_ms=ttl_ms,
             )
             updated += 1
@@ -919,6 +969,7 @@ class ControlHost:
                             radius=0.012,
                             ttl_ms=30000,
                         )
+                        self._set_ready_pose_markers(object_world, ttl_ms=30000)
                 ack: Dict[str, Any] = {
                     "t": "ack",
                     "ts": proto.now_s(),
@@ -958,13 +1009,28 @@ class ControlHost:
                     float(target_dir_raw[1]),
                     float(target_dir_raw[2]),
                 )
+            ready_pose_dir_raw = msg.get("ready_pose_dir", None)
+            if isinstance(ready_pose_dir_raw, (list, tuple)) and len(ready_pose_dir_raw) == 3:
+                self.last_ready_pose_dir = (
+                    float(ready_pose_dir_raw[0]),
+                    float(ready_pose_dir_raw[1]),
+                    float(ready_pose_dir_raw[2]),
+                )
+                if self.last_perceived_object_world_xyz is not None:
+                    self._set_ready_pose_markers(self.last_perceived_object_world_xyz, ttl_ms=30000)
             sag_raw = msg.get("sag_model", None)
             if isinstance(sag_raw, dict):
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
             if q is None:
-                if target_raw is None and target_dir_raw is None and sag_raw is None and "claw_closed" not in msg:
+                if (
+                    target_raw is None
+                    and target_dir_raw is None
+                    and ready_pose_dir_raw is None
+                    and sag_raw is None
+                    and "claw_closed" not in msg
+                ):
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
@@ -1103,6 +1169,7 @@ def run_host(
             ik_context=ik_context,
             hand_eye_transform=hand_eye_transform,
             hand_eye_parent_frame=hand_eye_parent_frame,
+            pick_config=bundle.pick_config,
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
         )

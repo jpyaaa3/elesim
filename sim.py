@@ -159,14 +159,24 @@ class MarkerSet:
         self._dynamic_markers[key] = scene.draw_debug_sphere(pos=pos_arr, radius=float(radius), color=color)
         self._dynamic_marker_sig[key] = sig
 
-    def draw_dynamic_arrow(self, scene, key: str, pos: np.ndarray, direction: np.ndarray, color, radius: float) -> None:
+    def draw_dynamic_arrow(
+        self,
+        scene,
+        key: str,
+        pos: np.ndarray,
+        direction: np.ndarray,
+        color,
+        radius: float,
+        length: float = 0.09,
+    ) -> None:
         pos_arr = np.asarray(pos, dtype=float).reshape(3)
         dir_arr = np.asarray(direction, dtype=float).reshape(3)
         norm = float(np.linalg.norm(dir_arr))
         if norm <= 1e-9:
             return
         dir_arr = dir_arr / norm
-        sig = np.concatenate([pos_arr, dir_arr], axis=0)
+        length_f = max(float(length), 0.0)
+        sig = np.concatenate([pos_arr, dir_arr, np.array([length_f], dtype=float)], axis=0)
         marker = self._dynamic_markers.get(key, None)
         prev_sig = self._dynamic_marker_sig.get(key, None)
         if marker is not None and prev_sig is not None and np.allclose(prev_sig, sig, atol=1e-9):
@@ -176,7 +186,7 @@ class MarkerSet:
                 scene.clear_debug_object(marker)
             except Exception:
                 pass
-        self._dynamic_markers[key] = scene.draw_debug_arrow(pos=pos_arr, vec=dir_arr * 0.09, radius=float(radius), color=color)
+        self._dynamic_markers[key] = scene.draw_debug_arrow(pos=pos_arr, vec=dir_arr * length_f, radius=float(radius), color=color)
         self._dynamic_marker_sig[key] = sig
 
     def clear_dynamic_missing(self, scene, active_keys: set[str]) -> None:
@@ -1385,6 +1395,7 @@ class SimRuntime:
                         if isinstance(direction, (list, tuple)) and len(direction) == 3:
                             arrow_key = f"{name}:dir"
                             active_dynamic_keys.add(arrow_key)
+                            length = float(marker.get("length", 0.09))
                             a.markers.draw_dynamic_arrow(
                                 a.sim_scene.scene,
                                 arrow_key,
@@ -1392,6 +1403,7 @@ class SimRuntime:
                                 np.asarray(direction, dtype=float).reshape(3),
                                 rgba,
                                 max(0.0025, radius * 0.35),
+                                length,
                             )
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 a.sim_scene.step()

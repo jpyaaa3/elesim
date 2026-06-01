@@ -512,6 +512,17 @@ class ControlService:
                 source=source,
             )
 
+    def send_ready_pose_meta(self, *, source: str = "target") -> None:
+        if self.client is not None:
+            self.client.send_ready_pose_meta(
+                target_dir=(
+                    float(self.state.visual_target_dir_x),
+                    float(self.state.visual_target_dir_y),
+                    float(self.state.visual_target_dir_z),
+                ),
+                source=source,
+            )
+
     def send_sag_model_meta(self, *, source: str = "target") -> None:
         if self.client is not None:
             self.client.send_sag_model_meta(
@@ -907,13 +918,20 @@ class ControlService:
             )
             return
 
+        actual_offset_m = float(
+            np.linalg.norm(
+                np.asarray(object_world, dtype=float).reshape(3)
+                - np.asarray(target, dtype=float).reshape(3)
+            )
+        )
         self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
         self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
+        self.send_ready_pose_meta(source="target")
         if self.client is not None:
-            marker_dir = (
-                float(object_world[0]) - float(target[0]),
-                float(object_world[1]) - float(target[1]),
-                float(object_world[2]) - float(target[2]),
+            standoff_vec = (
+                float(target[0] - object_world[0]),
+                float(target[1] - object_world[1]),
+                float(target[2] - object_world[2]),
             )
             self.client.send_debug_markers(
                 [
@@ -921,11 +939,21 @@ class ControlService:
                         "name": "ready_pose",
                         "frame": "world",
                         "pos": [float(target[0]), float(target[1]), float(target[2])],
-                        "dir": [float(marker_dir[0]), float(marker_dir[1]), float(marker_dir[2])],
+                        "dir": [float(direction[0]), float(direction[1]), float(direction[2])],
                         "color": [0.72, 1.0, 0.28, 0.95],
                         "radius": 0.014,
                         "ttl_ms": 30000,
-                    }
+                    },
+                    {
+                        "name": "ready_pose_standoff",
+                        "frame": "world",
+                        "pos": [float(object_world[0]), float(object_world[1]), float(object_world[2])],
+                        "dir": [float(standoff_vec[0]), float(standoff_vec[1]), float(standoff_vec[2])],
+                        "color": [0.72, 1.0, 0.28, 0.60],
+                        "radius": 0.006,
+                        "length": float(actual_offset_m),
+                        "ttl_ms": 30000,
+                    },
                 ],
                 source="target",
             )
@@ -934,7 +962,7 @@ class ControlService:
             failed=False,
             phase=ObjectPickPhase.IDLE.value,
             msg=(
-                "ready pose | object=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) standoff=%.0fmm"
+                "ready pose | object=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) standoff=%.0fmm actual=%.0fmm"
                 % (
                     float(object_world[0]),
                     float(object_world[1]),
@@ -943,12 +971,13 @@ class ControlService:
                     float(target[1]),
                     float(target[2]),
                     float(pk.ready_pose_standoff_m) * 1000.0,
+                    float(actual_offset_m) * 1000.0,
                 )
             ),
         )
         print(
             "[Pick] ready pose | object=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) "
-            "dir=(%.3f, %.3f, %.3f) standoff=%.0fmm"
+            "dir=(%.3f, %.3f, %.3f) standoff=%.0fmm actual=%.0fmm"
             % (
                 float(object_world[0]),
                 float(object_world[1]),
@@ -960,6 +989,7 @@ class ControlService:
                 float(direction[1]),
                 float(direction[2]),
                 float(pk.ready_pose_standoff_m) * 1000.0,
+                float(actual_offset_m) * 1000.0,
             )
         )
         self._start_position_solve(np.asarray(target, dtype=float))

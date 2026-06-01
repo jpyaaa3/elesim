@@ -19,6 +19,7 @@ def _draw_ready_pose_dir_editor(panel) -> None:
         changed_dir, vx, vy, vz = dir_ret
     if changed_dir:
         panel.state.set_visual_target_dir(float(vx), float(vy), float(vz))
+        panel.service.send_ready_pose_meta(source="target")
 
 
 def _build_perception_config(panel) -> PerceptionConfig:

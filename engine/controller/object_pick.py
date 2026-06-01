@@ -8,6 +8,7 @@ from enum import Enum
 import numpy as np
 
 from engine.config_loader import PickConfig
+from engine.visual_servoing.ready_pose import compute_ready_pose_target
 
 from .perception import VisualObservation
 
@@ -65,23 +66,6 @@ def pick_uv_deltas(
     u = float(obs.center_uv[0])
     v = float(obs.center_uv[1])
     return u - float(cfg.target_uv_u), v - float(cfg.target_uv_v)
-
-
-def compute_ready_pose_target(
-    object_world: tuple[float, float, float],
-    target_dir_world: tuple[float, float, float],
-    *,
-    standoff_m: float,
-) -> tuple[float, float, float]:
-    """Pre-grasp point offset from the object along the operator-provided direction."""
-    obj = np.asarray(object_world, dtype=float).reshape(3)
-    direction = np.asarray(target_dir_world, dtype=float).reshape(3)
-    norm = float(np.linalg.norm(direction))
-    if norm <= 1e-9:
-        raise ValueError("target direction must be nonzero")
-    unit_dir = direction / norm
-    target = obj + unit_dir * float(max(standoff_m, 0.0))
-    return (float(target[0]), float(target[1]), float(target[2]))
 
 
 def pick_ready_for_extend(

@@ -391,6 +391,24 @@ class ControlClient:
             }
         )
 
+    def send_ready_pose_meta(
+        self,
+        *,
+        target_dir: tuple[float, float, float],
+        source: str = "target",
+    ) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "ready_pose_dir": [float(target_dir[0]), float(target_dir[1]), float(target_dir[2])],
+            }
+        )
+
     def send_sag_model_meta(self, sag_model: dict[str, Any], *, source: str = "target") -> None:
         now = time.time()
         self.tx_seq += 1

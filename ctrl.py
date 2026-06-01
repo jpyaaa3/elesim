@@ -59,6 +59,7 @@ def main() -> None:
     try:
         service.refresh_host_state()
         service.send_current_target_meta(source="target")
+        service.send_ready_pose_meta(source="target")
         gui.run()
     finally:
         service.close()

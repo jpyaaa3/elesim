@@ -13,7 +13,7 @@ class ReadyPoseTests(unittest.TestCase):
             standoff_m=0.30,
         )
 
-        self.assertAlmostEqual(target[0], 1.30)
+        self.assertAlmostEqual(target[0], 0.70)
         self.assertAlmostEqual(target[1], 2.0)
         self.assertAlmostEqual(target[2], 3.0)
 
@@ -32,8 +32,8 @@ class ReadyPoseTests(unittest.TestCase):
             standoff_m=0.30,
         )
 
-        self.assertAlmostEqual(target[0], 1.18)
-        self.assertAlmostEqual(target[1], 1.24)
+        self.assertAlmostEqual(target[0], 0.82)
+        self.assertAlmostEqual(target[1], 0.76)
         self.assertAlmostEqual(target[2], 1.0)
 
 
