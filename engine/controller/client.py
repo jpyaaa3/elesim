@@ -352,6 +352,19 @@ class ControlClient:
         self.tx_seq += 1
         self._send({"t": "target", "ts": now, "seq": self.tx_seq, "source": str(source), "u": {str(k): float(v) for k, v in partial_u.items()}})
 
+    def send_debug_markers(self, markers: list[dict[str, Any]], *, source: str = "target") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "debug_markers": [dict(marker) for marker in markers],
+            }
+        )
+
     def send_target_meta(
         self,
         *,

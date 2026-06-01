@@ -880,9 +880,9 @@ class ControlService:
             return
 
         direction = (
-            float(self.state.target_vx),
-            float(self.state.target_vy),
-            float(self.state.target_vz),
+            float(self.state.visual_target_dir_x),
+            float(self.state.visual_target_dir_y),
+            float(self.state.visual_target_dir_z),
         )
         pk = self._pick_config_effective()
         try:
@@ -901,6 +901,22 @@ class ControlService:
             return
 
         self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
+        self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
+        if self.client is not None:
+            self.client.send_debug_markers(
+                [
+                    {
+                        "name": "ready_pose",
+                        "frame": "world",
+                        "pos": [float(target[0]), float(target[1]), float(target[2])],
+                        "dir": [float(direction[0]), float(direction[1]), float(direction[2])],
+                        "color": [0.72, 1.0, 0.28, 0.95],
+                        "radius": 0.014,
+                        "ttl_ms": 30000,
+                    }
+                ],
+                source="target",
+            )
         self.state.set_pick_status(
             running=False,
             failed=False,

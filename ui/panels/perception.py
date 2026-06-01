@@ -125,6 +125,21 @@ def draw_perception_panel(panel) -> None:
     )
     if changed_tv:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
+
+    dir_ret = imgui.input_float3(
+        "ready target dir",
+        panel.state.visual_target_dir_x,
+        panel.state.visual_target_dir_y,
+        panel.state.visual_target_dir_z,
+        format="%.3f",
+    )
+    if isinstance(dir_ret, tuple) and len(dir_ret) == 2:
+        changed_dir, (vx, vy, vz) = dir_ret
+    else:
+        changed_dir, vx, vy, vz = dir_ret
+    if changed_dir:
+        panel.state.set_visual_target_dir(float(vx), float(vy), float(vz))
+
     imgui.text_wrapped(
         "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=0.0 | "
         "approach when scale >= ~0.16 then +90mm along grasp axis (UV held)"
