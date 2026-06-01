@@ -5,6 +5,39 @@ import imgui
 from engine.config_loader import PerceptionConfig
 
 
+def _draw_ready_pose_dir_editor(panel) -> None:
+    imgui.text("Ready Pose target dir")
+
+    imgui.push_item_width(70.0)
+    changed_x, vx = imgui.input_float(
+        "x##ready_pose_dir_x",
+        float(panel.state.visual_target_dir_x),
+        step=0.1,
+        step_fast=0.5,
+        format="%.3f",
+    )
+    imgui.same_line()
+    changed_y, vy = imgui.input_float(
+        "y##ready_pose_dir_y",
+        float(panel.state.visual_target_dir_y),
+        step=0.1,
+        step_fast=0.5,
+        format="%.3f",
+    )
+    imgui.same_line()
+    changed_z, vz = imgui.input_float(
+        "z##ready_pose_dir_z",
+        float(panel.state.visual_target_dir_z),
+        step=0.1,
+        step_fast=0.5,
+        format="%.3f",
+    )
+    imgui.pop_item_width()
+
+    if changed_x or changed_y or changed_z:
+        panel.state.set_visual_target_dir(float(vx), float(vy), float(vz))
+
+
 def _build_perception_config(panel) -> PerceptionConfig:
     return PerceptionConfig(
         enabled=True,
@@ -126,24 +159,12 @@ def draw_perception_panel(panel) -> None:
     if changed_tv:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
-    dir_ret = imgui.input_float3(
-        "ready target dir",
-        panel.state.visual_target_dir_x,
-        panel.state.visual_target_dir_y,
-        panel.state.visual_target_dir_z,
-        format="%.3f",
-    )
-    if isinstance(dir_ret, tuple) and len(dir_ret) == 2:
-        changed_dir, (vx, vy, vz) = dir_ret
-    else:
-        changed_dir, vx, vy, vz = dir_ret
-    if changed_dir:
-        panel.state.set_visual_target_dir(float(vx), float(vy), float(vz))
-
     imgui.text_wrapped(
         "gripper align: 2x2 grid (1,0) top-right -> u=+0.5, v=0.0 | "
         "approach when scale >= ~0.16 then +90mm along grasp axis (UV held)"
     )
+    imgui.separator()
+    _draw_ready_pose_dir_editor(panel)
 
     pick_running = bool(panel.state.pick_running)
     if pick_running:
