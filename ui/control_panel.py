@@ -97,11 +97,11 @@ class ControlPanel:
             draw_hardware_panel(self)
             if self._use_hardware and self.service.has_client():
                 imgui.separator()
-            draw_perception_panel(self)
-            imgui.separator()
             draw_control_4dof_panel(self)
             imgui.separator()
             draw_ik_panel(self)
+            imgui.separator()
+            draw_perception_panel(self)
             imgui.separator()
             draw_sag_panel(self)
         finally:

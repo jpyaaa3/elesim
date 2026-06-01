@@ -43,9 +43,6 @@ def draw_ik_panel(panel) -> None:
         if imgui.button("Solve IK"):
             panel.service.start_ik_solve()
         imgui.same_line()
-        if imgui.button("Tweak"):
-            panel.service.start_tweak()
-        imgui.same_line()
         if imgui.button("Stop IK"):
             panel.state.clear_ik_status()
 

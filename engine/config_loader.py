@@ -151,6 +151,7 @@ class PickConfig:
     target_uv_u: float = 0.5
     target_uv_v: float = 0.0
     quadrant_fill_min: float = 0.80
+    ready_pose_standoff_m: float = 0.18
     approach_extend_m: float = 0.09
     approach_extend_step_m: float = 0.01
     grid_cols: int = 2
@@ -335,6 +336,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         target_uv_u=float(target_u),
         target_uv_v=float(target_v),
         quadrant_fill_min=float(quadrant_fill),
+        ready_pose_standoff_m=cp.getfloat(
+            "pick", "ready_pose_standoff_m", fallback=pk0.ready_pose_standoff_m
+        ),
         approach_extend_m=cp.getfloat("pick", "approach_extend_m", fallback=pk0.approach_extend_m),
         approach_extend_step_m=cp.getfloat(
             "pick", "approach_extend_step_m", fallback=pk0.approach_extend_step_m

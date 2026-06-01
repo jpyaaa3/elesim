@@ -26,7 +26,7 @@ def draw_perception_panel(panel) -> None:
         imgui.set_next_item_open(True, cond)
         panel._perception_header_init_open = True
 
-    if not imgui.collapsing_header("Perception", visible=True)[0]:
+    if not imgui.collapsing_header("Visual Servoing", visible=True)[0]:
         return
 
     changed_path, path_draft = imgui.input_text(
@@ -135,6 +135,11 @@ def draw_perception_panel(panel) -> None:
         if imgui.button("Stop Object Pick"):
             panel.service.stop_object_pick()
     else:
+        if imgui.button("Ready Pose"):
+            cfg = _build_perception_config(panel)
+            panel.service.update_perception_config(cfg)
+            panel.service.start_ready_pose()
+        imgui.same_line()
         if imgui.button("Start Object Pick"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)

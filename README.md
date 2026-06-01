@@ -90,8 +90,8 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 외부 companion app을 붙일 때도 같은 구조를 유지합니다.
 
 - 예: [addons/autonomous_pick_place_app](./addons/autonomous_pick_place_app)
-- 현재 기본 UI에는 `Perception` 패널이 있고, 여기서 카메라 인식과 Object Pick을 시작할 수 있습니다.
-- 인식 경로는 물체를 완전한 3D 목표점으로 한 번에 환산해 IK에 넣는 방식이 아니라, 카메라 UV에서 목표 위치를 맞추고 크기/거리 조건을 보며 접근하는 aiming 방식입니다.
+- 현재 기본 UI에는 `Visual Servoing` 패널이 있고, 여기서 카메라 인식, Ready Pose, Object Pick을 시작할 수 있습니다.
+- 인식 경로는 rough 3D 좌표로 Ready Pose를 먼저 잡은 뒤, 카메라 UV에서 목표 위치를 맞추고 크기/거리 조건을 보며 접근하는 aiming 방식입니다.
 - 외부 앱이 별도로 좌표를 보낼 때는 `tcp://127.0.0.1:5555`로 `source="perception"` 메시지를 보내고, `host.py`가 world 좌표계 디버그 마커로 바꿔 `sim.py`에 중계합니다.
 - e2 계열의 view-aware / 3D visual-servo helper는 [engine/pick_visual_servo.py](./engine/pick_visual_servo.py), [engine/pick_view_pregrasp.py](./engine/pick_view_pregrasp.py)에 실험 모듈로 보관되어 있습니다.
 
@@ -99,14 +99,14 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 
 현재 트리의 공식 제어 경로는 다음입니다.
 
-- `ctrl.py`의 `Perception` 패널
+- `ctrl.py`의 `Visual Servoing` 패널
 - [engine/controller/perception_capture.py](./engine/controller/perception_capture.py)
 - [engine/controller/object_pick.py](./engine/controller/object_pick.py)
 - `host.py`를 통한 perception relay / marker relay
 
-즉, 현재 기본 pick 흐름은 **e1 계열의 aiming + approach 방식**입니다.
+즉, 현재 기본 pick 흐름은 **rough 3D Ready Pose + e1 계열 aiming + approach 방식**입니다.
 카메라가 잡은 물체를 완전한 3D 목표점으로 한 번에 풀기보다,
-카메라 중심에 맞추고 거리 조건을 보며 접근하는 경로를 공식 경로로 채택했습니다.
+대략적인 3D 좌표로 pre-grasp 위치를 먼저 잡고 카메라 중심에 맞추며 접근하는 경로를 공식 경로로 채택했습니다.
 
 반면 다음은 공식 런타임 경로가 아닙니다.
 
@@ -208,16 +208,18 @@ use_hardware = true
 - 토크 on/off
 - 그리퍼 열기 / 닫기
 - 카메라 인식 시작 / 정지
+- Ready Pose 실행
 - Object Pick 시작 / 정지
 
 같은 동작도 UI에서 수행할 수 있습니다.
 
-Perception / Object Pick 관련해서는 다음처럼 이해하는 편이 정확합니다.
+Visual Servoing / Object Pick 관련해서는 다음처럼 이해하는 편이 정확합니다.
 
 1. detector로 물체를 찾는다.
 2. tracker로 연속 추적한다.
-3. 필요하면 detector를 다시 돌려 재획득한다.
-4. pick은 world 좌표 절대정답을 믿기보다, 현재 카메라 시야에서 중심 정렬과 거리 조건을 이용해 접근한다.
+3. rough world 좌표와 목표 방향벡터로 Ready Pose에 먼저 간다.
+4. 필요하면 detector를 다시 돌려 재획득한다.
+5. pick은 world 좌표 절대정답을 믿기보다, 현재 카메라 시야에서 중심 정렬과 거리 조건을 이용해 접근한다.
 
 ## 개발자가 어디부터 보면 좋은가
 

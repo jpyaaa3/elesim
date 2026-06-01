@@ -103,8 +103,11 @@ def draw_control_4dof_panel(panel) -> None:
     if imgui.button("Close Gripper"):
         panel.state.set_claw_closed(True)
         panel.service.send_claw_command(closed=True)
-    if imgui.button("Extend Arm"):
+    if imgui.button("Home"):
         panel.service.home_controls()
+    imgui.same_line()
+    if imgui.button("Extend Arm"):
+        panel.service.extend_arm_controls()
     imgui.same_line()
     if imgui.button("Calibration"):
         panel.service.start_calibration()
