@@ -48,7 +48,7 @@ def draw_sag_panel(panel) -> None:
             try:
                 resolved_path, model = panel.service.load_sag_model(panel._sag_model_path_draft)
                 panel._sag_model_path_draft = str(resolved_path)
-                panel.service.send_current_target(source="target")
+                panel.service.send_sag_model_meta(source="target")
                 raw_type = str(model.get("model_type", "") or "").strip()
                 if raw_type:
                     model_type = raw_type

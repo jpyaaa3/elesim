@@ -45,6 +45,7 @@ class PanelState:
     offset_revision: int = 0
     paused: bool = False
     claw_closed: bool = False
+    torque_lock_bypass: bool = False
     calibration_running: bool = False
     calibration_status_msg: str = ""
     visual_target_scale: float = 0.16
@@ -199,6 +200,10 @@ class PanelState:
     def set_claw_closed(self, closed: bool) -> None:
         with self._lock:
             self.claw_closed = bool(closed)
+
+    def set_torque_lock_bypass(self, enabled: bool) -> None:
+        with self._lock:
+            self.torque_lock_bypass = bool(enabled)
 
     def set_ik_status(self, running: bool, converged: bool, failed: bool, err_m: float, msg: str = "") -> None:
         with self._lock:

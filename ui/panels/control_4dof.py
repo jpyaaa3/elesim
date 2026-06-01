@@ -29,8 +29,18 @@ def draw_control_4dof_panel(panel) -> None:
         return
 
     link_state = panel._host_state if panel._host_state is not None else None
+    torque_lock_bypass = bool(
+        panel.state.torque_lock_bypass
+        and panel.service.has_client()
+        and link_state is not None
+    )
     sliders_locked = bool(
-        panel._use_hardware and ((not panel.service.has_client()) or link_state is None or not bool(link_state.torque_enabled))
+        panel._use_hardware
+        and (
+            (not panel.service.has_client())
+            or link_state is None
+            or (not bool(link_state.torque_enabled) and not torque_lock_bypass)
+        )
     )
     u_now = panel.service.current_control_u()
     cfg = panel.service.control_mapping()
@@ -87,6 +97,8 @@ def draw_control_4dof_panel(panel) -> None:
         panel.service.apply_partial_control_u(partial_u)
     if sliders_locked:
         imgui.text("Sliders locked until Torque On")
+    elif torque_lock_bypass and link_state is not None and not bool(link_state.torque_enabled):
+        imgui.text("Torque lock bypass active after Apply Port")
 
     tip_xyz = link_state.actual_tip_xyz if link_state is not None else None
     if tip_xyz is None:

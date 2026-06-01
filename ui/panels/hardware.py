@@ -41,9 +41,11 @@ def draw_hardware_panel(panel) -> None:
                 if (idx + 1) < len(ports):
                     imgui.same_line()
         if imgui.button("Apply Port"):
+            panel.state.set_torque_lock_bypass(bool(state.torque_enabled))
             panel.service.set_device(panel._port_input.strip())
         imgui.same_line()
         if imgui.button("Disconnect Port"):
+            panel.state.set_torque_lock_bypass(False)
             panel.service.disconnect_device()
             panel._port_input = ""
         reply_reason = str(state.reply_reason or "").strip()
@@ -62,7 +64,9 @@ def draw_hardware_panel(panel) -> None:
             currents_text = ", ".join(f"{k}={int(v)}mA" for k, v in state.motor_currents_ma.items())
             imgui.text_wrapped(f"Currents: {currents_text}")
         if imgui.button("Torque On"):
+            panel.state.set_torque_lock_bypass(False)
             panel.service.torque_on()
         imgui.same_line()
         if imgui.button("Torque Off"):
+            panel.state.set_torque_lock_bypass(False)
             panel.service.torque_off()

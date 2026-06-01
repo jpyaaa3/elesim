@@ -512,6 +512,13 @@ class ControlService:
                 source=source,
             )
 
+    def send_sag_model_meta(self, *, source: str = "target") -> None:
+        if self.client is not None:
+            self.client.send_sag_model_meta(
+                dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {},
+                source=source,
+            )
+
     def load_sag_model(self, model_path: str) -> tuple[str, dict[str, Any]]:
         resolved_path = resolve_sag_model_path(model_path)
         model = load_sag_model_or_empty(resolved_path)

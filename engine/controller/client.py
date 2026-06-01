@@ -385,6 +385,19 @@ class ControlClient:
             }
         )
 
+    def send_sag_model_meta(self, sag_model: dict[str, Any], *, source: str = "target") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "sag_model": dict(sag_model),
+            }
+        )
+
     def maybe_send_target_q(self, q: SimQ, *, source: str = "sim", force: bool = False) -> None:
         self._maybe_send_target_q(q, source=source, target_xyz=None, target_dir=None, sag_model=None, claw_closed=None, force=force)
 
