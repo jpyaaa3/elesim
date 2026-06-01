@@ -904,7 +904,7 @@ class ControlHost:
                         object_label=self.last_perceived_object_label,
                     )
                 else:
-                    ok, reason = True, "perception image (world frozen, uv/scale only)"
+                    ok, reason = True, ""
                     object_world = self.last_perceived_object_world_xyz
                     if object_world is not None:
                         label_suffix = (

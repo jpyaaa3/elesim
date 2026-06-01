@@ -479,7 +479,7 @@ class ControlService:
 
     def home_controls(self) -> None:
         self.state.clear_ik_status()
-        self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=10.0, u_s2=10.0, apply_offset=False)
+        self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=10.0, u_s2=10.0, apply_offset=True)
         self.send_current_target(source="slider")
 
     def extend_arm_controls(self) -> None:
@@ -910,13 +910,18 @@ class ControlService:
         self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
         self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
         if self.client is not None:
+            marker_dir = (
+                float(object_world[0]) - float(target[0]),
+                float(object_world[1]) - float(target[1]),
+                float(object_world[2]) - float(target[2]),
+            )
             self.client.send_debug_markers(
                 [
                     {
                         "name": "ready_pose",
                         "frame": "world",
                         "pos": [float(target[0]), float(target[1]), float(target[2])],
-                        "dir": [float(direction[0]), float(direction[1]), float(direction[2])],
+                        "dir": [float(marker_dir[0]), float(marker_dir[1]), float(marker_dir[2])],
                         "color": [0.72, 1.0, 0.28, 0.95],
                         "radius": 0.014,
                         "ttl_ms": 30000,
