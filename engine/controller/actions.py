@@ -120,6 +120,14 @@ class ControlService:
         self._pick_search_seg_step_u = 6.0
         self._pick_search_roll_max_u = 36.0
         self._pick_search_seg_max_u = 30.0
+        self._pick_last_seen_uv: Optional[tuple[float, float]] = None
+        self._pick_last_seen_uv_wall = 0.0
+        self._pick_lost_follow_count = 0
+        self._pick_lost_follow_max_steps = 18
+        self._pick_lost_follow_uv_timeout_s = 4.0
+        self._pick_lost_follow_roll_step_u = 4.0
+        self._pick_lost_follow_seg_step_u = 3.0
+        self._pick_lost_fallback_seg1_step_u = 2.0
         self._pick_fov_search_steps_total = 0
         self._pick_center_steps_total = 0
         self._pick_fov_reacquire_roll_u = 0.0
@@ -266,6 +274,7 @@ class ControlService:
     def _reset_pick_search_state(self) -> None:
         self._pick_search_origin_u = None
         self._pick_search_step_index = 0
+        self._pick_lost_follow_count = 0
 
     def _reset_pick_drift_accounting(self) -> None:
         self._pick_fov_search_steps_total = 0
@@ -281,6 +290,13 @@ class ControlService:
         self._pick_fov_reacquire_roll_u = float(current.u_roll - origin.u_roll)
         self._pick_fov_reacquire_seg_u = float(current.u_s1 - origin.u_s1)
 
+    def _record_pick_last_seen_uv(self, obs: VisualObservation) -> None:
+        self._pick_last_seen_uv = (
+            float(obs.center_uv[0]),
+            float(obs.center_uv[1]),
+        )
+        self._pick_last_seen_uv_wall = time.time()
+
     @staticmethod
     def _pick_search_offset_for_index(
         index: int,
@@ -290,10 +306,8 @@ class ControlService:
         roll_max: float,
         seg_max: float,
     ) -> tuple[float, float]:
-        if int(index) <= 0:
-            return 0.0, 0.0
-        slot = (int(index) - 1) % 8
-        level = (int(index) - 1) // 8 + 1
+        slot = int(index) % 8
+        level = int(index) // 8 + 1
         roll_amp = min(float(level) * float(roll_step), float(roll_max))
         seg_amp = min(float(level) * float(seg_step), float(seg_max))
         pattern = (
@@ -315,6 +329,104 @@ class ControlService:
             and cap.tracker_phase() == TrackerPhase.TRACK.value
             and cap.track_ok_frames() >= int(require_frames)
         )
+
+    def _pick_apply_lost_follow_step(self, *, reason: str) -> bool:
+        if self._pick_lost_follow_count >= int(self._pick_lost_follow_max_steps):
+            return False
+        cap = self._perception_capture
+        if cap is not None:
+            cap.request_refresh()
+        if self._pick_search_origin_u is None:
+            self._pick_search_origin_u = self.current_control_u()
+
+        cfg = self._pick_config_effective()
+        current = self.current_control_u()
+        tu = float(cfg.target_uv_u)
+        tv = float(cfg.target_uv_v)
+        roll_du = 0.0
+        s1_du = 0.0
+        s2_du = 0.0
+        mode = "seg1_fallback"
+        last_uv = self._pick_last_seen_uv
+        last_age_s = time.time() - float(self._pick_last_seen_uv_wall)
+        if (
+            last_uv is not None
+            and 0.0 <= last_age_s <= float(self._pick_lost_follow_uv_timeout_s)
+        ):
+            du = float(last_uv[0]) - tu
+            dv = float(last_uv[1]) - tv
+            dir_tol = max(float(cfg.center_tol) * 0.5, 0.03)
+            if abs(du) > dir_tol:
+                # Same sign convention as centering: object at +u needs negative roll.
+                roll_du = -math.copysign(float(self._pick_lost_follow_roll_step_u), du)
+            if abs(dv) > dir_tol:
+                # Same sign convention as _center_seg_du.
+                seg_du = math.copysign(float(self._pick_lost_follow_seg_step_u), dv)
+                s1_du = seg_du
+                s2_du = seg_du
+            if abs(roll_du) > 1e-9 or abs(s1_du) > 1e-9 or abs(s2_du) > 1e-9:
+                mode = "last_uv"
+
+        if mode == "seg1_fallback":
+            s1_du = float(self._pick_lost_fallback_seg1_step_u)
+
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(current.u_linear),
+                u_roll=float(current.u_roll + roll_du),
+                u_s1=float(current.u_s1 + s1_du),
+                u_s2=float(current.u_s2 + s2_du),
+            )
+        )
+        if next_u == current:
+            return False
+
+        self._pick_lost_follow_count += 1
+        self._pick_search_step_index += 1
+        origin = self._pick_search_origin_u
+        if origin is not None:
+            self._pick_fov_reacquire_roll_u = float(next_u.u_roll - origin.u_roll)
+            self._pick_fov_reacquire_seg_u = float(next_u.u_s1 - origin.u_s1)
+        self._pick_fov_search_steps_total += 1
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.ACQUIRE.value,
+            msg=(
+                "lost follow %d/%d | %s | mode=%s droll=%+.1f ds1=%+.1f ds2=%+.1f"
+                % (
+                    int(self._pick_lost_follow_count),
+                    int(self._pick_lost_follow_max_steps),
+                    str(reason),
+                    str(mode),
+                    float(next_u.u_roll - current.u_roll),
+                    float(next_u.u_s1 - current.u_s1),
+                    float(next_u.u_s2 - current.u_s2),
+                )
+            ),
+        )
+        print(
+            "[Pick] lost_follow step %d/%d | %s | mode=%s last_uv=%s age=%.2fs "
+            "| u=(%.1f, %.1f, %.1f, %.1f)"
+            % (
+                int(self._pick_lost_follow_count),
+                int(self._pick_lost_follow_max_steps),
+                str(reason),
+                str(mode),
+                "none"
+                if last_uv is None
+                else "(%+.3f,%+.3f)" % (float(last_uv[0]), float(last_uv[1])),
+                float(last_age_s),
+                float(next_u.u_linear),
+                float(next_u.u_roll),
+                float(next_u.u_s1),
+                float(next_u.u_s2),
+            )
+        )
+        self._send_display_control_u_and_wait(next_u, timeout_s=0.8, source="ik")
+        if cap is not None:
+            cap.request_refresh()
+        return True
 
     def _pick_apply_fov_search_step(self, *, reason: str) -> bool:
         cap = self._perception_capture
@@ -1261,8 +1373,12 @@ class ControlService:
                 msg="busy",
             )
             return
+        host_state: Optional[HostState] = None
         if self.client is not None:
-            self.client.refresh_state()
+            host_state = self.client.refresh_state()
+        obs = self.current_visual_observation(host_state)
+        if obs is not None:
+            self._record_pick_last_seen_uv(obs)
         self._pick_stop_event.clear()
         self._reset_pick_search_state()
         self._reset_pick_drift_accounting()
@@ -1646,7 +1762,9 @@ class ControlService:
                 self._reset_pick_search_state()
                 return True
             if time.time() >= next_search_wall:
-                moved = self._pick_apply_fov_search_step(reason="acquire")
+                moved = self._pick_apply_lost_follow_step(reason="acquire")
+                if not moved:
+                    moved = self._pick_apply_fov_search_step(reason="acquire")
                 next_search_wall = time.time() + 0.6
                 if not moved:
                     return False
@@ -1811,6 +1929,10 @@ class ControlService:
             )
             return
 
+        host_state = self.client.refresh_state()
+        obs = self.current_visual_observation(host_state)
+        if obs is not None:
+            self._record_pick_last_seen_uv(obs)
         cfg = self._pick_config_effective()
         self._pick_stop_event.clear()
         self._pick_center_phase = "u"
@@ -1883,6 +2005,12 @@ class ControlService:
                     obs = self.current_visual_observation(host_state)
                     if obs is None:
                         stale_count += 1
+                        if stale_count >= 2 and self._pick_apply_lost_follow_step(
+                            reason="aim_observation_lost"
+                        ):
+                            stale_count = 0
+                            time.sleep(0.05)
+                            continue
                         if stale_count >= 3:
                             if self._pick_apply_fov_search_step(reason="aim_observation_lost"):
                                 stale_count = 0
@@ -1898,6 +2026,7 @@ class ControlService:
                         time.sleep(0.05)
                         continue
                     stale_count = 0
+                    self._record_pick_last_seen_uv(obs)
                     self._capture_pick_reacquire_offset()
                     self._reset_pick_search_state()
 
