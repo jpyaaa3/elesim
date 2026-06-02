@@ -14,6 +14,7 @@ import zmq
 from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
+from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
@@ -40,6 +41,7 @@ class ControlHost:
         pick_config: Optional[PickConfig] = None,
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
+        trajectory_cfg: Optional[QuinticTimingConfig] = None,
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
         hw_cmd_hz: float = 30.0,
@@ -122,6 +124,11 @@ class ControlHost:
         self._yellow_zone_ids: Set[int] = set()
         self._red_torque_off_ids: Set[int] = set()
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
+        self._last_target_apply_error: str = ""
+        self._trajectory = QuinticTrajectoryRunner(trajectory_cfg or QuinticTimingConfig())
+        self._traj_step_log_every = 10
+        self._traj_step_count = 0
+        self._traj_last_apply_ok: Optional[bool] = None
         if not self._has_hw():
             self._set_virtual_neutral_state()
 
@@ -137,6 +144,34 @@ class ControlHost:
         self._target_u_state = self.last_u
         self.last_state_ts = time.time()
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
+        self._last_target_apply_error = ""
+        self._trajectory.cancel()
+
+    def _cancel_trajectory(self) -> None:
+        self._trajectory.cancel()
+        self._traj_step_count = 0
+        self._traj_last_apply_ok = None
+
+    def _start_trajectory(self, q_goal: proto.SimQ) -> None:
+        q_start = self.last_q
+        if q_start is None:
+            q_start = q_goal
+        self._trajectory.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
+        self._traj_step_count = 0
+        self._traj_last_apply_ok = None
+        print(
+            "[host] trajectory start | q_start=(%.4f, %.4f, %.4f, %.4f) -> q_goal=(%.4f, %.4f, %.4f, %.4f)"
+            % (
+                float(q_start.linear_m),
+                float(q_start.roll_rad),
+                float(q_start.theta1_rad),
+                float(q_start.theta2_rad),
+                float(q_goal.linear_m),
+                float(q_goal.roll_rad),
+                float(q_goal.theta1_rad),
+                float(q_goal.theta2_rad),
+            )
+        )
 
     def _has_hw(self) -> bool:
         return self.hw is not None
@@ -172,6 +207,7 @@ class ControlHost:
             self._pending_target_u = None
             self._pending_target_axes = set()
             self._pending_target_seq = -1
+            self._cancel_trajectory()
             self._target_u_state = None
             self.last_u = None
             self.last_q = None
@@ -227,6 +263,7 @@ class ControlHost:
             self._pending_target_u = None
             self._pending_target_axes = set()
             self._pending_target_seq = -1
+            self._cancel_trajectory()
             self._target_u_state = None
             self.last_u = None
             self.last_q = None
@@ -562,6 +599,7 @@ class ControlHost:
         self._pending_target_u = None
         self._pending_target_axes = set()
         self._pending_target_seq = -1
+        self._cancel_trajectory()
         try:
             if self._has_hw():
                 with self._hw_lock:
@@ -697,8 +735,11 @@ class ControlHost:
         try:
             with self._hw_lock:
                 self.hw.command_4dof_deg(motor_deg.u_linear, motor_deg.u_roll, motor_deg.u_s1, motor_deg.u_s2)
+            self._last_target_apply_error = ""
             return True, complete
-        except Exception:
+        except Exception as exc:
+            self._last_target_apply_error = f"hw_apply_failed: {exc}"
+            print(f"[host] hw apply failed: {exc}")
             return False, False
 
     def _merge_partial_target_u(self, partial_u: Dict[str, float]) -> Optional[proto.ControlU]:
@@ -757,8 +798,11 @@ class ControlHost:
         try:
             with self._hw_lock:
                 self.hw.command_partial_deg(goals_deg)
+            self._last_target_apply_error = ""
             return bool(complete)
-        except Exception:
+        except Exception as exc:
+            self._last_target_apply_error = f"hw_apply_failed: {exc}"
+            print(f"[host] partial hw apply failed: {exc}")
             return False
 
     def torque_on(self, *, configure_modes: bool = True, set_profiles: bool = True, go_mid: bool = False) -> None:
@@ -784,6 +828,7 @@ class ControlHost:
         with self._hw_lock:
             self._pending_target_q = None
             self._pending_target_seq = -1
+            self._cancel_trajectory()
             self.hw.torque_off_all()
             self.torque_enabled = False
             self._red_torque_off_ids = set()
@@ -1061,15 +1106,45 @@ class ControlHost:
                 return
             self._pending_target_q = q
             self._pending_target_seq = seq
+            self._last_target_apply_error = ""
+            print(
+                "[host] target received | seq=%d source=%s partial_u=%s q=(%.4f, %.4f, %.4f, %.4f)"
+                % (
+                    int(seq),
+                    str(source),
+                    str(bool(partial_u_mode)).lower(),
+                    float(q.linear_m),
+                    float(q.roll_rad),
+                    float(q.theta1_rad),
+                    float(q.theta2_rad),
+                )
+            )
             if not partial_u_mode:
                 self._pending_target_u = None
                 self._pending_target_axes = set()
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
+                self._start_trajectory(q)
+            else:
+                self._cancel_trajectory()
             if not self._has_hw():
                 self.last_q = q
                 self.last_u = proto.sim_q_to_control_u(q, self.cfg)
                 self.last_state_ts = time.time()
-            self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
+                if not partial_u_mode:
+                    self._pending_target_q = None
+                    self._cancel_trajectory()
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": True,
+                    "seq": seq,
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                    "reason": (self._last_target_apply_error or ""),
+                },
+            )
             return
         self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "unknown_type", "device": self.device, "torque_enabled": self.torque_enabled})
 
@@ -1116,12 +1191,58 @@ class ControlHost:
                         self._pending_target_u = None
                         self._pending_target_axes = set()
                         self._pending_target_q = None
+                        self._cancel_trajectory()
                 else:
-                    applied_hw, complete = self._apply_sim_q_target(self._pending_target_q)
+                    if self._trajectory.active:
+                        step = self._trajectory.step(now_s=now)
+                        q_cmd = step.q_cmd
+                        self._traj_step_count += 1
+                    else:
+                        q_cmd = self._pending_target_q
+                        step = None
+                    applied_hw, complete = self._apply_sim_q_target(q_cmd)
+                    if step is not None and (
+                        self._traj_step_count == 1
+                        or (self._traj_step_count % max(int(self._traj_step_log_every), 1) == 0)
+                        or bool(step.done)
+                    ):
+                        print(
+                            "[host] trajectory step | idx=%d done=%s q_cmd=(%.4f, %.4f, %.4f, %.4f)"
+                            % (
+                                int(self._traj_step_count),
+                                str(bool(step.done)).lower(),
+                                float(q_cmd.linear_m),
+                                float(q_cmd.roll_rad),
+                                float(q_cmd.theta1_rad),
+                                float(q_cmd.theta2_rad),
+                            )
+                        )
+                    if self._traj_last_apply_ok is None or bool(applied_hw) != bool(self._traj_last_apply_ok):
+                        if applied_hw:
+                            print("[host] target apply success")
+                        else:
+                            print(f"[host] target apply failed | {self._last_target_apply_error or 'unknown'}")
+                        self._traj_last_apply_ok = bool(applied_hw)
                     if applied_hw:
-                        self._target_u_state = proto.sim_q_to_control_u(self._pending_target_q, self.cfg)
-                        if complete:
+                        self._target_u_state = proto.sim_q_to_control_u(q_cmd, self.cfg)
+                        if step is not None:
+                            if bool(step.done):
+                                print("[host] trajectory complete")
+                                self._pending_target_q = None
+                        elif complete:
                             self._pending_target_q = None
+                    else:
+                        if self._last_target_apply_error:
+                            self._broadcast(
+                                {
+                                    "t": "ack",
+                                    "ts": proto.now_s(),
+                                    "ok": False,
+                                    "reason": self._last_target_apply_error,
+                                    "device": self.device,
+                                    "torque_enabled": self.torque_enabled,
+                                }
+                            )
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
                 self._broadcast(
@@ -1196,6 +1317,14 @@ def run_host(
             pick_config=bundle.pick_config,
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
+            trajectory_cfg=QuinticTimingConfig(
+                enable=bool(bundle.sim_config.traj_enable),
+                duration_s=float(bundle.sim_config.traj_duration_s),
+                min_duration_s=float(bundle.sim_config.traj_min_s),
+                max_duration_s=float(bundle.sim_config.traj_max_s),
+                linear_scale_m=float(bundle.sim_config.traj_linear_scale_m),
+                angular_scale_rad=float(bundle.sim_config.traj_angular_scale_rad),
+            ),
         )
         print(f"[host] comm with ctrl by {bind_addr}")
         print(f"[host] comm with sim by {bundle.sim_config.host_sim_port}")

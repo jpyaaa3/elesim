@@ -1,7 +1,7 @@
 {
   "meta": {
     "node_count": 10,
-    "use_hardware": false,
+    "use_hardware": true,
     "use_go2": false,
     "notes": "All poses/joints are root-relative."
   },
@@ -41,7 +41,7 @@
         "physics": "../assets/housing/housing_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -67,7 +67,7 @@
         "physics": "../assets/wedge/wedge_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -93,7 +93,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -119,7 +119,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -145,7 +145,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -171,7 +171,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -197,7 +197,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -223,7 +223,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -249,7 +249,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -275,7 +275,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -301,7 +301,7 @@
         "physics": "../assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -327,7 +327,7 @@
         "physics": "../assets/node_end/node_end_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -353,7 +353,7 @@
         "physics": "../assets/gripper_base/gripper_base_physics.json"
       },
       "flags": {
-        "control_mode": "fixed",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -379,7 +379,7 @@
         "physics": "../assets/gripper_claw_left/gripper_claw_left_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {
@@ -405,7 +405,7 @@
         "physics": "../assets/gripper_claw_right/gripper_claw_right_physics.json"
       },
       "flags": {
-        "control_mode": "commanded",
+        "control_mode": "simulated",
         "collision_enabled": true
       },
       "pose_root": {

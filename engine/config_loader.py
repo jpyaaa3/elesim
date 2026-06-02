@@ -46,6 +46,12 @@ class SimConfig:
     host_feedback_port: str = "tcp://127.0.0.1:5557"
     hand_eye_config: str = ""
     show_all_ports: bool = False
+    traj_enable: bool = True
+    traj_duration_s: float = 1.2
+    traj_min_s: float = 0.25
+    traj_max_s: float = 3.0
+    traj_linear_scale_m: float = 0.05
+    traj_angular_scale_rad: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -423,6 +429,14 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         host_feedback_port=cp.get("runtime", "host_feedback_port", fallback=sc0.host_feedback_port),
         hand_eye_config=hand_eye_config,
         show_all_ports=cp.getboolean("runtime", "show_all_ports", fallback=sc0.show_all_ports),
+        traj_enable=cp.getboolean("runtime", "traj_enable", fallback=sc0.traj_enable),
+        traj_duration_s=cp.getfloat("runtime", "traj_duration_s", fallback=sc0.traj_duration_s),
+        traj_min_s=cp.getfloat("runtime", "traj_min_s", fallback=sc0.traj_min_s),
+        traj_max_s=cp.getfloat("runtime", "traj_max_s", fallback=sc0.traj_max_s),
+        traj_linear_scale_m=cp.getfloat("runtime", "traj_linear_scale_m", fallback=sc0.traj_linear_scale_m),
+        traj_angular_scale_rad=cp.getfloat(
+            "runtime", "traj_angular_scale_rad", fallback=sc0.traj_angular_scale_rad
+        ),
     )
 
 

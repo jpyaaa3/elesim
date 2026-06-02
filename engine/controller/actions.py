@@ -686,7 +686,17 @@ class ControlService:
             force=force,
             sag_model_override=sag_model_override,
         )
-        return self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+        host_state = self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+        if host_state is not None and (not bool(host_state.reply_ok)):
+            reason = str(host_state.reply_reason).strip() or "unknown host apply failure"
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(self.state.ik_err_m),
+                msg=f"IK converged but HW apply failed: {reason}",
+            )
+        return host_state
 
     def _send_display_control_u_and_wait(self, display_u: ControlU, *, timeout_s: float = 1.0, source: str = "ik") -> Optional[HostState]:
         self.apply_control_u(
@@ -754,12 +764,22 @@ class ControlService:
             err_m=float(err_m),
             msg=str(status_msg),
         )
-        return self._send_state_q_and_wait(
+        host_state = self._send_state_q_and_wait(
             timeout_s=float(timeout_s),
             source="ik",
             force=True,
             sag_model_override=sag_model_override,
         )
+        if host_state is not None and (not bool(host_state.reply_ok)):
+            reason = str(host_state.reply_reason).strip() or "unknown host apply failure"
+            self.state.set_ik_status(
+                running=False,
+                converged=False,
+                failed=True,
+                err_m=float(err_m),
+                msg=f"IK converged but HW apply failed: {reason}",
+            )
+        return host_state
 
     @staticmethod
     def _log_visual_step(tag: str, step_idx: int, step_max: int, **fields: object) -> None:
@@ -1013,7 +1033,16 @@ class ControlService:
                                 float(np.degrees(result.direction_angle_rad)),
                             )
                         )
-                    self.send_current_target(source="ik")
+                    host_state = self._send_state_q_and_wait(timeout_s=2.0, source="ik", force=True)
+                    if host_state is not None and (not bool(host_state.reply_ok)):
+                        reason = str(host_state.reply_reason).strip() or "unknown host apply failure"
+                        self.state.set_ik_status(
+                            running=False,
+                            converged=False,
+                            failed=True,
+                            err_m=refined_pos_err,
+                            msg=f"IK converged but HW apply failed: {reason}",
+                        )
                 else:
                     print("[UI] IK solve failed | target=(%.3f, %.3f, %.3f) | err=%s" % (float(target[0]), float(target[1]), float(target[2]), float(result.position_error_m)))
                     self.state.set_ik_status(running=False, converged=False, failed=True, err_m=float(result.position_error_m), msg=str(result.reason))
