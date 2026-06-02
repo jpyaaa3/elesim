@@ -120,6 +120,7 @@ class ControlHost:
         self._last_motor_current_by_id: Dict[int, int] = {}
         self._safety_fault: str = ""
         self._yellow_zone_ids: Set[int] = set()
+        self._red_torque_off_ids: Set[int] = set()
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
         if not self._has_hw():
             self._set_virtual_neutral_state()
@@ -194,6 +195,7 @@ class ControlHost:
             self._last_motor_current_by_id = {}
             self._safety_fault = ""
             self._yellow_zone_ids = set()
+            self._red_torque_off_ids = set()
             if old_hw is not None:
                 try:
                     old_hw.close()
@@ -248,6 +250,7 @@ class ControlHost:
             self._last_motor_current_by_id = {}
             self._safety_fault = ""
             self._yellow_zone_ids = set()
+            self._red_torque_off_ids = set()
             self.hw = None
             self.direction_by_id = {}
             self._ids = []
@@ -552,7 +555,7 @@ class ControlHost:
         }
         return mapping.get(int(dxl_id), f"id_{int(dxl_id)}")
 
-    def _trip_safety_fault(self, reason: str) -> None:
+    def _trip_safety_fault(self, reason: str, *, red_dxl_id: Optional[int] = None) -> None:
         self._safety_fault = str(reason)
         print(f"[host] RED zone trip: {self._safety_fault}")
         self._pending_target_q = None
@@ -562,10 +565,19 @@ class ControlHost:
         try:
             if self._has_hw():
                 with self._hw_lock:
-                    self.hw.torque_off_all()
-        except Exception:
-            pass
-        self.torque_enabled = False
+                    if red_dxl_id is None:
+                        self.hw.torque_off_all()
+                        self.torque_enabled = False
+                        print("[host] RED zone action: torque off all motors (unknown id)")
+                    else:
+                        red_id = int(red_dxl_id)
+                        self.hw.torque_off_id(red_id)
+                        self._red_torque_off_ids.add(red_id)
+                        print(
+                            f"[host] RED zone action: torque off {self._motor_name_by_id(red_id)} motor id={red_id}"
+                        )
+        except Exception as exc:
+            print(f"[host] RED zone action failed: {exc}")
 
     def _check_current_limit(self) -> None:
         yellow = abs(int(self._current_yellow_ma))
@@ -584,7 +596,8 @@ class ControlHost:
                     )
             if abs(int(current_ma)) > limit:
                 self._trip_safety_fault(
-                    f"overcurrent {self._motor_name_by_id(int(dxl_id))}: {int(current_ma)} mA exceeds {limit} mA"
+                    f"overcurrent {self._motor_name_by_id(int(dxl_id))}: {int(current_ma)} mA exceeds {limit} mA",
+                    red_dxl_id=int(dxl_id),
                 )
                 return
         for dxl_id in (self._yellow_zone_ids - next_yellow_ids):
@@ -752,7 +765,7 @@ class ControlHost:
         if not self._has_hw():
             raise RuntimeError("no device selected")
         with self._hw_lock:
-            if self.torque_enabled:
+            if self.torque_enabled and not self._safety_fault and not self._red_torque_off_ids:
                 return
             if configure_modes:
                 self.hw.set_operating_modes()
@@ -761,6 +774,7 @@ class ControlHost:
             self.hw.torque_on_all()
             self.torque_enabled = True
             self._safety_fault = ""
+            self._red_torque_off_ids = set()
             if go_mid:
                 self.hw.go_mid_pose()
 
@@ -772,6 +786,7 @@ class ControlHost:
             self._pending_target_seq = -1
             self.hw.torque_off_all()
             self.torque_enabled = False
+            self._red_torque_off_ids = set()
 
     def close(self) -> None:
         try:

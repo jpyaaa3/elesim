@@ -210,6 +210,12 @@ class Dynamixel3dofDriver:
         for dxl_id in self.ids:
             self._write1(dxl_id, ADDR_TORQUE_ENABLE, TORQUE_ON)
 
+    def torque_off_id(self, dxl_id: int) -> None:
+        self._write1(int(dxl_id), ADDR_TORQUE_ENABLE, TORQUE_OFF)
+
+    def torque_on_id(self, dxl_id: int) -> None:
+        self._write1(int(dxl_id), ADDR_TORQUE_ENABLE, TORQUE_ON)
+
     def set_operating_modes(self) -> None:
         self.torque_off_all()
         for dxl_id in self.ids:

@@ -15,6 +15,7 @@ from .perception import VisualObservation
 
 class ObjectPickPhase(str, Enum):
     IDLE = "idle"
+    LOOK = "look"
     READY = "ready"
     ACQUIRE = "acquire"
     CENTER = "center"

@@ -128,7 +128,7 @@ def draw_perception_panel(panel) -> None:
             panel.service.refresh_perception_capture()
 
     imgui.separator()
-    imgui.text("Aim (YOLO/CSRT centering + equal-sag correction)")
+    imgui.text("Look / Aim / Ready Pose (UV centering + equal-sag correction)")
 
     changed_scale, target_scale = imgui.input_float(
         "pick target scale",
@@ -161,9 +161,9 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "Ready Pose follows guarded waypoints and records the actual stop baseline. "
-        "Aim recenters from that baseline and draws the orange corrected-ready marker. "
-        "Tweak moves to that corrected marker."
+        "Look points the current tip toward the detected object and records the nominal ready baseline. "
+        "Aim recenters the camera UV target and estimates equal-sag correction. "
+        "Ready Pose moves to the corrected ready marker when available; Tweak is a debug corrected-ready solve."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
@@ -173,15 +173,20 @@ def draw_perception_panel(panel) -> None:
         if imgui.button("Stop Aim"):
             panel.service.stop_aim()
     else:
-        if imgui.button("Ready Pose"):
+        if imgui.button("Look"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
-            panel.service.start_ready_pose()
+            panel.service.start_look()
         imgui.same_line()
         if imgui.button("Aim"):
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
             panel.service.start_aim()
+        imgui.same_line()
+        if imgui.button("Ready Pose"):
+            cfg = _build_perception_config(panel)
+            panel.service.update_perception_config(cfg)
+            panel.service.start_ready_pose()
         imgui.same_line()
         if imgui.button("Tweak"):
             panel.service.start_equal_sag_tweak()

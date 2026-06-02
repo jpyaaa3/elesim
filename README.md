@@ -90,8 +90,8 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 외부 companion app을 붙일 때도 같은 구조를 유지합니다.
 
 - 예: [addons/autonomous_pick_place_app](./addons/autonomous_pick_place_app)
-- 현재 기본 UI에는 `Visual Servoing` 패널이 있고, 여기서 카메라 인식, Ready Pose, Aim, Tweak을 시작할 수 있습니다.
-- 인식 경로는 rough 3D 좌표로 guarded Ready Pose 경로를 만들고, 카메라 safe box를 지키며 이동한 지점을 baseline으로 삼은 뒤, Aim으로 UV 중심 정렬과 임시 등각 처짐 추정을 수행하는 방식입니다.
+- 현재 기본 UI에는 `Visual Servoing` 패널이 있고, 여기서 카메라 인식, Look, Aim, Ready Pose, Tweak을 시작할 수 있습니다.
+- 인식 경로는 rough 3D 좌표를 절대 정답으로 믿지 않고, 먼저 Look으로 현재 tip에서 물체를 바라보는 기준 시선을 만든 뒤, Aim으로 UV 중심 정렬을 수행하고 그 차이를 임시 등각 처짐으로 해석하는 방식입니다.
 - 외부 앱이 별도로 좌표를 보낼 때는 `tcp://127.0.0.1:5555`로 `source="perception"` 메시지를 보내고, `host.py`가 world 좌표계 디버그 마커로 바꿔 `sim.py`에 중계합니다.
 - e2 계열의 view-aware / 3D visual-servo helper는 [engine/pick_visual_servo.py](./engine/pick_visual_servo.py), [engine/pick_view_pregrasp.py](./engine/pick_view_pregrasp.py)에 실험 모듈로 보관되어 있습니다.
 
@@ -104,9 +104,9 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 - [engine/controller/object_pick.py](./engine/controller/object_pick.py)
 - `host.py`를 통한 perception relay / marker relay
 
-즉, 현재 기본 pick 흐름은 **guarded rough 3D Ready Pose + e1 계열 aiming + corrected-ready Tweak 방식**입니다.
+즉, 현재 기본 pick 흐름은 **rough 3D Look + e1 계열 aiming + equal-sag corrected Ready Pose 방식**입니다.
 카메라가 잡은 물체를 완전한 3D 목표점으로 한 번에 풀기보다,
-대략적인 3D 좌표로 pre-grasp 경로를 잡되, 중간 waypoint마다 카메라 관측을 확인하고 그 지점에서 카메라 중심에 맞추는 경로를 공식 경로로 채택했습니다.
+대략적인 3D 좌표로 먼저 물체를 바라보고, 카메라 중심 정렬 이후의 차이를 보정량으로 삼아 corrected ready pose를 만드는 경로를 공식 경로로 채택했습니다.
 
 반면 다음은 공식 런타임 경로가 아닙니다.
 
@@ -208,8 +208,9 @@ use_hardware = true
 - 토크 on/off
 - 그리퍼 열기 / 닫기
 - 카메라 인식 시작 / 정지
-- Ready Pose 실행
+- Look 실행
 - Aim 시작 / 정지
+- Ready Pose 실행
 - Tweak 실행
 
 같은 동작도 UI에서 수행할 수 있습니다.
@@ -218,10 +219,10 @@ Visual Servoing / Aim 관련해서는 다음처럼 이해하는 편이 정확합
 
 1. detector로 물체를 찾는다.
 2. tracker로 연속 추적한다.
-3. rough world 좌표와 목표 방향벡터로 guarded Ready Pose waypoint 경로를 실행한다.
-4. 필요하면 detector를 다시 돌려 재획득한다.
-5. Aim은 world 좌표 절대정답을 믿기보다, 현재 카메라 시야에서 중심 정렬을 수행한다.
-6. guarded Ready Pose가 실제로 멈춘 baseline과 중심 정렬 후 ready pose의 차이로 임시 등각 처짐을 추정하고, Tweak은 그 보정 ready pose로 IK를 실행한다.
+3. Look은 현재 tip 위치에서 감지된 물체를 바라보도록 시선을 맞추고 nominal ready baseline을 기록한다.
+4. Aim은 world 좌표 절대정답을 믿기보다, 현재 카메라 시야에서 목표 UV로 중심 정렬을 수행한다.
+5. Look baseline과 Aim 이후 ready pose의 차이로 임시 등각 처짐을 추정한다.
+6. Ready Pose는 보정값이 있으면 corrected ready pose로, 없으면 nominal ready pose로 IK를 실행한다.
 
 ## 개발자가 어디부터 보면 좋은가
 
