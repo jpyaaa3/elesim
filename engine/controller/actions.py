@@ -4,11 +4,13 @@ import math
 import os
 import threading
 import time
+from dataclasses import replace
 from typing import Any, Optional
 
 import numpy as np
 
 from engine import ik as ik_pipeline
+from engine.iklib import kinematics as ik_kin
 from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
@@ -907,7 +909,7 @@ class ControlService:
 
     def home_controls(self) -> None:
         self.state.clear_ik_status()
-        self.apply_control_u(u_linear=15.0, u_roll=180.0, u_s1=10.0, u_s2=10.0, apply_offset=True)
+        self.apply_control_u(u_linear=180.0, u_roll=180.0, u_s1=10.0, u_s2=10.0, apply_offset=True)
         self.send_current_target(source="slider")
 
     def extend_arm_controls(self) -> None:
@@ -2113,7 +2115,14 @@ class ControlService:
             approach_loose_center_tol=float(pk.approach_loose_center_tol),
             approach_scale_plateau_iters=int(pk.approach_scale_plateau_iters),
             approach_scale_plateau_eps=float(pk.approach_scale_plateau_eps),
+            aim_center_tol=float(pk.aim_center_tol),
         )
+
+    def _pick_config_for_aim(self) -> PickConfig:
+        """Stricter UV tolerance for Aim finish (centroid near target crosshair)."""
+        pk = self._pick_config_effective()
+        aim_tol = float(max(0.01, float(self._pick_cfg.aim_center_tol)))
+        return replace(pk, center_tol=aim_tol)
 
     def _pick_reach_model(self, sag_model: Optional[dict[str, Any]] = None):
         from engine.iklib.kinematics import _ReachModel
@@ -2343,9 +2352,13 @@ class ControlService:
         return abs(u_d) > tol or abs(v_d) > tol
 
     def _apply_pick_center_step(
-        self, obs: VisualObservation, current_u: ControlU
+        self,
+        obs: VisualObservation,
+        current_u: ControlU,
+        *,
+        cfg: Optional[PickConfig] = None,
     ) -> tuple[ControlU, str, float, float]:
-        cfg = self._pick_config_effective()
+        cfg = self._pick_config_effective() if cfg is None else cfg
         center_tol = float(cfg.center_tol)
         tu, tv = float(cfg.target_uv_u), float(cfg.target_uv_v)
         u = float(obs.center_uv[0])
@@ -2526,13 +2539,15 @@ class ControlService:
         def _worker() -> None:
             try:
                 pk = self._pick_config_effective()
+                aim_pk = self._pick_config_for_aim()
                 print(
-                    "[Aim] start | max_iters=%d target_uv=(%+.3f,%+.3f) center_tol=%.3f "
-                    "step_scale=%.2f settle=%.2fs"
+                    "[Aim] start | max_iters=%d target_uv=(%+.3f,%+.3f) "
+                    "aim_center_tol=%.3f pick_center_tol=%.3f step_scale=%.2f settle=%.2fs"
                     % (
                         int(pk.max_iters),
                         float(pk.target_uv_u),
                         float(pk.target_uv_v),
+                        float(aim_pk.center_tol),
                         float(pk.center_tol),
                         float(self._pick_aim_step_scale),
                         float(self._pick_aim_settle_s),
@@ -2595,7 +2610,7 @@ class ControlService:
                     self._capture_pick_reacquire_offset()
                     self._reset_pick_search_state()
 
-                    conv = evaluate_pick_convergence(obs, cfg=pk)
+                    conv = evaluate_pick_convergence(obs, cfg=aim_pk)
                     u_d, v_d, tu, tv = self._visual_uv_errors(obs)
                     if conv.center_ok:
                         self._pick_try_estimate_equal_sag(host_state)
@@ -2635,7 +2650,7 @@ class ControlService:
 
                     current_u = self.current_control_u()
                     next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
-                        obs, current_u
+                        obs, current_u, cfg=aim_pk
                     )
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_s1 = float(next_u.u_s1 - current_u.u_s1)
@@ -2856,7 +2871,7 @@ class ControlService:
         self._ik_worker = threading.Thread(target=_worker, daemon=True)
         self._ik_worker.start()
 
-    def start_pick_forward(self, *, distance_m: float = 0.20) -> None:
+    def start_pick_forward(self, *, distance_m: float = 0.05) -> None:
         if self.state.ik_running or self._visual_busy():
             self.state.set_pick_status(
                 running=False,
@@ -2905,7 +2920,7 @@ class ControlService:
             )
             return
         dir_world = dir_world / dnorm
-        target = tip_world + dir_world * step_m
+        target_tip = tip_world + dir_world * step_m
 
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -2927,7 +2942,23 @@ class ControlService:
             )
             return
 
-        self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
+        current_seed = np.array(
+            [
+                float(self.state.linear),
+                float(self.state.roll),
+                float(self.state.theta1),
+                float(self.state.theta2),
+            ],
+            dtype=float,
+        )
+        # IK minimizes grasp-point error; the orange marker is the visual TCP (actual_tip).
+        try:
+            grasp0 = ik_kin._forward_grasp_world(ctx, current_seed)
+            target_ik = target_tip + (np.asarray(grasp0, dtype=float).reshape(3) - tip_world)
+        except Exception:
+            target_ik = target_tip.copy()
+
+        self.state.set_target(float(target_tip[0]), float(target_tip[1]), float(target_tip[2]))
         self.state.set_target_dir(float(dir_world[0]), float(dir_world[1]), float(dir_world[2]))
         self.state.set_pick_status(
             running=True,
@@ -2945,17 +2976,8 @@ class ControlService:
 
         def _worker() -> None:
             try:
-                current_seed = np.array(
-                    [
-                        float(self.state.linear),
-                        float(self.state.roll),
-                        float(self.state.theta1),
-                        float(self.state.theta2),
-                    ],
-                    dtype=float,
-                )
                 result = ik_pipeline.solve_then_align(
-                    target_world=target,
+                    target_world=target_ik,
                     target_dir_world=dir_world,
                     context=ctx,
                     position_tol_m=float(self._ik_cfg.tol),
@@ -2966,7 +2988,7 @@ class ControlService:
                     q = np.asarray(result.q, dtype=float).reshape(4)
                     self._apply_ik_solution_to_host(
                         q,
-                        ik_target=target,
+                        ik_target=target_tip,
                         ik_target_dir=dir_world,
                         err_m=float(result.position_error_m),
                         status_msg="pick +%.0fmm | %s" % (float(step_m) * 1000.0, str(result.reason)),
@@ -3000,7 +3022,7 @@ class ControlService:
         self._ik_worker.start()
 
     def start_object_pick(self) -> None:
-        self.start_pick_forward(distance_m=0.20)
+        self.start_pick_forward(distance_m=0.05)
         return
         if self._pick_busy() or self._visual_busy():
             self.state.set_pick_status(
@@ -3531,6 +3553,10 @@ class ControlService:
             cfg,
             publish_fn=self._publish_perception_to_host,
             on_snapshot=self._on_perception_snapshot,
+            target_uv_fn=lambda: (
+                float(self.state.visual_target_uv_u),
+                float(self.state.visual_target_uv_v),
+            ),
         )
         self.state.set_perception_status(running=True, failed=False, msg="starting")
         self._perception_capture.start()

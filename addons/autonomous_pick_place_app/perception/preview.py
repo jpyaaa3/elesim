@@ -64,6 +64,77 @@ def open_preview_window(window_name: str) -> None:
     _open_preview_windows.add(name)
 
 
+def normalized_uv_to_pixel(
+    u: float,
+    v: float,
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[int, int]:
+    """Map normalized image UV in [-1, 1] to pixel (x, y)."""
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    px = int(round((float(u) + 1.0) * 0.5 * float(w)))
+    py = int(round((float(v) + 1.0) * 0.5 * float(h)))
+    return max(0, min(w - 1, px)), max(0, min(h - 1, py))
+
+
+def _draw_uv_crosshair(
+    vis: np.ndarray,
+    u: float,
+    v: float,
+    *,
+    color: tuple[int, int, int],
+    size: int = 14,
+    thickness: int = 2,
+) -> None:
+    h, w = vis.shape[:2]
+    px, py = normalized_uv_to_pixel(u, v, image_width=w, image_height=h)
+    arm = max(4, int(size))
+    cv2.line(vis, (px - arm, py), (px + arm, py), color, thickness, cv2.LINE_AA)
+    cv2.line(vis, (px, py - arm), (px, py + arm), color, thickness, cv2.LINE_AA)
+    cv2.circle(vis, (px, py), 4, color, 1, cv2.LINE_AA)
+
+
+def _draw_uv_targets(
+    vis: np.ndarray,
+    *,
+    target_uv: Optional[tuple[float, float]] = None,
+    center_uv: Optional[tuple[float, float]] = None,
+) -> None:
+    h, w = vis.shape[:2]
+    if target_uv is not None:
+        tu, tv = float(target_uv[0]), float(target_uv[1])
+        _draw_uv_crosshair(vis, tu, tv, color=(255, 180, 0), size=16, thickness=2)
+        cv2.putText(
+            vis,
+            f"target u,v=({tu:+.3f},{tv:+.3f})",
+            (12, h - 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.48,
+            (255, 180, 0),
+            1,
+            cv2.LINE_AA,
+        )
+    if center_uv is not None:
+        cu, cv = float(center_uv[0]), float(center_uv[1])
+        _draw_uv_crosshair(vis, cu, cv, color=(0, 255, 255), size=10, thickness=1)
+        cv2.putText(
+            vis,
+            f"center u,v=({cu:+.3f},{cv:+.3f})",
+            (12, h - 68),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+        if target_uv is not None:
+            p0 = normalized_uv_to_pixel(cu, cv, image_width=w, image_height=h)
+            p1 = normalized_uv_to_pixel(tu, tv, image_width=w, image_height=h)
+            cv2.line(vis, p0, p1, (200, 200, 200), 1, cv2.LINE_AA)
+
+
 def _draw_class_panel(
     vis: np.ndarray,
     *,
@@ -116,9 +187,13 @@ def draw_detection_overlay(
     bbox_wh: Optional[tuple[int, int]] = None,
     tracker_phase: str = "",
     tracker_backend: str = "",
+    target_uv: Optional[tuple[float, float]] = None,
+    center_uv: Optional[tuple[float, float]] = None,
 ) -> np.ndarray:
     vis = np.asarray(color_bgr, dtype=np.uint8).copy()
     h, w = vis.shape[:2]
+
+    _draw_uv_targets(vis, target_uv=target_uv, center_uv=center_uv)
 
     dets = list(all_detections or [])
     target_key = target_label.strip().lower()
@@ -201,20 +276,24 @@ def draw_detection_overlay(
     if p_world is not None:
         p = np.asarray(p_world, dtype=float).reshape(3)
         line2 += f" | world=[{p[0]:+.3f},{p[1]:+.3f},{p[2]:+.3f}]m"
+    status_y = h - 14
+    if target_uv is not None or center_uv is not None:
+        status_y = h - 86
     cv2.putText(
         vis,
         line2,
-        (12, h - 14),
+        (12, status_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
         (240, 240, 240),
         1,
         cv2.LINE_AA,
     )
+    quit_y = h - 32 if (target_uv is not None or center_uv is not None) else h - 50
     cv2.putText(
         vis,
         "q/ESC=quit",
-        (12, h - 50),
+        (12, quit_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
         (200, 200, 200),

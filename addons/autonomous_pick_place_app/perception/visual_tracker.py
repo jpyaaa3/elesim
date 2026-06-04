@@ -2,12 +2,60 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
 
 from perception.detector import DetectionResult
+
+
+@dataclass(frozen=True)
+class CsrtTrackerTuning:
+    """Lower sensitivity: stricter PSR, slower scale/histogram learning, mild bbox EMA."""
+
+    psr_threshold: float = 0.055
+    scale_lr: float = 0.0008
+    histogram_lr: float = 0.002
+    padding: float = 2.0
+    scale_step: float = 1.02
+    bbox_smooth_alpha: float = 0.65
+
+
+def _apply_csrt_tuning(params: Any, tuning: CsrtTrackerTuning) -> None:
+    for key in ("psr_threshold", "scale_lr", "histogram_lr", "padding", "scale_step"):
+        if hasattr(params, key):
+            setattr(params, key, float(getattr(tuning, key)))
+
+
+def _create_csrt_tracker(tuning: Optional[CsrtTrackerTuning] = None) -> Any:
+    """Create CSRT with conservative params when OpenCV exposes TrackerCSRT_Params."""
+    tune = tuning if tuning is not None else CsrtTrackerTuning()
+    params = None
+    params_cls = getattr(cv2, "TrackerCSRT_Params", None)
+    if params_cls is not None:
+        params = params_cls()
+        _apply_csrt_tuning(params, tune)
+
+    tracker_cls = getattr(cv2, "TrackerCSRT", None)
+    if tracker_cls is not None and hasattr(tracker_cls, "create"):
+        return tracker_cls.create(params) if params is not None else tracker_cls.create()
+
+    legacy = getattr(cv2, "legacy", None)
+    if legacy is not None:
+        legacy_cls = getattr(legacy, "TrackerCSRT", None)
+        if legacy_cls is not None and hasattr(legacy_cls, "create"):
+            return legacy_cls.create(params) if params is not None else legacy_cls.create()
+        legacy_create = getattr(legacy, "TrackerCSRT_create", None)
+        if legacy_create is not None:
+            return legacy_create(params) if params is not None else legacy_create()
+
+    legacy_create = getattr(cv2, "TrackerCSRT_create", None)
+    if legacy_create is not None:
+        return legacy_create(params) if params is not None else legacy_create()
+
+    raise RuntimeError("TrackerCSRT is not available (install opencv-contrib-python)")
 
 
 def _iter_tracker_creators(prefer: str = "csrt") -> list[tuple[str, Callable[[], Any]]]:
@@ -114,12 +162,19 @@ def detection_from_bbox(
 class BboxTracker:
     """OpenCV single-object bbox tracker."""
 
-    def __init__(self, *, tracker_type: str = "csrt") -> None:
+    def __init__(
+        self,
+        *,
+        tracker_type: str = "csrt",
+        csrt_tuning: Optional[CsrtTrackerTuning] = None,
+    ) -> None:
         self._prefer = str(tracker_type).strip().lower() or "csrt"
+        self._csrt_tuning = csrt_tuning if csrt_tuning is not None else CsrtTrackerTuning()
         self._tracker = None
         self._backend_name = ""
         self._initialized = False
         self._last_init_error = ""
+        self._last_bbox: Optional[tuple[int, int, int, int]] = None
 
     @property
     def backend_name(self) -> str:
@@ -138,6 +193,20 @@ class BboxTracker:
         self._backend_name = ""
         self._initialized = False
         self._last_init_error = ""
+        self._last_bbox = None
+
+    def _smooth_bbox(self, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        alpha = float(max(0.0, min(0.95, self._csrt_tuning.bbox_smooth_alpha)))
+        if alpha <= 1e-6 or self._last_bbox is None:
+            self._last_bbox = bbox
+            return bbox
+        prev = self._last_bbox
+        smoothed = tuple(
+            int(round(alpha * float(prev[i]) + (1.0 - alpha) * float(bbox[i])))
+            for i in range(4)
+        )
+        self._last_bbox = smoothed
+        return smoothed
 
     def init(self, frame_bgr: np.ndarray, bbox_xyxy: tuple[int, int, int, int]) -> bool:
         self.reset()
@@ -145,6 +214,19 @@ class BboxTracker:
         bbox = clamp_bbox_xyxy(bbox_xyxy, image_width=w, image_height=h)
         rect = bbox_xyxy_to_xywh(bbox)
         errors: list[str] = []
+        if self._prefer == "csrt":
+            try:
+                tracker = _create_csrt_tracker(self._csrt_tuning)
+                if _tracker_init(tracker, frame_bgr, rect):
+                    self._tracker = tracker
+                    self._backend_name = "csrt"
+                    self._initialized = True
+                    self._last_init_error = ""
+                    self._last_bbox = bbox
+                    return True
+                errors.append("csrt: init returned false")
+            except Exception as exc:
+                errors.append(f"csrt: {exc}")
         for name, factory in _iter_tracker_creators(self._prefer):
             try:
                 tracker = factory()
@@ -157,6 +239,7 @@ class BboxTracker:
                 self._backend_name = str(name)
                 self._initialized = True
                 self._last_init_error = ""
+                self._last_bbox = bbox
                 return True
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
@@ -180,4 +263,7 @@ class BboxTracker:
             self._initialized = False
             return None
         h, w = frame_bgr.shape[:2]
-        return clamp_bbox_xyxy((x, y, x + bw, y + bh), image_width=w, image_height=h)
+        raw = clamp_bbox_xyxy((x, y, x + bw, y + bh), image_width=w, image_height=h)
+        if self._prefer == "csrt":
+            return self._smooth_bbox(raw)
+        return raw

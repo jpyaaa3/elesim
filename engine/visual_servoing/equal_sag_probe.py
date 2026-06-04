@@ -40,7 +40,7 @@ def solve_equal_sag_offsets(
     sensitivity_m_per_deg: np.ndarray,
     max_abs_offset_deg: float = 12.0,
     min_drift_m: float = 0.002,
-    max_residual_m: float = 0.040,
+    max_residual_m: float = 0.10,
     condition_max: float = 1.0e4,
 ) -> EqualSagEstimate:
     drift = np.asarray(drift_world, dtype=float).reshape(3)
@@ -125,7 +125,7 @@ def estimate_equal_sag_from_ready_pose_drift(
     ready_pose_drift_world: Sequence[float],
     sag_model: dict[str, Any] | None = None,
     fd_eps_deg: float = 0.25,
-    max_abs_offset_deg: float = 12.0,
+    max_abs_offset_deg: float = 24.0,
     min_drift_m: float = 0.002,
     max_residual_m: float = 0.040,
     condition_max: float = 1.0e4,

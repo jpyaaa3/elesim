@@ -164,7 +164,7 @@ def draw_perception_panel(panel) -> None:
         "Look points the current tip toward the detected object and records the nominal ready baseline. "
         "Aim recenters the camera UV target and estimates equal-sag correction. "
         "Ready Pose moves to the corrected ready marker when available. "
-        "Pick advances 20 cm along the current TCP direction. Tweak is a debug corrected-ready solve."
+        "Pick advances 15 cm along the current TCP direction. Tweak is a debug corrected-ready solve."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
@@ -190,7 +190,7 @@ def draw_perception_panel(panel) -> None:
             panel.service.start_ready_pose()
         imgui.same_line()
         if imgui.button("Pick"):
-            panel.service.start_pick_forward(distance_m=0.20)
+            panel.service.start_pick_forward(distance_m=0.15)
         imgui.same_line()
         if imgui.button("Tweak"):
             panel.service.start_equal_sag_tweak()

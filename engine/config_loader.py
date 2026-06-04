@@ -130,6 +130,13 @@ class PerceptionConfig:
     track_bbox_shrink_ratio: float = 0.55
     track_init_bbox_padding: float = 1.25
     track_watchdog_min_frames: int = 8
+    # CSRT: higher psr_threshold / lower learning rates = less sensitive tracking
+    track_csrt_psr_threshold: float = 0.055
+    track_csrt_scale_lr: float = 0.0008
+    track_csrt_histogram_lr: float = 0.002
+    track_csrt_padding: float = 2.0
+    track_csrt_scale_step: float = 1.02
+    track_bbox_smooth_alpha: float = 0.65
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -147,6 +154,7 @@ class PickConfig:
     target_scale: float = 0.16
     scale_tol: float = 0.02
     center_tol: float = 0.12
+    aim_center_tol: float = 0.08
     center_u_gain: float = 18.0
     center_v_gain: float = 18.0
     center_roll_max: float = 6.0
@@ -298,6 +306,24 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         track_watchdog_min_frames=cp.getint(
             "perception", "track_watchdog_min_frames", fallback=pc0.track_watchdog_min_frames
         ),
+        track_csrt_psr_threshold=cp.getfloat(
+            "perception", "track_csrt_psr_threshold", fallback=pc0.track_csrt_psr_threshold
+        ),
+        track_csrt_scale_lr=cp.getfloat(
+            "perception", "track_csrt_scale_lr", fallback=pc0.track_csrt_scale_lr
+        ),
+        track_csrt_histogram_lr=cp.getfloat(
+            "perception", "track_csrt_histogram_lr", fallback=pc0.track_csrt_histogram_lr
+        ),
+        track_csrt_padding=cp.getfloat(
+            "perception", "track_csrt_padding", fallback=pc0.track_csrt_padding
+        ),
+        track_csrt_scale_step=cp.getfloat(
+            "perception", "track_csrt_scale_step", fallback=pc0.track_csrt_scale_step
+        ),
+        track_bbox_smooth_alpha=cp.getfloat(
+            "perception", "track_bbox_smooth_alpha", fallback=pc0.track_bbox_smooth_alpha
+        ),
     )
 
 
@@ -326,6 +352,7 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         target_scale=cp.getfloat("pick", "target_scale", fallback=scale_default),
         scale_tol=cp.getfloat("pick", "scale_tol", fallback=pk0.scale_tol),
         center_tol=cp.getfloat("pick", "center_tol", fallback=pk0.center_tol),
+        aim_center_tol=cp.getfloat("pick", "aim_center_tol", fallback=pk0.aim_center_tol),
         center_u_gain=cp.getfloat("pick", "center_u_gain", fallback=pk0.center_u_gain),
         center_v_gain=cp.getfloat("pick", "center_v_gain", fallback=pk0.center_v_gain),
         center_roll_max=cp.getfloat("pick", "center_roll_max", fallback=pk0.center_roll_max),

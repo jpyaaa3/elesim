@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 
@@ -32,6 +32,20 @@ def _ensure_pick_place_path() -> Path:
     return root
 
 
+def _bbox_tracker_from_config(cfg: PerceptionConfig) -> Any:
+    from perception.visual_tracker import BboxTracker, CsrtTrackerTuning  # type: ignore[import-not-found]
+
+    tuning = CsrtTrackerTuning(
+        psr_threshold=float(cfg.track_csrt_psr_threshold),
+        scale_lr=float(cfg.track_csrt_scale_lr),
+        histogram_lr=float(cfg.track_csrt_histogram_lr),
+        padding=float(cfg.track_csrt_padding),
+        scale_step=float(cfg.track_csrt_scale_step),
+        bbox_smooth_alpha=float(cfg.track_bbox_smooth_alpha),
+    )
+    return BboxTracker(tracker_type=str(cfg.tracker), csrt_tuning=tuning)
+
+
 @dataclass(frozen=True)
 class PerceptionSnapshot:
     running: bool
@@ -49,6 +63,7 @@ class PerceptionSnapshot:
     image_scale: float = 0.0
     bbox_wh: tuple[int, int] = (0, 0)
     tracker_backend: str = ""
+    center_uv: Optional[tuple[float, float]] = None
 
 
 class PerceptionCapture:
@@ -60,10 +75,12 @@ class PerceptionCapture:
         *,
         publish_fn: Callable[..., Optional[tuple[float, float, float]]],
         on_snapshot: Optional[Callable[[PerceptionSnapshot], None]] = None,
+        target_uv_fn: Optional[Callable[[], Tuple[float, float]]] = None,
     ) -> None:
         self._config = config
         self._publish_fn = publish_fn
         self._on_snapshot = on_snapshot
+        self._target_uv_fn = target_uv_fn
         self._stop_event = threading.Event()
         self._refresh_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -91,6 +108,17 @@ class PerceptionCapture:
 
     def track_ok_frames(self) -> int:
         return int(self.snapshot().track_ok_frames)
+
+    def _preview_uv_overlay(self) -> tuple[Optional[tuple[float, float]], Optional[tuple[float, float]]]:
+        target_uv: Optional[tuple[float, float]] = None
+        if self._target_uv_fn is not None:
+            try:
+                tu, tv = self._target_uv_fn()
+                target_uv = (float(tu), float(tv))
+            except Exception:
+                target_uv = None
+        snap = self.snapshot()
+        return target_uv, snap.center_uv
 
     def _set_snapshot(self, **kwargs: Any) -> None:
         with self._lock:
@@ -304,6 +332,7 @@ class PerceptionCapture:
             depth_valid=bool(depth_valid),
             image_scale=scale,
             bbox_wh=bbox_wh,
+            center_uv=(float(uv[0]), float(uv[1])),
         )
         self._set_snapshot(**snap_extra)
         return p_world
@@ -459,7 +488,7 @@ class PerceptionCapture:
         cfg = self._config
         lost_limit = max(1, int(cfg.track_lost_frames))
         reacquire = bool(cfg.reacquire_on_lost)
-        tracker = BboxTracker(tracker_type=str(cfg.tracker))
+        tracker = _bbox_tracker_from_config(cfg)
 
         phase = TrackerPhase.SEARCH
         lost_streak = 0
@@ -627,6 +656,7 @@ class PerceptionCapture:
 
                 snap = self.snapshot()
                 if show_preview:
+                    target_uv, center_uv = self._preview_uv_overlay()
                     vis = draw_detection_overlay(
                         frame.color_bgr,
                         det,
@@ -641,6 +671,8 @@ class PerceptionCapture:
                         bbox_wh=tuple(snap.bbox_wh),
                         tracker_phase=str(phase.value),
                         tracker_backend=str(tracker.backend_name) if tracker.initialized else "",
+                        target_uv=target_uv,
+                        center_uv=center_uv,
                     )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
@@ -706,6 +738,7 @@ class PerceptionCapture:
                         status = "detected"
                         p_camera = self.snapshot().p_camera
                 if show_preview:
+                    target_uv, center_uv = self._preview_uv_overlay()
                     vis = draw_detection_overlay(
                         frame.color_bgr,
                         det,
@@ -716,6 +749,8 @@ class PerceptionCapture:
                         p_world=np.asarray(p_world) if p_world is not None else None,
                         all_detections=all_dets,
                         model_classes=model_class_names(detector),
+                        target_uv=target_uv,
+                        center_uv=center_uv,
                     )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
@@ -768,6 +803,7 @@ class PerceptionCapture:
             status_msg="mock detected",
         )
         if show_preview and p_world is not None:
+            target_uv, center_uv = self._preview_uv_overlay()
             vis = draw_detection_overlay(
                 color,
                 det,
@@ -776,6 +812,8 @@ class PerceptionCapture:
                 frame_idx=0,
                 p_camera=self.snapshot().p_camera,
                 p_world=np.asarray(p_world),
+                target_uv=target_uv,
+                center_uv=center_uv,
             )
             show_preview_fn(_PREVIEW_WINDOW, vis)
             time.sleep(0.05)
@@ -817,7 +855,7 @@ class PerceptionCapture:
         from perception.detection_utils import detection_init_bbox  # type: ignore[import-not-found]
 
         img_h, img_w = color.shape[:2]
-        tracker = BboxTracker(tracker_type=str(self._config.tracker))
+        tracker = _bbox_tracker_from_config(self._config)
         init_bbox = detection_init_bbox(
             det,
             image_width=img_w,
@@ -863,6 +901,7 @@ class PerceptionCapture:
                     status_msg="mock tracking",
                 )
             if show_preview:
+                target_uv, center_uv = self._preview_uv_overlay()
                 vis = draw_detection_overlay(
                     color,
                     det_track or det,
@@ -870,6 +909,8 @@ class PerceptionCapture:
                     target_label=target_label,
                     frame_idx=frame_idx,
                     p_camera=self.snapshot().p_camera,
+                    target_uv=target_uv,
+                    center_uv=center_uv,
                 )
                 key = show_preview_fn(_PREVIEW_WINDOW, vis)
                 if key in (ord("q"), 27):

@@ -101,10 +101,10 @@ class DxlConfig:
 
 def default_joint_profiles(cfg: DxlConfig) -> Dict[int, JointProfile]:
     return {
-        cfg.id_linear: JointProfile(profile_vel=80, profile_acc=5),
-        cfg.id_roll: JointProfile(profile_vel=150, profile_acc=5),
-        cfg.id_seg1: JointProfile(profile_vel=120, profile_acc=5),
-        cfg.id_seg2: JointProfile(profile_vel=120, profile_acc=5),
+        cfg.id_linear: JointProfile(profile_vel=240, profile_acc=10),
+        cfg.id_roll: JointProfile(profile_vel=240, profile_acc=10),
+        cfg.id_seg1: JointProfile(profile_vel=20, profile_acc=5),
+        cfg.id_seg2: JointProfile(profile_vel=20, profile_acc=5),
         cfg.id_claw: JointProfile(profile_vel=80, profile_acc=5),
     }
 
