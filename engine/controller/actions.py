@@ -561,7 +561,7 @@ class ControlService:
         self._send_display_control_u_and_wait(
             next_u,
             timeout_s=float(self._pick_aim_command_timeout_s),
-            source="ik",
+            source="slider",
         )
         time.sleep(float(self._pick_aim_settle_s))
         if cap is not None:
@@ -623,7 +623,7 @@ class ControlService:
         self._send_display_control_u_and_wait(
             next_u,
             timeout_s=float(self._pick_aim_command_timeout_s),
-            source="ik",
+            source="slider",
         )
         time.sleep(float(self._pick_aim_settle_s))
         self._pick_fov_search_steps_total += 1
@@ -2138,7 +2138,7 @@ class ControlService:
         next_u, mode, _, _ = self._apply_pick_center_step(obs, current_u)
         if next_u == current_u or mode == "none":
             return False
-        self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+        self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="slider")
         return True
 
     def _pick_ee_axis_world(
@@ -2692,7 +2692,7 @@ class ControlService:
                     self._send_display_control_u_and_wait(
                         next_u,
                         timeout_s=float(self._pick_aim_command_timeout_s),
-                        source="ik",
+                        source="slider",
                     )
                     time.sleep(float(self._pick_aim_settle_s))
 
@@ -2856,8 +2856,151 @@ class ControlService:
         self._ik_worker = threading.Thread(target=_worker, daemon=True)
         self._ik_worker.start()
 
+    def start_pick_forward(self, *, distance_m: float = 0.20) -> None:
+        if self.state.ik_running or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+        step_m = float(max(distance_m, 0.0))
+        if step_m <= 1e-9:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="invalid pick distance",
+            )
+            return
+        host_state = self.client.refresh_state()
+        tip = None if host_state is None else host_state.actual_tip_xyz
+        direction = None if host_state is None else host_state.actual_tip_dir
+        if tip is None or direction is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="missing actual_tip feedback; run sim/host feedback first",
+            )
+            return
+        tip_world = np.asarray(tip, dtype=float).reshape(3)
+        dir_world = np.asarray(direction, dtype=float).reshape(3)
+        dnorm = float(np.linalg.norm(dir_world))
+        if dnorm <= 1e-9:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="tcp direction is zero",
+            )
+            return
+        dir_world = dir_world / dnorm
+        target = tip_world + dir_world * step_m
+
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        if isinstance(self._pick_equal_sag_model, dict) and self._pick_equal_sag_model:
+            ctx["sag_model"] = dict(self._pick_equal_sag_model)
+            sag_model_override = dict(self._pick_equal_sag_model)
+        else:
+            sag_model_override = (
+                dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+            )
+            ctx["sag_model"] = dict(sag_model_override)
+        required = ("limit", "fk_joint_chain", "terminal_link_name", "old_tip_local_offset", "grasp_offset_node_local")
+        if any(k not in ctx for k in required):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="missing IK context",
+            )
+            return
+
+        self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
+        self.state.set_target_dir(float(dir_world[0]), float(dir_world[1]), float(dir_world[2]))
+        self.state.set_pick_status(
+            running=True,
+            failed=False,
+            phase=ObjectPickPhase.EXTEND.value,
+            msg="pick forward solving",
+        )
+        self.state.set_ik_status(
+            running=True,
+            converged=False,
+            failed=False,
+            err_m=float("inf"),
+            msg="pick forward solving",
+        )
+
+        def _worker() -> None:
+            try:
+                current_seed = np.array(
+                    [
+                        float(self.state.linear),
+                        float(self.state.roll),
+                        float(self.state.theta1),
+                        float(self.state.theta2),
+                    ],
+                    dtype=float,
+                )
+                result = ik_pipeline.solve_then_align(
+                    target_world=target,
+                    target_dir_world=dir_world,
+                    context=ctx,
+                    position_tol_m=float(self._ik_cfg.tol),
+                    max_iters=max(int(self._ik_cfg.max_iters), 1),
+                    current_seed=current_seed,
+                )
+                if result.success and result.q is not None:
+                    q = np.asarray(result.q, dtype=float).reshape(4)
+                    self._apply_ik_solution_to_host(
+                        q,
+                        ik_target=target,
+                        ik_target_dir=dir_world,
+                        err_m=float(result.position_error_m),
+                        status_msg="pick +%.0fmm | %s" % (float(step_m) * 1000.0, str(result.reason)),
+                        timeout_s=3.0,
+                        sag_model_override=sag_model_override,
+                    )
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=False,
+                        phase=ObjectPickPhase.DONE.value,
+                        msg="pick done | moved %.0fmm along tcp" % (float(step_m) * 1000.0),
+                    )
+                else:
+                    self.state.set_ik_status(
+                        running=False,
+                        converged=False,
+                        failed=True,
+                        err_m=float(result.position_error_m),
+                        msg=str(result.reason),
+                    )
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="pick IK failed | " + str(result.reason),
+                    )
+            finally:
+                self._ik_worker = None
+
+        self._ik_worker = threading.Thread(target=_worker, daemon=True)
+        self._ik_worker.start()
+
     def start_object_pick(self) -> None:
-        self.start_aim()
+        self.start_pick_forward(distance_m=0.20)
         return
         if self._pick_busy() or self._visual_busy():
             self.state.set_pick_status(
@@ -3317,7 +3460,7 @@ class ControlService:
                         msg="%s | uv=(%.3f, %.3f) scale=%.3f"
                         % (phase.value, conv.u_err, conv.v_err, conv.scale),
                     )
-                    self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="ik")
+                    self._send_display_control_u_and_wait(next_u, timeout_s=1.0, source="slider")
                     current_u = next_u
                     time.sleep(0.05)
 

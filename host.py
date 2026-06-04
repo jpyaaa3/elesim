@@ -152,10 +152,51 @@ class ControlHost:
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
 
-    def _start_trajectory(self, q_goal: proto.SimQ) -> None:
+    def _use_trajectory_for_source(self, source: str) -> bool:
+        if not bool(self._trajectory.cfg.enable):
+            return False
+        # Visual servo / aim steps need fast response; quintic is for large IK moves only.
+        return str(source).strip().lower() == "ik"
+
+    @staticmethod
+    def _joint_delta_max(q_start: proto.SimQ, q_goal: proto.SimQ) -> float:
+        return float(
+            max(
+                abs(float(q_goal.linear_m) - float(q_start.linear_m)),
+                abs(float(q_goal.roll_rad) - float(q_start.roll_rad)),
+                abs(float(q_goal.theta1_rad) - float(q_start.theta1_rad)),
+                abs(float(q_goal.theta2_rad) - float(q_start.theta2_rad)),
+            )
+        )
+
+    def _schedule_target_motion(self, q: proto.SimQ, *, source: str) -> None:
+        if not self._use_trajectory_for_source(source):
+            self._cancel_trajectory()
+            return
+        if self._has_hw() and self.last_q is None:
+            try:
+                self._read_hw_state()
+            except Exception as exc:
+                print(f"[host] hw state read before trajectory failed: {exc}")
+        self._start_trajectory(q, source=source)
+
+    def _start_trajectory(self, q_goal: proto.SimQ, *, source: str = "ik") -> None:
         q_start = self.last_q
         if q_start is None:
             q_start = q_goal
+        if self._joint_delta_max(q_start, q_goal) < 0.015:
+            self._cancel_trajectory()
+            print(
+                "[host] trajectory skipped | small delta source=%s q_goal=(%.4f, %.4f, %.4f, %.4f)"
+                % (
+                    str(source),
+                    float(q_goal.linear_m),
+                    float(q_goal.roll_rad),
+                    float(q_goal.theta1_rad),
+                    float(q_goal.theta2_rad),
+                )
+            )
+            return
         self._trajectory.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
@@ -1123,7 +1164,7 @@ class ControlHost:
                 self._pending_target_u = None
                 self._pending_target_axes = set()
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
-                self._start_trajectory(q)
+                self._schedule_target_motion(q, source=source)
             else:
                 self._cancel_trajectory()
             if not self._has_hw():
