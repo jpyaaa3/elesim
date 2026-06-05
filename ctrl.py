@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 
+from addons.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
 from engine.controller import (
     ControlClient,
@@ -25,6 +26,16 @@ def main() -> None:
     args = ap.parse_args()
 
     bundle, ik_context = ik_pipeline.load_solver_context(args.config)
+    hand_eye_transform = None
+    hand_eye_parent_frame = "node9"
+    hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
+    if hand_eye_path:
+        try:
+            hand_eye_transform, hand_eye_meta = load_hand_eye_transform(hand_eye_path)
+            hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
+        except Exception as exc:
+            print(f"[ctrl] hand-eye config unavailable: {exc}")
+            hand_eye_transform = None
     link = ControlClient(str(bundle.sim_config.host_ctrl_port), cfg=bundle.mapping_config)
     state = PanelState(
         sag_model_path="",
@@ -49,6 +60,8 @@ def main() -> None:
         config_path=args.config,
         perception_cfg=perception_cfg,
         pick_cfg=pick_cfg,
+        hand_eye_transform=hand_eye_transform,
+        hand_eye_parent_frame=hand_eye_parent_frame,
     )
     gui = ControlPanel(
         state,

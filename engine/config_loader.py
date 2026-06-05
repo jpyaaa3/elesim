@@ -184,6 +184,12 @@ class PickConfig:
     approach_loose_center_tol: float = 0.10
     approach_scale_plateau_iters: int = 25
     approach_scale_plateau_eps: float = 0.004
+    ready_pose_resolve_dir: bool = True
+    ready_pose_max_dir_error_deg: float = 10.0
+    ready_pose_skip_search_under_deg: float = 5.0
+    ready_pose_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
+    ready_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
+    ready_pose_look_dot_min: float = 0.85
 
 
 @dataclass(frozen=True)
@@ -209,6 +215,19 @@ def _parse_vec3(text: str, default: Tuple[float, float, float]) -> Tuple[float, 
         return default
     try:
         return (float(parts[0]), float(parts[1]), float(parts[2]))
+    except Exception:
+        return default
+
+
+def _parse_float_list(text: str, default: Tuple[float, ...]) -> Tuple[float, ...]:
+    raw = str(text).strip()
+    if not raw:
+        return default
+    parts = [x.strip() for x in raw.split(",") if x.strip()]
+    if not parts:
+        return default
+    try:
+        return tuple(float(x) for x in parts)
     except Exception:
         return default
 
@@ -397,6 +416,26 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         approach_scale_plateau_eps=cp.getfloat(
             "pick", "approach_scale_plateau_eps", fallback=pk0.approach_scale_plateau_eps
+        ),
+        ready_pose_resolve_dir=cp.getboolean(
+            "pick", "ready_pose_resolve_dir", fallback=pk0.ready_pose_resolve_dir
+        ),
+        ready_pose_max_dir_error_deg=cp.getfloat(
+            "pick", "ready_pose_max_dir_error_deg", fallback=pk0.ready_pose_max_dir_error_deg
+        ),
+        ready_pose_skip_search_under_deg=cp.getfloat(
+            "pick", "ready_pose_skip_search_under_deg", fallback=pk0.ready_pose_skip_search_under_deg
+        ),
+        ready_pose_lateral_offsets_m=_parse_float_list(
+            cp.get("pick", "ready_pose_lateral_offsets_m", fallback=""),
+            pk0.ready_pose_lateral_offsets_m,
+        ),
+        ready_pose_height_offsets_m=_parse_float_list(
+            cp.get("pick", "ready_pose_height_offsets_m", fallback=""),
+            pk0.ready_pose_height_offsets_m,
+        ),
+        ready_pose_look_dot_min=cp.getfloat(
+            "pick", "ready_pose_look_dot_min", fallback=pk0.ready_pose_look_dot_min
         ),
     )
 

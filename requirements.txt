@@ -1,13 +1,22 @@
-numpy
-scipy
-pyzmq
-glfw
-imgui[glfw]
-pyserial
+# Core (host / ctrl / engine)
+numpy>=2.0
+scipy>=1.11
+pyzmq>=27.0
 
-# Simulation
-# Install the package that provides `import genesis` in your environment.
-genesis-world
+# UI (ctrl.py control panel)
+glfw>=2.8
+imgui[glfw]>=2.0
 
-# Hardware
-dynamixel-sdk
+# Hardware (host.py serial + Dynamixel)
+pyserial>=3.5
+dynamixel-sdk>=4.0
+
+# Simulation (sim.py)
+genesis-world>=0.4.7
+
+# Perception (addons/autonomous_pick_place_app, hand-eye, visual tracking)
+opencv-python>=4.8
+pyrealsense2>=2.54
+
+# YOLO detector (optional; camera mode with --detector yolo)
+ultralytics>=8.0
