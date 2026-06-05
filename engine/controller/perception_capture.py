@@ -32,6 +32,19 @@ def _ensure_pick_place_path() -> Path:
     return root
 
 
+def _parse_mock_world_xyz(detector_cfg: dict[str, Any]) -> Optional[tuple[float, float, float]]:
+    """Optional fixed world position for mock perception (bypasses hand-eye transform)."""
+    raw = detector_cfg.get("mock_world_xyz", None)
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        return None
+    try:
+        return (float(raw[0]), float(raw[1]), float(raw[2]))
+    except (TypeError, ValueError):
+        return None
+
+
 def _bbox_tracker_from_config(cfg: PerceptionConfig) -> Any:
     from perception.visual_tracker import BboxTracker, CsrtTrackerTuning  # type: ignore[import-not-found]
 
@@ -302,6 +315,7 @@ class PerceptionCapture:
         normalized_center_uv_fn: Any,
         status_msg: str,
         depth_valid: bool = True,
+        detector_cfg: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[float, float, float]]:
         p_cam = np.asarray(obs.p_camera_object, dtype=float).reshape(3)
         uv = normalized_center_uv_fn(det, image_width=image_width, image_height=image_height)
@@ -309,6 +323,9 @@ class PerceptionCapture:
         msg = str(status_msg)
         if not depth_valid:
             msg = f"{msg} | depth invalid (uv/scale only)"
+        mock_world = _parse_mock_world_xyz(detector_cfg or {})
+        if mock_world is not None:
+            msg = f"{msg} | mock_world_xyz"
         p_world = self._publish_fn(
             object_camera_xyz=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
             label=str(obs.label),
@@ -316,6 +333,7 @@ class PerceptionCapture:
             image_center_uv=uv,
             image_scale=scale,
             depth_valid=bool(depth_valid),
+            object_world=mock_world,
         )
         x0, y0, x1, y1 = det.bbox_xyxy
         bbox_wh = (int(max(0, x1 - x0)), int(max(0, y1 - y0)))
@@ -372,6 +390,7 @@ class PerceptionCapture:
             normalized_center_uv_fn=normalized_center_uv_fn,
             status_msg=status_msg,
             depth_valid=depth_valid,
+            detector_cfg=detector_cfg,
         )
 
     def _track_needs_redetect(

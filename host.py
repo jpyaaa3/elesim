@@ -1050,7 +1050,34 @@ class ControlHost:
                         float(object_camera_raw[2]),
                     )
                 object_world = None
-                if depth_valid and self.last_perceived_object_camera_xyz is not None:
+                object_world_raw = msg.get("object_world", None)
+                if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
+                    try:
+                        p_w = np.asarray(
+                            [float(object_world_raw[0]), float(object_world_raw[1]), float(object_world_raw[2])],
+                            dtype=float,
+                        ).reshape(3)
+                    except (TypeError, ValueError):
+                        p_w = None
+                    if p_w is not None:
+                        object_world = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+                        self.last_perceived_object_world_xyz = object_world
+                        label_txt = str(self.last_perceived_object_label).strip()
+                        label_suffix = f":{label_txt}" if label_txt else ""
+                        print(
+                            f"[Perception] label={label_txt or '-'} "
+                            f"mock_world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
+                        )
+                        self._set_debug_marker(
+                            name=f"perceived_object{label_suffix}",
+                            pos=object_world,
+                            color=[0.1, 0.95, 0.2, 0.95],
+                            radius=0.012,
+                            ttl_ms=30000,
+                        )
+                        self._set_ready_pose_markers(object_world, ttl_ms=30000)
+                        ok, reason = True, "perception mock world override"
+                elif depth_valid and self.last_perceived_object_camera_xyz is not None:
                     ok, reason, object_world = self._update_perception_markers(
                         self.last_perceived_object_camera_xyz,
                         object_label=self.last_perceived_object_label,

@@ -3664,6 +3664,7 @@ class ControlService:
         image_center_uv: tuple[float, float],
         image_scale: float,
         depth_valid: bool = True,
+        object_world: Optional[tuple[float, float, float]] = None,
     ) -> Optional[tuple[float, float, float]]:
         if self.client is None:
             return None
@@ -3678,6 +3679,7 @@ class ControlService:
             image_center_uv=image_center_uv,
             image_scale=image_scale,
             depth_valid=publish_depth,
+            object_world=object_world,
         )
         if freeze_world:
             frozen = self._pick_frozen_world()

@@ -306,33 +306,38 @@ class ControlClient:
         image_center_uv: tuple[float, float],
         image_scale: float,
         depth_valid: bool = True,
+        object_world: Optional[tuple[float, float, float]] = None,
         wait_ack_s: float = 0.08,
     ) -> Optional[tuple[float, float, float]]:
         now = time.time()
         with self._io_lock:
             self.tx_seq += 1
-            if bool(depth_valid):
+            if bool(depth_valid) and object_world is None:
                 self.last_object_world_xyz = None
             try:
-                self.sock.send_json(
-                    {
-                        "t": "target",
-                        "ts": now,
-                        "seq": self.tx_seq,
-                        "source": "perception",
-                        "object_camera": [
-                            float(object_camera_xyz[0]),
-                            float(object_camera_xyz[1]),
-                            float(object_camera_xyz[2]),
-                        ],
-                        "object_label": str(label),
-                        "object_confidence": float(confidence),
-                        "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
-                        "image_scale": float(image_scale),
-                        "depth_valid": bool(depth_valid),
-                    },
-                    flags=zmq.NOBLOCK,
-                )
+                payload: dict[str, Any] = {
+                    "t": "target",
+                    "ts": now,
+                    "seq": self.tx_seq,
+                    "source": "perception",
+                    "object_camera": [
+                        float(object_camera_xyz[0]),
+                        float(object_camera_xyz[1]),
+                        float(object_camera_xyz[2]),
+                    ],
+                    "object_label": str(label),
+                    "object_confidence": float(confidence),
+                    "image_center_uv": [float(image_center_uv[0]), float(image_center_uv[1])],
+                    "image_scale": float(image_scale),
+                    "depth_valid": bool(depth_valid),
+                }
+                if object_world is not None:
+                    payload["object_world"] = [
+                        float(object_world[0]),
+                        float(object_world[1]),
+                        float(object_world[2]),
+                    ]
+                self.sock.send_json(payload, flags=zmq.NOBLOCK)
             except zmq.ZMQError as exc:
                 self.is_connected = False
                 self.last_reply_ok = False

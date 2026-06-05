@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import sys
 from typing import Optional
 
 import glfw
@@ -114,6 +115,12 @@ class ControlPanel:
             raise SystemExit("glfw.init() failed.")
 
         glfw.window_hint(glfw.RESIZABLE, True)
+        if sys.platform == "darwin":
+            # pyimgui programmable pipeline renderer is stable on macOS with an explicit 3.3 core context.
+            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+            glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
         win_w = 800
         win_h = 600
         monitor = glfw.get_primary_monitor()
