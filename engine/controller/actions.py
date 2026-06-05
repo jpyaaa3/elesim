@@ -2300,9 +2300,20 @@ class ControlService:
                 )
                 return
             sag_model = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
-            label = "pre-grasp refine"
-            target_world = tuple(self._pick_look_ready_pose_world_xyz)
+            label = "pre-grasp"
             dir_tuple = self._pick_look_dir_world
+            target_world = self._compute_pick_ready_pose(
+                tuple(float(v) for v in object_world),
+                direction=dir_tuple,
+            )
+            if target_world is None:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="cannot compute pre-grasp target",
+                )
+                return
 
         if dir_tuple is None:
             self.state.set_pick_status(

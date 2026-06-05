@@ -87,7 +87,7 @@ class TestLookViewPoseResolver(unittest.TestCase):
         self.assertTrue(svc.state.pick_failed)
         self.assertIn("run Look first", str(svc.state.pick_status_msg))
 
-    def test_start_ready_uncorrected_uses_look_latch(self) -> None:
+    def test_start_ready_uncorrected_uses_ready_standoff(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._pick_look_object_world_xyz = (0.5, 0.0, 0.2)
@@ -98,8 +98,9 @@ class TestLookViewPoseResolver(unittest.TestCase):
         mock_solve.assert_called_once()
         kwargs = mock_solve.call_args.kwargs
         self.assertFalse(kwargs["resolve_dir"])
-        self.assertEqual(kwargs["label"], "pre-grasp refine")
-        self.assertEqual(kwargs["target_world"], (0.20, 0.0, 0.2))
+        self.assertEqual(kwargs["label"], "pre-grasp")
+        # Look latch is at look standoff (0.30m); Ready approaches to ready standoff (0.20m).
+        self.assertEqual(kwargs["target_world"], (0.30, 0.0, 0.2))
         self.assertEqual(tuple(float(v) for v in kwargs["preferred_dir"]), (1.0, 0.0, 0.0))
 
 
