@@ -17,21 +17,6 @@ def _draw_ready_pose_dir_editor(panel) -> None:
         panel.state.visual_ready_distance_m = max(0.0, float(ready_dist))
         panel.service.send_ready_pose_meta(source="target")
 
-    dir_ret = imgui.input_float3(
-        "ready target dir",
-        panel.state.visual_target_dir_x,
-        panel.state.visual_target_dir_y,
-        panel.state.visual_target_dir_z,
-        format="%.3f",
-    )
-    if isinstance(dir_ret, tuple) and len(dir_ret) == 2:
-        changed_dir, (vx, vy, vz) = dir_ret
-    else:
-        changed_dir, vx, vy, vz = dir_ret
-    if changed_dir:
-        panel.state.set_visual_target_dir(float(vx), float(vy), float(vz))
-        panel.service.send_ready_pose_meta(source="target")
-
 
 def _build_perception_config(panel) -> PerceptionConfig:
     return PerceptionConfig(

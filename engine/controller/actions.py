@@ -969,16 +969,23 @@ class ControlService:
             )
 
     def send_ready_pose_meta(self, *, source: str = "target") -> None:
-        if self.client is not None:
-            self.client.send_ready_pose_meta(
-                target_dir=(
-                    float(self.state.visual_target_dir_x),
-                    float(self.state.visual_target_dir_y),
-                    float(self.state.visual_target_dir_z),
-                ),
-                standoff_m=float(self.state.visual_ready_distance_m),
-                source=source,
-            )
+        if self.client is None:
+            return
+        dir_tuple = self._pick_ready_direction()
+        if dir_tuple is None:
+            with self.state._lock:
+                dir_tuple = (
+                    float(self.state.target_vx),
+                    float(self.state.target_vy),
+                    float(self.state.target_vz),
+                )
+            if float(np.linalg.norm(dir_tuple)) <= 1e-9:
+                return
+        self.client.send_ready_pose_meta(
+            target_dir=dir_tuple,
+            standoff_m=float(self.state.visual_ready_distance_m),
+            source=source,
+        )
 
     def send_sag_model_meta(self, *, source: str = "target") -> None:
         if self.client is not None:
@@ -1349,29 +1356,90 @@ class ControlService:
             return tuple(self.state.perception_world_xyz)
         return None
 
-    def _pick_requested_ready_direction(self) -> tuple[float, float, float]:
-        return (
-            float(self.state.visual_target_dir_x),
-            float(self.state.visual_target_dir_y),
-            float(self.state.visual_target_dir_z),
-        )
+    def _pick_current_tip_world(
+        self, *, host_state: Optional[HostState] = None
+    ) -> Optional[tuple[float, float, float]]:
+        try:
+            base_sag = (
+                dict(self.state.raw_sag_model)
+                if isinstance(self.state.raw_sag_model, dict)
+                else {}
+            )
+            model = self._pick_reach_model(base_sag)
+            if host_state is None and self.client is not None:
+                host_state = self.client.refresh_state()
+            q0 = self._q_array_from_state(host_state)
+            tip = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+            return (float(tip[0]), float(tip[1]), float(tip[2]))
+        except Exception:
+            return None
 
-    def _pick_ready_direction(self) -> tuple[float, float, float]:
+    def _pick_auto_preferred_dir(
+        self,
+        object_world: tuple[float, float, float],
+        *,
+        tip_world: Optional[tuple[float, float, float]] = None,
+    ) -> Optional[tuple[float, float, float]]:
         if self._pick_resolved_ready_dir_world is not None:
             return self._pick_resolved_ready_dir_world
-        return self._pick_requested_ready_direction()
+        if self._pick_look_dir_world is not None:
+            return self._pick_look_dir_world
+        tip = tip_world or self._pick_look_tip_world_xyz
+        if tip is None:
+            tip = self._pick_current_tip_world()
+        if tip is None:
+            return None
+        look_vec = np.asarray(object_world, dtype=float).reshape(3) - np.asarray(tip, dtype=float).reshape(3)
+        look_len = float(np.linalg.norm(look_vec))
+        if look_len <= 1e-6:
+            return None
+        unit = look_vec / look_len
+        return (float(unit[0]), float(unit[1]), float(unit[2]))
+
+    def _pick_ready_direction(
+        self,
+        *,
+        object_world: Optional[tuple[float, float, float]] = None,
+        tip_world: Optional[tuple[float, float, float]] = None,
+    ) -> Optional[tuple[float, float, float]]:
+        if self._pick_resolved_ready_dir_world is not None:
+            return self._pick_resolved_ready_dir_world
+        if self._pick_look_dir_world is not None:
+            return self._pick_look_dir_world
+        obj = (
+            object_world
+            or self._pick_latest_object_world()
+            or self._pick_frozen_world()
+            or self._pick_look_object_world_xyz
+            or self._pick_initial_object_world_xyz
+        )
+        if obj is None:
+            return None
+        return self._pick_auto_preferred_dir(obj, tip_world=tip_world)
 
     def _reset_pick_resolved_ready_state(self) -> None:
         self._pick_resolved_ready_dir_world = None
         self._pick_resolved_ready_pose_world_xyz = None
 
     def _compute_pick_ready_pose(
-        self, object_world: tuple[float, float, float]
+        self,
+        object_world: tuple[float, float, float],
+        *,
+        tip_world: Optional[tuple[float, float, float]] = None,
+        direction: Optional[tuple[float, float, float]] = None,
     ) -> Optional[tuple[float, float, float]]:
+        dir_tuple = direction
+        if dir_tuple is None:
+            dir_tuple = self._pick_ready_direction(
+                object_world=object_world,
+                tip_world=tip_world,
+            )
+        if dir_tuple is None:
+            return None
         try:
             return compute_ready_pose_target(
                 tuple(float(v) for v in object_world),
-                self._pick_ready_direction(),
+                dir_tuple,
                 standoff_m=float(self._pick_config_effective().ready_pose_standoff_m),
             )
         except ValueError:
@@ -1411,7 +1479,10 @@ class ControlService:
         object_world = self._pick_latest_object_world() or self._pick_frozen_world()
         if object_world is None:
             return False
-        ready_pose = self._compute_pick_ready_pose(object_world)
+        ready_pose = self._compute_pick_ready_pose(
+            object_world,
+            tip_world=self._pick_current_tip_world(),
+        )
         if ready_pose is None:
             return False
         self._pick_initial_object_world_xyz = tuple(float(v) for v in object_world)
@@ -1452,18 +1523,19 @@ class ControlService:
             }
         ]
         if corrected_ready is not None:
-            direction = self._pick_ready_direction()
-            markers.append(
-                {
-                    "name": "equal_sag_corrected_ready",
-                    "frame": "world",
-                    "pos": [float(v) for v in corrected_ready],
-                    "dir": [float(v) for v in direction],
-                    "color": [1.0, 0.75, 0.12, 0.95],
-                    "radius": 0.011,
-                    "ttl_ms": 30000,
-                }
-            )
+            direction = self._pick_ready_direction(object_world=corrected_object)
+            if direction is not None:
+                markers.append(
+                    {
+                        "name": "equal_sag_corrected_ready",
+                        "frame": "world",
+                        "pos": [float(v) for v in corrected_ready],
+                        "dir": [float(v) for v in direction],
+                        "color": [1.0, 0.75, 0.12, 0.95],
+                        "radius": 0.011,
+                        "ttl_ms": 30000,
+                    }
+                )
         if centered_ready is not None and drift is not None:
             drift_len = float(np.linalg.norm(np.asarray(drift, dtype=float).reshape(3)))
             markers.append(
@@ -1904,15 +1976,6 @@ class ControlService:
                 msg="no object world coordinate",
             )
             return
-        ready_pose = self._compute_pick_ready_pose(tuple(float(v) for v in object_world))
-        if ready_pose is None:
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="invalid ready target dir",
-            )
-            return
 
         base_sag = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
         try:
@@ -1929,6 +1992,8 @@ class ControlService:
             return
 
         object_arr = np.asarray(object_world, dtype=float).reshape(3)
+        object_tuple = tuple(float(v) for v in object_arr)
+        tip_tuple = tuple(float(v) for v in tip)
         look_vec = object_arr - tip
         look_len = float(np.linalg.norm(look_vec))
         if look_len <= 1e-6:
@@ -2098,10 +2163,21 @@ class ControlService:
                     timeout_s=2.0,
                     sag_model_override=dict(base_sag),
                 )
-                object_tuple = tuple(float(v) for v in object_arr)
-                ready_tuple = tuple(float(v) for v in np.asarray(ready_pose, dtype=float).reshape(3))
-                tip_tuple = tuple(float(v) for v in tip)
                 look_tuple = tuple(float(v) for v in look_dir_used)
+                ready_pose = self._compute_pick_ready_pose(
+                    object_tuple,
+                    tip_world=tip_tuple,
+                    direction=look_tuple,
+                )
+                if ready_pose is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="cannot infer ready direction after look",
+                    )
+                    return
+                ready_tuple = tuple(float(v) for v in ready_pose)
                 self._pick_look_object_world_xyz = object_tuple
                 self._pick_look_ready_pose_world_xyz = ready_tuple
                 self._pick_look_tip_world_xyz = tip_tuple
@@ -2110,7 +2186,7 @@ class ControlService:
                 self._pick_initial_ready_pose_world_xyz = ready_tuple
                 self._pick_frozen_world_xyz = object_tuple
                 ready_arr = np.asarray(ready_tuple, dtype=float).reshape(3)
-                ready_dir = np.asarray(self._pick_ready_direction(), dtype=float).reshape(3)
+                ready_dir = np.asarray(look_dir_used, dtype=float).reshape(3)
                 offset_m = float(np.linalg.norm(object_arr - ready_arr))
                 self._send_ready_pose_markers(
                     object_world=object_tuple,
@@ -2171,7 +2247,6 @@ class ControlService:
             )
             return
         self._pick_stop_event.clear()
-        direction = np.asarray(self._pick_requested_ready_direction(), dtype=float).reshape(3)
         corrected_ready = self._pick_corrected_ready_pose()
         use_corrected = corrected_ready is not None and isinstance(self._pick_equal_sag_model, dict)
         pk = self._pick_config_effective()
@@ -2207,6 +2282,17 @@ class ControlService:
             label = "uncorrected ready pose"
 
         object_tuple = tuple(float(v) for v in object_world)
+        tip_tuple = self._pick_current_tip_world()
+        auto_dir = self._pick_auto_preferred_dir(object_tuple, tip_world=tip_tuple)
+        if auto_dir is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="cannot infer ready direction",
+            )
+            return
+        direction = np.asarray(auto_dir, dtype=float).reshape(3)
         if not bool(resolve_dir):
             try:
                 target_tuple = compute_ready_pose_target(
@@ -3012,7 +3098,23 @@ class ControlService:
             return
 
         target = np.asarray(corrected_ready, dtype=float).reshape(3)
-        direction = np.asarray(self._pick_ready_direction(), dtype=float).reshape(3)
+        corrected_object = self._pick_corrected_object_world_xyz
+        dir_tuple = self._pick_ready_direction(
+            object_world=(
+                tuple(float(v) for v in corrected_object)
+                if corrected_object is not None
+                else None
+            ),
+        )
+        if dir_tuple is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="cannot infer ready direction for tweak",
+            )
+            return
+        direction = np.asarray(dir_tuple, dtype=float).reshape(3)
         dnorm = float(np.linalg.norm(direction))
         if dnorm > 1e-9:
             direction = direction / dnorm

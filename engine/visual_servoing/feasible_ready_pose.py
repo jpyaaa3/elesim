@@ -77,7 +77,7 @@ class _EvaluatedCandidate:
     rank: _RankKey
 
 
-def _user_preferred_candidate(
+def _seed_preferred_candidate(
     object_world: Sequence[float],
     preferred_dir: Sequence[float],
     *,
@@ -101,7 +101,7 @@ def _user_preferred_candidate(
     return ViewPregraspCandidate(
         pregrasp_world=(float(ready[0]), float(ready[1]), float(ready[2])),
         look_dir_world=(float(look[0]), float(look[1]), float(look[2])),
-        tag="user_preferred",
+        tag="seed_preferred",
     )
 
 
@@ -128,14 +128,14 @@ def _build_candidates(
 
     seen_tags: set[str] = set()
     out: list[ViewPregraspCandidate] = []
-    user_cand = _user_preferred_candidate(
+    seed_cand = _seed_preferred_candidate(
         object_world,
         preferred_unit,
         standoff_m=float(standoff_m),
     )
-    if user_cand is not None:
-        out.append(user_cand)
-        seen_tags.add(user_cand.tag)
+    if seed_cand is not None:
+        out.append(seed_cand)
+        seen_tags.add(seed_cand.tag)
 
     for cand in grid:
         if cand.tag in seen_tags:
@@ -317,13 +317,13 @@ def resolve_feasible_ready_pose(
             view_limits=limits,
         )
 
-    user_cand = candidates[0] if candidates[0].tag == "user_preferred" else None
-    user_row: Optional[_EvaluatedCandidate] = None
-    if user_cand is not None:
-        user_row = _eval_one(user_cand)
-        if user_row is not None and float(user_row.ik_result.direction_angle_rad) <= skip_search_under_rad:
-            resolved_dir = tuple(float(v) for v in user_cand.look_dir_world)
-            resolved_target = tuple(float(v) for v in user_cand.pregrasp_world)
+    seed_cand = candidates[0] if candidates[0].tag == "seed_preferred" else None
+    seed_row: Optional[_EvaluatedCandidate] = None
+    if seed_cand is not None:
+        seed_row = _eval_one(seed_cand)
+        if seed_row is not None and float(seed_row.ik_result.direction_angle_rad) <= skip_search_under_rad:
+            resolved_dir = tuple(float(v) for v in seed_cand.look_dir_world)
+            resolved_target = tuple(float(v) for v in seed_cand.pregrasp_world)
             look_unit = _normalize(resolved_dir)
             delta_deg = (
                 float(math.degrees(math.acos(float(np.clip(np.dot(look_unit, preferred_unit), -1.0, 1.0)))))
@@ -334,21 +334,21 @@ def resolve_feasible_ready_pose(
                 success=True,
                 resolved_target=resolved_target,
                 resolved_dir=resolved_dir,
-                q=np.asarray(user_row.ik_result.q, dtype=float).reshape(4).copy(),
-                direction_angle_rad=float(user_row.ik_result.direction_angle_rad),
-                candidate_tag=str(user_cand.tag),
+                q=np.asarray(seed_row.ik_result.q, dtype=float).reshape(4).copy(),
+                direction_angle_rad=float(seed_row.ik_result.direction_angle_rad),
+                candidate_tag=str(seed_cand.tag),
                 requested_dir=requested_dir,
                 user_dir_delta_deg=delta_deg,
                 evaluated_count=evaluated_count,
                 best_rejected_dir_err_deg=float(math.degrees(best_rejected_dir_err_rad)),
-                position_error_m=float(user_row.ik_result.position_error_m),
-                camera_score=float(user_row.camera_score),
+                position_error_m=float(seed_row.ik_result.position_error_m),
+                camera_score=float(seed_row.camera_score),
                 reason="fast_path",
             )
-        if user_row is not None:
-            best_pass = user_row
+        if seed_row is not None:
+            best_pass = seed_row
 
-    start_idx = 1 if user_cand is not None else 0
+    start_idx = 1 if seed_cand is not None else 0
     for cand in candidates[start_idx:]:
         row = _eval_one(cand)
         if row is None:

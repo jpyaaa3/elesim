@@ -42,7 +42,7 @@ def _ok_result(*, q: np.ndarray, dir_deg: float, pos_err: float = 0.001) -> _Stu
 
 
 class TestFeasibleReadyPoseCandidates(unittest.TestCase):
-    def test_build_candidates_include_user_preferred(self) -> None:
+    def test_build_candidates_include_seed_preferred(self) -> None:
         obj = (0.5, 0.0, 0.2)
         preferred = (1.0, 0.0, 0.0)
         cands = _build_candidates(
@@ -53,7 +53,7 @@ class TestFeasibleReadyPoseCandidates(unittest.TestCase):
             height_offsets_m=(0.0,),
         )
         self.assertGreaterEqual(len(cands), 1)
-        self.assertEqual(cands[0].tag, "user_preferred")
+        self.assertEqual(cands[0].tag, "seed_preferred")
         ready = np.asarray(cands[0].pregrasp_world, dtype=float)
         self.assertAlmostEqual(float(ready[0]), 0.30, places=3)
         self.assertAlmostEqual(float(ready[1]), 0.0, places=3)
@@ -90,7 +90,7 @@ class TestResolveFeasibleReadyPose(unittest.TestCase):
         )
         self.assertTrue(result.success)
         self.assertEqual(result.reason, "fast_path")
-        self.assertEqual(result.candidate_tag, "user_preferred")
+        self.assertEqual(result.candidate_tag, "seed_preferred")
         self.assertEqual(calls, ["user"])
 
     def test_grid_selects_best_ranked_candidate(self) -> None:

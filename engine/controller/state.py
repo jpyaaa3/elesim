@@ -56,9 +56,6 @@ class PanelState:
     visual_confidence_min: float = 0.0
     visual_target_label: str = ""
     visual_ready_distance_m: float = 0.20
-    visual_target_dir_x: float = 1.0
-    visual_target_dir_y: float = 0.0
-    visual_target_dir_z: float = 0.0
 
     perception_running: bool = False
     perception_failed: bool = False
@@ -178,12 +175,6 @@ class PanelState:
             self.target_vx = float(vx)
             self.target_vy = float(vy)
             self.target_vz = float(vz)
-
-    def set_visual_target_dir(self, vx: float, vy: float, vz: float) -> None:
-        with self._lock:
-            self.visual_target_dir_x = float(vx)
-            self.visual_target_dir_y = float(vy)
-            self.visual_target_dir_z = float(vz)
 
     def set_sag_model(self, model_path: str, sag_model: dict[str, Any]) -> None:
         with self._lock:
