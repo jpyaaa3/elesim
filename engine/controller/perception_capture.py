@@ -277,9 +277,7 @@ class PerceptionCapture:
         except Exception as exc:
             self._set_snapshot(running=False, failed=True, status_msg=str(exc))
         finally:
-            if show_preview:
-                from perception.preview import close_preview  # type: ignore[import-not-found]
-
+            if enable_preview:
                 close_preview(_PREVIEW_WINDOW)
 
     def _fallback_p_camera(self, detector_cfg: dict) -> tuple[float, float, float]:
