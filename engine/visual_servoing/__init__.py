@@ -58,6 +58,7 @@ from .pick_visual_servo import (
     stack_jacobian,
 )
 from .feasible_ready_pose import FeasibleReadyPoseResult, resolve_feasible_ready_pose
+from .feasible_look_pose import FeasibleLookPoseResult, resolve_feasible_look_pose
 from .ready_pose import compute_ready_pose_target
 from .uv_jacobian import (
     UV_CONTROL_AXIS_NAMES,
@@ -92,8 +93,10 @@ __all__ = [
     "compute_jacobian_look_delta_q",
     "compute_look_delta_q",
     "FeasibleReadyPoseResult",
+    "FeasibleLookPoseResult",
     "compute_ready_pose_target",
     "resolve_feasible_ready_pose",
+    "resolve_feasible_look_pose",
     "damped_pseudoinverse",
     "default_uv_jacobian",
     "error_vector_2d",

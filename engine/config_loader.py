@@ -191,6 +191,15 @@ class PickConfig:
     ready_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     ready_pose_look_dot_min: float = 0.85
 
+    # Look phase: explore a feasible tip grasp direction when the desired direction
+    # (tip->object) cannot be achieved due to joint constraints.
+    look_pose_resolve_dir: bool = True
+    look_pose_max_dir_error_deg: float = 10.0
+    look_pose_skip_search_under_deg: float = 5.0
+    look_pose_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
+    look_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
+    look_pose_look_dot_min: float = 0.85
+
 
 @dataclass(frozen=True)
 class AppConfigBundle:
@@ -436,6 +445,26 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         ready_pose_look_dot_min=cp.getfloat(
             "pick", "ready_pose_look_dot_min", fallback=pk0.ready_pose_look_dot_min
+        ),
+        look_pose_resolve_dir=cp.getboolean(
+            "pick", "look_pose_resolve_dir", fallback=pk0.look_pose_resolve_dir
+        ),
+        look_pose_max_dir_error_deg=cp.getfloat(
+            "pick", "look_pose_max_dir_error_deg", fallback=pk0.look_pose_max_dir_error_deg
+        ),
+        look_pose_skip_search_under_deg=cp.getfloat(
+            "pick", "look_pose_skip_search_under_deg", fallback=pk0.look_pose_skip_search_under_deg
+        ),
+        look_pose_lateral_offsets_m=_parse_float_list(
+            cp.get("pick", "look_pose_lateral_offsets_m", fallback=""),
+            pk0.look_pose_lateral_offsets_m,
+        ),
+        look_pose_height_offsets_m=_parse_float_list(
+            cp.get("pick", "look_pose_height_offsets_m", fallback=""),
+            pk0.look_pose_height_offsets_m,
+        ),
+        look_pose_look_dot_min=cp.getfloat(
+            "pick", "look_pose_look_dot_min", fallback=pk0.look_pose_look_dot_min
         ),
     )
 
