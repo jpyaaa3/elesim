@@ -1,8 +1,43 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import imgui
 
-from engine.config_loader import PerceptionConfig
+from engine.config_loader import PerceptionConfig, PROJECT_ROOT
+from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
+
+
+def _draw_mock_object_editor(panel) -> None:
+    if str(panel._perception_mode_draft).strip().lower() != "mock":
+        return
+
+    imgui.separator()
+    imgui.text("Mock Object Control (world [m])")
+    mx, my, mz = panel.state.mock_object_world_xyz()
+    changed = False
+
+    ch_x, val_x = imgui.input_float("mock x", float(mx), step=0.01, step_fast=0.05, format="%.3f")
+    if ch_x:
+        mx = float(val_x)
+        changed = True
+
+    ch_y, val_y = imgui.input_float("mock y", float(my), step=0.01, step_fast=0.05, format="%.3f")
+    if ch_y:
+        my = float(val_y)
+        changed = True
+
+    ch_z, val_z = imgui.input_float("mock z", float(mz), step=0.01, step_fast=0.05, format="%.3f")
+    if ch_z:
+        mz = float(val_z)
+        changed = True
+
+    if changed:
+        panel.service.set_mock_object_world(mx, my, mz)
+        panel.service.publish_mock_object_world()
+
+    if imgui.button("Publish Mock Object"):
+        panel.service.publish_mock_object_world()
 
 
 def _draw_ready_pose_dir_editor(panel) -> None:
@@ -59,6 +94,12 @@ def draw_perception_panel(panel) -> None:
     )
     if changed_path:
         panel._perception_config_path_draft = str(path_draft).strip()
+        cfg_path = Path(panel._perception_config_path_draft)
+        if not cfg_path.is_absolute():
+            cfg_path = PROJECT_ROOT / cfg_path
+        mock_xyz = load_mock_world_xyz_from_detector_path(cfg_path)
+        if mock_xyz is not None:
+            panel.state.set_mock_object_world_xyz(*mock_xyz)
 
     changed_mode, mode_idx = imgui.combo(
         "mode",
@@ -67,6 +108,8 @@ def draw_perception_panel(panel) -> None:
     )
     if changed_mode:
         panel._perception_mode_draft = "camera" if int(mode_idx) == 0 else "mock"
+
+    _draw_mock_object_editor(panel)
 
     changed_label, label_draft = imgui.input_text(
         "target label",

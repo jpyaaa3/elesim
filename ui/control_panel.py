@@ -10,6 +10,7 @@ from imgui.integrations.glfw import GlfwRenderer
 
 from engine.controller import ControlService, HostState, PanelState
 from engine.config_loader import PerceptionConfig, PickConfig
+from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
 
 from .panels import (
     draw_control_4dof_panel,
@@ -60,6 +61,9 @@ class ControlPanel:
         self.state.visual_scale_tol = float(pk.scale_tol)
         self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
         self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
+        mock_xyz = load_mock_world_xyz_from_detector_path(pc.resolved_detector_config_path())
+        if mock_xyz is not None:
+            self.state.set_mock_object_world_xyz(*mock_xyz)
         self._ctrl_window_init = False
         self._port_input = ""
         self._host_state: Optional[HostState] = None

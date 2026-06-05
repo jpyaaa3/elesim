@@ -45,6 +45,23 @@ def _parse_mock_world_xyz(detector_cfg: dict[str, Any]) -> Optional[tuple[float,
         return None
 
 
+def load_mock_world_xyz_from_detector_path(path: str | Path) -> Optional[tuple[float, float, float]]:
+    """Read ``mock_world_xyz`` from a detector JSON file, if present."""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    try:
+        import json
+
+        with open(p, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if isinstance(cfg, dict):
+            return _parse_mock_world_xyz(cfg)
+    except Exception:
+        return None
+    return None
+
+
 def _bbox_tracker_from_config(cfg: PerceptionConfig) -> Any:
     from perception.visual_tracker import BboxTracker, CsrtTrackerTuning  # type: ignore[import-not-found]
 
@@ -89,11 +106,13 @@ class PerceptionCapture:
         publish_fn: Callable[..., Optional[tuple[float, float, float]]],
         on_snapshot: Optional[Callable[[PerceptionSnapshot], None]] = None,
         target_uv_fn: Optional[Callable[[], Tuple[float, float]]] = None,
+        mock_world_xyz_fn: Optional[Callable[[], Optional[tuple[float, float, float]]]] = None,
     ) -> None:
         self._config = config
         self._publish_fn = publish_fn
         self._on_snapshot = on_snapshot
         self._target_uv_fn = target_uv_fn
+        self._mock_world_xyz_fn = mock_world_xyz_fn
         self._stop_event = threading.Event()
         self._refresh_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -293,6 +312,16 @@ class PerceptionCapture:
             if enable_preview:
                 close_preview(_PREVIEW_WINDOW)
 
+    def _resolve_mock_world(self, detector_cfg: dict[str, Any]) -> Optional[tuple[float, float, float]]:
+        if self._mock_world_xyz_fn is not None:
+            try:
+                raw = self._mock_world_xyz_fn()
+                if raw is not None and len(raw) == 3:
+                    return (float(raw[0]), float(raw[1]), float(raw[2]))
+            except Exception:
+                pass
+        return _parse_mock_world_xyz(detector_cfg)
+
     def _fallback_p_camera(self, detector_cfg: dict) -> tuple[float, float, float]:
         snap = self.snapshot()
         if snap.p_camera is not None:
@@ -323,7 +352,7 @@ class PerceptionCapture:
         msg = str(status_msg)
         if not depth_valid:
             msg = f"{msg} | depth invalid (uv/scale only)"
-        mock_world = _parse_mock_world_xyz(detector_cfg or {})
+        mock_world = self._resolve_mock_world(detector_cfg or {})
         if mock_world is not None:
             msg = f"{msg} | mock_world_xyz"
         p_world = self._publish_fn(

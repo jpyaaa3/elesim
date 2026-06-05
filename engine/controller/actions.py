@@ -3868,6 +3868,7 @@ class ControlService:
                 float(self.state.visual_target_uv_u),
                 float(self.state.visual_target_uv_v),
             ),
+            mock_world_xyz_fn=self._mock_world_xyz_from_state,
         )
         self.state.set_perception_status(running=True, failed=False, msg="starting")
         self._perception_capture.start()
@@ -3895,6 +3896,48 @@ class ControlService:
     def update_perception_config(self, config: PerceptionConfig) -> None:
         self._perception_cfg = config
         self.state.visual_target_label = str(config.target_label).strip()
+
+    def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:
+        return self.state.mock_object_world_xyz()
+
+    def set_mock_object_world(self, x: float, y: float, z: float) -> None:
+        self.state.set_mock_object_world_xyz(float(x), float(y), float(z))
+
+    def publish_mock_object_world(self) -> bool:
+        """Push current mock object world XYZ to host (updates sim marker)."""
+        if self.client is None:
+            return False
+        world_xyz = self.state.mock_object_world_xyz()
+        camera_xyz = self.state.perception_camera_xyz
+        if camera_xyz is None:
+            camera_xyz = (0.0, 0.0, 0.65)
+        label = str(self.state.perception_label).strip() or str(self.state.visual_target_label).strip() or "mock_object"
+        confidence = float(self.state.perception_confidence)
+        if confidence <= 0.0:
+            confidence = 1.0
+        image_scale = float(self.state.perception_image_scale)
+        if image_scale <= 0.0:
+            image_scale = float(self._pick_config_effective().target_scale)
+        p_world = self._publish_perception_to_host(
+            object_camera_xyz=tuple(float(v) for v in camera_xyz),
+            label=label,
+            confidence=confidence,
+            image_center_uv=(0.0, 0.0),
+            image_scale=image_scale,
+            depth_valid=True,
+            object_world=world_xyz,
+        )
+        ack_xyz = p_world if p_world is not None else world_xyz
+        self.state.set_perception_status(
+            running=bool(self.state.perception_running),
+            failed=False,
+            msg="mock object moved",
+            world_xyz=ack_xyz,
+            label=label,
+            confidence=confidence,
+            camera_xyz=camera_xyz,
+        )
+        return p_world is not None
 
     def close(self) -> None:
         self.stop_object_pick()

@@ -72,6 +72,10 @@ class PanelState:
     perception_bbox_wh: tuple[int, int] = (0, 0)
     perception_tracker_backend: str = ""
 
+    mock_object_x: float = 0.5
+    mock_object_y: float = 0.0
+    mock_object_z: float = 1.2
+
     pick_running: bool = False
     pick_failed: bool = False
     pick_phase: str = "idle"
@@ -250,6 +254,16 @@ class PanelState:
 
     def clear_perception_status(self) -> None:
         self.set_perception_status(running=False, failed=False, msg="")
+
+    def mock_object_world_xyz(self) -> tuple[float, float, float]:
+        with self._lock:
+            return (float(self.mock_object_x), float(self.mock_object_y), float(self.mock_object_z))
+
+    def set_mock_object_world_xyz(self, x: float, y: float, z: float) -> None:
+        with self._lock:
+            self.mock_object_x = float(x)
+            self.mock_object_y = float(y)
+            self.mock_object_z = float(z)
 
     def set_pick_status(
         self,
