@@ -20,7 +20,6 @@ from engine.visual_servoing.equal_sag_probe import (
     estimate_equal_sag_from_ready_pose_drift,
 )
 from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
-from engine.visual_servoing.feasible_look_pose import resolve_feasible_look_pose
 from engine.visual_servoing.uv_jacobian import (
     broyden_update_uv_jacobian,
     default_uv_jacobian,
@@ -1700,6 +1699,7 @@ class ControlService:
         label: str,
         corrected: bool,
         resolve_dir: bool,
+        target_world: Optional[tuple[float, float, float]] = None,
     ) -> None:
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -1822,28 +1822,31 @@ class ControlService:
                     self._pick_resolved_ready_dir_world = tuple(float(v) for v in direction_arr)
                     self._pick_resolved_ready_pose_world_xyz = tuple(float(v) for v in target_arr)
                 else:
-                    try:
-                        target_tuple = compute_ready_pose_target(
-                            object_world,
-                            tuple(float(v) for v in preferred_arr),
-                            standoff_m=float(pk.ready_pose_standoff_m),
-                        )
-                    except ValueError as exc:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg=str(exc),
-                        )
-                        self.state.set_ik_status(
-                            running=False,
-                            converged=False,
-                            failed=True,
-                            err_m=float("inf"),
-                            msg=str(exc),
-                        )
-                        return
-                    target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
+                    if target_world is not None:
+                        target_arr = np.asarray(target_world, dtype=float).reshape(3)
+                    else:
+                        try:
+                            target_tuple = compute_ready_pose_target(
+                                object_world,
+                                tuple(float(v) for v in preferred_arr),
+                                standoff_m=float(pk.ready_pose_standoff_m),
+                            )
+                        except ValueError as exc:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg=str(exc),
+                            )
+                            self.state.set_ik_status(
+                                running=False,
+                                converged=False,
+                                failed=True,
+                                err_m=float("inf"),
+                                msg=str(exc),
+                            )
+                            return
+                        target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
                     direction_arr = preferred_arr
                     result = ik_pipeline.solve_then_align(
                         target_world=target_arr,
@@ -1994,18 +1997,16 @@ class ControlService:
         object_arr = np.asarray(object_world, dtype=float).reshape(3)
         object_tuple = tuple(float(v) for v in object_arr)
         tip_tuple = tuple(float(v) for v in tip)
-        look_vec = object_arr - tip
-        look_len = float(np.linalg.norm(look_vec))
-        if look_len <= 1e-6:
+        auto_dir = self._pick_auto_preferred_dir(object_tuple, tip_world=tip_tuple)
+        if auto_dir is None:
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="object too close to current tip for Look",
+                msg="cannot infer look seed direction",
             )
             return
-
-        look_dir = look_vec / look_len
+        preferred_arr = np.asarray(auto_dir, dtype=float).reshape(3)
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
         ctx["sag_model"] = dict(base_sag)
@@ -2026,12 +2027,16 @@ class ControlService:
             return
 
         self.state.set_target(float(tip[0]), float(tip[1]), float(tip[2]))
-        self.state.set_target_dir(float(look_dir[0]), float(look_dir[1]), float(look_dir[2]))
+        self.state.set_target_dir(
+            float(preferred_arr[0]),
+            float(preferred_arr[1]),
+            float(preferred_arr[2]),
+        )
         self.state.set_pick_status(
             running=True,
             failed=False,
             phase=ObjectPickPhase.LOOK.value,
-            msg="look solving",
+            msg="look resolving feasible view pose",
         )
         self.state.set_ik_status(
             running=True,
@@ -2046,16 +2051,16 @@ class ControlService:
                 pk = self._pick_config_effective()
                 resolve_dir = bool(pk.look_pose_resolve_dir)
                 q: Optional[np.ndarray] = None
-                look_dir_used = look_dir
+                target_arr: Optional[np.ndarray] = None
+                look_dir_used: Optional[np.ndarray] = None
                 err_m = float("inf")
                 align_msg = ""
 
                 if bool(resolve_dir):
-                    resolved = resolve_feasible_look_pose(
-                        tip_world=tip,
-                        object_world=object_arr,
-                        desired_look_dir=look_dir,
-                        standoff_m=float(pk.ready_pose_standoff_m),
+                    resolved = resolve_feasible_ready_pose(
+                        object_world=object_tuple,
+                        preferred_dir=preferred_arr,
+                        standoff_m=float(pk.look_pose_standoff_m),
                         ik_context=ctx,
                         current_seed=q0,
                         position_tol_m=float(self._ik_cfg.tol),
@@ -2068,9 +2073,14 @@ class ControlService:
                         hand_eye_transform=self._hand_eye_transform,
                         hand_eye_parent_frame=self._hand_eye_parent_frame,
                     )
-                    if not resolved.success or resolved.q is None or resolved.resolved_dir is None:
+                    if (
+                        not resolved.success
+                        or resolved.q is None
+                        or resolved.resolved_dir is None
+                        or resolved.resolved_target is None
+                    ):
                         fail_msg = (
-                            "no feasible look dir | best_dir_err=%.1fdeg evaluated=%d"
+                            "no feasible view pose | best_dir_err=%.1fdeg evaluated=%d"
                             % (
                                 float(resolved.best_rejected_dir_err_deg),
                                 int(resolved.evaluated_count),
@@ -2092,6 +2102,7 @@ class ControlService:
                         return
 
                     q = np.asarray(resolved.q, dtype=float).reshape(4)
+                    target_arr = np.asarray(resolved.resolved_target, dtype=float).reshape(3)
                     look_dir_used = np.asarray(resolved.resolved_dir, dtype=float).reshape(3)
                     err_m = float(resolved.position_error_m)
                     align_msg = (
@@ -2104,9 +2115,25 @@ class ControlService:
                         )
                     )
                 else:
+                    try:
+                        target_tuple = compute_ready_pose_target(
+                            object_tuple,
+                            tuple(float(v) for v in preferred_arr),
+                            standoff_m=float(pk.look_pose_standoff_m),
+                        )
+                    except ValueError as exc:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg=str(exc),
+                        )
+                        return
+                    target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
+                    look_dir_used = preferred_arr
                     result = ik_pipeline.solve_then_align(
-                        target_world=tip,
-                        target_dir_world=look_dir,
+                        target_world=target_arr,
+                        target_dir_world=look_dir_used,
                         context=ctx,
                         position_tol_m=float(self._ik_cfg.tol),
                         max_iters=max(int(self._ik_cfg.max_iters), 1),
@@ -2114,7 +2141,6 @@ class ControlService:
                     )
                     if result.success and result.q is not None:
                         q = np.asarray(result.q, dtype=float).reshape(4)
-                        look_dir_used = np.asarray(look_dir, dtype=float).reshape(3)
                         err_m = float(result.position_error_m)
                         align_msg = str(result.reason)
                         if result.align_attempted:
@@ -2139,7 +2165,7 @@ class ControlService:
                         )
                         return
 
-                if q is None:
+                if q is None or target_arr is None or look_dir_used is None:
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
@@ -2148,50 +2174,37 @@ class ControlService:
                     )
                     return
 
-                # Reflect the actual resolved look direction in host markers.
+                look_tuple = tuple(float(v) for v in look_dir_used)
+                view_tuple = tuple(float(v) for v in target_arr)
+                self.state.set_target(float(target_arr[0]), float(target_arr[1]), float(target_arr[2]))
                 self.state.set_target_dir(
                     float(look_dir_used[0]),
                     float(look_dir_used[1]),
                     float(look_dir_used[2]),
                 )
+                self._pick_resolved_ready_dir_world = look_tuple
+                self._pick_resolved_ready_pose_world_xyz = view_tuple
                 self._apply_ik_solution_to_host(
                     q,
-                    ik_target=tip,
+                    ik_target=target_arr,
                     ik_target_dir=look_dir_used,
                     err_m=float(err_m),
                     status_msg="look | " + align_msg,
-                    timeout_s=2.0,
+                    timeout_s=3.0,
                     sag_model_override=dict(base_sag),
                 )
-                look_tuple = tuple(float(v) for v in look_dir_used)
-                ready_pose = self._compute_pick_ready_pose(
-                    object_tuple,
-                    tip_world=tip_tuple,
-                    direction=look_tuple,
-                )
-                if ready_pose is None:
-                    self.state.set_pick_status(
-                        running=False,
-                        failed=True,
-                        phase=ObjectPickPhase.FAILED.value,
-                        msg="cannot infer ready direction after look",
-                    )
-                    return
-                ready_tuple = tuple(float(v) for v in ready_pose)
                 self._pick_look_object_world_xyz = object_tuple
-                self._pick_look_ready_pose_world_xyz = ready_tuple
+                self._pick_look_ready_pose_world_xyz = view_tuple
                 self._pick_look_tip_world_xyz = tip_tuple
                 self._pick_look_dir_world = look_tuple
                 self._pick_initial_object_world_xyz = object_tuple
-                self._pick_initial_ready_pose_world_xyz = ready_tuple
+                self._pick_initial_ready_pose_world_xyz = view_tuple
                 self._pick_frozen_world_xyz = object_tuple
-                ready_arr = np.asarray(ready_tuple, dtype=float).reshape(3)
-                ready_dir = np.asarray(look_dir_used, dtype=float).reshape(3)
-                offset_m = float(np.linalg.norm(object_arr - ready_arr))
+                offset_m = float(np.linalg.norm(object_arr - target_arr))
                 self._send_ready_pose_markers(
                     object_world=object_tuple,
-                    target=ready_arr,
-                    direction=ready_dir,
+                    target=target_arr,
+                    direction=look_dir_used,
                     actual_offset_m=offset_m,
                     corrected=False,
                 )
@@ -2201,26 +2214,29 @@ class ControlService:
                     failed=False,
                     phase=ObjectPickPhase.DONE.value,
                     msg=(
-                        "look done | baseline ready=(%.3f, %.3f, %.3f)"
-                        % (float(ready_arr[0]), float(ready_arr[1]), float(ready_arr[2]))
+                        "look done | view_pose=(%.3f, %.3f, %.3f) standoff=%.0fmm"
+                        % (
+                            float(target_arr[0]),
+                            float(target_arr[1]),
+                            float(target_arr[2]),
+                            float(pk.look_pose_standoff_m) * 1000.0,
+                        )
                     ),
                 )
                 print(
-                    "[Pick] look done | object=(%.3f, %.3f, %.3f) tip=(%.3f, %.3f, %.3f) "
-                    "look_dir=(%.3f, %.3f, %.3f) baseline_ready=(%.3f, %.3f, %.3f)"
+                    "[Pick] look done | object=(%.3f, %.3f, %.3f) view_pose=(%.3f, %.3f, %.3f) "
+                    "look_dir=(%.3f, %.3f, %.3f) standoff=%.0fmm"
                     % (
                         float(object_arr[0]),
                         float(object_arr[1]),
                         float(object_arr[2]),
-                        float(tip[0]),
-                        float(tip[1]),
-                        float(tip[2]),
+                        float(target_arr[0]),
+                        float(target_arr[1]),
+                        float(target_arr[2]),
                         float(look_dir_used[0]),
                         float(look_dir_used[1]),
                         float(look_dir_used[2]),
-                        float(ready_arr[0]),
-                        float(ready_arr[1]),
-                        float(ready_arr[2]),
+                        float(pk.look_pose_standoff_m) * 1000.0,
                     )
                 )
             finally:
@@ -2246,11 +2262,17 @@ class ControlService:
                 msg="no host client",
             )
             return
+        if self._pick_look_ready_pose_world_xyz is None or self._pick_look_dir_world is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="run Look first",
+            )
+            return
         self._pick_stop_event.clear()
         corrected_ready = self._pick_corrected_ready_pose()
         use_corrected = corrected_ready is not None and isinstance(self._pick_equal_sag_model, dict)
-        pk = self._pick_config_effective()
-        resolve_dir = bool(pk.ready_pose_resolve_dir)
         if use_corrected:
             object_world = self._pick_corrected_object_world_xyz
             if object_world is None:
@@ -2262,112 +2284,45 @@ class ControlService:
                 )
                 return
             sag_model = dict(self._pick_equal_sag_model)
-            label = "corrected ready pose"
-        else:
-            object_world = (
-                self._pick_latest_object_world()
-                or self._pick_frozen_world()
-                or self._pick_look_object_world_xyz
-                or self._pick_initial_object_world_xyz
+            label = "corrected pre-grasp"
+            target_world = tuple(float(v) for v in corrected_ready)
+            dir_tuple = self._pick_ready_direction(
+                object_world=tuple(float(v) for v in object_world),
             )
+        else:
+            object_world = self._pick_look_object_world_xyz
             if object_world is None:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="no object world coordinate",
+                    msg="run Look first",
                 )
                 return
             sag_model = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
-            label = "uncorrected ready pose"
+            label = "pre-grasp refine"
+            target_world = tuple(self._pick_look_ready_pose_world_xyz)
+            dir_tuple = self._pick_look_dir_world
 
-        object_tuple = tuple(float(v) for v in object_world)
-        tip_tuple = self._pick_current_tip_world()
-        auto_dir = self._pick_auto_preferred_dir(object_tuple, tip_world=tip_tuple)
-        if auto_dir is None:
+        if dir_tuple is None:
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="cannot infer ready direction",
+                msg="cannot infer pre-grasp direction",
             )
             return
-        direction = np.asarray(auto_dir, dtype=float).reshape(3)
-        if not bool(resolve_dir):
-            try:
-                target_tuple = compute_ready_pose_target(
-                    object_tuple,
-                    tuple(float(v) for v in direction),
-                    standoff_m=float(pk.ready_pose_standoff_m),
-                )
-            except ValueError as exc:
-                self.state.set_pick_status(
-                    running=False,
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg=str(exc),
-                )
-                return
-            target = np.asarray(target_tuple, dtype=float).reshape(3)
-            actual_offset_m = float(
-                np.linalg.norm(np.asarray(object_tuple, dtype=float).reshape(3) - target)
-            )
-            self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
-            self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
-            self.send_ready_pose_meta(source="target")
-            self._send_ready_pose_markers(
-                object_world=object_tuple,
-                target=target,
-                direction=direction,
-                actual_offset_m=actual_offset_m,
-                corrected=bool(use_corrected),
-            )
-            self.state.set_pick_status(
-                running=False,
-                failed=False,
-                phase=ObjectPickPhase.IDLE.value,
-                msg=(
-                    "%s | object=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) "
-                    "standoff=%.0fmm actual=%.0fmm"
-                    % (
-                        str(label),
-                        float(object_tuple[0]),
-                        float(object_tuple[1]),
-                        float(object_tuple[2]),
-                        float(target[0]),
-                        float(target[1]),
-                        float(target[2]),
-                        float(pk.ready_pose_standoff_m) * 1000.0,
-                        float(actual_offset_m) * 1000.0,
-                    )
-                ),
-            )
-            print(
-                "[Pick] %s | object=(%.3f, %.3f, %.3f) target=(%.3f, %.3f, %.3f) "
-                "dir=(%.3f, %.3f, %.3f) standoff=%.0fmm actual=%.0fmm"
-                % (
-                    str(label),
-                    float(object_tuple[0]),
-                    float(object_tuple[1]),
-                    float(object_tuple[2]),
-                    float(target[0]),
-                    float(target[1]),
-                    float(target[2]),
-                    float(direction[0]),
-                    float(direction[1]),
-                    float(direction[2]),
-                    float(pk.ready_pose_standoff_m) * 1000.0,
-                    float(actual_offset_m) * 1000.0,
-                )
-            )
 
+        object_tuple = tuple(float(v) for v in object_world)
+        direction = np.asarray(dir_tuple, dtype=float).reshape(3)
         self._start_ready_pose_resolve_and_solve(
             object_world=object_tuple,
             preferred_dir=direction,
             sag_model=sag_model,
             label=label,
             corrected=bool(use_corrected),
-            resolve_dir=bool(resolve_dir),
+            resolve_dir=False,
+            target_world=target_world,
         )
 
     def _latch_pick_frozen_world(self) -> None:
@@ -2436,6 +2391,7 @@ class ControlService:
             ready_pose_lateral_offsets_m=tuple(pk.ready_pose_lateral_offsets_m),
             ready_pose_height_offsets_m=tuple(pk.ready_pose_height_offsets_m),
             ready_pose_look_dot_min=float(pk.ready_pose_look_dot_min),
+            look_pose_standoff_m=float(self.state.visual_look_distance_m),
             look_pose_resolve_dir=bool(pk.look_pose_resolve_dir),
             look_pose_max_dir_error_deg=float(pk.look_pose_max_dir_error_deg),
             look_pose_skip_search_under_deg=float(pk.look_pose_skip_search_under_deg),

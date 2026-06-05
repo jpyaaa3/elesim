@@ -50,6 +50,7 @@ def main() -> None:
     state.visual_target_uv_v = float(pick_cfg.target_uv_v)
     state.visual_scale_tol = float(pick_cfg.scale_tol)
     state.visual_ready_distance_m = float(pick_cfg.ready_pose_standoff_m)
+    state.visual_look_distance_m = float(pick_cfg.look_pose_standoff_m)
 
     service = ControlService(
         state,

@@ -191,8 +191,8 @@ class PickConfig:
     ready_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     ready_pose_look_dot_min: float = 0.85
 
-    # Look phase: explore a feasible tip grasp direction when the desired direction
-    # (tip->object) cannot be achieved due to joint constraints.
+    # Look phase: move to a feasible view pregrasp pose (tip looks at object).
+    look_pose_standoff_m: float = 0.30
     look_pose_resolve_dir: bool = True
     look_pose_max_dir_error_deg: float = 10.0
     look_pose_skip_search_under_deg: float = 5.0
@@ -445,6 +445,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         ready_pose_look_dot_min=cp.getfloat(
             "pick", "ready_pose_look_dot_min", fallback=pk0.ready_pose_look_dot_min
+        ),
+        look_pose_standoff_m=cp.getfloat(
+            "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m
         ),
         look_pose_resolve_dir=cp.getboolean(
             "pick", "look_pose_resolve_dir", fallback=pk0.look_pose_resolve_dir

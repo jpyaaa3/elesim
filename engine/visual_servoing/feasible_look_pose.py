@@ -1,9 +1,7 @@
-"""Search for a robot-feasible Look direction.
+"""Deprecated: tip-fixed look direction search.
 
-Look phase aims to rotate the tip grasp direction to point toward the object.
-However, the desired direction might be infeasible under current joint constraints.
-This resolver explores nearby directions (via view-pregrasp candidates) and selects
-the best feasible candidate.
+Look now uses resolve_feasible_ready_pose (view pregrasp move) from actions.start_look.
+This module is kept for reference/tests only.
 """
 
 from __future__ import annotations

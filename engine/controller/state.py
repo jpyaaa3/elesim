@@ -56,6 +56,7 @@ class PanelState:
     visual_confidence_min: float = 0.0
     visual_target_label: str = ""
     visual_ready_distance_m: float = 0.20
+    visual_look_distance_m: float = 0.30
 
     perception_running: bool = False
     perception_failed: bool = False

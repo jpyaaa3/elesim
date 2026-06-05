@@ -59,6 +59,7 @@ class ControlPanel:
         self.state.visual_target_uv_v = float(pk.target_uv_v)
         self.state.visual_scale_tol = float(pk.scale_tol)
         self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
+        self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
         self._ctrl_window_init = False
         self._port_input = ""
         self._host_state: Optional[HostState] = None

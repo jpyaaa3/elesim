@@ -6,6 +6,16 @@ from engine.config_loader import PerceptionConfig
 
 
 def _draw_ready_pose_dir_editor(panel) -> None:
+    changed_look, look_dist = imgui.input_float(
+        "look distance [m]",
+        float(panel.state.visual_look_distance_m),
+        step=0.01,
+        step_fast=0.05,
+        format="%.3f",
+    )
+    if changed_look:
+        panel.state.visual_look_distance_m = max(0.0, float(look_dist))
+
     changed_dist, ready_dist = imgui.input_float(
         "ready distance [m]",
         float(panel.state.visual_ready_distance_m),
@@ -146,9 +156,9 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "Look points the current tip toward the detected object and records the nominal ready baseline. "
+        "Look moves to a feasible view pose (tip looks at the object) and latches the equal-sag baseline. "
         "Aim recenters the camera UV target and estimates equal-sag correction. "
-        "Ready Pose moves to the corrected ready marker when available. "
+        "Ready Pose refines the latched pre-grasp or moves to the corrected pre-grasp after Aim. "
         "Pick advances 15 cm along the current TCP direction. Tweak is a debug corrected-ready solve."
     )
     imgui.separator()
@@ -184,7 +194,7 @@ def draw_perception_panel(panel) -> None:
     pick_status = "running" if pick_running else "idle"
     if panel.state.pick_failed:
         pick_status = "failed"
-    imgui.text(f"Aim: {pick_status} | phase: {pick_phase}")
+    imgui.text(f"Pick: {pick_status} | phase: {pick_phase}")
     if str(panel.state.pick_status_msg).strip():
         imgui.text_wrapped(str(panel.state.pick_status_msg))
 
