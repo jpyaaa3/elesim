@@ -166,7 +166,7 @@ def draw_perception_panel(panel) -> None:
             panel.service.refresh_perception_capture()
 
     imgui.separator()
-    imgui.text("Look / Aim / Ready Pose (UV centering + equal-sag correction)")
+    imgui.text("Look / Aim / Grasp (UV centering + equal-sag + object IK)")
 
     changed_scale, target_scale = imgui.input_float(
         "pick target scale",
@@ -199,39 +199,40 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "Look moves to a feasible view pose (tip looks at the object) and latches the equal-sag baseline. "
-        "Aim recenters the camera UV target and estimates equal-sag correction. "
-        "Ready Pose refines the latched pre-grasp or moves to the corrected pre-grasp after Aim. "
-        "Pick advances 15 cm along the current TCP direction. Tweak is a debug corrected-ready solve."
+        "Look -> Aim -> Grasp runs the full pick pipeline. "
+        "Look moves to a feasible view pose and latches the equal-sag baseline. "
+        "Aim recenters the camera UV target, estimates equal-sag drift, then IK-moves "
+        "the tip to grasp_standoff_m before the corrected object along approach dir "
+        "(default 5 cm; no separate Ready or Pick extend)."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
 
-    pick_running = bool(panel.state.pick_running)
+    pick_running = bool(panel.state.pick_running) or bool(panel.service.pick_e2e_running())
     if pick_running:
-        if imgui.button("Stop Aim"):
-            panel.service.stop_aim()
+        if imgui.button("Stop"):
+            panel.service.stop_pick_e2e()
     else:
+        cfg = _build_perception_config(panel)
+        if imgui.button("Look -> Aim -> Grasp"):
+            panel.service.update_perception_config(cfg)
+            panel.service.start_look_aim_e2e()
+        imgui.same_line()
         if imgui.button("Look"):
-            cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
             panel.service.start_look()
         imgui.same_line()
         if imgui.button("Aim"):
-            cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
             panel.service.start_aim()
-        imgui.same_line()
-        if imgui.button("Ready Pose"):
-            cfg = _build_perception_config(panel)
-            panel.service.update_perception_config(cfg)
-            panel.service.start_ready_pose()
-        imgui.same_line()
-        if imgui.button("Pick"):
-            panel.service.start_pick_forward(distance_m=0.15)
-        imgui.same_line()
-        if imgui.button("Tweak"):
-            panel.service.start_equal_sag_tweak()
+        if imgui.tree_node("Advanced (debug)"):
+            if imgui.button("Ready Pose"):
+                panel.service.update_perception_config(cfg)
+                panel.service.start_ready_pose()
+            imgui.same_line()
+            if imgui.button("Pick forward"):
+                panel.service.start_pick_forward(distance_m=0.15)
+            imgui.tree_pop()
 
     pick_phase = str(panel.state.pick_phase) or "idle"
     pick_status = "running" if pick_running else "idle"

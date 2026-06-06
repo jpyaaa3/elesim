@@ -97,7 +97,7 @@ class TestLookViewPoseResolver(unittest.TestCase):
             svc.start_ready_pose()
         mock_solve.assert_called_once()
         kwargs = mock_solve.call_args.kwargs
-        self.assertFalse(kwargs["resolve_dir"])
+        self.assertTrue(kwargs["resolve_dir"])
         self.assertEqual(kwargs["label"], "pre-grasp")
         # Look latch is at look standoff (0.30m); Ready approaches to ready standoff (0.20m).
         self.assertEqual(kwargs["target_world"], (0.30, 0.0, 0.2))

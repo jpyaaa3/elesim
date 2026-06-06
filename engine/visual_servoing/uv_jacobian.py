@@ -34,7 +34,8 @@ def default_uv_jacobian(
     u_gain = float(max(abs(float(center_u_gain)), 1e-6))
     v_gain = float(max(abs(float(center_v_gain)), 1e-6))
     j = np.zeros((2, 3), dtype=float)
-    j[0, 0] = 1.0 / u_gain
+    # Positive roll display-u moves normalized image u left on this arm.
+    j[0, 0] = -1.0 / u_gain
     # s1 and s2 share v control initially; positive seg display-u lowers v.
     j[1, 1] = -0.5 / v_gain
     j[1, 2] = -0.5 / v_gain

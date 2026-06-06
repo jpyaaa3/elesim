@@ -312,7 +312,13 @@ class PerceptionCapture:
             if enable_preview:
                 close_preview(_PREVIEW_WINDOW)
 
+    def _is_mock_mode(self) -> bool:
+        return str(self._config.mode).strip().lower() == "mock"
+
     def _resolve_mock_world(self, detector_cfg: dict[str, Any]) -> Optional[tuple[float, float, float]]:
+        # Only bypass hand-eye with a fixed world pose in mock perception mode.
+        if not self._is_mock_mode():
+            return None
         if self._mock_world_xyz_fn is not None:
             try:
                 raw = self._mock_world_xyz_fn()

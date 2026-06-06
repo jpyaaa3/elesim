@@ -12,6 +12,7 @@ import numpy as np
 import zmq
 
 from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
+from engine.profile.pick_timing import enabled as pick_profile_enabled
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
 from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
@@ -129,6 +130,7 @@ class ControlHost:
         self._traj_step_log_every = 10
         self._traj_step_count = 0
         self._traj_last_apply_ok: Optional[bool] = None
+        self._traj_profile_start_s: Optional[float] = None
         if not self._has_hw():
             self._set_virtual_neutral_state()
 
@@ -151,6 +153,7 @@ class ControlHost:
         self._trajectory.cancel()
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
+        self._traj_profile_start_s = None
 
     def _use_trajectory_for_source(self, source: str) -> bool:
         if not bool(self._trajectory.cfg.enable):
@@ -196,10 +199,15 @@ class ControlHost:
                     float(q_goal.theta2_rad),
                 )
             )
+            if pick_profile_enabled():
+                print("[Profile] traj skip | source=%s dt=0.0ms" % str(source))
             return
         self._trajectory.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
+        if pick_profile_enabled():
+            self._traj_profile_start_s = time.time()
+            print("[Profile] traj start | source=%s" % str(source))
         print(
             "[host] trajectory start | q_start=(%.4f, %.4f, %.4f, %.4f) -> q_goal=(%.4f, %.4f, %.4f, %.4f)"
             % (
@@ -1296,6 +1304,10 @@ class ControlHost:
                         if step is not None:
                             if bool(step.done):
                                 print("[host] trajectory complete")
+                                if pick_profile_enabled() and self._traj_profile_start_s is not None:
+                                    dt_ms = (time.time() - float(self._traj_profile_start_s)) * 1000.0
+                                    print("[Profile] traj complete | dt=%.1fms" % float(dt_ms))
+                                    self._traj_profile_start_s = None
                                 self._pending_target_q = None
                         elif complete:
                             self._pending_target_q = None

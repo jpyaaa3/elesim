@@ -63,6 +63,7 @@ def main() -> None:
         pick_cfg=pick_cfg,
         hand_eye_transform=hand_eye_transform,
         hand_eye_parent_frame=hand_eye_parent_frame,
+        use_hardware=bool(bundle.sim_config.use_hardware),
     )
     gui = ControlPanel(
         state,

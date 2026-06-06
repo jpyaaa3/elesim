@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from dataclasses import replace
+from time import perf_counter
 from typing import Any, Optional
 
 import numpy as np
@@ -18,6 +19,15 @@ from engine.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
     apply_equal_sag_offsets,
     estimate_equal_sag_from_ready_pose_drift,
+)
+from engine.profile.pick_timing import (
+    PickPhaseProfile,
+    PickTimingCollector,
+    enabled as pick_profile_enabled,
+    format_report,
+    install_fk_counter,
+    reset_fk_count,
+    uninstall_fk_counter,
 )
 from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 from engine.visual_servoing.uv_jacobian import (
@@ -81,9 +91,11 @@ class ControlService:
         pick_cfg: Optional[PickConfig] = None,
         hand_eye_transform: Optional[np.ndarray] = None,
         hand_eye_parent_frame: str = "node9",
+        use_hardware: bool = True,
     ) -> None:
         self.state = state
         self.client = client
+        self._use_hardware = bool(use_hardware)
         self._mapping_cfg = mapping_cfg or SimMappingConfig()
         self._ik_cfg = ik_cfg or IkConfig()
         self._ik_context = dict(ik_context or {})
@@ -97,7 +109,11 @@ class ControlService:
         )
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
         self._perception_capture: Optional[PerceptionCapture] = None
+        self._last_pick_profile: Optional[PickPhaseProfile] = None
         self._pick_worker: Optional[threading.Thread] = None
+        self._pick_e2e_worker: Optional[threading.Thread] = None
+        self._pick_e2e_cancel = threading.Event()
+        self._pick_e2e_phase_timeout_s = 300.0
         self._pick_stop_event = threading.Event()
         self._pick_center_phase = "u"
         self._pick_approach_v_hold_ratio = 0.5
@@ -138,9 +154,17 @@ class ControlService:
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
         self._pick_search_max_steps = 48
-        self._pick_aim_step_scale = 0.35
-        self._pick_aim_command_timeout_s = 1.2
-        self._pick_aim_settle_s = 0.25
+        self._pick_aim_step_scale = 1.0
+        self._pick_aim_command_timeout_s = 1.0
+        self._pick_aim_settle_s = 0.08
+        self._pick_aim_gain_fallback_uv = 0.35
+        self._pick_aim_v_min_seg_step = 2.5
+        self._pick_aim_v_only_gain_scale = 2.5
+        self._pick_aim_progress_eps = 0.015
+        self._pick_aim_stuck_iters = 0
+        self._pick_aim_best_uv_err: Optional[float] = None
+        self._pick_aim_jacobian_resets = 0
+        self._pick_aim_jacobian_reset_max = 2
         self._pick_search_roll_step_u = 3.0
         self._pick_search_seg_step_u = 3.0
         self._pick_search_roll_max_u = 36.0
@@ -200,10 +224,38 @@ class ControlService:
             return None
         deadline = time.time() + float(max(timeout_s, 0.05))
         target = np.asarray(target_q, dtype=float).reshape(4)
+        sim_mode = not bool(self._use_hardware)
+        poll_s = 0.02 if sim_mode else 0.05
+        required_stable = 2 if sim_mode else max(int(consecutive), 1)
         stable_count = 0
         last_state: Optional[HostState] = None
+
+        def _is_settled(q_now: np.ndarray) -> bool:
+            return (
+                abs(float(q_now[0] - target[0])) <= float(linear_tol_m)
+                and abs(float(q_now[1] - target[1])) <= float(angle_tol_rad)
+                and abs(float(q_now[2] - target[2])) <= float(angle_tol_rad)
+                and abs(float(q_now[3] - target[3])) <= float(angle_tol_rad)
+            )
+
+        if sim_mode:
+            state = self.client.refresh_state()
+            last_state = state
+            if state is not None and state.q is not None:
+                q_now = np.array(
+                    [
+                        float(state.q.linear_m),
+                        float(state.q.roll_rad),
+                        float(state.q.theta1_rad),
+                        float(state.q.theta2_rad),
+                    ],
+                    dtype=float,
+                )
+                if _is_settled(q_now):
+                    return state
+
         while time.time() < deadline:
-            time.sleep(0.05)
+            time.sleep(float(poll_s))
             state = self.client.refresh_state()
             last_state = state
             if state is None or state.q is None:
@@ -217,18 +269,35 @@ class ControlService:
                 ],
                 dtype=float,
             )
-            if (
-                abs(float(q_now[0] - target[0])) <= float(linear_tol_m)
-                and abs(float(q_now[1] - target[1])) <= float(angle_tol_rad)
-                and abs(float(q_now[2] - target[2])) <= float(angle_tol_rad)
-                and abs(float(q_now[3] - target[3])) <= float(angle_tol_rad)
-            ):
+            if _is_settled(q_now):
                 stable_count += 1
-                if stable_count >= max(int(consecutive), 1):
+                if stable_count >= required_stable:
                     return state
             else:
                 stable_count = 0
         return last_state
+
+    def _ik_align_kwargs(self, *, force_full: bool = False) -> dict[str, Any]:
+        pk = self._pick_config_effective()
+        mode = "full" if bool(force_full) else str(pk.ik_align_mode).strip().lower()
+        if mode not in ("full", "lite"):
+            mode = "lite"
+        return {
+            "align_mode": mode,
+            "align_skip_under_deg": float(pk.ik_align_skip_under_deg),
+            "tweak_rounds": max(int(pk.ik_align_rounds), 1),
+        }
+
+    def _ready_ik_align_kwargs(self) -> dict[str, Any]:
+        pk = self._pick_config_effective()
+        mode = str(pk.ready_pose_align_mode).strip().lower()
+        if mode not in ("full", "lite"):
+            mode = "full"
+        return {
+            "align_mode": mode,
+            "align_skip_under_deg": float(pk.ready_pose_align_skip_under_deg),
+            "tweak_rounds": max(int(pk.ik_align_rounds), 1),
+        }
 
     def refresh_ik_context(self) -> None:
         if not self._config_path:
@@ -321,6 +390,11 @@ class ControlService:
         self._pick_uv_jacobian_last_uv = None
         self._pick_uv_jacobian_update_count = 0
 
+    def _reset_pick_aim_progress(self) -> None:
+        self._pick_aim_stuck_iters = 0
+        self._pick_aim_best_uv_err = None
+        self._pick_aim_jacobian_resets = 0
+
     def _update_pick_uv_jacobian(
         self,
         *,
@@ -353,6 +427,126 @@ class ControlService:
 
     def _pick_busy(self) -> bool:
         return self._pick_worker is not None
+
+    def pick_e2e_running(self) -> bool:
+        worker = self._pick_e2e_worker
+        return worker is not None and worker.is_alive()
+
+    def _wait_pick_phase_done(self, *, timeout_s: float, label: str) -> bool:
+        deadline = time.time() + float(max(timeout_s, 1.0))
+        while time.time() < deadline:
+            if self._pick_e2e_cancel.is_set():
+                print("[E2E] %s | cancelled" % str(label))
+                return False
+            if self.state.pick_failed:
+                print(
+                    "[E2E] %s | failed | %s"
+                    % (str(label), str(self.state.pick_status_msg))
+                )
+                return False
+            if (
+                str(self.state.pick_phase) == ObjectPickPhase.DONE.value
+                and not bool(self.state.pick_running)
+                and self._ik_worker is None
+                and self._pick_worker is None
+            ):
+                return True
+            time.sleep(0.05)
+        print("[E2E] %s | timeout after %.1fs" % (str(label), float(timeout_s)))
+        return False
+
+    def stop_pick_e2e(self) -> None:
+        self._pick_e2e_cancel.set()
+        self.stop_object_pick()
+
+    def start_look_aim_e2e(self) -> None:
+        """Run Look -> Aim (UV center + equal-sag + auto grasp to object)."""
+        if self.pick_e2e_running() or self._pick_busy() or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+
+        self._pick_e2e_cancel.clear()
+        timeout_s = float(self._pick_e2e_phase_timeout_s)
+
+        def _worker() -> None:
+            try:
+                print("[E2E] start | Look -> Aim -> Grasp")
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.LOOK.value,
+                    msg="E2E: Look",
+                )
+
+                self.start_look()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="look"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="E2E: look timeout",
+                        )
+                    return
+
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.ACQUIRE.value,
+                    msg="E2E: Aim",
+                )
+                self.start_aim()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="aim"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="E2E: aim timeout",
+                        )
+                    return
+
+                if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
+                    return
+
+                self.state.set_pick_status(
+                    running=False,
+                    failed=False,
+                    phase=ObjectPickPhase.DONE.value,
+                    msg="E2E done | Look -> Aim -> Grasp",
+                )
+                print("[E2E] done | Look -> Aim -> Grasp")
+            finally:
+                self._pick_e2e_worker = None
+
+        self._pick_e2e_worker = threading.Thread(
+            target=_worker,
+            name="pick-e2e",
+            daemon=True,
+        )
+        self._pick_e2e_worker.start()
+
+    def start_look_ready_pick_e2e(self, *, pick_distance_m: float = 0.15) -> None:
+        """Deprecated: use start_look_aim_e2e()."""
+        _ = float(pick_distance_m)
+        self.start_look_aim_e2e()
 
     def _reset_pick_search_state(self) -> None:
         self._pick_search_origin_u = None
@@ -677,6 +871,35 @@ class ControlService:
         arr[3] = float(np.clip(arr[3], cfg.seg2_q_min_rad, cfg.seg2_q_max_rad))
         return arr
 
+    def _begin_pick_profile(self, phase: str) -> tuple[Optional[PickTimingCollector], float]:
+        if not pick_profile_enabled():
+            return None, 0.0
+        install_fk_counter()
+        reset_fk_count()
+        return PickTimingCollector(), perf_counter()
+
+    def _finish_pick_profile(
+        self,
+        *,
+        phase: str,
+        timing: Optional[PickTimingCollector],
+        t0: float,
+        host_times: dict[str, float],
+        success: bool,
+    ) -> None:
+        if timing is None or t0 <= 0.0:
+            return
+        profile = timing.to_profile(
+            phase=str(phase),
+            t_total_s=float(perf_counter() - t0),
+            t_host_apply_s=float(host_times.get("host_apply_s", 0.0)),
+            t_settle_s=float(host_times.get("settle_s", 0.0)),
+            success=bool(success),
+        )
+        self._last_pick_profile = profile
+        print(format_report(profile))
+        uninstall_fk_counter()
+
     def _send_state_q_and_wait(
         self,
         *,
@@ -684,6 +907,7 @@ class ControlService:
         source: str = "ik",
         force: bool = False,
         sag_model_override: Optional[dict[str, Any]] = None,
+        host_times: Optional[dict[str, float]] = None,
     ) -> Optional[HostState]:
         q_cmd = np.array(
             [
@@ -694,12 +918,17 @@ class ControlService:
             ],
             dtype=float,
         )
+        t_send = perf_counter()
         self.send_current_target(
             source=source,
             force=force,
             sag_model_override=sag_model_override,
         )
+        t_after_send = perf_counter()
         host_state = self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+        if host_times is not None:
+            host_times["host_apply_s"] = float(t_after_send - t_send)
+            host_times["settle_s"] = float(perf_counter() - t_after_send)
         if host_state is not None and (not bool(host_state.reply_ok)):
             reason = str(host_state.reply_reason).strip() or "unknown host apply failure"
             self.state.set_ik_status(
@@ -758,6 +987,7 @@ class ControlService:
         status_msg: str,
         timeout_s: float = 2.0,
         sag_model_override: Optional[dict[str, Any]] = None,
+        host_times: Optional[dict[str, float]] = None,
     ) -> Optional[HostState]:
         """Same path as UI Solve IK: update panel target + q, then send to sim/host."""
         q_cmd = self._clamp_q(q)
@@ -782,6 +1012,7 @@ class ControlService:
             source="ik",
             force=True,
             sag_model_override=sag_model_override,
+            host_times=host_times,
         )
         if host_state is not None and (not bool(host_state.reply_ok)):
             reason = str(host_state.reply_reason).strip() or "unknown host apply failure"
@@ -1400,7 +1631,27 @@ class ControlService:
         *,
         object_world: Optional[tuple[float, float, float]] = None,
         tip_world: Optional[tuple[float, float, float]] = None,
+        prefer_current_tip: bool = False,
     ) -> Optional[tuple[float, float, float]]:
+        if prefer_current_tip:
+            tip = tip_world or self._pick_current_tip_world()
+            obj = (
+                object_world
+                or self._pick_centered_object_world_xyz
+                or self._pick_latest_object_world()
+                or self._pick_frozen_world()
+                or self._pick_look_object_world_xyz
+                or self._pick_initial_object_world_xyz
+            )
+            if tip is not None and obj is not None:
+                look_vec = (
+                    np.asarray(obj, dtype=float).reshape(3)
+                    - np.asarray(tip, dtype=float).reshape(3)
+                )
+                look_len = float(np.linalg.norm(look_vec))
+                if look_len > 1e-6:
+                    unit = look_vec / look_len
+                    return (float(unit[0]), float(unit[1]), float(unit[2]))
         if self._pick_resolved_ready_dir_world is not None:
             return self._pick_resolved_ready_dir_world
         if self._pick_look_dir_world is not None:
@@ -1467,10 +1718,13 @@ class ControlService:
         self._pick_equal_sag_attempted = False
 
     def _pick_corrected_ready_pose(self) -> Optional[tuple[float, float, float]]:
-        corrected_object = self._pick_corrected_object_world_xyz
-        if corrected_object is None:
+        """Pre-grasp target after Aim: current perception + equal-sag FK (not look-time object)."""
+        if self._pick_centered_ready_pose_world_xyz is not None:
+            return tuple(float(v) for v in self._pick_centered_ready_pose_world_xyz)
+        centered_object = self._pick_centered_object_world_xyz
+        if centered_object is None:
             return None
-        return self._compute_pick_ready_pose(tuple(float(v) for v in corrected_object))
+        return self._compute_pick_ready_pose(tuple(float(v) for v in centered_object))
 
     def _pick_latch_initial_ready_pose(self) -> bool:
         if self._pick_initial_ready_pose_world_xyz is not None:
@@ -1551,27 +1805,50 @@ class ControlService:
             )
         self.client.send_debug_markers(markers, source="target")
 
+    def _pick_ready_pose_drift_vectors(
+        self,
+        *,
+        initial_object: tuple[float, float, float],
+        centered_object: tuple[float, float, float],
+    ) -> Optional[tuple[tuple[float, float, float], tuple[float, float, float], np.ndarray]]:
+        """Ready-pose drift using pick standoff on both sides (not look view pose)."""
+        initial_ready = self._compute_pick_ready_pose(initial_object)
+        centered_ready = self._compute_pick_ready_pose(centered_object)
+        if initial_ready is None or centered_ready is None:
+            return None
+        drift = (
+            np.asarray(initial_ready, dtype=float).reshape(3)
+            - np.asarray(centered_ready, dtype=float).reshape(3)
+        )
+        return (
+            tuple(float(v) for v in initial_ready),
+            tuple(float(v) for v in centered_ready),
+            drift,
+        )
+
     def _pick_try_estimate_equal_sag(self, host_state: Optional[HostState]) -> None:
         if bool(self._pick_equal_sag_attempted):
             return
         if not self._pick_latch_initial_ready_pose():
             return
+        initial_object = self._pick_initial_object_world_xyz
         centered_object = self._pick_latest_object_world()
-        if centered_object is None:
+        if initial_object is None or centered_object is None:
             return
-        centered_ready = self._compute_pick_ready_pose(centered_object)
-        if centered_ready is None or self._pick_initial_ready_pose_world_xyz is None:
+        drift_pack = self._pick_ready_pose_drift_vectors(
+            initial_object=tuple(float(v) for v in initial_object),
+            centered_object=tuple(float(v) for v in centered_object),
+        )
+        if drift_pack is None:
             return
+        initial_ready, centered_ready, drift = drift_pack
         self._pick_equal_sag_attempted = True
+        self._pick_initial_ready_pose_world_xyz = tuple(float(v) for v in initial_ready)
         self._pick_centered_object_world_xyz = tuple(float(v) for v in centered_object)
         self._pick_centered_ready_pose_world_xyz = tuple(float(v) for v in centered_ready)
-        drift = (
-            np.asarray(self._pick_initial_ready_pose_world_xyz, dtype=float).reshape(3)
-            - np.asarray(centered_ready, dtype=float).reshape(3)
-        )
         self._pick_ready_pose_drift_world = tuple(float(v) for v in drift)
-        corrected_object = np.asarray(centered_object, dtype=float).reshape(3) + drift
-        self._pick_corrected_object_world_xyz = tuple(float(v) for v in corrected_object)
+        # Equal-sag offsets live in sag_model; motion/pick targets use current perception.
+        self._pick_corrected_object_world_xyz = tuple(float(v) for v in centered_object)
 
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -1632,6 +1909,35 @@ class ControlService:
                 float(self._pick_fov_reacquire_roll_u),
                 float(self._pick_fov_reacquire_seg_u),
                 str(estimate.reason),
+            )
+        )
+        print(
+            "[Pick] equal_sag drift detail | initial_object=(%.3f, %.3f, %.3f) "
+            "centered_object=(%.3f, %.3f, %.3f) initial_ready=(%.3f, %.3f, %.3f) "
+            "centered_ready=(%.3f, %.3f, %.3f) drift=(%+.3f, %+.3f, %+.3f) "
+            "pick_target_object=(%.3f, %.3f, %.3f) pick_target_ready=(%.3f, %.3f, %.3f)"
+            % (
+                float(initial_object[0]),
+                float(initial_object[1]),
+                float(initial_object[2]),
+                float(centered_object[0]),
+                float(centered_object[1]),
+                float(centered_object[2]),
+                float(initial_ready[0]),
+                float(initial_ready[1]),
+                float(initial_ready[2]),
+                float(centered_ready[0]),
+                float(centered_ready[1]),
+                float(centered_ready[2]),
+                float(drift[0]),
+                float(drift[1]),
+                float(drift[2]),
+                float(centered_object[0]),
+                float(centered_object[1]),
+                float(centered_object[2]),
+                float(centered_ready[0]),
+                float(centered_ready[1]),
+                float(centered_ready[2]),
             )
         )
 
@@ -1700,6 +2006,10 @@ class ControlService:
         corrected: bool,
         resolve_dir: bool,
         target_world: Optional[tuple[float, float, float]] = None,
+        max_dir_error_deg: Optional[float] = None,
+        accept_best_effort_dir_error_deg: Optional[float] = None,
+        pick_phase: str = ObjectPickPhase.READY.value,
+        profile_phase: str = "ready",
     ) -> None:
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -1732,7 +2042,7 @@ class ControlService:
         self.state.set_pick_status(
             running=True,
             failed=False,
-            phase=ObjectPickPhase.READY.value,
+            phase=str(pick_phase),
             msg=f"{label} resolving feasible dir" if bool(resolve_dir) else f"{label} solving",
         )
         self.state.set_ik_status(
@@ -1744,6 +2054,9 @@ class ControlService:
         )
 
         def _worker() -> None:
+            timing, t0 = self._begin_pick_profile(str(profile_phase))
+            host_times: dict[str, float] = {}
+            success = False
             try:
                 host_state = self.client.refresh_state() if self.client is not None else None
                 current_seed = self._q_array_from_state(host_state)
@@ -1752,8 +2065,15 @@ class ControlService:
                 q: Optional[np.ndarray] = None
                 align_msg = ""
                 position_error_m = float("inf")
+                direction_error_deg = float("inf")
                 resolved_meta = ""
+                ready_align = self._ready_ik_align_kwargs()
 
+                dir_tol_deg = (
+                    float(max_dir_error_deg)
+                    if max_dir_error_deg is not None
+                    else float(pk.ready_pose_max_dir_error_deg)
+                )
                 if bool(resolve_dir):
                     resolved = resolve_feasible_ready_pose(
                         object_world=object_world,
@@ -1763,13 +2083,19 @@ class ControlService:
                         current_seed=current_seed,
                         position_tol_m=float(self._ik_cfg.tol),
                         max_iters=max(int(self._ik_cfg.max_iters), 1),
-                        max_dir_error_deg=float(pk.ready_pose_max_dir_error_deg),
+                        tweak_rounds=int(ready_align["tweak_rounds"]),
+                        max_dir_error_deg=dir_tol_deg,
                         skip_search_under_deg=float(pk.ready_pose_skip_search_under_deg),
                         lateral_offsets_m=tuple(pk.ready_pose_lateral_offsets_m),
                         height_offsets_m=tuple(pk.ready_pose_height_offsets_m),
                         look_dot_min=float(pk.ready_pose_look_dot_min),
                         hand_eye_transform=self._hand_eye_transform,
                         hand_eye_parent_frame=self._hand_eye_parent_frame,
+                        align_top_k=int(pk.ready_pose_align_top_k),
+                        align_mode=str(ready_align["align_mode"]),
+                        align_skip_under_deg=float(ready_align["align_skip_under_deg"]),
+                        timing=timing,
+                        accept_best_effort_dir_error_deg=accept_best_effort_dir_error_deg,
                     )
                     if not resolved.success or resolved.q is None:
                         fail_msg = (
@@ -1799,6 +2125,7 @@ class ControlService:
                     direction_arr = np.asarray(resolved.resolved_dir, dtype=float).reshape(3)
                     q = np.asarray(resolved.q, dtype=float).reshape(4)
                     position_error_m = float(resolved.position_error_m)
+                    direction_error_deg = float(math.degrees(resolved.direction_angle_rad))
                     align_msg = (
                         "%s | tag=%s dir_err=%.1fdeg delta=%.1fdeg"
                         % (
@@ -1848,14 +2175,31 @@ class ControlService:
                             return
                         target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
                     direction_arr = preferred_arr
-                    result = ik_pipeline.solve_then_align(
-                        target_world=target_arr,
-                        target_dir_world=direction_arr,
-                        context=ctx,
-                        position_tol_m=float(self._ik_cfg.tol),
-                        max_iters=max(int(self._ik_cfg.max_iters), 1),
-                        current_seed=current_seed,
-                    )
+                    if timing is not None:
+                        timing.ik_calls += 1
+                        with timing.span("resolve_single"):
+                            result = ik_pipeline.solve_then_align(
+                                target_world=target_arr,
+                                target_dir_world=direction_arr,
+                                context=ctx,
+                                position_tol_m=float(self._ik_cfg.tol),
+                                max_iters=max(int(self._ik_cfg.max_iters), 1),
+                                current_seed=current_seed,
+                                timing=timing,
+                                **ready_align,
+                            )
+                        timing.resolve_reason = "single_solve"
+                        timing.candidates_evaluated = 1
+                    else:
+                        result = ik_pipeline.solve_then_align(
+                            target_world=target_arr,
+                            target_dir_world=direction_arr,
+                            context=ctx,
+                            position_tol_m=float(self._ik_cfg.tol),
+                            max_iters=max(int(self._ik_cfg.max_iters), 1),
+                            current_seed=current_seed,
+                            **ready_align,
+                        )
                     if (not result.success) or result.q is None:
                         self.state.set_ik_status(
                             running=False,
@@ -1873,6 +2217,7 @@ class ControlService:
                         return
                     q = np.asarray(result.q, dtype=float).reshape(4)
                     position_error_m = float(result.position_error_m)
+                    direction_error_deg = float(math.degrees(result.direction_angle_rad))
                     align_msg = str(result.reason)
                     if result.align_attempted:
                         align_msg = "%s | dir %.1f -> %.1f deg" % (
@@ -1908,10 +2253,16 @@ class ControlService:
                     status_msg=f"{label} | {align_msg}",
                     timeout_s=3.0,
                     sag_model_override=dict(sag_model),
+                    host_times=host_times,
                 )
                 if bool(corrected):
                     self._send_equal_sag_markers()
-                done_msg = "%s done | err=%.1fmm" % (str(label), float(position_error_m) * 1000.0)
+                done_msg = "%s done | err=%.1fmm dir_err=%.1fdeg align=%s" % (
+                    str(label),
+                    float(position_error_m) * 1000.0,
+                    float(direction_error_deg),
+                    str(ready_align["align_mode"]),
+                )
                 if resolved_meta:
                     done_msg = "%s | %s" % (done_msg, resolved_meta)
                 self.state.set_pick_status(
@@ -1920,9 +2271,10 @@ class ControlService:
                     phase=ObjectPickPhase.DONE.value,
                     msg=done_msg,
                 )
+                success = True
                 print(
                     "[Pick] %s done | target=(%.3f, %.3f, %.3f) dir=(%.3f, %.3f, %.3f) "
-                    "err=%.1fmm corrected=%s %s"
+                    "err=%.1fmm dir_err=%.1fdeg align=%s corrected=%s %s"
                     % (
                         str(label),
                         float(target_arr[0]),
@@ -1932,15 +2284,123 @@ class ControlService:
                         float(direction_arr[1]),
                         float(direction_arr[2]),
                         float(position_error_m) * 1000.0,
+                        float(direction_error_deg),
+                        str(ready_align["align_mode"]),
                         str(bool(corrected)).lower(),
                         resolved_meta,
                     )
                 )
             finally:
+                self._finish_pick_profile(
+                    phase=str(profile_phase),
+                    timing=timing,
+                    t0=t0,
+                    host_times=host_times,
+                    success=success,
+                )
                 self._ik_worker = None
 
-        self._ik_worker = threading.Thread(target=_worker, name="ready-pose", daemon=True)
+        self._ik_worker = threading.Thread(target=_worker, name=str(profile_phase), daemon=True)
         self._ik_worker.start()
+
+    def _start_grasp_to_object(self, *, internal: bool = False) -> bool:
+        """IK move to pre-grasp point grasp_standoff_m before centered object along approach dir."""
+        if not internal and (self.state.ik_running or self._visual_busy()):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return False
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return False
+        object_world = self._pick_centered_object_world_xyz
+        if object_world is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp missing centered object (run Aim first)",
+            )
+            return False
+        if not isinstance(self._pick_equal_sag_model, dict):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp missing equal-sag model (run Aim first)",
+            )
+            return False
+        object_tuple = tuple(float(v) for v in object_world)
+        dir_tuple = self._pick_ready_direction(
+            object_world=object_tuple,
+            prefer_current_tip=True,
+        )
+        if dir_tuple is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="cannot infer grasp approach direction",
+            )
+            return False
+        direction = np.asarray(dir_tuple, dtype=float).reshape(3)
+        pk = self._pick_config_effective()
+        standoff_m = float(max(pk.grasp_standoff_m, 0.0))
+        try:
+            grasp_target = compute_ready_pose_target(
+                object_tuple,
+                tuple(float(v) for v in direction),
+                standoff_m=standoff_m,
+            )
+        except ValueError:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="cannot compute grasp target from approach direction",
+            )
+            return False
+        self._start_ready_pose_resolve_and_solve(
+            object_world=object_tuple,
+            preferred_dir=direction,
+            sag_model=dict(self._pick_equal_sag_model),
+            label="grasp pre-contact",
+            corrected=True,
+            resolve_dir=False,
+            target_world=grasp_target,
+            pick_phase=ObjectPickPhase.GRASP.value,
+            profile_phase="grasp",
+        )
+        return True
+
+    def _wait_grasp_ik_done(self, *, timeout_s: float, label: str = "grasp") -> bool:
+        deadline = time.time() + float(max(timeout_s, 1.0))
+        while time.time() < deadline:
+            if self._pick_stop_event.is_set():
+                print("[Pick] %s | stopped" % str(label))
+                return False
+            if self.state.pick_failed and self._ik_worker is None:
+                print(
+                    "[Pick] %s | failed | %s"
+                    % (str(label), str(self.state.pick_status_msg))
+                )
+                return False
+            if self._ik_worker is None and not bool(self.state.pick_running):
+                if str(self.state.pick_phase) == ObjectPickPhase.DONE.value:
+                    return True
+                if str(self.state.pick_phase) == ObjectPickPhase.FAILED.value:
+                    return False
+            time.sleep(0.05)
+        print("[Pick] %s | timeout after %.1fs" % (str(label), float(timeout_s)))
+        return False
 
     def start_look(self) -> None:
         if self.state.ik_running or self._visual_busy():
@@ -2047,6 +2507,9 @@ class ControlService:
         )
 
         def _worker() -> None:
+            timing, t0 = self._begin_pick_profile("look")
+            host_times: dict[str, float] = {}
+            success = False
             try:
                 pk = self._pick_config_effective()
                 resolve_dir = bool(pk.look_pose_resolve_dir)
@@ -2065,6 +2528,7 @@ class ControlService:
                         current_seed=q0,
                         position_tol_m=float(self._ik_cfg.tol),
                         max_iters=max(int(self._ik_cfg.max_iters), 1),
+                        tweak_rounds=int(pk.ik_align_rounds),
                         max_dir_error_deg=float(pk.look_pose_max_dir_error_deg),
                         skip_search_under_deg=float(pk.look_pose_skip_search_under_deg),
                         lateral_offsets_m=tuple(pk.look_pose_lateral_offsets_m),
@@ -2072,6 +2536,9 @@ class ControlService:
                         look_dot_min=float(pk.look_pose_look_dot_min),
                         hand_eye_transform=self._hand_eye_transform,
                         hand_eye_parent_frame=self._hand_eye_parent_frame,
+                        align_top_k=int(pk.look_pose_align_top_k),
+                        align_skip_under_deg=float(pk.ik_align_skip_under_deg),
+                        timing=timing,
                     )
                     if (
                         not resolved.success
@@ -2131,14 +2598,31 @@ class ControlService:
                         return
                     target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
                     look_dir_used = preferred_arr
-                    result = ik_pipeline.solve_then_align(
-                        target_world=target_arr,
-                        target_dir_world=look_dir_used,
-                        context=ctx,
-                        position_tol_m=float(self._ik_cfg.tol),
-                        max_iters=max(int(self._ik_cfg.max_iters), 1),
-                        current_seed=q0,
-                    )
+                    if timing is not None:
+                        timing.ik_calls += 1
+                        with timing.span("resolve_single"):
+                            result = ik_pipeline.solve_then_align(
+                                target_world=target_arr,
+                                target_dir_world=look_dir_used,
+                                context=ctx,
+                                position_tol_m=float(self._ik_cfg.tol),
+                                max_iters=max(int(self._ik_cfg.max_iters), 1),
+                                current_seed=q0,
+                                timing=timing,
+                                **self._ik_align_kwargs(force_full=True),
+                            )
+                        timing.resolve_reason = "single_solve"
+                        timing.candidates_evaluated = 1
+                    else:
+                        result = ik_pipeline.solve_then_align(
+                            target_world=target_arr,
+                            target_dir_world=look_dir_used,
+                            context=ctx,
+                            position_tol_m=float(self._ik_cfg.tol),
+                            max_iters=max(int(self._ik_cfg.max_iters), 1),
+                            current_seed=q0,
+                            **self._ik_align_kwargs(force_full=True),
+                        )
                     if result.success and result.q is not None:
                         q = np.asarray(result.q, dtype=float).reshape(4)
                         err_m = float(result.position_error_m)
@@ -2192,6 +2676,7 @@ class ControlService:
                     status_msg="look | " + align_msg,
                     timeout_s=3.0,
                     sag_model_override=dict(base_sag),
+                    host_times=host_times,
                 )
                 self._pick_look_object_world_xyz = object_tuple
                 self._pick_look_ready_pose_world_xyz = view_tuple
@@ -2223,6 +2708,7 @@ class ControlService:
                         )
                     ),
                 )
+                success = True
                 print(
                     "[Pick] look done | object=(%.3f, %.3f, %.3f) view_pose=(%.3f, %.3f, %.3f) "
                     "look_dir=(%.3f, %.3f, %.3f) standoff=%.0fmm"
@@ -2240,6 +2726,13 @@ class ControlService:
                     )
                 )
             finally:
+                self._finish_pick_profile(
+                    phase="look",
+                    timing=timing,
+                    t0=t0,
+                    host_times=host_times,
+                    success=success,
+                )
                 self._ik_worker = None
 
         self._ik_worker = threading.Thread(target=_worker, name="look", daemon=True)
@@ -2274,13 +2767,13 @@ class ControlService:
         corrected_ready = self._pick_corrected_ready_pose()
         use_corrected = corrected_ready is not None and isinstance(self._pick_equal_sag_model, dict)
         if use_corrected:
-            object_world = self._pick_corrected_object_world_xyz
+            object_world = self._pick_centered_object_world_xyz
             if object_world is None:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="corrected ready missing corrected object",
+                    msg="corrected ready missing centered object",
                 )
                 return
             sag_model = dict(self._pick_equal_sag_model)
@@ -2288,6 +2781,7 @@ class ControlService:
             target_world = tuple(float(v) for v in corrected_ready)
             dir_tuple = self._pick_ready_direction(
                 object_world=tuple(float(v) for v in object_world),
+                prefer_current_tip=True,
             )
         else:
             object_world = self._pick_look_object_world_xyz
@@ -2326,14 +2820,22 @@ class ControlService:
 
         object_tuple = tuple(float(v) for v in object_world)
         direction = np.asarray(dir_tuple, dtype=float).reshape(3)
+        pk = self._pick_config_effective()
+        accept_best_effort = (
+            float(pk.ready_pose_corrected_max_dir_error_deg)
+            if bool(use_corrected)
+            else None
+        )
         self._start_ready_pose_resolve_and_solve(
             object_world=object_tuple,
             preferred_dir=direction,
             sag_model=sag_model,
             label=label,
             corrected=bool(use_corrected),
-            resolve_dir=False,
+            resolve_dir=bool(pk.ready_pose_resolve_dir),
             target_world=target_world,
+            max_dir_error_deg=float(pk.ready_pose_max_dir_error_deg),
+            accept_best_effort_dir_error_deg=accept_best_effort,
         )
 
     def _latch_pick_frozen_world(self) -> None:
@@ -2402,6 +2904,9 @@ class ControlService:
             ready_pose_lateral_offsets_m=tuple(pk.ready_pose_lateral_offsets_m),
             ready_pose_height_offsets_m=tuple(pk.ready_pose_height_offsets_m),
             ready_pose_look_dot_min=float(pk.ready_pose_look_dot_min),
+            ready_pose_align_mode=str(pk.ready_pose_align_mode),
+            ready_pose_align_skip_under_deg=float(pk.ready_pose_align_skip_under_deg),
+            ready_pose_align_top_k=int(pk.ready_pose_align_top_k),
             look_pose_standoff_m=float(self.state.visual_look_distance_m),
             look_pose_resolve_dir=bool(pk.look_pose_resolve_dir),
             look_pose_max_dir_error_deg=float(pk.look_pose_max_dir_error_deg),
@@ -2409,6 +2914,15 @@ class ControlService:
             look_pose_lateral_offsets_m=tuple(pk.look_pose_lateral_offsets_m),
             look_pose_height_offsets_m=tuple(pk.look_pose_height_offsets_m),
             look_pose_look_dot_min=float(pk.look_pose_look_dot_min),
+            look_pose_align_top_k=int(pk.look_pose_align_top_k),
+            ik_align_mode=str(pk.ik_align_mode),
+            ik_align_skip_under_deg=float(pk.ik_align_skip_under_deg),
+            ik_align_rounds=int(pk.ik_align_rounds),
+            ready_pose_corrected_max_dir_error_deg=float(
+                pk.ready_pose_corrected_max_dir_error_deg
+            ),
+            auto_grasp_after_aim=bool(pk.auto_grasp_after_aim),
+            grasp_standoff_m=float(pk.grasp_standoff_m),
         )
 
     def _pick_config_for_aim(self) -> PickConfig:
@@ -2549,6 +3063,7 @@ class ControlService:
             position_tol_m=max(float(self._ik_cfg.tol), 1e-4),
             max_iters=max(int(self._ik_cfg.max_iters), 1),
             current_seed=q0,
+            **self._ik_align_kwargs(force_full=True),
         )
         if not result.success or result.q is None:
             self.state.set_ik_status(
@@ -2650,6 +3165,8 @@ class ControlService:
         current_u: ControlU,
         *,
         cfg: Optional[PickConfig] = None,
+        fallback_gains: bool = False,
+        coupled_axes: bool = False,
     ) -> tuple[ControlU, str, float, float]:
         cfg = self._pick_config_effective() if cfg is None else cfg
         center_tol = float(cfg.center_tol)
@@ -2658,33 +3175,125 @@ class ControlService:
         v = float(obs.center_uv[1])
         u_delta = u - tu
         v_delta = v - tv
-        # Same UV band as evaluate_pick_convergence (avoid center_ok False while still correcting).
-        u_over = abs(u_delta) > float(center_tol)
-        v_over = abs(v_delta) > float(center_tol)
-        step_scale = float(max(min(float(self._pick_aim_step_scale), 1.0), 0.05))
+        u_in_tol = abs(u_delta) <= center_tol
+        v_in_tol = abs(v_delta) <= center_tol
+        v_only = False
+        if coupled_axes:
+            both_ok = u_in_tol and v_in_tol
+            if both_ok:
+                u_over = v_over = False
+            elif u_in_tol and not v_in_tol:
+                # u done — freeze roll; finish v with seg only (roll motion was fighting v).
+                u_over = False
+                v_over = True
+                v_only = True
+            elif v_in_tol and not u_in_tol:
+                u_over = True
+                v_over = False
+            else:
+                u_over = abs(u_delta) > 1e-9
+                v_over = abs(v_delta) > 1e-9
+        else:
+            u_over = abs(u_delta) > center_tol
+            v_over = abs(v_delta) > center_tol
+        step_scale = (
+            1.0
+            if v_only
+            else float(max(min(float(self._pick_aim_step_scale), 1.0), 0.05))
+            if coupled_axes
+            else 1.0
+        )
         seg_cap = float(cfg.center_seg_max) * step_scale
         roll_cap = float(cfg.center_roll_max) * step_scale
         if not u_over and not v_over:
             return current_u, "none", 0.0, 0.0
 
-        self._update_pick_uv_jacobian(current_u=current_u, obs=obs)
-        uv_error = np.array(
-            [
-                float(u_delta) if bool(u_over) else 0.0,
-                float(v_delta) if bool(v_over) else 0.0,
-            ],
-            dtype=float,
+        err_mag = max(abs(float(u_delta)), abs(float(v_delta)))
+        if coupled_axes and not v_only:
+            self._update_pick_uv_jacobian(current_u=current_u, obs=obs)
+        use_gain_fallback = bool(v_only) or bool(fallback_gains) or (
+            err_mag > float(self._pick_aim_gain_fallback_uv)
         )
-        du3 = solve_uv_control_delta(
-            uv_error=uv_error,
-            jacobian=self._pick_uv_jacobian,
-            damping=0.03,
-            gain=1.0,
-            max_abs_delta=(roll_cap, seg_cap, seg_cap),
-        )
-        roll_du = float(du3[0])
-        s1_du = float(du3[1])
-        s2_du = float(du3[2])
+        if use_gain_fallback:
+            roll_du = 0.0
+            if u_over:
+                roll_du += float(
+                    np.clip(
+                        float(cfg.center_u_gain) * float(u_delta) * step_scale,
+                        -roll_cap,
+                        roll_cap,
+                    )
+                )
+            if coupled_axes and v_over and not v_only:
+                roll_du += float(
+                    np.clip(
+                        float(cfg.center_v_gain) * float(v_delta) * step_scale * 0.5,
+                        -roll_cap,
+                        roll_cap,
+                    )
+                )
+                roll_du = float(np.clip(roll_du, -roll_cap, roll_cap))
+            v_gain = float(cfg.center_v_gain) * (
+                float(self._pick_aim_v_only_gain_scale) if v_only else step_scale
+            )
+            s1_du = (
+                self._center_seg_du(
+                    target_v=tv,
+                    obs_v=v,
+                    cap=seg_cap,
+                    gain=v_gain,
+                )
+                if v_over
+                else 0.0
+            )
+            if v_only and v_over:
+                min_step = float(self._pick_aim_v_min_seg_step)
+                if abs(float(s1_du)) < min_step and abs(float(v_delta)) > 1e-9:
+                    s1_du = float(
+                        np.copysign(
+                            min_step,
+                            float(s1_du) if abs(float(s1_du)) > 1e-9 else -float(v_delta),
+                        )
+                    )
+            s2_gain_scale = 1.0 if (coupled_axes or v_only) else 0.5
+            s2_du = (
+                float(
+                    np.clip(
+                        -float(cfg.center_v_gain) * float(v_delta) * step_scale * s2_gain_scale,
+                        -seg_cap,
+                        seg_cap,
+                    )
+                )
+                if v_over and not v_only
+                else 0.0
+            )
+            mode = "gain_v_only" if v_only else "gain_fallback"
+        else:
+            if not coupled_axes:
+                self._update_pick_uv_jacobian(current_u=current_u, obs=obs)
+            uv_error = np.array(
+                [
+                    float(u_delta) if bool(u_over) else 0.0,
+                    float(v_delta) if bool(v_over) else 0.0,
+                ],
+                dtype=float,
+            )
+            du3 = solve_uv_control_delta(
+                uv_error=uv_error,
+                jacobian=self._pick_uv_jacobian,
+                damping=0.03,
+                gain=1.0,
+                max_abs_delta=(roll_cap, seg_cap, seg_cap),
+            )
+            roll_du = float(du3[0])
+            s1_du = float(du3[1])
+            s2_du = float(du3[2])
+            if u_over and v_over:
+                mode = "uv_jacobian"
+            elif u_over:
+                mode = "uv_jacobian_u"
+            else:
+                mode = "uv_jacobian_v"
 
         next_u = self._clamp_display_u(
             ControlU(
@@ -2696,12 +3305,6 @@ class ControlService:
         )
         if next_u == current_u:
             return current_u, "none", roll_du, max(abs(s1_du), abs(s2_du))
-        if u_over and v_over:
-            mode = "uv_jacobian"
-        elif u_over:
-            mode = "uv_jacobian_u"
-        else:
-            mode = "uv_jacobian_v"
         return next_u, mode, roll_du, max(abs(s1_du), abs(s2_du))
 
     def _apply_pick_approach_step(
@@ -2811,12 +3414,23 @@ class ControlService:
         self._pick_clamp_streak = 0
         self._pick_center_stuck_iters = 0
         self._pick_approach_steps = 0
+        self._reset_pick_aim_progress()
         self._reset_pick_search_state()
         self._reset_pick_drift_accounting()
         self._reset_pick_equal_sag_result_state()
-        self._pick_initial_object_world_xyz = tuple(self._pick_look_object_world_xyz)
-        self._pick_initial_ready_pose_world_xyz = tuple(self._pick_look_ready_pose_world_xyz)
-        self._pick_frozen_world_xyz = tuple(self._pick_look_object_world_xyz)
+        look_object = tuple(float(v) for v in self._pick_look_object_world_xyz)
+        initial_ready = self._compute_pick_ready_pose(look_object)
+        if initial_ready is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="aim: cannot compute initial ready pose from look object",
+            )
+            return
+        self._pick_initial_object_world_xyz = look_object
+        self._pick_initial_ready_pose_world_xyz = tuple(float(v) for v in initial_ready)
+        self._pick_frozen_world_xyz = look_object
         if not str(self.state.visual_target_label).strip():
             self.state.visual_target_label = str(self._perception_cfg.target_label).strip()
         self.state.set_pick_status(
@@ -2905,6 +3519,61 @@ class ControlService:
 
                     conv = evaluate_pick_convergence(obs, cfg=aim_pk)
                     u_d, v_d, tu, tv = self._visual_uv_errors(obs)
+                    err_mag = max(abs(float(u_d)), abs(float(v_d)))
+                    eps = float(self._pick_aim_progress_eps)
+                    if (
+                        self._pick_aim_best_uv_err is None
+                        or err_mag < float(self._pick_aim_best_uv_err) - eps
+                    ):
+                        self._pick_aim_best_uv_err = float(err_mag)
+                        self._pick_aim_stuck_iters = 0
+                    else:
+                        self._pick_aim_stuck_iters += 1
+
+                    stuck_lim = max(1, int(pk.center_stuck_iters))
+                    if self._pick_aim_stuck_iters >= stuck_lim:
+                        recovered = False
+                        if self._pick_aim_jacobian_resets < int(self._pick_aim_jacobian_reset_max):
+                            self._pick_aim_jacobian_resets += 1
+                            self._reset_pick_uv_jacobian()
+                            self._pick_aim_stuck_iters = 0
+                            self._pick_aim_best_uv_err = None
+                            print(
+                                "[Aim] center_stuck | reset uv jacobian (%d/%d) | delta=(%+.3f,%+.3f)"
+                                % (
+                                    int(self._pick_aim_jacobian_resets),
+                                    int(self._pick_aim_jacobian_reset_max),
+                                    float(u_d),
+                                    float(v_d),
+                                )
+                            )
+                            recovered = True
+                        elif self._pick_apply_fov_search_step(reason="aim_center_stuck"):
+                            self._pick_aim_stuck_iters = 0
+                            self._pick_aim_best_uv_err = None
+                            print(
+                                "[Aim] center_stuck | fov_search | delta=(%+.3f,%+.3f)"
+                                % (float(u_d), float(v_d))
+                            )
+                            recovered = True
+                        if recovered:
+                            time.sleep(0.05)
+                            continue
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg=(
+                                "aim center stuck | uv not improving | delta=(%+.3f,%+.3f)"
+                                % (float(u_d), float(v_d))
+                            ),
+                        )
+                        print(
+                            "[Aim] center_stuck | give up | delta=(%+.3f,%+.3f) steps=%d"
+                            % (float(u_d), float(v_d), int(step_idx))
+                        )
+                        return
+
                     if conv.center_ok:
                         self._pick_try_estimate_equal_sag(host_state)
                         estimate = self._pick_equal_sag_estimate
@@ -2917,20 +3586,47 @@ class ControlService:
                                     )
                                     * 1000.0
                                 )
-                            self.state.set_pick_status(
-                                running=False,
-                                failed=False,
-                                phase=ObjectPickPhase.DONE.value,
-                                msg=(
-                                    "aim done | corrected ready ready | drift=%.1fmm "
-                                    "seg1=%+.2fdeg seg2=%+.2fdeg"
-                                )
+                            aim_msg = (
+                                "aim done | drift=%.1fmm seg1=%+.2fdeg seg2=%+.2fdeg"
                                 % (
                                     drift_mm,
                                     float(estimate.seg1_equal_offset_deg),
                                     float(estimate.seg2_equal_offset_deg),
-                                ),
+                                )
                             )
+                            pk_done = self._pick_config_effective()
+                            if bool(pk_done.auto_grasp_after_aim):
+                                print("[Aim] %s | auto grasp to object" % aim_msg)
+                                self.state.set_pick_status(
+                                    running=True,
+                                    failed=False,
+                                    phase=ObjectPickPhase.GRASP.value,
+                                    msg="aim done | grasp to object",
+                                )
+                                if not self._start_grasp_to_object(internal=True):
+                                    return
+                                grasp_timeout = float(
+                                    max(self._pick_e2e_phase_timeout_s, 30.0)
+                                )
+                                if not self._wait_grasp_ik_done(
+                                    timeout_s=grasp_timeout,
+                                    label="auto grasp",
+                                ):
+                                    if not self.state.pick_failed:
+                                        self.state.set_pick_status(
+                                            running=False,
+                                            failed=True,
+                                            phase=ObjectPickPhase.FAILED.value,
+                                            msg="auto grasp timeout",
+                                        )
+                                    return
+                            else:
+                                self.state.set_pick_status(
+                                    running=False,
+                                    failed=False,
+                                    phase=ObjectPickPhase.DONE.value,
+                                    msg=aim_msg,
+                                )
                         else:
                             reason = "no estimate" if estimate is None else str(estimate.reason)
                             self.state.set_pick_status(
@@ -2943,7 +3639,11 @@ class ControlService:
 
                     current_u = self.current_control_u()
                     next_u, center_mode, roll_req, seg_req = self._apply_pick_center_step(
-                        obs, current_u, cfg=aim_pk
+                        obs,
+                        current_u,
+                        cfg=aim_pk,
+                        fallback_gains=(err_mag > float(self._pick_aim_gain_fallback_uv)),
+                        coupled_axes=True,
                     )
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_s1 = float(next_u.u_s1 - current_u.u_s1)
@@ -3017,14 +3717,7 @@ class ControlService:
         self._pick_worker.start()
 
     def start_equal_sag_tweak(self) -> None:
-        if self.state.ik_running or self._visual_busy():
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="busy",
-            )
-            return
+        """Deprecated alias: corrected ready + direction align is unified in start_ready_pose()."""
         corrected_ready = self._pick_corrected_ready_pose()
         if corrected_ready is None or not isinstance(self._pick_equal_sag_model, dict):
             self.state.set_pick_status(
@@ -3044,141 +3737,7 @@ class ControlService:
                 msg=f"tweak rejected | {reason}",
             )
             return
-
-        self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(self._pick_equal_sag_model)
-        required = (
-            "limit",
-            "fk_joint_chain",
-            "terminal_link_name",
-            "old_tip_local_offset",
-            "grasp_offset_node_local",
-        )
-        if any(k not in ctx for k in required):
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="missing IK context",
-            )
-            return
-
-        target = np.asarray(corrected_ready, dtype=float).reshape(3)
-        corrected_object = self._pick_corrected_object_world_xyz
-        dir_tuple = self._pick_ready_direction(
-            object_world=(
-                tuple(float(v) for v in corrected_object)
-                if corrected_object is not None
-                else None
-            ),
-        )
-        if dir_tuple is None:
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="cannot infer ready direction for tweak",
-            )
-            return
-        direction = np.asarray(dir_tuple, dtype=float).reshape(3)
-        dnorm = float(np.linalg.norm(direction))
-        if dnorm > 1e-9:
-            direction = direction / dnorm
-        self.state.set_target(float(target[0]), float(target[1]), float(target[2]))
-        self.state.set_target_dir(float(direction[0]), float(direction[1]), float(direction[2]))
-        self.state.set_pick_status(
-            running=True,
-            failed=False,
-            phase=ObjectPickPhase.TWEAK.value,
-            msg="tweak solving corrected ready",
-        )
-        self.state.set_ik_status(
-            running=True,
-            converged=False,
-            failed=False,
-            err_m=float("inf"),
-            msg="tweak solving corrected ready",
-        )
-
-        def _worker() -> None:
-            try:
-                current_seed = np.array(
-                    [
-                        float(self.state.linear),
-                        float(self.state.roll),
-                        float(self.state.theta1),
-                        float(self.state.theta2),
-                    ],
-                    dtype=float,
-                )
-                result = ik_pipeline.solve_then_align(
-                    target_world=target,
-                    target_dir_world=direction,
-                    context=ctx,
-                    position_tol_m=float(self._ik_cfg.tol),
-                    max_iters=max(int(self._ik_cfg.max_iters), 1),
-                    current_seed=current_seed,
-                )
-                if result.success and result.q is not None:
-                    q = np.asarray(result.q, dtype=float).reshape(4)
-                    align_msg = str(result.reason)
-                    if result.align_attempted:
-                        align_msg = "%s | dir %.1f -> %.1f deg" % (
-                            str(result.reason),
-                            float(np.degrees(result.initial_direction_angle_rad)),
-                            float(np.degrees(result.direction_angle_rad)),
-                        )
-                    self._apply_ik_solution_to_host(
-                        q,
-                        ik_target=target,
-                        ik_target_dir=direction,
-                        err_m=float(result.position_error_m),
-                        status_msg="tweak corrected ready | " + align_msg,
-                        timeout_s=3.0,
-                        sag_model_override=dict(self._pick_equal_sag_model),
-                    )
-                    self._send_equal_sag_markers()
-                    self.state.set_pick_status(
-                        running=False,
-                        failed=False,
-                        phase=ObjectPickPhase.DONE.value,
-                        msg=(
-                            "tweak done | corrected ready | err=%.1fmm"
-                            % (float(result.position_error_m) * 1000.0)
-                        ),
-                    )
-                    print(
-                        "[Aim] tweak done | target=(%.3f, %.3f, %.3f) err=%.1fmm "
-                        "seg1=%+.3fdeg seg2=%+.3fdeg"
-                        % (
-                            float(target[0]),
-                            float(target[1]),
-                            float(target[2]),
-                            float(result.position_error_m) * 1000.0,
-                            float(estimate.seg1_equal_offset_deg),
-                            float(estimate.seg2_equal_offset_deg),
-                        )
-                    )
-                else:
-                    self.state.set_ik_status(
-                        running=False,
-                        converged=False,
-                        failed=True,
-                        err_m=float(result.position_error_m),
-                        msg=str(result.reason),
-                    )
-                    self.state.set_pick_status(
-                        running=False,
-                        failed=True,
-                        phase=ObjectPickPhase.FAILED.value,
-                        msg="tweak IK failed | " + str(result.reason),
-                    )
-            finally:
-                self._ik_worker = None
-
-        self._ik_worker = threading.Thread(target=_worker, daemon=True)
-        self._ik_worker.start()
+        self.start_ready_pose()
 
     def start_pick_forward(self, *, distance_m: float = 0.05) -> None:
         if self.state.ik_running or self._visual_busy():
@@ -3898,6 +4457,8 @@ class ControlService:
         self.state.visual_target_label = str(config.target_label).strip()
 
     def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:
+        if str(self._perception_cfg.mode).strip().lower() != "mock":
+            return None
         return self.state.mock_object_world_xyz()
 
     def set_mock_object_world(self, x: float, y: float, z: float) -> None:

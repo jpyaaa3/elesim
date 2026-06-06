@@ -1,0 +1,5 @@
+=+0.03 | mode=uv_jacobian_u | j_updates=41 | tracker=track | bbox=116x117
+[Visual] aim step 67/200 | phase=center | uv=(-0.020,+0.015) | target=(+0.600,-0.200) | delta=(-0.020,+0.015) | scale=0.045 | droll=-0.10 | ds1=-0.00 | ds2=-0.02 | req_roll=-0.10 | req_seg=+0.02 | mode=uv_jacobian_u | j_updates=42 | tracker=track | bbox=117x117
+[Pick] equal_sag accepted | total_drift=30.9mm seg1=+0.762deg seg2=+1.151deg residual=15.7mm cond=1.9 search_steps=0 center_steps=67 approach_steps=0 reacquire_u=(roll=+0.0, seg=+0.0) reason=accepted
+[Pick] equal_sag drift detail | initial_object=(0.324, 0.008, 0.888) centered_object=(0.332, 0.010, 0.918) initial_ready=(0.289, 0.003, 1.034) centered_ready=(0.297, 0.005, 1.064) drift=(-0.008, -0.002, -0.030) pick_target_object=(0.332, 0.010, 0.918) pick_target_ready=(0.297, 0.005, 1.064)
+[Pick] corrected pre-grasp failed | no feasible ready dir | best_dir_err=12.9deg evaluated=28

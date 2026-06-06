@@ -147,6 +147,32 @@ class TestResolveFeasibleReadyPose(unittest.TestCase):
         self.assertEqual(result.reason, "no feasible ready dir")
         self.assertAlmostEqual(result.best_rejected_dir_err_deg, 25.0, places=3)
 
+    def test_best_effort_accepts_near_miss_within_soft_limit(self) -> None:
+        obj = (0.5, 0.0, 0.2)
+        preferred = (1.0, 0.0, 0.0)
+
+        def solve_fn(**_kwargs) -> _StubIkResult:
+            return _ok_result(q=np.array([0.1, 0.0, 0.2, 0.3]), dir_deg=12.9)
+
+        result = resolve_feasible_ready_pose(
+            object_world=obj,
+            preferred_dir=preferred,
+            standoff_m=0.20,
+            ik_context={},
+            current_seed=(0.0, 0.0, 0.0, 0.0),
+            position_tol_m=0.01,
+            max_iters=10,
+            max_dir_error_deg=10.0,
+            skip_search_under_deg=5.0,
+            lateral_offsets_m=(0.0,),
+            height_offsets_m=(0.0,),
+            solve_fn=solve_fn,
+            accept_best_effort_dir_error_deg=15.0,
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(result.reason, "best_effort")
+        self.assertAlmostEqual(math.degrees(result.direction_angle_rad), 12.9, places=3)
+
     def test_camera_score_tiebreak_prefers_higher_score(self) -> None:
         obj = (0.5, 0.0, 0.2)
         preferred = (1.0, 0.0, 0.0)
@@ -196,6 +222,68 @@ class TestResolveFeasibleReadyPose(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.candidate_tag, "b")
+
+    def test_two_phase_runs_full_align_only_for_top_k(self) -> None:
+        obj = (0.5, 0.0, 0.2)
+        preferred = (1.0, 0.0, 0.0)
+        screen_calls: list[str] = []
+        full_calls: list[str] = []
+
+        def screen_fn(**kwargs) -> _StubIkResult:
+            target = np.asarray(kwargs["target_world"], dtype=float).reshape(3)
+            tag = "a" if abs(float(target[0]) - 0.30) < 1e-6 else "b"
+            screen_calls.append(tag)
+            dir_deg = 6.0 if tag == "a" else 4.0
+            return _ok_result(q=np.array([0.1, 0.0, 0.2, 0.3]), dir_deg=dir_deg)
+
+        def full_fn(**kwargs) -> _StubIkResult:
+            target = np.asarray(kwargs["target_world"], dtype=float).reshape(3)
+            tag = "a" if abs(float(target[0]) - 0.30) < 1e-6 else "b"
+            full_calls.append(tag)
+            dir_deg = 2.0 if tag == "b" else 5.0
+            q = np.array([0.2, 0.0, 0.1, 0.4]) if tag == "b" else np.array([0.1, 0.0, 0.2, 0.3])
+            return _ok_result(q=q, dir_deg=dir_deg)
+
+        cand_a = ViewPregraspCandidate(
+            pregrasp_world=(0.30, 0.0, 0.2),
+            look_dir_world=(1.0, 0.0, 0.0),
+            tag="a",
+        )
+        cand_b = ViewPregraspCandidate(
+            pregrasp_world=(0.31, 0.0, 0.2),
+            look_dir_world=(1.0, 0.0, 0.0),
+            tag="b",
+        )
+
+        with patch(
+            "engine.visual_servoing.feasible_ready_pose._build_candidates",
+            return_value=[cand_a, cand_b],
+        ), patch(
+            "engine.visual_servoing.feasible_ready_pose._default_solve_position_only",
+            side_effect=screen_fn,
+        ), patch(
+            "engine.visual_servoing.feasible_ready_pose._make_align_solve_fn",
+            return_value=full_fn,
+        ):
+            result = resolve_feasible_ready_pose(
+                object_world=obj,
+                preferred_dir=preferred,
+                standoff_m=0.20,
+                ik_context={},
+                current_seed=(0.0, 0.0, 0.0, 0.0),
+                position_tol_m=0.01,
+                max_iters=10,
+                max_dir_error_deg=10.0,
+                skip_search_under_deg=0.0,
+                align_top_k=1,
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.reason, "grid_search_2phase")
+        self.assertEqual(screen_calls, ["a", "b"])
+        self.assertEqual(full_calls, ["b"])
+        self.assertEqual(result.candidate_tag, "b")
+        self.assertLessEqual(math.degrees(result.direction_angle_rad), 10.0)
 
 
 if __name__ == "__main__":

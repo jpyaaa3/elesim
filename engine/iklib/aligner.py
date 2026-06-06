@@ -256,7 +256,66 @@ def refine_direction_with_position_hold(
     )
 
 
+def refine_direction_lite(
+    *,
+    current_q: Sequence[float],
+    target_world: Sequence[float],
+    target_dir_world: Sequence[float],
+    context: dict,
+    position_hold_tol_m: float = 1.5e-2,
+) -> OrientationRefineResult:
+    """Single fixed-roll TRF from the position-IK seed (no seed-bank search)."""
+    model = _ReachModel(context=context, limit=context["limit"])
+    q0 = model.clamp_q(current_q)
+    target_world_np = np.asarray(target_world, dtype=float).reshape(3)
+    target_dir_np = _normalize_dir(target_dir_world)
+    if target_dir_np is None:
+        pos_err = float(np.linalg.norm(model.error_vec(q0, target_world_np)))
+        return OrientationRefineResult(
+            q=q0.copy(),
+            position_error_m=pos_err,
+            direction_error=0.0,
+            direction_angle_rad=0.0,
+            initial_direction_error=0.0,
+            initial_direction_angle_rad=0.0,
+            iterations=0,
+            accepted_steps=0,
+            position_kept=(pos_err <= float(max(position_hold_tol_m, 1e-6))),
+            direction_improved=False,
+            converged=(pos_err <= float(max(position_hold_tol_m, 1e-6))),
+        )
+
+    pos_tol = float(max(position_hold_tol_m, 1e-6))
+    start_dir = float(model.direction_error(q0, target_dir_np))
+    start_dir_angle = _direction_angle_rad(model.grasp_direction(q0), target_dir_np)
+    fixed_roll_rad = float(q0[1])
+    q_sol, err = _solve_position_with_fixed_roll_trf(
+        model,
+        target_world_np,
+        q0,
+        fixed_roll_rad=fixed_roll_rad,
+    )
+    dir_err = float(model.direction_error(q_sol, target_dir_np))
+    dir_angle = _direction_angle_rad(model.grasp_direction(q_sol), target_dir_np)
+    position_kept = bool(float(err) <= pos_tol)
+    direction_improved = bool(dir_err + 1e-10 < start_dir)
+    return OrientationRefineResult(
+        q=q_sol.copy(),
+        position_error_m=float(err),
+        direction_error=float(dir_err),
+        direction_angle_rad=float(dir_angle),
+        initial_direction_error=float(start_dir),
+        initial_direction_angle_rad=float(start_dir_angle),
+        iterations=1,
+        accepted_steps=0,
+        position_kept=position_kept,
+        direction_improved=direction_improved,
+        converged=(position_kept and direction_improved),
+    )
+
+
 __all__ = [
     "OrientationRefineResult",
+    "refine_direction_lite",
     "refine_direction_with_position_hold",
 ]

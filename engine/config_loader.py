@@ -186,10 +186,17 @@ class PickConfig:
     approach_scale_plateau_eps: float = 0.004
     ready_pose_resolve_dir: bool = True
     ready_pose_max_dir_error_deg: float = 10.0
+    # Post-aim corrected ready: best-effort dir acceptance when strict gate misses.
+    ready_pose_corrected_max_dir_error_deg: float = 15.0
     ready_pose_skip_search_under_deg: float = 5.0
     ready_pose_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
     ready_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     ready_pose_look_dot_min: float = 0.85
+    ready_pose_align_mode: str = "full"
+    ready_pose_align_skip_under_deg: float = 3.0
+    ready_pose_align_top_k: int = 3
+    auto_grasp_after_aim: bool = True
+    grasp_standoff_m: float = 0.05
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.30
@@ -199,6 +206,11 @@ class PickConfig:
     look_pose_lateral_offsets_m: Tuple[float, ...] = (-0.05, 0.0, 0.05)
     look_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     look_pose_look_dot_min: float = 0.85
+    look_pose_align_top_k: int = 3
+
+    ik_align_mode: str = "lite"
+    ik_align_skip_under_deg: float = 10.0
+    ik_align_rounds: int = 4
 
 
 @dataclass(frozen=True)
@@ -432,6 +444,11 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ready_pose_max_dir_error_deg=cp.getfloat(
             "pick", "ready_pose_max_dir_error_deg", fallback=pk0.ready_pose_max_dir_error_deg
         ),
+        ready_pose_corrected_max_dir_error_deg=cp.getfloat(
+            "pick",
+            "ready_pose_corrected_max_dir_error_deg",
+            fallback=pk0.ready_pose_corrected_max_dir_error_deg,
+        ),
         ready_pose_skip_search_under_deg=cp.getfloat(
             "pick", "ready_pose_skip_search_under_deg", fallback=pk0.ready_pose_skip_search_under_deg
         ),
@@ -445,6 +462,21 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         ready_pose_look_dot_min=cp.getfloat(
             "pick", "ready_pose_look_dot_min", fallback=pk0.ready_pose_look_dot_min
+        ),
+        ready_pose_align_mode=cp.get(
+            "pick", "ready_pose_align_mode", fallback=pk0.ready_pose_align_mode
+        ).strip().lower(),
+        ready_pose_align_skip_under_deg=cp.getfloat(
+            "pick", "ready_pose_align_skip_under_deg", fallback=pk0.ready_pose_align_skip_under_deg
+        ),
+        ready_pose_align_top_k=cp.getint(
+            "pick", "ready_pose_align_top_k", fallback=pk0.ready_pose_align_top_k
+        ),
+        auto_grasp_after_aim=cp.getboolean(
+            "pick", "auto_grasp_after_aim", fallback=pk0.auto_grasp_after_aim
+        ),
+        grasp_standoff_m=cp.getfloat(
+            "pick", "grasp_standoff_m", fallback=pk0.grasp_standoff_m
         ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m
@@ -469,6 +501,14 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         look_pose_look_dot_min=cp.getfloat(
             "pick", "look_pose_look_dot_min", fallback=pk0.look_pose_look_dot_min
         ),
+        look_pose_align_top_k=cp.getint(
+            "pick", "look_pose_align_top_k", fallback=pk0.look_pose_align_top_k
+        ),
+        ik_align_mode=cp.get("pick", "ik_align_mode", fallback=pk0.ik_align_mode).strip().lower(),
+        ik_align_skip_under_deg=cp.getfloat(
+            "pick", "ik_align_skip_under_deg", fallback=pk0.ik_align_skip_under_deg
+        ),
+        ik_align_rounds=cp.getint("pick", "ik_align_rounds", fallback=pk0.ik_align_rounds),
     )
 
 
