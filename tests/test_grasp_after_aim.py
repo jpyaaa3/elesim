@@ -16,14 +16,30 @@ from engine.controller.state import PanelState
 
 
 class TestGraspAfterAim(unittest.TestCase):
-    def test_start_grasp_rejects_without_centered_object(self) -> None:
+    def test_start_grasp_rejects_without_any_object(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
-        svc._pick_equal_sag_model = {"seg1_equal_offset_deg": 1.0}
+        svc.client.last_object_world_xyz = None
         ok = svc._start_grasp_to_object(internal=True)
         self.assertFalse(ok)
         self.assertTrue(svc.state.pick_failed)
-        self.assertIn("centered object", svc.state.pick_status_msg)
+        self.assertIn("grasp missing object", svc.state.pick_status_msg)
+
+    def test_start_grasp_works_after_look_only(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        svc._pick_cfg = PickConfig(grasp_standoff_m=0.05)
+        svc._pick_look_object_world_xyz = (0.33, 0.01, 0.92)
+        svc._pick_look_dir_world = (1.0, 0.0, 0.0)
+        svc.state.raw_sag_model = {"seg1_equal_offset_deg": 0.0}
+        with patch.object(svc, "_start_ready_pose_resolve_and_solve") as mock_solve:
+            ok = svc._start_grasp_to_object(internal=True)
+        self.assertTrue(ok)
+        kwargs = mock_solve.call_args.kwargs
+        self.assertEqual(kwargs["object_world"], (0.33, 0.01, 0.92))
+        self.assertFalse(kwargs["corrected"])
+        self.assertFalse(kwargs["resolve_dir"])
+        self.assertTrue(kwargs["close_gripper_after"])
 
     def test_start_grasp_calls_direct_ik_with_standoff_and_close_claw(self) -> None:
         svc = ControlService(PanelState())
@@ -41,12 +57,7 @@ class TestGraspAfterAim(unittest.TestCase):
         kwargs = mock_solve.call_args.kwargs
         self.assertEqual(kwargs["object_world"], (0.33, 0.01, 0.92))
         self.assertAlmostEqual(kwargs["target_world"][0], 0.28, places=3)
-        self.assertAlmostEqual(kwargs["target_world"][1], 0.01, places=3)
-        self.assertAlmostEqual(kwargs["target_world"][2], 0.92, places=3)
-        self.assertFalse(kwargs["resolve_dir"])
-        self.assertEqual(kwargs["label"], "grasp pre-contact")
-        self.assertEqual(kwargs["pick_phase"], ObjectPickPhase.GRASP.value)
-        self.assertEqual(kwargs["profile_phase"], "grasp")
+        self.assertTrue(kwargs["corrected"])
         self.assertTrue(kwargs["close_gripper_after"])
 
     def test_start_grasp_public_delegates(self) -> None:

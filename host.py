@@ -399,6 +399,47 @@ class ControlHost:
             direction = np.array([1.0, 0.0, 0.0], dtype=float)
         return (float(direction[0]), float(direction[1]), float(direction[2]))
 
+    def _set_grasp_target_markers(
+        self,
+        object_world: Any,
+        *,
+        standoff_m: float,
+        ttl_ms: int,
+        corrected: bool = False,
+    ) -> None:
+        obj = np.asarray(object_world, dtype=float).reshape(3)
+        direction = self._ready_pose_direction()
+        try:
+            target = compute_ready_pose_target(
+                (float(obj[0]), float(obj[1]), float(obj[2])),
+                direction,
+                standoff_m=float(max(standoff_m, 0.0)),
+            )
+        except ValueError:
+            return
+        target_arr = np.asarray(target, dtype=float).reshape(3)
+        standoff_vec = target_arr - obj
+        actual_offset_m = float(np.linalg.norm(standoff_vec))
+        color = [1.0, 0.75, 0.12, 0.95] if bool(corrected) else [0.35, 0.85, 1.0, 0.95]
+        line_color = [1.0, 0.55, 0.05, 0.65] if bool(corrected) else [0.35, 0.85, 1.0, 0.60]
+        self._set_debug_marker(
+            name="grasp_target",
+            pos=target,
+            direction=direction,
+            color=color,
+            radius=0.014,
+            ttl_ms=int(ttl_ms),
+        )
+        self._set_debug_marker(
+            name="grasp_standoff",
+            pos=(float(obj[0]), float(obj[1]), float(obj[2])),
+            direction=(float(standoff_vec[0]), float(standoff_vec[1]), float(standoff_vec[2])),
+            color=line_color,
+            radius=0.006,
+            length=actual_offset_m,
+            ttl_ms=int(ttl_ms),
+        )
+
     def _set_ready_pose_markers(self, object_world: Any, *, ttl_ms: int) -> None:
         obj = np.asarray(object_world, dtype=float).reshape(3)
         direction = self._ready_pose_direction()
@@ -508,7 +549,6 @@ class ControlHost:
             radius=0.004,
             ttl_ms=marker_ttl_ms,
         )
-        self._set_ready_pose_markers(object_world, ttl_ms=marker_ttl_ms)
         return True, "perception markers updated", p_w
 
     def _broadcast_state_now(self) -> None:
@@ -1083,7 +1123,6 @@ class ControlHost:
                             radius=0.012,
                             ttl_ms=30000,
                         )
-                        self._set_ready_pose_markers(object_world, ttl_ms=30000)
                         ok, reason = True, "perception mock world override"
                 elif depth_valid and self.last_perceived_object_camera_xyz is not None:
                     ok, reason, object_world = self._update_perception_markers(
@@ -1106,7 +1145,6 @@ class ControlHost:
                             radius=0.012,
                             ttl_ms=30000,
                         )
-                        self._set_ready_pose_markers(object_world, ttl_ms=30000)
                 ack: Dict[str, Any] = {
                     "t": "ack",
                     "ts": proto.now_s(),
@@ -1161,7 +1199,18 @@ class ControlHost:
                     pass
             if ready_pose_dir_raw is not None or ready_pose_standoff_raw is not None:
                 if self.last_perceived_object_world_xyz is not None:
-                    self._set_ready_pose_markers(self.last_perceived_object_world_xyz, ttl_ms=30000)
+                    standoff = float(self.last_ready_pose_standoff_m)
+                    if standoff <= float(self.pick_config.grasp_standoff_m) + 1e-6:
+                        self._set_grasp_target_markers(
+                            self.last_perceived_object_world_xyz,
+                            standoff_m=float(self.pick_config.grasp_standoff_m),
+                            ttl_ms=30000,
+                        )
+                    else:
+                        self._set_ready_pose_markers(
+                            self.last_perceived_object_world_xyz,
+                            ttl_ms=30000,
+                        )
             sag_raw = msg.get("sag_model", None)
             if isinstance(sag_raw, dict):
                 self.last_sag_model = dict(sag_raw)

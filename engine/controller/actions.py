@@ -1320,6 +1320,19 @@ class ControlService:
             source=source,
         )
 
+    def send_grasp_meta(self, *, source: str = "target") -> None:
+        if self.client is None:
+            return
+        dir_tuple = self._pick_ready_direction(prefer_current_tip=True)
+        if dir_tuple is None:
+            return
+        pk = self._pick_config_effective()
+        self.client.send_ready_pose_meta(
+            target_dir=dir_tuple,
+            standoff_m=float(pk.grasp_standoff_m),
+            source=source,
+        )
+
     def send_sag_model_meta(self, *, source: str = "target") -> None:
         if self.client is not None:
             self.client.send_sag_model_meta(
@@ -1689,6 +1702,29 @@ class ControlService:
             return tuple(self.state.perception_world_xyz)
         return None
 
+    def _pick_grasp_object_world(self) -> Optional[tuple[float, float, float]]:
+        """Target object for Grasp: Aim-centered > Look-latched > live perception."""
+        for candidate in (
+            self._pick_centered_object_world_xyz,
+            self._pick_look_object_world_xyz,
+            self._pick_latest_object_world(),
+            self._pick_frozen_world(),
+            self._pick_initial_object_world_xyz,
+        ):
+            if candidate is not None:
+                return tuple(float(v) for v in candidate)
+        return None
+
+    def _pick_grasp_sag_model(self) -> dict[str, Any]:
+        if isinstance(self._pick_equal_sag_model, dict) and self._pick_equal_sag_model:
+            return dict(self._pick_equal_sag_model)
+        if isinstance(self.state.raw_sag_model, dict):
+            return dict(self.state.raw_sag_model)
+        return {}
+
+    def _pick_grasp_uses_equal_sag(self) -> bool:
+        return isinstance(self._pick_equal_sag_model, dict) and bool(self._pick_equal_sag_model)
+
     def _pick_current_tip_world(
         self, *, host_state: Optional[HostState] = None
     ) -> Optional[tuple[float, float, float]]:
@@ -2057,6 +2093,48 @@ class ControlService:
             return np.asarray(fallback, dtype=float).reshape(3)
         return arr / norm
 
+    def _send_grasp_target_markers(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        target: np.ndarray,
+        direction: np.ndarray,
+        actual_offset_m: float,
+        corrected: bool,
+    ) -> None:
+        if self.client is None:
+            return
+        obj = np.asarray(object_world, dtype=float).reshape(3)
+        tgt = np.asarray(target, dtype=float).reshape(3)
+        d = self._unit_vec3(direction)
+        standoff_vec = tgt - obj
+        color = [1.0, 0.75, 0.12, 0.95] if bool(corrected) else [0.35, 0.85, 1.0, 0.95]
+        line_color = [1.0, 0.55, 0.05, 0.65] if bool(corrected) else [0.35, 0.85, 1.0, 0.60]
+        self.client.send_debug_markers(
+            [
+                {
+                    "name": "grasp_target",
+                    "frame": "world",
+                    "pos": [float(v) for v in tgt],
+                    "dir": [float(v) for v in d],
+                    "color": color,
+                    "radius": 0.014,
+                    "ttl_ms": 30000,
+                },
+                {
+                    "name": "grasp_standoff",
+                    "frame": "world",
+                    "pos": [float(v) for v in obj],
+                    "dir": [float(v) for v in standoff_vec],
+                    "color": line_color,
+                    "radius": 0.006,
+                    "length": float(actual_offset_m),
+                    "ttl_ms": 30000,
+                },
+            ],
+            source="target",
+        )
+
     def _send_ready_pose_markers(
         self,
         *,
@@ -2341,14 +2419,24 @@ class ControlService:
                     float(direction_arr[1]),
                     float(direction_arr[2]),
                 )
-                self.send_ready_pose_meta(source="target")
-                self._send_ready_pose_markers(
-                    object_world=object_tuple,
-                    target=target_arr,
-                    direction=direction_arr,
-                    actual_offset_m=actual_offset_m,
-                    corrected=bool(corrected),
-                )
+                if str(profile_phase) == "grasp":
+                    self.send_grasp_meta(source="target")
+                    self._send_grasp_target_markers(
+                        object_world=object_tuple,
+                        target=target_arr,
+                        direction=direction_arr,
+                        actual_offset_m=actual_offset_m,
+                        corrected=bool(corrected),
+                    )
+                elif str(profile_phase) == "ready":
+                    self.send_ready_pose_meta(source="target")
+                    self._send_ready_pose_markers(
+                        object_world=object_tuple,
+                        target=target_arr,
+                        direction=direction_arr,
+                        actual_offset_m=actual_offset_m,
+                        corrected=bool(corrected),
+                    )
                 self._apply_ik_solution_to_host(
                     q,
                     ik_target=target_arr,
@@ -2430,23 +2518,17 @@ class ControlService:
                 msg="no host client",
             )
             return False
-        object_world = self._pick_centered_object_world_xyz
+        object_world = self._pick_grasp_object_world()
         if object_world is None:
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="grasp missing centered object (run Aim first)",
+                msg="grasp missing object (run Look or enable perception)",
             )
             return False
-        if not isinstance(self._pick_equal_sag_model, dict):
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="grasp missing equal-sag model (run Aim first)",
-            )
-            return False
+        sag_model = self._pick_grasp_sag_model()
+        use_equal_sag = self._pick_grasp_uses_equal_sag()
         object_tuple = tuple(float(v) for v in object_world)
         dir_tuple = self._pick_ready_direction(
             object_world=object_tuple,
@@ -2480,9 +2562,9 @@ class ControlService:
         self._start_ready_pose_resolve_and_solve(
             object_world=object_tuple,
             preferred_dir=direction,
-            sag_model=dict(self._pick_equal_sag_model),
+            sag_model=sag_model,
             label="grasp pre-contact",
-            corrected=True,
+            corrected=bool(use_equal_sag),
             resolve_dir=False,
             target_world=grasp_target,
             pick_phase=ObjectPickPhase.GRASP.value,
@@ -2808,15 +2890,6 @@ class ControlService:
                 self._pick_initial_object_world_xyz = object_tuple
                 self._pick_initial_ready_pose_world_xyz = view_tuple
                 self._pick_frozen_world_xyz = object_tuple
-                offset_m = float(np.linalg.norm(object_arr - target_arr))
-                self._send_ready_pose_markers(
-                    object_world=object_tuple,
-                    target=target_arr,
-                    direction=look_dir_used,
-                    actual_offset_m=offset_m,
-                    corrected=False,
-                )
-                self.send_ready_pose_meta(source="target")
                 self.state.set_pick_status(
                     running=False,
                     failed=False,

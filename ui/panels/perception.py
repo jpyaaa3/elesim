@@ -202,7 +202,8 @@ def draw_perception_panel(panel) -> None:
         "Look -> Aim -> Grasp (E2E) runs all three steps. "
         "Look: view pose + equal-sag baseline. "
         "Aim: UV center + drift estimate (stops when centered). "
-        "Grasp: IK to object - approach_dir * grasp_standoff_m, then close gripper."
+        "Grasp: IK to object - approach_dir * grasp_standoff_m, then close gripper "
+        "(works after Look in sim; Aim optional for equal-sag correction)."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
