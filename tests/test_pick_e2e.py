@@ -18,11 +18,11 @@ class TestPickE2E(unittest.TestCase):
     def test_rejects_when_busy(self) -> None:
         svc = ControlService(PanelState())
         svc._pick_e2e_worker = type("T", (), {"is_alive": lambda self: True})()
-        svc.start_look_aim_e2e()
+        svc.start_look_aim_grasp_e2e()
         self.assertTrue(svc.state.pick_failed)
         self.assertEqual(svc.state.pick_status_msg, "busy")
 
-    def test_chains_look_and_aim(self) -> None:
+    def test_chains_look_aim_grasp(self) -> None:
         svc = ControlService(PanelState(), client=object())
         calls: list[str] = []
 
@@ -41,22 +41,34 @@ class TestPickE2E(unittest.TestCase):
                 running=False,
                 failed=False,
                 phase=ObjectPickPhase.DONE.value,
-                msg="aim + grasp done",
+                msg="aim done",
+            )
+
+        def _grasp() -> None:
+            calls.append("grasp")
+            svc.state.set_pick_status(
+                running=False,
+                failed=False,
+                phase=ObjectPickPhase.DONE.value,
+                msg="grasp done | claw closed",
             )
 
         with patch.object(svc, "start_look", side_effect=_look), patch.object(
             svc,
             "start_aim",
             side_effect=_aim,
-        ), patch.object(svc, "start_ready_pose") as mock_ready, patch.object(
+        ), patch.object(svc, "start_grasp", side_effect=_grasp), patch.object(
+            svc,
+            "start_ready_pose",
+        ) as mock_ready, patch.object(
             svc,
             "start_pick_forward",
         ) as mock_pick:
-            svc.start_look_aim_e2e()
+            svc.start_look_aim_grasp_e2e()
             if svc._pick_e2e_worker is not None:
                 svc._pick_e2e_worker.join(timeout=2.0)
 
-        self.assertEqual(calls, ["look", "aim"])
+        self.assertEqual(calls, ["look", "aim", "grasp"])
         mock_ready.assert_not_called()
         mock_pick.assert_not_called()
         self.assertFalse(svc.state.pick_failed)

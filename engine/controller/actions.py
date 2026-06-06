@@ -459,8 +459,8 @@ class ControlService:
         self._pick_e2e_cancel.set()
         self.stop_object_pick()
 
-    def start_look_aim_e2e(self) -> None:
-        """Run Look -> Aim (UV center + equal-sag + auto grasp to object)."""
+    def start_look_aim_grasp_e2e(self) -> None:
+        """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
         if self.pick_e2e_running() or self._pick_busy() or self._visual_busy():
             self.state.set_pick_status(
                 running=False,
@@ -523,6 +523,25 @@ class ControlService:
                         )
                     return
 
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.GRASP.value,
+                    msg="E2E: Grasp",
+                )
+                self.start_grasp()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="grasp"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="E2E: grasp timeout",
+                        )
+                    return
+
                 if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
                     return
 
@@ -543,10 +562,94 @@ class ControlService:
         )
         self._pick_e2e_worker.start()
 
+    def start_look_aim_e2e(self) -> None:
+        """Run Look -> Aim only (no grasp)."""
+        if self.pick_e2e_running() or self._pick_busy() or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+
+        self._pick_e2e_cancel.clear()
+        timeout_s = float(self._pick_e2e_phase_timeout_s)
+
+        def _worker() -> None:
+            try:
+                print("[E2E] start | Look -> Aim")
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.LOOK.value,
+                    msg="E2E: Look",
+                )
+
+                self.start_look()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="look"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="E2E: look timeout",
+                        )
+                    return
+
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.ACQUIRE.value,
+                    msg="E2E: Aim",
+                )
+                self.start_aim()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="aim"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="E2E: aim timeout",
+                        )
+                    return
+
+                if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
+                    return
+
+                self.state.set_pick_status(
+                    running=False,
+                    failed=False,
+                    phase=ObjectPickPhase.DONE.value,
+                    msg="E2E done | Look -> Aim",
+                )
+                print("[E2E] done | Look -> Aim")
+            finally:
+                self._pick_e2e_worker = None
+
+        self._pick_e2e_worker = threading.Thread(
+            target=_worker,
+            name="pick-e2e",
+            daemon=True,
+        )
+        self._pick_e2e_worker.start()
+
     def start_look_ready_pick_e2e(self, *, pick_distance_m: float = 0.15) -> None:
-        """Deprecated: use start_look_aim_e2e()."""
+        """Deprecated: use start_look_aim_grasp_e2e()."""
         _ = float(pick_distance_m)
-        self.start_look_aim_e2e()
+        self.start_look_aim_grasp_e2e()
 
     def _reset_pick_search_state(self) -> None:
         self._pick_search_origin_u = None
@@ -2010,6 +2113,7 @@ class ControlService:
         accept_best_effort_dir_error_deg: Optional[float] = None,
         pick_phase: str = ObjectPickPhase.READY.value,
         profile_phase: str = "ready",
+        close_gripper_after: bool = False,
     ) -> None:
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -2257,12 +2361,17 @@ class ControlService:
                 )
                 if bool(corrected):
                     self._send_equal_sag_markers()
+                if bool(close_gripper_after):
+                    self.state.set_claw_closed(True)
+                    self.send_claw_command(closed=True)
                 done_msg = "%s done | err=%.1fmm dir_err=%.1fdeg align=%s" % (
                     str(label),
                     float(position_error_m) * 1000.0,
                     float(direction_error_deg),
                     str(ready_align["align_mode"]),
                 )
+                if bool(close_gripper_after):
+                    done_msg = "%s | claw closed" % done_msg
                 if resolved_meta:
                     done_msg = "%s | %s" % (done_msg, resolved_meta)
                 self.state.set_pick_status(
@@ -2378,8 +2487,22 @@ class ControlService:
             target_world=grasp_target,
             pick_phase=ObjectPickPhase.GRASP.value,
             profile_phase="grasp",
+            close_gripper_after=True,
         )
         return True
+
+    def start_grasp(self) -> None:
+        """Move to pre-contact (object - approach_dir * standoff) then close gripper."""
+        if self.state.ik_running or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        self._pick_stop_event.clear()
+        self._start_grasp_to_object()
 
     def _wait_grasp_ik_done(self, *, timeout_s: float, label: str = "grasp") -> bool:
         deadline = time.time() + float(max(timeout_s, 1.0))
@@ -3594,39 +3717,12 @@ class ControlService:
                                     float(estimate.seg2_equal_offset_deg),
                                 )
                             )
-                            pk_done = self._pick_config_effective()
-                            if bool(pk_done.auto_grasp_after_aim):
-                                print("[Aim] %s | auto grasp to object" % aim_msg)
-                                self.state.set_pick_status(
-                                    running=True,
-                                    failed=False,
-                                    phase=ObjectPickPhase.GRASP.value,
-                                    msg="aim done | grasp to object",
-                                )
-                                if not self._start_grasp_to_object(internal=True):
-                                    return
-                                grasp_timeout = float(
-                                    max(self._pick_e2e_phase_timeout_s, 30.0)
-                                )
-                                if not self._wait_grasp_ik_done(
-                                    timeout_s=grasp_timeout,
-                                    label="auto grasp",
-                                ):
-                                    if not self.state.pick_failed:
-                                        self.state.set_pick_status(
-                                            running=False,
-                                            failed=True,
-                                            phase=ObjectPickPhase.FAILED.value,
-                                            msg="auto grasp timeout",
-                                        )
-                                    return
-                            else:
-                                self.state.set_pick_status(
-                                    running=False,
-                                    failed=False,
-                                    phase=ObjectPickPhase.DONE.value,
-                                    msg=aim_msg,
-                                )
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=False,
+                                phase=ObjectPickPhase.DONE.value,
+                                msg=aim_msg,
+                            )
                         else:
                             reason = "no estimate" if estimate is None else str(estimate.reason)
                             self.state.set_pick_status(

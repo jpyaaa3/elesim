@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -27,7 +25,7 @@ class TestGraspAfterAim(unittest.TestCase):
         self.assertTrue(svc.state.pick_failed)
         self.assertIn("centered object", svc.state.pick_status_msg)
 
-    def test_start_grasp_calls_direct_ik_with_standoff(self) -> None:
+    def test_start_grasp_calls_direct_ik_with_standoff_and_close_claw(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._pick_cfg = PickConfig(grasp_standoff_m=0.05)
@@ -49,29 +47,13 @@ class TestGraspAfterAim(unittest.TestCase):
         self.assertEqual(kwargs["label"], "grasp pre-contact")
         self.assertEqual(kwargs["pick_phase"], ObjectPickPhase.GRASP.value)
         self.assertEqual(kwargs["profile_phase"], "grasp")
-        self.assertEqual(kwargs["sag_model"]["seg1_equal_offset_deg"], 0.8)
+        self.assertTrue(kwargs["close_gripper_after"])
 
-    def test_aim_auto_grasp_when_config_enabled(self) -> None:
+    def test_start_grasp_public_delegates(self) -> None:
         svc = ControlService(PanelState())
-        svc._pick_cfg = PickConfig(auto_grasp_after_aim=True)
-        with patch.object(svc, "_pick_config_effective", return_value=PickConfig(auto_grasp_after_aim=True)), patch.object(
-            svc, "_start_grasp_to_object",
-            return_value=True,
-        ) as mock_grasp, patch.object(
-            svc, "_wait_grasp_ik_done",
-            return_value=True,
-        ) as mock_wait, patch.object(
-            svc.state,
-            "set_pick_status",
-        ) as mock_status:
-            # Simulate equal_sag accepted branch logic inline
-            pk_done = svc._pick_config_effective()
-            self.assertTrue(pk_done.auto_grasp_after_aim)
-            if bool(pk_done.auto_grasp_after_aim):
-                svc._start_grasp_to_object(internal=True)
-                svc._wait_grasp_ik_done(timeout_s=30.0, label="auto grasp")
-        mock_grasp.assert_called_once_with(internal=True)
-        mock_wait.assert_called_once()
+        with patch.object(svc, "_start_grasp_to_object", return_value=True) as mock_grasp:
+            svc.start_grasp()
+        mock_grasp.assert_called_once_with()
 
 
 if __name__ == "__main__":

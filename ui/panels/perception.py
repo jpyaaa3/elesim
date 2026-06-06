@@ -199,11 +199,10 @@ def draw_perception_panel(panel) -> None:
         panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
     imgui.text_wrapped(
-        "Look -> Aim -> Grasp runs the full pick pipeline. "
-        "Look moves to a feasible view pose and latches the equal-sag baseline. "
-        "Aim recenters the camera UV target, estimates equal-sag drift, then IK-moves "
-        "the tip to grasp_standoff_m before the corrected object along approach dir "
-        "(default 5 cm; no separate Ready or Pick extend)."
+        "Look -> Aim -> Grasp (E2E) runs all three steps. "
+        "Look: view pose + equal-sag baseline. "
+        "Aim: UV center + drift estimate (stops when centered). "
+        "Grasp: IK to object - approach_dir * grasp_standoff_m, then close gripper."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)
@@ -216,7 +215,7 @@ def draw_perception_panel(panel) -> None:
         cfg = _build_perception_config(panel)
         if imgui.button("Look -> Aim -> Grasp"):
             panel.service.update_perception_config(cfg)
-            panel.service.start_look_aim_e2e()
+            panel.service.start_look_aim_grasp_e2e()
         imgui.same_line()
         if imgui.button("Look"):
             panel.service.update_perception_config(cfg)
@@ -225,6 +224,9 @@ def draw_perception_panel(panel) -> None:
         if imgui.button("Aim"):
             panel.service.update_perception_config(cfg)
             panel.service.start_aim()
+        imgui.same_line()
+        if imgui.button("Grasp"):
+            panel.service.start_grasp()
         if imgui.tree_node("Advanced (debug)"):
             if imgui.button("Ready Pose"):
                 panel.service.update_perception_config(cfg)

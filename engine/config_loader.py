@@ -195,7 +195,7 @@ class PickConfig:
     ready_pose_align_mode: str = "full"
     ready_pose_align_skip_under_deg: float = 3.0
     ready_pose_align_top_k: int = 3
-    auto_grasp_after_aim: bool = True
+    auto_grasp_after_aim: bool = False
     grasp_standoff_m: float = 0.05
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
