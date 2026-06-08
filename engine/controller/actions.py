@@ -4317,15 +4317,18 @@ class ControlService:
                     )
                     return
                 dist = self._grasp_axial_distance(tip, nominal_world, dir_u)
-                u_d, v_d, _, _ = self._visual_uv_errors(obs)
+                if obs is not None:
+                    u_d, v_d, _, _ = self._visual_uv_errors(obs)
+                    uv_txt = "(%+.3f,%+.3f)" % (float(u_d), float(v_d))
+                else:
+                    uv_txt = "n/a"
                 print(
-                    "[Grasp] %s | dist=%.1fmm centered=%s uv=(%+.3f,%+.3f)"
+                    "[Grasp] %s | dist=%.1fmm centered=%s uv=%s"
                     % (
                         str(wp_label),
                         float(dist) * 1000.0,
                         str(bool(centered_ok)).lower(),
-                        float(u_d),
-                        float(v_d),
+                        str(uv_txt),
                     )
                 )
                 self.state.set_pick_status(
