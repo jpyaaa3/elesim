@@ -3439,6 +3439,18 @@ class ControlService:
             prefer_current_tip=False,
         )
 
+    def _grasp_visual_recover_supported(self) -> bool:
+        """True when live perception can close the post-IK UV aim loop."""
+        pk = self._pick_config_effective()
+        if bool(pk.grasp_skip_aim_recover_in_mock):
+            mode = str(self._perception_cfg.mode).strip().lower()
+            if mode == "mock" or not bool(self._use_hardware):
+                return False
+        cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            return False
+        return True
+
     def _grasp_clip_sag_update(
         self,
         base_sag: dict[str, Any],
@@ -4121,7 +4133,6 @@ class ControlService:
                 )
             )
 
-            stale_count = 0
             host_state = self.client.refresh_state() if self.client is not None else None
             live_object = self._pick_grasp_object_world() or object_world
             start_pos = self._pick_centered_ready_pose_world_xyz
@@ -4265,24 +4276,27 @@ class ControlService:
                     )
                     return
 
-                centered_ok, obs, host_state = self._grasp_aim_recover_after_move(
-                    cfg=grasp_cfg,
-                    host_state=host_state,
-                    label=wp_label,
-                )
-                if obs is None:
-                    stale_count += 1
-                    if stale_count >= 3:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="grasp guided | observation lost",
+                centered_ok = False
+                obs: Optional[VisualObservation] = None
+                if self._grasp_visual_recover_supported():
+                    centered_ok, obs, host_state = self._grasp_aim_recover_after_move(
+                        cfg=grasp_cfg,
+                        host_state=host_state,
+                        label=wp_label,
+                    )
+                    if obs is None:
+                        print(
+                            "[Grasp] %s | aim recover | no observation (continue sag)"
+                            % str(wp_label)
                         )
-                        return
-                    time.sleep(0.05)
-                    continue
-                stale_count = 0
+                else:
+                    print(
+                        "[Grasp] %s | aim recover skipped | mock/sim (IK+sag only)"
+                        % str(wp_label)
+                    )
+                    if self.client is not None:
+                        host_state = self.client.refresh_state()
+                    obs = self.current_visual_observation(host_state)
 
                 host_state = self.client.refresh_state() if self.client is not None else None
                 self._grasp_update_online_sag_bias(

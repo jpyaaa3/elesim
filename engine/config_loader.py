@@ -207,6 +207,7 @@ class PickConfig:
     grasp_uv_center_tol: float = 0.0
     grasp_online_sag_enabled: bool = True
     grasp_online_sag_max_step_deg: float = 2.0
+    grasp_skip_aim_recover_in_mock: bool = True
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.30
@@ -515,6 +516,11 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         grasp_online_sag_max_step_deg=cp.getfloat(
             "pick", "grasp_online_sag_max_step_deg", fallback=pk0.grasp_online_sag_max_step_deg
+        ),
+        grasp_skip_aim_recover_in_mock=cp.getboolean(
+            "pick",
+            "grasp_skip_aim_recover_in_mock",
+            fallback=pk0.grasp_skip_aim_recover_in_mock,
         ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m

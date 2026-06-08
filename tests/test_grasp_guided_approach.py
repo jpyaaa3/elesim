@@ -66,6 +66,27 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertAlmostEqual(dist, 0.06, places=4)
         self.assertAlmostEqual(travel, 0.0, places=4)
 
+    def test_visual_recover_disabled_in_mock_mode(self) -> None:
+        from engine.config_loader import PerceptionConfig
+
+        svc = ControlService(PanelState())
+        svc._pick_cfg = PickConfig(grasp_skip_aim_recover_in_mock=True)
+        svc._perception_cfg = PerceptionConfig(mode="mock")
+        svc._perception_capture = MagicMock()
+        svc._perception_capture.is_running.return_value = True
+        self.assertFalse(svc._grasp_visual_recover_supported())
+
+    def test_visual_recover_disabled_in_sim(self) -> None:
+        from engine.config_loader import PerceptionConfig
+
+        svc = ControlService(PanelState())
+        svc._pick_cfg = PickConfig(grasp_skip_aim_recover_in_mock=True)
+        svc._perception_cfg = PerceptionConfig(mode="camera")
+        svc._use_hardware = False
+        svc._perception_capture = MagicMock()
+        svc._perception_capture.is_running.return_value = True
+        self.assertFalse(svc._grasp_visual_recover_supported())
+
     def test_aim_latched_direction_prefers_resolved(self) -> None:
         svc = ControlService(PanelState())
         svc._pick_resolved_ready_dir_world = (0.0, 0.0, 1.0)
@@ -143,6 +164,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         ), patch(
             "engine.controller.actions.plan_grasp_approach_trajectory",
             return_value=[sample_wp],
+        ), patch.object(
+            svc, "_grasp_visual_recover_supported", return_value=True
         ), patch.object(svc, "_grasp_ik_to_waypoint", side_effect=_ik), patch.object(
             svc, "_grasp_aim_recover_after_move", side_effect=_aim
         ), patch.object(svc, "_grasp_update_online_sag_bias", side_effect=_sag), patch.object(
