@@ -34,7 +34,8 @@ from engine.visual_servoing.grasp_trajectory import (
     GraspWaypoint,
     build_grasp_trajectory_markers,
     plan_grasp_approach_trajectory,
-    plan_grasp_next_waypoint,
+    plan_grasp_feasible_next_waypoint,
+    plan_grasp_feasible_trajectory,
     trajectory_path_length_m,
 )
 from engine.visual_servoing.uv_jacobian import (
@@ -3451,6 +3452,51 @@ class ControlService:
             return False
         return True
 
+    def _grasp_feasible_plan_callbacks(
+        self,
+        *,
+        sag_model: dict[str, Any],
+    ) -> tuple[Any, Any]:
+        """Return (ik_fn, fk_fn) for grasp trajectory feasibility filtering."""
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        ctx["sag_model"] = dict(sag_model)
+        ik_kwargs = {
+            "context": ctx,
+            "position_tol_m": max(float(self._ik_cfg.tol), 1e-4),
+            "max_iters": max(int(self._ik_cfg.max_iters), 1),
+            **self._ik_align_kwargs(force_full=True),
+        }
+        model = self._pick_reach_model(sag_model)
+
+        def ik_fn(**kwargs: Any) -> Any:
+            merged = dict(ik_kwargs)
+            merged.update(kwargs)
+            return ik_pipeline.solve_then_align(**merged)
+
+        def fk_fn(q: np.ndarray) -> Any:
+            q4 = np.asarray(q, dtype=float).reshape(4)
+            pos = np.asarray(model.grasp_position(q4), dtype=float).reshape(3)
+            direc = np.asarray(model.grasp_direction(q4), dtype=float).reshape(3)
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (
+                        float(pos[0]),
+                        float(pos[1]),
+                        float(pos[2]),
+                    ),
+                    "direction_world": (
+                        float(direc[0]),
+                        float(direc[1]),
+                        float(direc[2]),
+                    ),
+                },
+            )()
+
+        return ik_fn, fk_fn
+
     def _grasp_clip_sag_update(
         self,
         base_sag: dict[str, Any],
@@ -3648,6 +3694,7 @@ class ControlService:
         sag_model: dict[str, Any],
         host_state: Optional[HostState],
         label: str = "grasp waypoint",
+        seed_override: Optional[np.ndarray] = None,
     ) -> tuple[bool, Optional[np.ndarray], Optional[HostState], float]:
         """IK to an absolute planned grasp waypoint pose (position + direction)."""
         if self.client is None or host_state is None or host_state.q is None:
@@ -3655,7 +3702,10 @@ class ControlService:
         target = np.asarray(waypoint.position_world, dtype=float).reshape(3)
         target_dir = np.asarray(waypoint.direction_world, dtype=float).reshape(3)
         try:
-            q0 = self._q_array_from_state(host_state)
+            if seed_override is not None:
+                q0 = np.asarray(seed_override, dtype=float).reshape(4)
+            else:
+                q0 = self._q_array_from_state(host_state)
         except Exception as exc:
             print("[Grasp] %s | seed failed: %s" % (str(label), str(exc)))
             return False, None, host_state, float("inf")
@@ -4152,7 +4202,19 @@ class ControlService:
                 dir_u,
                 standoff_m=standoff_m,
             )
-            self._grasp_planned_waypoints = plan_grasp_approach_trajectory(
+            sag_model = self._pick_grasp_sag_model()
+            ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(sag_model=sag_model)
+            try:
+                q_seed = self._q_array_from_state(host_state)
+            except Exception:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="grasp guided | seed q unavailable",
+                )
+                return
+            geom_plan = plan_grasp_approach_trajectory(
                 start_position=start_pos,
                 end_position=nominal_world,
                 start_direction=dir_tuple,
@@ -4163,7 +4225,22 @@ class ControlService:
                 grasp_standoff_m=standoff_m,
                 max_waypoints=max_waypoints,
             )
+            self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
+                start_position=start_pos,
+                end_position=nominal_world,
+                start_direction=dir_tuple,
+                end_direction=dir_tuple,
+                object_world=live_object,
+                q_seed=q_seed,
+                step_m=step_m,
+                blind_start_m=blind_start_m,
+                ik_fn=ik_fn,
+                fk_fn=fk_fn,
+                grasp_standoff_m=standoff_m,
+                max_waypoints=max_waypoints,
+            )
             plan_n = len(self._grasp_planned_waypoints)
+            geom_n = len(geom_plan)
             path_len = trajectory_path_length_m(self._grasp_planned_waypoints)
             if path_len <= 1e-6:
                 path_len = float(
@@ -4185,14 +4262,23 @@ class ControlService:
             )
             end_standoff = float(standoff_m)
             print(
-                "[Grasp] plan | n=%d path=%.0fmm standoff %.0f→%.0fmm"
+                "[Grasp] plan | feasible=%d geom=%d path=%.0fmm standoff %.0f→%.0fmm"
                 % (
                     int(plan_n),
+                    int(geom_n),
                     float(path_len) * 1000.0,
                     start_standoff * 1000.0,
                     end_standoff * 1000.0,
                 )
             )
+            if plan_n <= 0:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="grasp guided | no feasible waypoints",
+                )
+                return
             self._send_grasp_trajectory_markers(
                 start_position=tuple(float(v) for v in start_pos),
                 end_position=tuple(float(v) for v in nominal_world),
@@ -4200,6 +4286,7 @@ class ControlService:
                 waypoints=list(self._grasp_planned_waypoints),
             )
 
+            feasible_queue_idx = 0
             for wp in range(max_waypoints):
                 if self._pick_stop_event.is_set():
                     self.state.set_pick_status(
@@ -4235,19 +4322,34 @@ class ControlService:
                     )
                     break
 
-                planned_wp = plan_grasp_next_waypoint(
-                    start_position=tip,
-                    end_position=nominal_world,
-                    start_direction=dir_tuple,
-                    end_direction=dir_tuple,
-                    object_world=live_object,
-                    step_m=step_m,
-                    blind_start_m=blind_start_m,
-                    grasp_standoff_m=standoff_m,
-                )
+                sag_model = self._pick_grasp_sag_model()
+                planned_wp: GraspWaypoint | None = None
+                if feasible_queue_idx < len(self._grasp_planned_waypoints):
+                    planned_wp = self._grasp_planned_waypoints[feasible_queue_idx]
+                else:
+                    ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(
+                        sag_model=sag_model
+                    )
+                    try:
+                        q_now = self._q_array_from_state(host_state)
+                    except Exception:
+                        q_now = q_seed
+                    planned_wp = plan_grasp_feasible_next_waypoint(
+                        start_position=tip,
+                        end_position=nominal_world,
+                        start_direction=dir_tuple,
+                        end_direction=dir_tuple,
+                        object_world=live_object,
+                        q_seed=q_now,
+                        step_m=step_m,
+                        blind_start_m=blind_start_m,
+                        ik_fn=ik_fn,
+                        fk_fn=fk_fn,
+                        grasp_standoff_m=standoff_m,
+                    )
                 if planned_wp is None:
                     print(
-                        "[Grasp] wp %d | no planned waypoint | dist=%.1fmm"
+                        "[Grasp] wp %d | no feasible waypoint | dist=%.1fmm"
                         % (int(wp + 1), float(dist) * 1000.0)
                     )
                     break
@@ -4260,13 +4362,55 @@ class ControlService:
                     waypoints=list(self._grasp_planned_waypoints),
                     highlight_idx=int(wp),
                 )
-                sag_model = self._pick_grasp_sag_model()
                 ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
                     waypoint=planned_wp,
                     sag_model=sag_model,
                     host_state=host_state,
                     label="grasp %s" % wp_label,
                 )
+                if (not ok or q_cmd is None) and planned_wp.q_seed is not None:
+                    ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
+                        waypoint=planned_wp,
+                        sag_model=sag_model,
+                        host_state=host_state,
+                        label="grasp %s | planned seed" % wp_label,
+                        seed_override=np.asarray(planned_wp.q_seed, dtype=float),
+                    )
+                if not ok or q_cmd is None:
+                    ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(
+                        sag_model=sag_model
+                    )
+                    try:
+                        q_now = self._q_array_from_state(host_state)
+                    except Exception:
+                        q_now = q_seed
+                    replanned = plan_grasp_feasible_next_waypoint(
+                        start_position=tip,
+                        end_position=nominal_world,
+                        start_direction=dir_tuple,
+                        end_direction=dir_tuple,
+                        object_world=live_object,
+                        q_seed=q_now,
+                        step_m=step_m,
+                        blind_start_m=blind_start_m,
+                        ik_fn=ik_fn,
+                        fk_fn=fk_fn,
+                        grasp_standoff_m=standoff_m,
+                    )
+                    if replanned is not None:
+                        ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
+                            waypoint=replanned,
+                            sag_model=sag_model,
+                            host_state=host_state,
+                            label="grasp %s | replan" % wp_label,
+                            seed_override=(
+                                np.asarray(replanned.q_seed, dtype=float)
+                                if replanned.q_seed is not None
+                                else None
+                            ),
+                        )
+                        if ok and q_cmd is not None:
+                            planned_wp = replanned
                 if not ok or q_cmd is None:
                     self.state.set_pick_status(
                         running=False,
@@ -4275,6 +4419,7 @@ class ControlService:
                         msg="grasp guided | waypoint IK failed",
                     )
                     return
+                feasible_queue_idx += 1
 
                 centered_ok = False
                 obs: Optional[VisualObservation] = None

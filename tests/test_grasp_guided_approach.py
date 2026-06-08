@@ -159,11 +159,16 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             "_pick_grasp_object_world",
             return_value=(0.33, 0.01, 0.92),
         ), patch(
-            "engine.controller.actions.plan_grasp_next_waypoint",
+            "engine.controller.actions.plan_grasp_feasible_next_waypoint",
             side_effect=[sample_wp, None],
+        ), patch(
+            "engine.controller.actions.plan_grasp_feasible_trajectory",
+            return_value=[sample_wp],
         ), patch(
             "engine.controller.actions.plan_grasp_approach_trajectory",
             return_value=[sample_wp],
+        ), patch.object(
+            svc, "_grasp_feasible_plan_callbacks", return_value=(MagicMock(), MagicMock())
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=True
         ), patch.object(svc, "_grasp_ik_to_waypoint", side_effect=_ik), patch.object(

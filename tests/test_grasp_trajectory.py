@@ -18,8 +18,10 @@ _GRASP_TRAJECTORY = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _GRASP_TRAJECTORY
 _SPEC.loader.exec_module(_GRASP_TRAJECTORY)
 plan_grasp_approach_trajectory = _GRASP_TRAJECTORY.plan_grasp_approach_trajectory
+plan_grasp_feasible_trajectory = _GRASP_TRAJECTORY.plan_grasp_feasible_trajectory
 plan_grasp_next_waypoint = _GRASP_TRAJECTORY.plan_grasp_next_waypoint
 build_grasp_trajectory_markers = _GRASP_TRAJECTORY.build_grasp_trajectory_markers
+GraspWaypoint = _GRASP_TRAJECTORY.GraspWaypoint
 
 
 class TestGraspTrajectoryPlanner(unittest.TestCase):
@@ -133,6 +135,125 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertIn("grasp_traj_object", names)
         self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_wp_")]), 1)
         self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_seg_")]), 1)
+
+    def test_feasible_plan_skips_unreachable_lerp_points(self) -> None:
+        obj = (0.40, 0.0, 0.90)
+        start = (0.20, 0.0, 1.10)
+        end = (0.38, 0.0, 0.88)
+        direction = (1.0, 0.0, 0.0)
+        geom = plan_grasp_approach_trajectory(
+            start_position=start,
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            step_m=0.03,
+            blind_start_m=0.06,
+            grasp_standoff_m=0.02,
+            max_waypoints=20,
+        )
+        fail_after = 4
+        q_chain = [0.1, 0.0, 0.2, 0.1]
+
+        class _IkResult:
+            def __init__(self, success: bool, q=None, position_error_m=0.0, reason=""):
+                self.success = success
+                self.q = q
+                self.position_error_m = position_error_m
+                self.reason = reason
+
+        def ik_fn(**kwargs):
+            target = kwargs["target_world"]
+            idx = len(q_chain) - 1
+            for i, wp in enumerate(geom):
+                if abs(float(wp.position_world[0]) - float(target[0])) < 1e-4:
+                    idx = i
+                    break
+            if idx >= fail_after:
+                return _IkResult(False, position_error_m=0.0037, reason="position tolerance not reached")
+            q = [0.1 + 0.01 * (idx + 1), 0.0, 0.2, 0.1]
+            q_chain.append(q[0])
+            return _IkResult(True, q=q)
+
+        def fk_fn(q):
+            q_arr = q
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (float(q_arr[0]), 0.0, 0.90),
+                    "direction_world": direction,
+                },
+            )()
+
+        feasible = plan_grasp_feasible_trajectory(
+            start_position=start,
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            q_seed=(0.1, 0.0, 0.2, 0.1),
+            step_m=0.03,
+            blind_start_m=0.06,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            grasp_standoff_m=0.02,
+            max_waypoints=20,
+        )
+        self.assertGreaterEqual(len(geom), fail_after + 1)
+        self.assertEqual(len(feasible), fail_after)
+        for wp in feasible:
+            self.assertIsNotNone(wp.q_seed)
+            self.assertIsNotNone(wp.achieved_position_world)
+
+    def test_feasible_bisect_reaches_smaller_step_after_ik_fail(self) -> None:
+        obj = (0.40, 0.0, 0.90)
+        start = (0.30, 0.0, 1.10)
+        end = (0.38, 0.0, 0.88)
+        direction = (1.0, 0.0, 0.0)
+
+        class _IkResult:
+            def __init__(self, success: bool, q=None, position_error_m=0.0, reason=""):
+                self.success = success
+                self.q = q
+                self.position_error_m = position_error_m
+                self.reason = reason
+
+        calls: list[float] = []
+
+        def ik_fn(**kwargs):
+            target = kwargs["target_world"]
+            calls.append(float(target[0]))
+            if float(target[0]) > 0.335:
+                return _IkResult(False, position_error_m=0.004, reason="fail")
+            return _IkResult(True, q=[float(target[0]), 0.0, 0.2, 0.1])
+
+        def fk_fn(q):
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (float(q[0]), 0.0, 0.90),
+                    "direction_world": direction,
+                },
+            )()
+
+        feasible = plan_grasp_feasible_trajectory(
+            start_position=start,
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            q_seed=(0.30, 0.0, 0.2, 0.1),
+            step_m=0.03,
+            blind_start_m=0.06,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            max_waypoints=5,
+        )
+        self.assertGreaterEqual(len(feasible), 1)
+        self.assertLess(float(feasible[-1].position_world[0]), 0.335 + 1e-3)
+        self.assertGreater(len(calls), 1)
 
 
 if __name__ == "__main__":
