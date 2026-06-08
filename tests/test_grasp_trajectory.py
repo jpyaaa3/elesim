@@ -19,6 +19,7 @@ sys.modules[_SPEC.name] = _GRASP_TRAJECTORY
 _SPEC.loader.exec_module(_GRASP_TRAJECTORY)
 plan_grasp_approach_trajectory = _GRASP_TRAJECTORY.plan_grasp_approach_trajectory
 plan_grasp_next_waypoint = _GRASP_TRAJECTORY.plan_grasp_next_waypoint
+build_grasp_trajectory_markers = _GRASP_TRAJECTORY.build_grasp_trajectory_markers
 
 
 class TestGraspTrajectoryPlanner(unittest.TestCase):
@@ -103,6 +104,35 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         )
         self.assertEqual(len(all_wp), 1)
         self.assertAlmostEqual(nxt.position_world[0], all_wp[0].position_world[0], places=4)
+
+    def test_trajectory_markers_include_path_nodes(self) -> None:
+        obj = (0.40, 0.0, 0.90)
+        start = (0.20, 0.0, 1.10)
+        end = (0.38, 0.0, 0.88)
+        direction = (1.0, 0.0, 0.0)
+        waypoints = plan_grasp_approach_trajectory(
+            start_position=start,
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            step_m=0.03,
+            blind_start_m=0.06,
+            grasp_standoff_m=0.02,
+            max_waypoints=20,
+        )
+        markers = build_grasp_trajectory_markers(
+            start_position=start,
+            end_position=end,
+            object_world=obj,
+            waypoints=waypoints,
+        )
+        names = {str(m["name"]) for m in markers}
+        self.assertIn("grasp_traj_start", names)
+        self.assertIn("grasp_traj_end", names)
+        self.assertIn("grasp_traj_object", names)
+        self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_wp_")]), 1)
+        self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_seg_")]), 1)
 
 
 if __name__ == "__main__":

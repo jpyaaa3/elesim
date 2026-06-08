@@ -32,6 +32,7 @@ from engine.profile.pick_timing import (
 from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 from engine.visual_servoing.grasp_trajectory import (
     GraspWaypoint,
+    build_grasp_trajectory_markers,
     plan_grasp_approach_trajectory,
     plan_grasp_next_waypoint,
     trajectory_path_length_m,
@@ -2305,6 +2306,26 @@ class ControlService:
             return np.asarray(fallback, dtype=float).reshape(3)
         return arr / norm
 
+    def _send_grasp_trajectory_markers(
+        self,
+        *,
+        start_position: tuple[float, float, float],
+        end_position: tuple[float, float, float],
+        object_world: tuple[float, float, float],
+        waypoints: list[GraspWaypoint],
+        highlight_idx: int = -1,
+    ) -> None:
+        if self.client is None:
+            return
+        markers = build_grasp_trajectory_markers(
+            start_position=start_position,
+            end_position=end_position,
+            object_world=object_world,
+            waypoints=waypoints,
+            highlight_idx=int(highlight_idx),
+        )
+        self.client.send_debug_markers(markers, source="target")
+
     def _send_grasp_target_markers(
         self,
         *,
@@ -4161,6 +4182,12 @@ class ControlService:
                     end_standoff * 1000.0,
                 )
             )
+            self._send_grasp_trajectory_markers(
+                start_position=tuple(float(v) for v in start_pos),
+                end_position=tuple(float(v) for v in nominal_world),
+                object_world=tuple(float(v) for v in live_object),
+                waypoints=list(self._grasp_planned_waypoints),
+            )
 
             for wp in range(max_waypoints):
                 if self._pick_stop_event.is_set():
@@ -4215,6 +4242,13 @@ class ControlService:
                     break
 
                 wp_label = "wp %d/%d" % (int(wp + 1), int(max_waypoints))
+                self._send_grasp_trajectory_markers(
+                    start_position=tuple(float(v) for v in start_pos),
+                    end_position=tuple(float(v) for v in nominal_world),
+                    object_world=tuple(float(v) for v in live_object),
+                    waypoints=list(self._grasp_planned_waypoints),
+                    highlight_idx=int(wp),
+                )
                 sag_model = self._pick_grasp_sag_model()
                 ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
                     waypoint=planned_wp,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -160,3 +160,108 @@ def trajectory_path_length_m(waypoints: Sequence[GraspWaypoint]) -> float:
         total += float(np.linalg.norm(cur - prev))
         prev = cur
     return total
+
+
+def _segment_marker(
+    *,
+    name: str,
+    start: np.ndarray,
+    end: np.ndarray,
+    color: list[float],
+    ttl_ms: int,
+) -> dict[str, Any] | None:
+    delta = end - start
+    length = float(np.linalg.norm(delta))
+    if length <= 1e-6:
+        return None
+    return {
+        "name": str(name),
+        "frame": "world",
+        "pos": [float(start[0]), float(start[1]), float(start[2])],
+        "dir": [float(delta[0]), float(delta[1]), float(delta[2])],
+        "color": list(color),
+        "radius": 0.004,
+        "length": length,
+        "ttl_ms": int(ttl_ms),
+    }
+
+
+def build_grasp_trajectory_markers(
+    *,
+    start_position: Sequence[float],
+    end_position: Sequence[float],
+    object_world: Sequence[float],
+    waypoints: Sequence[GraspWaypoint],
+    highlight_idx: int = -1,
+    ttl_ms: int = 120000,
+) -> list[dict[str, Any]]:
+    """Debug markers for sim/host: spheres at nodes + segment arrows along the path."""
+    ttl = int(max(1000, ttl_ms))
+    start = np.asarray(start_position, dtype=float).reshape(3)
+    end = np.asarray(end_position, dtype=float).reshape(3)
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+    markers: list[dict[str, Any]] = [
+        {
+            "name": "grasp_traj_object",
+            "frame": "world",
+            "pos": [float(obj[0]), float(obj[1]), float(obj[2])],
+            "color": [1.0, 0.92, 0.15, 0.92],
+            "radius": 0.013,
+            "ttl_ms": ttl,
+        },
+        {
+            "name": "grasp_traj_start",
+            "frame": "world",
+            "pos": [float(start[0]), float(start[1]), float(start[2])],
+            "color": [0.25, 1.0, 0.40, 0.95],
+            "radius": 0.015,
+            "ttl_ms": ttl,
+        },
+        {
+            "name": "grasp_traj_end",
+            "frame": "world",
+            "pos": [float(end[0]), float(end[1]), float(end[2])],
+            "color": [1.0, 0.72, 0.12, 0.95],
+            "radius": 0.015,
+            "ttl_ms": ttl,
+        },
+    ]
+
+    chain: list[np.ndarray] = [start]
+    for wp in waypoints:
+        chain.append(np.asarray(wp.position_world, dtype=float).reshape(3))
+    chain.append(end)
+
+    for idx, wp in enumerate(waypoints):
+        pos = np.asarray(wp.position_world, dtype=float).reshape(3)
+        active = int(idx) == int(highlight_idx)
+        markers.append(
+            {
+                "name": "grasp_traj_wp_%02d" % int(idx),
+                "frame": "world",
+                "pos": [float(pos[0]), float(pos[1]), float(pos[2])],
+                "dir": [float(v) for v in wp.direction_world],
+                "color": (
+                    [1.0, 0.35, 1.0, 0.98]
+                    if active
+                    else [0.72, 0.38, 1.0, 0.88]
+                ),
+                "radius": 0.013 if active else 0.009,
+                "length": 0.06,
+                "ttl_ms": ttl,
+            }
+        )
+
+    seg_color = [0.55, 0.42, 1.0, 0.62]
+    for seg_idx in range(len(chain) - 1):
+        seg = _segment_marker(
+            name="grasp_traj_seg_%02d" % int(seg_idx),
+            start=chain[seg_idx],
+            end=chain[seg_idx + 1],
+            color=seg_color,
+            ttl_ms=ttl,
+        )
+        if seg is not None:
+            markers.append(seg)
+
+    return markers
