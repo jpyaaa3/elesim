@@ -137,8 +137,13 @@ def draw_perception_panel(panel) -> None:
     if changed_hz:
         panel._perception_publish_hz_draft = max(0.1, float(publish_hz))
 
-    pipeline_options = ["search_track", "yolo_only"]
-    pipeline_idx = 0 if str(panel._perception_pipeline_draft).strip().lower() != "yolo_only" else 1
+    pipeline_options = ["yolo_seg", "search_track", "yolo_only"]
+    pipe_draft = str(panel._perception_pipeline_draft).strip().lower().replace("-", "_")
+    pipeline_idx = 0
+    if pipe_draft in ("search_track", "track"):
+        pipeline_idx = 1
+    elif pipe_draft == "yolo_only":
+        pipeline_idx = 2
     changed_pipe, pipe_idx = imgui.combo("pipeline", pipeline_idx, pipeline_options)
     if changed_pipe:
         panel._perception_pipeline_draft = pipeline_options[int(pipe_idx)]
@@ -202,8 +207,8 @@ def draw_perception_panel(panel) -> None:
         "Look -> Aim -> Grasp (E2E) runs all three steps. "
         "Look: view pose + equal-sag baseline. "
         "Aim: UV center + drift estimate (stops when centered). "
-        "Grasp: IK to object - approach_dir * grasp_standoff_m, then close gripper "
-        "(works after Look in sim; Aim optional for equal-sag correction)."
+        "Grasp: guided waypoints (UV center + online sag) toward nominal pre-contact, "
+        "then blind approach and close gripper (Aim optional for initial equal-sag)."
     )
     imgui.separator()
     _draw_ready_pose_dir_editor(panel)

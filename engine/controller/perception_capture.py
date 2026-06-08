@@ -99,6 +99,19 @@ class PerceptionSnapshot:
 class PerceptionCapture:
     """Runs detection in a worker thread; publishes via ``publish_fn``."""
 
+    @staticmethod
+    def _normalize_pipeline(pipeline: str) -> str:
+        p = str(pipeline).strip().lower().replace("-", "_")
+        if p in ("search_track", "track"):
+            return "search_track"
+        if p in ("yolo_seg", "yolo_only", "yolo"):
+            return "yolo_seg"
+        return p
+
+    @staticmethod
+    def _uses_yolo_mask_pipeline(pipeline: str) -> bool:
+        return PerceptionCapture._normalize_pipeline(pipeline) == "yolo_seg"
+
     def __init__(
         self,
         config: PerceptionConfig,
@@ -259,7 +272,9 @@ class PerceptionCapture:
         enable_preview = bool(cfg.show_preview)
         publish_period = (1.0 / float(cfg.publish_hz)) if float(cfg.publish_hz) > 0 else 0.0
         mode = str(cfg.mode).strip().lower()
-        use_search_track = str(cfg.pipeline).strip().lower() in ("search_track", "search-track", "track")
+        pipeline_kind = self._normalize_pipeline(str(cfg.pipeline))
+        use_search_track = pipeline_kind == "search_track"
+        use_yolo_mask = pipeline_kind == "yolo_seg"
 
         common = dict(
             detector=detector,
@@ -287,6 +302,12 @@ class PerceptionCapture:
                         publish_period=publish_period,
                         **common,
                     )
+                elif use_yolo_mask:
+                    self._run_mock_yolo_seg(
+                        run_mock_frame=run_mock_frame,
+                        publish_period=publish_period,
+                        **common,
+                    )
                 else:
                     self._run_mock(
                         run_mock_frame=run_mock_frame,
@@ -298,8 +319,14 @@ class PerceptionCapture:
                     publish_period=publish_period,
                     **common,
                 )
+            elif use_yolo_mask:
+                self._run_camera_yolo_seg(
+                    RealSenseCamera=RealSenseCamera,
+                    publish_period=publish_period,
+                    **common,
+                )
             else:
-                self._run_camera_yolo_only(
+                self._run_camera_yolo_seg(
                     RealSenseCamera=RealSenseCamera,
                     publish_period=publish_period,
                     **common,
@@ -338,6 +365,15 @@ class PerceptionCapture:
             )
         z_nom = float(detector_cfg.get("z_nom_m", 0.35))
         return (0.0, 0.0, max(0.05, z_nom))
+
+    def _refine_detection_for_publish(self, det: Any, detector_cfg: dict[str, Any]) -> Any:
+        erode_px = int(detector_cfg.get("mask_erode_px", 0) or 0)
+        if erode_px <= 0:
+            return det
+        _ensure_pick_place_path()
+        from perception.detection_utils import refine_detection_mask  # type: ignore[import-not-found]
+
+        return refine_detection_mask(det, erode_px=int(erode_px))
 
     def _publish_observation(
         self,
@@ -400,6 +436,7 @@ class PerceptionCapture:
         normalized_center_uv_fn: Any,
         status_msg: str,
     ) -> Optional[tuple[float, float, float]]:
+        det = self._refine_detection_for_publish(det, detector_cfg)
         p_camera = measure_detection(
             det,
             depth_raw=frame.depth_raw,
@@ -747,7 +784,8 @@ class PerceptionCapture:
 
         self._set_snapshot(running=False, status_msg="stopped")
 
-    def _run_camera_yolo_only(self, **kwargs: Any) -> None:
+    def _run_camera_yolo_seg(self, **kwargs: Any) -> None:
+        """YOLO-seg every publish tick; CSRT coasts shifted YOLO mask when YOLO misses."""
         detector = kwargs["detector"]
         detector_cfg = kwargs["detector_cfg"]
         measure_detection = kwargs["measure_detection"]
@@ -764,54 +802,289 @@ class PerceptionCapture:
         normalized_detection_center_uv = kwargs["normalized_detection_center_uv"]
         detection_scale = kwargs["detection_scale"]
 
-        self._set_snapshot(status_msg="camera live (yolo)", tracker_phase=TrackerPhase.SEARCH.value)
+        cfg = self._config
+        lost_limit = max(1, int(cfg.track_lost_frames))
+        reacquire = bool(cfg.reacquire_on_lost)
+        aux_csrt = bool(cfg.track_aux_csrt)
+        coast_max = max(1, int(cfg.track_coast_max_frames))
+        tracker = kwargs.get("aux_tracker")
+        if tracker is None and aux_csrt:
+            tracker = _bbox_tracker_from_config(cfg)
+        backend = "yolo-seg+csrt" if aux_csrt else "yolo-seg"
+
+        _ensure_pick_place_path()
+        from perception.detection_utils import (  # type: ignore[import-not-found]
+            bbox_xyxy_area,
+            detection_center_pixel,
+            detection_init_bbox,
+            detection_mask_translated,
+        )
+
+        phase = TrackerPhase.SEARCH
+        lost_streak = 0
+        track_ok = 0
+        coast_streak = 0
         frame_idx = 0
+        all_dets: list = []
+        last_good_det: Any = None
+        last_anchor_center: Optional[tuple[float, float]] = None
+        tracked_label = target_label
+        init_bbox_area = 0
+        last_scale: Optional[float] = None
+        scale_stale_streak = 0
+
+        self._set_snapshot(status_msg=f"camera live ({backend})", tracker_phase=phase.value)
+
         with RealSenseCamera() as cam:
             while not self._stop_event.is_set():
                 t0 = time.time()
+                manual_refresh = self._refresh_event.is_set()
+                if manual_refresh:
+                    self._refresh_event.clear()
+                    if tracker is not None:
+                        tracker.reset()
+                    phase = TrackerPhase.SEARCH
+                    lost_streak = 0
+                    track_ok = 0
+                    coast_streak = 0
+                    last_good_det = None
+                    last_anchor_center = None
+                    init_bbox_area = 0
+                    last_scale = None
+                    scale_stale_streak = 0
+
                 frame = cam.capture()
+                img_h, img_w = frame.color_bgr.shape[:2]
+                if phase == TrackerPhase.LOST and reacquire:
+                    phase = TrackerPhase.SEARCH
                 all_dets = list_frame_detections(detector, frame.color_bgr)
-                det = pick_target_detection(all_dets, target_label)
+                yolo_det = pick_target_detection(all_dets, target_label)
+                det = yolo_det
                 status = "searching"
                 p_camera = None
                 p_world = None
-                if det is not None:
+
+                if yolo_det is not None:
+                    lost_streak = 0
+                    coast_streak = 0
+                    track_ok += 1
+                    phase = TrackerPhase.TRACK
+                    last_good_det = yolo_det
+                    last_anchor_center = detection_center_pixel(
+                        yolo_det, image_width=img_w, image_height=img_h
+                    )
+                    tracked_label = str(yolo_det.label)
+                    if aux_csrt and tracker is not None:
+                        init_bbox = detection_init_bbox(
+                            yolo_det,
+                            image_width=img_w,
+                            image_height=img_h,
+                            padding=float(cfg.track_init_bbox_padding),
+                        )
+                        if tracker.init(frame.color_bgr, init_bbox):
+                            init_bbox_area = int(bbox_xyxy_area(init_bbox))
                     p_world = self._process_detection(
                         frame=frame,
-                        det=det,
+                        det=yolo_det,
                         detector_cfg=detector_cfg,
                         measure_detection=measure_detection,
                         build_camera_observation=build_camera_observation,
                         detection_scale_fn=detection_scale,
                         normalized_center_uv_fn=normalized_detection_center_uv,
-                        status_msg="detected",
+                        status_msg="yolo-seg detected",
                     )
+                    status = "yolo-seg track" if p_world is not None else "yolo-seg (no depth)"
                     if p_world is not None:
-                        status = "detected"
                         p_camera = self.snapshot().p_camera
+                    last_scale = float(self.snapshot().image_scale)
+                    scale_stale_streak = 0
+                elif (
+                    aux_csrt
+                    and tracker is not None
+                    and tracker.initialized
+                    and last_good_det is not None
+                    and last_anchor_center is not None
+                    and phase == TrackerPhase.TRACK
+                ):
+                    bbox = tracker.update(frame.color_bgr)
+                    if bbox is not None:
+                        bx0, by0, bx1, by1 = bbox
+                        csrt_cx = 0.5 * (float(bx0) + float(bx1))
+                        csrt_cy = 0.5 * (float(by0) + float(by1))
+                        ax, ay = last_anchor_center
+                        shifted = detection_mask_translated(
+                            last_good_det,
+                            dx=int(round(csrt_cx - ax)),
+                            dy=int(round(csrt_cy - ay)),
+                            image_width=img_w,
+                            image_height=img_h,
+                        )
+                        if shifted is not None:
+                            lost_streak = 0
+                            track_ok += 1
+                            coast_streak += 1
+                            det = shifted
+                            coast_status = f"yolo-seg coast ({coast_streak}/{coast_max})"
+                            p_world = self._process_detection(
+                                frame=frame,
+                                det=shifted,
+                                detector_cfg=detector_cfg,
+                                measure_detection=measure_detection,
+                                build_camera_observation=build_camera_observation,
+                                detection_scale_fn=detection_scale,
+                                normalized_center_uv_fn=normalized_detection_center_uv,
+                                status_msg=coast_status,
+                            )
+                            status = coast_status if p_world is not None else f"{coast_status} (no depth)"
+                            if p_world is not None:
+                                p_camera = self.snapshot().p_camera
+                            current_scale = float(self.snapshot().image_scale)
+                            need_redetect, scale_stale_streak = self._track_needs_redetect(
+                                track_ok=int(track_ok),
+                                current_scale=current_scale,
+                                bbox_area=int(bbox_xyxy_area(bbox)),
+                                init_bbox_area=int(init_bbox_area),
+                                last_scale=last_scale,
+                                scale_stale_streak=int(scale_stale_streak),
+                            )
+                            last_scale = current_scale
+                            if coast_streak >= coast_max or need_redetect:
+                                reinited, init_bbox_area, redet, redet_world, suffix = (
+                                    self._try_track_redetect(
+                                        frame=frame,
+                                        tracker=tracker,
+                                        detector=detector,
+                                        target_label=target_label,
+                                        list_frame_detections=list_frame_detections,
+                                        pick_target_detection=pick_target_detection,
+                                        detection_scale=detection_scale,
+                                        detection_init_bbox=detection_init_bbox,
+                                        bbox_xyxy_area=bbox_xyxy_area,
+                                        measure_detection=measure_detection,
+                                        build_camera_observation=build_camera_observation,
+                                        normalized_detection_center_uv=normalized_detection_center_uv,
+                                        detector_cfg=detector_cfg,
+                                        img_w=img_w,
+                                        img_h=img_h,
+                                        current_scale=current_scale,
+                                        init_bbox_area=int(init_bbox_area),
+                                    )
+                                )
+                                if reinited:
+                                    coast_streak = 0
+                                    scale_stale_streak = 0
+                                    last_scale = float(self.snapshot().image_scale)
+                                    if redet is not None:
+                                        det = redet
+                                        last_good_det = redet
+                                        last_anchor_center = detection_center_pixel(
+                                            redet, image_width=img_w, image_height=img_h
+                                        )
+                                    if redet_world is not None:
+                                        p_world = redet_world
+                                        p_camera = self.snapshot().p_camera
+                                    status = f"{status} | {suffix}"
+                                elif coast_streak >= coast_max:
+                                    lost_streak += 1
+                                    coast_streak = 0
+                                    track_ok = 0
+                                    if lost_streak >= lost_limit:
+                                        phase = TrackerPhase.LOST if reacquire else TrackerPhase.SEARCH
+                                        status = "lost" if phase == TrackerPhase.LOST else "searching"
+                                        if tracker is not None:
+                                            tracker.reset()
+                                    else:
+                                        status = f"coast expired ({lost_streak}/{lost_limit})"
+                        else:
+                            lost_streak += 1
+                            track_ok = 0
+                            coast_streak = 0
+                            if lost_streak >= lost_limit:
+                                phase = TrackerPhase.LOST if reacquire else TrackerPhase.SEARCH
+                                status = "lost" if phase == TrackerPhase.LOST else "searching"
+                                if tracker is not None:
+                                    tracker.reset()
+                            else:
+                                status = f"coast shift fail ({lost_streak}/{lost_limit})"
+                    else:
+                        lost_streak += 1
+                        track_ok = 0
+                        coast_streak = 0
+                        if lost_streak >= lost_limit:
+                            phase = TrackerPhase.LOST if reacquire else TrackerPhase.SEARCH
+                            status = "lost" if phase == TrackerPhase.LOST else "searching"
+                            if tracker is not None:
+                                tracker.reset()
+                        else:
+                            status = f"csrt lost ({lost_streak}/{lost_limit})"
+                else:
+                    lost_streak += 1
+                    track_ok = 0
+                    coast_streak = 0
+                    if lost_streak >= lost_limit:
+                        phase = TrackerPhase.LOST if reacquire else TrackerPhase.SEARCH
+                        status = "lost" if phase == TrackerPhase.LOST else "searching"
+                        if tracker is not None:
+                            tracker.reset()
+                    elif phase == TrackerPhase.TRACK:
+                        status = f"track miss ({lost_streak}/{lost_limit})"
+
+                if manual_refresh and yolo_det is None:
+                    status = "refresh miss"
+
                 if show_preview:
                     target_uv, center_uv = self._preview_uv_overlay()
+                    snap = self.snapshot()
                     vis = draw_detection_overlay(
                         frame.color_bgr,
                         det,
                         status=status,
                         target_label=target_label,
                         frame_idx=frame_idx,
-                        p_camera=p_camera,
+                        p_camera=p_camera if p_camera is not None else snap.p_camera,
                         p_world=np.asarray(p_world) if p_world is not None else None,
                         all_detections=all_dets,
                         model_classes=model_class_names(detector),
+                        image_scale=float(snap.image_scale),
+                        bbox_wh=tuple(snap.bbox_wh),
+                        tracker_phase=str(phase.value),
+                        tracker_backend=(
+                            str(tracker.backend_name)
+                            if tracker is not None and tracker.initialized
+                            else backend
+                        ),
                         target_uv=target_uv,
                         center_uv=center_uv,
                     )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
+                        self._set_snapshot(status_msg="preview quit")
                         break
-                self._set_snapshot(frame_idx=frame_idx, status_msg=status)
+
+                self._set_snapshot(
+                    frame_idx=frame_idx,
+                    status_msg=status,
+                    tracker_phase=phase.value,
+                    track_ok_frames=int(track_ok),
+                    tracker_backend=(
+                        str(tracker.backend_name)
+                        if tracker is not None and tracker.initialized
+                        else backend
+                    ),
+                    failed=phase == TrackerPhase.LOST and not reacquire,
+                )
                 frame_idx += 1
                 if publish_period > 0:
-                    time.sleep(max(0.0, publish_period - (time.time() - t0)))
+                    elapsed = time.time() - t0
+                    sleep_s = max(0.0, publish_period - elapsed)
+                    if sleep_s > 0:
+                        time.sleep(sleep_s)
+
         self._set_snapshot(running=False, status_msg="stopped")
+
+    def _run_camera_yolo_only(self, **kwargs: Any) -> None:
+        """Legacy alias: same as yolo_seg (mask every frame + TRACK semantics)."""
+        self._run_camera_yolo_seg(**kwargs)
 
     def _run_mock(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]
@@ -870,6 +1143,203 @@ class PerceptionCapture:
             show_preview_fn(_PREVIEW_WINDOW, vis)
             time.sleep(0.05)
         self._set_snapshot(running=False, status_msg="mock done")
+
+    def _run_mock_yolo_seg(self, **kwargs: Any) -> None:
+        """Mock loop: YOLO/mask every tick; optional CSRT coast on detector miss."""
+        detector = kwargs["detector"]
+        detector_cfg = kwargs["detector_cfg"]
+        measure_detection = kwargs["measure_detection"]
+        build_camera_observation = kwargs["build_camera_observation"]
+        run_mock_frame = kwargs["run_mock_frame"]
+        show_preview = kwargs["show_preview"]
+        draw_detection_overlay = kwargs["draw_detection_overlay"]
+        show_preview_fn = kwargs["show_preview_fn"]
+        target_label = kwargs["target_label"]
+        normalized_detection_center_uv = kwargs["normalized_detection_center_uv"]
+        detection_scale = kwargs["detection_scale"]
+        publish_period = float(kwargs.get("publish_period", 0.0) or 0.0)
+        mock_tracker = kwargs.get("mock_tracker")
+
+        color, depth, intrinsics, depth_scale = run_mock_frame(detector_cfg)
+        img_h, img_w = color.shape[:2]
+
+        class _MockFrame:
+            pass
+
+        mf = _MockFrame()
+        mf.color_bgr = color
+        mf.depth_raw = depth
+        mf.intrinsics = intrinsics
+        mf.depth_scale = depth_scale
+
+        cfg = self._config
+        lost_limit = max(1, int(cfg.track_lost_frames))
+        aux_csrt = bool(cfg.track_aux_csrt)
+        coast_max = max(1, int(cfg.track_coast_max_frames))
+        backend = "yolo-seg+csrt" if aux_csrt else "yolo-seg"
+
+        _ensure_pick_place_path()
+        from perception.detection_utils import (  # type: ignore[import-not-found]
+            detection_center_pixel,
+            detection_init_bbox,
+            detection_mask_translated,
+        )
+
+        phase = TrackerPhase.SEARCH
+        lost_streak = 0
+        track_ok = 0
+        coast_streak = 0
+        frame_idx = 0
+        last_good_det: Any = None
+        last_anchor_center: Optional[tuple[float, float]] = None
+        tracker = mock_tracker
+
+        self._set_snapshot(status_msg=f"mock {backend}", tracker_phase=phase.value)
+
+        while not self._stop_event.is_set():
+            t0 = time.time()
+            yolo_det = detector.detect(color)
+            det = yolo_det
+            status = "searching"
+            p_camera = None
+            p_world = None
+
+            if yolo_det is not None:
+                lost_streak = 0
+                coast_streak = 0
+                track_ok += 1
+                phase = TrackerPhase.TRACK
+                last_good_det = yolo_det
+                last_anchor_center = detection_center_pixel(
+                    yolo_det, image_width=img_w, image_height=img_h
+                )
+                if aux_csrt and tracker is not None:
+                    init_bbox = detection_init_bbox(
+                        yolo_det,
+                        image_width=img_w,
+                        image_height=img_h,
+                        padding=float(cfg.track_init_bbox_padding),
+                    )
+                    tracker.init(color, init_bbox)
+                p_world = self._process_detection(
+                    frame=mf,
+                    det=yolo_det,
+                    detector_cfg=detector_cfg,
+                    measure_detection=measure_detection,
+                    build_camera_observation=build_camera_observation,
+                    detection_scale_fn=detection_scale,
+                    normalized_center_uv_fn=normalized_detection_center_uv,
+                    status_msg="mock yolo-seg",
+                )
+                status = "mock yolo-seg track"
+                if p_world is not None:
+                    p_camera = self.snapshot().p_camera
+            elif (
+                aux_csrt
+                and tracker is not None
+                and getattr(tracker, "initialized", False)
+                and last_good_det is not None
+                and last_anchor_center is not None
+                and phase == TrackerPhase.TRACK
+            ):
+                bbox = tracker.update(color)
+                if bbox is not None:
+                    bx0, by0, bx1, by1 = bbox
+                    csrt_cx = 0.5 * (float(bx0) + float(bx1))
+                    csrt_cy = 0.5 * (float(by0) + float(by1))
+                    ax, ay = last_anchor_center
+                    shifted = detection_mask_translated(
+                        last_good_det,
+                        dx=int(round(csrt_cx - ax)),
+                        dy=int(round(csrt_cy - ay)),
+                        image_width=img_w,
+                        image_height=img_h,
+                    )
+                    if shifted is not None:
+                        lost_streak = 0
+                        track_ok += 1
+                        coast_streak += 1
+                        det = shifted
+                        coast_status = f"mock coast ({coast_streak}/{coast_max})"
+                        p_world = self._process_detection(
+                            frame=mf,
+                            det=shifted,
+                            detector_cfg=detector_cfg,
+                            measure_detection=measure_detection,
+                            build_camera_observation=build_camera_observation,
+                            detection_scale_fn=detection_scale,
+                            normalized_center_uv_fn=normalized_detection_center_uv,
+                            status_msg=coast_status,
+                        )
+                        status = coast_status
+                        if p_world is not None:
+                            p_camera = self.snapshot().p_camera
+                        if coast_streak >= coast_max:
+                            lost_streak += 1
+                            coast_streak = 0
+                            track_ok = 0
+                    else:
+                        lost_streak += 1
+                        track_ok = 0
+                        coast_streak = 0
+                else:
+                    lost_streak += 1
+                    track_ok = 0
+                    coast_streak = 0
+                if lost_streak >= lost_limit:
+                    phase = TrackerPhase.SEARCH
+                    if tracker is not None:
+                        tracker.reset()
+                    status = "mock searching"
+            else:
+                lost_streak += 1
+                track_ok = 0
+                coast_streak = 0
+                if lost_streak >= lost_limit:
+                    phase = TrackerPhase.SEARCH
+                status = "mock searching"
+
+            if show_preview:
+                target_uv, center_uv = self._preview_uv_overlay()
+                vis = draw_detection_overlay(
+                    color,
+                    det,
+                    status=status,
+                    target_label=target_label,
+                    frame_idx=frame_idx,
+                    p_camera=p_camera,
+                    p_world=np.asarray(p_world) if p_world is not None else None,
+                    target_uv=target_uv,
+                    center_uv=center_uv,
+                    tracker_phase=str(phase.value),
+                    tracker_backend=(
+                        str(getattr(tracker, "backend_name", backend))
+                        if tracker is not None and getattr(tracker, "initialized", False)
+                        else backend
+                    ),
+                )
+                key = show_preview_fn(_PREVIEW_WINDOW, vis)
+                if key in (ord("q"), 27):
+                    break
+
+            self._set_snapshot(
+                frame_idx=frame_idx,
+                status_msg=status,
+                tracker_phase=phase.value,
+                track_ok_frames=int(track_ok),
+                tracker_backend=(
+                    str(getattr(tracker, "backend_name", backend))
+                    if tracker is not None and getattr(tracker, "initialized", False)
+                    else backend
+                ),
+            )
+            frame_idx += 1
+            if publish_period > 0:
+                time.sleep(max(0.0, publish_period - (time.time() - t0)))
+            else:
+                time.sleep(0.05)
+
+        self._set_snapshot(running=False, status_msg="stopped")
 
     def _run_mock_search_track(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]

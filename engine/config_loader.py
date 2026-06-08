@@ -118,9 +118,9 @@ class PerceptionConfig:
     detector: str = "config"
     target_label: str = "sports ball"
     yolo_device: str = ""
-    publish_hz: float = 10.0
+    publish_hz: float = 15.0
     show_preview: bool = True
-    pipeline: str = "search_track"
+    pipeline: str = "yolo_seg"
     tracker: str = "csrt"
     track_lost_frames: int = 15
     reacquire_on_lost: bool = True
@@ -137,6 +137,8 @@ class PerceptionConfig:
     track_csrt_padding: float = 2.0
     track_csrt_scale_step: float = 1.02
     track_bbox_smooth_alpha: float = 0.65
+    track_aux_csrt: bool = True
+    track_coast_max_frames: int = 12
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -197,6 +199,14 @@ class PickConfig:
     ready_pose_align_top_k: int = 3
     auto_grasp_after_aim: bool = False
     grasp_standoff_m: float = 0.05
+    grasp_guided_enabled: bool = True
+    grasp_waypoint_step_m: float = 0.03
+    grasp_blind_start_m: float = 0.06
+    grasp_blind_approach_m: float = 0.02
+    grasp_max_waypoints: int = 20
+    grasp_uv_center_tol: float = 0.0
+    grasp_online_sag_enabled: bool = True
+    grasp_online_sag_max_step_deg: float = 2.0
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.30
@@ -364,6 +374,10 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         track_bbox_smooth_alpha=cp.getfloat(
             "perception", "track_bbox_smooth_alpha", fallback=pc0.track_bbox_smooth_alpha
         ),
+        track_aux_csrt=cp.getboolean("perception", "track_aux_csrt", fallback=pc0.track_aux_csrt),
+        track_coast_max_frames=cp.getint(
+            "perception", "track_coast_max_frames", fallback=pc0.track_coast_max_frames
+        ),
     )
 
 
@@ -477,6 +491,30 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         grasp_standoff_m=cp.getfloat(
             "pick", "grasp_standoff_m", fallback=pk0.grasp_standoff_m
+        ),
+        grasp_guided_enabled=cp.getboolean(
+            "pick", "grasp_guided_enabled", fallback=pk0.grasp_guided_enabled
+        ),
+        grasp_waypoint_step_m=cp.getfloat(
+            "pick", "grasp_waypoint_step_m", fallback=pk0.grasp_waypoint_step_m
+        ),
+        grasp_blind_start_m=cp.getfloat(
+            "pick", "grasp_blind_start_m", fallback=pk0.grasp_blind_start_m
+        ),
+        grasp_blind_approach_m=cp.getfloat(
+            "pick", "grasp_blind_approach_m", fallback=pk0.grasp_blind_approach_m
+        ),
+        grasp_max_waypoints=cp.getint(
+            "pick", "grasp_max_waypoints", fallback=pk0.grasp_max_waypoints
+        ),
+        grasp_uv_center_tol=cp.getfloat(
+            "pick", "grasp_uv_center_tol", fallback=pk0.grasp_uv_center_tol
+        ),
+        grasp_online_sag_enabled=cp.getboolean(
+            "pick", "grasp_online_sag_enabled", fallback=pk0.grasp_online_sag_enabled
+        ),
+        grasp_online_sag_max_step_deg=cp.getfloat(
+            "pick", "grasp_online_sag_max_step_deg", fallback=pk0.grasp_online_sag_max_step_deg
         ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m

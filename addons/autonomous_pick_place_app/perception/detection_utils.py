@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import cv2
+import numpy as np
+
 from perception.detector import DetectionResult, _bbox_from_mask
 from perception.visual_tracker import clamp_bbox_xyxy
 
@@ -56,6 +59,69 @@ def detection_init_bbox(
     else:
         base = det.bbox_xyxy
     return pad_bbox_xyxy(base, padding=padding, image_width=w, image_height=h)
+
+
+def refine_detection_mask(
+    det: DetectionResult,
+    *,
+    erode_px: int = 0,
+) -> DetectionResult:
+    """Return a copy with an optionally eroded binary mask (tighter centroid/scale/depth)."""
+    px = int(max(0, erode_px))
+    mask = det.mask
+    if px <= 0 or mask is None or getattr(mask, "size", 0) <= 0:
+        return det
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * px + 1, 2 * px + 1))
+    refined = cv2.erode(np.asarray(mask, dtype=np.uint8), kernel, iterations=1)
+    if int(np.count_nonzero(refined)) <= 0:
+        return det
+    bbox = _bbox_from_mask(refined)
+    if bbox is None:
+        return det
+    x0, y0, x1, y1 = bbox
+    return DetectionResult(
+        mask=refined,
+        bbox_xyxy=(int(x0), int(y0), int(x1) + 1, int(y1) + 1),
+        label=str(det.label),
+        confidence=float(det.confidence),
+    )
+
+
+def detection_mask_translated(
+    det: DetectionResult,
+    *,
+    dx: int,
+    dy: int,
+    image_width: int,
+    image_height: int,
+    confidence_decay: float = 0.98,
+) -> DetectionResult | None:
+    """Shift a binary mask by integer pixels; return None if empty after translation."""
+    mask = det.mask
+    if mask is None or getattr(mask, "size", 0) <= 0:
+        return None
+    if int(dx) == 0 and int(dy) == 0:
+        return det
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    src = np.asarray(mask, dtype=np.uint8)
+    if src.shape[0] != h or src.shape[1] != w:
+        return None
+    matrix = np.float32([[1.0, 0.0, float(dx)], [0.0, 1.0, float(dy)]])
+    shifted = cv2.warpAffine(src, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
+    if int(np.count_nonzero(shifted)) <= 0:
+        return None
+    bbox = _bbox_from_mask(shifted)
+    if bbox is None:
+        return None
+    x0, y0, x1, y1 = bbox
+    conf = float(det.confidence) * float(confidence_decay)
+    return DetectionResult(
+        mask=shifted,
+        bbox_xyxy=(int(x0), int(y0), int(x1) + 1, int(y1) + 1),
+        label=str(det.label),
+        confidence=max(0.0, min(1.0, conf)),
+    )
 
 
 def detection_center_pixel(

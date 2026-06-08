@@ -95,7 +95,14 @@ def _bbox_mask(h: int, w: int, bbox_xyxy: tuple[int, int, int, int]) -> np.ndarr
     return mask
 
 
-def _extract_seg_mask(result: Any, index: int, h: int, w: int) -> np.ndarray | None:
+def _extract_seg_mask(
+    result: Any,
+    index: int,
+    h: int,
+    w: int,
+    *,
+    mask_threshold: float = 0.5,
+) -> np.ndarray | None:
     masks = getattr(result, "masks", None)
     if masks is None:
         return None
@@ -110,7 +117,8 @@ def _extract_seg_mask(result: Any, index: int, h: int, w: int) -> np.ndarray | N
     if arr.ndim == 3:
         arr = arr[0]
     arr = cv2.resize(arr.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
-    return ((arr > 0.5).astype(np.uint8)) * 255
+    thr = float(max(0.0, min(1.0, mask_threshold)))
+    return ((arr > thr).astype(np.uint8)) * 255
 
 
 class YoloDetector:
@@ -130,6 +138,7 @@ class YoloDetector:
         self._conf = float(cfg.get("confidence_threshold", 0.25))
         self._iou = float(cfg.get("iou_threshold", 0.45))
         self._min_area = int(cfg.get("min_area_px", 100))
+        self._mask_threshold = float(cfg.get("mask_threshold", 0.5))
         self._imgsz = int(cfg.get("imgsz", 640))
         self._device = resolve_yolo_device(cfg.get("device", cfg.get("gpu", 0)))
         try:
@@ -195,7 +204,7 @@ class YoloDetector:
             if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
                 continue
 
-            mask = _extract_seg_mask(result, i, h, w)
+            mask = _extract_seg_mask(result, i, h, w, mask_threshold=float(self._mask_threshold))
             if mask is None:
                 mask = _bbox_mask(h, w, bbox)
             if int(np.count_nonzero(mask)) < self._min_area:

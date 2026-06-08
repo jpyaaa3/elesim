@@ -87,6 +87,22 @@ class TestLookViewPoseResolver(unittest.TestCase):
         self.assertTrue(svc.state.pick_failed)
         self.assertIn("run Look first", str(svc.state.pick_status_msg))
 
+    def test_start_aim_sends_look_object_anchor_marker(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        svc._pick_look_object_world_xyz = (0.239, -0.045, 1.444)
+        svc._pick_look_ready_pose_world_xyz = (-0.009, -0.067, 1.465)
+        svc._pick_look_dir_world = (0.993, 0.085, -0.084)
+        with patch.object(svc, "_wait_for_track_lock", return_value=True):
+            with patch.object(svc, "start_perception_capture"):
+                with patch.object(svc, "current_visual_observation", return_value=None):
+                    svc.start_aim()
+        svc.client.send_debug_markers.assert_called_once()
+        markers = svc.client.send_debug_markers.call_args.args[0]
+        anchor = next(m for m in markers if m["name"] == "look_object_anchor")
+        self.assertEqual(anchor["pos"], [0.239, -0.045, 1.444])
+        self.assertEqual(anchor["frame"], "world")
+
     def test_start_ready_uncorrected_uses_ready_standoff(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
