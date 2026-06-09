@@ -117,8 +117,9 @@ def plan_grasp_approach_trajectory(
     _ = end_position
     _ = _unit_vec3(end_direction)
     standoff_target = float(max(grasp_standoff_m, 0.0))
-    step = float(max(step_m, 0.005))
-    blind = float(max(blind_start_m, 0.0))
+    approach_step = float(max(step_m, 0.005))
+    blind_zone_m = float(max(blind_start_m, 0.0))
+    reach_floor = 0.005
     cap = max(1, int(max_waypoints))
     pos = np.asarray(start_position, dtype=float).reshape(3).copy()
     obj = np.asarray(object_world, dtype=float).reshape(3)
@@ -128,10 +129,11 @@ def plan_grasp_approach_trajectory(
     while len(waypoints) < cap:
         direction = _look_at_object_dir(pos, obj)
         remaining = _approach_remaining_m(pos, obj, standoff_target)
-        if remaining <= blind + 1e-4:
+        if remaining <= reach_floor + 1e-4:
             break
-        travel = min(step, remaining - blind)
-        if travel < 0.005 - 1e-6:
+        step = approach_step * 0.4 if remaining <= blind_zone_m + 1e-4 else approach_step
+        travel = min(step, remaining - reach_floor)
+        if travel < reach_floor - 1e-6:
             break
         nxt = pos + direction * travel
         standoff = _object_standoff_m(nxt, obj)
@@ -466,8 +468,7 @@ def plan_grasp_kinematic_trajectory(
 
         in_blind_zone = remaining <= blind_zone_m + 1e-4
         step = fine_step if in_blind_zone else approach_step
-        travel_floor = reach_floor if in_blind_zone else blind_zone_m
-        travel = min(step, remaining - travel_floor)
+        travel = min(step, remaining - reach_floor)
         if travel < float(min_step_m) - 1e-6:
             break
 
@@ -477,7 +478,7 @@ def plan_grasp_kinematic_trajectory(
             object_world=obj,
             grasp_standoff_m=standoff_target,
             q_seed=q_prev,
-            remain_floor_m=travel_floor,
+            remain_floor_m=reach_floor,
             prev_standoff=prev_standoff,
             prev_remaining=remaining,
             ik_fn=ik_fn,

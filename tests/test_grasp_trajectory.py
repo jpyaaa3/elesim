@@ -61,12 +61,12 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertGreater(first[0], start[0] - 1e-3)
         self.assertLess(first[0], end[0] + 1e-2)
 
-    def test_plan_stops_before_blind_zone(self) -> None:
+    def test_geom_plan_monotonic_remain_to_precontact(self) -> None:
         obj = (0.40, 0.0, 0.90)
         start = (0.30, 0.0, 1.10)
         end = (0.38, 0.0, 0.88)
         direction = (1.0, 0.0, 0.0)
-        blind = 0.06
+        standoff_m = 0.02
         waypoints = plan_grasp_approach_trajectory(
             start_position=start,
             end_position=end,
@@ -74,17 +74,21 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             end_direction=direction,
             object_world=obj,
             step_m=0.01,
-            blind_start_m=blind,
-            grasp_standoff_m=0.02,
+            blind_start_m=0.06,
+            grasp_standoff_m=standoff_m,
             max_waypoints=50,
         )
         self.assertGreater(len(waypoints), 0)
-        end_arr = np.asarray(end, dtype=float)
-        for wp in waypoints:
-            wp_pos = np.asarray(wp.position_world, dtype=float)
-            wp_dir = np.asarray(wp.direction_world, dtype=float)
-            axial = float(np.dot(end_arr - wp_pos, wp_dir))
-            self.assertGreater(axial, blind - 1e-3)
+        remains = [
+            float(
+                np.linalg.norm(np.asarray(obj, dtype=float) - np.asarray(wp.position_world))
+            )
+            - standoff_m
+            for wp in waypoints
+        ]
+        for i in range(1, len(remains)):
+            self.assertLessEqual(remains[i], remains[i - 1] + 1e-4)
+        self.assertLess(remains[-1], remains[0])
 
     def test_next_waypoint_returns_single_step(self) -> None:
         obj = (0.40, 0.0, 0.90)
