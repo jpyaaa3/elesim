@@ -272,13 +272,12 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertGreaterEqual(len(feasible), 1)
         self.assertGreater(len(calls), 1)
 
-    def test_feasible_plan_rejects_excessive_direction_error(self) -> None:
-        import math
-
+    def test_feasible_plan_rejects_excessive_fk_look_at_drift(self) -> None:
         obj = (0.40, 0.0, 0.90)
         start = (0.20, 0.0, 1.10)
         end = (0.38, 0.0, 0.88)
         direction = (1.0, 0.0, 0.0)
+        bad_fk_dir = (0.0, 1.0, 0.0)
 
         class _IkResult:
             def __init__(self, success, q, direction_angle_rad=0.0):
@@ -289,11 +288,7 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
                 self.reason = ""
 
         def ik_fn(**_kwargs):
-            return _IkResult(
-                True,
-                q=[0.25, 0.0, 0.2, 0.1],
-                direction_angle_rad=math.radians(20.0),
-            )
+            return _IkResult(True, q=[0.25, 0.0, 0.2, 0.1], direction_angle_rad=0.0)
 
         def fk_fn(q):
             return type(
@@ -301,7 +296,7 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
                 (),
                 {
                     "position_world": (float(q[0]), 0.0, 0.90),
-                    "direction_world": direction,
+                    "direction_world": bad_fk_dir,
                 },
             )()
 
@@ -318,7 +313,7 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             fk_fn=fk_fn,
             max_waypoints=3,
             max_dir_error_deg=12.0,
-            max_approach_drift_deg=18.0,
+            max_approach_drift_deg=5.0,
         )
         self.assertEqual(len(feasible), 0)
 

@@ -297,9 +297,7 @@ def _attempt_feasible_ik(
     )
     if result is None or not bool(result.success) or result.q is None:
         return None
-    dir_err = float(getattr(result, "direction_angle_rad", 0.0))
-    if dir_err > float(max_dir_error_rad):
-        return None
+    _ = max_dir_error_rad
     q_arr = np.asarray(result.q, dtype=float).reshape(4)
     fk = fk_fn(q_arr)
     fk_dir = np.asarray(fk.direction_world, dtype=float).reshape(3)

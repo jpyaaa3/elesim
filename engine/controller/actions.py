@@ -517,10 +517,11 @@ class ControlService:
     def _grasp_look_at_ik_kwargs(self) -> dict[str, Any]:
         """Look-at-object grasp IK: position GN + tweak (no full align seed bank)."""
         pk = self._pick_config_effective()
+        drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.1))
         return {
             "align_skip_under_deg": float(pk.ik_align_skip_under_deg),
             "tweak_rounds": max(int(pk.ik_align_rounds), 1),
-            "direction_tol_deg": float(max(pk.grasp_waypoint_max_dir_error_deg, 0.1)),
+            "direction_tol_deg": drift_tol_deg,
             "tweak_position_hold_tol_m": max(float(self._ik_cfg.tol), 1e-3),
         }
 
@@ -4170,20 +4171,9 @@ class ControlService:
         q1 = np.asarray(result.q, dtype=float).reshape(4)
         err_m = float(result.position_error_m)
         pk = self._pick_config_effective()
-        max_dir_rad = math.radians(float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0)))
         max_drift_rad = math.radians(
             float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
         )
-        if float(result.direction_angle_rad) > max_dir_rad + 1e-9:
-            print(
-                "[Grasp] %s | look-at IK dir err %.1f deg > tol %.1f deg"
-                % (
-                    str(label),
-                    float(np.degrees(result.direction_angle_rad)),
-                    float(pk.grasp_waypoint_max_dir_error_deg),
-                )
-            )
-            return False, None, host_state, err_m
         ik_target_dir = target_dir
         if object_world is not None:
             try:
@@ -4538,34 +4528,44 @@ class ControlService:
                 )
                 return True, q_cmd, host_state, target_world
 
-            travel = min(step_m, max(0.0, remaining - reach_tol_m))
-            if travel < 1e-6:
+            travel_hi = min(step_m, max(0.0, remaining - reach_tol_m))
+            if travel_hi < 1e-6:
                 break
             look_dir = self._grasp_look_at_dir(tip, obj_tuple)
-            target_pos = np.asarray(tip, dtype=float).reshape(3) + look_dir * travel
-            look_target = self._grasp_look_at_dir(target_pos, obj_tuple)
             wp_label = "grasp blind %d" % int(blind_idx + 1)
-            waypoint = GraspWaypoint(
-                position_world=(
-                    float(target_pos[0]),
-                    float(target_pos[1]),
-                    float(target_pos[2]),
-                ),
-                direction_world=(
-                    float(look_target[0]),
-                    float(look_target[1]),
-                    float(look_target[2]),
-                ),
-                standoff_m=float(
-                    self._grasp_object_standoff_m(target_pos, obj_tuple)
-                ),
-            )
-            ok, q_step, host_state, _ = self._grasp_ik_to_waypoint(
-                waypoint=waypoint,
-                sag_model=sag_model,
-                host_state=host_state,
-                label=wp_label,
-            )
+            ok = False
+            q_step: Optional[np.ndarray] = None
+            target_pos = np.asarray(tip, dtype=float).reshape(3)
+            travel = float(travel_hi)
+            for _bisect in range(5):
+                if travel < 1e-4:
+                    break
+                target_pos = np.asarray(tip, dtype=float).reshape(3) + look_dir * travel
+                look_target = self._grasp_look_at_dir(target_pos, obj_tuple)
+                waypoint = GraspWaypoint(
+                    position_world=(
+                        float(target_pos[0]),
+                        float(target_pos[1]),
+                        float(target_pos[2]),
+                    ),
+                    direction_world=(
+                        float(look_target[0]),
+                        float(look_target[1]),
+                        float(look_target[2]),
+                    ),
+                    standoff_m=float(
+                        self._grasp_object_standoff_m(target_pos, obj_tuple)
+                    ),
+                )
+                ok, q_step, host_state, _ = self._grasp_ik_to_waypoint(
+                    waypoint=waypoint,
+                    sag_model=sag_model,
+                    host_state=host_state,
+                    label=wp_label if _bisect == 0 else "%s | bisect" % wp_label,
+                )
+                if ok and q_step is not None:
+                    break
+                travel *= 0.5
             if not ok or q_step is None:
                 print(
                     "[Grasp] %s | IK failed | remain=%.1fmm"
