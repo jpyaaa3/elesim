@@ -3796,13 +3796,15 @@ class ControlService:
         timing: Optional[PickTimingCollector] = None,
     ) -> tuple[Any, Any]:
         """Return (ik_fn, fk_fn) for grasp trajectory feasibility filtering."""
+        pk = self._pick_config_effective()
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
         ctx["sag_model"] = dict(sag_model)
+        plan_max_iters = max(int(pk.grasp_plan_ik_max_iters), 1)
         ik_kwargs = {
             "context": ctx,
             "position_tol_m": max(float(self._ik_cfg.tol), 1e-4),
-            "max_iters": max(int(self._ik_cfg.max_iters), 1),
+            "max_iters": plan_max_iters,
             **self._grasp_look_at_ik_kwargs(for_plan=True),
         }
         model = self._pick_reach_model(sag_model)

@@ -213,6 +213,7 @@ class PickConfig:
     grasp_plan_bisect_iters: int = 18
     grasp_plan_reach_tol_m: float = 0.005
     grasp_plan_ik_rounds: int = 10
+    grasp_plan_ik_max_iters: int = 80
     grasp_uv_center_tol: float = 0.0
     grasp_online_sag_enabled: bool = True
     grasp_online_sag_max_step_deg: float = 2.0
@@ -552,6 +553,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         grasp_plan_ik_rounds=cp.getint(
             "pick", "grasp_plan_ik_rounds", fallback=pk0.grasp_plan_ik_rounds
+        ),
+        grasp_plan_ik_max_iters=cp.getint(
+            "pick", "grasp_plan_ik_max_iters", fallback=pk0.grasp_plan_ik_max_iters
         ),
         grasp_uv_center_tol=cp.getfloat(
             "pick", "grasp_uv_center_tol", fallback=pk0.grasp_uv_center_tol

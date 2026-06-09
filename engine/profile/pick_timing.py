@@ -136,6 +136,10 @@ class GraspPlanStats:
     lateral_tries: int = 0
     kinematic_steps_ok: int = 0
     kinematic_steps_fail: int = 0
+    ik_position_fail: int = 0
+    ik_drift_fail: int = 0
+    progress_reject: int = 0
+    standoff_reject: int = 0
 
 
 @dataclass
@@ -173,6 +177,8 @@ def format_grasp_plan_report(profile: GraspPlanProfile) -> str:
         f"  feasible_ik_tries  {st.feasible_ik_attempts}",
         f"  lateral_tries      {st.lateral_tries}",
         f"  step_ok / fail     {st.kinematic_steps_ok} / {st.kinematic_steps_fail}",
+        f"  ik_reject pos/drift/prog/stand {st.ik_position_fail}/{st.ik_drift_fail}/"
+        f"{st.progress_reject}/{st.standoff_reject}",
         f"  fk_calls           {profile.fk_calls}",
     ]
     if profile.ik_calls > 0:

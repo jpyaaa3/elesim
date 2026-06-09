@@ -221,6 +221,7 @@ def _lateral_offset_candidates(
     direction: np.ndarray,
     *,
     offset_m: float,
+    close_range: bool = False,
 ) -> list[np.ndarray]:
     if offset_m <= 1e-9:
         return []
@@ -236,14 +237,21 @@ def _lateral_offset_candidates(
     lateral1 = np.cross(d, lateral0)
     n1 = float(np.linalg.norm(lateral1))
     if n1 <= 1e-9:
-        return [lateral0 * offset_m]
-    lateral1 = lateral1 / n1
-    return [
-        lateral0 * offset_m,
-        -lateral0 * offset_m,
-        lateral1 * offset_m,
-        -lateral1 * offset_m,
-    ]
+        bases = [lateral0]
+    else:
+        lateral1 = lateral1 / n1
+        bases = [lateral0, lateral1]
+    scales = (0.5, 1.0, 1.5, 2.0) if close_range else (1.0,)
+    out: list[np.ndarray] = []
+    for base in bases:
+        for scale in scales:
+            off = base * (float(offset_m) * float(scale))
+            if not any(float(np.linalg.norm(off - prev)) < 1e-6 for prev in out):
+                out.append(off)
+            off_neg = -off
+            if not any(float(np.linalg.norm(off_neg - prev)) < 1e-6 for prev in out):
+                out.append(off_neg)
+    return out
 
 
 def _try_ik_at_pose(
@@ -298,16 +306,22 @@ def _attempt_feasible_ik(
         ik_kwargs=ik_kwargs,
     )
     if result is None or not bool(result.success) or result.q is None:
+        if stats is not None:
+            stats.ik_position_fail += 1
         return None
     _ = max_dir_error_rad
     q_arr = np.asarray(result.q, dtype=float).reshape(4)
     fk = fk_fn(q_arr)
     fk_dir = np.asarray(fk.direction_world, dtype=float).reshape(3)
     if float(np.linalg.norm(fk_dir)) <= 1e-9:
+        if stats is not None:
+            stats.ik_drift_fail += 1
         return None
     look_dir = _look_at_object_dir(fk.position_world, object_world)
     drift = _direction_angle_rad(fk_dir, look_dir)
     if drift > float(max_approach_drift_rad):
+        if stats is not None:
+            stats.ik_drift_fail += 1
         return None
     return _waypoint_from_fk(
         fk=fk,
@@ -379,6 +393,7 @@ def _kinematic_step_at_travel(
             offsets = _lateral_offset_candidates(
                 direction,
                 offset_m=float(lateral_offset_m),
+                close_range=float(prev_remaining) < 0.05,
             )
             for off in offsets:
                 if stats is not None:
@@ -408,10 +423,14 @@ def _kinematic_step_at_travel(
                 grasp_standoff_m,
             )
             if new_remaining >= float(prev_remaining) - 1e-4:
+                if stats is not None:
+                    stats.progress_reject += 1
                 best = None
                 travel_hi = 0.5 * (travel_lo + travel_hi)
                 continue
             if prev_standoff is not None and float(best.standoff_m) > prev_standoff + 1e-4:
+                if stats is not None:
+                    stats.standoff_reject += 1
                 best = None
                 travel_hi = 0.5 * (travel_lo + travel_hi)
                 continue
@@ -444,6 +463,33 @@ def _travel_retry_candidates(
         t = float(min(max(travel, 0.0), margin))
         if t < floor - 1e-6:
             continue
+        if not any(abs(t - prev) < 1e-4 for prev in out):
+            out.append(t)
+    return out
+
+
+def _late_micro_travel_candidates(
+    *,
+    remaining_m: float,
+    reach_floor_m: float,
+    min_step_m: float,
+) -> list[float]:
+    """Extra small travels when coarse retries fail near pre-contact."""
+    margin = float(max(0.0, remaining_m - reach_floor_m))
+    floor = float(max(min_step_m, 0.002))
+    if margin < floor - 1e-6:
+        return []
+    raw = [
+        0.35 * margin,
+        0.25 * margin,
+        0.15 * margin,
+        0.10 * margin,
+        0.06 * margin,
+        floor,
+    ]
+    out: list[float] = []
+    for travel in raw:
+        t = float(min(max(travel, floor), margin))
         if not any(abs(t - prev) < 1e-4 for prev in out):
             out.append(t)
     return out
@@ -532,6 +578,33 @@ def plan_grasp_kinematic_trajectory(
             )
             if wp is not None:
                 break
+        if wp is None and remaining <= blind_zone_m + 1e-4:
+            for travel_try in _late_micro_travel_candidates(
+                remaining_m=remaining,
+                reach_floor_m=reach_floor,
+                min_step_m=float(min_step_m),
+            ):
+                wp = _kinematic_step_at_travel(
+                    tip=tip,
+                    travel_m=travel_try,
+                    object_world=obj,
+                    grasp_standoff_m=standoff_target,
+                    q_seed=q_prev,
+                    remain_floor_m=reach_floor,
+                    prev_standoff=prev_standoff,
+                    prev_remaining=remaining,
+                    ik_fn=ik_fn,
+                    fk_fn=fk_fn,
+                    ik_kwargs=kwargs,
+                    min_step_m=float(min_step_m),
+                    lateral_offset_m=float(lateral_offset_m),
+                    max_dir_error_rad=max_dir_error_rad,
+                    max_approach_drift_rad=max_approach_drift_rad,
+                    bisect_iters=int(bisect_iters),
+                    stats=stats,
+                )
+                if wp is not None:
+                    break
         if wp is None:
             if stats is not None:
                 stats.kinematic_steps_fail += 1
