@@ -68,6 +68,25 @@ def _standoff_at(
     return float(np.dot(object_world - position, _unit_vec3(direction)))
 
 
+def _object_standoff_m(
+    position: Sequence[float] | np.ndarray,
+    object_world: Sequence[float] | np.ndarray,
+) -> float:
+    """Euclidean distance from tip to object center."""
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+    pos = np.asarray(position, dtype=float).reshape(3)
+    return float(np.linalg.norm(obj - pos))
+
+
+def _approach_remaining_m(
+    position: Sequence[float] | np.ndarray,
+    object_world: Sequence[float] | np.ndarray,
+    grasp_standoff_m: float,
+) -> float:
+    """Distance left to the pre-contact standoff sphere (look-at progress scalar)."""
+    return _object_standoff_m(position, object_world) - float(max(grasp_standoff_m, 0.0))
+
+
 def _look_at_object_dir(
     position: Sequence[float] | np.ndarray,
     object_world: Sequence[float] | np.ndarray,
@@ -94,28 +113,28 @@ def plan_grasp_approach_trajectory(
 
     Each step advances along the view axis from the previous point (FK-free preview).
     """
-    _ = float(grasp_standoff_m)
-    _ = _unit_vec3(start_direction)
-    approach_axis = _unit_vec3(end_direction)
+    _ = start_direction
+    _ = end_position
+    _ = _unit_vec3(end_direction)
+    standoff_target = float(max(grasp_standoff_m, 0.0))
     step = float(max(step_m, 0.005))
     blind = float(max(blind_start_m, 0.0))
     cap = max(1, int(max_waypoints))
     pos = np.asarray(start_position, dtype=float).reshape(3).copy()
-    end = np.asarray(end_position, dtype=float).reshape(3)
     obj = np.asarray(object_world, dtype=float).reshape(3)
 
     waypoints: list[GraspWaypoint] = []
     prev_standoff: float | None = None
     while len(waypoints) < cap:
         direction = _look_at_object_dir(pos, obj)
-        axial = _axial_dist_to_end(pos, end, approach_axis)
-        if axial <= blind + 1e-4:
+        remaining = _approach_remaining_m(pos, obj, standoff_target)
+        if remaining <= blind + 1e-4:
             break
-        travel = min(step, axial - blind)
+        travel = min(step, remaining - blind)
         if travel < 0.005 - 1e-6:
             break
         nxt = pos + direction * travel
-        standoff = _standoff_at(nxt, obj, direction)
+        standoff = _object_standoff_m(nxt, obj)
         if prev_standoff is not None and standoff > prev_standoff + 1e-4:
             break
         prev_standoff = standoff
@@ -256,7 +275,6 @@ def _attempt_feasible_ik(
     pos: np.ndarray,
     q_seed: np.ndarray,
     object_world: np.ndarray,
-    approach_axis: np.ndarray,
     ik_fn: Callable[..., IkPlanResult],
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any],
@@ -268,7 +286,6 @@ def _attempt_feasible_ik(
     if stats is not None:
         stats.feasible_ik_attempts += 1
     look_u = _look_at_object_dir(pos, object_world)
-    _ = _unit_vec3(approach_axis)
 
     result = _try_ik_at_pose(
         pos=pos,
@@ -304,12 +321,11 @@ def _kinematic_step_at_travel(
     tip: np.ndarray,
     travel_m: float,
     object_world: np.ndarray,
-    nominal_world: np.ndarray,
-    approach_axis: np.ndarray,
+    grasp_standoff_m: float,
     q_seed: np.ndarray,
     blind: float,
     prev_standoff: float | None,
-    prev_axial: float,
+    prev_remaining: float,
     ik_fn: Callable[..., IkPlanResult],
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any],
@@ -336,13 +352,13 @@ def _kinematic_step_at_travel(
 
         travel_try = float(travel_hi)
         pos = tip + look_dir * travel_try
-        axial_target = _axial_dist_to_end(pos, nominal_world, approach_axis)
-        if axial_target <= blind + 1e-4:
+        remaining_target = _approach_remaining_m(pos, object_world, grasp_standoff_m)
+        if remaining_target <= blind + 1e-4:
             travel_hi = 0.5 * (travel_lo + travel_hi)
             continue
 
         direction = _look_at_object_dir(pos, object_world)
-        standoff_target = _standoff_at(pos, object_world, direction)
+        standoff_target = _object_standoff_m(pos, object_world)
         if prev_standoff is not None and standoff_target > prev_standoff + 1e-4:
             travel_hi = 0.5 * (travel_lo + travel_hi)
             continue
@@ -351,7 +367,6 @@ def _kinematic_step_at_travel(
             pos=pos,
             q_seed=q_seed,
             object_world=object_world,
-            approach_axis=approach_axis,
             ik_fn=ik_fn,
             fk_fn=fk_fn,
             ik_kwargs=ik_kwargs,
@@ -371,7 +386,6 @@ def _kinematic_step_at_travel(
                     pos=pos + off,
                     q_seed=q_seed,
                     object_world=object_world,
-                    approach_axis=approach_axis,
                     ik_fn=ik_fn,
                     fk_fn=fk_fn,
                     ik_kwargs=ik_kwargs,
@@ -387,8 +401,12 @@ def _kinematic_step_at_travel(
                 best.achieved_position_world or best.position_world,
                 dtype=float,
             ).reshape(3)
-            new_axial = _axial_dist_to_end(achieved, nominal_world, approach_axis)
-            if new_axial >= float(prev_axial) - 1e-4:
+            new_remaining = _approach_remaining_m(
+                achieved,
+                object_world,
+                grasp_standoff_m,
+            )
+            if new_remaining >= float(prev_remaining) - 1e-4:
                 best = None
                 travel_hi = 0.5 * (travel_lo + travel_hi)
                 continue
@@ -406,9 +424,8 @@ def _kinematic_step_at_travel(
 def plan_grasp_kinematic_trajectory(
     *,
     q_seed: Sequence[float],
-    nominal_world: Sequence[float],
     object_world: Sequence[float],
-    approach_axis: Sequence[float],
+    grasp_standoff_m: float,
     step_m: float,
     blind_start_m: float,
     ik_fn: Callable[..., IkPlanResult],
@@ -420,16 +437,19 @@ def plan_grasp_kinematic_trajectory(
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
     stats: Optional["GraspPlanStats"] = None,
+    nominal_world: Sequence[float] | None = None,
+    approach_axis: Sequence[float] | None = None,
 ) -> list[GraspWaypoint]:
-    """Chain IK steps from the current FK tip toward ``nominal_world`` (no Cartesian lerp)."""
+    """Chain IK look-at steps toward the object (standoff-based progress, no Cartesian lerp)."""
+    _ = nominal_world
+    _ = approach_axis
     step = float(max(step_m, 0.005))
     blind = float(max(blind_start_m, 0.0))
     cap = max(1, int(max_waypoints))
+    standoff_target = float(max(grasp_standoff_m, 0.0))
     max_dir_error_rad = float(np.deg2rad(max(0.0, max_dir_error_deg)))
     max_approach_drift_rad = float(np.deg2rad(max(0.0, max_approach_drift_deg)))
-    nominal = np.asarray(nominal_world, dtype=float).reshape(3)
     obj = np.asarray(object_world, dtype=float).reshape(3)
-    axis = _unit_vec3(approach_axis)
     q_prev = np.asarray(q_seed, dtype=float).reshape(4).copy()
     kwargs = dict(ik_kwargs or {})
 
@@ -438,11 +458,11 @@ def plan_grasp_kinematic_trajectory(
     while len(waypoints) < cap:
         fk = fk_fn(q_prev)
         tip = np.asarray(fk.position_world, dtype=float).reshape(3)
-        axial = _axial_dist_to_end(tip, nominal, axis)
-        if axial <= blind + 1e-4:
+        remaining = _approach_remaining_m(tip, obj, standoff_target)
+        if remaining <= blind + 1e-4:
             break
 
-        travel = min(step, axial - blind)
+        travel = min(step, remaining - blind)
         if travel < float(min_step_m) - 1e-6:
             break
 
@@ -450,12 +470,11 @@ def plan_grasp_kinematic_trajectory(
             tip=tip,
             travel_m=travel,
             object_world=obj,
-            nominal_world=nominal,
-            approach_axis=axis,
+            grasp_standoff_m=standoff_target,
             q_seed=q_prev,
             blind=blind,
             prev_standoff=prev_standoff,
-            prev_axial=axial,
+            prev_remaining=remaining,
             ik_fn=ik_fn,
             fk_fn=fk_fn,
             ik_kwargs=kwargs,
@@ -504,12 +523,10 @@ def plan_grasp_feasible_trajectory(
     """Kinematic IK chain from ``q_seed`` FK tip; Cartesian start/end are reference only."""
     _ = start_position
     _ = start_direction
-    _ = float(grasp_standoff_m)
     return plan_grasp_kinematic_trajectory(
         q_seed=q_seed,
-        nominal_world=end_position,
         object_world=object_world,
-        approach_axis=end_direction,
+        grasp_standoff_m=float(grasp_standoff_m),
         step_m=step_m,
         blind_start_m=blind_start_m,
         ik_fn=ik_fn,
@@ -521,6 +538,8 @@ def plan_grasp_feasible_trajectory(
         max_dir_error_deg=max_dir_error_deg,
         max_approach_drift_deg=max_approach_drift_deg,
         stats=stats,
+        nominal_world=end_position,
+        approach_axis=end_direction,
     )
 
 

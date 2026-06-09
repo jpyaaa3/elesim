@@ -57,13 +57,12 @@ class TestGraspGuidedHelpers(unittest.TestCase):
 
     def test_waypoint_step_capped_by_blind_margin(self) -> None:
         tip = (0.10, 0.0, 0.90)
-        nominal = (0.16, 0.0, 0.90)
+        obj = (0.16, 0.0, 0.90)
         blind_start = 0.06
         step_m = 0.03
-        dist = ControlService._grasp_axial_distance(tip, nominal, (1.0, 0.0, 0.0))
-        margin = max(0.0, dist - blind_start)
-        travel = min(step_m, margin)
-        self.assertAlmostEqual(dist, 0.06, places=4)
+        remain = ControlService._grasp_approach_remaining_m(tip, obj, 0.0)
+        travel = min(step_m, max(0.0, remain - blind_start))
+        self.assertAlmostEqual(remain, 0.06, places=4)
         self.assertAlmostEqual(travel, 0.0, places=4)
 
     def test_visual_recover_disabled_in_mock_mode(self) -> None:
@@ -269,12 +268,13 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._ik_cfg = IkConfig(tol=0.001)
-        nominal = (0.31, 0.0, 0.90)
+        object_world = (0.33, 0.0, 0.90)
         tips = [
             (0.25, 0.0, 0.90),
             (0.27, 0.0, 0.90),
             (0.29, 0.0, 0.90),
             (0.305, 0.0, 0.90),
+            (0.31, 0.0, 0.90),
         ]
         ik_labels: list[str] = []
 
@@ -285,7 +285,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         with patch.object(
             svc,
             "_pick_current_tip_world",
-            side_effect=tips + [nominal],
+            side_effect=tips,
         ), patch.object(
             svc, "_grasp_ik_to_waypoint", side_effect=_ik_to_wp
         ), patch.object(
@@ -296,15 +296,16 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_q_array_from_state", return_value=np.zeros(4)
         ):
             ok, _, _, target = svc._grasp_blind_final_approach(
-                nominal_world=nominal,
-                approach_dir=np.array([1.0, 0.0, 0.0]),
+                object_world=object_world,
                 blind_approach_m=0.02,
                 sag_model={},
                 host_state=MagicMock(),
+                grasp_standoff_m=0.02,
                 blind_start_m=0.06,
             )
         self.assertTrue(ok)
-        self.assertEqual(target, nominal)
+        self.assertAlmostEqual(target[0], 0.31, places=3)
+        self.assertAlmostEqual(target[2], 0.90, places=3)
         self.assertGreaterEqual(len(ik_labels), 2)
         self.assertTrue(all(lbl.startswith("grasp blind") for lbl in ik_labels))
 
