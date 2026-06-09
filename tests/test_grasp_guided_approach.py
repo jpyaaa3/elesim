@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.config_loader import PickConfig
+from engine.config_loader import IkConfig, PickConfig
 from engine.controller.actions import ControlService
 from engine.controller.state import PanelState
 from engine.visual_servoing.equal_sag_probe import EqualSagEstimate
@@ -264,6 +264,49 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertIn("stop", call_order)
         self.assertEqual(str(svc.state.pick_phase), "done")
         self.assertFalse(svc.grasp_trajectory_planned())
+
+    def test_blind_final_loops_until_nominal_not_one_step(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        svc._ik_cfg = IkConfig(tol=0.001)
+        nominal = (0.31, 0.0, 0.90)
+        tips = [
+            (0.25, 0.0, 0.90),
+            (0.27, 0.0, 0.90),
+            (0.29, 0.0, 0.90),
+            (0.305, 0.0, 0.90),
+        ]
+        ik_labels: list[str] = []
+
+        def _ik_to_wp(**kwargs):
+            ik_labels.append(str(kwargs.get("label", "")))
+            return True, np.array([0.1, 0.0, 0.0, 0.0]), None, 0.0
+
+        with patch.object(
+            svc,
+            "_pick_current_tip_world",
+            side_effect=tips + [nominal],
+        ), patch.object(
+            svc, "_grasp_ik_to_waypoint", side_effect=_ik_to_wp
+        ), patch.object(
+            svc,
+            "_wait_until_grasp_target_reached",
+            return_value=(True, 0.002, MagicMock(reply_ok=True, q=MagicMock())),
+        ), patch.object(
+            svc, "_q_array_from_state", return_value=np.zeros(4)
+        ):
+            ok, _, _, target = svc._grasp_blind_final_approach(
+                nominal_world=nominal,
+                approach_dir=np.array([1.0, 0.0, 0.0]),
+                blind_approach_m=0.02,
+                sag_model={},
+                host_state=MagicMock(),
+                blind_start_m=0.06,
+            )
+        self.assertTrue(ok)
+        self.assertEqual(target, nominal)
+        self.assertGreaterEqual(len(ik_labels), 2)
+        self.assertTrue(all(lbl.startswith("grasp blind") for lbl in ik_labels))
 
     def test_start_grasp_execute_requires_plan(self) -> None:
         svc = ControlService(PanelState())

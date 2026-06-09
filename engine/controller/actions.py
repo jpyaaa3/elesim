@@ -432,11 +432,13 @@ class ControlService:
             print("[Pick] %s" % fail_msg)
             return False, fail_msg
 
-        reached, arrival_err_m, _ = self._wait_until_grasp_target_reached(
+        close_tol_m = max(float(self._ik_cfg.tol), 0.003)
+        reached, arrival_err_m, settle_state = self._wait_until_grasp_target_reached(
             target_world=target_world,
             q_cmd=q_cmd,
             sag_model=sag_model,
             timeout_s=float(arrival_timeout_s),
+            position_tol_m=close_tol_m,
         )
         if not bool(reached):
             fail_msg = (
@@ -458,6 +460,39 @@ class ControlService:
             )
             print("[Pick] %s" % fail_msg)
             return False, fail_msg
+
+        if settle_state is not None:
+            grasp_pos = self._grasp_position_from_host_state(
+                settle_state,
+                sag_model=sag_model,
+            )
+            if grasp_pos is not None:
+                arrival_err_m = float(
+                    np.linalg.norm(
+                        np.asarray(grasp_pos, dtype=float).reshape(3)
+                        - np.asarray(target_world, dtype=float).reshape(3)
+                    )
+                )
+                if arrival_err_m > close_tol_m + 1e-4:
+                    fail_msg = (
+                        "%s | pre-contact verify failed (err=%.1fmm); gripper kept open"
+                        % (str(label), float(arrival_err_m) * 1000.0)
+                    )
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg=fail_msg,
+                    )
+                    self.state.set_ik_status(
+                        running=False,
+                        converged=False,
+                        failed=True,
+                        err_m=float(arrival_err_m),
+                        msg=fail_msg,
+                    )
+                    print("[Pick] %s" % fail_msg)
+                    return False, fail_msg
 
         self.state.set_claw_closed(True)
         self.send_claw_command(closed=True)
@@ -4350,52 +4385,107 @@ class ControlService:
         sag_model: dict[str, Any],
         host_state: Optional[HostState],
         grasp_standoff_m: float = 0.0,
+        blind_start_m: float = 0.06,
     ) -> tuple[bool, Optional[np.ndarray], Optional[HostState], tuple[float, float, float]]:
+        """Blind steps toward pre-contact nominal until axial dist is within reach tol."""
+        dir_u = self._unit_vec3(approach_dir)
+        step_m = float(max(blind_approach_m, 0.005))
+        reach_tol_m = max(float(self._ik_cfg.tol), 0.003)
+        max_steps = max(
+            1,
+            int(math.ceil(float(max(blind_start_m, step_m)) / step_m)) + 2,
+        )
+        q_cmd: Optional[np.ndarray] = None
+
+        for blind_idx in range(max_steps):
+            tip = self._pick_current_tip_world(host_state=host_state)
+            if tip is None:
+                return False, q_cmd, host_state, nominal_world
+            dist = self._grasp_axial_distance(tip, nominal_world, dir_u)
+            if dist <= reach_tol_m + 1e-4:
+                if q_cmd is None:
+                    try:
+                        q_cmd = self._q_array_from_state(host_state)
+                    except Exception:
+                        q_cmd = None
+                print(
+                    "[Grasp] blind done | step=%d dist=%.1fmm (nominal pre-contact)"
+                    % (int(blind_idx), float(dist) * 1000.0)
+                )
+                return True, q_cmd, host_state, nominal_world
+
+            travel = min(step_m, max(0.0, dist - reach_tol_m))
+            if travel < 1e-6:
+                break
+            target_pos = np.asarray(tip, dtype=float).reshape(3) + dir_u * travel
+            wp_label = "grasp blind %d" % int(blind_idx + 1)
+            waypoint = GraspWaypoint(
+                position_world=(
+                    float(target_pos[0]),
+                    float(target_pos[1]),
+                    float(target_pos[2]),
+                ),
+                direction_world=(
+                    float(dir_u[0]),
+                    float(dir_u[1]),
+                    float(dir_u[2]),
+                ),
+                standoff_m=float(max(grasp_standoff_m, 0.0)),
+            )
+            ok, q_step, host_state, _ = self._grasp_ik_to_waypoint(
+                waypoint=waypoint,
+                sag_model=sag_model,
+                host_state=host_state,
+                label=wp_label,
+            )
+            if not ok or q_step is None:
+                print(
+                    "[Grasp] %s | IK failed | dist=%.1fmm"
+                    % (wp_label, float(dist) * 1000.0)
+                )
+                return False, q_cmd, host_state, nominal_world
+            q_cmd = q_step
+            reached, _, host_state = self._wait_until_grasp_target_reached(
+                target_world=target_pos,
+                q_cmd=q_cmd,
+                sag_model=sag_model,
+                timeout_s=8.0,
+                position_tol_m=reach_tol_m,
+            )
+            if not bool(reached):
+                print(
+                    "[Grasp] %s | settle failed | dist=%.1fmm"
+                    % (wp_label, float(dist) * 1000.0)
+                )
+                return False, q_cmd, host_state, nominal_world
+            tip_after = self._pick_current_tip_world(host_state=host_state)
+            if tip_after is not None:
+                dist_after = self._grasp_axial_distance(
+                    tip_after,
+                    nominal_world,
+                    dir_u,
+                )
+                print(
+                    "[Grasp] %s | travel=%.0fmm dist=%.1fmm→%.1fmm"
+                    % (
+                        wp_label,
+                        float(travel) * 1000.0,
+                        float(dist) * 1000.0,
+                        float(dist_after) * 1000.0,
+                    )
+                )
+
         tip = self._pick_current_tip_world(host_state=host_state)
         if tip is None:
-            return False, None, host_state, nominal_world
-        dir_u = self._unit_vec3(approach_dir)
+            return False, q_cmd, host_state, nominal_world
         dist = self._grasp_axial_distance(tip, nominal_world, dir_u)
-        if dist <= 1e-6:
-            q0 = self._q_array_from_state(host_state)
-            return True, q0, host_state, nominal_world
-
-        target_pos = np.asarray(nominal_world, dtype=float).reshape(3)
-        if float(blind_approach_m) > 1e-6 and dist > float(blind_approach_m) + 1e-4:
-            target_pos = (
-                np.asarray(tip, dtype=float).reshape(3) + dir_u * float(blind_approach_m)
+        if dist > reach_tol_m + 1e-4:
+            print(
+                "[Grasp] blind abort | pre-contact not reached | dist=%.1fmm tol=%.1fmm"
+                % (float(dist) * 1000.0, float(reach_tol_m) * 1000.0)
             )
-        waypoint = GraspWaypoint(
-            position_world=(
-                float(target_pos[0]),
-                float(target_pos[1]),
-                float(target_pos[2]),
-            ),
-            direction_world=(
-                float(dir_u[0]),
-                float(dir_u[1]),
-                float(dir_u[2]),
-            ),
-            standoff_m=float(max(grasp_standoff_m, 0.0)),
-        )
-        ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
-            waypoint=waypoint,
-            sag_model=sag_model,
-            host_state=host_state,
-            label="grasp blind",
-        )
-        if not ok or q_cmd is None:
-            return False, None, host_state, tuple(float(v) for v in target_pos)
-        reached, _, host_state = self._wait_until_grasp_target_reached(
-            target_world=target_pos,
-            q_cmd=q_cmd,
-            sag_model=sag_model,
-            timeout_s=8.0,
-            position_tol_m=max(float(self._ik_cfg.tol), 0.005),
-        )
-        if not bool(reached):
-            return False, q_cmd, host_state, tuple(float(v) for v in target_pos)
-        return True, q_cmd, host_state, tuple(float(v) for v in target_pos)
+            return False, q_cmd, host_state, nominal_world
+        return True, q_cmd, host_state, nominal_world
 
     def _run_grasp_trajectory_plan(self) -> bool:
         """Build kinematic grasp waypoints from current FK tip; store plan for execute."""
@@ -4985,6 +5075,7 @@ class ControlService:
                 sag_model=sag_model,
                 host_state=host_state,
                 grasp_standoff_m=standoff_m,
+                blind_start_m=blind_start_m,
             )
             if not blind_ok or q_cmd is None:
                 self.state.set_pick_status(
