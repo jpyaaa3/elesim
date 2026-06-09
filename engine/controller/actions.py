@@ -168,6 +168,10 @@ class ControlService:
         self._grasp_nominal_dir: Optional[tuple[float, float, float]] = None
         self._grasp_trajectory_nominal_pose: Optional[tuple[float, float, float]] = None
         self._grasp_planned_waypoints: list[GraspWaypoint] = []
+        self._grasp_plan_ready = False
+        self._grasp_plan_traj_start: Optional[tuple[float, float, float]] = None
+        self._grasp_plan_object_world: Optional[tuple[float, float, float]] = None
+        self._grasp_plan_look_anchor: Optional[tuple[float, float, float]] = None
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
         self._pick_search_max_steps = 48
@@ -2910,7 +2914,9 @@ class ControlService:
             return False
         pk = self._pick_config_effective()
         if bool(pk.grasp_guided_enabled):
-            return self._start_grasp_guided_approach(internal=internal)
+            if not self._run_grasp_trajectory_plan():
+                return False
+            return self._start_grasp_guided_execute(internal=internal)
         direction = np.asarray(dir_tuple, dtype=float).reshape(3)
         standoff_m = float(max(pk.grasp_standoff_m, 0.0))
         try:
@@ -2942,7 +2948,7 @@ class ControlService:
         return True
 
     def start_grasp(self) -> None:
-        """Move to pre-contact (object - approach_dir * standoff) then close gripper."""
+        """Guided: plan trajectory then execute. Legacy: one-shot pre-contact IK."""
         if self.state.ik_running or self._visual_busy():
             self.state.set_pick_status(
                 running=False,
@@ -2953,6 +2959,58 @@ class ControlService:
             return
         self._pick_stop_event.clear()
         self._start_grasp_to_object()
+
+    def grasp_trajectory_planned(self) -> bool:
+        """True when a kinematic grasp plan is stored and ready to execute."""
+        return bool(self._grasp_plan_ready and self._grasp_planned_waypoints)
+
+    def start_grasp_plan(self) -> None:
+        """Compute and visualize the kinematic grasp trajectory (no robot motion)."""
+        pk = self._pick_config_effective()
+        if not bool(pk.grasp_guided_enabled):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan requires grasp_guided_enabled",
+            )
+            return
+        if self.state.ik_running or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        self._pick_stop_event.clear()
+        self._reset_grasp_guided_state()
+        self._run_grasp_trajectory_plan()
+
+    def start_grasp_execute(self) -> None:
+        """Execute a previously planned grasp trajectory."""
+        pk = self._pick_config_effective()
+        if not bool(pk.grasp_guided_enabled):
+            self.start_grasp()
+            return
+        if self.state.ik_running or self._visual_busy():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if not self.grasp_trajectory_planned():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp execute | no plan (run Grasp Plan first)",
+            )
+            return
+        self._pick_stop_event.clear()
+        self._start_grasp_guided_execute()
 
     def _wait_grasp_ik_done(self, *, timeout_s: float, label: str = "grasp") -> bool:
         deadline = time.time() + float(max(timeout_s, 1.0))
@@ -2998,6 +3056,7 @@ class ControlService:
         self._reset_pick_search_state()
         self._reset_pick_drift_accounting()
         self._reset_pick_equal_sag_state()
+        self._reset_grasp_guided_state()
         self._pick_frozen_world_xyz = None
         host_state = self.client.refresh_state()
         obs = self.current_visual_observation(host_state)
@@ -3556,6 +3615,10 @@ class ControlService:
         self._grasp_nominal_dir = None
         self._grasp_trajectory_nominal_pose = None
         self._grasp_planned_waypoints = []
+        self._grasp_plan_ready = False
+        self._grasp_plan_traj_start = None
+        self._grasp_plan_object_world = None
+        self._grasp_plan_look_anchor = None
 
     def _grasp_aim_latched_direction(
         self,
@@ -4278,7 +4341,164 @@ class ControlService:
             return False, q_cmd, host_state, tuple(float(v) for v in target_pos)
         return True, q_cmd, host_state, tuple(float(v) for v in target_pos)
 
-    def _start_grasp_guided_approach(self, *, internal: bool = False) -> bool:
+    def _run_grasp_trajectory_plan(self) -> bool:
+        """Build kinematic grasp waypoints from current FK tip; store plan for execute."""
+        self._grasp_planned_waypoints = []
+        self._grasp_plan_ready = False
+        self._grasp_plan_traj_start = None
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return False
+        object_world = self._pick_grasp_object_world()
+        if object_world is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan | missing object (run Look or enable perception)",
+            )
+            return False
+        dir_tuple = self._grasp_aim_latched_direction(object_world=object_world)
+        if dir_tuple is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan | cannot infer approach direction",
+            )
+            return False
+
+        pk = self._pick_config_effective()
+        step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
+        blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
+        max_waypoints = max(1, int(pk.grasp_max_waypoints))
+        feasible_dir_tol_deg = float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0))
+        feasible_drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
+        standoff_m = float(max(pk.grasp_standoff_m, 0.0))
+        dir_u = self._unit_vec3(dir_tuple)
+        dir3 = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
+        live_object = self._pick_grasp_object_world() or object_world
+        look_anchor = self._pick_grasp_trajectory_start_position()
+        nominal_world = self._pick_grasp_trajectory_end_position(
+            live_object,
+            dir_u,
+            standoff_m=standoff_m,
+        )
+
+        self._grasp_nominal_dir = dir3
+        self._grasp_trajectory_nominal_pose = tuple(float(v) for v in nominal_world)
+        self._grasp_plan_object_world = tuple(float(v) for v in live_object)
+        self._grasp_plan_look_anchor = (
+            tuple(float(v) for v in look_anchor) if look_anchor is not None else None
+        )
+
+        sag_model = self._pick_grasp_sag_model()
+        ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(sag_model=sag_model)
+        host_state = self.client.refresh_state()
+        try:
+            q_seed = self._q_array_from_state(host_state)
+        except Exception:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan | seed q unavailable",
+            )
+            return False
+
+        fk_seed = fk_fn(q_seed)
+        traj_start = tuple(float(v) for v in fk_seed.position_world)
+        self._grasp_plan_traj_start = traj_start
+        geom_plan = plan_grasp_approach_trajectory(
+            start_position=traj_start,
+            end_position=nominal_world,
+            start_direction=dir3,
+            end_direction=dir3,
+            object_world=live_object,
+            step_m=step_m,
+            blind_start_m=blind_start_m,
+            grasp_standoff_m=standoff_m,
+            max_waypoints=max_waypoints,
+        )
+        self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
+            start_position=traj_start,
+            end_position=nominal_world,
+            start_direction=dir3,
+            end_direction=dir3,
+            object_world=live_object,
+            q_seed=q_seed,
+            step_m=step_m,
+            blind_start_m=blind_start_m,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            grasp_standoff_m=standoff_m,
+            max_waypoints=max_waypoints,
+            max_dir_error_deg=feasible_dir_tol_deg,
+            max_approach_drift_deg=feasible_drift_tol_deg,
+        )
+        plan_n = len(self._grasp_planned_waypoints)
+        geom_n = len(geom_plan)
+        path_len = trajectory_path_length_m(
+            self._grasp_planned_waypoints,
+            start_position=traj_start,
+        )
+        start_standoff = float(
+            np.dot(
+                np.asarray(live_object, dtype=float).reshape(3)
+                - np.asarray(traj_start, dtype=float).reshape(3),
+                dir_u,
+            )
+        )
+        print(
+            "[Grasp] plan | kinematic feasible=%d geom_ref=%d path=%.0fmm "
+            "standoff %.0f→%.0fmm tip=(%.3f,%.3f,%.3f)"
+            % (
+                int(plan_n),
+                int(geom_n),
+                float(path_len) * 1000.0,
+                start_standoff * 1000.0,
+                standoff_m * 1000.0,
+                float(traj_start[0]),
+                float(traj_start[1]),
+                float(traj_start[2]),
+            )
+        )
+        if plan_n <= 0:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan | no feasible kinematic waypoints",
+            )
+            return False
+
+        self._grasp_plan_ready = True
+        self._send_grasp_trajectory_markers(
+            start_position=traj_start,
+            end_position=tuple(float(v) for v in nominal_world),
+            object_world=tuple(float(v) for v in live_object),
+            waypoints=list(self._grasp_planned_waypoints),
+            look_anchor_position=self._grasp_plan_look_anchor,
+        )
+        plan_msg = "grasp plan | %d waypoints | path=%.0fmm" % (
+            int(plan_n),
+            float(path_len) * 1000.0,
+        )
+        self.state.set_pick_status(
+            running=False,
+            failed=False,
+            phase=ObjectPickPhase.GRASP_PLAN.value,
+            msg=plan_msg,
+        )
+        print("[Grasp] %s" % plan_msg)
+        return True
+
+    def _start_grasp_guided_execute(self, *, internal: bool = False) -> bool:
         if not internal and (self.state.ik_running or self._visual_busy()):
             self.state.set_pick_status(
                 running=False,
@@ -4295,22 +4515,20 @@ class ControlService:
                 msg="no host client",
             )
             return False
-        object_world = self._pick_grasp_object_world()
-        if object_world is None:
+        if not self.grasp_trajectory_planned():
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="grasp missing object (run Look or enable perception)",
+                msg="grasp execute | no plan (run Grasp Plan first)",
             )
             return False
-        dir_tuple = self._grasp_aim_latched_direction(object_world=object_world)
-        if dir_tuple is None:
+        if self._grasp_nominal_dir is None or self._grasp_plan_object_world is None:
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="cannot infer grasp approach direction",
+                msg="grasp execute | plan context missing",
             )
             return False
 
@@ -4321,37 +4539,42 @@ class ControlService:
             prev_worker.join(timeout=2.0)
         self._pick_stop_event.clear()
 
-        self._reset_grasp_guided_state()
-        self._grasp_nominal_dir = tuple(float(v) for v in dir_tuple)
+        self._grasp_waypoint_idx = 0
         base_sag = self._pick_grasp_sag_model()
         self._grasp_online_sag_model = dict(base_sag) if base_sag else None
 
-        pk = self._pick_config_effective()
         self.state.set_pick_status(
             running=True,
             failed=False,
             phase=ObjectPickPhase.GRASP_APPROACH.value,
-            msg="grasp guided approach starting",
+            msg="grasp execute starting",
         )
         self.state.set_ik_status(
             running=True,
             converged=False,
             failed=False,
             err_m=float("inf"),
-            msg="grasp guided approach",
+            msg="grasp execute",
         )
 
+        object_world = self._grasp_plan_object_world
+        approach_dir = np.asarray(self._grasp_nominal_dir, dtype=float).reshape(3)
+
         def _worker() -> None:
-            self._run_grasp_guided_approach_worker(
-                object_world=tuple(float(v) for v in object_world),
-                approach_dir=np.asarray(dir_tuple, dtype=float).reshape(3),
+            self._run_grasp_guided_execute_worker(
+                object_world=object_world,
+                approach_dir=approach_dir,
             )
 
-        self._ik_worker = threading.Thread(target=_worker, name="grasp-guided", daemon=True)
+        self._ik_worker = threading.Thread(
+            target=_worker,
+            name="grasp-guided-exec",
+            daemon=True,
+        )
         self._ik_worker.start()
         return True
 
-    def _run_grasp_guided_approach_worker(
+    def _run_grasp_guided_execute_worker(
         self,
         *,
         object_world: tuple[float, float, float],
@@ -4371,34 +4594,34 @@ class ControlService:
         dir_u = self._unit_vec3(approach_dir)
         dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
         success = False
+        traj_start = self._grasp_plan_traj_start
+        look_anchor = self._grasp_plan_look_anchor
+        if traj_start is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp execute | plan start missing",
+            )
+            return
         try:
             if self._perception_capture is None or not self._perception_capture.is_running():
                 self.start_perception_capture()
 
             print(
-                "[Grasp] guided start | step=%.0fmm blind_start=%.0fmm standoff=%.0fmm "
-                "max_wp=%d settle=%.2fs"
+                "[Grasp] execute start | step=%.0fmm blind_start=%.0fmm standoff=%.0fmm "
+                "max_wp=%d planned=%d settle=%.2fs"
                 % (
                     step_m * 1000.0,
                     blind_start_m * 1000.0,
                     standoff_m * 1000.0,
                     int(max_waypoints),
+                    int(len(self._grasp_planned_waypoints)),
                     waypoint_settle_s,
                 )
             )
 
             host_state = self.client.refresh_state() if self.client is not None else None
-            live_object = self._pick_grasp_object_world() or object_world
-            look_anchor = self._pick_grasp_trajectory_start_position()
-
-            nominal_world = self._pick_grasp_trajectory_end_position(
-                live_object,
-                dir_u,
-                standoff_m=standoff_m,
-            )
-            self._grasp_trajectory_nominal_pose = tuple(float(v) for v in nominal_world)
-            sag_model = self._pick_grasp_sag_model()
-            ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(sag_model=sag_model)
             try:
                 q_seed = self._q_array_from_state(host_state)
             except Exception:
@@ -4406,81 +4629,9 @@ class ControlService:
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided | seed q unavailable",
+                    msg="grasp execute | seed q unavailable",
                 )
                 return
-            fk_seed = fk_fn(q_seed)
-            traj_start = tuple(float(v) for v in fk_seed.position_world)
-            geom_plan = plan_grasp_approach_trajectory(
-                start_position=traj_start,
-                end_position=nominal_world,
-                start_direction=dir_tuple,
-                end_direction=dir_tuple,
-                object_world=live_object,
-                step_m=step_m,
-                blind_start_m=blind_start_m,
-                grasp_standoff_m=standoff_m,
-                max_waypoints=max_waypoints,
-            )
-            self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
-                start_position=traj_start,
-                end_position=nominal_world,
-                start_direction=dir_tuple,
-                end_direction=dir_tuple,
-                object_world=live_object,
-                q_seed=q_seed,
-                step_m=step_m,
-                blind_start_m=blind_start_m,
-                ik_fn=ik_fn,
-                fk_fn=fk_fn,
-                grasp_standoff_m=standoff_m,
-                max_waypoints=max_waypoints,
-                max_dir_error_deg=feasible_dir_tol_deg,
-                max_approach_drift_deg=feasible_drift_tol_deg,
-            )
-            plan_n = len(self._grasp_planned_waypoints)
-            geom_n = len(geom_plan)
-            path_len = trajectory_path_length_m(
-                self._grasp_planned_waypoints,
-                start_position=traj_start,
-            )
-            start_standoff = float(
-                np.dot(
-                    np.asarray(live_object, dtype=float).reshape(3)
-                    - np.asarray(traj_start, dtype=float).reshape(3),
-                    dir_u,
-                )
-            )
-            end_standoff = float(standoff_m)
-            print(
-                "[Grasp] plan | kinematic feasible=%d geom_ref=%d path=%.0fmm "
-                "standoff %.0f→%.0fmm tip=(%.3f,%.3f,%.3f)"
-                % (
-                    int(plan_n),
-                    int(geom_n),
-                    float(path_len) * 1000.0,
-                    start_standoff * 1000.0,
-                    end_standoff * 1000.0,
-                    float(traj_start[0]),
-                    float(traj_start[1]),
-                    float(traj_start[2]),
-                )
-            )
-            if plan_n <= 0:
-                self.state.set_pick_status(
-                    running=False,
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided | no feasible kinematic waypoints",
-                )
-                return
-            self._send_grasp_trajectory_markers(
-                start_position=traj_start,
-                end_position=tuple(float(v) for v in nominal_world),
-                object_world=tuple(float(v) for v in live_object),
-                waypoints=list(self._grasp_planned_waypoints),
-                look_anchor_position=look_anchor,
-            )
 
             feasible_queue_idx = 0
             for wp in range(max_waypoints):
@@ -4777,13 +4928,14 @@ class ControlService:
             )
             success = True
             print("[Grasp] %s" % done_msg)
+            self._grasp_plan_ready = False
         finally:
             if not success and not self.state.pick_failed:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided approach failed",
+                    msg="grasp execute failed",
                 )
             self._ik_worker = None
 
@@ -5255,6 +5407,7 @@ class ControlService:
 
         self._reset_pick_last_seen_uv()
         self._reset_pick_uv_jacobian()
+        self._reset_grasp_guided_state()
         host_state = self.client.refresh_state()
         obs = self.current_visual_observation(host_state)
         if obs is not None:
