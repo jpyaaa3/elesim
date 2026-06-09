@@ -470,7 +470,7 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertGreater(stats.feasible_ik_attempts, 0)
         self.assertGreater(stats.bisect_iters, 0)
         self.assertEqual(stats.kinematic_steps_ok, fail_after)
-        self.assertEqual(stats.kinematic_steps_fail, 1)
+        self.assertGreaterEqual(stats.kinematic_steps_fail, 1)
 
     def test_feasible_ik_single_look_at_attempt_passes_object_world(self) -> None:
         obj = np.array([0.40, 0.0, 0.90], dtype=float)

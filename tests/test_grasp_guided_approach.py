@@ -230,11 +230,6 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             return_value=(0.33, 0.01, 0.92),
         ), patch.object(
             svc, "_q_array_from_state", return_value=np.zeros(4)
-        ), patch(
-            "engine.controller.actions.plan_grasp_feasible_next_waypoint",
-            side_effect=[None],
-        ), patch.object(
-            svc, "_grasp_feasible_plan_callbacks", return_value=(MagicMock(), MagicMock())
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=True
         ), patch.object(svc, "_grasp_ik_to_waypoint", side_effect=_ik), patch.object(
@@ -242,11 +237,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         ), patch.object(svc, "_grasp_update_online_sag_bias", side_effect=_sag), patch.object(
             svc,
             "_grasp_align_to_approach_dir",
-        ) as mock_align, patch.object(
-            svc,
-            "_grasp_blind_final_approach",
-            return_value=(True, np.zeros(4), None, (0.31, 0.01, 0.92)),
-        ), patch.object(svc, "send_grasp_meta"), patch.object(
+        ) as mock_align, patch.object(svc, "send_grasp_meta"), patch.object(
             svc, "_send_grasp_target_markers"
         ), patch.object(
             svc,

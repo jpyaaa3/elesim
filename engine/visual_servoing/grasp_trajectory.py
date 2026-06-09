@@ -36,6 +36,7 @@ class GraspWaypoint:
     standoff_m: float
     q_seed: tuple[float, float, float, float] | None = None
     achieved_position_world: tuple[float, float, float] | None = None
+    segment: str = "approach"
 
 
 def _direction_angle_rad(a: Sequence[float], b: Sequence[float]) -> float:
@@ -163,6 +164,7 @@ def _waypoint_from_pose(
     approach_axis: np.ndarray,
     q_seed: np.ndarray | None = None,
     achieved_position: np.ndarray | None = None,
+    segment: str = "approach",
 ) -> GraspWaypoint:
     q_tuple: tuple[float, float, float, float] | None = None
     if q_seed is not None:
@@ -193,6 +195,7 @@ def _waypoint_from_pose(
         standoff_m=float(standoff),
         q_seed=q_tuple,
         achieved_position_world=achieved_tuple,
+        segment=str(segment),
     )
 
 
@@ -201,6 +204,7 @@ def _waypoint_from_fk(
     fk: FkTipResult,
     object_world: np.ndarray,
     q_seed: np.ndarray,
+    segment: str = "approach",
 ) -> GraspWaypoint:
     """Build a waypoint from FK achieved tip pose (executable, not lerp geometry)."""
     pos = np.asarray(fk.position_world, dtype=float).reshape(3)
@@ -212,6 +216,7 @@ def _waypoint_from_fk(
         approach_axis=look_dir,
         q_seed=q_seed,
         achieved_position=pos,
+        segment=str(segment),
     )
 
 
@@ -280,6 +285,7 @@ def _attempt_feasible_ik(
     ik_kwargs: dict[str, Any],
     max_dir_error_rad: float,
     max_approach_drift_rad: float,
+    segment: str = "approach",
     stats: Optional["GraspPlanStats"] = None,
 ) -> GraspWaypoint | None:
     """IK with look-at-object; accept only FK poses that look at the object."""
@@ -311,6 +317,7 @@ def _attempt_feasible_ik(
         fk=fk,
         object_world=object_world,
         q_seed=q_arr,
+        segment=str(segment),
     )
 
 
@@ -321,9 +328,10 @@ def _kinematic_step_at_travel(
     object_world: np.ndarray,
     grasp_standoff_m: float,
     q_seed: np.ndarray,
-    blind: float,
+    remain_floor_m: float,
     prev_standoff: float | None,
     prev_remaining: float,
+    segment: str,
     ik_fn: Callable[..., IkPlanResult],
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any],
@@ -351,7 +359,7 @@ def _kinematic_step_at_travel(
         travel_try = float(travel_hi)
         pos = tip + look_dir * travel_try
         remaining_target = _approach_remaining_m(pos, object_world, grasp_standoff_m)
-        if remaining_target <= blind + 1e-4:
+        if remaining_target <= float(remain_floor_m) + 1e-4:
             travel_hi = 0.5 * (travel_lo + travel_hi)
             continue
 
@@ -370,6 +378,7 @@ def _kinematic_step_at_travel(
             ik_kwargs=ik_kwargs,
             max_dir_error_rad=max_dir_error_rad,
             max_approach_drift_rad=max_approach_drift_rad,
+            segment=str(segment),
             stats=stats,
         )
         if best is None:
@@ -389,6 +398,7 @@ def _kinematic_step_at_travel(
                     ik_kwargs=ik_kwargs,
                     max_dir_error_rad=max_dir_error_rad,
                     max_approach_drift_rad=max_approach_drift_rad,
+                    segment=str(segment),
                     stats=stats,
                 )
                 if best is not None:
@@ -419,13 +429,14 @@ def _kinematic_step_at_travel(
     return best
 
 
-def plan_grasp_kinematic_trajectory(
+def _plan_kinematic_segment(
     *,
     q_seed: Sequence[float],
     object_world: Sequence[float],
     grasp_standoff_m: float,
     step_m: float,
-    blind_start_m: float,
+    remain_floor_m: float,
+    segment: str,
     ik_fn: Callable[..., IkPlanResult],
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any] | None = None,
@@ -435,15 +446,11 @@ def plan_grasp_kinematic_trajectory(
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
     stats: Optional["GraspPlanStats"] = None,
-    nominal_world: Sequence[float] | None = None,
-    approach_axis: Sequence[float] | None = None,
-) -> list[GraspWaypoint]:
-    """Chain IK look-at steps toward the object (standoff-based progress, no Cartesian lerp)."""
-    _ = nominal_world
-    _ = approach_axis
+) -> tuple[list[GraspWaypoint], np.ndarray]:
+    """Plan one look-at segment until ``remain <= remain_floor_m`` or step failure."""
     step = float(max(step_m, 0.005))
-    blind = float(max(blind_start_m, 0.0))
-    cap = max(1, int(max_waypoints))
+    floor = float(max(remain_floor_m, 0.0))
+    cap = max(0, int(max_waypoints))
     standoff_target = float(max(grasp_standoff_m, 0.0))
     max_dir_error_rad = float(np.deg2rad(max(0.0, max_dir_error_deg)))
     max_approach_drift_rad = float(np.deg2rad(max(0.0, max_approach_drift_deg)))
@@ -457,10 +464,10 @@ def plan_grasp_kinematic_trajectory(
         fk = fk_fn(q_prev)
         tip = np.asarray(fk.position_world, dtype=float).reshape(3)
         remaining = _approach_remaining_m(tip, obj, standoff_target)
-        if remaining <= blind + 1e-4:
+        if remaining <= floor + 1e-4:
             break
 
-        travel = min(step, remaining - blind)
+        travel = min(step, remaining - floor)
         if travel < float(min_step_m) - 1e-6:
             break
 
@@ -470,9 +477,10 @@ def plan_grasp_kinematic_trajectory(
             object_world=obj,
             grasp_standoff_m=standoff_target,
             q_seed=q_prev,
-            blind=blind,
+            remain_floor_m=floor,
             prev_standoff=prev_standoff,
             prev_remaining=remaining,
+            segment=str(segment),
             ik_fn=ik_fn,
             fk_fn=fk_fn,
             ik_kwargs=kwargs,
@@ -494,7 +502,83 @@ def plan_grasp_kinematic_trajectory(
         if wp.q_seed is not None:
             q_prev = np.asarray(wp.q_seed, dtype=float).reshape(4)
 
-    return waypoints
+    return waypoints, q_prev
+
+
+def plan_grasp_kinematic_trajectory(
+    *,
+    q_seed: Sequence[float],
+    object_world: Sequence[float],
+    grasp_standoff_m: float,
+    step_m: float,
+    blind_start_m: float,
+    ik_fn: Callable[..., IkPlanResult],
+    fk_fn: Callable[[np.ndarray], FkTipResult],
+    ik_kwargs: dict[str, Any] | None = None,
+    max_waypoints: int = 20,
+    min_step_m: float = 0.005,
+    lateral_offset_m: float = 0.003,
+    max_dir_error_deg: float = 12.0,
+    max_approach_drift_deg: float = 18.0,
+    stats: Optional["GraspPlanStats"] = None,
+    nominal_world: Sequence[float] | None = None,
+    approach_axis: Sequence[float] | None = None,
+    blind_approach_m: float | None = None,
+    reach_tol_m: float | None = None,
+) -> list[GraspWaypoint]:
+    """Approach + blind tail planned with the same IK/FK gates."""
+    _ = nominal_world
+    _ = approach_axis
+    cap = max(1, int(max_waypoints))
+    blind_floor = float(max(blind_start_m, 0.0))
+    blind_step = float(max(blind_approach_m if blind_approach_m is not None else step_m, 0.005))
+    reach_floor = float(max(reach_tol_m if reach_tol_m is not None else min_step_m, 0.0))
+
+    approach_wps, q_prev = _plan_kinematic_segment(
+        q_seed=q_seed,
+        object_world=object_world,
+        grasp_standoff_m=grasp_standoff_m,
+        step_m=step_m,
+        remain_floor_m=blind_floor,
+        segment="approach",
+        ik_fn=ik_fn,
+        fk_fn=fk_fn,
+        ik_kwargs=ik_kwargs,
+        max_waypoints=cap,
+        min_step_m=min_step_m,
+        lateral_offset_m=lateral_offset_m,
+        max_dir_error_deg=max_dir_error_deg,
+        max_approach_drift_deg=max_approach_drift_deg,
+        stats=stats,
+    )
+    blind_cap = max(0, cap - len(approach_wps))
+    if blind_cap <= 0:
+        return approach_wps
+
+    fk = fk_fn(q_prev)
+    tip = np.asarray(fk.position_world, dtype=float).reshape(3)
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+    if _approach_remaining_m(tip, obj, grasp_standoff_m) <= reach_floor + 1e-4:
+        return approach_wps
+
+    blind_wps, _ = _plan_kinematic_segment(
+        q_seed=q_prev,
+        object_world=object_world,
+        grasp_standoff_m=grasp_standoff_m,
+        step_m=blind_step,
+        remain_floor_m=reach_floor,
+        segment="blind",
+        ik_fn=ik_fn,
+        fk_fn=fk_fn,
+        ik_kwargs=ik_kwargs,
+        max_waypoints=blind_cap,
+        min_step_m=min_step_m,
+        lateral_offset_m=lateral_offset_m,
+        max_dir_error_deg=max_dir_error_deg,
+        max_approach_drift_deg=max_approach_drift_deg,
+        stats=stats,
+    )
+    return approach_wps + blind_wps
 
 
 def plan_grasp_feasible_trajectory(
@@ -516,9 +600,11 @@ def plan_grasp_feasible_trajectory(
     lateral_offset_m: float = 0.003,
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
+    blind_approach_m: float | None = None,
+    reach_tol_m: float | None = None,
     stats: Optional["GraspPlanStats"] = None,
 ) -> list[GraspWaypoint]:
-    """Kinematic IK chain from ``q_seed`` FK tip; Cartesian start/end are reference only."""
+    """Kinematic IK chain from ``q_seed`` FK tip; includes blind tail to pre-contact."""
     _ = start_position
     _ = start_direction
     return plan_grasp_kinematic_trajectory(
@@ -538,6 +624,8 @@ def plan_grasp_feasible_trajectory(
         stats=stats,
         nominal_world=end_position,
         approach_axis=end_direction,
+        blind_approach_m=blind_approach_m,
+        reach_tol_m=reach_tol_m,
     )
 
 
@@ -611,6 +699,24 @@ def plan_grasp_next_waypoint(
     if not planned:
         return None
     return planned[0]
+
+
+def plan_grasp_trajectory_final_remain_m(
+    *,
+    waypoints: Sequence[GraspWaypoint],
+    object_world: Sequence[float],
+    grasp_standoff_m: float,
+    fk_fn: Callable[[np.ndarray], FkTipResult],
+) -> float | None:
+    """FK remain after the last planned waypoint (None if no q_seed)."""
+    if not waypoints:
+        return None
+    last = waypoints[-1]
+    if last.q_seed is None:
+        return None
+    fk = fk_fn(np.asarray(last.q_seed, dtype=float).reshape(4))
+    tip = np.asarray(fk.position_world, dtype=float).reshape(3)
+    return _approach_remaining_m(tip, object_world, grasp_standoff_m)
 
 
 def trajectory_path_length_m(

@@ -115,6 +115,8 @@ def _run_plan_once(
 
     step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
     blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
+    blind_approach_m = float(max(pk.grasp_blind_approach_m, 0.005))
+    reach_tol_m = max(float(ik_cfg.tol), 0.003)
     max_waypoints = max(1, int(pk.grasp_max_waypoints))
     standoff_m = float(max(pk.grasp_standoff_m, 0.0))
     dir_u = np.asarray(approach_dir, dtype=float).reshape(3)
@@ -176,6 +178,8 @@ def _run_plan_once(
             max_waypoints=max_waypoints,
             max_dir_error_deg=float(pk.grasp_waypoint_max_dir_error_deg),
             max_approach_drift_deg=float(pk.grasp_waypoint_max_approach_drift_deg),
+            blind_approach_m=blind_approach_m,
+            reach_tol_m=reach_tol_m,
             stats=stats,
         )
     t_kinematic_s = timing.get("kinematic_plan")

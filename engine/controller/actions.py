@@ -40,8 +40,8 @@ from engine.visual_servoing.grasp_trajectory import (
     GraspWaypoint,
     build_grasp_trajectory_markers,
     plan_grasp_approach_trajectory,
-    plan_grasp_feasible_next_waypoint,
     plan_grasp_feasible_trajectory,
+    plan_grasp_trajectory_final_remain_m,
     trajectory_path_length_m,
 )
 from engine.visual_servoing.uv_jacobian import (
@@ -4659,6 +4659,8 @@ class ControlService:
         pk = self._pick_config_effective()
         step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
         blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
+        blind_approach_m = float(max(pk.grasp_blind_approach_m, 0.005))
+        reach_tol_m = max(float(self._ik_cfg.tol), 0.003)
         max_waypoints = max(1, int(pk.grasp_max_waypoints))
         feasible_dir_tol_deg = float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0))
         feasible_drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
@@ -4746,6 +4748,8 @@ class ControlService:
                     max_waypoints=max_waypoints,
                     max_dir_error_deg=feasible_dir_tol_deg,
                     max_approach_drift_deg=feasible_drift_tol_deg,
+                    blind_approach_m=blind_approach_m,
+                    reach_tol_m=reach_tol_m,
                     stats=plan_stats,
                 )
             t_kinematic_s = plan_timing.get("kinematic_plan")
@@ -4765,8 +4769,24 @@ class ControlService:
                 max_waypoints=max_waypoints,
                 max_dir_error_deg=feasible_dir_tol_deg,
                 max_approach_drift_deg=feasible_drift_tol_deg,
+                blind_approach_m=blind_approach_m,
+                reach_tol_m=reach_tol_m,
             )
         plan_n = len(self._grasp_planned_waypoints)
+        approach_n = sum(
+            1 for wp in self._grasp_planned_waypoints if str(wp.segment) != "blind"
+        )
+        blind_n = int(plan_n) - int(approach_n)
+        final_remain = plan_grasp_trajectory_final_remain_m(
+            waypoints=self._grasp_planned_waypoints,
+            object_world=live_object,
+            grasp_standoff_m=standoff_m,
+            fk_fn=fk_fn,
+        )
+        plan_complete = (
+            final_remain is not None
+            and float(final_remain) <= float(reach_tol_m) + 1e-4
+        )
         geom_n = len(geom_plan)
         path_len = trajectory_path_length_m(
             self._grasp_planned_waypoints,
@@ -4778,16 +4798,24 @@ class ControlService:
             live_object,
             standoff_m,
         )
+        final_remain_mm = (
+            float(final_remain) * 1000.0 if final_remain is not None else float("nan")
+        )
         print(
-            "[Grasp] plan | kinematic feasible=%d geom_ref=%d path=%.0fmm "
-            "standoff %.0f→%.0fmm remain=%.0fmm tip=(%.3f,%.3f,%.3f)"
+            "[Grasp] plan | feasible=%d (approach=%d blind=%d) geom_ref=%d path=%.0fmm "
+            "standoff %.0f→%.0fmm start_remain=%.0fmm end_remain=%.1fmm complete=%s "
+            "tip=(%.3f,%.3f,%.3f)"
             % (
                 int(plan_n),
+                int(approach_n),
+                int(blind_n),
                 int(geom_n),
                 float(path_len) * 1000.0,
                 start_standoff * 1000.0,
                 standoff_m * 1000.0,
                 start_remain * 1000.0,
+                final_remain_mm,
+                str(bool(plan_complete)).lower(),
                 float(traj_start[0]),
                 float(traj_start[1]),
                 float(traj_start[2]),
@@ -4803,7 +4831,7 @@ class ControlService:
             waypoints=int(plan_n),
             geom_waypoints=int(geom_n),
             ik_success=ik_ok_n,
-            success=bool(plan_n > 0),
+            success=bool(plan_n > 0 and plan_complete),
         )
         if plan_n <= 0:
             self.state.set_pick_status(
@@ -4811,6 +4839,15 @@ class ControlService:
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
                 msg="grasp plan | no feasible kinematic waypoints",
+            )
+            return False
+        if not bool(plan_complete):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp plan | incomplete (end_remain=%.1fmm > tol %.1fmm)"
+                % (final_remain_mm, float(reach_tol_m) * 1000.0),
             )
             return False
 
@@ -4945,33 +4982,42 @@ class ControlService:
             if self._perception_capture is None or not self._perception_capture.is_running():
                 self.start_perception_capture()
 
+            planned_queue = list(self._grasp_planned_waypoints)
+            if not planned_queue:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="grasp execute | empty plan",
+                )
+                return
+            approach_n = sum(
+                1 for wp in planned_queue if str(getattr(wp, "segment", "approach")) != "blind"
+            )
+            blind_n = int(len(planned_queue)) - int(approach_n)
             print(
-                "[Grasp] execute start | step=%.0fmm blind_start=%.0fmm standoff=%.0fmm "
-                "max_wp=%d planned=%d settle=%.2fs"
+                "[Grasp] execute start | planned=%d (approach=%d blind=%d) "
+                "standoff=%.0fmm settle=%.2fs"
                 % (
-                    step_m * 1000.0,
-                    blind_start_m * 1000.0,
+                    int(len(planned_queue)),
+                    int(approach_n),
+                    int(blind_n),
                     standoff_m * 1000.0,
-                    int(max_waypoints),
-                    int(len(self._grasp_planned_waypoints)),
                     waypoint_settle_s,
                 )
             )
 
             host_state = self.client.refresh_state() if self.client is not None else None
-            try:
-                q_seed = self._q_array_from_state(host_state)
-            except Exception:
-                self.state.set_pick_status(
-                    running=False,
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp execute | seed q unavailable",
-                )
-                return
+            q_cmd: Optional[np.ndarray] = None
+            live_object = self._pick_grasp_object_world() or object_world
+            nominal_world = self._pick_grasp_trajectory_end_position(
+                live_object,
+                dir_u,
+                standoff_m=standoff_m,
+            )
+            sag_model = self._pick_grasp_sag_model()
 
-            feasible_queue_idx = 0
-            for wp in range(max_waypoints):
+            for wp_idx, planned_wp in enumerate(planned_queue):
                 if self._pick_stop_event.is_set():
                     self.state.set_pick_status(
                         running=False,
@@ -4981,13 +5027,7 @@ class ControlService:
                     )
                     return
 
-                self._grasp_waypoint_idx = int(wp + 1)
-                live_object = self._pick_grasp_object_world() or object_world
-                nominal_world = self._pick_grasp_trajectory_end_position(
-                    live_object,
-                    dir_u,
-                    standoff_m=standoff_m,
-                )
+                self._grasp_waypoint_idx = int(wp_idx + 1)
                 tip = self._pick_current_tip_world(host_state=host_state)
                 if tip is None:
                     self.state.set_pick_status(
@@ -4998,60 +5038,18 @@ class ControlService:
                     )
                     return
 
-                remain = self._grasp_approach_remaining_m(
-                    tip,
-                    live_object,
-                    standoff_m,
+                seg = str(getattr(planned_wp, "segment", "approach"))
+                wp_label = "%s %d/%d" % (
+                    "blind" if seg == "blind" else "wp",
+                    int(wp_idx + 1),
+                    int(len(planned_queue)),
                 )
-                if remain <= blind_start_m + 1e-4:
-                    print(
-                        "[Grasp] wp %d | blind threshold | remain=%.1fmm"
-                        % (int(wp + 1), float(remain) * 1000.0)
-                    )
-                    break
-
-                sag_model = self._pick_grasp_sag_model()
-
-                planned_wp: GraspWaypoint | None = None
-                if feasible_queue_idx < len(self._grasp_planned_waypoints):
-                    planned_wp = self._grasp_planned_waypoints[feasible_queue_idx]
-                else:
-                    ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(
-                        sag_model=sag_model
-                    )
-                    try:
-                        q_now = self._q_array_from_state(host_state)
-                    except Exception:
-                        q_now = q_seed
-                    planned_wp = plan_grasp_feasible_next_waypoint(
-                        start_position=tip,
-                        end_position=nominal_world,
-                        start_direction=dir_tuple,
-                        end_direction=dir_tuple,
-                        object_world=live_object,
-                        q_seed=q_now,
-                        step_m=step_m,
-                        blind_start_m=blind_start_m,
-                        ik_fn=ik_fn,
-                        fk_fn=fk_fn,
-                        grasp_standoff_m=standoff_m,
-                        max_dir_error_deg=feasible_dir_tol_deg,
-                        max_approach_drift_deg=feasible_drift_tol_deg,
-                    )
-                if planned_wp is None:
-                    print(
-                        "[Grasp] wp %d | no feasible waypoint | remain=%.1fmm"
-                        % (int(wp + 1), float(remain) * 1000.0)
-                    )
-                    break
-
-                wp_label = "wp %d/%d" % (int(wp + 1), int(max_waypoints))
                 self._send_grasp_trajectory_markers(
                     start_position=traj_start,
                     end_position=tuple(float(v) for v in nominal_world),
                     object_world=tuple(float(v) for v in live_object),
-                    waypoints=list(self._grasp_planned_waypoints),
-                    highlight_idx=int(wp),
+                    waypoints=planned_queue,
+                    highlight_idx=int(wp_idx),
                     look_anchor_position=look_anchor,
                 )
                 ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
@@ -5074,51 +5072,13 @@ class ControlService:
                         seed_override=np.asarray(planned_wp.q_seed, dtype=float),
                     )
                 if not ok or q_cmd is None:
-                    ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(
-                        sag_model=sag_model
-                    )
-                    try:
-                        q_now = self._q_array_from_state(host_state)
-                    except Exception:
-                        q_now = q_seed
-                    replanned = plan_grasp_feasible_next_waypoint(
-                        start_position=tip,
-                        end_position=nominal_world,
-                        start_direction=dir_tuple,
-                        end_direction=dir_tuple,
-                        object_world=live_object,
-                        q_seed=q_now,
-                        step_m=step_m,
-                        blind_start_m=blind_start_m,
-                        ik_fn=ik_fn,
-                        fk_fn=fk_fn,
-                        grasp_standoff_m=standoff_m,
-                        max_dir_error_deg=feasible_dir_tol_deg,
-                        max_approach_drift_deg=feasible_drift_tol_deg,
-                    )
-                    if replanned is not None:
-                        ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
-                            waypoint=replanned,
-                            sag_model=sag_model,
-                            host_state=host_state,
-                            label="grasp %s | replan" % wp_label,
-                            seed_override=(
-                                np.asarray(replanned.q_seed, dtype=float)
-                                if replanned.q_seed is not None
-                                else None
-                            ),
-                        )
-                        if ok and q_cmd is not None:
-                            planned_wp = replanned
-                if not ok or q_cmd is None:
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
                         phase=ObjectPickPhase.FAILED.value,
-                        msg="grasp guided | waypoint IK failed",
+                        msg="grasp execute | planned %s IK failed" % str(wp_label),
                     )
                     return
-                feasible_queue_idx += 1
 
                 centered_ok = False
                 obs: Optional[VisualObservation] = None
@@ -5187,51 +5147,46 @@ class ControlService:
                         str(uv_txt),
                     )
                 )
+                phase = (
+                    ObjectPickPhase.GRASP.value
+                    if seg == "blind"
+                    else ObjectPickPhase.GRASP_APPROACH.value
+                )
                 self.state.set_pick_status(
                     running=True,
                     failed=False,
-                    phase=ObjectPickPhase.GRASP_APPROACH.value,
-                    msg="grasp waypoint %d | remain=%.0fmm"
-                    % (int(wp + 1), float(remain) * 1000.0),
+                    phase=str(phase),
+                    msg="grasp %s | remain=%.0fmm"
+                    % (str(wp_label), float(remain) * 1000.0),
                 )
 
             self.stop_perception_capture()
-            print("[Grasp] perception stopped | blind approach")
+            print("[Grasp] perception stopped | planned trajectory complete")
 
             live_object = self._pick_grasp_object_world() or object_world
-            nominal_world = self._pick_grasp_trajectory_end_position(
-                live_object,
-                dir_u,
-                standoff_m=standoff_m,
-            )
-            sag_model = self._pick_grasp_sag_model()
             host_state = self.client.refresh_state() if self.client is not None else None
-
-            self.state.set_pick_status(
-                running=True,
-                failed=False,
-                phase=ObjectPickPhase.GRASP.value,
-                msg="grasp blind approach",
-            )
-            blind_ok, q_cmd, host_state, target_world = self._grasp_blind_final_approach(
-                object_world=tuple(float(v) for v in live_object),
-                blind_approach_m=blind_approach_m,
-                sag_model=sag_model,
-                host_state=host_state,
-                grasp_standoff_m=standoff_m,
-                blind_start_m=blind_start_m,
-            )
-            if not blind_ok or q_cmd is None:
+            if q_cmd is None:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp blind approach failed",
+                    msg="grasp execute | no commanded q",
                 )
                 return
 
             object_tuple = tuple(float(v) for v in live_object)
-            target_arr = np.asarray(target_world, dtype=float).reshape(3)
+            last_wp = planned_queue[-1]
+            target_arr = np.asarray(last_wp.position_world, dtype=float).reshape(3)
+            tip_final = self._pick_current_tip_world(host_state=host_state)
+            if tip_final is not None:
+                target_arr = np.asarray(
+                    self._grasp_precontact_from_tip(
+                        tip_final,
+                        object_tuple,
+                        standoff_m,
+                    ),
+                    dtype=float,
+                ).reshape(3)
             actual_offset_m = float(
                 np.linalg.norm(np.asarray(object_tuple, dtype=float).reshape(3) - target_arr)
             )
