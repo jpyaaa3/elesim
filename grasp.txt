@@ -1,25 +1,35 @@
-[Pick] equal_sag drift detail | initial_object=(0.488, -0.016, 1.038) centered_object=(0.446, -0.031, 0.989) initial_ready=(0.350, -0.012, 1.183) centered_ready=(0.308, -0.027, 1.134) drift=(+0.042, +0.015, +0.048) pick_target_object=(0.446, -0.031, 0.989) pick_target_ready=(0.308, -0.027, 1.134)
-[Grasp] guided start | step=30mm blind_start=60mm standoff=20mm max_wp=20
-[Grasp] grasp waypoint 1 | settle timeout (continue)
-[Grasp] wp 1/20 | dist=351.5mm centered=false uv=(-0.063,-0.006)
-[Grasp] grasp waypoint 2 | settle timeout (continue)
-[Grasp] wp 2/20 | dist=336.1mm centered=false uv=(-0.019,-0.123)
-[Grasp] wp 3/20 | dist=327.3mm centered=false uv=(+0.033,-0.164)
-[Grasp] wp 4/20 | dist=310.5mm centered=false uv=(+0.088,-0.147)
-[Grasp] grasp waypoint 5 | settle timeout (continue)
-[Grasp] wp 5/20 | dist=300.4mm centered=false uv=(+0.160,-0.155)
-[Grasp] wp 6/20 | dist=276.0mm centered=false uv=(+0.255,-0.199)
-[Grasp] grasp waypoint 7 | settle timeout (continue)
-[Grasp] wp 7/20 | dist=266.7mm centered=false uv=(+0.363,-0.181)
-[Grasp] grasp waypoint 8 | settle timeout (continue)
-[Grasp] wp 8/20 | dist=252.4mm centered=false uv=(+0.442,-0.114)
-[Grasp] grasp waypoint 9 | settle timeout (continue)
-[Grasp] wp 9/20 | dist=234.9mm centered=false uv=(+0.405,-0.041)
-[Grasp] grasp waypoint 10 | settle timeout (continue)
-[Grasp] wp 10/20 | dist=217.8mm centered=false uv=(+0.370,-0.013)
-[Grasp] grasp waypoint 11 | settle timeout (continue)
-[Grasp] wp 11/20 | dist=191.4mm centered=false uv=(+0.368,-0.097)
-[Grasp] grasp waypoint 12 | settle timeout (continue)
-[Grasp] wp 12/20 | dist=162.1mm centered=false uv=(+0.422,-0.114)
+[Pick] equal_sag drift frame | axial=22.1mm lateral=24.3mm dir_err=6.0deg
+[Pick] equal_sag accepted | total_drift=32.8mm seg1=+1.062deg seg2=+0.098deg residual=0.0mm cond=2.0 search_steps=0 center_steps=81 approach_steps=0 reacquire_u=(roll=+0.0, seg=+0.0) reason=accepted
+[Pick] equal_sag drift detail | initial_object=(0.313, 0.009, 0.872) centered_object=(0.302, 0.011, 0.891) initial_ready=(0.276, 0.003, 1.069) centered_ready=(0.255, 0.022, 1.085) drift=(+0.021, -0.019, -0.017) pick_target_object=(0.302, 0.011, 0.891) pick_target_ready=(0.255, 0.022, 1.085)
+[Grasp] guided start | step=50mm blind_start=60mm standoff=20mm max_wp=20 settle=3.00s
+[Grasp] plan | look→pre-contact feasible=3 geom=5 path=32mm standoff 311→20mm (not object center)
+[Grasp] grasp wp 1/20 | settle timeout (continue)
+[Grasp] grasp wp 1/20 | ik | target=(0.250, -0.001, 1.198) err=0.0mm
+[Grasp] wp 1/20 | aim recover | no observation (continue sag)
+[Grasp] wp 1/20 | sag skipped | reason=drift_too_small axial=0.0mm lateral=37.1mm dir_err=5.6deg
+[Grasp] wp 1/20 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 1/20 | dist=351.7mm centered=false uv=n/a
+[Grasp] grasp wp 2/20 | settle timeout (continue)
+[Grasp] grasp wp 2/20 | ik | target=(0.255, -0.000, 1.173) err=0.0mm
+[Grasp] wp 2/20 | aim recover | no observation (continue sag)
+[Grasp] wp 2/20 | sag skipped | reason=drift_too_small axial=-0.0mm lateral=60.6mm dir_err=11.0deg
+[Grasp] wp 2/20 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 2/20 | dist=286.8mm centered=false uv=n/a
+[Grasp] grasp wp 3/20 | ik | target=(0.256, -0.003, 1.167) err=0.0mm
+[Grasp] wp 3/20 | aim recover | no observation (continue sag)
+[Grasp] wp 3/20 | sag skipped | reason=dir_error_too_large axial=-0.0mm lateral=87.1mm dir_err=17.5deg
+[Grasp] wp 3/20 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 3/20 | dist=286.8mm centered=false uv=n/a
+[Grasp] grasp wp 4/20 | settle timeout (continue)
+[Grasp] grasp wp 4/20 | ik | target=(0.255, 0.003, 1.182) err=0.0mm
+[Grasp] wp 4/20 | aim recover | no observation (continue sag)
+[Grasp] wp 4/20 | sag skipped | reason=dir_error_too_large axial=0.0mm lateral=84.2mm dir_err=16.8deg
+[Grasp] wp 4/20 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 4/20 | dist=290.5mm centered=false uv=n/a
+[Grasp] grasp wp 5/20 | ik | target=(0.256, 0.005, 1.186) err=0.0mm
+[Grasp] wp 5/20 | aim recover | no observation (continue sag)
+[Grasp] wp 5/20 | sag skipped | reason=dir_error_too_large axial=0.0mm lateral=90.4mm dir_err=18.4deg
+[Grasp] wp 5/20 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 5/20 | dist=300.1mm centered=false uv=n/a
 
 

@@ -94,6 +94,23 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         got = svc._grasp_aim_latched_direction()
         self.assertEqual(got, (0.0, 0.0, 1.0))
 
+    def test_grasp_wait_waypoint_settle_dwells(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        q = np.array([0.1, 0.0, 0.2, 0.1], dtype=float)
+        with patch.object(svc, "_wait_until_q_settled", return_value=MagicMock()) as mock_q, patch(
+            "engine.controller.actions.time.sleep"
+        ) as mock_sleep:
+            svc._grasp_wait_waypoint_settle(
+                q_cmd=q,
+                host_state=None,
+                label="wp 1/5",
+                settle_s=0.4,
+                settle_timeout_s=3.0,
+            )
+        mock_q.assert_called_once()
+        mock_sleep.assert_called_once_with(0.4)
+
     def test_start_grasp_guided_when_enabled(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
@@ -104,6 +121,53 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             ok = svc._start_grasp_to_object(internal=True)
         self.assertTrue(ok)
         mock_guided.assert_called_once()
+
+    def test_grasp_trajectory_end_is_pre_contact_not_object(self) -> None:
+        obj = (0.33, 0.01, 0.92)
+        end = ControlService._pick_grasp_trajectory_end_position(
+            ControlService(PanelState()),
+            obj,
+            (1.0, 0.0, 0.0),
+            standoff_m=0.02,
+        )
+        self.assertAlmostEqual(end[0], 0.31, places=3)
+        self.assertNotAlmostEqual(end[0], obj[0], places=3)
+
+    def test_grasp_trajectory_start_uses_look_pose(self) -> None:
+        svc = ControlService(PanelState())
+        svc._pick_look_ready_pose_world_xyz = (0.03, 0.0, 0.90)
+        svc._pick_resolved_ready_pose_world_xyz = (0.10, 0.0, 0.90)
+        self.assertEqual(svc._pick_grasp_trajectory_start_position(), (0.03, 0.0, 0.90))
+
+    def test_grasp_waypoint_behind_tip_on_approach_axis(self) -> None:
+        wp = GraspWaypoint(
+            position_world=(0.03, 0.0, 0.90),
+            direction_world=(1.0, 0.0, 0.0),
+            standoff_m=0.30,
+        )
+        tip = (0.10, 0.0, 0.90)
+        nominal = (0.31, 0.0, 0.90)
+        self.assertTrue(
+            ControlService._grasp_waypoint_behind_tip(
+                wp,
+                tip,
+                nominal,
+                (1.0, 0.0, 0.0),
+            )
+        )
+        wp_ahead = GraspWaypoint(
+            position_world=(0.13, 0.0, 0.90),
+            direction_world=(1.0, 0.0, 0.0),
+            standoff_m=0.18,
+        )
+        self.assertFalse(
+            ControlService._grasp_waypoint_behind_tip(
+                wp_ahead,
+                tip,
+                nominal,
+                (1.0, 0.0, 0.0),
+            )
+        )
 
     def test_guided_worker_move_aim_sag_order(self) -> None:
         svc = ControlService(PanelState())
@@ -117,6 +181,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             grasp_standoff_m=0.02,
         )
         svc._grasp_nominal_dir = (1.0, 0.0, 0.0)
+        svc._pick_look_ready_pose_world_xyz = (0.03, 0.0, 0.90)
         svc._pick_centered_ready_pose_world_xyz = (0.10, 0.0, 0.90)
         svc._perception_capture = MagicMock()
         svc._perception_capture.is_running.return_value = True
@@ -164,7 +229,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         ), patch(
             "engine.controller.actions.plan_grasp_feasible_trajectory",
             return_value=[sample_wp],
-        ), patch(
+        ) as mock_feasible_plan, patch(
             "engine.controller.actions.plan_grasp_approach_trajectory",
             return_value=[sample_wp],
         ), patch.object(
@@ -193,6 +258,14 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             )
 
         mock_align.assert_not_called()
+        mock_feasible_plan.assert_called_once()
+        self.assertEqual(
+            mock_feasible_plan.call_args.kwargs["start_position"],
+            (0.03, 0.0, 0.90),
+        )
+        end_pos = mock_feasible_plan.call_args.kwargs["end_position"]
+        self.assertAlmostEqual(end_pos[0], 0.31, places=3)
+        self.assertNotAlmostEqual(end_pos[0], 0.33, places=3)
         self.assertEqual(call_order[:3], ["ik", "aim", "sag"])
         self.assertIn("stop", call_order)
         self.assertEqual(str(svc.state.pick_phase), "done")

@@ -17,8 +17,10 @@ from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q
 from engine.sag_model import load_sag_model_json
 from engine.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
+    SagDriftComponents,
     apply_equal_sag_offsets,
     estimate_equal_sag_from_ready_pose_drift,
+    prepare_sag_drift_input,
 )
 from engine.profile.pick_timing import (
     PickPhaseProfile,
@@ -154,6 +156,8 @@ class ControlService:
         self._pick_look_ready_pose_world_xyz: Optional[tuple[float, float, float]] = None
         self._pick_look_tip_world_xyz: Optional[tuple[float, float, float]] = None
         self._pick_look_dir_world: Optional[tuple[float, float, float]] = None
+        self._pick_achieved_tip_world_xyz: Optional[tuple[float, float, float]] = None
+        self._pick_achieved_dir_world: Optional[tuple[float, float, float]] = None
         self._pick_resolved_ready_dir_world: Optional[tuple[float, float, float]] = None
         self._pick_resolved_ready_pose_world_xyz: Optional[tuple[float, float, float]] = None
         self._pick_equal_sag_estimate: Optional[EqualSagEstimate] = None
@@ -162,6 +166,7 @@ class ControlService:
         self._grasp_waypoint_idx = 0
         self._grasp_online_sag_model: Optional[dict[str, Any]] = None
         self._grasp_nominal_dir: Optional[tuple[float, float, float]] = None
+        self._grasp_trajectory_nominal_pose: Optional[tuple[float, float, float]] = None
         self._grasp_planned_waypoints: list[GraspWaypoint] = []
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
@@ -2027,6 +2032,58 @@ class ControlService:
         self._pick_look_ready_pose_world_xyz = None
         self._pick_look_tip_world_xyz = None
         self._pick_look_dir_world = None
+        self._pick_achieved_tip_world_xyz = None
+        self._pick_achieved_dir_world = None
+
+    def _pick_latch_fk_achieved_pose(
+        self,
+        *,
+        host_state: Optional[HostState],
+        sag_model: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """Record FK tip pose/direction after a move (actual, not IK target)."""
+        if host_state is None or host_state.q is None:
+            return False
+        try:
+            model = self._pick_reach_model(sag_model=sag_model)
+            q0 = self._q_array_from_state(host_state)
+            tip = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+            direc = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+            if float(np.linalg.norm(direc)) <= 1e-9:
+                return False
+            direc = direc / float(np.linalg.norm(direc))
+            self._pick_achieved_tip_world_xyz = (
+                float(tip[0]),
+                float(tip[1]),
+                float(tip[2]),
+            )
+            self._pick_achieved_dir_world = (
+                float(direc[0]),
+                float(direc[1]),
+                float(direc[2]),
+            )
+            return True
+        except Exception:
+            return False
+
+    def _pick_fk_grasp_axis(
+        self,
+        *,
+        host_state: Optional[HostState],
+        sag_model: Optional[dict[str, Any]] = None,
+    ) -> Optional[np.ndarray]:
+        if host_state is None or host_state.q is None:
+            return None
+        try:
+            model = self._pick_reach_model(sag_model=sag_model)
+            q0 = self._q_array_from_state(host_state)
+            direc = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+            norm = float(np.linalg.norm(direc))
+            if norm <= 1e-9:
+                return None
+            return direc / norm
+        except Exception:
+            return None
 
     def _reset_pick_equal_sag_result_state(self) -> None:
         self._pick_centered_object_world_xyz = None
@@ -2163,10 +2220,14 @@ class ControlService:
         *,
         initial_object: tuple[float, float, float],
         centered_object: tuple[float, float, float],
+        centered_direction: Optional[tuple[float, float, float]] = None,
     ) -> Optional[tuple[tuple[float, float, float], tuple[float, float, float], np.ndarray]]:
         """Ready-pose drift using pick standoff on both sides (not look view pose)."""
         initial_ready = self._compute_pick_ready_pose(initial_object)
-        centered_ready = self._compute_pick_ready_pose(centered_object)
+        centered_ready = self._compute_pick_ready_pose(
+            centered_object,
+            direction=centered_direction,
+        )
         if initial_ready is None or centered_ready is None:
             return None
         drift = (
@@ -2188,9 +2249,19 @@ class ControlService:
         centered_object = self._pick_latest_object_world()
         if initial_object is None or centered_object is None:
             return
+        pk = self._pick_config_effective()
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        base_sag = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+        q4 = self._q_array_from_state(host_state)
+        fk_axis = self._pick_fk_grasp_axis(host_state=host_state, sag_model=base_sag)
+        centered_dir: Optional[tuple[float, float, float]] = None
+        if fk_axis is not None:
+            centered_dir = (float(fk_axis[0]), float(fk_axis[1]), float(fk_axis[2]))
         drift_pack = self._pick_ready_pose_drift_vectors(
             initial_object=tuple(float(v) for v in initial_object),
             centered_object=tuple(float(v) for v in centered_object),
+            centered_direction=centered_dir,
         )
         if drift_pack is None:
             return
@@ -2200,21 +2271,21 @@ class ControlService:
         self._pick_centered_object_world_xyz = tuple(float(v) for v in centered_object)
         self._pick_centered_ready_pose_world_xyz = tuple(float(v) for v in centered_ready)
         self._pick_ready_pose_drift_world = tuple(float(v) for v in drift)
-        # Equal-sag offsets live in sag_model; motion/pick targets use current perception.
         self._pick_corrected_object_world_xyz = tuple(float(v) for v in centered_object)
 
-        self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        base_sag = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
-        q4 = self._q_array_from_state(host_state)
-        try:
-            estimate = estimate_equal_sag_from_ready_pose_drift(
-                context=ctx,
-                q4=q4,
-                ready_pose_drift_world=drift,
-                sag_model=base_sag,
+        reference = self._pick_ready_direction()
+        prepared: Optional[SagDriftComponents] = None
+        if fk_axis is not None and reference is not None:
+            prepared = prepare_sag_drift_input(
+                drift_world=drift,
+                axis_world=fk_axis,
+                reference_dir=reference,
+                max_dir_error_deg=float(pk.sag_drift_max_dir_error_deg),
+                max_lateral_m=float(pk.sag_drift_max_lateral_m),
+                axial_only=bool(pk.sag_drift_axial_only),
             )
-        except Exception as exc:
+        if prepared is None or not bool(prepared.usable):
+            reason = "missing_fk_axis" if prepared is None else str(prepared.reason)
             estimate = EqualSagEstimate(
                 accepted=False,
                 seg1_equal_offset_deg=0.0,
@@ -2223,18 +2294,68 @@ class ControlService:
                 reconstructed_drift_world=(0.0, 0.0, 0.0),
                 residual_m=float(np.linalg.norm(drift)),
                 condition=float("inf"),
-                reason=f"estimate_failed: {exc}",
+                reason=str(reason),
             )
-        if (not bool(estimate.accepted)) and str(estimate.reason) == "drift_too_small":
-            estimate = EqualSagEstimate(
-                accepted=True,
-                seg1_equal_offset_deg=0.0,
-                seg2_equal_offset_deg=0.0,
-                drift_world=tuple(float(v) for v in drift),
-                reconstructed_drift_world=(0.0, 0.0, 0.0),
-                residual_m=float(np.linalg.norm(drift)),
-                condition=0.0,
-                reason="drift_too_small_zero_correction",
+            axial_mm = (
+                float(prepared.axial_m) * 1000.0 if prepared is not None else float("nan")
+            )
+            lateral_mm = (
+                float(prepared.lateral_m) * 1000.0 if prepared is not None else float("nan")
+            )
+            dir_err = (
+                float(prepared.dir_error_deg) if prepared is not None else float("nan")
+            )
+            print(
+                "[Pick] equal_sag skipped | reason=%s axial=%.1fmm lateral=%.1fmm "
+                "dir_err=%.1fdeg (max_dir=%.1fdeg max_lat=%.0fmm axial_only=%s)"
+                % (
+                    str(reason),
+                    axial_mm,
+                    lateral_mm,
+                    dir_err,
+                    float(pk.sag_drift_max_dir_error_deg),
+                    float(pk.sag_drift_max_lateral_m) * 1000.0,
+                    str(bool(pk.sag_drift_axial_only)).lower(),
+                )
+            )
+        else:
+            sag_input = prepared.sag_input_world
+            try:
+                estimate = estimate_equal_sag_from_ready_pose_drift(
+                    context=ctx,
+                    q4=q4,
+                    ready_pose_drift_world=sag_input,
+                    sag_model=base_sag,
+                )
+            except Exception as exc:
+                estimate = EqualSagEstimate(
+                    accepted=False,
+                    seg1_equal_offset_deg=0.0,
+                    seg2_equal_offset_deg=0.0,
+                    drift_world=tuple(float(v) for v in sag_input),
+                    reconstructed_drift_world=(0.0, 0.0, 0.0),
+                    residual_m=float(np.linalg.norm(sag_input)),
+                    condition=float("inf"),
+                    reason=f"estimate_failed: {exc}",
+                )
+            if (not bool(estimate.accepted)) and str(estimate.reason) == "drift_too_small":
+                estimate = EqualSagEstimate(
+                    accepted=True,
+                    seg1_equal_offset_deg=0.0,
+                    seg2_equal_offset_deg=0.0,
+                    drift_world=tuple(float(v) for v in sag_input),
+                    reconstructed_drift_world=(0.0, 0.0, 0.0),
+                    residual_m=float(np.linalg.norm(sag_input)),
+                    condition=0.0,
+                    reason="drift_too_small_zero_correction",
+                )
+            print(
+                "[Pick] equal_sag drift frame | axial=%.1fmm lateral=%.1fmm dir_err=%.1fdeg"
+                % (
+                    float(prepared.axial_m) * 1000.0,
+                    float(prepared.lateral_m) * 1000.0,
+                    float(prepared.dir_error_deg),
+                )
             )
         self._pick_equal_sag_estimate = estimate
         drift_mm = float(np.linalg.norm(drift) * 1000.0)
@@ -3128,6 +3249,26 @@ class ControlService:
                     sag_model_override=dict(base_sag),
                     host_times=host_times,
                 )
+                host_after = self.client.refresh_state() if self.client is not None else None
+                self._pick_latch_fk_achieved_pose(
+                    host_state=host_after,
+                    sag_model=dict(base_sag),
+                )
+                dir_err_deg = float("nan")
+                if self._pick_achieved_dir_world is not None:
+                    dot = float(
+                        np.clip(
+                            float(
+                                np.dot(
+                                    np.asarray(self._pick_achieved_dir_world, dtype=float).reshape(3),
+                                    np.asarray(look_tuple, dtype=float).reshape(3),
+                                )
+                            ),
+                            -1.0,
+                            1.0,
+                        )
+                    )
+                    dir_err_deg = float(math.degrees(math.acos(dot)))
                 self._pick_look_object_world_xyz = object_tuple
                 self._pick_look_ready_pose_world_xyz = view_tuple
                 self._pick_look_tip_world_xyz = tip_tuple
@@ -3152,7 +3293,7 @@ class ControlService:
                 success = True
                 print(
                     "[Pick] look done | object=(%.3f, %.3f, %.3f) view_pose=(%.3f, %.3f, %.3f) "
-                    "look_dir=(%.3f, %.3f, %.3f) standoff=%.0fmm"
+                    "look_dir=(%.3f, %.3f, %.3f) standoff=%.0fmm dir_err=%.1fdeg"
                     % (
                         float(object_arr[0]),
                         float(object_arr[1]),
@@ -3164,6 +3305,7 @@ class ControlService:
                         float(look_dir_used[1]),
                         float(look_dir_used[2]),
                         float(pk.look_pose_standoff_m) * 1000.0,
+                        float(dir_err_deg),
                     )
                 )
             finally:
@@ -3303,75 +3445,17 @@ class ControlService:
         )
 
     def _pick_config_effective(self) -> PickConfig:
+        """Panel/runtime overrides on top of loaded ``config.ini`` pick settings."""
         pk = self._pick_cfg
-        return PickConfig(
-            enabled=bool(pk.enabled),
+        return replace(
+            pk,
             target_scale=float(self.state.visual_target_scale),
             scale_tol=float(self.state.visual_scale_tol),
             center_tol=float(self.state.visual_center_tol),
-            center_u_gain=float(pk.center_u_gain),
-            center_v_gain=float(pk.center_v_gain),
-            center_roll_max=float(pk.center_roll_max),
-            center_seg_max=float(pk.center_seg_max),
-            center_error_scale_max=float(pk.center_error_scale_max),
-            center_stuck_iters=int(pk.center_stuck_iters),
-            center_stuck_max_uv=float(pk.center_stuck_max_uv),
             target_uv_u=float(self.state.visual_target_uv_u),
             target_uv_v=float(self.state.visual_target_uv_v),
-            quadrant_fill_min=float(pk.quadrant_fill_min),
             ready_pose_standoff_m=float(self.state.visual_ready_distance_m),
-            approach_extend_m=float(pk.approach_extend_m),
-            approach_extend_step_m=float(pk.approach_extend_step_m),
-            grid_cols=int(pk.grid_cols),
-            grid_rows=int(pk.grid_rows),
-            target_grid_col=int(pk.target_grid_col),
-            target_grid_row=int(pk.target_grid_row),
-            linear_step_u=float(pk.linear_step_u),
-            linear_gain=float(pk.linear_gain),
-            max_iters=int(pk.max_iters),
-            require_track_frames=int(pk.require_track_frames),
-            acquire_timeout_s=float(pk.acquire_timeout_s),
-            scale_stuck_iters=int(pk.scale_stuck_iters),
-            scale_stuck_ratio=float(pk.scale_stuck_ratio),
-            approach_min_scale=float(pk.approach_min_scale),
-            approach_min_steps=int(pk.approach_min_steps),
-            approach_loose_center_tol=float(pk.approach_loose_center_tol),
-            approach_scale_plateau_iters=int(pk.approach_scale_plateau_iters),
-            approach_scale_plateau_eps=float(pk.approach_scale_plateau_eps),
-            aim_center_tol=float(pk.aim_center_tol),
-            ready_pose_resolve_dir=bool(pk.ready_pose_resolve_dir),
-            ready_pose_max_dir_error_deg=float(pk.ready_pose_max_dir_error_deg),
-            ready_pose_skip_search_under_deg=float(pk.ready_pose_skip_search_under_deg),
-            ready_pose_lateral_offsets_m=tuple(pk.ready_pose_lateral_offsets_m),
-            ready_pose_height_offsets_m=tuple(pk.ready_pose_height_offsets_m),
-            ready_pose_look_dot_min=float(pk.ready_pose_look_dot_min),
-            ready_pose_align_mode=str(pk.ready_pose_align_mode),
-            ready_pose_align_skip_under_deg=float(pk.ready_pose_align_skip_under_deg),
-            ready_pose_align_top_k=int(pk.ready_pose_align_top_k),
             look_pose_standoff_m=float(self.state.visual_look_distance_m),
-            look_pose_resolve_dir=bool(pk.look_pose_resolve_dir),
-            look_pose_max_dir_error_deg=float(pk.look_pose_max_dir_error_deg),
-            look_pose_skip_search_under_deg=float(pk.look_pose_skip_search_under_deg),
-            look_pose_lateral_offsets_m=tuple(pk.look_pose_lateral_offsets_m),
-            look_pose_height_offsets_m=tuple(pk.look_pose_height_offsets_m),
-            look_pose_look_dot_min=float(pk.look_pose_look_dot_min),
-            look_pose_align_top_k=int(pk.look_pose_align_top_k),
-            ik_align_mode=str(pk.ik_align_mode),
-            ik_align_skip_under_deg=float(pk.ik_align_skip_under_deg),
-            ik_align_rounds=int(pk.ik_align_rounds),
-            ready_pose_corrected_max_dir_error_deg=float(
-                pk.ready_pose_corrected_max_dir_error_deg
-            ),
-            auto_grasp_after_aim=bool(pk.auto_grasp_after_aim),
-            grasp_standoff_m=float(pk.grasp_standoff_m),
-            grasp_guided_enabled=bool(pk.grasp_guided_enabled),
-            grasp_waypoint_step_m=float(pk.grasp_waypoint_step_m),
-            grasp_blind_start_m=float(pk.grasp_blind_start_m),
-            grasp_blind_approach_m=float(pk.grasp_blind_approach_m),
-            grasp_max_waypoints=int(pk.grasp_max_waypoints),
-            grasp_uv_center_tol=float(pk.grasp_uv_center_tol),
-            grasp_online_sag_enabled=bool(pk.grasp_online_sag_enabled),
-            grasp_online_sag_max_step_deg=float(pk.grasp_online_sag_max_step_deg),
         )
 
     def _pick_config_for_aim(self) -> PickConfig:
@@ -3420,10 +3504,55 @@ class ControlService:
         direction = ControlService._unit_vec3(approach_dir)
         return float(np.dot(nominal - tip, direction))
 
+    def _pick_grasp_trajectory_start_position(
+        self,
+    ) -> Optional[tuple[float, float, float]]:
+        """Geometric grasp-path anchor: latched Look view pose (not Aim/centered ready)."""
+        if self._pick_look_ready_pose_world_xyz is not None:
+            return self._pick_look_ready_pose_world_xyz
+        if self._pick_resolved_ready_pose_world_xyz is not None:
+            return self._pick_resolved_ready_pose_world_xyz
+        return None
+
+    def _pick_grasp_trajectory_end_position(
+        self,
+        object_world: tuple[float, float, float],
+        approach_dir: tuple[float, float, float] | np.ndarray,
+        *,
+        standoff_m: float,
+    ) -> tuple[float, float, float]:
+        """Grasp path terminus: pre-contact nominal at grasp_standoff (not object center)."""
+        return self._compute_grasp_nominal_endpoint(
+            object_world,
+            approach_dir,
+            standoff_m=float(standoff_m),
+        )
+
+    @staticmethod
+    def _grasp_waypoint_behind_tip(
+        waypoint: GraspWaypoint,
+        tip_world: tuple[float, float, float],
+        nominal_world: tuple[float, float, float],
+        approach_dir: tuple[float, float, float] | np.ndarray,
+    ) -> bool:
+        """True when the waypoint lies toward Look, past the current tip on the approach axis."""
+        wp_dist = ControlService._grasp_axial_distance(
+            waypoint.position_world,
+            nominal_world,
+            approach_dir,
+        )
+        tip_dist = ControlService._grasp_axial_distance(
+            tip_world,
+            nominal_world,
+            approach_dir,
+        )
+        return wp_dist > tip_dist + 1e-4
+
     def _reset_grasp_guided_state(self) -> None:
         self._grasp_waypoint_idx = 0
         self._grasp_online_sag_model = None
         self._grasp_nominal_dir = None
+        self._grasp_trajectory_nominal_pose = None
         self._grasp_planned_waypoints = []
 
     def _grasp_aim_latched_direction(
@@ -3497,6 +3626,42 @@ class ControlService:
 
         return ik_fn, fk_fn
 
+    def _grasp_wait_waypoint_settle(
+        self,
+        *,
+        q_cmd: np.ndarray,
+        host_state: Optional[HostState],
+        label: str,
+        settle_s: float,
+        settle_timeout_s: float,
+    ) -> Optional[HostState]:
+        """Wait for commanded q to settle, then dwell before the next waypoint."""
+        dwell = float(max(settle_s, 0.0))
+        timeout = float(max(settle_timeout_s, 0.0))
+        if dwell <= 1e-6 and timeout <= 1e-6:
+            return host_state
+
+        settled = False
+        if timeout > 1e-6:
+            settled_state = self._wait_until_q_settled(
+                q_cmd,
+                timeout_s=timeout,
+            )
+            if settled_state is not None:
+                host_state = settled_state
+                settled = True
+
+        if dwell > 1e-6:
+            time.sleep(dwell)
+            if self.client is not None:
+                host_state = self.client.refresh_state()
+
+        print(
+            "[Grasp] %s | settle | q_ok=%s dwell=%.2fs"
+            % (str(label), str(bool(settled)).lower(), dwell)
+        )
+        return host_state
+
     def _grasp_clip_sag_update(
         self,
         base_sag: dict[str, Any],
@@ -3548,18 +3713,23 @@ class ControlService:
             model = self._pick_reach_model(sag_model=sag_model)
             q0 = self._q_array_from_state(host_state)
             tip = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+            fk_dir = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
+            fk_norm = float(np.linalg.norm(fk_dir))
+            if fk_norm <= 1e-9:
+                return 0.0, 0.0
+            fk_dir = fk_dir / fk_norm
         except Exception:
             return 0.0, 0.0
         obj = np.asarray(object_world, dtype=float).reshape(3)
         dir_u = self._unit_vec3(approach_dir)
-        axial_to_object = float(np.dot(obj - tip, dir_u))
+        axial_to_object = float(np.dot(obj - tip, fk_dir))
         if axial_to_object <= 1e-4:
             return 0.0, 0.0
         try:
             desired = np.asarray(
                 compute_ready_pose_target(
                     tuple(float(v) for v in obj),
-                    tuple(float(v) for v in dir_u),
+                    tuple(float(v) for v in fk_dir),
                     standoff_m=float(axial_to_object),
                 ),
                 dtype=float,
@@ -3567,7 +3737,26 @@ class ControlService:
         except ValueError:
             return 0.0, 0.0
         drift = desired - tip
-        if float(np.linalg.norm(drift)) < 0.001:
+        prepared = prepare_sag_drift_input(
+            drift_world=drift,
+            axis_world=fk_dir,
+            reference_dir=dir_u,
+            max_dir_error_deg=float(pk.sag_drift_max_dir_error_deg),
+            max_lateral_m=float(pk.sag_drift_max_lateral_m),
+            axial_only=bool(pk.sag_drift_axial_only),
+        )
+        if not bool(prepared.usable):
+            if label:
+                print(
+                    "[Grasp] %s | sag skipped | reason=%s axial=%.1fmm lateral=%.1fmm dir_err=%.1fdeg"
+                    % (
+                        str(label),
+                        str(prepared.reason),
+                        float(prepared.axial_m) * 1000.0,
+                        float(prepared.lateral_m) * 1000.0,
+                        float(prepared.dir_error_deg),
+                    )
+                )
             return 0.0, 0.0
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -3575,7 +3764,7 @@ class ControlService:
             estimate = estimate_equal_sag_from_ready_pose_drift(
                 context=ctx,
                 q4=q0,
-                ready_pose_drift_world=tuple(float(v) for v in drift),
+                ready_pose_drift_world=prepared.sag_input_world,
                 sag_model=base_sag,
             )
         except Exception:
@@ -3598,8 +3787,15 @@ class ControlService:
         d2 = float(updated.get("seg2_equal_offset_deg", 0.0)) - s2_prev
         if label and (abs(d1) > 1e-4 or abs(d2) > 1e-4):
             print(
-                "[Grasp] %s | sag | d_seg1=%+.2fdeg d_seg2=%+.2fdeg"
-                % (str(label), float(d1), float(d2))
+                "[Grasp] %s | sag | d_seg1=%+.2fdeg d_seg2=%+.2fdeg axial=%.1fmm lateral=%.1fmm dir_err=%.1fdeg"
+                % (
+                    str(label),
+                    float(d1),
+                    float(d2),
+                    float(prepared.axial_m) * 1000.0,
+                    float(prepared.lateral_m) * 1000.0,
+                    float(prepared.dir_error_deg),
+                )
             )
         return float(d1), float(d2)
 
@@ -4165,6 +4361,10 @@ class ControlService:
         blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
         blind_approach_m = float(max(pk.grasp_blind_approach_m, 0.0))
         max_waypoints = max(1, int(pk.grasp_max_waypoints))
+        waypoint_settle_s = float(max(pk.grasp_waypoint_settle_s, 0.0))
+        waypoint_settle_timeout_s = float(max(pk.grasp_waypoint_settle_timeout_s, 0.0))
+        feasible_dir_tol_deg = float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0))
+        feasible_drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
         standoff_m = float(max(pk.grasp_standoff_m, 0.0))
         dir_u = self._unit_vec3(approach_dir)
         dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
@@ -4174,34 +4374,35 @@ class ControlService:
                 self.start_perception_capture()
 
             print(
-                "[Grasp] guided start | step=%.0fmm blind_start=%.0fmm standoff=%.0fmm max_wp=%d"
+                "[Grasp] guided start | step=%.0fmm blind_start=%.0fmm standoff=%.0fmm "
+                "max_wp=%d settle=%.2fs"
                 % (
                     step_m * 1000.0,
                     blind_start_m * 1000.0,
                     standoff_m * 1000.0,
                     int(max_waypoints),
+                    waypoint_settle_s,
                 )
             )
 
             host_state = self.client.refresh_state() if self.client is not None else None
             live_object = self._pick_grasp_object_world() or object_world
-            start_pos = self._pick_centered_ready_pose_world_xyz
-            if start_pos is None:
-                start_pos = self._pick_current_tip_world(host_state=host_state)
+            start_pos = self._pick_grasp_trajectory_start_position()
             if start_pos is None:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided | start pose unavailable",
+                    msg="grasp guided | look pose unavailable (run Look first)",
                 )
                 return
 
-            nominal_world = self._compute_grasp_nominal_endpoint(
+            nominal_world = self._pick_grasp_trajectory_end_position(
                 live_object,
                 dir_u,
                 standoff_m=standoff_m,
             )
+            self._grasp_trajectory_nominal_pose = tuple(float(v) for v in nominal_world)
             sag_model = self._pick_grasp_sag_model()
             ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(sag_model=sag_model)
             try:
@@ -4238,6 +4439,8 @@ class ControlService:
                 fk_fn=fk_fn,
                 grasp_standoff_m=standoff_m,
                 max_waypoints=max_waypoints,
+                max_dir_error_deg=feasible_dir_tol_deg,
+                max_approach_drift_deg=feasible_drift_tol_deg,
             )
             plan_n = len(self._grasp_planned_waypoints)
             geom_n = len(geom_plan)
@@ -4262,7 +4465,8 @@ class ControlService:
             )
             end_standoff = float(standoff_m)
             print(
-                "[Grasp] plan | feasible=%d geom=%d path=%.0fmm standoff %.0f→%.0fmm"
+                "[Grasp] plan | look→pre-contact feasible=%d geom=%d path=%.0fmm "
+                "standoff %.0f→%.0fmm (not object center)"
                 % (
                     int(plan_n),
                     int(geom_n),
@@ -4299,7 +4503,7 @@ class ControlService:
 
                 self._grasp_waypoint_idx = int(wp + 1)
                 live_object = self._pick_grasp_object_world() or object_world
-                nominal_world = self._compute_grasp_nominal_endpoint(
+                nominal_world = self._pick_grasp_trajectory_end_position(
                     live_object,
                     dir_u,
                     standoff_m=standoff_m,
@@ -4323,6 +4527,17 @@ class ControlService:
                     break
 
                 sag_model = self._pick_grasp_sag_model()
+                while feasible_queue_idx < len(self._grasp_planned_waypoints):
+                    queued = self._grasp_planned_waypoints[feasible_queue_idx]
+                    if not self._grasp_waypoint_behind_tip(
+                        queued,
+                        tip,
+                        nominal_world,
+                        dir_u,
+                    ):
+                        break
+                    feasible_queue_idx += 1
+
                 planned_wp: GraspWaypoint | None = None
                 if feasible_queue_idx < len(self._grasp_planned_waypoints):
                     planned_wp = self._grasp_planned_waypoints[feasible_queue_idx]
@@ -4346,6 +4561,8 @@ class ControlService:
                         ik_fn=ik_fn,
                         fk_fn=fk_fn,
                         grasp_standoff_m=standoff_m,
+                        max_dir_error_deg=feasible_dir_tol_deg,
+                        max_approach_drift_deg=feasible_drift_tol_deg,
                     )
                 if planned_wp is None:
                     print(
@@ -4367,6 +4584,11 @@ class ControlService:
                     sag_model=sag_model,
                     host_state=host_state,
                     label="grasp %s" % wp_label,
+                    seed_override=(
+                        np.asarray(planned_wp.q_seed, dtype=float)
+                        if planned_wp.q_seed is not None
+                        else None
+                    ),
                 )
                 if (not ok or q_cmd is None) and planned_wp.q_seed is not None:
                     ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
@@ -4396,6 +4618,8 @@ class ControlService:
                         ik_fn=ik_fn,
                         fk_fn=fk_fn,
                         grasp_standoff_m=standoff_m,
+                        max_dir_error_deg=feasible_dir_tol_deg,
+                        max_approach_drift_deg=feasible_drift_tol_deg,
                     )
                     if replanned is not None:
                         ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
@@ -4452,6 +4676,14 @@ class ControlService:
                     label=wp_label,
                 )
 
+                host_state = self._grasp_wait_waypoint_settle(
+                    q_cmd=q_cmd,
+                    host_state=host_state,
+                    label=wp_label,
+                    settle_s=waypoint_settle_s,
+                    settle_timeout_s=waypoint_settle_timeout_s,
+                )
+
                 tip = self._pick_current_tip_world(host_state=host_state)
                 if tip is None:
                     self.state.set_pick_status(
@@ -4483,13 +4715,12 @@ class ControlService:
                     msg="grasp waypoint %d | dist=%.0fmm"
                     % (int(wp + 1), float(dist) * 1000.0),
                 )
-                time.sleep(0.05)
 
             self.stop_perception_capture()
             print("[Grasp] perception stopped | blind approach")
 
             live_object = self._pick_grasp_object_world() or object_world
-            nominal_world = self._compute_grasp_nominal_endpoint(
+            nominal_world = self._pick_grasp_trajectory_end_position(
                 live_object,
                 dir_u,
                 standoff_m=standoff_m,

@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from engine.iklib.kinematics import _forward_grasp_world
+from engine.visual_servoing.sag_drift_frame import SagDriftComponents, prepare_sag_drift_input
 
 
 @dataclass(frozen=True)
@@ -160,7 +161,9 @@ def estimate_equal_sag_from_ready_pose_drift(
 
 __all__ = [
     "EqualSagEstimate",
+    "SagDriftComponents",
     "apply_equal_sag_offsets",
     "estimate_equal_sag_from_ready_pose_drift",
+    "prepare_sag_drift_input",
     "solve_equal_sag_offsets",
 ]

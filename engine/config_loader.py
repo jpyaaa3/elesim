@@ -204,10 +204,17 @@ class PickConfig:
     grasp_blind_start_m: float = 0.06
     grasp_blind_approach_m: float = 0.02
     grasp_max_waypoints: int = 20
+    grasp_waypoint_settle_s: float = 0.40
+    grasp_waypoint_settle_timeout_s: float = 4.0
+    grasp_waypoint_max_dir_error_deg: float = 12.0
+    grasp_waypoint_max_approach_drift_deg: float = 18.0
     grasp_uv_center_tol: float = 0.0
     grasp_online_sag_enabled: bool = True
     grasp_online_sag_max_step_deg: float = 2.0
     grasp_skip_aim_recover_in_mock: bool = True
+    sag_drift_max_dir_error_deg: float = 12.0
+    sag_drift_max_lateral_m: float = 0.015
+    sag_drift_axial_only: bool = True
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.30
@@ -508,6 +515,24 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         grasp_max_waypoints=cp.getint(
             "pick", "grasp_max_waypoints", fallback=pk0.grasp_max_waypoints
         ),
+        grasp_waypoint_settle_s=cp.getfloat(
+            "pick", "grasp_waypoint_settle_s", fallback=pk0.grasp_waypoint_settle_s
+        ),
+        grasp_waypoint_settle_timeout_s=cp.getfloat(
+            "pick",
+            "grasp_waypoint_settle_timeout_s",
+            fallback=pk0.grasp_waypoint_settle_timeout_s,
+        ),
+        grasp_waypoint_max_dir_error_deg=cp.getfloat(
+            "pick",
+            "grasp_waypoint_max_dir_error_deg",
+            fallback=pk0.grasp_waypoint_max_dir_error_deg,
+        ),
+        grasp_waypoint_max_approach_drift_deg=cp.getfloat(
+            "pick",
+            "grasp_waypoint_max_approach_drift_deg",
+            fallback=pk0.grasp_waypoint_max_approach_drift_deg,
+        ),
         grasp_uv_center_tol=cp.getfloat(
             "pick", "grasp_uv_center_tol", fallback=pk0.grasp_uv_center_tol
         ),
@@ -521,6 +546,15 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
             "pick",
             "grasp_skip_aim_recover_in_mock",
             fallback=pk0.grasp_skip_aim_recover_in_mock,
+        ),
+        sag_drift_max_dir_error_deg=cp.getfloat(
+            "pick", "sag_drift_max_dir_error_deg", fallback=pk0.sag_drift_max_dir_error_deg
+        ),
+        sag_drift_max_lateral_m=cp.getfloat(
+            "pick", "sag_drift_max_lateral_m", fallback=pk0.sag_drift_max_lateral_m
+        ),
+        sag_drift_axial_only=cp.getboolean(
+            "pick", "sag_drift_axial_only", fallback=pk0.sag_drift_axial_only
         ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m

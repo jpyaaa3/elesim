@@ -1,0 +1,6 @@
+[Visual] aim step 90/200 | phase=center | uv=(-0.019,-0.049) | target=(+0.400,+0.000) | delta=(-0.019,-0.049) | scale=0.014 | droll=+0.00 | ds1=-2.50 | ds2=+0.00 | req_roll=+0.00 | req_seg=+2.50 | mode=gain_v_only | j_updates=1 | tracker=track | bbox=74x70
+[Pick] equal_sag skipped | reason=dir_error_too_large axial=4.4mm lateral=72.8mm dir_err=14.6deg
+[Pick] equal_sag rejected | total_drift=73.0mm seg1=+0.000deg seg2=+0.000deg residual=73.0mm cond=inf search_steps=0 center_steps=88 approach_steps=0 reacquire_u=(roll=+0.0, seg=+0.0) reason=dir_error_too_large
+[Pick] equal_sag drift detail | initial_object=(0.347, 0.010, 0.906) centered_object=(0.301, 0.016, 0.887) initial_ready=(0.278, 0.003, 1.094) centered_ready=(0.228, -0.042, 1.064) drift=(+0.050, +0.044, +0.030) pick_target_object=(0.301, 0.016, 0.887) pick_target_ready=(0.228, -0.042, 1.064)
+
+
