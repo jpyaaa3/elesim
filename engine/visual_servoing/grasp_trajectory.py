@@ -1,7 +1,8 @@
-"""Planned 3D grasp approach trajectory (look_pose → grasp_nominal) for guided grasp.
+"""Kinematic grasp approach trajectory for continuum guided grasp.
 
-``grasp_nominal`` is the pre-contact point ``object - approach_dir * grasp_standoff_m``,
-not the target object center.
+Feasible planning chains short IK steps from the current FK tip toward the object
+(look-at-object axis), not a Cartesian lerp chord.  ``grasp_nominal`` is the
+pre-contact point ``object - approach_dir * grasp_standoff_m``, not the object center.
 """
 
 from __future__ import annotations
@@ -48,23 +49,6 @@ def _unit_vec3(vec: Sequence[float]) -> np.ndarray:
     return v / norm
 
 
-def _slerp_unit(v0: np.ndarray, v1: np.ndarray, t: float) -> np.ndarray:
-    t = float(np.clip(t, 0.0, 1.0))
-    a = _unit_vec3(v0)
-    b = _unit_vec3(v1)
-    dot = float(np.clip(float(np.dot(a, b)), -1.0, 1.0))
-    if dot > 0.9999:
-        out = (1.0 - t) * a + t * b
-        return _unit_vec3(out)
-    omega = float(np.arccos(dot))
-    sin_omega = float(np.sin(omega))
-    if sin_omega <= 1e-9:
-        return a
-    scale0 = float(np.sin((1.0 - t) * omega) / sin_omega)
-    scale1 = float(np.sin(t * omega) / sin_omega)
-    return _unit_vec3(scale0 * a + scale1 * b)
-
-
 def _axial_dist_to_end(
     position: np.ndarray,
     end_position: np.ndarray,
@@ -103,71 +87,50 @@ def plan_grasp_approach_trajectory(
     grasp_standoff_m: float = 0.0,
     max_waypoints: int = 20,
 ) -> list[GraspWaypoint]:
-    """Sample waypoints along a 3D lerp path with slerped approach directions.
+    """Geometric reference polyline: repeated look-at-object steps without IK.
 
-    Returns forward waypoints only (excludes ``start_position``). Stops before the
-    blind zone: axial distance from each point to ``end_position`` must exceed
-    ``blind_start_m``.
+    Each step advances along the view axis from the previous point (FK-free preview).
     """
     _ = float(grasp_standoff_m)
+    _ = _unit_vec3(start_direction)
+    approach_axis = _unit_vec3(end_direction)
     step = float(max(step_m, 0.005))
     blind = float(max(blind_start_m, 0.0))
     cap = max(1, int(max_waypoints))
-    start = np.asarray(start_position, dtype=float).reshape(3)
+    pos = np.asarray(start_position, dtype=float).reshape(3).copy()
     end = np.asarray(end_position, dtype=float).reshape(3)
     obj = np.asarray(object_world, dtype=float).reshape(3)
-    start_dir = _unit_vec3(start_direction)
-    end_dir = _unit_vec3(end_direction)
-
-    chord = end - start
-    chord_len = float(np.linalg.norm(chord))
-    if chord_len <= 1e-6:
-        return []
-
-    delta_s = step / chord_len
-    if delta_s <= 1e-9:
-        delta_s = 1.0
 
     waypoints: list[GraspWaypoint] = []
-    s = delta_s
     prev_standoff: float | None = None
-    while s <= 1.0 + 1e-9 and len(waypoints) < cap:
-        pos = (1.0 - s) * start + s * end
+    while len(waypoints) < cap:
         direction = _look_at_object_dir(pos, obj)
-        axial = _axial_dist_to_end(pos, end, direction)
+        axial = _axial_dist_to_end(pos, end, approach_axis)
         if axial <= blind + 1e-4:
             break
-        standoff = _standoff_at(pos, obj, direction)
+        travel = min(step, axial - blind)
+        if travel < 0.005 - 1e-6:
+            break
+        nxt = pos + direction * travel
+        standoff = _standoff_at(nxt, obj, direction)
         if prev_standoff is not None and standoff > prev_standoff + 1e-4:
             break
         prev_standoff = standoff
+        look_dir = _look_at_object_dir(nxt, obj)
         waypoints.append(
             GraspWaypoint(
-                position_world=(float(pos[0]), float(pos[1]), float(pos[2])),
+                position_world=(float(nxt[0]), float(nxt[1]), float(nxt[2])),
                 direction_world=(
-                    float(direction[0]),
-                    float(direction[1]),
-                    float(direction[2]),
+                    float(look_dir[0]),
+                    float(look_dir[1]),
+                    float(look_dir[2]),
                 ),
                 standoff_m=float(standoff),
             )
         )
-        s += delta_s
+        pos = nxt
 
     return waypoints
-
-
-def _lerp_pose_at_s(
-    *,
-    start: np.ndarray,
-    end: np.ndarray,
-    start_dir: np.ndarray,
-    end_dir: np.ndarray,
-    s: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    pos = (1.0 - float(s)) * start + float(s) * end
-    direction = _slerp_unit(start_dir, end_dir, float(s))
-    return pos, direction
 
 
 def _waypoint_from_pose(
@@ -337,56 +300,49 @@ def _attempt_feasible_ik(
     return None
 
 
-def _feasible_step_at_s(
+def _kinematic_step_at_travel(
     *,
-    s_lo: float,
-    s_hi: float,
-    start: np.ndarray,
-    end: np.ndarray,
-    start_dir: np.ndarray,
-    end_dir: np.ndarray,
+    tip: np.ndarray,
+    travel_m: float,
     object_world: np.ndarray,
-    end_position: np.ndarray,
+    nominal_world: np.ndarray,
+    approach_axis: np.ndarray,
+    q_seed: np.ndarray,
     blind: float,
     prev_standoff: float | None,
-    q_seed: np.ndarray,
+    prev_axial: float,
     ik_fn: Callable[..., IkPlanResult],
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any],
     min_step_m: float,
-    chord_len: float,
     lateral_offset_m: float,
-    approach_axis: np.ndarray,
     max_dir_error_rad: float,
     max_approach_drift_rad: float,
-) -> tuple[GraspWaypoint | None, float | None]:
-    """Find the farthest s in (s_lo, s_hi] reachable by IK (bisect on failure)."""
-    min_delta_s = float(min_step_m) / float(max(chord_len, 1e-6))
-    s_target = float(s_hi)
+) -> GraspWaypoint | None:
+    """One kinematic step: advance along look-at-object from FK tip, bisect travel on IK fail."""
+    look_dir = _look_at_object_dir(tip, object_world)
+    travel_hi = float(max(travel_m, 0.0))
+    travel_lo = 0.0
+    min_travel = float(max(min_step_m, 0.005))
     best: GraspWaypoint | None = None
-    s_accepted: float | None = None
 
     for _ in range(12):
-        if s_target <= s_lo + 1e-9:
+        if travel_hi <= travel_lo + 1e-9:
             break
-        if (s_target - s_lo) * chord_len < float(min_step_m) - 1e-6:
+        if travel_hi - travel_lo < min_travel - 1e-6:
             break
 
-        pos, _ = _lerp_pose_at_s(
-            start=start,
-            end=end,
-            start_dir=start_dir,
-            end_dir=end_dir,
-            s=s_target,
-        )
-        direction = _look_at_object_dir(pos, object_world)
-        axial = _axial_dist_to_end(pos, end_position, direction)
-        if axial <= blind + 1e-4:
-            s_target = 0.5 * (s_lo + s_target)
+        travel_try = float(travel_hi)
+        pos = tip + look_dir * travel_try
+        axial_target = _axial_dist_to_end(pos, nominal_world, approach_axis)
+        if axial_target <= blind + 1e-4:
+            travel_hi = 0.5 * (travel_lo + travel_hi)
             continue
-        standoff = _standoff_at(pos, object_world, direction)
-        if prev_standoff is not None and standoff > prev_standoff + 1e-4:
-            s_target = 0.5 * (s_lo + s_target)
+
+        direction = _look_at_object_dir(pos, object_world)
+        standoff_target = _standoff_at(pos, object_world, direction)
+        if prev_standoff is not None and standoff_target > prev_standoff + 1e-4:
+            travel_hi = 0.5 * (travel_lo + travel_hi)
             continue
 
         best = _attempt_feasible_ik(
@@ -401,41 +357,117 @@ def _feasible_step_at_s(
             max_dir_error_rad=max_dir_error_rad,
             max_approach_drift_rad=max_approach_drift_rad,
         )
-        if best is not None:
-            s_accepted = float(s_target)
-            break
-
-        offsets = [np.zeros(3, dtype=float)] + _lateral_offset_candidates(
-            direction,
-            offset_m=float(lateral_offset_m),
-        )
-        for off in offsets:
-            if float(np.linalg.norm(off)) <= 1e-9:
-                continue
-            pos_try = pos + off
-            best = _attempt_feasible_ik(
-                pos=pos_try,
-                desired_dir=direction,
-                q_seed=q_seed,
-                object_world=object_world,
-                approach_axis=approach_axis,
-                ik_fn=ik_fn,
-                fk_fn=fk_fn,
-                ik_kwargs=ik_kwargs,
-                max_dir_error_rad=max_dir_error_rad,
-                max_approach_drift_rad=max_approach_drift_rad,
+        if best is None:
+            offsets = _lateral_offset_candidates(
+                direction,
+                offset_m=float(lateral_offset_m),
             )
-            if best is not None:
-                s_accepted = float(s_target)
-                break
+            for off in offsets:
+                best = _attempt_feasible_ik(
+                    pos=pos + off,
+                    desired_dir=direction,
+                    q_seed=q_seed,
+                    object_world=object_world,
+                    approach_axis=approach_axis,
+                    ik_fn=ik_fn,
+                    fk_fn=fk_fn,
+                    ik_kwargs=ik_kwargs,
+                    max_dir_error_rad=max_dir_error_rad,
+                    max_approach_drift_rad=max_approach_drift_rad,
+                )
+                if best is not None:
+                    break
+
         if best is not None:
+            achieved = np.asarray(
+                best.achieved_position_world or best.position_world,
+                dtype=float,
+            ).reshape(3)
+            new_axial = _axial_dist_to_end(achieved, nominal_world, approach_axis)
+            if new_axial >= float(prev_axial) - 1e-4:
+                best = None
+                travel_hi = 0.5 * (travel_lo + travel_hi)
+                continue
+            if prev_standoff is not None and float(best.standoff_m) > prev_standoff + 1e-4:
+                best = None
+                travel_hi = 0.5 * (travel_lo + travel_hi)
+                continue
             break
 
-        s_target = 0.5 * (s_lo + s_target)
-        if (s_target - s_lo) < min_delta_s:
+        travel_hi = 0.5 * (travel_lo + travel_hi)
+
+    return best
+
+
+def plan_grasp_kinematic_trajectory(
+    *,
+    q_seed: Sequence[float],
+    nominal_world: Sequence[float],
+    object_world: Sequence[float],
+    approach_axis: Sequence[float],
+    step_m: float,
+    blind_start_m: float,
+    ik_fn: Callable[..., IkPlanResult],
+    fk_fn: Callable[[np.ndarray], FkTipResult],
+    ik_kwargs: dict[str, Any] | None = None,
+    max_waypoints: int = 20,
+    min_step_m: float = 0.005,
+    lateral_offset_m: float = 0.003,
+    max_dir_error_deg: float = 12.0,
+    max_approach_drift_deg: float = 18.0,
+) -> list[GraspWaypoint]:
+    """Chain IK steps from the current FK tip toward ``nominal_world`` (no Cartesian lerp)."""
+    step = float(max(step_m, 0.005))
+    blind = float(max(blind_start_m, 0.0))
+    cap = max(1, int(max_waypoints))
+    max_dir_error_rad = float(np.deg2rad(max(0.0, max_dir_error_deg)))
+    max_approach_drift_rad = float(np.deg2rad(max(0.0, max_approach_drift_deg)))
+    nominal = np.asarray(nominal_world, dtype=float).reshape(3)
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+    axis = _unit_vec3(approach_axis)
+    q_prev = np.asarray(q_seed, dtype=float).reshape(4).copy()
+    kwargs = dict(ik_kwargs or {})
+
+    waypoints: list[GraspWaypoint] = []
+    prev_standoff: float | None = None
+    while len(waypoints) < cap:
+        fk = fk_fn(q_prev)
+        tip = np.asarray(fk.position_world, dtype=float).reshape(3)
+        axial = _axial_dist_to_end(tip, nominal, axis)
+        if axial <= blind + 1e-4:
             break
 
-    return best, s_accepted
+        travel = min(step, axial - blind)
+        if travel < float(min_step_m) - 1e-6:
+            break
+
+        wp = _kinematic_step_at_travel(
+            tip=tip,
+            travel_m=travel,
+            object_world=obj,
+            nominal_world=nominal,
+            approach_axis=axis,
+            q_seed=q_prev,
+            blind=blind,
+            prev_standoff=prev_standoff,
+            prev_axial=axial,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            ik_kwargs=kwargs,
+            min_step_m=float(min_step_m),
+            lateral_offset_m=float(lateral_offset_m),
+            max_dir_error_rad=max_dir_error_rad,
+            max_approach_drift_rad=max_approach_drift_rad,
+        )
+        if wp is None:
+            break
+
+        waypoints.append(wp)
+        prev_standoff = float(wp.standoff_m)
+        if wp.q_seed is not None:
+            q_prev = np.asarray(wp.q_seed, dtype=float).reshape(4)
+
+    return waypoints
 
 
 def plan_grasp_feasible_trajectory(
@@ -458,70 +490,26 @@ def plan_grasp_feasible_trajectory(
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
 ) -> list[GraspWaypoint]:
-    """IK-filtered lerp: only append waypoints that pass ``ik_fn`` with chained seeds."""
+    """Kinematic IK chain from ``q_seed`` FK tip; Cartesian start/end are reference only."""
+    _ = start_position
+    _ = start_direction
     _ = float(grasp_standoff_m)
-    step = float(max(step_m, 0.005))
-    blind = float(max(blind_start_m, 0.0))
-    cap = max(1, int(max_waypoints))
-    max_dir_error_rad = float(np.deg2rad(max(0.0, max_dir_error_deg)))
-    max_approach_drift_rad = float(np.deg2rad(max(0.0, max_approach_drift_deg)))
-    start = np.asarray(start_position, dtype=float).reshape(3)
-    end = np.asarray(end_position, dtype=float).reshape(3)
-    obj = np.asarray(object_world, dtype=float).reshape(3)
-    start_dir = _unit_vec3(start_direction)
-    end_dir = _unit_vec3(end_direction)
-    approach_axis = end_dir
-    q_prev = np.asarray(q_seed, dtype=float).reshape(4).copy()
-    kwargs = dict(ik_kwargs or {})
-
-    chord = end - start
-    chord_len = float(np.linalg.norm(chord))
-    if chord_len <= 1e-6:
-        return []
-
-    delta_s = step / chord_len
-    if delta_s <= 1e-9:
-        delta_s = 1.0
-
-    waypoints: list[GraspWaypoint] = []
-    s_cursor = 0.0
-    prev_standoff: float | None = None
-    while s_cursor < 1.0 - 1e-9 and len(waypoints) < cap:
-        s_hi = min(1.0, s_cursor + delta_s)
-        wp, s_acc = _feasible_step_at_s(
-            s_lo=s_cursor,
-            s_hi=s_hi,
-            start=start,
-            end=end,
-            start_dir=start_dir,
-            end_dir=end_dir,
-            object_world=obj,
-            end_position=end,
-            blind=blind,
-            prev_standoff=prev_standoff,
-            q_seed=q_prev,
-            ik_fn=ik_fn,
-            fk_fn=fk_fn,
-            ik_kwargs=kwargs,
-            min_step_m=float(min_step_m),
-            chord_len=chord_len,
-            lateral_offset_m=float(lateral_offset_m),
-            approach_axis=approach_axis,
-            max_dir_error_rad=max_dir_error_rad,
-            max_approach_drift_rad=max_approach_drift_rad,
-        )
-        if wp is None:
-            break
-        waypoints.append(wp)
-        prev_standoff = float(wp.standoff_m)
-        if wp.q_seed is not None:
-            q_prev = np.asarray(wp.q_seed, dtype=float).reshape(4)
-        if s_acc is not None:
-            s_cursor = float(s_acc)
-        else:
-            s_cursor = float(s_hi)
-
-    return waypoints
+    return plan_grasp_kinematic_trajectory(
+        q_seed=q_seed,
+        nominal_world=end_position,
+        object_world=object_world,
+        approach_axis=end_direction,
+        step_m=step_m,
+        blind_start_m=blind_start_m,
+        ik_fn=ik_fn,
+        fk_fn=fk_fn,
+        ik_kwargs=ik_kwargs,
+        max_waypoints=max_waypoints,
+        min_step_m=min_step_m,
+        lateral_offset_m=lateral_offset_m,
+        max_dir_error_deg=max_dir_error_deg,
+        max_approach_drift_deg=max_approach_drift_deg,
+    )
 
 
 def plan_grasp_feasible_next_waypoint(
@@ -596,15 +584,21 @@ def plan_grasp_next_waypoint(
     return planned[0]
 
 
-def trajectory_path_length_m(waypoints: Sequence[GraspWaypoint]) -> float:
-    if len(waypoints) < 2:
+def trajectory_path_length_m(
+    waypoints: Sequence[GraspWaypoint],
+    *,
+    start_position: Sequence[float] | None = None,
+) -> float:
+    chain: list[np.ndarray] = []
+    if start_position is not None:
+        chain.append(np.asarray(start_position, dtype=float).reshape(3))
+    for wp in waypoints:
+        chain.append(np.asarray(wp.position_world, dtype=float).reshape(3))
+    if len(chain) < 2:
         return 0.0
     total = 0.0
-    prev = np.asarray(waypoints[0].position_world, dtype=float).reshape(3)
-    for wp in waypoints[1:]:
-        cur = np.asarray(wp.position_world, dtype=float).reshape(3)
-        total += float(np.linalg.norm(cur - prev))
-        prev = cur
+    for idx in range(1, len(chain)):
+        total += float(np.linalg.norm(chain[idx] - chain[idx - 1]))
     return total
 
 
@@ -639,9 +633,10 @@ def build_grasp_trajectory_markers(
     object_world: Sequence[float],
     waypoints: Sequence[GraspWaypoint],
     highlight_idx: int = -1,
+    look_anchor_position: Sequence[float] | None = None,
     ttl_ms: int = 120000,
 ) -> list[dict[str, Any]]:
-    """Debug markers for sim/host: spheres at nodes + segment arrows along the path."""
+    """Debug markers: FK kinematic polyline (start→waypoints), not a chord to nominal."""
     ttl = int(max(1000, ttl_ms))
     start = np.asarray(start_position, dtype=float).reshape(3)
     end = np.asarray(end_position, dtype=float).reshape(3)
@@ -665,6 +660,21 @@ def build_grasp_trajectory_markers(
             "radius": 0.015,
             "ttl_ms": ttl,
         },
+    ]
+    if look_anchor_position is not None:
+        look = np.asarray(look_anchor_position, dtype=float).reshape(3)
+        markers.append(
+            {
+                "name": "grasp_traj_look_anchor",
+                "frame": "world",
+                "pos": [float(look[0]), float(look[1]), float(look[2])],
+                "color": [0.35, 0.85, 1.0, 0.55],
+                "radius": 0.010,
+                "ttl_ms": ttl,
+            }
+        )
+    markers.extend(
+        [
         {
             "name": "grasp_traj_nominal",
             "frame": "world",
@@ -673,7 +683,8 @@ def build_grasp_trajectory_markers(
             "radius": 0.015,
             "ttl_ms": ttl,
         },
-    ]
+        ]
+    )
     if standoff_len > 1e-4:
         markers.append(
             {
@@ -691,7 +702,6 @@ def build_grasp_trajectory_markers(
     chain: list[np.ndarray] = [start]
     for wp in waypoints:
         chain.append(np.asarray(wp.position_world, dtype=float).reshape(3))
-    chain.append(end)
 
     for idx, wp in enumerate(waypoints):
         pos = np.asarray(wp.position_world, dtype=float).reshape(3)

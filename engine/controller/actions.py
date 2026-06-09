@@ -2436,6 +2436,7 @@ class ControlService:
         object_world: tuple[float, float, float],
         waypoints: list[GraspWaypoint],
         highlight_idx: int = -1,
+        look_anchor_position: tuple[float, float, float] | None = None,
     ) -> None:
         if self.client is None:
             return
@@ -2445,6 +2446,7 @@ class ControlService:
             object_world=object_world,
             waypoints=waypoints,
             highlight_idx=int(highlight_idx),
+            look_anchor_position=look_anchor_position,
         )
         self.client.send_debug_markers(markers, source="target")
 
@@ -4387,15 +4389,7 @@ class ControlService:
 
             host_state = self.client.refresh_state() if self.client is not None else None
             live_object = self._pick_grasp_object_world() or object_world
-            start_pos = self._pick_grasp_trajectory_start_position()
-            if start_pos is None:
-                self.state.set_pick_status(
-                    running=False,
-                    failed=True,
-                    phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided | look pose unavailable (run Look first)",
-                )
-                return
+            look_anchor = self._pick_grasp_trajectory_start_position()
 
             nominal_world = self._pick_grasp_trajectory_end_position(
                 live_object,
@@ -4415,8 +4409,10 @@ class ControlService:
                     msg="grasp guided | seed q unavailable",
                 )
                 return
+            fk_seed = fk_fn(q_seed)
+            traj_start = tuple(float(v) for v in fk_seed.position_world)
             geom_plan = plan_grasp_approach_trajectory(
-                start_position=start_pos,
+                start_position=traj_start,
                 end_position=nominal_world,
                 start_direction=dir_tuple,
                 end_direction=dir_tuple,
@@ -4427,7 +4423,7 @@ class ControlService:
                 max_waypoints=max_waypoints,
             )
             self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
-                start_position=start_pos,
+                start_position=traj_start,
                 end_position=nominal_world,
                 start_direction=dir_tuple,
                 end_direction=dir_tuple,
@@ -4444,35 +4440,30 @@ class ControlService:
             )
             plan_n = len(self._grasp_planned_waypoints)
             geom_n = len(geom_plan)
-            path_len = trajectory_path_length_m(self._grasp_planned_waypoints)
-            if path_len <= 1e-6:
-                path_len = float(
-                    np.linalg.norm(
-                        np.asarray(nominal_world, dtype=float).reshape(3)
-                        - np.asarray(start_pos, dtype=float).reshape(3)
-                    )
-                )
-            start_standoff = (
-                float(self._grasp_planned_waypoints[0].standoff_m)
-                if self._grasp_planned_waypoints
-                else float(
-                    np.dot(
-                        np.asarray(live_object, dtype=float).reshape(3)
-                        - np.asarray(start_pos, dtype=float).reshape(3),
-                        dir_u,
-                    )
+            path_len = trajectory_path_length_m(
+                self._grasp_planned_waypoints,
+                start_position=traj_start,
+            )
+            start_standoff = float(
+                np.dot(
+                    np.asarray(live_object, dtype=float).reshape(3)
+                    - np.asarray(traj_start, dtype=float).reshape(3),
+                    dir_u,
                 )
             )
             end_standoff = float(standoff_m)
             print(
-                "[Grasp] plan | look→pre-contact feasible=%d geom=%d path=%.0fmm "
-                "standoff %.0f→%.0fmm (not object center)"
+                "[Grasp] plan | kinematic feasible=%d geom_ref=%d path=%.0fmm "
+                "standoff %.0f→%.0fmm tip=(%.3f,%.3f,%.3f)"
                 % (
                     int(plan_n),
                     int(geom_n),
                     float(path_len) * 1000.0,
                     start_standoff * 1000.0,
                     end_standoff * 1000.0,
+                    float(traj_start[0]),
+                    float(traj_start[1]),
+                    float(traj_start[2]),
                 )
             )
             if plan_n <= 0:
@@ -4480,14 +4471,15 @@ class ControlService:
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg="grasp guided | no feasible waypoints",
+                    msg="grasp guided | no feasible kinematic waypoints",
                 )
                 return
             self._send_grasp_trajectory_markers(
-                start_position=tuple(float(v) for v in start_pos),
+                start_position=traj_start,
                 end_position=tuple(float(v) for v in nominal_world),
                 object_world=tuple(float(v) for v in live_object),
                 waypoints=list(self._grasp_planned_waypoints),
+                look_anchor_position=look_anchor,
             )
 
             feasible_queue_idx = 0
@@ -4527,16 +4519,6 @@ class ControlService:
                     break
 
                 sag_model = self._pick_grasp_sag_model()
-                while feasible_queue_idx < len(self._grasp_planned_waypoints):
-                    queued = self._grasp_planned_waypoints[feasible_queue_idx]
-                    if not self._grasp_waypoint_behind_tip(
-                        queued,
-                        tip,
-                        nominal_world,
-                        dir_u,
-                    ):
-                        break
-                    feasible_queue_idx += 1
 
                 planned_wp: GraspWaypoint | None = None
                 if feasible_queue_idx < len(self._grasp_planned_waypoints):
@@ -4573,11 +4555,12 @@ class ControlService:
 
                 wp_label = "wp %d/%d" % (int(wp + 1), int(max_waypoints))
                 self._send_grasp_trajectory_markers(
-                    start_position=tuple(float(v) for v in start_pos),
+                    start_position=traj_start,
                     end_position=tuple(float(v) for v in nominal_world),
                     object_world=tuple(float(v) for v in live_object),
                     waypoints=list(self._grasp_planned_waypoints),
                     highlight_idx=int(wp),
+                    look_anchor_position=look_anchor,
                 )
                 ok, q_cmd, host_state, _ = self._grasp_ik_to_waypoint(
                     waypoint=planned_wp,

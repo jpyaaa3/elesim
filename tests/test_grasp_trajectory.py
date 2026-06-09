@@ -27,7 +27,7 @@ GraspWaypoint = _GRASP_TRAJECTORY.GraspWaypoint
 
 
 class TestGraspTrajectoryPlanner(unittest.TestCase):
-    def test_plan_monotonic_standoff_along_lerp(self) -> None:
+    def test_plan_monotonic_standoff_along_kinematic_geom(self) -> None:
         obj = (0.40, 0.0, 0.90)
         start = (0.20, 0.0, 1.10)
         end = (0.38, 0.0, 0.88)
@@ -140,24 +140,13 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_wp_")]), 1)
         self.assertGreaterEqual(len([n for n in names if n.startswith("grasp_traj_seg_")]), 1)
 
-    def test_feasible_plan_skips_unreachable_lerp_points(self) -> None:
+    def test_feasible_kinematic_chain_stops_when_ik_fails(self) -> None:
         obj = (0.40, 0.0, 0.90)
         start = (0.20, 0.0, 1.10)
         end = (0.38, 0.0, 0.88)
         direction = (1.0, 0.0, 0.0)
-        geom = plan_grasp_approach_trajectory(
-            start_position=start,
-            end_position=end,
-            start_direction=direction,
-            end_direction=direction,
-            object_world=obj,
-            step_m=0.03,
-            blind_start_m=0.06,
-            grasp_standoff_m=0.02,
-            max_waypoints=20,
-        )
         fail_after = 4
-        q_chain = [0.1, 0.0, 0.2, 0.1]
+        ik_ok = {"n": 0}
 
         class _IkResult:
             def __init__(
@@ -175,17 +164,15 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
                 self.reason = reason
 
         def ik_fn(**kwargs):
+            if ik_ok["n"] >= fail_after:
+                return _IkResult(
+                    False,
+                    position_error_m=0.0037,
+                    reason="position tolerance not reached",
+                )
             target = kwargs["target_world"]
-            idx = len(q_chain) - 1
-            for i, wp in enumerate(geom):
-                if abs(float(wp.position_world[0]) - float(target[0])) < 1e-4:
-                    idx = i
-                    break
-            if idx >= fail_after:
-                return _IkResult(False, position_error_m=0.0037, reason="position tolerance not reached")
-            q = [0.1 + 0.01 * (idx + 1), 0.0, 0.2, 0.1]
-            q_chain.append(q[0])
-            return _IkResult(True, q=q)
+            ik_ok["n"] += 1
+            return _IkResult(True, q=[float(target[0]), 0.0, 0.2, 0.1])
 
         def fk_fn(q):
             q_arr = q
@@ -204,7 +191,7 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             start_direction=direction,
             end_direction=direction,
             object_world=obj,
-            q_seed=(0.1, 0.0, 0.2, 0.1),
+            q_seed=(0.20, 0.0, 0.2, 0.1),
             step_m=0.03,
             blind_start_m=0.06,
             ik_fn=ik_fn,
@@ -212,7 +199,6 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             grasp_standoff_m=0.02,
             max_waypoints=20,
         )
-        self.assertGreaterEqual(len(geom), fail_after + 1)
         self.assertEqual(len(feasible), fail_after)
         for wp in feasible:
             self.assertIsNotNone(wp.q_seed)
@@ -299,12 +285,12 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
                 direction_angle_rad=math.radians(20.0),
             )
 
-        def fk_fn(_q):
+        def fk_fn(q):
             return type(
                 "FkTip",
                 (),
                 {
-                    "position_world": (0.25, 0.0, 0.90),
+                    "position_world": (float(q[0]), 0.0, 0.90),
                     "direction_world": direction,
                 },
             )()
@@ -344,12 +330,12 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         def ik_fn(**_kwargs):
             return _IkResult()
 
-        def fk_fn(_q):
+        def fk_fn(q):
             return type(
                 "FkTip",
                 (),
                 {
-                    "position_world": (0.25, 0.0, 0.90),
+                    "position_world": (float(q[0]), 0.0, 0.90),
                     "direction_world": fk_dir,
                 },
             )()
@@ -378,6 +364,55 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertAlmostEqual(got[0], float(expected[0]), places=4)
         self.assertAlmostEqual(got[1], float(expected[1]), places=4)
         self.assertAlmostEqual(got[2], float(expected[2]), places=4)
+
+    def test_feasible_kinematic_monotonic_axial_progress(self) -> None:
+        obj = (0.40, 0.0, 0.90)
+        end = (0.38, 0.0, 0.88)
+        direction = (1.0, 0.0, 0.0)
+
+        class _IkResult:
+            def __init__(self, q):
+                self.success = True
+                self.q = q
+                self.position_error_m = 0.0
+                self.direction_angle_rad = 0.0
+                self.reason = ""
+
+        def ik_fn(**kwargs):
+            target = kwargs["target_world"]
+            return _IkResult([float(target[0]), 0.0, 0.2, 0.1])
+
+        def fk_fn(q):
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (float(q[0]), 0.0, 0.90),
+                    "direction_world": direction,
+                },
+            )()
+
+        feasible = plan_grasp_feasible_trajectory(
+            start_position=(0.20, 0.0, 1.10),
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            q_seed=(0.20, 0.0, 0.2, 0.1),
+            step_m=0.03,
+            blind_start_m=0.06,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            max_waypoints=10,
+        )
+        self.assertGreaterEqual(len(feasible), 2)
+        end_arr = np.asarray(end, dtype=float)
+        prev_axial = float("inf")
+        for wp in feasible:
+            pos = np.asarray(wp.position_world, dtype=float)
+            axial = float(np.dot(end_arr - pos, direction))
+            self.assertLess(axial, prev_axial + 1e-4)
+            prev_axial = axial
 
     def test_geom_plan_uses_look_at_object_direction(self) -> None:
         obj = (0.40, 0.10, 0.90)
