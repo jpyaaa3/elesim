@@ -514,13 +514,18 @@ class ControlService:
             "tweak_rounds": max(int(pk.ik_align_rounds), 1),
         }
 
-    def _grasp_look_at_ik_kwargs(self) -> dict[str, Any]:
+    def _grasp_look_at_ik_kwargs(self, *, for_plan: bool = False) -> dict[str, Any]:
         """Look-at-object grasp IK: position GN + tweak (no full align seed bank)."""
         pk = self._pick_config_effective()
         drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.1))
+        tweak_rounds = (
+            max(int(pk.grasp_plan_ik_rounds), 1)
+            if bool(for_plan)
+            else max(int(pk.ik_align_rounds), 1)
+        )
         return {
             "align_skip_under_deg": float(pk.ik_align_skip_under_deg),
-            "tweak_rounds": max(int(pk.ik_align_rounds), 1),
+            "tweak_rounds": tweak_rounds,
             "direction_tol_deg": drift_tol_deg,
             "tweak_position_hold_tol_m": max(float(self._ik_cfg.tol), 1e-3),
         }
@@ -3798,7 +3803,7 @@ class ControlService:
             "context": ctx,
             "position_tol_m": max(float(self._ik_cfg.tol), 1e-4),
             "max_iters": max(int(self._ik_cfg.max_iters), 1),
-            **self._grasp_look_at_ik_kwargs(),
+            **self._grasp_look_at_ik_kwargs(for_plan=True),
         }
         model = self._pick_reach_model(sag_model)
         ik_success = {"n": 0}
@@ -4660,7 +4665,10 @@ class ControlService:
         step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
         blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
         blind_approach_m = float(max(pk.grasp_blind_approach_m, 0.005))
-        reach_tol_m = max(float(self._ik_cfg.tol), 0.003)
+        reach_tol_m = float(max(pk.grasp_plan_reach_tol_m, 0.002))
+        plan_min_step_m = float(max(pk.grasp_plan_min_step_m, 0.002))
+        plan_lateral_m = float(max(pk.grasp_plan_lateral_offset_m, 0.0))
+        plan_bisect_iters = max(int(pk.grasp_plan_bisect_iters), 4)
         max_waypoints = max(1, int(pk.grasp_max_waypoints))
         feasible_dir_tol_deg = float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0))
         feasible_drift_tol_deg = float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
@@ -4750,6 +4758,9 @@ class ControlService:
                     max_approach_drift_deg=feasible_drift_tol_deg,
                     blind_approach_m=blind_approach_m,
                     reach_tol_m=reach_tol_m,
+                    min_step_m=plan_min_step_m,
+                    lateral_offset_m=plan_lateral_m,
+                    bisect_iters=plan_bisect_iters,
                     stats=plan_stats,
                 )
             t_kinematic_s = plan_timing.get("kinematic_plan")
@@ -4771,6 +4782,9 @@ class ControlService:
                 max_approach_drift_deg=feasible_drift_tol_deg,
                 blind_approach_m=blind_approach_m,
                 reach_tol_m=reach_tol_m,
+                min_step_m=plan_min_step_m,
+                lateral_offset_m=plan_lateral_m,
+                bisect_iters=plan_bisect_iters,
             )
         plan_n = len(self._grasp_planned_waypoints)
         final_remain = plan_grasp_trajectory_final_remain_m(

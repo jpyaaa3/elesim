@@ -63,7 +63,7 @@ def _build_ik_fk(
         "position_tol_m": max(float(ik_cfg.tol), 1e-4),
         "max_iters": max(int(ik_cfg.max_iters), 1),
         "align_skip_under_deg": float(pick_cfg.ik_align_skip_under_deg),
-        "tweak_rounds": max(int(pick_cfg.ik_align_rounds), 1),
+        "tweak_rounds": max(int(pick_cfg.grasp_plan_ik_rounds), 1),
         "direction_tol_deg": float(max(pick_cfg.grasp_waypoint_max_dir_error_deg, 0.1)),
         "tweak_position_hold_tol_m": max(float(ik_cfg.tol), 1e-3),
     }
@@ -116,7 +116,10 @@ def _run_plan_once(
     step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
     blind_start_m = float(max(pk.grasp_blind_start_m, 0.0))
     blind_approach_m = float(max(pk.grasp_blind_approach_m, 0.005))
-    reach_tol_m = max(float(ik_cfg.tol), 0.003)
+    reach_tol_m = float(max(pk.grasp_plan_reach_tol_m, 0.002))
+    plan_min_step_m = float(max(pk.grasp_plan_min_step_m, 0.002))
+    plan_lateral_m = float(max(pk.grasp_plan_lateral_offset_m, 0.0))
+    plan_bisect_iters = max(int(pk.grasp_plan_bisect_iters), 4)
     max_waypoints = max(1, int(pk.grasp_max_waypoints))
     standoff_m = float(max(pk.grasp_standoff_m, 0.0))
     dir_u = np.asarray(approach_dir, dtype=float).reshape(3)
@@ -180,6 +183,9 @@ def _run_plan_once(
             max_approach_drift_deg=float(pk.grasp_waypoint_max_approach_drift_deg),
             blind_approach_m=blind_approach_m,
             reach_tol_m=reach_tol_m,
+            min_step_m=plan_min_step_m,
+            lateral_offset_m=plan_lateral_m,
+            bisect_iters=plan_bisect_iters,
             stats=stats,
         )
     t_kinematic_s = timing.get("kinematic_plan")

@@ -333,16 +333,17 @@ def _kinematic_step_at_travel(
     lateral_offset_m: float,
     max_dir_error_rad: float,
     max_approach_drift_rad: float,
+    bisect_iters: int = 18,
     stats: Optional["GraspPlanStats"] = None,
 ) -> GraspWaypoint | None:
     """One kinematic step: advance along look-at-object from FK tip, bisect travel on IK fail."""
     look_dir = _look_at_object_dir(tip, object_world)
     travel_hi = float(max(travel_m, 0.0))
     travel_lo = 0.0
-    min_travel = float(max(min_step_m, 0.005))
+    min_travel = float(max(min_step_m, 0.002))
     best: GraspWaypoint | None = None
 
-    for _ in range(12):
+    for _ in range(max(int(bisect_iters), 4)):
         if stats is not None:
             stats.bisect_iters += 1
         if travel_hi <= travel_lo + 1e-9:
@@ -421,6 +422,33 @@ def _kinematic_step_at_travel(
     return best
 
 
+def _travel_retry_candidates(
+    *,
+    primary_travel_m: float,
+    remaining_m: float,
+    reach_floor_m: float,
+    fine_step_m: float,
+    min_step_m: float,
+) -> list[float]:
+    margin = float(max(0.0, remaining_m - reach_floor_m))
+    raw = [
+        float(primary_travel_m),
+        float(fine_step_m),
+        float(min_step_m),
+        0.5 * float(primary_travel_m),
+        0.25 * float(primary_travel_m),
+    ]
+    out: list[float] = []
+    floor = float(max(min_step_m, 0.002))
+    for travel in raw:
+        t = float(min(max(travel, 0.0), margin))
+        if t < floor - 1e-6:
+            continue
+        if not any(abs(t - prev) < 1e-4 for prev in out):
+            out.append(t)
+    return out
+
+
 def plan_grasp_kinematic_trajectory(
     *,
     q_seed: Sequence[float],
@@ -432,8 +460,9 @@ def plan_grasp_kinematic_trajectory(
     fk_fn: Callable[[np.ndarray], FkTipResult],
     ik_kwargs: dict[str, Any] | None = None,
     max_waypoints: int = 20,
-    min_step_m: float = 0.005,
-    lateral_offset_m: float = 0.003,
+    min_step_m: float = 0.002,
+    lateral_offset_m: float = 0.005,
+    bisect_iters: int = 18,
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
     stats: Optional["GraspPlanStats"] = None,
@@ -468,28 +497,41 @@ def plan_grasp_kinematic_trajectory(
 
         in_blind_zone = remaining <= blind_zone_m + 1e-4
         step = fine_step if in_blind_zone else approach_step
+        if in_blind_zone and remaining < 0.04:
+            step = min(step, max(float(min_step_m), remaining * 0.45))
         travel = min(step, remaining - reach_floor)
         if travel < float(min_step_m) - 1e-6:
             break
 
-        wp = _kinematic_step_at_travel(
-            tip=tip,
-            travel_m=travel,
-            object_world=obj,
-            grasp_standoff_m=standoff_target,
-            q_seed=q_prev,
-            remain_floor_m=reach_floor,
-            prev_standoff=prev_standoff,
-            prev_remaining=remaining,
-            ik_fn=ik_fn,
-            fk_fn=fk_fn,
-            ik_kwargs=kwargs,
+        wp = None
+        for travel_try in _travel_retry_candidates(
+            primary_travel_m=travel,
+            remaining_m=remaining,
+            reach_floor_m=reach_floor,
+            fine_step_m=fine_step,
             min_step_m=float(min_step_m),
-            lateral_offset_m=float(lateral_offset_m),
-            max_dir_error_rad=max_dir_error_rad,
-            max_approach_drift_rad=max_approach_drift_rad,
-            stats=stats,
-        )
+        ):
+            wp = _kinematic_step_at_travel(
+                tip=tip,
+                travel_m=travel_try,
+                object_world=obj,
+                grasp_standoff_m=standoff_target,
+                q_seed=q_prev,
+                remain_floor_m=reach_floor,
+                prev_standoff=prev_standoff,
+                prev_remaining=remaining,
+                ik_fn=ik_fn,
+                fk_fn=fk_fn,
+                ik_kwargs=kwargs,
+                min_step_m=float(min_step_m),
+                lateral_offset_m=float(lateral_offset_m),
+                max_dir_error_rad=max_dir_error_rad,
+                max_approach_drift_rad=max_approach_drift_rad,
+                bisect_iters=int(bisect_iters),
+                stats=stats,
+            )
+            if wp is not None:
+                break
         if wp is None:
             if stats is not None:
                 stats.kinematic_steps_fail += 1
@@ -520,8 +562,9 @@ def plan_grasp_feasible_trajectory(
     ik_kwargs: dict[str, Any] | None = None,
     grasp_standoff_m: float = 0.0,
     max_waypoints: int = 20,
-    min_step_m: float = 0.005,
-    lateral_offset_m: float = 0.003,
+    min_step_m: float = 0.002,
+    lateral_offset_m: float = 0.005,
+    bisect_iters: int = 18,
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
     blind_approach_m: float | None = None,
@@ -543,6 +586,7 @@ def plan_grasp_feasible_trajectory(
         max_waypoints=max_waypoints,
         min_step_m=min_step_m,
         lateral_offset_m=lateral_offset_m,
+        bisect_iters=bisect_iters,
         max_dir_error_deg=max_dir_error_deg,
         max_approach_drift_deg=max_approach_drift_deg,
         stats=stats,
