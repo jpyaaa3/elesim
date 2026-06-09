@@ -8,7 +8,10 @@ pre-contact point ``object - approach_dir * grasp_standoff_m``, not the object c
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol, Sequence
+
+if TYPE_CHECKING:
+    from engine.profile.pick_timing import GraspPlanStats
 
 import numpy as np
 
@@ -257,8 +260,11 @@ def _attempt_feasible_ik(
     ik_kwargs: dict[str, Any],
     max_dir_error_rad: float,
     max_approach_drift_rad: float,
+    stats: Optional["GraspPlanStats"] = None,
 ) -> GraspWaypoint | None:
     """Try IK with look-at-object dir, then dir-hold; accept only FK-achievable poses."""
+    if stats is not None:
+        stats.feasible_ik_attempts += 1
     desired_u = _look_at_object_dir(pos, object_world)
     _ = _unit_vec3(approach_axis)
     dir_candidates: list[tuple[np.ndarray, bool]] = [(desired_u, True)]
@@ -318,6 +324,7 @@ def _kinematic_step_at_travel(
     lateral_offset_m: float,
     max_dir_error_rad: float,
     max_approach_drift_rad: float,
+    stats: Optional["GraspPlanStats"] = None,
 ) -> GraspWaypoint | None:
     """One kinematic step: advance along look-at-object from FK tip, bisect travel on IK fail."""
     look_dir = _look_at_object_dir(tip, object_world)
@@ -327,6 +334,8 @@ def _kinematic_step_at_travel(
     best: GraspWaypoint | None = None
 
     for _ in range(12):
+        if stats is not None:
+            stats.bisect_iters += 1
         if travel_hi <= travel_lo + 1e-9:
             break
         if travel_hi - travel_lo < min_travel - 1e-6:
@@ -356,6 +365,7 @@ def _kinematic_step_at_travel(
             ik_kwargs=ik_kwargs,
             max_dir_error_rad=max_dir_error_rad,
             max_approach_drift_rad=max_approach_drift_rad,
+            stats=stats,
         )
         if best is None:
             offsets = _lateral_offset_candidates(
@@ -363,6 +373,8 @@ def _kinematic_step_at_travel(
                 offset_m=float(lateral_offset_m),
             )
             for off in offsets:
+                if stats is not None:
+                    stats.lateral_tries += 1
                 best = _attempt_feasible_ik(
                     pos=pos + off,
                     desired_dir=direction,
@@ -374,6 +386,7 @@ def _kinematic_step_at_travel(
                     ik_kwargs=ik_kwargs,
                     max_dir_error_rad=max_dir_error_rad,
                     max_approach_drift_rad=max_approach_drift_rad,
+                    stats=stats,
                 )
                 if best is not None:
                     break
@@ -415,6 +428,7 @@ def plan_grasp_kinematic_trajectory(
     lateral_offset_m: float = 0.003,
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
+    stats: Optional["GraspPlanStats"] = None,
 ) -> list[GraspWaypoint]:
     """Chain IK steps from the current FK tip toward ``nominal_world`` (no Cartesian lerp)."""
     step = float(max(step_m, 0.005))
@@ -458,10 +472,15 @@ def plan_grasp_kinematic_trajectory(
             lateral_offset_m=float(lateral_offset_m),
             max_dir_error_rad=max_dir_error_rad,
             max_approach_drift_rad=max_approach_drift_rad,
+            stats=stats,
         )
         if wp is None:
+            if stats is not None:
+                stats.kinematic_steps_fail += 1
             break
 
+        if stats is not None:
+            stats.kinematic_steps_ok += 1
         waypoints.append(wp)
         prev_standoff = float(wp.standoff_m)
         if wp.q_seed is not None:
@@ -489,6 +508,7 @@ def plan_grasp_feasible_trajectory(
     lateral_offset_m: float = 0.003,
     max_dir_error_deg: float = 12.0,
     max_approach_drift_deg: float = 18.0,
+    stats: Optional["GraspPlanStats"] = None,
 ) -> list[GraspWaypoint]:
     """Kinematic IK chain from ``q_seed`` FK tip; Cartesian start/end are reference only."""
     _ = start_position
@@ -509,6 +529,7 @@ def plan_grasp_feasible_trajectory(
         lateral_offset_m=lateral_offset_m,
         max_dir_error_deg=max_dir_error_deg,
         max_approach_drift_deg=max_approach_drift_deg,
+        stats=stats,
     )
 
 

@@ -23,9 +23,13 @@ from engine.visual_servoing.equal_sag_probe import (
     prepare_sag_drift_input,
 )
 from engine.profile.pick_timing import (
+    GraspPlanProfile,
+    GraspPlanStats,
     PickPhaseProfile,
     PickTimingCollector,
     enabled as pick_profile_enabled,
+    fk_call_count,
+    format_grasp_plan_report,
     format_report,
     install_fk_counter,
     reset_fk_count,
@@ -120,6 +124,7 @@ class ControlService:
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
         self._perception_capture: Optional[PerceptionCapture] = None
         self._last_pick_profile: Optional[PickPhaseProfile] = None
+        self._last_grasp_plan_profile: Optional[GraspPlanProfile] = None
         self._pick_worker: Optional[threading.Thread] = None
         self._pick_e2e_worker: Optional[threading.Thread] = None
         self._pick_e2e_cancel = threading.Event()
@@ -1187,6 +1192,48 @@ class ControlService:
         )
         self._last_pick_profile = profile
         print(format_report(profile))
+        uninstall_fk_counter()
+
+    def _begin_grasp_plan_profile(
+        self,
+    ) -> tuple[Optional[PickTimingCollector], GraspPlanStats, float]:
+        if not pick_profile_enabled():
+            return None, GraspPlanStats(), 0.0
+        install_fk_counter()
+        reset_fk_count()
+        return PickTimingCollector(), GraspPlanStats(), perf_counter()
+
+    def _finish_grasp_plan_profile(
+        self,
+        *,
+        timing: Optional[PickTimingCollector],
+        stats: GraspPlanStats,
+        t0: float,
+        t_geom_s: float,
+        t_kinematic_s: float,
+        waypoints: int,
+        geom_waypoints: int,
+        ik_success: int,
+        success: bool,
+    ) -> None:
+        if timing is None or t0 <= 0.0:
+            return
+        profile = GraspPlanProfile(
+            t_total_s=float(perf_counter() - t0),
+            t_geom_s=float(t_geom_s),
+            t_kinematic_s=float(t_kinematic_s),
+            t_solve_position_s=timing.get("solve_position"),
+            t_align_s=timing.get("align_direction"),
+            ik_calls=int(timing.ik_calls),
+            ik_success=int(ik_success),
+            fk_calls=fk_call_count(),
+            waypoints=int(waypoints),
+            geom_waypoints=int(geom_waypoints),
+            stats=stats,
+            success=bool(success),
+        )
+        self._last_grasp_plan_profile = profile
+        print(format_grasp_plan_report(profile))
         uninstall_fk_counter()
 
     def _send_state_q_and_wait(
@@ -3650,6 +3697,7 @@ class ControlService:
         self,
         *,
         sag_model: dict[str, Any],
+        timing: Optional[PickTimingCollector] = None,
     ) -> tuple[Any, Any]:
         """Return (ik_fn, fk_fn) for grasp trajectory feasibility filtering."""
         self.refresh_ik_context()
@@ -3662,11 +3710,18 @@ class ControlService:
             **self._ik_align_kwargs(force_full=True),
         }
         model = self._pick_reach_model(sag_model)
+        ik_success = {"n": 0}
 
         def ik_fn(**kwargs: Any) -> Any:
             merged = dict(ik_kwargs)
             merged.update(kwargs)
-            return ik_pipeline.solve_then_align(**merged)
+            if timing is not None:
+                timing.ik_calls += 1
+                merged["timing"] = timing
+            result = ik_pipeline.solve_then_align(**merged)
+            if timing is not None and bool(getattr(result, "success", False)):
+                ik_success["n"] += 1
+            return result
 
         def fk_fn(q: np.ndarray) -> Any:
             q4 = np.asarray(q, dtype=float).reshape(4)
@@ -3689,6 +3744,7 @@ class ControlService:
                 },
             )()
 
+        ik_fn.ik_success_counter = ik_success  # type: ignore[attr-defined]
         return ik_fn, fk_fn
 
     def _grasp_wait_waypoint_settle(
@@ -4398,7 +4454,11 @@ class ControlService:
         )
 
         sag_model = self._pick_grasp_sag_model()
-        ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(sag_model=sag_model)
+        plan_timing, plan_stats, plan_t0 = self._begin_grasp_plan_profile()
+        ik_fn, fk_fn = self._grasp_feasible_plan_callbacks(
+            sag_model=sag_model,
+            timing=plan_timing,
+        )
         host_state = self.client.refresh_state()
         try:
             q_seed = self._q_array_from_state(host_state)
@@ -4414,33 +4474,71 @@ class ControlService:
         fk_seed = fk_fn(q_seed)
         traj_start = tuple(float(v) for v in fk_seed.position_world)
         self._grasp_plan_traj_start = traj_start
-        geom_plan = plan_grasp_approach_trajectory(
-            start_position=traj_start,
-            end_position=nominal_world,
-            start_direction=dir3,
-            end_direction=dir3,
-            object_world=live_object,
-            step_m=step_m,
-            blind_start_m=blind_start_m,
-            grasp_standoff_m=standoff_m,
-            max_waypoints=max_waypoints,
-        )
-        self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
-            start_position=traj_start,
-            end_position=nominal_world,
-            start_direction=dir3,
-            end_direction=dir3,
-            object_world=live_object,
-            q_seed=q_seed,
-            step_m=step_m,
-            blind_start_m=blind_start_m,
-            ik_fn=ik_fn,
-            fk_fn=fk_fn,
-            grasp_standoff_m=standoff_m,
-            max_waypoints=max_waypoints,
-            max_dir_error_deg=feasible_dir_tol_deg,
-            max_approach_drift_deg=feasible_drift_tol_deg,
-        )
+        t_geom_s = 0.0
+        if plan_timing is not None:
+            with plan_timing.span("geom_plan"):
+                geom_plan = plan_grasp_approach_trajectory(
+                    start_position=traj_start,
+                    end_position=nominal_world,
+                    start_direction=dir3,
+                    end_direction=dir3,
+                    object_world=live_object,
+                    step_m=step_m,
+                    blind_start_m=blind_start_m,
+                    grasp_standoff_m=standoff_m,
+                    max_waypoints=max_waypoints,
+                )
+            t_geom_s = plan_timing.get("geom_plan")
+        else:
+            geom_plan = plan_grasp_approach_trajectory(
+                start_position=traj_start,
+                end_position=nominal_world,
+                start_direction=dir3,
+                end_direction=dir3,
+                object_world=live_object,
+                step_m=step_m,
+                blind_start_m=blind_start_m,
+                grasp_standoff_m=standoff_m,
+                max_waypoints=max_waypoints,
+            )
+        t_kinematic_s = 0.0
+        if plan_timing is not None:
+            with plan_timing.span("kinematic_plan"):
+                self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
+                    start_position=traj_start,
+                    end_position=nominal_world,
+                    start_direction=dir3,
+                    end_direction=dir3,
+                    object_world=live_object,
+                    q_seed=q_seed,
+                    step_m=step_m,
+                    blind_start_m=blind_start_m,
+                    ik_fn=ik_fn,
+                    fk_fn=fk_fn,
+                    grasp_standoff_m=standoff_m,
+                    max_waypoints=max_waypoints,
+                    max_dir_error_deg=feasible_dir_tol_deg,
+                    max_approach_drift_deg=feasible_drift_tol_deg,
+                    stats=plan_stats,
+                )
+            t_kinematic_s = plan_timing.get("kinematic_plan")
+        else:
+            self._grasp_planned_waypoints = plan_grasp_feasible_trajectory(
+                start_position=traj_start,
+                end_position=nominal_world,
+                start_direction=dir3,
+                end_direction=dir3,
+                object_world=live_object,
+                q_seed=q_seed,
+                step_m=step_m,
+                blind_start_m=blind_start_m,
+                ik_fn=ik_fn,
+                fk_fn=fk_fn,
+                grasp_standoff_m=standoff_m,
+                max_waypoints=max_waypoints,
+                max_dir_error_deg=feasible_dir_tol_deg,
+                max_approach_drift_deg=feasible_drift_tol_deg,
+            )
         plan_n = len(self._grasp_planned_waypoints)
         geom_n = len(geom_plan)
         path_len = trajectory_path_length_m(
@@ -4467,6 +4565,18 @@ class ControlService:
                 float(traj_start[1]),
                 float(traj_start[2]),
             )
+        )
+        ik_ok_n = int(getattr(ik_fn, "ik_success_counter", {}).get("n", 0))
+        self._finish_grasp_plan_profile(
+            timing=plan_timing,
+            stats=plan_stats,
+            t0=plan_t0,
+            t_geom_s=t_geom_s,
+            t_kinematic_s=t_kinematic_s,
+            waypoints=int(plan_n),
+            geom_waypoints=int(geom_n),
+            ik_success=ik_ok_n,
+            success=bool(plan_n > 0),
         )
         if plan_n <= 0:
             self.state.set_pick_status(
