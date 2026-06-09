@@ -4773,10 +4773,6 @@ class ControlService:
                 reach_tol_m=reach_tol_m,
             )
         plan_n = len(self._grasp_planned_waypoints)
-        approach_n = sum(
-            1 for wp in self._grasp_planned_waypoints if str(wp.segment) != "blind"
-        )
-        blind_n = int(plan_n) - int(approach_n)
         final_remain = plan_grasp_trajectory_final_remain_m(
             waypoints=self._grasp_planned_waypoints,
             object_world=live_object,
@@ -4802,13 +4798,11 @@ class ControlService:
             float(final_remain) * 1000.0 if final_remain is not None else float("nan")
         )
         print(
-            "[Grasp] plan | feasible=%d (approach=%d blind=%d) geom_ref=%d path=%.0fmm "
+            "[Grasp] plan | feasible=%d geom_ref=%d path=%.0fmm "
             "standoff %.0f→%.0fmm start_remain=%.0fmm end_remain=%.1fmm complete=%s "
             "tip=(%.3f,%.3f,%.3f)"
             % (
                 int(plan_n),
-                int(approach_n),
-                int(blind_n),
                 int(geom_n),
                 float(path_len) * 1000.0,
                 start_standoff * 1000.0,
@@ -4991,17 +4985,12 @@ class ControlService:
                     msg="grasp execute | empty plan",
                 )
                 return
-            approach_n = sum(
-                1 for wp in planned_queue if str(getattr(wp, "segment", "approach")) != "blind"
-            )
-            blind_n = int(len(planned_queue)) - int(approach_n)
             print(
-                "[Grasp] execute start | planned=%d (approach=%d blind=%d) "
+                "[Grasp] execute start | planned=%d blind_start=%.0fmm "
                 "standoff=%.0fmm settle=%.2fs"
                 % (
                     int(len(planned_queue)),
-                    int(approach_n),
-                    int(blind_n),
+                    blind_start_m * 1000.0,
                     standoff_m * 1000.0,
                     waypoint_settle_s,
                 )
@@ -5009,6 +4998,7 @@ class ControlService:
 
             host_state = self.client.refresh_state() if self.client is not None else None
             q_cmd: Optional[np.ndarray] = None
+            perception_stopped = False
             live_object = self._pick_grasp_object_world() or object_world
             nominal_world = self._pick_grasp_trajectory_end_position(
                 live_object,
@@ -5038,12 +5028,13 @@ class ControlService:
                     )
                     return
 
-                seg = str(getattr(planned_wp, "segment", "approach"))
-                wp_label = "%s %d/%d" % (
-                    "blind" if seg == "blind" else "wp",
-                    int(wp_idx + 1),
-                    int(len(planned_queue)),
+                wp_label = "wp %d/%d" % (int(wp_idx + 1), int(len(planned_queue)))
+                remain_before = self._grasp_approach_remaining_m(
+                    tip,
+                    live_object,
+                    standoff_m,
                 )
+                blind_zone = remain_before <= blind_start_m + 1e-4
                 self._send_grasp_trajectory_markers(
                     start_position=traj_start,
                     end_position=tuple(float(v) for v in nominal_world),
@@ -5082,7 +5073,17 @@ class ControlService:
 
                 centered_ok = False
                 obs: Optional[VisualObservation] = None
-                if self._grasp_visual_recover_supported():
+                if blind_zone and not perception_stopped:
+                    self.stop_perception_capture()
+                    perception_stopped = True
+                    print(
+                        "[Grasp] %s | perception stopped | remain=%.1fmm <= blind_start"
+                        % (str(wp_label), float(remain_before) * 1000.0)
+                    )
+                if (
+                    (not blind_zone)
+                    and self._grasp_visual_recover_supported()
+                ):
                     centered_ok, obs, host_state = self._grasp_aim_recover_after_move(
                         cfg=grasp_cfg,
                         host_state=host_state,
@@ -5094,10 +5095,16 @@ class ControlService:
                             % str(wp_label)
                         )
                 else:
-                    print(
-                        "[Grasp] %s | aim recover skipped | mock/sim (IK+sag only)"
-                        % str(wp_label)
-                    )
+                    if blind_zone:
+                        print(
+                            "[Grasp] %s | aim skipped | blind zone (remain=%.1fmm)"
+                            % (str(wp_label), float(remain_before) * 1000.0)
+                        )
+                    else:
+                        print(
+                            "[Grasp] %s | aim recover skipped | mock/sim (IK+sag only)"
+                            % str(wp_label)
+                        )
                     if self.client is not None:
                         host_state = self.client.refresh_state()
                     obs = self.current_visual_observation(host_state)
@@ -5147,21 +5154,17 @@ class ControlService:
                         str(uv_txt),
                     )
                 )
-                phase = (
-                    ObjectPickPhase.GRASP.value
-                    if seg == "blind"
-                    else ObjectPickPhase.GRASP_APPROACH.value
-                )
                 self.state.set_pick_status(
                     running=True,
                     failed=False,
-                    phase=str(phase),
+                    phase=ObjectPickPhase.GRASP_APPROACH.value,
                     msg="grasp %s | remain=%.0fmm"
                     % (str(wp_label), float(remain) * 1000.0),
                 )
 
-            self.stop_perception_capture()
-            print("[Grasp] perception stopped | planned trajectory complete")
+            if not perception_stopped:
+                self.stop_perception_capture()
+                print("[Grasp] perception stopped | trajectory complete")
 
             live_object = self._pick_grasp_object_world() or object_world
             host_state = self.client.refresh_state() if self.client is not None else None
