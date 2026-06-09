@@ -507,7 +507,6 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             pos=pos,
             q_seed=np.array([0.2, 0.0, 0.2, 0.1], dtype=float),
             object_world=obj,
-            approach_axis=np.array([1.0, 0.0, 0.0], dtype=float),
             ik_fn=ik_fn,
             fk_fn=fk_fn,
             ik_kwargs={},
