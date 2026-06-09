@@ -514,6 +514,16 @@ class ControlService:
             "tweak_rounds": max(int(pk.ik_align_rounds), 1),
         }
 
+    def _grasp_look_at_ik_kwargs(self) -> dict[str, Any]:
+        """Look-at-object grasp IK: position GN + tweak (no full align seed bank)."""
+        pk = self._pick_config_effective()
+        return {
+            "align_skip_under_deg": float(pk.ik_align_skip_under_deg),
+            "tweak_rounds": max(int(pk.ik_align_rounds), 1),
+            "direction_tol_deg": float(max(pk.grasp_waypoint_max_dir_error_deg, 0.1)),
+            "tweak_position_hold_tol_m": max(float(self._ik_cfg.tol), 1e-3),
+        }
+
     def _ready_ik_align_kwargs(self) -> dict[str, Any]:
         pk = self._pick_config_effective()
         mode = str(pk.ready_pose_align_mode).strip().lower()
@@ -3742,7 +3752,7 @@ class ControlService:
             "context": ctx,
             "position_tol_m": max(float(self._ik_cfg.tol), 1e-4),
             "max_iters": max(int(self._ik_cfg.max_iters), 1),
-            **self._ik_align_kwargs(force_full=True),
+            **self._grasp_look_at_ik_kwargs(),
         }
         model = self._pick_reach_model(sag_model)
         ik_success = {"n": 0}
@@ -3753,7 +3763,7 @@ class ControlService:
             if timing is not None:
                 timing.ik_calls += 1
                 merged["timing"] = timing
-            result = ik_pipeline.solve_then_align(**merged)
+            result = ik_pipeline.solve_then_look_at_tweak(**merged)
             if timing is not None and bool(getattr(result, "success", False)):
                 ik_success["n"] += 1
             return result
@@ -4076,6 +4086,20 @@ class ControlService:
             print("[Grasp] %s | missing ik_context fields" % str(label))
             return False, None, host_state, float("inf")
 
+        object_world = self._grasp_plan_object_world or self._pick_grasp_object_world()
+        ik_kwargs = self._grasp_look_at_ik_kwargs()
+        ik_call: dict[str, Any] = {
+            "target_world": target,
+            "target_dir_world": target_dir,
+            "context": ctx,
+            "position_tol_m": max(float(self._ik_cfg.tol), 1e-4),
+            "max_iters": max(int(self._ik_cfg.max_iters), 1),
+            "current_seed": q0,
+            **ik_kwargs,
+        }
+        if object_world is not None:
+            ik_call["object_world"] = tuple(float(v) for v in object_world)
+
         self.state.set_ik_status(
             running=True,
             converged=False,
@@ -4083,15 +4107,7 @@ class ControlService:
             err_m=float("inf"),
             msg=str(label),
         )
-        result = ik_pipeline.solve_then_align(
-            target_world=target,
-            target_dir_world=target_dir,
-            context=ctx,
-            position_tol_m=max(float(self._ik_cfg.tol), 1e-4),
-            max_iters=max(int(self._ik_cfg.max_iters), 1),
-            current_seed=q0,
-            **self._ik_align_kwargs(force_full=True),
-        )
+        result = ik_pipeline.solve_then_look_at_tweak(**ik_call)
         if not result.success or result.q is None:
             self.state.set_ik_status(
                 running=False,
@@ -4108,13 +4124,66 @@ class ControlService:
 
         q1 = np.asarray(result.q, dtype=float).reshape(4)
         err_m = float(result.position_error_m)
+        pk = self._pick_config_effective()
+        max_dir_rad = math.radians(float(max(pk.grasp_waypoint_max_dir_error_deg, 0.0)))
+        max_drift_rad = math.radians(
+            float(max(pk.grasp_waypoint_max_approach_drift_deg, 0.0))
+        )
+        if float(result.direction_angle_rad) > max_dir_rad + 1e-9:
+            print(
+                "[Grasp] %s | look-at IK dir err %.1f deg > tol %.1f deg"
+                % (
+                    str(label),
+                    float(np.degrees(result.direction_angle_rad)),
+                    float(pk.grasp_waypoint_max_dir_error_deg),
+                )
+            )
+            return False, None, host_state, err_m
+        ik_target_dir = target_dir
+        if object_world is not None:
+            try:
+                model = self._pick_reach_model(sag_model=sag_model)
+                tip1 = np.asarray(model.grasp_position(q1), dtype=float).reshape(3)
+                fk_dir = np.asarray(model.grasp_direction(q1), dtype=float).reshape(3)
+                look_vec = (
+                    np.asarray(object_world, dtype=float).reshape(3) - tip1
+                )
+                look_len = float(np.linalg.norm(look_vec))
+                if look_len > 1e-9:
+                    look_u = look_vec / look_len
+                    ik_target_dir = look_u
+                    fk_norm = float(np.linalg.norm(fk_dir))
+                    if fk_norm > 1e-9:
+                        drift = float(
+                            np.arccos(
+                                float(
+                                    np.clip(
+                                        float(np.dot(fk_dir / fk_norm, look_u)),
+                                        -1.0,
+                                        1.0,
+                                    )
+                                )
+                            )
+                        )
+                        if drift > max_drift_rad + 1e-9:
+                            print(
+                                "[Grasp] %s | FK look-at drift %.1f deg > tol %.1f deg"
+                                % (
+                                    str(label),
+                                    float(np.degrees(drift)),
+                                    float(pk.grasp_waypoint_max_approach_drift_deg),
+                                )
+                            )
+                            return False, None, host_state, err_m
+            except Exception:
+                pass
         align_msg = "%s | err=%.1fmm standoff=%.0fmm" % (
             str(label),
             err_m * 1000.0,
             float(waypoint.standoff_m) * 1000.0,
         )
         if result.align_attempted:
-            align_msg = "%s | dir %.1f -> %.1f deg" % (
+            align_msg = "%s | look-at %.1f -> %.1f deg" % (
                 align_msg,
                 float(np.degrees(result.initial_direction_angle_rad)),
                 float(np.degrees(result.direction_angle_rad)),
@@ -4122,7 +4191,7 @@ class ControlService:
         host_state = self._apply_ik_solution_to_host(
             q1,
             ik_target=target,
-            ik_target_dir=target_dir,
+            ik_target_dir=ik_target_dir,
             err_m=err_m,
             status_msg=align_msg,
             timeout_s=3.0,

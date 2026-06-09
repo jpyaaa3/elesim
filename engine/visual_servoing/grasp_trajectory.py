@@ -229,11 +229,13 @@ def _try_ik_at_pose(
     *,
     pos: np.ndarray,
     direction: np.ndarray,
+    object_world: np.ndarray,
     q_seed: np.ndarray,
     ik_fn: Callable[..., IkPlanResult],
     ik_kwargs: dict[str, Any],
 ) -> IkPlanResult | None:
     try:
+        obj = np.asarray(object_world, dtype=float).reshape(3)
         return ik_fn(
             target_world=(float(pos[0]), float(pos[1]), float(pos[2])),
             target_dir_world=(
@@ -241,6 +243,7 @@ def _try_ik_at_pose(
                 float(direction[1]),
                 float(direction[2]),
             ),
+            object_world=(float(obj[0]), float(obj[1]), float(obj[2])),
             current_seed=np.asarray(q_seed, dtype=float).reshape(4),
             **ik_kwargs,
         )
@@ -251,7 +254,6 @@ def _try_ik_at_pose(
 def _attempt_feasible_ik(
     *,
     pos: np.ndarray,
-    desired_dir: np.ndarray,
     q_seed: np.ndarray,
     object_world: np.ndarray,
     approach_axis: np.ndarray,
@@ -262,48 +264,39 @@ def _attempt_feasible_ik(
     max_approach_drift_rad: float,
     stats: Optional["GraspPlanStats"] = None,
 ) -> GraspWaypoint | None:
-    """Try IK with look-at-object dir, then dir-hold; accept only FK-achievable poses."""
+    """IK with look-at-object; accept only FK poses that look at the object."""
     if stats is not None:
         stats.feasible_ik_attempts += 1
-    desired_u = _look_at_object_dir(pos, object_world)
+    look_u = _look_at_object_dir(pos, object_world)
     _ = _unit_vec3(approach_axis)
-    dir_candidates: list[tuple[np.ndarray, bool]] = [(desired_u, True)]
 
-    fk_seed = fk_fn(q_seed)
-    dir_seed = np.asarray(fk_seed.direction_world, dtype=float).reshape(3)
-    if float(np.linalg.norm(dir_seed)) > 1e-9:
-        hold_u = _unit_vec3(dir_seed)
-        if float(np.dot(hold_u, desired_u)) < 0.9999:
-            dir_candidates.append((hold_u, True))
-
-    for dir_try, enforce_dir_gate in dir_candidates:
-        result = _try_ik_at_pose(
-            pos=pos,
-            direction=dir_try,
-            q_seed=q_seed,
-            ik_fn=ik_fn,
-            ik_kwargs=ik_kwargs,
-        )
-        if result is None or not bool(result.success) or result.q is None:
-            continue
-        dir_err = float(getattr(result, "direction_angle_rad", 0.0))
-        if enforce_dir_gate and dir_err > float(max_dir_error_rad):
-            continue
-        q_arr = np.asarray(result.q, dtype=float).reshape(4)
-        fk = fk_fn(q_arr)
-        fk_dir = np.asarray(fk.direction_world, dtype=float).reshape(3)
-        if float(np.linalg.norm(fk_dir)) <= 1e-9:
-            continue
-        look_dir = _look_at_object_dir(fk.position_world, object_world)
-        drift = _direction_angle_rad(fk_dir, look_dir)
-        if drift > float(max_approach_drift_rad):
-            continue
-        return _waypoint_from_fk(
-            fk=fk,
-            object_world=object_world,
-            q_seed=q_arr,
-        )
-    return None
+    result = _try_ik_at_pose(
+        pos=pos,
+        direction=look_u,
+        object_world=object_world,
+        q_seed=q_seed,
+        ik_fn=ik_fn,
+        ik_kwargs=ik_kwargs,
+    )
+    if result is None or not bool(result.success) or result.q is None:
+        return None
+    dir_err = float(getattr(result, "direction_angle_rad", 0.0))
+    if dir_err > float(max_dir_error_rad):
+        return None
+    q_arr = np.asarray(result.q, dtype=float).reshape(4)
+    fk = fk_fn(q_arr)
+    fk_dir = np.asarray(fk.direction_world, dtype=float).reshape(3)
+    if float(np.linalg.norm(fk_dir)) <= 1e-9:
+        return None
+    look_dir = _look_at_object_dir(fk.position_world, object_world)
+    drift = _direction_angle_rad(fk_dir, look_dir)
+    if drift > float(max_approach_drift_rad):
+        return None
+    return _waypoint_from_fk(
+        fk=fk,
+        object_world=object_world,
+        q_seed=q_arr,
+    )
 
 
 def _kinematic_step_at_travel(
@@ -356,7 +349,6 @@ def _kinematic_step_at_travel(
 
         best = _attempt_feasible_ik(
             pos=pos,
-            desired_dir=direction,
             q_seed=q_seed,
             object_world=object_world,
             approach_axis=approach_axis,
@@ -377,7 +369,6 @@ def _kinematic_step_at_travel(
                     stats.lateral_tries += 1
                 best = _attempt_feasible_ik(
                     pos=pos + off,
-                    desired_dir=direction,
                     q_seed=q_seed,
                     object_world=object_world,
                     approach_axis=approach_axis,

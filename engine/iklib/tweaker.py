@@ -327,6 +327,120 @@ def compute_tweak_session_step(
     )
 
 
+def _look_at_object_dir(
+    position: Sequence[float] | np.ndarray,
+    object_world: Sequence[float] | np.ndarray,
+) -> Optional[np.ndarray]:
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+    pos = np.asarray(position, dtype=float).reshape(3)
+    vec = obj - pos
+    norm = float(np.linalg.norm(vec))
+    if norm <= 1e-9:
+        return None
+    return vec / norm
+
+
+def tweak_pose_look_at_object(
+    *,
+    current_q: Sequence[float],
+    target_world: Sequence[float],
+    object_world: Sequence[float],
+    context: dict,
+    position_tol_m: float = 5e-3,
+    direction_tol_deg: float = 5.0,
+    position_weight: float = 1.0,
+    direction_weight: float = 0.35,
+    damping: float = 1e-3,
+    max_iters: int = 10,
+    initial_step_scale: float = 1.0,
+) -> TweakResult:
+    """Refine q toward ``target_world`` while tip direction tracks look-at-object."""
+    model = _ReachModel(context=context, limit=context["limit"])
+    q = model.clamp_q(current_q)
+    target_pos = np.asarray(target_world, dtype=float).reshape(3)
+    obj = np.asarray(object_world, dtype=float).reshape(3)
+
+    pos_tol = float(max(position_tol_m, 1e-6))
+    dir_tol = math.radians(float(max(direction_tol_deg, 0.1)))
+    accepted_steps = 0
+    step_scale = float(max(initial_step_scale, 1e-3))
+
+    for iteration in range(1, max(int(max_iters), 1) + 1):
+        pos_now = model.grasp_position(q)
+        dir_now = model.grasp_direction(q)
+        desired_dir = _look_at_object_dir(pos_now, obj)
+        if desired_dir is None:
+            pos_err_now = target_pos - pos_now
+            return TweakResult(
+                q=q.copy(),
+                position_error_m=float(np.linalg.norm(pos_err_now)),
+                direction_angle_rad=0.0,
+                iterations=iteration - 1,
+                accepted_steps=accepted_steps,
+                converged=(float(np.linalg.norm(pos_err_now)) <= pos_tol),
+                reason="degenerate look-at",
+            )
+
+        pos_err_now = target_pos - pos_now
+        dir_ang_now = _direction_angle_rad(dir_now, desired_dir)
+        if float(np.linalg.norm(pos_err_now)) <= pos_tol and float(dir_ang_now) <= dir_tol:
+            return TweakResult(
+                q=q.copy(),
+                position_error_m=float(np.linalg.norm(pos_err_now)),
+                direction_angle_rad=float(dir_ang_now),
+                iterations=iteration - 1,
+                accepted_steps=accepted_steps,
+                converged=True,
+                reason="converged",
+            )
+
+        step = compute_tweak_step(
+            current_q=q,
+            target_world=target_pos,
+            target_dir_world=desired_dir,
+            context=context,
+            position_weight=position_weight,
+            direction_weight=direction_weight,
+            damping=damping,
+            step_scale=step_scale,
+        )
+        if not step.accepted:
+            return TweakResult(
+                q=q.copy(),
+                position_error_m=float(np.linalg.norm(pos_err_now)),
+                direction_angle_rad=float(dir_ang_now),
+                iterations=iteration,
+                accepted_steps=accepted_steps,
+                converged=False,
+                reason="no improving step",
+            )
+        q = step.q.copy()
+        accepted_steps += 1
+        step_scale = max(step.step_scale * 0.75, 0.1)
+
+    pos_final = model.grasp_position(q)
+    dir_final = model.grasp_direction(q)
+    desired_final = _look_at_object_dir(pos_final, obj)
+    pos_err_final = target_pos - pos_final
+    dir_ang_final = (
+        0.0
+        if desired_final is None
+        else _direction_angle_rad(dir_final, desired_final)
+    )
+    return TweakResult(
+        q=q.copy(),
+        position_error_m=float(np.linalg.norm(pos_err_final)),
+        direction_angle_rad=float(dir_ang_final),
+        iterations=max(int(max_iters), 1),
+        accepted_steps=accepted_steps,
+        converged=(
+            float(np.linalg.norm(pos_err_final)) <= pos_tol
+            and float(dir_ang_final) <= dir_tol
+        ),
+        reason="iteration limit",
+    )
+
+
 def tweak_pose(
     *,
     current_q: Sequence[float],
@@ -433,4 +547,5 @@ __all__ = [
     "evaluate_tweak_feedback",
     "reject_tweak_step",
     "tweak_pose",
+    "tweak_pose_look_at_object",
 ]

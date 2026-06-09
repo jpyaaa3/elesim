@@ -477,6 +477,48 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
         self.assertEqual(stats.kinematic_steps_ok, fail_after)
         self.assertEqual(stats.kinematic_steps_fail, 1)
 
+    def test_feasible_ik_single_look_at_attempt_passes_object_world(self) -> None:
+        obj = np.array([0.40, 0.0, 0.90], dtype=float)
+        pos = np.array([0.30, 0.0, 1.00], dtype=float)
+        calls: list[dict] = []
+
+        class _IkResult:
+            success = False
+            q = None
+            position_error_m = 0.0
+            direction_angle_rad = 0.0
+            reason = "fail"
+
+        def ik_fn(**kwargs):
+            calls.append(dict(kwargs))
+            return _IkResult()
+
+        def fk_fn(q):
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (float(pos[0]), float(pos[1]), float(pos[2])),
+                    "direction_world": (1.0, 0.0, 0.0),
+                },
+            )()
+
+        wp = _GRASP_TRAJECTORY._attempt_feasible_ik(
+            pos=pos,
+            q_seed=np.array([0.2, 0.0, 0.2, 0.1], dtype=float),
+            object_world=obj,
+            approach_axis=np.array([1.0, 0.0, 0.0], dtype=float),
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            ik_kwargs={},
+            max_dir_error_rad=0.2,
+            max_approach_drift_rad=0.3,
+        )
+        self.assertIsNone(wp)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("object_world", calls[0])
+        self.assertAlmostEqual(float(calls[0]["object_world"][0]), 0.40, places=4)
+
     def test_geom_plan_uses_look_at_object_direction(self) -> None:
         obj = (0.40, 0.10, 0.90)
         start = (0.20, 0.0, 1.10)

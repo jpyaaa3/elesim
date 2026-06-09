@@ -62,9 +62,10 @@ def _build_ik_fk(
         "context": ctx,
         "position_tol_m": max(float(ik_cfg.tol), 1e-4),
         "max_iters": max(int(ik_cfg.max_iters), 1),
-        "align_mode": str(align_mode),
         "align_skip_under_deg": float(pick_cfg.ik_align_skip_under_deg),
         "tweak_rounds": max(int(pick_cfg.ik_align_rounds), 1),
+        "direction_tol_deg": float(max(pick_cfg.grasp_waypoint_max_dir_error_deg, 0.1)),
+        "tweak_position_hold_tol_m": max(float(ik_cfg.tol), 1e-3),
     }
     model = _ReachModel(context=ctx, limit=ctx["limit"])
     ik_success = {"n": 0}
@@ -75,7 +76,7 @@ def _build_ik_fk(
         if timing is not None:
             timing.ik_calls += 1
             merged["timing"] = timing
-        result = ik_pipeline.solve_then_align(**merged)
+        result = ik_pipeline.solve_then_look_at_tweak(**merged)
         if timing is not None and bool(getattr(result, "success", False)):
             ik_success["n"] += 1
         return result
@@ -227,7 +228,7 @@ def main() -> int:
         "--align",
         choices=("full", "lite"),
         default="full",
-        help="align mode (production plan uses force_full=True → full)",
+        help="legacy label for compare runs (plan uses solve_then_look_at_tweak)",
     )
     ap.add_argument(
         "--compare-align",
