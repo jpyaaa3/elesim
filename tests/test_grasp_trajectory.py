@@ -25,6 +25,16 @@ plan_grasp_next_waypoint = _GRASP_TRAJECTORY.plan_grasp_next_waypoint
 build_grasp_trajectory_markers = _GRASP_TRAJECTORY.build_grasp_trajectory_markers
 GraspWaypoint = _GRASP_TRAJECTORY.GraspWaypoint
 
+_SPEC_STATS = importlib.util.spec_from_file_location(
+    "pick_timing",
+    ROOT / "engine" / "profile" / "pick_timing.py",
+)
+assert _SPEC_STATS is not None and _SPEC_STATS.loader is not None
+_PICK_TIMING = importlib.util.module_from_spec(_SPEC_STATS)
+sys.modules[_SPEC_STATS.name] = _PICK_TIMING
+_SPEC_STATS.loader.exec_module(_PICK_TIMING)
+GraspPlanStats = _PICK_TIMING.GraspPlanStats
+
 
 class TestGraspTrajectoryPlanner(unittest.TestCase):
     def test_plan_monotonic_standoff_along_kinematic_geom(self) -> None:
@@ -413,6 +423,59 @@ class TestGraspTrajectoryPlanner(unittest.TestCase):
             axial = float(np.dot(end_arr - pos, direction))
             self.assertLess(axial, prev_axial + 1e-4)
             prev_axial = axial
+
+    def test_kinematic_plan_records_stats_counters(self) -> None:
+        obj = (0.40, 0.0, 0.90)
+        end = (0.38, 0.0, 0.88)
+        direction = (1.0, 0.0, 0.0)
+        stats = GraspPlanStats()
+        fail_after = 2
+        n = {"ik": 0}
+
+        class _IkResult:
+            def __init__(self, ok: bool, q=None):
+                self.success = ok
+                self.q = q
+                self.position_error_m = 0.0
+                self.direction_angle_rad = 0.0
+                self.reason = ""
+
+        def ik_fn(**kwargs):
+            n["ik"] += 1
+            if n["ik"] > fail_after:
+                return _IkResult(False)
+            target = kwargs["target_world"]
+            return _IkResult(True, q=[float(target[0]), 0.0, 0.2, 0.1])
+
+        def fk_fn(q):
+            return type(
+                "FkTip",
+                (),
+                {
+                    "position_world": (float(q[0]), 0.0, 0.90),
+                    "direction_world": direction,
+                },
+            )()
+
+        waypoints = plan_grasp_feasible_trajectory(
+            start_position=(0.20, 0.0, 1.10),
+            end_position=end,
+            start_direction=direction,
+            end_direction=direction,
+            object_world=obj,
+            q_seed=(0.20, 0.0, 0.2, 0.1),
+            step_m=0.03,
+            blind_start_m=0.06,
+            ik_fn=ik_fn,
+            fk_fn=fk_fn,
+            max_waypoints=10,
+            stats=stats,
+        )
+        self.assertEqual(len(waypoints), fail_after)
+        self.assertGreater(stats.feasible_ik_attempts, 0)
+        self.assertGreater(stats.bisect_iters, 0)
+        self.assertEqual(stats.kinematic_steps_ok, fail_after)
+        self.assertEqual(stats.kinematic_steps_fail, 1)
 
     def test_geom_plan_uses_look_at_object_direction(self) -> None:
         obj = (0.40, 0.10, 0.90)
