@@ -231,15 +231,9 @@ def draw_perception_panel(panel) -> None:
             panel.service.update_perception_config(cfg)
             panel.service.start_aim()
         imgui.same_line()
-        if imgui.button("Grasp Plan"):
+        if imgui.button("Grasp"):
             panel.service.update_perception_config(cfg)
-            panel.service.start_grasp_plan()
-        imgui.same_line()
-        if imgui.button("Grasp Execute"):
-            panel.service.start_grasp_execute()
-        if panel.service.grasp_trajectory_planned():
-            imgui.same_line()
-            imgui.text("(plan ready)")
+            panel.service.start_grasp()
         if imgui.tree_node("Advanced (debug)"):
             if imgui.button("Ready Pose"):
                 panel.service.update_perception_config(cfg)

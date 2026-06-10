@@ -201,19 +201,14 @@ class PickConfig:
     grasp_standoff_m: float = 0.05
     grasp_guided_enabled: bool = True
     grasp_waypoint_step_m: float = 0.03
+    grasp_guided_handoff_m: float = 0.10
     grasp_blind_start_m: float = 0.06
     grasp_blind_approach_m: float = 0.02
-    grasp_max_waypoints: int = 20
+    grasp_max_waypoints: int = 40
     grasp_waypoint_settle_s: float = 0.40
     grasp_waypoint_settle_timeout_s: float = 4.0
     grasp_waypoint_max_dir_error_deg: float = 12.0
     grasp_waypoint_max_approach_drift_deg: float = 18.0
-    grasp_plan_min_step_m: float = 0.002
-    grasp_plan_lateral_offset_m: float = 0.005
-    grasp_plan_bisect_iters: int = 18
-    grasp_plan_reach_tol_m: float = 0.005
-    grasp_plan_ik_rounds: int = 10
-    grasp_plan_ik_max_iters: int = 80
     grasp_uv_center_tol: float = 0.0
     grasp_online_sag_enabled: bool = True
     grasp_online_sag_max_step_deg: float = 2.0
@@ -512,6 +507,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         grasp_waypoint_step_m=cp.getfloat(
             "pick", "grasp_waypoint_step_m", fallback=pk0.grasp_waypoint_step_m
         ),
+        grasp_guided_handoff_m=cp.getfloat(
+            "pick", "grasp_guided_handoff_m", fallback=pk0.grasp_guided_handoff_m
+        ),
         grasp_blind_start_m=cp.getfloat(
             "pick", "grasp_blind_start_m", fallback=pk0.grasp_blind_start_m
         ),
@@ -538,24 +536,6 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
             "pick",
             "grasp_waypoint_max_approach_drift_deg",
             fallback=pk0.grasp_waypoint_max_approach_drift_deg,
-        ),
-        grasp_plan_min_step_m=cp.getfloat(
-            "pick", "grasp_plan_min_step_m", fallback=pk0.grasp_plan_min_step_m
-        ),
-        grasp_plan_lateral_offset_m=cp.getfloat(
-            "pick", "grasp_plan_lateral_offset_m", fallback=pk0.grasp_plan_lateral_offset_m
-        ),
-        grasp_plan_bisect_iters=cp.getint(
-            "pick", "grasp_plan_bisect_iters", fallback=pk0.grasp_plan_bisect_iters
-        ),
-        grasp_plan_reach_tol_m=cp.getfloat(
-            "pick", "grasp_plan_reach_tol_m", fallback=pk0.grasp_plan_reach_tol_m
-        ),
-        grasp_plan_ik_rounds=cp.getint(
-            "pick", "grasp_plan_ik_rounds", fallback=pk0.grasp_plan_ik_rounds
-        ),
-        grasp_plan_ik_max_iters=cp.getint(
-            "pick", "grasp_plan_ik_max_iters", fallback=pk0.grasp_plan_ik_max_iters
         ),
         grasp_uv_center_tol=cp.getfloat(
             "pick", "grasp_uv_center_tol", fallback=pk0.grasp_uv_center_tol

@@ -1,0 +1,35 @@
+[Grasp] guided start | handoff=100mm standoff=20mm step=50mm settle=3.00s
+[Grasp] wp 1 | aim recover | centered=false steps=25 uv=(+0.082,-0.111)
+[Grasp] wp 1 | sag | d_seg1=-0.26deg d_seg2=+1.12deg axial=-0.0mm lateral=15.8mm dir_err=3.0deg
+[Grasp] grasp waypoint 1 | travel=49.0mm look_err=2.4deg (tol 12.0deg)
+[Grasp] grasp waypoint 1 | settle timeout (continue)
+[Grasp] wp 1 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 1 | remain=232.6mm centered=false uv=(+0.082,-0.111)
+[Grasp] wp 2 | aim recover | centered=false steps=17 uv=(+0.059,-0.100)
+[Grasp] wp 2 | sag | d_seg1=+0.44deg d_seg2=-1.68deg axial=-0.0mm lateral=15.6mm dir_err=3.5deg
+[Grasp] grasp waypoint 2 | travel=48.9mm look_err=2.1deg (tol 12.0deg)
+[Grasp] grasp waypoint 2 | settle timeout (continue)
+[Grasp] wp 2 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 2 | remain=178.2mm centered=false uv=(+0.059,-0.100)
+[Grasp] wp 3 | aim recover | centered=true steps=20 uv=(+0.050,-0.016)
+[Grasp] wp 3 | sag | d_seg1=-0.50deg d_seg2=+2.00deg axial=-0.0mm lateral=23.1mm dir_err=6.3deg
+[Grasp] grasp waypoint 3 | travel=49.8mm look_err=1.8deg (tol 12.0deg)
+[Grasp] grasp waypoint 3 | settle timeout (continue)
+[Grasp] wp 3 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 3 | remain=134.7mm centered=true uv=(+0.050,-0.016)
+[Grasp] wp 4 | aim recover | centered=false steps=11 uv=(+0.037,+0.142)
+[Grasp] wp 4 | sag | d_seg1=+0.55deg d_seg2=-2.00deg axial=-0.0mm lateral=13.1mm dir_err=4.7deg
+[Grasp] grasp waypoint 4 | travel=34.4mm look_err=3.7deg (tol 12.0deg)
+[Grasp] grasp waypoint 4 | settle timeout (continue)
+[Grasp] wp 4 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 4 | remain=88.0mm centered=false uv=(+0.037,+0.142)
+[Grasp] guided handoff | remain=88.0mm <= 100mm (blind extend)
+[Grasp] handoff look latch | dir=(0.817,-0.072,-0.572) obj=(0.463,-0.014,1.092)
+[Grasp] perception stopped | blind one-shot extend
+[Grasp] blind extend | axial_remain=81.0mm > tol 5.0mm
+[Grasp] blind extend | axial_remain=81.0mm look_err=3.3deg (latched look)
+[Grasp] grasp blind | travel=78.0mm look_err=2.7deg (tol 12.0deg)
+[Grasp] blind extend | travel=78.0mm look_err=2.7deg
+[Grasp] blind done | axial_remain=0.8mm (pre-contact)
+[Pick] grasp pre-contact | pre-contact not reached (err=15.7mm); gripper kept open
+

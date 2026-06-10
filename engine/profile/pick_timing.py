@@ -127,67 +127,6 @@ class PickTimingCollector:
         )
 
 
-@dataclass
-class GraspPlanStats:
-    """Counters for grasp kinematic planner inner loops."""
-
-    bisect_iters: int = 0
-    feasible_ik_attempts: int = 0
-    lateral_tries: int = 0
-    kinematic_steps_ok: int = 0
-    kinematic_steps_fail: int = 0
-    ik_position_fail: int = 0
-    ik_drift_fail: int = 0
-    progress_reject: int = 0
-    standoff_reject: int = 0
-
-
-@dataclass
-class GraspPlanProfile:
-    phase: str = "grasp_plan"
-    t_total_s: float = 0.0
-    t_geom_s: float = 0.0
-    t_kinematic_s: float = 0.0
-    t_solve_position_s: float = 0.0
-    t_align_s: float = 0.0
-    ik_calls: int = 0
-    ik_success: int = 0
-    fk_calls: int = 0
-    waypoints: int = 0
-    geom_waypoints: int = 0
-    stats: GraspPlanStats = field(default_factory=GraspPlanStats)
-    success: bool = False
-
-
-def format_grasp_plan_report(profile: GraspPlanProfile) -> str:
-    st = profile.stats
-    ik_ms = (profile.t_solve_position_s + profile.t_align_s) * 1000.0
-    other_ms = max(0.0, profile.t_kinematic_s * 1000.0 - ik_ms)
-    lines = [
-        f"[Profile] {profile.phase} | success={profile.success} "
-        f"waypoints={profile.waypoints} geom_ref={profile.geom_waypoints}",
-        f"  total            {profile.t_total_s * 1000.0:8.1f} ms",
-        f"  geom_plan          {profile.t_geom_s * 1000.0:7.1f} ms",
-        f"  kinematic_plan     {profile.t_kinematic_s * 1000.0:7.1f} ms",
-        f"    ik (solve+align) {ik_ms:7.1f} ms  (calls={profile.ik_calls} ok={profile.ik_success})",
-        f"      solve_position {profile.t_solve_position_s * 1000.0:7.1f} ms",
-        f"      align_direction {profile.t_align_s * 1000.0:7.1f} ms",
-        f"    planner overhead {other_ms:7.1f} ms",
-        f"  bisect_iters       {st.bisect_iters}",
-        f"  feasible_ik_tries  {st.feasible_ik_attempts}",
-        f"  lateral_tries      {st.lateral_tries}",
-        f"  step_ok / fail     {st.kinematic_steps_ok} / {st.kinematic_steps_fail}",
-        f"  ik_reject pos/drift/prog/stand {st.ik_position_fail}/{st.ik_drift_fail}/"
-        f"{st.progress_reject}/{st.standoff_reject}",
-        f"  fk_calls           {profile.fk_calls}",
-    ]
-    if profile.ik_calls > 0:
-        lines.append(
-            f"  ms per ik_call     {(ik_ms / profile.ik_calls):7.1f} ms"
-        )
-    return "\n".join(lines)
-
-
 def format_report(profile: PickPhaseProfile) -> str:
     lines = [
         f"[Profile] {profile.phase} | success={profile.success} reason={profile.resolve_reason or '-'}",
@@ -205,13 +144,10 @@ def format_report(profile: PickPhaseProfile) -> str:
 
 
 __all__ = [
-    "GraspPlanProfile",
-    "GraspPlanStats",
     "PickPhaseProfile",
     "PickTimingCollector",
     "enabled",
     "fk_call_count",
-    "format_grasp_plan_report",
     "format_report",
     "install_fk_counter",
     "reset_fk_count",

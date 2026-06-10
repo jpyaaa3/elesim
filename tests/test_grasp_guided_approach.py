@@ -97,18 +97,19 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         q = np.array([0.1, 0.0, 0.2, 0.1], dtype=float)
-        with patch.object(svc, "_wait_until_q_settled", return_value=MagicMock()) as mock_q, patch(
-            "engine.controller.actions.time.sleep"
-        ) as mock_sleep:
-            svc._grasp_wait_waypoint_settle(
+        with patch.object(
+            svc, "_wait_until_q_settled", return_value=(MagicMock(), True)
+        ) as mock_q, patch("engine.controller.actions.time.sleep") as mock_sleep:
+            out = svc._grasp_wait_waypoint_settle(
                 q_cmd=q,
                 host_state=None,
                 label="wp 1/5",
                 settle_s=0.4,
                 settle_timeout_s=3.0,
             )
-        mock_q.assert_called_once()
-        mock_sleep.assert_called_once_with(0.4)
+        self.assertIsNotNone(out)
+        mock_q.assert_called()
+        mock_sleep.assert_called()
 
     def test_start_grasp_guided_when_enabled(self) -> None:
         svc = ControlService(PanelState())
@@ -116,13 +117,10 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         svc._pick_cfg = PickConfig(grasp_guided_enabled=True)
         svc._pick_look_object_world_xyz = (0.33, 0.01, 0.92)
         svc._pick_look_dir_world = (1.0, 0.0, 0.0)
-        with patch.object(svc, "_run_grasp_trajectory_plan", return_value=True) as mock_plan, patch.object(
-            svc, "_start_grasp_guided_execute", return_value=True
-        ) as mock_exec:
+        with patch.object(svc, "_start_grasp_guided_approach", return_value=True) as mock_guided:
             ok = svc._start_grasp_to_object(internal=True)
         self.assertTrue(ok)
-        mock_plan.assert_called_once()
-        mock_exec.assert_called_once()
+        mock_guided.assert_called_once()
 
     def test_grasp_trajectory_end_is_pre_contact_not_object(self) -> None:
         obj = (0.33, 0.01, 0.92)
@@ -171,9 +169,10 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             )
         )
 
-    def test_guided_worker_move_aim_sag_order(self) -> None:
+    def test_guided_worker_move_aim_sag_ik_order(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
+        svc._ik_cfg = IkConfig(tol=0.001)
         svc._pick_cfg = PickConfig(
             grasp_guided_enabled=True,
             grasp_waypoint_step_m=0.03,
@@ -183,24 +182,15 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             grasp_standoff_m=0.02,
         )
         svc._grasp_nominal_dir = (1.0, 0.0, 0.0)
-        svc._grasp_plan_ready = True
-        svc._grasp_plan_traj_start = (0.10, 0.0, 0.90)
-        svc._grasp_plan_object_world = (0.33, 0.01, 0.92)
-        svc._grasp_plan_look_anchor = (0.03, 0.0, 0.90)
+        svc._grasp_traj_start = (0.10, 0.0, 0.90)
+        svc._grasp_look_anchor = (0.03, 0.0, 0.90)
         svc._perception_capture = MagicMock()
         svc._perception_capture.is_running.return_value = True
-
-        sample_wp = GraspWaypoint(
-            position_world=(0.13, 0.0, 0.90),
-            direction_world=(1.0, 0.0, 0.0),
-            standoff_m=0.27,
-        )
-        svc._grasp_planned_waypoints = [sample_wp]
         call_order: list[str] = []
 
-        def _ik(**_kwargs):
+        def _advance(**_kwargs):
             call_order.append("ik")
-            return True, np.zeros(4), None, 0.0
+            return True, np.zeros(4), None
 
         def _aim(**_kwargs):
             call_order.append("aim")
@@ -222,7 +212,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
                 (0.10, 0.0, 0.90),
                 (0.13, 0.0, 0.90),
                 (0.15, 0.0, 0.90),
-                (0.05, 0.0, 0.90),
+                (0.31, 0.0, 0.90),
             ],
         ), patch.object(
             svc,
@@ -232,80 +222,85 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_q_array_from_state", return_value=np.zeros(4)
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=True
-        ), patch.object(svc, "_grasp_ik_to_waypoint", side_effect=_ik), patch.object(
+        ), patch.object(
+            svc, "_grasp_advance_waypoint_ik", side_effect=_advance
+        ), patch.object(
             svc, "_grasp_aim_recover_after_move", side_effect=_aim
-        ), patch.object(svc, "_grasp_update_online_sag_bias", side_effect=_sag), patch.object(
-            svc,
-            "_grasp_align_to_approach_dir",
-        ) as mock_align, patch.object(svc, "send_grasp_meta"), patch.object(
+        ), patch.object(
+            svc, "_grasp_update_online_sag_bias", side_effect=_sag
+        ), patch.object(
+            svc, "_grasp_blind_final_approach",
+            return_value=(True, np.zeros(4), None, (0.31, 0.0, 0.90)),
+        ), patch.object(svc, "send_grasp_meta"), patch.object(
             svc, "_send_grasp_target_markers"
         ), patch.object(
             svc,
             "_close_gripper_after_grasp_arrival",
             return_value=(True, "claw closed"),
         ):
-            svc._run_grasp_guided_execute_worker(
+            svc._run_grasp_guided_approach_worker(
                 object_world=(0.33, 0.01, 0.92),
                 approach_dir=np.array([1.0, 0.0, 0.0]),
+                nominal_world=(0.31, 0.0, 0.90),
             )
 
-        mock_align.assert_not_called()
-        self.assertEqual(call_order[:3], ["ik", "aim", "sag"])
+        self.assertEqual(call_order[:3], ["aim", "sag", "ik"])
         self.assertIn("stop", call_order)
         self.assertEqual(str(svc.state.pick_phase), "done")
-        self.assertFalse(svc.grasp_trajectory_planned())
 
-    def test_blind_final_loops_until_nominal_not_one_step(self) -> None:
+    def test_blind_final_one_shot_with_latched_look(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._ik_cfg = IkConfig(tol=0.001)
         object_world = (0.33, 0.0, 0.90)
-        tips = [
-            (0.25, 0.0, 0.90),
-            (0.27, 0.0, 0.90),
-            (0.29, 0.0, 0.90),
-            (0.305, 0.0, 0.90),
-            (0.31, 0.0, 0.90),
-        ]
-        ik_labels: list[str] = []
+        look_dir = (1.0, 0.0, 0.0)
+        advance_labels: list[str] = []
 
-        def _ik_to_wp(**kwargs):
-            ik_labels.append(str(kwargs.get("label", "")))
-            return True, np.array([0.1, 0.0, 0.0, 0.0]), None, 0.0
+        def _advance(**kwargs):
+            advance_labels.append(str(kwargs.get("label", "")))
+            return True, 0.06, np.array([0.1, 0.0, 0.0, 0.0]), None
 
         with patch.object(
             svc,
             "_pick_current_tip_world",
-            side_effect=tips,
+            side_effect=[
+                (0.25, 0.0, 0.90),
+                (0.308, 0.0, 0.90),
+            ],
         ), patch.object(
-            svc, "_grasp_ik_to_waypoint", side_effect=_ik_to_wp
+            svc, "_grasp_align_to_approach_dir", return_value=(True, None)
+        ), patch.object(
+            svc, "_grasp_cartesian_advance_along_dir", side_effect=_advance
         ), patch.object(
             svc,
             "_wait_until_grasp_target_reached",
             return_value=(True, 0.002, MagicMock(reply_ok=True, q=MagicMock())),
         ), patch.object(
             svc, "_q_array_from_state", return_value=np.zeros(4)
-        ):
+        ), patch.object(
+            svc,
+            "_pick_reach_model",
+        ) as mock_model:
+            mock_model.return_value.grasp_position.return_value = np.array(
+                [0.25, 0.0, 0.90]
+            )
+            mock_model.return_value.grasp_direction.return_value = np.array(
+                [1.0, 0.0, 0.0]
+            )
             ok, _, _, target = svc._grasp_blind_final_approach(
                 object_world=object_world,
-                blind_approach_m=0.02,
+                look_dir=look_dir,
                 sag_model={},
                 host_state=MagicMock(),
                 grasp_standoff_m=0.02,
-                blind_start_m=0.06,
+                approach_dir=np.array([1.0, 0.0, 0.0]),
+                nominal_world=(0.31, 0.0, 0.90),
             )
         self.assertTrue(ok)
         self.assertAlmostEqual(target[0], 0.31, places=3)
-        self.assertAlmostEqual(target[2], 0.90, places=3)
-        self.assertGreaterEqual(len(ik_labels), 2)
-        self.assertTrue(all(lbl.startswith("grasp blind") for lbl in ik_labels))
-
-    def test_start_grasp_execute_requires_plan(self) -> None:
-        svc = ControlService(PanelState())
-        svc._pick_cfg = PickConfig(grasp_guided_enabled=True)
-        svc.start_grasp_execute()
-        self.assertTrue(svc.state.pick_failed)
-        self.assertIn("no plan", str(svc.state.pick_status_msg).lower())
+        self.assertEqual(len(advance_labels), 1)
+        self.assertEqual(advance_labels[0], "grasp blind")
+        mock_model.return_value.grasp_position.assert_called()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,58 @@
+[Grasp] guided start | handoff=100mm standoff=20mm step=50mm settle=3.00s
+[Grasp] wp 1 | aim recover | centered=true steps=10 uv=(-0.012,-0.057)
+[Grasp] wp 1 | sag | d_seg1=+0.24deg d_seg2=-0.99deg axial=-0.0mm lateral=11.3mm dir_err=1.9deg
+[Grasp] grasp waypoint 1 | travel=50.0mm look_err=2.8deg (tol 12.0deg)
+[Grasp] wp 1 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 1 | remain=269.0mm centered=true uv=(-0.012,-0.057)
+[Grasp] wp 2 | aim recover | centered=true steps=42 uv=(-0.005,-0.058)
+[Grasp] wp 2 | sag | d_seg1=-1.04deg d_seg2=+2.00deg axial=-0.0mm lateral=27.7mm dir_err=4.4deg
+[Grasp] grasp waypoint 2 | travel=48.9mm look_err=1.7deg (tol 12.0deg)
+[Grasp] grasp waypoint 2 | settle timeout (continue)
+[Grasp] wp 2 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 2 | remain=301.6mm centered=true uv=(-0.005,-0.058)
+[Grasp] wp 3 | aim recover | centered=true steps=16 uv=(+0.010,-0.049)
+[Grasp] wp 3 | sag | d_seg1=+0.35deg d_seg2=+0.62deg axial=-0.0mm lateral=17.4mm dir_err=2.9deg
+[Grasp] grasp waypoint 3 | travel=48.8mm look_err=1.1deg (tol 12.0deg)
+[Grasp] grasp waypoint 3 | settle timeout (continue)
+[Grasp] wp 3 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 3 | remain=259.9mm centered=true uv=(+0.010,-0.049)
+[Grasp] wp 4 | aim recover | centered=true steps=25 uv=(+0.030,-0.002)
+[Grasp] wp 4 | sag | d_seg1=-0.02deg d_seg2=-0.07deg axial=-0.0mm lateral=15.1mm dir_err=2.7deg
+[Grasp] grasp waypoint 4 | travel=49.0mm look_err=0.9deg (tol 12.0deg)
+[Grasp] grasp waypoint 4 | settle timeout (continue)
+[Grasp] wp 4 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 4 | remain=244.8mm centered=true uv=(+0.030,-0.002)
+[Grasp] wp 5 | aim recover | centered=true steps=17 uv=(+0.049,-0.044)
+[Grasp] wp 5 | sag | d_seg1=-0.23deg d_seg2=+0.88deg axial=-0.0mm lateral=24.3mm dir_err=4.8deg
+[Grasp] grasp waypoint 5 | travel=48.9mm look_err=1.5deg (tol 12.0deg)
+[Grasp] grasp waypoint 5 | settle timeout (continue)
+[Grasp] wp 5 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 5 | remain=215.0mm centered=true uv=(+0.049,-0.044)
+[Grasp] wp 6 | aim recover | centered=true steps=18 uv=(+0.051,-0.060)
+[Grasp] wp 6 | sag | d_seg1=+0.30deg d_seg2=-0.97deg axial=-0.0mm lateral=14.9mm dir_err=3.5deg
+[Grasp] grasp waypoint 6 | travel=48.9mm look_err=1.3deg (tol 12.0deg)
+[Grasp] wp 6 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 6 | remain=166.1mm centered=true uv=(+0.051,-0.060)
+[Grasp] wp 7 | aim recover | centered=false steps=18 uv=(+0.098,-0.072)
+[Grasp] wp 7 | sag | d_seg1=-0.27deg d_seg2=+1.22deg axial=-0.0mm lateral=27.8mm dir_err=8.3deg
+[Grasp] grasp waypoint 7 | travel=48.8mm look_err=1.1deg (tol 12.0deg)
+[Grasp] wp 7 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 7 | remain=117.0mm centered=false uv=(+0.098,-0.072)
+[Grasp] wp 8 | aim recover | centered=false steps=10 uv=(+0.104,-0.103)
+[Grasp] wp 8 | sag | d_seg1=+0.54deg d_seg2=-2.00deg axial=-0.0mm lateral=6.2mm dir_err=2.6deg
+[Grasp] grasp waypoint 8 | travel=16.8mm look_err=2.3deg (tol 12.0deg)
+[Grasp] grasp waypoint 8 | settle timeout (continue)
+[Grasp] wp 8 | settle | q_ok=true dwell=3.00s
+[Grasp] wp 8 | remain=85.1mm centered=false uv=(+0.104,-0.103)
+[Grasp] guided handoff | remain=85.1mm <= 100mm (blind extend)
+[Grasp] handoff look latch | dir=(0.643,-0.101,-0.760) obj=(0.423,-0.021,1.068)
+[Grasp] perception stopped | blind one-shot extend
+[Grasp] blind extend | axial_remain=80.2mm > tol 5.0mm
+[Grasp] blind extend | axial_remain=80.2mm look_err=1.1deg (latched look)
+[Grasp] grasp blind | travel=77.2mm look_err=1.2deg (tol 12.0deg)
+[Grasp] blind extend | travel=77.2mm look_err=1.2deg
+[Grasp] blind done | axial_remain=0.7mm (pre-contact)
+[Pick] grasp pre-contact | axial pre-contact ok | remain=0.7mm (gate 9.0mm)
+[Pick] grasp pre-contact | pre-contact reached | err=0.7mm | claw closed
+[Grasp] grasp done | waypoints=8 | arrival=0.7mm | claw closed
+

@@ -26,7 +26,7 @@ from engine.controller.object_pick import ObjectPickPhase
 
 def _parse_phases(raw: str) -> list[str]:
     out = [p.strip().lower() for p in str(raw).split(",") if p.strip()]
-    allowed = {"look", "aim", "grasp", "grasp_plan", "grasp_execute"}
+    allowed = {"look", "aim", "grasp"}
     bad = [p for p in out if p not in allowed]
     if bad:
         raise SystemExit(f"unknown phases: {bad} (allowed: {', '.join(sorted(allowed))})")
@@ -38,12 +38,6 @@ def _wait_pick_done(service: ControlService, *, timeout_s: float, label: str) ->
     while time.time() < deadline:
         phase = str(service.state.pick_phase)
         if phase == ObjectPickPhase.DONE.value and not service.state.pick_running:
-            return True
-        if (
-            phase == ObjectPickPhase.GRASP_PLAN.value
-            and not service.state.pick_running
-            and not service.state.pick_failed
-        ):
             return True
         if service.state.pick_failed:
             print(f"[mock-grasp] {label} failed | {service.state.pick_status_msg}")
@@ -67,7 +61,7 @@ def main() -> int:
     ap.add_argument(
         "--phases",
         default="look,aim,grasp",
-        help="comma-separated: look, aim, grasp, grasp_plan, grasp_execute",
+        help="comma-separated: look, aim, grasp",
     )
     ap.add_argument("--timeout", type=float, default=600.0, help="per-phase timeout [s]")
     args = ap.parse_args()
@@ -109,10 +103,6 @@ def main() -> int:
                 service.start_look()
             elif phase == "aim":
                 service.start_aim()
-            elif phase == "grasp_plan":
-                service.start_grasp_plan()
-            elif phase == "grasp_execute":
-                service.start_grasp_execute()
             else:
                 service.start_grasp()
             ok = _wait_pick_done(service, timeout_s=float(args.timeout), label=phase)

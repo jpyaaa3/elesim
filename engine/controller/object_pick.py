@@ -18,7 +18,6 @@ class ObjectPickPhase(str, Enum):
     LOOK = "look"
     READY = "ready"
     GRASP = "grasp"
-    GRASP_PLAN = "grasp_plan"
     GRASP_APPROACH = "grasp_approach"
     ACQUIRE = "acquire"
     CENTER = "center"
