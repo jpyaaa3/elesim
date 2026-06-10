@@ -4,6 +4,7 @@ import math
 import os
 import threading
 import time
+from collections import deque
 from dataclasses import replace
 from time import perf_counter
 from typing import Any, Optional, Sequence
@@ -36,6 +37,17 @@ from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_po
 from engine.visual_servoing.grasp_trajectory import (
     GraspWaypoint,
     build_grasp_trajectory_markers,
+)
+from engine.visual_servoing.local_image_jacobian import (
+    GraspApproachMode,
+    ImageJacobianEstimator3D,
+    LocalImageJacobianServo3D,
+    LocalImageJacobianServoGains,
+    SampleRejectReason,
+    check_sample_quality,
+    default_j_lji_seed,
+    joint_saturated,
+    z_jacobian_row_from_position_jacobian,
 )
 from engine.visual_servoing.uv_jacobian import (
     broyden_update_uv_jacobian,
@@ -116,6 +128,7 @@ class ControlService:
         )
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
         self._perception_capture: Optional[PerceptionCapture] = None
+        self._perception_capture_epoch: int = 0
         self._last_pick_profile: Optional[PickPhaseProfile] = None
         self._pick_worker: Optional[threading.Thread] = None
         self._pick_e2e_worker: Optional[threading.Thread] = None
@@ -168,6 +181,27 @@ class ControlService:
         self._grasp_traj_start: Optional[tuple[float, float, float]] = None
         self._grasp_look_anchor: Optional[tuple[float, float, float]] = None
         self._grasp_handoff_look_dir: Optional[tuple[float, float, float]] = None
+        self._grasp_object_world_filtered: Optional[tuple[float, float, float]] = None
+        self._grasp_approach_dir_filtered: Optional[tuple[float, float, float]] = None
+        self._grasp_uv_only_mode: bool = False
+        self._grasp_approach_mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
+        self._grasp_lji_estimator_3d: Optional[ImageJacobianEstimator3D] = None
+        self._grasp_lji_servo_3d: Optional[LocalImageJacobianServo3D] = None
+        self._grasp_lji_frozen_sag_model: Optional[dict[str, Any]] = None
+        self._grasp_depth_history: deque[tuple[bool, float, float]] = deque(maxlen=32)
+        self._grasp_lji_object_lost_count = 0
+        self._grasp_lji_last_reliable_object_world: Optional[tuple[float, float, float]] = None
+        self._grasp_lji_last_reliable_approach_dir: Optional[tuple[float, float, float]] = None
+        self._grasp_lji_last_reliable_depth: Optional[float] = None
+        self._grasp_lji_last_good_q: Optional[np.ndarray] = None
+        self._grasp_lji_pending_sample: Optional[dict[str, Any]] = None
+        self._grasp_lji_last_dq_cmd: Optional[np.ndarray] = None
+        self._grasp_lji_reacquire_anchor_dq: Optional[np.ndarray] = None
+        self._grasp_lji_reacquire_steps = 0
+        self._grasp_lji_reacquire_aim_tried = False
+        self._grasp_lji_reacquire_prev_remain: Optional[float] = None
+        self._grasp_lji_v_err_hist: list[float] = []
+        self._grasp_lji_last_transition: str = "-"
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
         self._pick_search_max_steps = 48
@@ -1045,11 +1079,11 @@ class ControlService:
             and cap.track_ok_frames() >= int(require_frames)
         )
 
-    def _pick_apply_lost_follow_step(self, *, reason: str) -> bool:
+    def _pick_apply_lost_follow_step(self, *, reason: str, allow_refresh: bool = True) -> bool:
         if self._pick_lost_follow_count >= int(self._pick_lost_follow_max_steps):
             return False
         cap = self._perception_capture
-        if cap is not None:
+        if bool(allow_refresh) and cap is not None:
             cap.request_refresh()
         if self._pick_search_origin_u is None:
             self._pick_search_origin_u = self.current_control_u()
@@ -3358,6 +3392,30 @@ class ControlService:
                     host_state=host_after,
                     sag_model=dict(base_sag),
                 )
+                if bool(pk.look_post_sag_trim_enabled):
+                    host_after = self._look_post_sag_trim_to_object(
+                        object_world=object_tuple,
+                        sag_model=dict(base_sag),
+                        host_state=host_after,
+                    )
+                if bool(pk.look_post_uv_recover_enabled):
+                    host_after = self._look_post_move_uv_recover(
+                        pk=pk,
+                        host_state=host_after,
+                        object_world=object_tuple,
+                        sag_model=dict(base_sag),
+                    )
+                    if self._pick_look_object_world_xyz is not None:
+                        object_arr = np.asarray(
+                            self._pick_look_object_world_xyz, dtype=float
+                        )
+                look_latch = look_tuple
+                if self._pick_look_dir_world is not None:
+                    look_latch = tuple(float(v) for v in self._pick_look_dir_world)
+                elif self._pick_achieved_dir_world is not None:
+                    look_latch = tuple(float(v) for v in self._pick_achieved_dir_world)
+                if self._pick_achieved_tip_world_xyz is not None:
+                    tip_tuple = tuple(float(v) for v in self._pick_achieved_tip_world_xyz)
                 dir_err_deg = float("nan")
                 if self._pick_achieved_dir_world is not None:
                     dot = float(
@@ -3373,13 +3431,19 @@ class ControlService:
                         )
                     )
                     dir_err_deg = float(math.degrees(math.acos(dot)))
-                self._pick_look_object_world_xyz = object_tuple
+                latch_object = (
+                    float(object_arr[0]),
+                    float(object_arr[1]),
+                    float(object_arr[2]),
+                )
+                self._pick_look_object_world_xyz = latch_object
                 self._pick_look_ready_pose_world_xyz = view_tuple
                 self._pick_look_tip_world_xyz = tip_tuple
-                self._pick_look_dir_world = look_tuple
-                self._pick_initial_object_world_xyz = object_tuple
+                self._pick_look_dir_world = look_latch
+                self._pick_resolved_ready_dir_world = look_latch
+                self._pick_initial_object_world_xyz = latch_object
                 self._pick_initial_ready_pose_world_xyz = view_tuple
-                self._pick_frozen_world_xyz = object_tuple
+                self._pick_frozen_world_xyz = latch_object
                 self.state.set_pick_status(
                     running=False,
                     failed=False,
@@ -3405,9 +3469,9 @@ class ControlService:
                         float(target_arr[0]),
                         float(target_arr[1]),
                         float(target_arr[2]),
-                        float(look_dir_used[0]),
-                        float(look_dir_used[1]),
-                        float(look_dir_used[2]),
+                        float(look_latch[0]),
+                        float(look_latch[1]),
+                        float(look_latch[2]),
                         float(pk.look_pose_standoff_m) * 1000.0,
                         float(dir_err_deg),
                     )
@@ -3528,7 +3592,20 @@ class ControlService:
     def _latch_pick_frozen_world(self) -> None:
         self._pick_frozen_world_xyz = self._pick_frozen_world()
 
-    def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
+    def _retire_perception_capture(self, cap: PerceptionCapture) -> None:
+        if self._perception_capture is not cap:
+            return
+        self._perception_capture = None
+        self._perception_capture_epoch += 1
+
+    def _on_perception_snapshot(
+        self,
+        snap: PerceptionSnapshot,
+        *,
+        capture_epoch: int = 0,
+    ) -> None:
+        if int(capture_epoch) > 0 and int(capture_epoch) != int(self._perception_capture_epoch):
+            return
         world_xyz = snap.p_world
         if bool(self.state.pick_running):
             world_xyz = self._pick_frozen_world()
@@ -3700,6 +3777,984 @@ class ControlService:
         self._grasp_traj_start = None
         self._grasp_look_anchor = None
         self._grasp_handoff_look_dir = None
+        self._grasp_object_world_filtered = None
+        self._grasp_approach_dir_filtered = None
+        self._grasp_uv_only_mode = False
+        self._grasp_approach_mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
+        self._grasp_lji_estimator_3d = None
+        self._grasp_lji_servo_3d = None
+        self._grasp_lji_frozen_sag_model = None
+        self._grasp_depth_history.clear()
+        self._grasp_lji_object_lost_count = 0
+        self._grasp_lji_last_reliable_object_world = None
+        self._grasp_lji_last_reliable_approach_dir = None
+        self._grasp_lji_last_reliable_depth = None
+        self._grasp_lji_last_good_q = None
+        self._grasp_lji_pending_sample = None
+        self._grasp_lji_last_dq_cmd = None
+        self._grasp_lji_reacquire_anchor_dq = None
+        self._grasp_lji_reacquire_steps = 0
+        self._grasp_lji_reacquire_aim_tried = False
+        self._grasp_lji_reacquire_prev_remain = None
+        self._grasp_lji_v_err_hist = []
+        self._grasp_lji_last_transition = "-"
+        self._grasp_lji_sat_streak = 0
+        self._grasp_lji_remain_hist: list[float] = []
+
+    def _grasp_lji_sag_model(self) -> dict[str, Any]:
+        """Fixed equal-sag from grasp start; LJI does not run online sag updates."""
+        frozen = self._grasp_lji_frozen_sag_model
+        if isinstance(frozen, dict) and frozen:
+            return dict(frozen)
+        return self._pick_grasp_sag_model()
+
+    def _grasp_init_lji_controller(self, pk: PickConfig) -> None:
+        seed_j = default_j_lji_seed(
+            center_u_gain=float(pk.center_u_gain),
+            center_v_gain=float(pk.center_v_gain),
+            z_bend_gain=float(pk.lij_z_bend_gain),
+            command_direction=tuple(int(v) for v in self.control_mapping().command_direction),
+            seg1_jacobian_scale=float(pk.lij_seg1_jacobian_scale),
+            seg2_jacobian_scale=float(pk.lij_seg2_jacobian_scale),
+        )
+        # LJI uses aim-time equal-sag frozen at grasp start; no per-waypoint online sag.
+        frozen_sag = self._pick_grasp_sag_model()
+        self._grasp_lji_frozen_sag_model = (
+            dict(frozen_sag) if isinstance(frozen_sag, dict) and frozen_sag else {}
+        )
+        self._grasp_lji_estimator_3d = ImageJacobianEstimator3D(
+            window_size=int(pk.lij_window_size),
+            seed_j=seed_j,
+            min_measured_samples=int(pk.lij_min_samples),
+            condition_max=float(pk.lij_condition_max),
+            min_rank=3,
+        )
+        gains = LocalImageJacobianServoGains(
+            damping=float(pk.lij_damping),
+            gain_u=float(pk.lij_gain_u),
+            gain_v=float(pk.lij_gain_v),
+            gain_z=float(pk.lij_gain_z),
+            max_dq_linear=float(pk.lij_max_dq_linear),
+            max_dq_angle=float(pk.lij_max_dq_angle),
+        )
+        self._grasp_lji_servo_3d = LocalImageJacobianServo3D(
+            estimator=self._grasp_lji_estimator_3d,
+            gains=gains,
+            min_samples=int(pk.lij_min_samples),
+            condition_max=float(pk.lij_condition_max),
+            min_rank=3,
+            command_direction=tuple(int(v) for v in self.control_mapping().command_direction),
+        )
+        self._grasp_approach_mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
+        self._grasp_depth_history.clear()
+        self._grasp_lji_object_lost_count = 0
+        self._grasp_lji_pending_sample = None
+        self._grasp_lji_last_dq_cmd = None
+        self._grasp_lji_reacquire_anchor_dq = None
+        self._grasp_lji_reacquire_steps = 0
+        self._grasp_lji_reacquire_aim_tried = False
+        self._grasp_lji_reacquire_prev_remain = None
+        self._grasp_lji_v_err_hist = []
+        self._grasp_lji_last_transition = "-"
+
+    @staticmethod
+    def _grasp_lji_q_delta4(raw: Sequence[float]) -> tuple[float, float, float, float]:
+        vals = [float(v) for v in raw]
+        while len(vals) < 4:
+            vals.append(0.0)
+        return (vals[0], vals[1], vals[2], vals[3])
+
+    def _grasp_lji_build_features_3d(
+        self,
+        obs: Optional[VisualObservation],
+        *,
+        remain_m: float,
+    ) -> Optional[np.ndarray]:
+        if obs is None:
+            return None
+        # Observation error (obs - target), same convention as solve_uv_control_delta.
+        u_d, v_d, _, _ = self._visual_uv_errors(obs)
+        return np.array([float(u_d), float(v_d), float(remain_m)], dtype=float)
+
+    @staticmethod
+    def _grasp_lji_gain_scale(
+        remain_m: float,
+        pk: PickConfig,
+        *,
+        close_tol_m: float,
+    ) -> float:
+        """1.0 when far; ramps down toward close_tol to damp oscillation near contact."""
+        ref = float(max(pk.lij_gain_scale_ref_m, close_tol_m + 0.01))
+        floor = float(np.clip(pk.lij_gain_scale_min, 0.05, 1.0))
+        span = max(ref - float(close_tol_m), 1e-4)
+        t = (float(remain_m) - float(close_tol_m)) / span
+        return float(np.clip(t, floor, 1.0))
+
+    def _grasp_lji_step_limits(
+        self,
+        remain_m: float,
+        pk: PickConfig,
+        *,
+        close_tol_m: float,
+    ) -> tuple[float, float, float, float, float]:
+        """Per-step dq caps and gain scale; far range allows larger linear."""
+        scale = self._grasp_lji_gain_scale(remain_m, pk, close_tol_m=close_tol_m)
+        handoff = float(max(pk.lij_uv_handoff_m, 0.01))
+        if float(remain_m) > handoff:
+            max_lin = float(
+                max(pk.lij_max_dq_linear, min(pk.lij_far_linear_cap_m, pk.lij_far_z_gain * remain_m))
+            )
+        else:
+            max_lin = float(pk.lij_max_dq_linear)
+        max_lin *= scale
+        max_ang = float(pk.lij_max_dq_angle) * scale
+        max_t1 = float(pk.lij_max_dq_theta1) * scale
+        max_t2 = float(pk.lij_max_dq_angle) * scale
+        return max_lin, max_ang, max_t1, max_t2, scale
+
+    def _grasp_lji_fk_z_row(
+        self,
+        q: np.ndarray,
+        approach_dir: np.ndarray,
+        *,
+        sag_model: Optional[dict[str, Any]] = None,
+    ) -> np.ndarray:
+        model = self._pick_reach_model(sag_model=sag_model)
+        j_pos = model.position_jacobian(q)
+        return z_jacobian_row_from_position_jacobian(j_pos, approach_dir)
+
+    def _grasp_lji_compute_step_dq(
+        self,
+        servo: LocalImageJacobianServo3D,
+        s_lji: np.ndarray,
+        *,
+        q: np.ndarray,
+        approach_dir: np.ndarray,
+        sag_model: Optional[dict[str, Any]],
+        remain_m: float,
+        pk: PickConfig,
+        close_tol_m: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, float, bool, str]:
+        max_lin, max_ang, max_t1, max_t2, scale = self._grasp_lji_step_limits(
+            remain_m, pk, close_tol_m=close_tol_m
+        )
+        z_row = self._grasp_lji_fk_z_row(
+            q,
+            approach_dir,
+            sag_model=sag_model,
+        )
+        dq, dq_raw, j, rank, cond, avail = servo.compute_dq(
+            s_lji,
+            z_row=z_row,
+            max_dq_linear=max_lin,
+            max_dq_angle=max_ang,
+            max_dq_theta1=max_t1,
+            max_dq_theta2=max_t2,
+            gain_u=float(pk.lij_gain_u) * scale,
+            gain_v=float(pk.lij_gain_v) * scale,
+            gain_z=float(pk.lij_gain_z) * scale,
+        )
+        return dq, dq_raw, j, int(rank), float(cond), bool(avail), "local_img_jacobian"
+
+    @staticmethod
+    def _grasp_lji_joint_limit_flags(
+        q: np.ndarray,
+        *,
+        margin_m: float,
+        margin_rad: float,
+        cfg: SimMappingConfig,
+    ) -> dict[str, bool]:
+        arr = np.asarray(q, dtype=float).reshape(4)
+        m_lin = float(max(margin_m, 0.0))
+        m_ang = float(max(margin_rad, 0.0))
+        return {
+            "linear_max": float(arr[0]) >= float(cfg.linear_q_max_m) - m_lin,
+            "linear_min": float(arr[0]) <= float(cfg.linear_q_min_m) + m_lin,
+            "roll_max": float(arr[1]) >= float(cfg.roll_q_max_rad) - m_ang,
+            "roll_min": float(arr[1]) <= float(cfg.roll_q_min_rad) + m_ang,
+            "theta1_max": float(arr[2]) >= float(cfg.seg1_q_max_rad) - m_ang,
+            "theta1_min": float(arr[2]) <= float(cfg.seg1_q_min_rad) + m_ang,
+            "theta2_max": float(arr[3]) >= float(cfg.seg2_q_max_rad) - m_ang,
+            "theta2_min": float(arr[3]) <= float(cfg.seg2_q_min_rad) + m_ang,
+        }
+
+    def _grasp_lji_guard_dq_at_limits(
+        self,
+        q: np.ndarray,
+        dq: np.ndarray,
+        *,
+        pk: PickConfig,
+    ) -> np.ndarray:
+        """Zero dq components that would drive further into a joint limit."""
+        out = np.asarray(dq, dtype=float).reshape(4).copy()
+        flags = self._grasp_lji_joint_limit_flags(
+            q,
+            margin_m=float(pk.lij_joint_limit_margin_m),
+            margin_rad=float(pk.lij_joint_limit_margin_rad),
+            cfg=self._mapping_cfg,
+        )
+        if flags["linear_max"] and float(out[0]) > 0.0:
+            out[0] = 0.0
+        if flags["linear_min"] and float(out[0]) < 0.0:
+            out[0] = 0.0
+        if flags["roll_max"] and float(out[1]) > 0.0:
+            out[1] = 0.0
+        if flags["roll_min"] and float(out[1]) < 0.0:
+            out[1] = 0.0
+        if flags["theta1_max"] and float(out[2]) > 0.0:
+            out[2] = 0.0
+        if flags["theta1_min"] and float(out[2]) < 0.0:
+            out[2] = 0.0
+        if flags["theta2_max"] and float(out[3]) > 0.0:
+            out[3] = 0.0
+        if flags["theta2_min"] and float(out[3]) < 0.0:
+            out[3] = 0.0
+        return out
+
+    def _grasp_lji_update_stall_watch(
+        self,
+        *,
+        pk: PickConfig,
+        remain_m: float,
+        sample_reason: SampleRejectReason,
+        q: np.ndarray,
+        dq_meas: Optional[np.ndarray] = None,
+    ) -> Optional[str]:
+        """Abort only when hard joint limits block motion with no remain progress."""
+        window = int(pk.lij_stall_steps)
+        if window <= 0:
+            return None
+        flags = self._grasp_lji_joint_limit_flags(
+            q,
+            margin_m=float(pk.lij_joint_limit_margin_m),
+            margin_rad=float(pk.lij_joint_limit_margin_rad),
+            cfg=self._mapping_cfg,
+        )
+        at_hard_limit = any(bool(flags[k]) for k in flags)
+        if not at_hard_limit:
+            self._grasp_lji_sat_streak = 0
+            return None
+        if dq_meas is not None and bool(flags["linear_max"]):
+            meas = np.asarray(dq_meas, dtype=float).reshape(4)
+            if float(meas[0]) < -0.0003:
+                self._grasp_lji_sat_streak = max(0, int(self._grasp_lji_sat_streak) - 2)
+        if sample_reason == SampleRejectReason.JOINT_SATURATED:
+            self._grasp_lji_sat_streak += 1
+        else:
+            self._grasp_lji_sat_streak = 0
+        self._grasp_lji_remain_hist.append(float(remain_m))
+        win = max(2, window)
+        if len(self._grasp_lji_remain_hist) > win:
+            self._grasp_lji_remain_hist = self._grasp_lji_remain_hist[-win:]
+        if self._grasp_lji_sat_streak < win:
+            return None
+        remain_span = max(self._grasp_lji_remain_hist) - min(self._grasp_lji_remain_hist)
+        if float(remain_span) > float(pk.lij_stall_remain_eps_m):
+            return None
+        blocked = [k for k in ("linear_max", "linear_min", "theta2_max", "theta2_min", "theta1_max", "theta1_min") if flags[k]]
+        lim_txt = ",".join(blocked)
+        return (
+            "grasp lji | stall at remain=%.0fmm (%s saturated, no progress)"
+            % (float(remain_m) * 1000.0, lim_txt)
+        )
+
+    def _grasp_lji_depth_snapshot(
+        self,
+        *,
+        remain_m: float,
+        tip_world: Optional[tuple[float, float, float]] = None,
+        object_world: Optional[tuple[float, float, float]] = None,
+        approach_dir: Optional[np.ndarray] = None,
+    ) -> tuple[bool, float]:
+        snap = self.perception_snapshot()
+        depth_valid = bool(snap is not None and snap.depth_valid)
+        z_axial = float(remain_m)
+        if snap is not None and snap.p_camera is not None and depth_valid:
+            z_axial = float(snap.p_camera[2])
+        elif (
+            tip_world is not None
+            and object_world is not None
+            and approach_dir is not None
+        ):
+            z_axial = self._grasp_axial_distance(
+                tip_world,
+                object_world,
+                approach_dir,
+            )
+        self._grasp_depth_history.append(
+            (bool(depth_valid), float(z_axial), float(remain_m))
+        )
+        return depth_valid, float(z_axial)
+
+    def _grasp_lji_eval_depth_stability(
+        self,
+        pk: PickConfig,
+        *,
+        remain_m: float,
+    ) -> tuple[bool, str]:
+        hist = list(self._grasp_depth_history)
+        if len(hist) < 2:
+            return True, "insufficient_history"
+        invalid_streak = 0
+        for depth_valid, _, _ in reversed(hist):
+            if not bool(depth_valid):
+                invalid_streak += 1
+            else:
+                break
+        if invalid_streak >= int(pk.lij_depth_invalid_frames):
+            return False, "invalid_streak"
+        valid_ratio = float(sum(1 for dv, _, _ in hist if dv)) / float(len(hist))
+        if valid_ratio < float(pk.lij_depth_valid_ratio_min):
+            return False, "valid_ratio"
+        settled_delta = float(max(pk.lij_depth_settled_remain_delta_m, 1e-4))
+        settled_z: list[float] = []
+        prev_remain: Optional[float] = None
+        for depth_valid, camera_z, hist_remain in hist:
+            if not bool(depth_valid):
+                prev_remain = None
+                continue
+            if prev_remain is not None:
+                if abs(float(hist_remain) - float(prev_remain)) > settled_delta:
+                    prev_remain = float(hist_remain)
+                    continue
+            settled_z.append(float(camera_z))
+            prev_remain = float(hist_remain)
+        if len(settled_z) >= 2:
+            z_std = float(np.std(np.asarray(settled_z, dtype=float)))
+            if z_std > float(pk.lij_depth_std_max_m):
+                return False, "z_std"
+        if float(remain_m) <= float(pk.lij_depth_unstable_threshold_m):
+            return False, "close_range"
+        return True, "ok"
+
+    @staticmethod
+    def _grasp_lji_should_blind_finish(remain_m: float, pk: PickConfig) -> bool:
+        threshold = float(max(pk.blind_micro_start_m, 0.0))
+        return float(remain_m) <= threshold + 1e-6
+
+    def _grasp_lji_visual_tracking_lost(
+        self,
+        s_lji: Optional[np.ndarray],
+        *,
+        pk: PickConfig,
+    ) -> bool:
+        """True when |v| diverges even though the tracker may still return obs."""
+        if s_lji is None:
+            return False
+        v_abs = abs(float(s_lji[1]))
+        hard = float(max(pk.lij_reacquire_v_err_m, 0.15))
+        if v_abs >= hard * 1.2:
+            return True
+        hist = list(self._grasp_lji_v_err_hist)
+        if len(hist) >= 4 and v_abs >= hard:
+            if v_abs > float(hist[-4]) + 0.10:
+                return True
+        if v_abs >= hard and int(self._grasp_lji_sat_streak) >= 3:
+            return True
+        return False
+
+    def _grasp_lji_should_reacquire(
+        self,
+        *,
+        object_lost: bool,
+        remain_m: float,
+        close_tol_m: float,
+        pk: PickConfig,
+    ) -> bool:
+        if not bool(object_lost):
+            return False
+        if float(remain_m) <= float(close_tol_m) + 1e-4:
+            return False
+        return int(self._grasp_lji_reacquire_steps) < int(pk.lij_reacquire_max_steps)
+
+    def _grasp_lji_begin_reacquire(
+        self,
+        *,
+        prev_mode: GraspApproachMode,
+        remain_m: float,
+    ) -> None:
+        if prev_mode == GraspApproachMode.REACQUIRE:
+            return
+        self._grasp_lji_reacquire_anchor_dq = None
+        self._grasp_lji_reacquire_aim_tried = False
+        self._grasp_lji_reacquire_prev_remain = float(remain_m)
+        self._pick_lost_follow_count = 0
+        est = self._grasp_lji_estimator_3d
+        if est is not None:
+            est.clear()
+
+    def _grasp_lji_end_reacquire(self) -> None:
+        self._grasp_lji_reacquire_anchor_dq = None
+        self._grasp_lji_reacquire_steps = 0
+        self._grasp_lji_reacquire_aim_tried = False
+        self._grasp_lji_reacquire_prev_remain = None
+        self._grasp_lji_v_err_hist = []
+
+    def _grasp_lji_retract_dq_to_last_good_q(
+        self,
+        *,
+        q_before: np.ndarray,
+        pk: PickConfig,
+    ) -> Optional[np.ndarray]:
+        q_good = self._grasp_lji_last_good_q
+        if q_good is None:
+            return None
+        dq = np.asarray(q_good, dtype=float).reshape(4) - np.asarray(
+            q_before, dtype=float
+        ).reshape(4)
+        if float(np.linalg.norm(dq)) <= 1e-7:
+            return None
+        cap = max(
+            float(pk.lij_reacquire_axial_step_m) * 3.0,
+            float(pk.lij_max_dq_linear) * 2.0,
+            float(pk.lij_max_dq_angle) * 2.0,
+        )
+        norm = float(np.linalg.norm(dq))
+        if norm > cap:
+            dq = dq * (cap / norm)
+        return self._grasp_lji_guard_dq_at_limits(
+            np.asarray(q_before, dtype=float).reshape(4),
+            dq,
+            pk=pk,
+        )
+
+    def _grasp_lji_compute_axial_retract_dq(
+        self,
+        *,
+        pk: PickConfig,
+        approach_dir: np.ndarray,
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+        host_state: Optional[HostState],
+        q_before: np.ndarray,
+    ) -> Optional[np.ndarray]:
+        """Retract along approach axis (increases remain), not joint-space -dq."""
+        step_m = abs(float(pk.lij_reacquire_axial_step_m))
+        if step_m <= 1e-6:
+            return None
+        ok, q_target = self._grasp_solve_axial_ik_q(
+            distance_m=-step_m,
+            approach_dir=approach_dir,
+            object_world=object_world,
+            sag_model=dict(sag_model),
+            host_state=host_state,
+            label="lji reacquire axial retract",
+        )
+        if not ok or q_target is None:
+            return None
+        dq = np.asarray(q_target, dtype=float).reshape(4) - np.asarray(
+            q_before, dtype=float
+        ).reshape(4)
+        if float(np.linalg.norm(dq)) <= 1e-7:
+            return None
+        return self._grasp_lji_guard_dq_at_limits(
+            np.asarray(q_before, dtype=float).reshape(4),
+            dq,
+            pk=pk,
+        )
+
+    def _grasp_lji_latch_reliable_state(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        approach_dir: np.ndarray,
+        remain_m: float,
+        host_state: Optional[HostState],
+    ) -> None:
+        self._grasp_lji_last_reliable_object_world = tuple(float(v) for v in object_world)
+        dir_u = self._unit_vec3(approach_dir)
+        self._grasp_lji_last_reliable_approach_dir = (
+            float(dir_u[0]),
+            float(dir_u[1]),
+            float(dir_u[2]),
+        )
+        self._grasp_lji_last_reliable_depth = float(remain_m)
+        q = self._q_array_from_state(host_state)
+        self._grasp_lji_last_good_q = q.copy()
+
+    def _grasp_solve_axial_ik_q(
+        self,
+        *,
+        distance_m: float,
+        approach_dir: np.ndarray,
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+        host_state: Optional[HostState],
+        label: str,
+    ) -> tuple[bool, Optional[np.ndarray]]:
+        """Solve axial IK only (no host apply); returns q solution or None."""
+        delta = float(distance_m)
+        if abs(delta) <= 1e-6:
+            return True, self._q_array_from_state(host_state)
+        try:
+            model = self._pick_reach_model(sag_model=sag_model)
+        except Exception:
+            return False, None
+        q0 = self._q_array_from_state(host_state)
+        tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+        axis_w = self._unit_vec3(approach_dir)
+        target = tip0 + axis_w * delta
+        try:
+            dir_hold = self._grasp_look_at_dir(tip0, object_world)
+        except ValueError:
+            dir_hold = axis_w
+        self.refresh_ik_context()
+        ctx = dict(self._ik_context)
+        ctx["sag_model"] = dict(sag_model)
+        result = ik_pipeline.solve_then_align(
+            target_world=target,
+            target_dir_world=dir_hold,
+            context=ctx,
+            position_tol_m=self._grasp_step_position_tol_m(),
+            max_iters=max(int(self._ik_cfg.max_iters), 1),
+            current_seed=q0,
+            **self._grasp_align_ik_kwargs(),
+        )
+        if not result.success or result.q is None:
+            return False, None
+        return True, np.asarray(result.q, dtype=float).reshape(4)
+
+    def _grasp_lji_approach_seed_from_ik(
+        self,
+        *,
+        pk: PickConfig,
+        approach_dir: np.ndarray,
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+        host_state: Optional[HostState],
+    ) -> np.ndarray:
+        q0 = self._q_array_from_state(host_state)
+        ok, q_ik = self._grasp_solve_axial_ik_q(
+            distance_m=float(pk.lij_approach_seed_travel_m),
+            approach_dir=approach_dir,
+            object_world=object_world,
+            sag_model=dict(sag_model),
+            host_state=host_state,
+            label="lji approach seed ik",
+        )
+        if ok and q_ik is not None:
+            return np.asarray(q_ik, dtype=float).reshape(4) - q0
+        return np.zeros(4, dtype=float)
+
+    def _grasp_lji_approach_seed(
+        self,
+        *,
+        pk: PickConfig,
+        approach_dir: np.ndarray,
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+        host_state: Optional[HostState],
+    ) -> np.ndarray:
+        mode = str(pk.lij_approach_seed_mode).strip().lower()
+        if mode == "axial_ik":
+            return self._grasp_lji_approach_seed_from_ik(
+                pk=pk,
+                approach_dir=approach_dir,
+                object_world=object_world,
+                sag_model=sag_model,
+                host_state=host_state,
+            )
+        return np.asarray(self._grasp_lji_q_delta4(pk.lij_approach_seed_q_delta), dtype=float)
+
+    def _grasp_lji_smooth_dq(self, dq: np.ndarray, *, pk: PickConfig) -> np.ndarray:
+        alpha = float(max(0.0, min(0.95, pk.lij_dq_smooth_alpha)))
+        prev = self._grasp_lji_last_dq_cmd
+        raw = np.asarray(dq, dtype=float).reshape(4)
+        if alpha <= 1e-6 or prev is None:
+            return raw.copy()
+        blended = alpha * np.asarray(prev, dtype=float).reshape(4) + (1.0 - alpha) * raw
+        return blended.reshape(4)
+
+    def _grasp_lji_wait_motion_fraction(
+        self,
+        *,
+        q_before: np.ndarray,
+        dq_cmd: np.ndarray,
+        timeout_s: float,
+        min_frac: float = 0.30,
+    ) -> Optional[HostState]:
+        """Pipelined LJI: poll until measured q moved a fraction of commanded dq."""
+        if self.client is None:
+            time.sleep(min(float(timeout_s), 0.05))
+            return None
+        qb = np.asarray(q_before, dtype=float).reshape(4)
+        dq = np.asarray(dq_cmd, dtype=float).reshape(4)
+        cmd_norm = float(np.linalg.norm(dq))
+        if cmd_norm <= 1e-6:
+            return self.client.refresh_state()
+        deadline = time.time() + float(max(timeout_s, 0.04))
+        poll_s = 0.015 if not bool(self._use_hardware) else 0.03
+        frac = float(np.clip(min_frac, 0.10, 0.90))
+        last_state: Optional[HostState] = None
+        while time.time() < deadline:
+            time.sleep(poll_s)
+            last_state = self.client.refresh_state()
+            if last_state is None or last_state.q is None:
+                continue
+            q_now = self._q_array_from_state(last_state)
+            meas = q_now - qb
+            if float(np.linalg.norm(meas)) >= frac * cmd_norm:
+                return last_state
+            for i in range(4):
+                cmd_i = float(dq[i])
+                if abs(cmd_i) > 0.0008 and abs(float(meas[i])) >= frac * abs(cmd_i):
+                    return last_state
+        return last_state
+
+    def _grasp_apply_q_delta(
+        self,
+        dq: np.ndarray,
+        *,
+        host_state: Optional[HostState],
+        sag_model: dict[str, Any],
+        timeout_s: float = 2.0,
+        wait_settle: bool = True,
+        step_period_s: float = 0.0,
+    ) -> tuple[np.ndarray, Optional[HostState]]:
+        q0 = self._q_array_from_state(host_state)
+        dq_arr = np.asarray(dq, dtype=float).reshape(4)
+        q_cmd = self._clamp_q(q0 + dq_arr)
+        self.state.set_q(
+            float(q_cmd[0]),
+            float(q_cmd[1]),
+            float(q_cmd[2]),
+            float(q_cmd[3]),
+        )
+        motion_source = "lji" if bool(wait_settle) else "lji_step"
+        if bool(wait_settle):
+            host_after = self._send_state_q_and_wait(
+                timeout_s=float(timeout_s),
+                source=motion_source,
+                force=True,
+                sag_model_override=dict(sag_model),
+            )
+        else:
+            self.send_current_target(
+                source=motion_source,
+                force=True,
+                sag_model_override=dict(sag_model),
+            )
+            wait_s = float(max(step_period_s, 0.06))
+            host_after = self._grasp_lji_wait_motion_fraction(
+                q_before=q0,
+                dq_cmd=dq_arr,
+                timeout_s=wait_s,
+            )
+            if host_after is None and self.client is not None:
+                host_after = self.client.refresh_state()
+        if host_after is not None and (not bool(host_after.reply_ok)):
+            reason = str(host_after.reply_reason).strip() or "unknown"
+            print(
+                "[Grasp] lji apply failed | reason=%s q_cmd=%s"
+                % (
+                    reason,
+                    "[%.4f,%.4f,%.4f,%.4f]"
+                    % tuple(float(v) for v in np.asarray(q_cmd).reshape(4)),
+                )
+            )
+        return q_cmd, host_after
+
+    def _grasp_lji_record_measured_sample(
+        self,
+        *,
+        pk: PickConfig,
+        settle_ok: bool,
+        object_lost: bool,
+        pipelined: bool = False,
+    ) -> SampleRejectReason:
+        pending = self._grasp_lji_pending_sample
+        est = self._grasp_lji_estimator_3d
+        if pending is None or est is None:
+            return SampleRejectReason.DQ_TOO_SMALL
+        if bool(pipelined):
+            self._grasp_lji_pending_sample = None
+            return SampleRejectReason.DQ_TOO_SMALL
+        q_before = np.asarray(pending["q_before"], dtype=float).reshape(4)
+        s_before = np.asarray(pending["s_before"], dtype=float).reshape(3)
+        if "q_after" not in pending:
+            self._grasp_lji_pending_sample = None
+            return SampleRejectReason.SETTLE_TIMEOUT
+        q_after = np.asarray(pending["q_after"], dtype=float).reshape(4)
+        s_after = np.asarray(
+            pending.get("s_after", pending["s_before"]),
+            dtype=float,
+        ).reshape(3)
+        dq_cmd = np.asarray(pending["dq_cmd"], dtype=float).reshape(4)
+        delta_q = q_after - q_before
+        delta_s = s_after - s_before
+        saturated = joint_saturated(q_before, dq_cmd, q_after)
+        ok, reason = check_sample_quality(
+            delta_q=delta_q,
+            min_dq_norm=float(pk.lij_sample_min_dq_norm),
+            object_lost=bool(object_lost),
+            settle_ok=bool(settle_ok),
+            joint_saturated=bool(saturated),
+        )
+        if ok:
+            est.push(delta_q, delta_s)
+        self._grasp_lji_pending_sample = None
+        return reason
+
+    def _grasp_lji_log_control_step(
+        self,
+        *,
+        mode: GraspApproachMode,
+        s_lji: Optional[np.ndarray],
+        depth_valid: bool,
+        depth_valid_ratio: float,
+        j_rank: int,
+        j_cond: float,
+        j_available: bool,
+        dq_cmd: np.ndarray,
+        dq_meas: Optional[np.ndarray],
+        q_cmd: np.ndarray,
+        controller: str,
+        transition: str,
+        object_lost: int,
+        remain_m: float,
+        close_tol_m: float,
+        ik_status: str,
+        sample_reason: str,
+    ) -> None:
+        u_err = float(s_lji[0]) if s_lji is not None else float("nan")
+        v_err = float(s_lji[1]) if s_lji is not None else float("nan")
+        z_err = float(s_lji[2]) if s_lji is not None else float("nan")
+        meas_txt = (
+            "[%.4f,%.4f,%.4f,%.4f]" % tuple(float(v) for v in dq_meas.reshape(4))
+            if dq_meas is not None
+            else "n/a"
+        )
+        print(
+            "[Grasp-Ctrl] mode=%s | u_err=%+.4f v_err=%+.4f z_err=%+.4f | "
+            "depth_valid=%s depth_valid_ratio=%.2f | J3d_rank=%d (need>=3) "
+            "J3d_cond=%.1f J3d_available=%s | dq_cmd=%s dq_meas=%s q_cmd=%s | "
+            "sample=%s | controller=%s | transition=%s | object_lost=%d | "
+            "remain=%.1fmm close_tol=%.1fmm | ik=%s"
+            % (
+                str(mode.value),
+                u_err,
+                v_err,
+                z_err,
+                str(bool(depth_valid)).lower(),
+                float(depth_valid_ratio),
+                int(j_rank),
+                float(j_cond),
+                str(bool(j_available)).lower(),
+                "[%.4f,%.4f,%.4f,%.4f]"
+                % tuple(float(v) for v in np.asarray(dq_cmd).reshape(4)),
+                meas_txt,
+                "[%.4f,%.4f,%.4f,%.4f]"
+                % tuple(float(v) for v in np.asarray(q_cmd).reshape(4)),
+                str(sample_reason),
+                str(controller),
+                str(transition),
+                int(object_lost),
+                float(remain_m) * 1000.0,
+                float(close_tol_m) * 1000.0,
+                str(ik_status),
+            )
+        )
+
+    def _grasp_lji_blind_finish_if_needed(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        approach_dir: np.ndarray,
+        nominal_world: tuple[float, float, float],
+        host_state: Optional[HostState],
+        sag_model: dict[str, Any],
+        standoff_m: float,
+        close_tol_m: float,
+    ) -> tuple[bool, Optional[np.ndarray], Optional[HostState]]:
+        """One-shot latched blind axial extend when remain is above close_tol."""
+        tip = self._pick_current_tip_world(host_state=host_state)
+        if tip is None:
+            return False, None, host_state
+        use_obj = self._grasp_lji_last_reliable_object_world or tuple(
+            float(v) for v in object_world
+        )
+        use_dir = self._grasp_lji_last_reliable_approach_dir
+        if use_dir is not None:
+            dir_u = self._unit_vec3(use_dir)
+        else:
+            dir_u = self._unit_vec3(approach_dir)
+        nominal = self._pick_grasp_trajectory_end_position(
+            use_obj,
+            dir_u,
+            standoff_m=float(standoff_m),
+        )
+        remain = self._grasp_axial_distance(tip, nominal, dir_u)
+        if float(remain) <= float(close_tol_m) + 1e-4:
+            try:
+                q_now = self._q_array_from_state(host_state)
+            except Exception:
+                q_now = None
+            return True, q_now, host_state
+        if self._perception_capture is not None and self._perception_capture.is_running():
+            self.stop_perception_capture()
+            print("[Grasp] perception stopped | LJI blind one-shot extend")
+        look_v = self._grasp_look_at_dir(tip, use_obj)
+        handoff_look = (float(look_v[0]), float(look_v[1]), float(look_v[2]))
+        self._grasp_handoff_look_dir = handoff_look
+        print(
+            "[Grasp] LJI blind finish | remain=%.1fmm > close_tol %.1fmm"
+            % (float(remain) * 1000.0, float(close_tol_m) * 1000.0)
+        )
+        blind_ok, q_cmd, host_state, _target = self._grasp_blind_final_approach(
+            object_world=use_obj,
+            look_dir=handoff_look,
+            sag_model=dict(sag_model),
+            host_state=host_state,
+            grasp_standoff_m=float(standoff_m),
+            approach_dir=dir_u,
+            nominal_world=tuple(float(v) for v in nominal),
+        )
+        return bool(blind_ok), q_cmd, host_state
+
+    def _grasp_lji_try_reacquire(
+        self,
+        *,
+        grasp_cfg: PickConfig,
+        host_state: Optional[HostState],
+        pk: PickConfig,
+    ) -> tuple[bool, Optional[VisualObservation], Optional[HostState]]:
+        if not self._grasp_visual_recover_supported():
+            return False, self.current_visual_observation(host_state), host_state
+        centered_ok, obs, host_state = self._grasp_aim_recover_after_move(
+            cfg=grasp_cfg,
+            host_state=host_state,
+            label="lji reacquire",
+        )
+        return bool(centered_ok), obs, host_state
+
+    def _grasp_complete_precontact_and_close(
+        self,
+        *,
+        live_object: tuple[float, float, float],
+        nominal_live: tuple[float, float, float],
+        dir_u: np.ndarray,
+        q_cmd: np.ndarray,
+        host_state: Optional[HostState],
+        sag_model: dict[str, Any],
+        waypoint_count: int,
+        claw_label: str = "grasp pre-contact",
+    ) -> bool:
+        object_tuple = tuple(float(v) for v in live_object)
+        target_arr = np.asarray(nominal_live, dtype=float).reshape(3)
+        actual_offset_m = float(
+            np.linalg.norm(np.asarray(object_tuple, dtype=float).reshape(3) - target_arr)
+        )
+        self.send_grasp_meta(source="target")
+        self._send_grasp_target_markers(
+            object_world=object_tuple,
+            target=target_arr,
+            direction=dir_u,
+            actual_offset_m=actual_offset_m,
+            corrected=bool(self._pick_grasp_uses_equal_sag()),
+        )
+        closed_ok, claw_suffix = self._close_gripper_after_grasp_arrival(
+            host_state=host_state,
+            q_cmd=q_cmd,
+            target_world=target_arr,
+            sag_model=dict(sag_model),
+            label=str(claw_label),
+            nominal_world=tuple(float(v) for v in nominal_live),
+            approach_dir=dir_u,
+        )
+        if not bool(closed_ok):
+            return False
+        done_msg = "grasp done | waypoints=%d | %s" % (
+            int(waypoint_count),
+            str(claw_suffix),
+        )
+        self.state.set_pick_status(
+            running=False,
+            failed=False,
+            phase=ObjectPickPhase.DONE.value,
+            msg=done_msg,
+        )
+        self.state.set_ik_status(
+            running=False,
+            converged=True,
+            failed=False,
+            err_m=0.0,
+            msg=done_msg,
+        )
+        print("[Grasp] %s" % done_msg)
+        return True
+
+    def _grasp_init_filtered_tracking(
+        self,
+        object_world: tuple[float, float, float],
+        approach_dir: tuple[float, float, float] | np.ndarray,
+    ) -> None:
+        obj = tuple(float(v) for v in object_world)
+        dir_u = self._unit_vec3(approach_dir)
+        self._grasp_object_world_filtered = obj
+        self._grasp_approach_dir_filtered = (
+            float(dir_u[0]),
+            float(dir_u[1]),
+            float(dir_u[2]),
+        )
+
+    def _grasp_filtered_object_world(self) -> Optional[tuple[float, float, float]]:
+        if self._grasp_object_world_filtered is not None:
+            return tuple(float(v) for v in self._grasp_object_world_filtered)
+        return self._pick_grasp_object_world()
+
+    def _grasp_filtered_approach_dir(self) -> Optional[tuple[float, float, float]]:
+        if self._grasp_approach_dir_filtered is not None:
+            return tuple(float(v) for v in self._grasp_approach_dir_filtered)
+        return self._grasp_aim_latched_direction()
+
+    def _grasp_update_filtered_tracking(
+        self,
+        *,
+        tip_world: Optional[tuple[float, float, float]],
+        pk: PickConfig,
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """EMA-update object_world and approach_dir during guided grasp."""
+        obj_f = self._grasp_object_world_filtered
+        dir_f = self._grasp_approach_dir_filtered
+        if obj_f is None or dir_f is None:
+            seed_obj = self._pick_grasp_object_world()
+            seed_dir = self._grasp_aim_latched_direction(object_world=seed_obj)
+            if seed_obj is None or seed_dir is None:
+                raise RuntimeError("grasp filtered tracking missing seed")
+            self._grasp_init_filtered_tracking(seed_obj, seed_dir)
+            obj_f = self._grasp_object_world_filtered
+            dir_f = self._grasp_approach_dir_filtered
+        assert obj_f is not None and dir_f is not None
+
+        alpha_obj = float(np.clip(pk.grasp_object_filter_alpha, 0.0, 1.0))
+        alpha_dir = float(np.clip(pk.grasp_approach_filter_alpha, 0.0, 1.0))
+
+        if (not bool(self._grasp_uv_only_mode)) and alpha_obj > 1e-6:
+            snap = self.perception_snapshot()
+            if (
+                snap is not None
+                and bool(snap.depth_valid)
+                and snap.p_world is not None
+            ):
+                live = tuple(float(v) for v in snap.p_world)
+                obj_f = tuple(
+                    (1.0 - alpha_obj) * float(obj_f[i]) + alpha_obj * live[i]
+                    for i in range(3)
+                )
+                self._grasp_object_world_filtered = obj_f
+
+        if tip_world is not None and alpha_dir > 1e-6:
+            try:
+                chord = self._grasp_look_at_dir(tip_world, obj_f)
+                dir_arr = np.asarray(dir_f, dtype=float).reshape(3)
+                blended = (1.0 - alpha_dir) * dir_arr + alpha_dir * chord
+                dir_u = self._unit_vec3(blended)
+                dir_f = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
+                self._grasp_approach_dir_filtered = dir_f
+            except ValueError:
+                pass
+
+        return obj_f, dir_f
 
     def _grasp_aim_latched_direction(
         self,
@@ -3715,17 +4770,127 @@ class ControlService:
             prefer_current_tip=False,
         )
 
-    def _grasp_visual_recover_supported(self) -> bool:
-        """True when live perception can close the post-IK UV aim loop."""
+    def _live_camera_feedback_enabled(self) -> bool:
+        """True when real camera perception can drive post-move UV loops."""
         pk = self._pick_config_effective()
         if bool(pk.grasp_skip_aim_recover_in_mock):
             mode = str(self._perception_cfg.mode).strip().lower()
             if mode == "mock" or not bool(self._use_hardware):
                 return False
+        return True
+
+    def _grasp_visual_recover_supported(self) -> bool:
+        """True when live perception can close the post-IK UV aim loop."""
+        if not self._live_camera_feedback_enabled():
+            return False
         cap = self._perception_capture
         if cap is None or not cap.is_running():
             return False
         return True
+
+    def _look_post_sag_trim_to_object(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+        host_state: Optional[HostState],
+    ) -> Optional[HostState]:
+        """Re-align grasp axis toward object after Look move (compensate sag pointing error)."""
+        if host_state is None or host_state.q is None:
+            return host_state
+        tip = self._pick_current_tip_world(host_state=host_state)
+        if tip is None:
+            return host_state
+        try:
+            look_dir = self._grasp_look_at_dir(tip, object_world)
+        except ValueError:
+            print("[Look] sag-trim | degenerate tip-object geometry")
+            return host_state
+        ok, host_state = self._grasp_align_to_approach_dir(
+            approach_dir=look_dir,
+            sag_model=sag_model,
+            host_state=host_state,
+            label="look | sag-trim look-at",
+            apply_timeout_s=6.0,
+        )
+        if not ok:
+            print("[Look] sag-trim | align IK failed (continue)")
+            return host_state
+        self._pick_latch_fk_achieved_pose(host_state=host_state, sag_model=sag_model)
+        if self._pick_achieved_dir_world is not None:
+            d = tuple(float(v) for v in self._pick_achieved_dir_world)
+            self._pick_look_dir_world = d
+            self._pick_resolved_ready_dir_world = d
+        return host_state
+
+    def _look_post_move_uv_recover(
+        self,
+        *,
+        pk: PickConfig,
+        host_state: Optional[HostState],
+        object_world: tuple[float, float, float],
+        sag_model: dict[str, Any],
+    ) -> Optional[HostState]:
+        """Center object in image after Look IK (roll/seg) when sag shifted the view."""
+        if not self._live_camera_feedback_enabled():
+            print("[Look] post-move uv recover | skipped (mock/sim)")
+            return host_state
+        if self._perception_capture is None or not self._perception_capture.is_running():
+            self.start_perception_capture()
+
+        acquire_s = float(max(pk.look_post_uv_acquire_s, 0.5))
+        max_steps = max(1, int(pk.look_post_uv_max_steps))
+        tol = float(max(pk.look_post_uv_center_tol, 0.01))
+        recover_cfg = replace(self._pick_config_effective(), center_tol=tol)
+
+        deadline = time.time() + acquire_s
+        obs: Optional[VisualObservation] = None
+        while time.time() < deadline:
+            if self.client is not None:
+                host_state = self.client.refresh_state()
+            obs = self.current_visual_observation(host_state)
+            if obs is not None:
+                break
+            time.sleep(0.05)
+
+        if obs is None:
+            print("[Look] post-move uv recover | no observation within %.1fs" % acquire_s)
+            return host_state
+
+        centered_ok, obs, stall = self._grasp_uv_center_until_tol(
+            obs,
+            cfg=recover_cfg,
+            max_total_steps=int(max_steps),
+        )
+        if obs is not None:
+            u_d, v_d, _, _ = self._visual_uv_errors(obs)
+            print(
+                "[Look] post-move uv recover | centered=%s tol=%.3f steps<=%d uv=(%+.3f,%+.3f)%s"
+                % (
+                    str(bool(centered_ok)).lower(),
+                    float(tol),
+                    int(max_steps),
+                    float(u_d),
+                    float(v_d),
+                    (" | stall=%s" % str(stall)) if stall else "",
+                )
+            )
+
+        live = self._pick_latest_object_world()
+        if live is not None:
+            live_tuple = tuple(float(v) for v in live)
+            self._pick_look_object_world_xyz = live_tuple
+            self._pick_frozen_world_xyz = live_tuple
+            self._pick_initial_object_world_xyz = live_tuple
+
+        if self.client is not None:
+            host_state = self.client.refresh_state()
+        self._pick_latch_fk_achieved_pose(host_state=host_state, sag_model=sag_model)
+        if self._pick_achieved_dir_world is not None:
+            d = tuple(float(v) for v in self._pick_achieved_dir_world)
+            self._pick_look_dir_world = d
+            self._pick_resolved_ready_dir_world = d
+        return host_state
 
     @staticmethod
     def _grasp_motion_apply_timeout_s(pk: PickConfig) -> float:
@@ -3733,6 +4898,37 @@ class ControlService:
         motion = float(max(pk.grasp_waypoint_settle_timeout_s, 0.0))
         dwell = float(max(pk.grasp_waypoint_settle_s, 0.0))
         return max(motion + 0.5 * dwell, 6.0)
+
+    def _grasp_lji_refresh_after_step(
+        self,
+        *,
+        q_cmd: np.ndarray,
+        host_state: Optional[HostState],
+        label: str,
+        dwell_s: float,
+        settle_timeout_s: float,
+        linear_tol_m: float,
+        angle_tol_rad: float,
+    ) -> Optional[HostState]:
+        """LJI continuous motion: skip blocking settle unless dwell/timeout configured."""
+        if float(settle_timeout_s) <= 1e-6 and float(dwell_s) <= 1e-6:
+            if self.client is not None:
+                return self.client.refresh_state()
+            return host_state
+        state = self._grasp_wait_waypoint_settle(
+            q_cmd=q_cmd,
+            host_state=host_state,
+            label=label,
+            settle_s=float(dwell_s),
+            settle_timeout_s=float(settle_timeout_s),
+            linear_tol_m=float(linear_tol_m),
+            angle_tol_rad=float(angle_tol_rad),
+        )
+        if state is not None:
+            return state
+        if self.client is not None:
+            return self.client.refresh_state()
+        return host_state
 
     def _grasp_wait_waypoint_settle(
         self,
@@ -3742,6 +4938,8 @@ class ControlService:
         label: str,
         settle_s: float,
         settle_timeout_s: float,
+        linear_tol_m: float = 2e-3,
+        angle_tol_rad: float = math.radians(2.0),
     ) -> Optional[HostState]:
         """Wait for commanded q to settle, then dwell before the next waypoint."""
         dwell = float(max(settle_s, 0.0))
@@ -3760,6 +4958,8 @@ class ControlService:
             settled_state, ok = self._wait_until_q_settled(
                 q_cmd,
                 timeout_s=min(poll_s, remaining),
+                linear_tol_m=float(linear_tol_m),
+                angle_tol_rad=float(angle_tol_rad),
             )
             if settled_state is not None:
                 host_state = settled_state
@@ -3823,6 +5023,7 @@ class ControlService:
         approach_dir: np.ndarray,
         pk: PickConfig,
         label: str = "",
+        min_lateral_m: float = 0.0,
     ) -> tuple[float, float]:
         if not bool(pk.grasp_online_sag_enabled):
             return 0.0, 0.0
@@ -3884,6 +5085,8 @@ class ControlService:
                         float(prepared.dir_error_deg),
                     )
                 )
+            return 0.0, 0.0
+        if float(prepared.lateral_m) < float(min_lateral_m):
             return 0.0, 0.0
         self.refresh_ik_context()
         ctx = dict(self._ik_context)
@@ -4701,6 +5904,7 @@ class ControlService:
         dir3 = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
         standoff_m = float(max(pk.grasp_standoff_m, 0.0))
         live_object = tuple(float(v) for v in object_world)
+        self._grasp_init_filtered_tracking(live_object, dir_u)
         look_anchor = self._pick_grasp_trajectory_start_position()
         nominal_world = self._pick_grasp_trajectory_end_position(
             live_object,
@@ -4737,6 +5941,8 @@ class ControlService:
         self._grasp_waypoint_idx = 0
         base_sag = self._pick_grasp_sag_model()
         self._grasp_online_sag_model = dict(base_sag) if base_sag else None
+        if bool(pk.local_img_jacobian_enabled):
+            self._grasp_init_lji_controller(pk)
 
         self.state.set_pick_status(
             running=True,
@@ -4774,7 +5980,29 @@ class ControlService:
         approach_dir: np.ndarray,
         nominal_world: tuple[float, float, float],
     ) -> None:
-        """Online loop: UV center → sag → axial IK while remain > guided handoff."""
+        """Guided grasp worker: LJI path or legacy axial-IK waypoint loop."""
+        pk = self._pick_config_effective()
+        if bool(pk.local_img_jacobian_enabled):
+            self._run_grasp_lji_approach_worker(
+                object_world=object_world,
+                approach_dir=approach_dir,
+                nominal_world=nominal_world,
+            )
+            return
+        self._run_grasp_guided_legacy_approach_worker(
+            object_world=object_world,
+            approach_dir=approach_dir,
+            nominal_world=nominal_world,
+        )
+
+    def _run_grasp_guided_legacy_approach_worker(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        approach_dir: np.ndarray,
+        nominal_world: tuple[float, float, float],
+    ) -> None:
+        """Legacy loop: UV center → sag → axial IK while remain > guided handoff."""
         pk = self._pick_config_effective()
         grasp_cfg = self._pick_config_for_grasp()
         step_m = float(max(pk.grasp_waypoint_step_m, 0.005))
@@ -4785,8 +6013,6 @@ class ControlService:
         motion_apply_timeout_s = self._grasp_motion_apply_timeout_s(pk)
         standoff_m = float(max(pk.grasp_standoff_m, 0.0))
         reach_tol_m = max(float(self._ik_cfg.tol), 0.005)
-        dir_u = self._unit_vec3(approach_dir)
-        dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
         success = False
         traj_start = self._grasp_traj_start
         look_anchor = self._grasp_look_anchor
@@ -4805,10 +6031,16 @@ class ControlService:
             host_state = self.client.refresh_state() if self.client is not None else None
             q_cmd: Optional[np.ndarray] = None
             sag_model = self._pick_grasp_sag_model()
-            live_object = object_world
+            live_object, dir_tuple_seed = self._grasp_update_filtered_tracking(
+                tip_world=self._pick_current_tip_world(host_state=host_state),
+                pk=pk,
+            )
+            dir_u = self._unit_vec3(dir_tuple_seed)
+            dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
             print(
                 "[Grasp] guided start | handoff=%.0fmm standoff=%.0fmm "
-                "step=%.0fmm settle=%.2fs motion_tol=%.2fs uv_center_tol=%.3f"
+                "step=%.0fmm settle=%.2fs motion_tol=%.2fs uv_center_tol=%.3f "
+                "blind_uv_only=%s obj_alpha=%.2f dir_alpha=%.2f"
                 % (
                     guided_handoff_m * 1000.0,
                     standoff_m * 1000.0,
@@ -4816,6 +6048,9 @@ class ControlService:
                     waypoint_settle_s,
                     waypoint_settle_timeout_s,
                     float(grasp_cfg.center_tol),
+                    str(bool(pk.grasp_blind_uv_only)).lower(),
+                    float(pk.grasp_object_filter_alpha),
+                    float(pk.grasp_approach_filter_alpha),
                 )
             )
 
@@ -4840,7 +6075,25 @@ class ControlService:
                     )
                     return
 
-                live_object = self._pick_grasp_object_world() or object_world
+                try:
+                    live_object, dir_tuple_live = self._grasp_update_filtered_tracking(
+                        tip_world=tip,
+                        pk=pk,
+                    )
+                except RuntimeError:
+                    live_object = self._grasp_filtered_object_world() or object_world
+                    dir_live = self._grasp_filtered_approach_dir()
+                    if dir_live is None:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="grasp guided | filtered tracking unavailable",
+                        )
+                        return
+                    dir_tuple_live = dir_live
+                dir_u = self._unit_vec3(dir_tuple_live)
+                dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
                 nominal_live = self._pick_grasp_trajectory_end_position(
                     live_object,
                     dir_u,
@@ -5021,7 +6274,26 @@ class ControlService:
                         % (int(max_waypoints), float(remain_cap) * 1000.0)
                     )
 
-            live_object = self._pick_grasp_object_world() or object_world
+            tip_handoff_pre = self._pick_current_tip_world(host_state=host_state)
+            try:
+                live_object, dir_tuple_live = self._grasp_update_filtered_tracking(
+                    tip_world=tip_handoff_pre,
+                    pk=pk,
+                )
+            except RuntimeError:
+                live_object = self._grasp_filtered_object_world() or object_world
+                dir_live = self._grasp_filtered_approach_dir()
+                if dir_live is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="grasp | handoff filtered tracking unavailable",
+                    )
+                    return
+                dir_tuple_live = dir_live
+            dir_u = self._unit_vec3(dir_tuple_live)
+            dir_tuple = (float(dir_u[0]), float(dir_u[1]), float(dir_u[2]))
             host_state = self.client.refresh_state() if self.client is not None else None
             nominal_live = self._pick_grasp_trajectory_end_position(
                 live_object,
@@ -5053,8 +6325,20 @@ class ControlService:
                 except ValueError:
                     print("[Grasp] handoff look latch | failed (degenerate geometry)")
 
-            self.stop_perception_capture()
-            print("[Grasp] perception stopped | blind one-shot extend")
+            if bool(pk.grasp_blind_uv_only):
+                self._grasp_uv_only_mode = True
+                print(
+                    "[Grasp] handoff | uv-only perception (depth frozen, mask center active)"
+                )
+                if self._grasp_visual_recover_supported():
+                    _, _, host_state = self._grasp_aim_recover_after_move(
+                        cfg=grasp_cfg,
+                        host_state=host_state,
+                        label="handoff | uv center",
+                    )
+            else:
+                self.stop_perception_capture()
+                print("[Grasp] perception stopped | blind one-shot extend")
 
             if handoff_look is not None and host_state is not None:
                 _, host_state = self._grasp_align_to_approach_dir(
@@ -5156,12 +6440,646 @@ class ControlService:
             success = True
             print("[Grasp] %s" % done_msg)
         finally:
+            self._grasp_uv_only_mode = False
+            if self._perception_capture is not None and self._perception_capture.is_running():
+                self.stop_perception_capture()
             if not success and not self.state.pick_failed:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
                     msg="grasp failed",
+                )
+            self._ik_worker = None
+
+    def _run_grasp_lji_approach_worker(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        approach_dir: np.ndarray,
+        nominal_world: tuple[float, float, float],
+    ) -> None:
+        """LJI loop until remain <= blind_micro_start_m; then one-shot blind axial."""
+        pk = self._pick_config_effective()
+        max_waypoints = max(1, int(pk.grasp_max_waypoints))
+        waypoint_settle_timeout_s = float(max(pk.grasp_waypoint_settle_timeout_s, 0.0))
+        motion_apply_timeout_s = self._grasp_motion_apply_timeout_s(pk)
+        standoff_m = float(max(pk.grasp_standoff_m, 0.0))
+        close_tol_m = float(max(pk.grasp_close_tol_m, float(self._ik_cfg.tol), 0.003))
+        lji_settle_dwell_s = float(max(pk.lij_settle_dwell_s, 0.0))
+        lji_motion_settle_timeout_s = float(max(pk.lij_settle_timeout_s, 0.0))
+        lji_settle_angle_tol = max(0.006, float(pk.lij_max_dq_angle) * 0.55)
+        lji_settle_linear_tol = max(5e-4, float(pk.lij_max_dq_linear) * 0.45)
+        lji_pipelined = bool(pk.lij_pipelined_motion)
+        lji_step_period_s = float(max(pk.lij_step_period_s, 0.0))
+        success = False
+        traj_start = self._grasp_traj_start
+        look_anchor = self._grasp_look_anchor
+        servo = self._grasp_lji_servo_3d
+        if traj_start is None or servo is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="grasp lji | init missing",
+            )
+            return
+        try:
+            if self._perception_capture is None or not self._perception_capture.is_running():
+                self.start_perception_capture()
+
+            host_state = self.client.refresh_state() if self.client is not None else None
+            q_cmd: Optional[np.ndarray] = None
+            sag_model = self._grasp_lji_sag_model()
+            mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
+            self._grasp_approach_mode = mode
+            prev_mode = mode
+            print(
+                "[Grasp] LJI3D start | close_tol=%.1fmm blind_at_remain=%.0fmm "
+                "gain_z=%.2f z_bend=%.2f"
+                % (
+                    close_tol_m * 1000.0,
+                    float(pk.blind_micro_start_m) * 1000.0,
+                    float(pk.lij_gain_z),
+                    float(pk.lij_z_bend_gain),
+                )
+            )
+
+            wp_idx = 0
+            while wp_idx < max_waypoints:
+                if self._pick_stop_event.is_set():
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=False,
+                        phase=ObjectPickPhase.IDLE.value,
+                        msg="grasp stopped",
+                    )
+                    return
+
+                tip = self._pick_current_tip_world(host_state=host_state)
+                if tip is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="grasp lji | tip FK unavailable",
+                    )
+                    return
+
+                try:
+                    live_object, dir_tuple_live = self._grasp_update_filtered_tracking(
+                        tip_world=tip,
+                        pk=pk,
+                    )
+                except RuntimeError:
+                    live_object = self._grasp_filtered_object_world() or object_world
+                    dir_live = self._grasp_filtered_approach_dir()
+                    if dir_live is None:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="grasp lji | filtered tracking unavailable",
+                        )
+                        return
+                    dir_tuple_live = dir_live
+                dir_u = self._unit_vec3(dir_tuple_live)
+                nominal_live = self._pick_grasp_trajectory_end_position(
+                    live_object,
+                    dir_u,
+                    standoff_m=standoff_m,
+                )
+                remain = self._grasp_axial_distance(tip, nominal_live, dir_u)
+                depth_valid, _ = self._grasp_lji_depth_snapshot(
+                    remain_m=float(remain),
+                    tip_world=tip,
+                    object_world=tuple(float(v) for v in live_object),
+                    approach_dir=dir_u,
+                )
+                hist = list(self._grasp_depth_history)
+                depth_valid_ratio = (
+                    float(sum(1 for dv, _, _ in hist if dv)) / float(len(hist))
+                    if hist
+                    else 0.0
+                )
+                depth_stable, depth_reason = self._grasp_lji_eval_depth_stability(
+                    pk,
+                    remain_m=float(remain),
+                )
+                depth_reliable = bool(depth_valid and depth_stable)
+
+                if float(remain) <= close_tol_m + 1e-4:
+                    print(
+                        "[Grasp] LJI | precontact | remain=%.1fmm <= close_tol %.1fmm"
+                        % (float(remain) * 1000.0, close_tol_m * 1000.0)
+                    )
+                    break
+
+                obs = self.current_visual_observation(host_state)
+                object_lost = obs is None
+                s_lji_now = self._grasp_lji_build_features_3d(obs, remain_m=float(remain))
+                if s_lji_now is not None:
+                    self._grasp_lji_v_err_hist.append(abs(float(s_lji_now[1])))
+                    if len(self._grasp_lji_v_err_hist) > 8:
+                        self._grasp_lji_v_err_hist = self._grasp_lji_v_err_hist[-8:]
+                visual_lost = self._grasp_lji_visual_tracking_lost(s_lji_now, pk=pk)
+                if visual_lost and not object_lost:
+                    est_v = self._grasp_lji_estimator_3d
+                    if est_v is not None:
+                        est_v.clear()
+                if object_lost:
+                    self._grasp_lji_object_lost_count += 1
+                else:
+                    self._grasp_lji_object_lost_count = 0
+                    self._record_pick_last_seen_uv(obs)
+                    if int(self._grasp_lji_reacquire_steps) > 0:
+                        self._grasp_lji_end_reacquire()
+
+                if (
+                    object_lost
+                    and int(self._grasp_lji_reacquire_steps)
+                    >= int(pk.lij_reacquire_max_steps)
+                    and not self._grasp_lji_should_blind_finish(float(remain), pk)
+                ):
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg=(
+                            "grasp lji | tracking lost after reacquire "
+                            "(remain=%.0fmm)"
+                            % (float(remain) * 1000.0)
+                        ),
+                    )
+                    return
+
+                transition = "-"
+                if self._grasp_lji_should_blind_finish(float(remain), pk):
+                    print(
+                        "[Grasp] LJI | blind finish | remain=%.1fmm <= %.1fmm"
+                        % (
+                            float(remain) * 1000.0,
+                            float(pk.blind_micro_start_m) * 1000.0,
+                        )
+                    )
+                    break
+                if self._grasp_lji_should_reacquire(
+                    object_lost=bool(object_lost),
+                    remain_m=float(remain),
+                    close_tol_m=close_tol_m,
+                    pk=pk,
+                ):
+                    if mode != GraspApproachMode.REACQUIRE:
+                        transition = "object_lost|reacquire"
+                    self._grasp_lji_begin_reacquire(
+                        prev_mode=mode,
+                        remain_m=float(remain),
+                    )
+                    mode = GraspApproachMode.REACQUIRE
+                else:
+                    mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
+                    if not object_lost:
+                        self._grasp_lji_latch_reliable_state(
+                            object_world=tuple(float(v) for v in live_object),
+                            approach_dir=dir_u,
+                            remain_m=float(remain),
+                            host_state=host_state,
+                        )
+
+                if mode != prev_mode and transition != "-":
+                    self._grasp_lji_last_transition = transition
+                prev_mode = mode
+                self._grasp_approach_mode = mode
+
+                wp_idx += 1
+                self._grasp_waypoint_idx = int(wp_idx)
+                wp_label = "lji %d" % int(wp_idx)
+                controller_tag = "local_img_jacobian"
+                ik_status = "-"
+                dq_cmd_arr = np.zeros(4, dtype=float)
+                j_rank = 0
+                j_cond = float("inf")
+                j_available = False
+                sample_reason = SampleRejectReason.DQ_TOO_SMALL
+                settle_ok = True
+                s_lji: Optional[np.ndarray] = None
+                remain_after = float(remain)
+                dq_meas: Optional[np.ndarray] = None
+
+                if mode == GraspApproachMode.REACQUIRE:
+                    controller_tag = "reacquire"
+                    q_before = self._q_array_from_state(host_state)
+                    q_cmd = None
+                    moved = False
+                    self._grasp_lji_reacquire_steps += 1
+                    step = int(self._grasp_lji_reacquire_steps)
+                    if step == 1:
+                        cap = self._perception_capture
+                        if cap is not None:
+                            cap.request_refresh()
+                    aim_at = max(1, int(pk.lij_reacquire_aim_after_steps))
+                    recovered = False
+                    if step >= aim_at and not bool(self._grasp_lji_reacquire_aim_tried):
+                        self._grasp_lji_reacquire_aim_tried = True
+                        _ok_r, _obs_r, host_state = self._grasp_lji_try_reacquire(
+                            grasp_cfg=pk,
+                            host_state=host_state,
+                            pk=pk,
+                        )
+                        if _ok_r and _obs_r is not None:
+                            self._grasp_lji_object_lost_count = 0
+                            self._grasp_lji_end_reacquire()
+                            self._record_pick_last_seen_uv(_obs_r)
+                            recovered = True
+                            moved = True
+                    if not recovered:
+                        dq_back = self._grasp_lji_compute_axial_retract_dq(
+                            pk=pk,
+                            approach_dir=dir_u,
+                            object_world=tuple(float(v) for v in live_object),
+                            sag_model=dict(sag_model),
+                            host_state=host_state,
+                            q_before=q_before,
+                        )
+                        if dq_back is None:
+                            dq_back = self._grasp_lji_retract_dq_to_last_good_q(
+                                q_before=q_before,
+                                pk=pk,
+                            )
+                        if dq_back is not None:
+                            dq_cmd_arr = np.asarray(dq_back, dtype=float).reshape(4)
+                            q_cmd, host_state = self._grasp_apply_q_delta(
+                                dq_cmd_arr,
+                                host_state=host_state,
+                                sag_model=dict(sag_model),
+                                timeout_s=motion_apply_timeout_s,
+                                wait_settle=not lji_pipelined,
+                                step_period_s=lji_step_period_s,
+                            )
+                            moved = True
+                        if self._pick_apply_lost_follow_step(
+                            reason="grasp_lji_fov",
+                            allow_refresh=False,
+                        ):
+                            host_state = (
+                                self.client.refresh_state()
+                                if self.client is not None
+                                else host_state
+                            )
+                            moved = True
+                    if moved and q_cmd is not None:
+                        host_state = self._grasp_lji_refresh_after_step(
+                            q_cmd=q_cmd,
+                            host_state=host_state,
+                            label=wp_label,
+                            dwell_s=lji_settle_dwell_s,
+                            settle_timeout_s=lji_motion_settle_timeout_s,
+                            linear_tol_m=lji_settle_linear_tol,
+                            angle_tol_rad=lji_settle_angle_tol,
+                        )
+                        settle_ok = host_state is not None
+                    obs_after = self.current_visual_observation(host_state)
+                    if obs_after is not None and not self._grasp_lji_visual_tracking_lost(
+                        self._grasp_lji_build_features_3d(
+                            obs_after, remain_m=float(remain_after)
+                        ),
+                        pk=pk,
+                    ):
+                        self._grasp_lji_object_lost_count = 0
+                        self._grasp_lji_end_reacquire()
+                        self._record_pick_last_seen_uv(obs_after)
+                    tip_after = self._pick_current_tip_world(host_state=host_state)
+                    if tip_after is not None:
+                        remain_after = float(
+                            self._grasp_axial_distance(tip_after, nominal_live, dir_u)
+                        )
+                    self._grasp_lji_reacquire_prev_remain = float(remain_after)
+                    s_lji = self._grasp_lji_build_features_3d(
+                        obs_after, remain_m=float(remain_after)
+                    )
+                    if moved and q_cmd is not None:
+                        dq_meas = np.asarray(q_cmd, dtype=float) - np.asarray(
+                            q_before, dtype=float
+                        )
+                    self._grasp_lji_log_control_step(
+                        mode=mode,
+                        s_lji=s_lji,
+                        depth_valid=depth_valid,
+                        depth_valid_ratio=depth_valid_ratio,
+                        j_rank=0,
+                        j_cond=float("inf"),
+                        j_available=False,
+                        dq_cmd=dq_cmd_arr,
+                        dq_meas=dq_meas,
+                        q_cmd=q_cmd if q_cmd is not None else q_before,
+                        controller=controller_tag,
+                        transition=transition,
+                        object_lost=int(self._grasp_lji_object_lost_count),
+                        remain_m=float(remain_after),
+                        close_tol_m=close_tol_m,
+                        ik_status="-",
+                        sample_reason="n/a",
+                    )
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=ObjectPickPhase.GRASP_APPROACH.value,
+                        msg="grasp %s | remain=%.0fmm mode=%s reacquire=%d"
+                        % (
+                            str(wp_label),
+                            float(remain_after) * 1000.0,
+                            str(mode.value),
+                            int(self._grasp_lji_reacquire_steps),
+                        ),
+                    )
+                    continue
+
+                s_lji = self._grasp_lji_build_features_3d(obs, remain_m=float(remain))
+                if s_lji is None:
+                    if bool(pk.lij_probing_enabled):
+                        controller_tag = "probing"
+                        eps_l = float(pk.lij_probing_epsilon_linear)
+                        eps_a = float(pk.lij_probing_epsilon_angle)
+                        probe = np.array([eps_l, eps_a, eps_a, eps_a], dtype=float)
+                        q_before = self._q_array_from_state(host_state)
+                        self._grasp_lji_pending_sample = {
+                            "q_before": q_before.copy(),
+                            "s_before": np.zeros(3, dtype=float),
+                            "dq_cmd": probe.copy(),
+                        }
+                        if float(pk.lij_dq_smooth_alpha) > 1e-6:
+                            probe = self._grasp_lji_smooth_dq(probe, pk=pk)
+                        q_cmd, host_state = self._grasp_apply_q_delta(
+                            probe,
+                            host_state=host_state,
+                            sag_model=dict(sag_model),
+                            timeout_s=motion_apply_timeout_s,
+                            wait_settle=not lji_pipelined,
+                            step_period_s=lji_step_period_s,
+                        )
+                        if float(pk.lij_dq_smooth_alpha) > 1e-6:
+                            self._grasp_lji_last_dq_cmd = probe.copy()
+                    else:
+                        continue
+                else:
+                    (
+                        dq_cmd_arr,
+                        _dq_raw,
+                        _j,
+                        j_rank,
+                        j_cond,
+                        j_available,
+                        controller_tag,
+                    ) = self._grasp_lji_compute_step_dq(
+                        servo,
+                        np.asarray(s_lji, dtype=float).reshape(3),
+                        q=self._q_array_from_state(host_state),
+                        approach_dir=dir_u,
+                        sag_model=dict(sag_model),
+                        remain_m=float(remain),
+                        pk=pk,
+                        close_tol_m=close_tol_m,
+                    )
+                    if not j_available and bool(pk.lij_probing_enabled):
+                        controller_tag = "probing"
+                        eps_l = float(pk.lij_probing_epsilon_linear)
+                        eps_a = float(pk.lij_probing_epsilon_angle)
+                        dq_cmd_arr = np.array([eps_l, eps_a, eps_a, eps_a], dtype=float)
+                    if not j_available:
+                        est = self._grasp_lji_estimator_3d
+                        n_samp = int(est.sample_count()) if est is not None else 0
+                        print(
+                            "[Grasp] %s | J3d seed/fk | samples=%d need>=%d rank=%d cond=%.1f"
+                            % (
+                                str(wp_label),
+                                n_samp,
+                                int(pk.lij_min_samples),
+                                int(j_rank),
+                                float(j_cond),
+                            )
+                        )
+                    q_before = self._q_array_from_state(host_state)
+                    dq_cmd_arr = self._grasp_lji_guard_dq_at_limits(
+                        q_before,
+                        dq_cmd_arr,
+                        pk=pk,
+                    )
+                    if float(pk.lij_dq_smooth_alpha) > 1e-6:
+                        dq_cmd_arr = self._grasp_lji_smooth_dq(dq_cmd_arr, pk=pk)
+                    self._grasp_lji_pending_sample = {
+                        "q_before": q_before.copy(),
+                        "s_before": s_lji.copy(),
+                        "dq_cmd": dq_cmd_arr.copy(),
+                    }
+                    q_cmd, host_state = self._grasp_apply_q_delta(
+                        dq_cmd_arr,
+                        host_state=host_state,
+                        sag_model=dict(sag_model),
+                        timeout_s=motion_apply_timeout_s,
+                        wait_settle=not lji_pipelined,
+                        step_period_s=lji_step_period_s,
+                    )
+                    if float(pk.lij_dq_smooth_alpha) > 1e-6:
+                        self._grasp_lji_last_dq_cmd = np.asarray(
+                            dq_cmd_arr, dtype=float
+                        ).reshape(4).copy()
+
+                if q_cmd is not None and not lji_pipelined:
+                    host_state = self._grasp_lji_refresh_after_step(
+                        q_cmd=q_cmd,
+                        host_state=host_state,
+                        label=wp_label,
+                        dwell_s=lji_settle_dwell_s,
+                        settle_timeout_s=lji_motion_settle_timeout_s,
+                        linear_tol_m=lji_settle_linear_tol,
+                        angle_tol_rad=lji_settle_angle_tol,
+                    )
+                    settle_ok = host_state is not None
+                elif q_cmd is not None:
+                    settle_ok = True
+
+                obs_after = self.current_visual_observation(host_state)
+                tip_after = self._pick_current_tip_world(host_state=host_state)
+                remain_after = (
+                    self._grasp_axial_distance(
+                        tip_after,
+                        nominal_live,
+                        dir_u,
+                    )
+                    if tip_after is not None
+                    else float(remain)
+                )
+                s_after = self._grasp_lji_build_features_3d(
+                    obs_after, remain_m=float(remain_after)
+                )
+                dq_meas = None
+                pending = self._grasp_lji_pending_sample
+                if pending is not None and q_cmd is not None:
+                    pending["q_after"] = self._q_array_from_state(host_state).copy()
+                    pending["s_after"] = (
+                        s_after.copy() if s_after is not None else pending["s_before"].copy()
+                    )
+                    q_before_m = np.asarray(pending["q_before"], dtype=float)
+                    dq_meas = np.asarray(pending["q_after"], dtype=float) - q_before_m
+                    sample_reason = self._grasp_lji_record_measured_sample(
+                        pk=pk,
+                        settle_ok=bool(settle_ok),
+                        object_lost=bool(obs_after is None),
+                        pipelined=bool(lji_pipelined),
+                    )
+                    q_after = self._q_array_from_state(host_state)
+                    stall_msg = self._grasp_lji_update_stall_watch(
+                        pk=pk,
+                        remain_m=float(remain_after),
+                        sample_reason=sample_reason,
+                        q=q_after,
+                        dq_meas=dq_meas,
+                    )
+                    if sample_reason == SampleRejectReason.JOINT_SATURATED:
+                        est = self._grasp_lji_estimator_3d
+                        if est is not None and self._grasp_lji_sat_streak >= 3:
+                            est.clear()
+                    if stall_msg is not None:
+                        print("[Grasp] %s" % stall_msg)
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg=stall_msg,
+                        )
+                        return
+
+                self._grasp_lji_log_control_step(
+                    mode=mode,
+                    s_lji=s_lji,
+                    depth_valid=depth_valid,
+                    depth_valid_ratio=depth_valid_ratio,
+                    j_rank=int(j_rank),
+                    j_cond=float(j_cond),
+                    j_available=bool(j_available),
+                    dq_cmd=dq_cmd_arr,
+                    dq_meas=dq_meas,
+                    q_cmd=q_cmd if q_cmd is not None else self._q_array_from_state(host_state),
+                    controller=controller_tag,
+                    transition=transition,
+                    object_lost=int(self._grasp_lji_object_lost_count),
+                    remain_m=float(remain_after),
+                    close_tol_m=close_tol_m,
+                    ik_status=ik_status,
+                    sample_reason=str(sample_reason.value),
+                )
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.GRASP_APPROACH.value,
+                    msg="grasp %s | remain=%.0fmm mode=%s"
+                    % (str(wp_label), float(remain) * 1000.0, str(mode.value)),
+                )
+
+            if q_cmd is None:
+                host_state = self.client.refresh_state() if self.client is not None else None
+                q_cmd = self._q_array_from_state(host_state)
+
+            tip_pre_blind = self._pick_current_tip_world(host_state=host_state)
+            use_obj_blind = self._grasp_lji_last_reliable_object_world or tuple(
+                float(v) for v in object_world
+            )
+            use_dir_blind = self._grasp_lji_last_reliable_approach_dir
+            dir_blind = (
+                self._unit_vec3(use_dir_blind)
+                if use_dir_blind is not None
+                else self._unit_vec3(approach_dir)
+            )
+            nominal_blind = self._pick_grasp_trajectory_end_position(
+                use_obj_blind,
+                dir_blind,
+                standoff_m=standoff_m,
+            )
+            remain_pre_blind = (
+                self._grasp_axial_distance(tip_pre_blind, nominal_blind, dir_blind)
+                if tip_pre_blind is not None
+                else float("inf")
+            )
+            if float(remain_pre_blind) <= float(close_tol_m) + 1e-4:
+                pass
+            elif self._grasp_lji_should_blind_finish(float(remain_pre_blind), pk):
+                blind_ok, q_blind, host_state = self._grasp_lji_blind_finish_if_needed(
+                    object_world=object_world,
+                    approach_dir=approach_dir,
+                    nominal_world=nominal_world,
+                    host_state=host_state,
+                    sag_model=dict(sag_model),
+                    standoff_m=standoff_m,
+                    close_tol_m=close_tol_m,
+                )
+                if not blind_ok or q_blind is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="grasp lji | blind finish failed",
+                    )
+                    return
+                q_cmd = q_blind
+            else:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=(
+                        "grasp lji | remain=%.0fmm > blind_at %.0fmm"
+                        % (
+                            float(remain_pre_blind) * 1000.0,
+                            float(pk.blind_micro_start_m) * 1000.0,
+                        )
+                    ),
+                )
+                return
+
+            tip_final = self._pick_current_tip_world(host_state=host_state)
+            try:
+                live_object, dir_tuple_live = self._grasp_update_filtered_tracking(
+                    tip_world=tip_final,
+                    pk=pk,
+                )
+            except RuntimeError:
+                live_object = self._grasp_filtered_object_world() or object_world
+                dir_live = self._grasp_filtered_approach_dir()
+                if dir_live is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="grasp lji | final tracking unavailable",
+                    )
+                    return
+                dir_tuple_live = dir_live
+            dir_u = self._unit_vec3(dir_tuple_live)
+            nominal_live = self._pick_grasp_trajectory_end_position(
+                live_object,
+                dir_u,
+                standoff_m=standoff_m,
+            )
+            success = self._grasp_complete_precontact_and_close(
+                live_object=tuple(float(v) for v in live_object),
+                nominal_live=tuple(float(v) for v in nominal_live),
+                dir_u=dir_u,
+                q_cmd=q_cmd,
+                host_state=host_state,
+                sag_model=dict(sag_model),
+                waypoint_count=int(self._grasp_waypoint_idx),
+                claw_label="grasp lji pre-contact",
+            )
+        finally:
+            self._grasp_uv_only_mode = False
+            if self._perception_capture is not None and self._perception_capture.is_running():
+                self.stop_perception_capture()
+            if not success and not self.state.pick_failed:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="grasp lji failed",
                 )
             self._ik_worker = None
 
@@ -6599,9 +8517,12 @@ class ControlService:
         if self.client is None:
             return None
         freeze_world = bool(self.state.pick_running)
-        publish_depth = bool(depth_valid) and (
-            not freeze_world or not bool(self._pick_equal_sag_attempted)
-        )
+        if bool(self._grasp_uv_only_mode):
+            publish_depth = False
+        else:
+            publish_depth = bool(depth_valid) and (
+                not freeze_world or not bool(self._pick_equal_sag_attempted)
+            )
         p_world = self.client.send_perception_observation(
             object_camera_xyz=object_camera_xyz,
             label=label,
@@ -6619,36 +8540,55 @@ class ControlService:
         return p_world
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
-        if self._perception_capture is not None and self._perception_capture.is_running():
-            self.state.set_perception_status(running=True, failed=False, msg="already running")
-            return
         if self.client is None:
             self.state.set_perception_status(running=False, failed=True, msg="no host client")
             return
+        old = self._perception_capture
+        if old is not None:
+            if old.is_running():
+                if not old.stop(timeout_s=10.0):
+                    self._retire_perception_capture(old)
+                    self.state.set_perception_status(
+                        running=False,
+                        failed=True,
+                        msg="prior capture did not stop; retrying start",
+                    )
+                else:
+                    self._retire_perception_capture(old)
+            else:
+                self._retire_perception_capture(old)
         cfg = config or self._perception_cfg
         self._perception_cfg = cfg
         self.state.visual_target_label = str(cfg.target_label).strip()
-        self._perception_capture = PerceptionCapture(
+        epoch = int(self._perception_capture_epoch) + 1
+        self._perception_capture_epoch = epoch
+        cap = PerceptionCapture(
             cfg,
             publish_fn=self._publish_perception_to_host,
-            on_snapshot=self._on_perception_snapshot,
+            on_snapshot=lambda snap, e=epoch: self._on_perception_snapshot(
+                snap,
+                capture_epoch=e,
+            ),
             target_uv_fn=lambda: (
                 float(self.state.visual_target_uv_u),
                 float(self.state.visual_target_uv_v),
             ),
             mock_world_xyz_fn=self._mock_world_xyz_from_state,
         )
+        self._perception_capture = cap
         self.state.set_perception_status(running=True, failed=False, msg="starting")
-        self._perception_capture.start()
+        cap.start()
 
     def stop_perception_capture(self) -> None:
         cap = self._perception_capture
-        if cap is not None:
-            stopped = cap.stop()
-            if not stopped:
-                self.state.set_perception_status(running=True, failed=False, msg="stopping")
-                return
-        self._perception_capture = None
+        if cap is None:
+            self.state.set_perception_status(running=False, failed=False, msg="stopped")
+            return
+        stopped = cap.stop()
+        if not stopped:
+            self.state.set_perception_status(running=True, failed=False, msg="stopping")
+            return
+        self._retire_perception_capture(cap)
         self.state.set_perception_status(running=False, failed=False, msg="stopped")
 
     def refresh_perception_capture(self) -> None:

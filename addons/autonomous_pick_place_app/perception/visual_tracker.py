@@ -201,6 +201,16 @@ class BboxTracker:
             self._last_bbox = bbox
             return bbox
         prev = self._last_bbox
+        prev_area = max(
+            1,
+            max(0, int(prev[2]) - int(prev[0])) * max(0, int(prev[3]) - int(prev[1])),
+        )
+        raw_area = max(
+            1,
+            max(0, int(bbox[2]) - int(bbox[0])) * max(0, int(bbox[3]) - int(bbox[1])),
+        )
+        if raw_area > int(prev_area * 1.06):
+            alpha = min(alpha, 0.30)
         smoothed = tuple(
             int(round(alpha * float(prev[i]) + (1.0 - alpha) * float(bbox[i])))
             for i in range(4)

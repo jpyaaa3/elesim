@@ -52,6 +52,10 @@ class SimConfig:
     traj_max_s: float = 3.0
     traj_linear_scale_m: float = 0.05
     traj_angular_scale_rad: float = 0.35
+    traj_lji_enable: bool = True
+    traj_lji_duration_s: float = 0.14
+    traj_lji_min_s: float = 0.07
+    traj_lji_max_s: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,10 @@ class PerceptionConfig:
     track_bbox_smooth_alpha: float = 0.65
     track_aux_csrt: bool = True
     track_coast_max_frames: int = 12
+    track_proximity_scale: float = 0.12
+    track_proximity_mask_erode_px: int = 0
+    track_redetect_grow_ratio: float = 1.12
+    track_redetect_grow_ratio_stale: float = 1.03
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -201,7 +209,10 @@ class PickConfig:
     grasp_standoff_m: float = 0.05
     grasp_guided_enabled: bool = True
     grasp_waypoint_step_m: float = 0.03
-    grasp_guided_handoff_m: float = 0.10
+    grasp_guided_handoff_m: float = 0.04
+    grasp_blind_uv_only: bool = True
+    grasp_object_filter_alpha: float = 0.25
+    grasp_approach_filter_alpha: float = 0.20
     grasp_blind_start_m: float = 0.06
     grasp_blind_approach_m: float = 0.02
     grasp_max_waypoints: int = 40
@@ -217,6 +228,63 @@ class PickConfig:
     sag_drift_max_lateral_m: float = 0.015
     sag_drift_axial_only: bool = True
 
+    # Local image Jacobian grasp approach (LJI path; legacy unchanged when false).
+    local_img_jacobian_enabled: bool = True
+    lij_window_size: int = 8
+    lij_min_samples: int = 4
+    lij_damping: float = 0.05
+    lij_gain_u: float = 0.35
+    lij_gain_v: float = 0.35
+    lij_gain_z: float = 0.45
+    lij_z_bend_gain: float = 0.2
+    lij_seg1_jacobian_scale: float = 0.30
+    lij_seg2_jacobian_scale: float = 1.0
+    lij_max_dq_theta1: float = 0.004
+    lij_stall_steps: int = 0
+    lij_stall_remain_eps_m: float = 0.005
+    lij_joint_limit_margin_m: float = 0.001
+    lij_joint_limit_margin_rad: float = 0.002
+    lij_sag_min_lateral_m: float = 0.015
+    lij_depth_settled_remain_delta_m: float = 0.005
+    lij_max_dq_linear: float = 0.002
+    lij_max_dq_angle: float = 0.012
+    lij_uv_handoff_m: float = 0.10
+    lij_far_linear_cap_m: float = 0.010
+    lij_far_z_gain: float = 0.20
+    lij_gain_scale_ref_m: float = 0.30
+    lij_gain_scale_min: float = 0.12
+    lij_settle_dwell_s: float = 0.0
+    lij_settle_timeout_s: float = 0.0
+    lij_dq_smooth_alpha: float = 0.35
+    lij_pipelined_motion: bool = True
+    lij_step_period_s: float = 0.05
+    lij_condition_max: float = 100.0
+    lij_probing_enabled: bool = False
+    lij_probing_epsilon_linear: float = 0.001
+    lij_probing_epsilon_angle: float = 0.01
+    lij_uv_align_tol: float = 0.04
+    lij_approach_bias_gain: float = 0.3
+    lij_approach_seed_mode: str = "config"
+    lij_approach_seed_q_delta: Tuple[float, float, float, float] = (0.0, 0.0, 0.01, 0.01)
+    lij_approach_seed_travel_m: float = 0.003
+    lij_sample_min_dq_norm: float = 0.0005
+    blind_micro_start_m: float = 0.06
+    grasp_close_tol_m: float = 0.003
+    lij_depth_invalid_frames: int = 3
+    lij_depth_valid_ratio_min: float = 0.6
+    lij_depth_std_max_m: float = 0.012
+    lij_depth_unstable_threshold_m: float = 0.06
+    axial_micro_step_m: float = 0.005
+    axial_micro_max_total_m: float = 0.025
+    axial_micro_remain_max_m: float = 0.06
+    axial_micro_remain_margin_m: float = 0.005
+    lij_reacquire_max_steps: int = 8
+    lij_reacquire_aim_after_steps: int = 4
+    lij_reacquire_remain_fail_m: float = 0.08
+    lij_reacquire_retrace_gain: float = 1.0
+    lij_reacquire_axial_step_m: float = 0.012
+    lij_reacquire_v_err_m: float = 0.45
+
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.30
     look_pose_resolve_dir: bool = True
@@ -226,6 +294,11 @@ class PickConfig:
     look_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     look_pose_look_dot_min: float = 0.85
     look_pose_align_top_k: int = 3
+    look_post_sag_trim_enabled: bool = True
+    look_post_uv_recover_enabled: bool = True
+    look_post_uv_max_steps: int = 30
+    look_post_uv_center_tol: float = 0.05
+    look_post_uv_acquire_s: float = 2.5
 
     ik_align_mode: str = "lite"
     ik_align_skip_under_deg: float = 10.0
@@ -387,6 +460,22 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         track_coast_max_frames=cp.getint(
             "perception", "track_coast_max_frames", fallback=pc0.track_coast_max_frames
         ),
+        track_proximity_scale=cp.getfloat(
+            "perception", "track_proximity_scale", fallback=pc0.track_proximity_scale
+        ),
+        track_proximity_mask_erode_px=cp.getint(
+            "perception",
+            "track_proximity_mask_erode_px",
+            fallback=pc0.track_proximity_mask_erode_px,
+        ),
+        track_redetect_grow_ratio=cp.getfloat(
+            "perception", "track_redetect_grow_ratio", fallback=pc0.track_redetect_grow_ratio
+        ),
+        track_redetect_grow_ratio_stale=cp.getfloat(
+            "perception",
+            "track_redetect_grow_ratio_stale",
+            fallback=pc0.track_redetect_grow_ratio_stale,
+        ),
     )
 
 
@@ -510,6 +599,15 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         grasp_guided_handoff_m=cp.getfloat(
             "pick", "grasp_guided_handoff_m", fallback=pk0.grasp_guided_handoff_m
         ),
+        grasp_blind_uv_only=cp.getboolean(
+            "pick", "grasp_blind_uv_only", fallback=pk0.grasp_blind_uv_only
+        ),
+        grasp_object_filter_alpha=cp.getfloat(
+            "pick", "grasp_object_filter_alpha", fallback=pk0.grasp_object_filter_alpha
+        ),
+        grasp_approach_filter_alpha=cp.getfloat(
+            "pick", "grasp_approach_filter_alpha", fallback=pk0.grasp_approach_filter_alpha
+        ),
         grasp_blind_start_m=cp.getfloat(
             "pick", "grasp_blind_start_m", fallback=pk0.grasp_blind_start_m
         ),
@@ -560,6 +658,162 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         sag_drift_axial_only=cp.getboolean(
             "pick", "sag_drift_axial_only", fallback=pk0.sag_drift_axial_only
         ),
+        local_img_jacobian_enabled=cp.getboolean(
+            "pick", "local_img_jacobian_enabled", fallback=pk0.local_img_jacobian_enabled
+        ),
+        lij_window_size=cp.getint("pick", "lij_window_size", fallback=pk0.lij_window_size),
+        lij_min_samples=cp.getint("pick", "lij_min_samples", fallback=pk0.lij_min_samples),
+        lij_damping=cp.getfloat("pick", "lij_damping", fallback=pk0.lij_damping),
+        lij_gain_u=cp.getfloat("pick", "lij_gain_u", fallback=pk0.lij_gain_u),
+        lij_gain_v=cp.getfloat("pick", "lij_gain_v", fallback=pk0.lij_gain_v),
+        lij_gain_z=cp.getfloat("pick", "lij_gain_z", fallback=pk0.lij_gain_z),
+        lij_z_bend_gain=cp.getfloat(
+            "pick", "lij_z_bend_gain", fallback=pk0.lij_z_bend_gain
+        ),
+        lij_seg1_jacobian_scale=cp.getfloat(
+            "pick", "lij_seg1_jacobian_scale", fallback=pk0.lij_seg1_jacobian_scale
+        ),
+        lij_seg2_jacobian_scale=cp.getfloat(
+            "pick", "lij_seg2_jacobian_scale", fallback=pk0.lij_seg2_jacobian_scale
+        ),
+        lij_max_dq_theta1=cp.getfloat(
+            "pick", "lij_max_dq_theta1", fallback=pk0.lij_max_dq_theta1
+        ),
+        lij_stall_steps=cp.getint("pick", "lij_stall_steps", fallback=pk0.lij_stall_steps),
+        lij_stall_remain_eps_m=cp.getfloat(
+            "pick", "lij_stall_remain_eps_m", fallback=pk0.lij_stall_remain_eps_m
+        ),
+        lij_joint_limit_margin_m=cp.getfloat(
+            "pick", "lij_joint_limit_margin_m", fallback=pk0.lij_joint_limit_margin_m
+        ),
+        lij_joint_limit_margin_rad=cp.getfloat(
+            "pick", "lij_joint_limit_margin_rad", fallback=pk0.lij_joint_limit_margin_rad
+        ),
+        lij_sag_min_lateral_m=cp.getfloat(
+            "pick", "lij_sag_min_lateral_m", fallback=pk0.lij_sag_min_lateral_m
+        ),
+        lij_depth_settled_remain_delta_m=cp.getfloat(
+            "pick",
+            "lij_depth_settled_remain_delta_m",
+            fallback=pk0.lij_depth_settled_remain_delta_m,
+        ),
+        lij_max_dq_linear=cp.getfloat(
+            "pick", "lij_max_dq_linear", fallback=pk0.lij_max_dq_linear
+        ),
+        lij_max_dq_angle=cp.getfloat(
+            "pick", "lij_max_dq_angle", fallback=pk0.lij_max_dq_angle
+        ),
+        lij_uv_handoff_m=cp.getfloat(
+            "pick", "lij_uv_handoff_m", fallback=pk0.lij_uv_handoff_m
+        ),
+        lij_far_linear_cap_m=cp.getfloat(
+            "pick", "lij_far_linear_cap_m", fallback=pk0.lij_far_linear_cap_m
+        ),
+        lij_far_z_gain=cp.getfloat(
+            "pick", "lij_far_z_gain", fallback=pk0.lij_far_z_gain
+        ),
+        lij_gain_scale_ref_m=cp.getfloat(
+            "pick", "lij_gain_scale_ref_m", fallback=pk0.lij_gain_scale_ref_m
+        ),
+        lij_gain_scale_min=cp.getfloat(
+            "pick", "lij_gain_scale_min", fallback=pk0.lij_gain_scale_min
+        ),
+        lij_settle_dwell_s=cp.getfloat(
+            "pick", "lij_settle_dwell_s", fallback=pk0.lij_settle_dwell_s
+        ),
+        lij_settle_timeout_s=cp.getfloat(
+            "pick", "lij_settle_timeout_s", fallback=pk0.lij_settle_timeout_s
+        ),
+        lij_dq_smooth_alpha=cp.getfloat(
+            "pick", "lij_dq_smooth_alpha", fallback=pk0.lij_dq_smooth_alpha
+        ),
+        lij_pipelined_motion=cp.getboolean(
+            "pick", "lij_pipelined_motion", fallback=pk0.lij_pipelined_motion
+        ),
+        lij_step_period_s=cp.getfloat(
+            "pick", "lij_step_period_s", fallback=pk0.lij_step_period_s
+        ),
+        lij_condition_max=cp.getfloat(
+            "pick", "lij_condition_max", fallback=pk0.lij_condition_max
+        ),
+        lij_probing_enabled=cp.getboolean(
+            "pick", "lij_probing_enabled", fallback=pk0.lij_probing_enabled
+        ),
+        lij_probing_epsilon_linear=cp.getfloat(
+            "pick", "lij_probing_epsilon_linear", fallback=pk0.lij_probing_epsilon_linear
+        ),
+        lij_probing_epsilon_angle=cp.getfloat(
+            "pick", "lij_probing_epsilon_angle", fallback=pk0.lij_probing_epsilon_angle
+        ),
+        lij_uv_align_tol=cp.getfloat(
+            "pick", "lij_uv_align_tol", fallback=pk0.lij_uv_align_tol
+        ),
+        lij_approach_bias_gain=cp.getfloat(
+            "pick", "lij_approach_bias_gain", fallback=pk0.lij_approach_bias_gain
+        ),
+        lij_approach_seed_mode=cp.get(
+            "pick", "lij_approach_seed_mode", fallback=pk0.lij_approach_seed_mode
+        ).strip().lower(),
+        lij_approach_seed_q_delta=_parse_float_list(
+            cp.get("pick", "lij_approach_seed_q_delta", fallback=""),
+            pk0.lij_approach_seed_q_delta,
+        ),
+        lij_approach_seed_travel_m=cp.getfloat(
+            "pick", "lij_approach_seed_travel_m", fallback=pk0.lij_approach_seed_travel_m
+        ),
+        lij_sample_min_dq_norm=cp.getfloat(
+            "pick", "lij_sample_min_dq_norm", fallback=pk0.lij_sample_min_dq_norm
+        ),
+        blind_micro_start_m=cp.getfloat(
+            "pick", "blind_micro_start_m", fallback=pk0.blind_micro_start_m
+        ),
+        grasp_close_tol_m=cp.getfloat(
+            "pick", "grasp_close_tol_m", fallback=pk0.grasp_close_tol_m
+        ),
+        lij_depth_invalid_frames=cp.getint(
+            "pick", "lij_depth_invalid_frames", fallback=pk0.lij_depth_invalid_frames
+        ),
+        lij_depth_valid_ratio_min=cp.getfloat(
+            "pick", "lij_depth_valid_ratio_min", fallback=pk0.lij_depth_valid_ratio_min
+        ),
+        lij_depth_std_max_m=cp.getfloat(
+            "pick", "lij_depth_std_max_m", fallback=pk0.lij_depth_std_max_m
+        ),
+        lij_depth_unstable_threshold_m=cp.getfloat(
+            "pick",
+            "lij_depth_unstable_threshold_m",
+            fallback=pk0.lij_depth_unstable_threshold_m,
+        ),
+        axial_micro_step_m=cp.getfloat(
+            "pick", "axial_micro_step_m", fallback=pk0.axial_micro_step_m
+        ),
+        axial_micro_max_total_m=cp.getfloat(
+            "pick", "axial_micro_max_total_m", fallback=pk0.axial_micro_max_total_m
+        ),
+        axial_micro_remain_max_m=cp.getfloat(
+            "pick", "axial_micro_remain_max_m", fallback=pk0.axial_micro_remain_max_m
+        ),
+        axial_micro_remain_margin_m=cp.getfloat(
+            "pick", "axial_micro_remain_margin_m", fallback=pk0.axial_micro_remain_margin_m
+        ),
+        lij_reacquire_max_steps=cp.getint(
+            "pick", "lij_reacquire_max_steps", fallback=pk0.lij_reacquire_max_steps
+        ),
+        lij_reacquire_aim_after_steps=cp.getint(
+            "pick", "lij_reacquire_aim_after_steps", fallback=pk0.lij_reacquire_aim_after_steps
+        ),
+        lij_reacquire_remain_fail_m=cp.getfloat(
+            "pick", "lij_reacquire_remain_fail_m", fallback=pk0.lij_reacquire_remain_fail_m
+        ),
+        lij_reacquire_retrace_gain=cp.getfloat(
+            "pick", "lij_reacquire_retrace_gain", fallback=pk0.lij_reacquire_retrace_gain
+        ),
+        lij_reacquire_axial_step_m=cp.getfloat(
+            "pick", "lij_reacquire_axial_step_m", fallback=pk0.lij_reacquire_axial_step_m
+        ),
+        lij_reacquire_v_err_m=cp.getfloat(
+            "pick", "lij_reacquire_v_err_m", fallback=pk0.lij_reacquire_v_err_m
+        ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m
         ),
@@ -585,6 +839,21 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         look_pose_align_top_k=cp.getint(
             "pick", "look_pose_align_top_k", fallback=pk0.look_pose_align_top_k
+        ),
+        look_post_sag_trim_enabled=cp.getboolean(
+            "pick", "look_post_sag_trim_enabled", fallback=pk0.look_post_sag_trim_enabled
+        ),
+        look_post_uv_recover_enabled=cp.getboolean(
+            "pick", "look_post_uv_recover_enabled", fallback=pk0.look_post_uv_recover_enabled
+        ),
+        look_post_uv_max_steps=cp.getint(
+            "pick", "look_post_uv_max_steps", fallback=pk0.look_post_uv_max_steps
+        ),
+        look_post_uv_center_tol=cp.getfloat(
+            "pick", "look_post_uv_center_tol", fallback=pk0.look_post_uv_center_tol
+        ),
+        look_post_uv_acquire_s=cp.getfloat(
+            "pick", "look_post_uv_acquire_s", fallback=pk0.look_post_uv_acquire_s
         ),
         ik_align_mode=cp.get("pick", "ik_align_mode", fallback=pk0.ik_align_mode).strip().lower(),
         ik_align_skip_under_deg=cp.getfloat(
@@ -656,6 +925,18 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         traj_linear_scale_m=cp.getfloat("runtime", "traj_linear_scale_m", fallback=sc0.traj_linear_scale_m),
         traj_angular_scale_rad=cp.getfloat(
             "runtime", "traj_angular_scale_rad", fallback=sc0.traj_angular_scale_rad
+        ),
+        traj_lji_enable=cp.getboolean(
+            "runtime", "traj_lji_enable", fallback=sc0.traj_lji_enable
+        ),
+        traj_lji_duration_s=cp.getfloat(
+            "runtime", "traj_lji_duration_s", fallback=sc0.traj_lji_duration_s
+        ),
+        traj_lji_min_s=cp.getfloat(
+            "runtime", "traj_lji_min_s", fallback=sc0.traj_lji_min_s
+        ),
+        traj_lji_max_s=cp.getfloat(
+            "runtime", "traj_lji_max_s", fallback=sc0.traj_lji_max_s
         ),
     )
 

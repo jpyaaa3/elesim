@@ -87,6 +87,106 @@ def refine_detection_mask(
     )
 
 
+def detection_mask_scaled_about_center(
+    det: DetectionResult,
+    *,
+    scale: float,
+    center: tuple[float, float],
+    image_width: int,
+    image_height: int,
+) -> DetectionResult | None:
+    """Uniformly scale a binary mask about ``center`` (pixel coords)."""
+    factor = float(scale)
+    if abs(factor - 1.0) < 1e-4:
+        return det
+    mask = det.mask
+    if mask is None or getattr(mask, "size", 0) <= 0:
+        return None
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    src = np.asarray(mask, dtype=np.uint8)
+    if src.shape[0] != h or src.shape[1] != w:
+        return None
+    cx, cy = float(center[0]), float(center[1])
+    matrix = np.float32(
+        [
+            [factor, 0.0, cx * (1.0 - factor)],
+            [0.0, factor, cy * (1.0 - factor)],
+        ]
+    )
+    scaled = cv2.warpAffine(src, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
+    if int(np.count_nonzero(scaled)) <= 0:
+        return None
+    bbox = _bbox_from_mask(scaled)
+    if bbox is None:
+        return None
+    x0, y0, x1, y1 = bbox
+    return DetectionResult(
+        mask=scaled,
+        bbox_xyxy=(int(x0), int(y0), int(x1) + 1, int(y1) + 1),
+        label=str(det.label),
+        confidence=float(det.confidence),
+    )
+
+
+def detection_mask_coast_aligned(
+    det: DetectionResult,
+    *,
+    csrt_bbox: tuple[int, int, int, int],
+    anchor_center: tuple[float, float],
+    image_width: int,
+    image_height: int,
+    confidence_decay: float = 0.98,
+) -> DetectionResult | None:
+    """Shift and grow/shrink coast mask so its extent follows the CSRT bbox."""
+    mask = det.mask
+    if mask is None or getattr(mask, "size", 0) <= 0:
+        return None
+    w = max(int(image_width), 1)
+    h = max(int(image_height), 1)
+    src = np.asarray(mask, dtype=np.uint8)
+    if src.shape[0] != h or src.shape[1] != w:
+        return None
+    from_mask = _bbox_from_mask(src)
+    if from_mask is None:
+        return None
+    mx0, my0, mx1, my1 = from_mask
+    mask_w = max(1, int(mx1 - mx0 + 1))
+    mask_h = max(1, int(my1 - my0 + 1))
+    bx0, by0, bx1, by1 = (
+        int(csrt_bbox[0]),
+        int(csrt_bbox[1]),
+        int(csrt_bbox[2]),
+        int(csrt_bbox[3]),
+    )
+    csrt_w = max(1, int(bx1 - bx0))
+    csrt_h = max(1, int(by1 - by0))
+    scale = max(float(csrt_w) / float(mask_w), float(csrt_h) / float(mask_h))
+    scaled = detection_mask_scaled_about_center(
+        det,
+        scale=scale,
+        center=anchor_center,
+        image_width=w,
+        image_height=h,
+    )
+    if scaled is None:
+        return None
+    csrt_cx = 0.5 * (float(bx0) + float(bx1))
+    csrt_cy = 0.5 * (float(by0) + float(by1))
+    ax, ay = float(anchor_center[0]), float(anchor_center[1])
+    dx = int(round(csrt_cx - ax))
+    dy = int(round(csrt_cy - ay))
+    shifted = detection_mask_translated(
+        scaled,
+        dx=dx,
+        dy=dy,
+        image_width=w,
+        image_height=h,
+        confidence_decay=confidence_decay,
+    )
+    return shifted
+
+
 def detection_mask_translated(
     det: DetectionResult,
     *,

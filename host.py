@@ -43,6 +43,8 @@ class ControlHost:
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         trajectory_cfg: Optional[QuinticTimingConfig] = None,
+        trajectory_lji_cfg: Optional[QuinticTimingConfig] = None,
+        traj_lji_enable: bool = True,
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
         hw_cmd_hz: float = 30.0,
@@ -127,6 +129,10 @@ class ControlHost:
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
         self._last_target_apply_error: str = ""
         self._trajectory = QuinticTrajectoryRunner(trajectory_cfg or QuinticTimingConfig())
+        self._trajectory_lji = QuinticTrajectoryRunner(
+            trajectory_lji_cfg or trajectory_cfg or QuinticTimingConfig()
+        )
+        self._traj_lji_enable = bool(traj_lji_enable)
         self._traj_step_log_every = 10
         self._traj_step_count = 0
         self._traj_last_apply_ok: Optional[bool] = None
@@ -151,15 +157,23 @@ class ControlHost:
 
     def _cancel_trajectory(self) -> None:
         self._trajectory.cancel()
+        self._trajectory_lji.cancel()
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
         self._traj_profile_start_s = None
 
     def _use_trajectory_for_source(self, source: str) -> bool:
+        src = str(source).strip().lower()
+        # Pipelined LJI steps must apply immediately; quintic + 30ms period
+        # restarts before finish and kills small v/seg corrections.
+        if src == "lji_step":
+            return False
+        if src == "lji":
+            return bool(self._traj_lji_enable) and bool(self._trajectory_lji.cfg.enable)
         if not bool(self._trajectory.cfg.enable):
             return False
-        # Visual servo / aim steps need fast response; quintic is for large IK moves only.
-        return str(source).strip().lower() == "ik"
+        # Visual servo / aim: immediate partial u; IK: long quintic.
+        return src == "ik"
 
     @staticmethod
     def _joint_delta_max(q_start: proto.SimQ, q_goal: proto.SimQ) -> float:
@@ -183,11 +197,18 @@ class ControlHost:
                 print(f"[host] hw state read before trajectory failed: {exc}")
         self._start_trajectory(q, source=source)
 
+    def _active_trajectory_runner(self, source: str) -> QuinticTrajectoryRunner:
+        if str(source).strip().lower() == "lji":
+            return self._trajectory_lji
+        return self._trajectory
+
     def _start_trajectory(self, q_goal: proto.SimQ, *, source: str = "ik") -> None:
         q_start = self.last_q
         if q_start is None:
             q_start = q_goal
-        if self._joint_delta_max(q_start, q_goal) < 0.015:
+        src = str(source).strip().lower()
+        skip_delta = 0.0015 if src == "lji" else 0.015
+        if self._joint_delta_max(q_start, q_goal) < float(skip_delta):
             self._cancel_trajectory()
             print(
                 "[host] trajectory skipped | small delta source=%s q_goal=(%.4f, %.4f, %.4f, %.4f)"
@@ -202,7 +223,12 @@ class ControlHost:
             if pick_profile_enabled():
                 print("[Profile] traj skip | source=%s dt=0.0ms" % str(source))
             return
-        self._trajectory.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
+        runner = self._active_trajectory_runner(source)
+        runner.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
+        if src != "lji":
+            self._trajectory_lji.cancel()
+        else:
+            self._trajectory.cancel()
         self._traj_step_count = 0
         self._traj_last_apply_ok = None
         if pick_profile_enabled():
@@ -349,7 +375,16 @@ class ControlHost:
                     pass
 
     def _is_allowed_source(self, source: str) -> bool:
-        return str(source) in ("slider", "ik", "sim", "target", "perception")
+        return str(source) in (
+            "slider",
+            "ik",
+            "sim",
+            "target",
+            "perception",
+            "lji",
+            "lji_step",
+            "servo",
+        )
 
     def _active_debug_markers(self) -> list[dict[str, Any]]:
         now = time.time()
@@ -1318,13 +1353,17 @@ class ControlHost:
                         self._pending_target_q = None
                         self._cancel_trajectory()
                 else:
-                    if self._trajectory.active:
+                    if self._trajectory_lji.active:
+                        step = self._trajectory_lji.step(now_s=now)
+                    elif self._trajectory.active:
                         step = self._trajectory.step(now_s=now)
+                    else:
+                        step = None
+                    if step is not None:
                         q_cmd = step.q_cmd
                         self._traj_step_count += 1
                     else:
                         q_cmd = self._pending_target_q
-                        step = None
                     applied_hw, complete = self._apply_sim_q_target(q_cmd)
                     if step is not None and (
                         self._traj_step_count == 1
@@ -1454,6 +1493,15 @@ def run_host(
                 linear_scale_m=float(bundle.sim_config.traj_linear_scale_m),
                 angular_scale_rad=float(bundle.sim_config.traj_angular_scale_rad),
             ),
+            trajectory_lji_cfg=QuinticTimingConfig(
+                enable=bool(bundle.sim_config.traj_lji_enable),
+                duration_s=float(bundle.sim_config.traj_lji_duration_s),
+                min_duration_s=float(bundle.sim_config.traj_lji_min_s),
+                max_duration_s=float(bundle.sim_config.traj_lji_max_s),
+                linear_scale_m=float(bundle.sim_config.traj_linear_scale_m),
+                angular_scale_rad=float(bundle.sim_config.traj_angular_scale_rad),
+            ),
+            traj_lji_enable=bool(bundle.sim_config.traj_lji_enable),
         )
         print(f"[host] comm with ctrl by {bind_addr}")
         print(f"[host] comm with sim by {bundle.sim_config.host_sim_port}")

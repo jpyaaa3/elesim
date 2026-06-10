@@ -16,9 +16,11 @@ from perception.detection_utils import (  # noqa: E402
     bbox_xyxy_area,
     detection_center_pixel,
     detection_init_bbox,
+    detection_mask_coast_aligned,
     detection_mask_translated,
     pad_bbox_xyxy,
 )
+from main import detection_scale  # noqa: E402
 from perception.detector import DetectionResult
 
 
@@ -69,6 +71,28 @@ class DetectionUtilsTests(unittest.TestCase):
         cx0, _ = detection_center_pixel(det, image_width=100, image_height=100)
         cx1, _ = detection_center_pixel(refined, image_width=100, image_height=100)
         self.assertAlmostEqual(cx0, cx1, places=0)
+
+    def test_detection_mask_coast_aligned_grows_with_csrt_bbox(self) -> None:
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        mask[40:60, 40:60] = 255
+        det = DetectionResult(
+            mask=mask,
+            bbox_xyxy=(40, 40, 60, 60),
+            label="ball",
+            confidence=0.9,
+        )
+        aligned = detection_mask_coast_aligned(
+            det,
+            csrt_bbox=(30, 30, 80, 80),
+            anchor_center=(50.0, 50.0),
+            image_width=100,
+            image_height=100,
+        )
+        self.assertIsNotNone(aligned)
+        assert aligned is not None
+        s0 = detection_scale(det, image_width=100, image_height=100)
+        s1 = detection_scale(aligned, image_width=100, image_height=100)
+        self.assertGreater(s1, s0)
 
     def test_detection_mask_translated_shifts_centroid(self) -> None:
         mask = np.zeros((100, 100), dtype=np.uint8)

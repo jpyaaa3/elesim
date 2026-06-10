@@ -25,20 +25,25 @@ def default_uv_jacobian(
     *,
     center_u_gain: float,
     center_v_gain: float,
+    seg1_coupling: float = 0.5,
+    seg2_coupling: float = 0.5,
 ) -> np.ndarray:
     """
     Initial d(image_uv_error)/d(display_control_u) for roll/s1/s2.
 
-    This only seeds the controller. Runtime observations update it online.
+    seg1 (inner) typically has larger tip leverage than seg2; use a lower
+    seg1_coupling so the pseudoinverse commands less inner-joint motion.
     """
     u_gain = float(max(abs(float(center_u_gain)), 1e-6))
     v_gain = float(max(abs(float(center_v_gain)), 1e-6))
+    s1 = float(max(abs(float(seg1_coupling)), 1e-6))
+    s2 = float(max(abs(float(seg2_coupling)), 1e-6))
     j = np.zeros((2, 3), dtype=float)
     # Positive roll display-u moves normalized image u left on this arm.
     j[0, 0] = -1.0 / u_gain
-    # s1 and s2 share v control initially; positive seg display-u lowers v.
-    j[1, 1] = -0.5 / v_gain
-    j[1, 2] = -0.5 / v_gain
+    # s1/s2 oppose for v (see _apply_pick_center_step: s1=+gain*v_delta, s2=-gain*v_delta).
+    j[1, 1] = -s1 / v_gain
+    j[1, 2] = +s2 / v_gain
     return j
 
 

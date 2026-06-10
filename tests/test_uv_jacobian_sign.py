@@ -27,6 +27,16 @@ class TestUvJacobianSign(unittest.TestCase):
         )
         self.assertLess(float(du3[0]), 0.0)
 
+    def test_positive_v_error_commands_opposite_seg_directions(self) -> None:
+        j = default_uv_jacobian(center_u_gain=12.0, center_v_gain=12.0)
+        du3 = solve_uv_control_delta(
+            uv_error=(0.0, 0.3),
+            jacobian=j,
+            max_abs_delta=(2.1, 2.1, 2.1),
+        )
+        self.assertGreater(float(du3[1]), 0.0)
+        self.assertLess(float(du3[2]), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -366,8 +366,47 @@ class PerceptionCapture:
         z_nom = float(detector_cfg.get("z_nom_m", 0.35))
         return (0.0, 0.0, max(0.05, z_nom))
 
-    def _refine_detection_for_publish(self, det: Any, detector_cfg: dict[str, Any]) -> Any:
+    def _effective_mask_erode_px(
+        self,
+        detector_cfg: dict[str, Any],
+        *,
+        det: Any,
+        detection_scale_fn: Any,
+        image_width: int,
+        image_height: int,
+    ) -> int:
         erode_px = int(detector_cfg.get("mask_erode_px", 0) or 0)
+        if erode_px <= 0:
+            return 0
+        cfg = self._config
+        prox = float(cfg.track_proximity_scale)
+        if prox <= 1e-6:
+            return erode_px
+        scale = float(self.snapshot().image_scale)
+        if scale <= 1e-6 and det is not None:
+            scale = float(
+                detection_scale_fn(det, image_width=int(image_width), image_height=int(image_height))
+            )
+        if scale >= prox:
+            return int(max(0, int(cfg.track_proximity_mask_erode_px)))
+        return erode_px
+
+    def _refine_detection_for_publish(
+        self,
+        det: Any,
+        detector_cfg: dict[str, Any],
+        *,
+        detection_scale_fn: Any,
+        image_width: int,
+        image_height: int,
+    ) -> Any:
+        erode_px = self._effective_mask_erode_px(
+            detector_cfg,
+            det=det,
+            detection_scale_fn=detection_scale_fn,
+            image_width=int(image_width),
+            image_height=int(image_height),
+        )
         if erode_px <= 0:
             return det
         _ensure_pick_place_path()
@@ -387,10 +426,13 @@ class PerceptionCapture:
         status_msg: str,
         depth_valid: bool = True,
         detector_cfg: Optional[dict[str, Any]] = None,
+        scale_override: Optional[float] = None,
     ) -> Optional[tuple[float, float, float]]:
         p_cam = np.asarray(obs.p_camera_object, dtype=float).reshape(3)
         uv = normalized_center_uv_fn(det, image_width=image_width, image_height=image_height)
         scale = float(detection_scale_fn(det, image_width=image_width, image_height=image_height))
+        if scale_override is not None:
+            scale = float(max(scale, float(scale_override)))
         msg = str(status_msg)
         if not depth_valid:
             msg = f"{msg} | depth invalid (uv/scale only)"
@@ -436,7 +478,22 @@ class PerceptionCapture:
         normalized_center_uv_fn: Any,
         status_msg: str,
     ) -> Optional[tuple[float, float, float]]:
-        det = self._refine_detection_for_publish(det, detector_cfg)
+        img_h, img_w = frame.color_bgr.shape[:2]
+        det_raw = det
+        det = self._refine_detection_for_publish(
+            det,
+            detector_cfg,
+            detection_scale_fn=detection_scale_fn,
+            image_width=int(img_w),
+            image_height=int(img_h),
+        )
+        scale_raw = float(
+            detection_scale_fn(det_raw, image_width=int(img_w), image_height=int(img_h))
+        )
+        scale_refined = float(
+            detection_scale_fn(det, image_width=int(img_w), image_height=int(img_h))
+        )
+        scale_override = float(max(scale_raw, scale_refined))
         p_camera = measure_detection(
             det,
             depth_raw=frame.depth_raw,
@@ -452,7 +509,6 @@ class PerceptionCapture:
             confidence=det.confidence,
             p_camera_object=p_camera,
         )
-        img_h, img_w = frame.color_bgr.shape[:2]
         return self._publish_observation(
             obs=obs,
             det=det,
@@ -463,6 +519,7 @@ class PerceptionCapture:
             status_msg=status_msg,
             depth_valid=depth_valid,
             detector_cfg=detector_cfg,
+            scale_override=scale_override,
         )
 
     def _track_needs_redetect(
@@ -514,6 +571,7 @@ class PerceptionCapture:
         img_h: int,
         current_scale: float,
         init_bbox_area: int,
+        scale_stale_streak: int = 0,
     ) -> tuple[bool, int, Optional[Any], Optional[Any], str]:
         """YOLO refresh while staying in TRACK. Returns reinited, init_area, det, p_world, suffix."""
         cfg = self._config
@@ -525,7 +583,11 @@ class PerceptionCapture:
             detection_scale(yolo_det, image_width=int(img_w), image_height=int(img_h))
         )
         min_scale = float(cfg.track_scale_min)
-        if new_scale <= max(float(current_scale) * 1.12, min_scale * 0.85):
+        grow_ratio = float(max(cfg.track_redetect_grow_ratio, 1.0))
+        stale_need = max(1, int(cfg.track_redetect_stale_frames)) // 2
+        if int(scale_stale_streak) >= stale_need:
+            grow_ratio = float(max(cfg.track_redetect_grow_ratio_stale, 1.0))
+        if new_scale <= max(float(current_scale) * grow_ratio, min_scale * 0.85):
             return False, int(init_bbox_area), None, None, "redetect skip (small)"
         init_bbox = detection_init_bbox(
             yolo_det,
@@ -708,6 +770,7 @@ class PerceptionCapture:
                                     img_h=img_h,
                                     current_scale=current_scale,
                                     init_bbox_area=int(init_bbox_area),
+                                    scale_stale_streak=int(scale_stale_streak),
                                 )
                             )
                             if reinited:
@@ -817,8 +880,9 @@ class PerceptionCapture:
             bbox_xyxy_area,
             detection_center_pixel,
             detection_init_bbox,
-            detection_mask_translated,
+            detection_mask_coast_aligned,
         )
+        from perception.visual_tracker import detection_from_bbox  # type: ignore[import-not-found]
 
         phase = TrackerPhase.SEARCH
         lost_streak = 0
@@ -874,6 +938,7 @@ class PerceptionCapture:
                         yolo_det, image_width=img_w, image_height=img_h
                     )
                     tracked_label = str(yolo_det.label)
+                    publish_det = yolo_det
                     if aux_csrt and tracker is not None:
                         init_bbox = detection_init_bbox(
                             yolo_det,
@@ -881,11 +946,66 @@ class PerceptionCapture:
                             image_height=img_h,
                             padding=float(cfg.track_init_bbox_padding),
                         )
-                        if tracker.init(frame.color_bgr, init_bbox):
-                            init_bbox_area = int(bbox_xyxy_area(init_bbox))
+                        csrt_bbox: Optional[tuple[int, int, int, int]] = None
+                        if not tracker.initialized:
+                            if tracker.init(frame.color_bgr, init_bbox):
+                                init_bbox_area = int(bbox_xyxy_area(init_bbox))
+                                csrt_bbox = init_bbox
+                        else:
+                            csrt_bbox = tracker.update(frame.color_bgr)
+                            if csrt_bbox is None:
+                                if tracker.init(frame.color_bgr, init_bbox):
+                                    init_bbox_area = int(bbox_xyxy_area(init_bbox))
+                                    csrt_bbox = init_bbox
+                            elif int(bbox_xyxy_area(init_bbox)) > int(
+                                bbox_xyxy_area(csrt_bbox) * 1.12
+                            ):
+                                if tracker.init(frame.color_bgr, init_bbox):
+                                    init_bbox_area = int(bbox_xyxy_area(init_bbox))
+                                    csrt_bbox = init_bbox
+                        if csrt_bbox is not None and last_anchor_center is not None:
+                            yolo_scale = float(
+                                detection_scale(
+                                    yolo_det, image_width=int(img_w), image_height=int(img_h)
+                                )
+                            )
+                            merged = detection_mask_coast_aligned(
+                                yolo_det,
+                                csrt_bbox=csrt_bbox,
+                                anchor_center=last_anchor_center,
+                                image_width=int(img_w),
+                                image_height=int(img_h),
+                            )
+                            if merged is not None:
+                                merged_scale = float(
+                                    detection_scale(
+                                        merged,
+                                        image_width=int(img_w),
+                                        image_height=int(img_h),
+                                    )
+                                )
+                                if merged_scale > yolo_scale * 1.01:
+                                    publish_det = merged
+                            else:
+                                csrt_det = detection_from_bbox(
+                                    csrt_bbox,
+                                    image_width=int(img_w),
+                                    image_height=int(img_h),
+                                    label=tracked_label,
+                                    confidence=0.95,
+                                )
+                                csrt_scale = float(
+                                    detection_scale(
+                                        csrt_det,
+                                        image_width=int(img_w),
+                                        image_height=int(img_h),
+                                    )
+                                )
+                                if csrt_scale > yolo_scale * 1.01:
+                                    publish_det = csrt_det
                     p_world = self._process_detection(
                         frame=frame,
-                        det=yolo_det,
+                        det=publish_det,
                         detector_cfg=detector_cfg,
                         measure_detection=measure_detection,
                         build_camera_observation=build_camera_observation,
@@ -912,10 +1032,10 @@ class PerceptionCapture:
                         csrt_cx = 0.5 * (float(bx0) + float(bx1))
                         csrt_cy = 0.5 * (float(by0) + float(by1))
                         ax, ay = last_anchor_center
-                        shifted = detection_mask_translated(
+                        shifted = detection_mask_coast_aligned(
                             last_good_det,
-                            dx=int(round(csrt_cx - ax)),
-                            dy=int(round(csrt_cy - ay)),
+                            csrt_bbox=bbox,
+                            anchor_center=(ax, ay),
                             image_width=img_w,
                             image_height=img_h,
                         )
@@ -968,6 +1088,7 @@ class PerceptionCapture:
                                         img_h=img_h,
                                         current_scale=current_scale,
                                         init_bbox_area=int(init_bbox_area),
+                                        scale_stale_streak=int(scale_stale_streak),
                                     )
                                 )
                                 if reinited:
