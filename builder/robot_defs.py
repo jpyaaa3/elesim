@@ -84,6 +84,7 @@ class RobotBuildConfig:
     gripper_base: Optional[PartSpec] = None
     gripper_claw_left: Optional[PartSpec] = None
     gripper_claw_right: Optional[PartSpec] = None
+    go2: Optional[PartSpec] = None
     joint_axis_rules: Optional[Dict[str, JointAxisRule]] = None
 
 
@@ -96,6 +97,7 @@ class PartKind(Enum):
     gripper_base = "gripper_base"
     gripper_claw_left = "gripper_claw_left"
     gripper_claw_right = "gripper_claw_right"
+    go2 = "go2"
 
 
 @dataclass(frozen=True)

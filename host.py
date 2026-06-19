@@ -97,6 +97,7 @@ class ControlHost:
         self.last_perceived_timestamp_s: float = 0.0
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
+        self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_hw_pos_by_id: Dict[int, int] = {}
         self._last_claw_current: int = 0
         self._claw_close_stalled: bool = False
@@ -300,6 +301,7 @@ class ControlHost:
             self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
+            self.last_go2_vel = (0.0, 0.0, 0.0)
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
@@ -356,6 +358,7 @@ class ControlHost:
             self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
+            self.last_go2_vel = (0.0, 0.0, 0.0)
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
@@ -606,6 +609,7 @@ class ControlHost:
                 perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
+                go2_vel=self.last_go2_vel,
                 claw_current=self._last_claw_current,
                 motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                 safety_fault=(self._safety_fault or None),
@@ -1251,6 +1255,22 @@ class ControlHost:
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
+            if "go2_vel" in msg:
+                try:
+                    self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
+                except Exception:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "bad_go2_vel",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
             if q is None:
                 if (
                     target_raw is None
@@ -1259,10 +1279,13 @@ class ControlHost:
                     and ready_pose_standoff_raw is None
                     and sag_raw is None
                     and "claw_closed" not in msg
+                    and "go2_vel" not in msg
                 ):
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
+                if "go2_vel" in msg or "claw_closed" in msg:
+                    self._broadcast_state_now()
                 return
             self._pending_target_q = q
             self._pending_target_seq = seq
@@ -1431,6 +1454,7 @@ class ControlHost:
                         perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
+                        go2_vel=self.last_go2_vel,
                         claw_current=self._last_claw_current,
                         motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                         safety_fault=(self._safety_fault or None),

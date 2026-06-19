@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from genesis.utils import geom as gs_geom
 import engine.protocol as proto
 import builder.json_builder as assembly_builder
 from engine.config_loader import (
+    Go2LocomotionConfig,
     HardwareConfig,
     IkConfig,
     JointLimit,
@@ -29,6 +30,8 @@ from engine.config_loader import (
     UrdfExportConfig,
     load_app_config_from_ini,
 )
+from engine.go2_locomotion import Go2Command
+from engine.go2_locomotion.controller import RaibertTrotController
 from engine.motor import estimate_ideal_sim_rates
 from builder.urdf_converter import convert_manifest_file
 from engine.sag_model import segment_errors_from_model
@@ -69,6 +72,99 @@ def _as_single_dof_index(raw_idx) -> int:
 def _rot_from_wxyz(q_wxyz) -> Rot:
     q = np.asarray(q_wxyz, dtype=float).reshape(4)
     return Rot.from_quat([float(q[1]), float(q[2]), float(q[3]), float(q[0])])
+
+
+def _world_offset(
+    pos: Tuple[float, float, float],
+    euler_deg: Tuple[float, float, float],
+    local_offset: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    world_off = Rot.from_euler("xyz", np.asarray(euler_deg, dtype=float), degrees=True).apply(local_offset)
+    return (
+        float(pos[0] + world_off[0]),
+        float(pos[1] + world_off[1]),
+        float(pos[2] + world_off[2]),
+    )
+
+
+class Go2Locomotion:
+    """GO2 locomotion adapter (Raibert trot or convex MPC)."""
+
+    def __init__(self, entity, *, dt: float, config: Go2LocomotionConfig, arm_entity=None):
+        mode = str(config.mode).strip().lower()
+        if mode == "convex_mpc":
+            from engine.go2_mpc.config import Go2MpcConfig
+            from engine.go2_mpc.controller import ConvexMpcGenesisController
+
+            mpc_cfg = Go2MpcConfig(
+                gait_hz=float(config.gait_hz),
+                gait_duty=float(config.gait_duty),
+                z_pos_des_m=float(config.z_pos_des_m),
+                mpc_steps_per_gait=int(config.mpc_steps_per_gait),
+                command_idle_threshold=float(config.command_idle_threshold),
+                torque_safety_scale=float(config.torque_safety_scale),
+                leg_kv_damping=float(config.mpc_leg_kv_damping),
+                stand_kp=float(config.leg_kp),
+                stand_kv=float(config.leg_kv),
+                ctrl_hz=float(config.mpc_ctrl_hz),
+                command_ramp_s=float(config.mpc_command_ramp_s),
+                torque_ramp_s=float(config.mpc_torque_ramp_s),
+                torque_warmup_s=float(config.mpc_torque_warmup_s),
+                ready_pose_s=float(config.mpc_ready_pose_s),
+                ready_kp=float(config.mpc_ready_kp),
+                ready_kv=float(config.mpc_ready_kv),
+                aux_kp=float(config.mpc_aux_kp),
+                aux_kv=float(config.mpc_aux_kv),
+                tau_filter_alpha=float(config.mpc_tau_filter_alpha),
+                force_filter_alpha=float(config.mpc_force_filter_alpha),
+                foot_placement_scale=float(config.mpc_foot_placement_scale),
+                payload_enable=bool(config.mpc_payload_enable),
+                payload_mass_kg=float(config.mpc_payload_mass_kg),
+                pitch_trim_gain_z=float(config.mpc_pitch_trim_gain_z),
+                pitch_trim_z_ref_m=float(config.mpc_pitch_trim_z_ref_m),
+                pitch_trim_max_rad=float(config.mpc_pitch_trim_max_rad),
+            )
+            self._controller = ConvexMpcGenesisController(
+                entity,
+                dt=float(dt),
+                config=mpc_cfg,
+                arm_entity=arm_entity,
+            )
+        else:
+            self._controller = RaibertTrotController(entity, dt=float(dt), config=config)
+
+    def set_planar_velocity(self, vx: float, vy: float, wz: float) -> None:
+        self._controller.set_command(Go2Command(vx=float(vx), vy=float(vy), yaw_rate=float(wz)))
+
+    def step(self) -> None:
+        self._controller.step()
+
+
+def _make_urdf_morph(
+    urdf_path: str,
+    pos: Tuple[float, float, float],
+    euler: Tuple[float, float, float],
+    *,
+    fixed: bool,
+    requires_jac_and_IK: bool = False,
+):
+    common = dict(
+        file=urdf_path,
+        pos=pos,
+        euler=euler,
+        fixed=bool(fixed),
+        prioritize_urdf_material=True,
+        merge_fixed_links=False,
+        requires_jac_and_IK=bool(requires_jac_and_IK),
+    )
+    merge_fixed = not bool(requires_jac_and_IK)
+    try:
+        return gs.morphs.URDF(**common, default_armature=0.0, merge_fixed_links=merge_fixed)
+    except TypeError:
+        try:
+            return gs.morphs.URDF(**common, default_armature=0.0)
+        except TypeError:
+            return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
 
 
 @dataclass
@@ -205,6 +301,7 @@ class MarkerSet:
 class SimScene:
     scene: object = None
     mover: Optional["SimMover"] = None
+    go2: Optional[Go2Locomotion] = None
     n_nodes: int = 0
     n_seg: int = 0
 
@@ -405,6 +502,8 @@ class SimScene:
         )
 
     def step(self) -> None:
+        if self.go2 is not None:
+            self.go2.step()
         if self.scene is not None:
             self.scene.step()
 
@@ -641,6 +740,25 @@ class AssetProcessor:
                 raise RuntimeError(f"Auto build failed for {self.app.cfg.assy_build_json}: {e}") from e
             if not os.path.isfile(in_json):
                 raise FileNotFoundError(f"manifest json not found after auto-build: {in_json}")
+
+        manifest_go2_found = False
+        manifest_parts_count = 0
+        try:
+            with open(in_json, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            parts = list(manifest.get("parts", []) or [])
+            manifest_parts_count = int(len(parts))
+            manifest_go2_found = any(str(p.get("name", "")).strip().lower() == "go2" for p in parts if isinstance(p, dict))
+        except Exception as exc:
+            print(f"[runtime] manifest inspect skipped: {exc}")
+        print(
+            "[runtime] use_go2=%s manifest_parts=%d go2_part=%s"
+            % (
+                str(bool(getattr(self.app.cfg, "use_go2", False))).lower(),
+                int(manifest_parts_count),
+                str(bool(manifest_go2_found)).lower(),
+            )
+        )
 
         self._load_joint_layout(in_json)
         self.app._apply_ideal_rates_if_needed()
@@ -893,6 +1011,9 @@ class StateSource:
     def claw_closed(self) -> bool:
         return False
 
+    def go2_vel(self) -> tuple[float, float, float]:
+        return (0.0, 0.0, 0.0)
+
     def debug_markers(self) -> list[dict[str, Any]]:
         return []
 
@@ -912,6 +1033,7 @@ class HardwareStateCache(StateSource):
         self._last_ik_target_dir: Optional[np.ndarray] = None
         self._last_sag_model: dict[str, Any] = {}
         self._last_claw_closed: bool = False
+        self._last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_debug_markers: list[dict[str, Any]] = []
 
     def update(
@@ -928,6 +1050,9 @@ class HardwareStateCache(StateSource):
             self._last_sag_model = dict(sag_model)
     def update_claw_closed(self, claw_closed: bool) -> None:
         self._last_claw_closed = bool(claw_closed)
+
+    def update_go2_vel(self, go2_vel: tuple[float, float, float]) -> None:
+        self._last_go2_vel = (float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2]))
 
     def update_ik_target(self, ik_target_xyz: Optional[np.ndarray]) -> None:
         self._last_ik_target_xyz = None if ik_target_xyz is None else np.array(ik_target_xyz, dtype=float).reshape(3)
@@ -958,6 +1083,13 @@ class HardwareStateCache(StateSource):
     def claw_closed(self) -> bool:
         return bool(self._last_claw_closed)
 
+    def go2_vel(self) -> tuple[float, float, float]:
+        return (
+            float(self._last_go2_vel[0]),
+            float(self._last_go2_vel[1]),
+            float(self._last_go2_vel[2]),
+        )
+
     def debug_markers(self) -> list[dict[str, Any]]:
         return [dict(marker) for marker in self._last_debug_markers]
 
@@ -984,6 +1116,7 @@ class HostStateSubscriber:
         self.last_ik_target_dir: Optional[np.ndarray] = None
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
+        self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_debug_markers: list[dict[str, Any]] = []
 
     def close(self) -> None:
@@ -1043,6 +1176,11 @@ class HostStateSubscriber:
                 self.last_sag_model = dict(sag_raw)
             if "claw_closed" in msg:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
+            if "go2_vel" in msg:
+                try:
+                    self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
+                except Exception:
+                    pass
             debug_markers_raw = msg.get("debug_markers", None)
             if isinstance(debug_markers_raw, list):
                 next_markers: list[dict[str, Any]] = []
@@ -1112,6 +1250,7 @@ class HostStateSource(StateSource):
         self._cache.update_debug_markers(self._sub.last_debug_markers)
         self._cache.update_sag_model(self._sub.last_sag_model)
         self._cache.update_claw_closed(self._sub.last_claw_closed)
+        self._cache.update_go2_vel(self._sub.last_go2_vel)
         if self._sub.last_q is not None:
             self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
 
@@ -1129,6 +1268,9 @@ class HostStateSource(StateSource):
 
     def claw_closed(self) -> bool:
         return self._cache.claw_closed()
+
+    def go2_vel(self) -> tuple[float, float, float]:
+        return self._cache.go2_vel()
 
     def debug_markers(self) -> list[dict[str, Any]]:
         return self._cache.debug_markers()
@@ -1217,6 +1359,7 @@ class RuntimePrep:
 
     def init_genesis(self, urdf_path: str) -> None:
         a = self.app
+        use_go2 = bool(getattr(a.cfg, "use_go2", False))
         backend = gs.gpu if a.cfg.use_gpu else gs.cpu
         backend_name = "gpu" if a.cfg.use_gpu else "cpu"
         print(f"[runtime] genesis backend requested: {backend_name}")
@@ -1226,17 +1369,38 @@ class RuntimePrep:
         except TypeError:
             gs.init(backend=backend)
 
+        gravity = tuple(float(x) for x in a.params.gravity)
+        if use_go2 and gravity == (0.0, 0.0, 0.0):
+            gravity = (0.0, 0.0, -9.81)
+            print("[runtime] use_go2=true: enabling gravity (0, 0, -9.81)")
+
         try:
-            sim_opts = gs.options.SimOptions(dt=a.params.dt, gravity=a.params.gravity, substeps=int(a.params.substeps))
+            sim_opts = gs.options.SimOptions(dt=a.params.dt, gravity=gravity, substeps=int(a.params.substeps))
         except TypeError:
             try:
-                sim_opts = gs.options.SimOptions(dt=a.params.dt, gravity=a.params.gravity)
+                sim_opts = gs.options.SimOptions(dt=a.params.dt, gravity=gravity)
             except TypeError:
                 sim_opts = gs.options.SimOptions(dt=a.params.dt)
 
-        bx, by, bz = map(float, a.spawn.spawn_xyz)
-        cam_lookat = (bx + 0.25, by, bz)
-        cam_pos = (bx + 1.10, by - 1.00, bz + 1.10)
+        spawn_pos = tuple(float(x) for x in a.spawn.spawn_xyz)
+        spawn_euler = tuple(float(x) for x in a.spawn.spawn_euler_deg)
+        if use_go2:
+            go2_xy = (spawn_pos[0], spawn_pos[1])
+            go2_z = float(a.spawn.go2_spawn_height)
+            go2_euler = tuple(float(x) for x in a.spawn.go2_spawn_euler_deg)
+            go2_pos = (go2_xy[0], go2_xy[1], go2_z)
+            mount_off = tuple(float(x) for x in a.spawn.go2_mount_offset_m)
+            arm_pos = _world_offset(go2_pos, go2_euler, mount_off)
+            arm_euler = spawn_euler
+            cam_lookat = (go2_xy[0] + 0.25, go2_xy[1], go2_z + 0.30)
+            cam_pos = (go2_xy[0] + 1.10, go2_xy[1] - 1.00, go2_z + 1.10)
+        else:
+            go2_pos = None
+            go2_euler = (0.0, 0.0, 0.0)
+            arm_pos = spawn_pos
+            arm_euler = spawn_euler
+            cam_lookat = (spawn_pos[0] + 0.25, spawn_pos[1], spawn_pos[2])
+            cam_pos = (spawn_pos[0] + 1.10, spawn_pos[1] - 1.00, spawn_pos[2] + 1.10)
 
         a.sim_scene.scene = gs.Scene(
             sim_options=sim_opts,
@@ -1250,51 +1414,48 @@ class RuntimePrep:
         )
 
         if a.cfg.floor:
-            a.sim_scene.scene.add_entity(gs.morphs.Plane())
+            floor_ent = a.sim_scene.scene.add_entity(gs.morphs.Plane())
+        else:
+            floor_ent = None
 
-        spawn_pos = tuple(float(x) for x in a.spawn.spawn_xyz)
-        spawn_euler = tuple(float(x) for x in a.spawn.spawn_euler_deg)
-        spawn_q_xyzw = Rot.from_euler("xyz", np.array(spawn_euler, dtype=float), degrees=True).as_quat()
-        spawn_q_wxyz = np.array([spawn_q_xyzw[3], spawn_q_xyzw[0], spawn_q_xyzw[1], spawn_q_xyzw[2]], dtype=float)
-        morph = None
-        try:
-            morph = gs.morphs.URDF(
-                file=urdf_path,
-                pos=spawn_pos,
-                euler=spawn_euler,
-                fixed=True,
-                prioritize_urdf_material=True,
-                default_armature=0.0,
-                merge_fixed_links=True,
-                requires_jac_and_IK=False,
+        go2_entity = None
+        if use_go2:
+            go2_urdf = self._resolve_genesis_go2_urdf()
+            if not go2_urdf:
+                raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
+            go2_entity = a.sim_scene.scene.add_entity(
+                _make_urdf_morph(
+                    str(go2_urdf),
+                    go2_pos,
+                    go2_euler,
+                    fixed=False,
+                    requires_jac_and_IK=True,
+                )
             )
-        except TypeError:
-            try:
-                morph = gs.morphs.URDF(
-                    file=urdf_path,
-                    pos=spawn_pos,
-                    euler=spawn_euler,
-                    fixed=True,
-                    prioritize_urdf_material=True,
-                    default_armature=0.0,
-                    merge_fixed_links=False,
-                    requires_jac_and_IK=False,
-                )
-            except TypeError:
-                morph = gs.morphs.URDF(
-                    file=urdf_path,
-                    pos=spawn_pos,
-                    euler=spawn_euler,
-                    fixed=True,
-                    prioritize_urdf_material=True,
-                    merge_fixed_links=False,
-                    requires_jac_and_IK=False,
-                )
+            print(f"[runtime] GO2 spawned at {go2_pos} fixed=false from {go2_urdf}")
 
-        ent = a.sim_scene.scene.add_entity(morph)
+        arm_fixed = not use_go2
+        ent = a.sim_scene.scene.add_entity(_make_urdf_morph(urdf_path, arm_pos, arm_euler, fixed=arm_fixed))
+        if use_go2:
+            print(f"[runtime] arm mounted at {arm_pos} fixed=false (weld to GO2 base)")
+
         t_build = time.time()
         a.sim_scene.scene.build()
+        if floor_ent is not None:
+            try:
+                floor_ent.set_friction(0.8)
+            except Exception:
+                pass
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
+
+        if use_go2 and go2_entity is not None:
+            self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
+            a.sim_scene.go2 = Go2Locomotion(
+                go2_entity,
+                dt=a.params.dt,
+                config=a.go2_locomotion_config,
+                arm_entity=ent,
+            )
 
         n_nodes = self._detect_n_nodes(ent)
         n_seg = int(a.spawn.n_seg) if a.spawn.n_seg is not None else max(1, n_nodes // 2)
@@ -1311,6 +1472,31 @@ class RuntimePrep:
         )
         a.sim_scene.n_nodes = n_nodes
         a.sim_scene.n_seg = n_seg
+
+    def _weld_arm_to_go2(self, *, arm_ent, go2_ent) -> None:
+        a = self.app
+        scene = a.sim_scene.scene
+        if scene is None:
+            return
+        try:
+            plate = arm_ent.get_link("plate")
+            base = go2_ent.get_link("base")
+            solver = scene.rigid_solver
+            solver.add_weld_constraint(int(plate.idx), int(base.idx))
+            print(f"[runtime] GO2 weld: plate(idx={plate.idx}) <-> base(idx={base.idx})")
+        except Exception as exc:
+            print(f"[runtime] GO2 weld failed: {exc}")
+
+    @staticmethod
+    def _resolve_genesis_go2_urdf() -> str:
+        try:
+            gs_root = os.path.dirname(getattr(gs, "__file__", ""))
+        except Exception:
+            gs_root = ""
+        if not gs_root:
+            return ""
+        candidate = os.path.join(gs_root, "assets", "urdf", "go2", "urdf", "go2.urdf")
+        return candidate if os.path.isfile(candidate) else ""
 
 
 
@@ -1345,6 +1531,13 @@ class SimRuntime:
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                if a.sim_scene.go2 is not None:
+                    go2_vel = a.state_source.go2_vel() if a.state_source is not None else (0.0, 0.0, 0.0)
+                    a.sim_scene.go2.set_planar_velocity(
+                        float(go2_vel[0]),
+                        float(go2_vel[1]),
+                        float(go2_vel[2]),
+                    )
                 if ik_target is not None and a.spawn.draw_debug_markers:
                     a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
                     if ik_target_dir is not None:
@@ -1425,6 +1618,7 @@ class GenesisApp:
         *,
         urdf_export_cfg: Optional[UrdfExportConfig] = None,
         ik_cfg: Optional[IkConfig] = None,
+        go2_locomotion_config: Optional[Go2LocomotionConfig] = None,
         mapping_cfg: Optional[proto.SimMappingConfig] = None,
         endpoint: Optional[str] = None,
         enable_link: Optional[bool] = None,
@@ -1440,6 +1634,9 @@ class GenesisApp:
         self.spawn = model if model is not None else SpawnConfig()
         self.urdf_export_cfg = urdf_export_cfg if urdf_export_cfg is not None else UrdfExportConfig()
         self.ik_cfg = ik_cfg if ik_cfg is not None else IkConfig()
+        self.go2_locomotion_config = (
+            go2_locomotion_config if go2_locomotion_config is not None else Go2LocomotionConfig()
+        )
         self.hardware_cfg = hardware_cfg if hardware_cfg is not None else HardwareConfig()
 
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
@@ -1510,6 +1707,7 @@ def main() -> None:
         model=bundle.spawn_config,
         urdf_export_cfg=bundle.urdf_export_config,
         ik_cfg=bundle.ik_config,
+        go2_locomotion_config=bundle.go2_locomotion_config,
         mapping_cfg=bundle.mapping_config,
     )
     app.run()

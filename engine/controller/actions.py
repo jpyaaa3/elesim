@@ -1672,6 +1672,10 @@ class ControlService:
         if self.client is not None:
             self.client.send_claw_command(claw_closed=bool(closed), source="target")
 
+    def send_go2_velocity(self, *, vx: float, vy: float, wz: float) -> None:
+        if self.client is not None:
+            self.client.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz), source="target")
+
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._visual_busy():
             return

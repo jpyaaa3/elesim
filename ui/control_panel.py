@@ -14,6 +14,7 @@ from engine.controller.perception_capture import load_mock_world_xyz_from_detect
 
 from .panels import (
     draw_control_4dof_panel,
+    draw_go2_panel,
     draw_hardware_panel,
     draw_ik_panel,
     draw_perception_panel,
@@ -30,18 +31,27 @@ class ControlPanel:
         service: ControlService,
         *,
         use_hardware: bool = False,
+        use_go2: bool = False,
+        go2_teleop_vx_mps: float = 0.35,
+        go2_teleop_vy_mps: float = 0.25,
+        go2_teleop_wz_radps: float = 0.80,
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
     ):
         self.state = state
         self.service = service
         self._use_hardware = bool(use_hardware)
+        self._use_go2 = bool(use_go2)
+        self._go2_teleop_vx_mps = float(go2_teleop_vx_mps)
+        self._go2_teleop_vy_mps = float(go2_teleop_vy_mps)
+        self._go2_teleop_wz_radps = float(go2_teleop_wz_radps)
         pc = perception_cfg or PerceptionConfig()
         pk = pick_cfg or PickConfig()
         self._stop = False
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
         self._ik_header_init_open = False
+        self._go2_header_init_open = False
         self._perception_header_init_open = False
         self._sag_header_init_open = False
         self._perception_config_path_draft = str(pc.detector_config)
@@ -76,6 +86,7 @@ class ControlPanel:
         self._offset_s1_draft = float(s1_off)
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
+        self._go2_was_active = False
 
     def stop(self) -> None:
         self._stop = True
@@ -106,6 +117,9 @@ class ControlPanel:
                 imgui.separator()
             draw_control_4dof_panel(self)
             imgui.separator()
+            draw_go2_panel(self)
+            if self._use_go2:
+                imgui.separator()
             draw_ik_panel(self)
             imgui.separator()
             draw_perception_panel(self)

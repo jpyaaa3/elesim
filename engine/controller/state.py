@@ -26,6 +26,7 @@ class HostState:
     perceived_center_uv: Optional[tuple[float, float]]
     perceived_scale: Optional[float]
     perceived_timestamp_s: float
+    go2_vel: tuple[float, float, float]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
+from engine.go2_locomotion.config import Go2LocomotionConfig
 from engine.joint_defs import JointLimit
 
 
@@ -112,6 +113,12 @@ class SpawnConfig:
     spawn_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     spawn_euler_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     draw_debug_markers: bool = True
+    go2_spawn_height: float = 0.42
+    go2_mount_offset_m: Tuple[float, float, float] = (0.0, 0.0, 0.08)
+    go2_spawn_euler_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    go2_teleop_vx_mps: float = 0.35
+    go2_teleop_vy_mps: float = 0.25
+    go2_teleop_wz_radps: float = 0.80
 
 
 @dataclass(frozen=True)
@@ -316,6 +323,7 @@ class AppConfigBundle:
     ik_config: IkConfig
     perception_config: PerceptionConfig
     pick_config: PickConfig
+    go2_locomotion_config: Go2LocomotionConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -863,6 +871,85 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
     )
 
 
+def _load_go2_locomotion_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> Go2LocomotionConfig:
+    gl0 = defaults.go2_locomotion_config
+    return Go2LocomotionConfig(
+        mode=cp.get("go2_locomotion", "mode", fallback=gl0.mode).strip().lower(),
+        stance_time_s=cp.getfloat("go2_locomotion", "stance_time_s", fallback=gl0.stance_time_s),
+        swing_time_s=cp.getfloat("go2_locomotion", "swing_time_s", fallback=gl0.swing_time_s),
+        raibert_kv=cp.getfloat("go2_locomotion", "raibert_kv", fallback=gl0.raibert_kv),
+        nominal_body_height_m=cp.getfloat(
+            "go2_locomotion", "nominal_body_height_m", fallback=gl0.nominal_body_height_m
+        ),
+        foot_swing_height_m=cp.getfloat(
+            "go2_locomotion", "foot_swing_height_m", fallback=gl0.foot_swing_height_m
+        ),
+        leg_kp=cp.getfloat("go2_locomotion", "leg_kp", fallback=gl0.leg_kp),
+        leg_kv=cp.getfloat("go2_locomotion", "leg_kv", fallback=gl0.leg_kv),
+        command_idle_threshold=cp.getfloat(
+            "go2_locomotion", "command_idle_threshold", fallback=gl0.command_idle_threshold
+        ),
+        ground_height_m=cp.getfloat("go2_locomotion", "ground_height_m", fallback=gl0.ground_height_m),
+        foot_radius_m=cp.getfloat("go2_locomotion", "foot_radius_m", fallback=gl0.foot_radius_m),
+        leg_max_rate_radps=cp.getfloat(
+            "go2_locomotion", "leg_max_rate_radps", fallback=gl0.leg_max_rate_radps
+        ),
+        foot_max_step_m=cp.getfloat("go2_locomotion", "foot_max_step_m", fallback=gl0.foot_max_step_m),
+        base_vel_blend=cp.getfloat("go2_locomotion", "base_vel_blend", fallback=gl0.base_vel_blend),
+        gait_hz=cp.getfloat("go2_locomotion", "gait_hz", fallback=gl0.gait_hz),
+        gait_duty=cp.getfloat("go2_locomotion", "gait_duty", fallback=gl0.gait_duty),
+        z_pos_des_m=cp.getfloat("go2_locomotion", "z_pos_des_m", fallback=gl0.z_pos_des_m),
+        mpc_steps_per_gait=cp.getint("go2_locomotion", "mpc_steps_per_gait", fallback=gl0.mpc_steps_per_gait),
+        torque_safety_scale=cp.getfloat(
+            "go2_locomotion", "torque_safety_scale", fallback=gl0.torque_safety_scale
+        ),
+        mpc_leg_kv_damping=cp.getfloat(
+            "go2_locomotion", "mpc_leg_kv_damping", fallback=gl0.mpc_leg_kv_damping
+        ),
+        mpc_ctrl_hz=cp.getfloat("go2_locomotion", "mpc_ctrl_hz", fallback=gl0.mpc_ctrl_hz),
+        mpc_command_ramp_s=cp.getfloat(
+            "go2_locomotion", "mpc_command_ramp_s", fallback=gl0.mpc_command_ramp_s
+        ),
+        mpc_torque_ramp_s=cp.getfloat(
+            "go2_locomotion", "mpc_torque_ramp_s", fallback=gl0.mpc_torque_ramp_s
+        ),
+        mpc_torque_warmup_s=cp.getfloat(
+            "go2_locomotion", "mpc_torque_warmup_s", fallback=gl0.mpc_torque_warmup_s
+        ),
+        mpc_ready_pose_s=cp.getfloat(
+            "go2_locomotion", "mpc_ready_pose_s", fallback=gl0.mpc_ready_pose_s
+        ),
+        mpc_ready_kp=cp.getfloat("go2_locomotion", "mpc_ready_kp", fallback=gl0.mpc_ready_kp),
+        mpc_ready_kv=cp.getfloat("go2_locomotion", "mpc_ready_kv", fallback=gl0.mpc_ready_kv),
+        mpc_aux_kp=cp.getfloat("go2_locomotion", "mpc_aux_kp", fallback=gl0.mpc_aux_kp),
+        mpc_aux_kv=cp.getfloat("go2_locomotion", "mpc_aux_kv", fallback=gl0.mpc_aux_kv),
+        mpc_tau_filter_alpha=cp.getfloat(
+            "go2_locomotion", "mpc_tau_filter_alpha", fallback=gl0.mpc_tau_filter_alpha
+        ),
+        mpc_force_filter_alpha=cp.getfloat(
+            "go2_locomotion", "mpc_force_filter_alpha", fallback=gl0.mpc_force_filter_alpha
+        ),
+        mpc_foot_placement_scale=cp.getfloat(
+            "go2_locomotion", "mpc_foot_placement_scale", fallback=gl0.mpc_foot_placement_scale
+        ),
+        mpc_payload_enable=cp.getboolean(
+            "go2_locomotion", "mpc_payload_enable", fallback=gl0.mpc_payload_enable
+        ),
+        mpc_payload_mass_kg=cp.getfloat(
+            "go2_locomotion", "mpc_payload_mass_kg", fallback=gl0.mpc_payload_mass_kg
+        ),
+        mpc_pitch_trim_gain_z=cp.getfloat(
+            "go2_locomotion", "mpc_pitch_trim_gain_z", fallback=gl0.mpc_pitch_trim_gain_z
+        ),
+        mpc_pitch_trim_z_ref_m=cp.getfloat(
+            "go2_locomotion", "mpc_pitch_trim_z_ref_m", fallback=gl0.mpc_pitch_trim_z_ref_m
+        ),
+        mpc_pitch_trim_max_rad=cp.getfloat(
+            "go2_locomotion", "mpc_pitch_trim_max_rad", fallback=gl0.mpc_pitch_trim_max_rad
+        ),
+    )
+
+
 def _default_app_config_bundle() -> AppConfigBundle:
     return AppConfigBundle(
         sim_param=SimParam(),
@@ -874,6 +961,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         ik_config=IkConfig(),
         perception_config=PerceptionConfig(),
         pick_config=PickConfig(),
+        go2_locomotion_config=Go2LocomotionConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -975,6 +1063,12 @@ def _load_spawn_config(cp: configparser.ConfigParser, defaults: AppConfigBundle)
         spawn_xyz=_parse_vec3(cp.get("spawn", "spawn_position", fallback=""), am0.spawn_xyz),
         spawn_euler_deg=_parse_vec3(cp.get("spawn", "spawn_orientation_deg", fallback=""), am0.spawn_euler_deg),
         draw_debug_markers=cp.getboolean("spawn", "draw_debug_markers", fallback=am0.draw_debug_markers),
+        go2_spawn_height=cp.getfloat("spawn", "go2_spawn_height", fallback=am0.go2_spawn_height),
+        go2_mount_offset_m=_parse_vec3(cp.get("spawn", "go2_mount_offset_m", fallback=""), am0.go2_mount_offset_m),
+        go2_spawn_euler_deg=_parse_vec3(cp.get("spawn", "go2_spawn_euler_deg", fallback=""), am0.go2_spawn_euler_deg),
+        go2_teleop_vx_mps=cp.getfloat("spawn", "go2_teleop_vx_mps", fallback=am0.go2_teleop_vx_mps),
+        go2_teleop_vy_mps=cp.getfloat("spawn", "go2_teleop_vy_mps", fallback=am0.go2_teleop_vy_mps),
+        go2_teleop_wz_radps=cp.getfloat("spawn", "go2_teleop_wz_radps", fallback=am0.go2_teleop_wz_radps),
     )
 
 
@@ -1065,6 +1159,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     ik_config_cfg = _load_ik_config(cp, defaults)
     perception_config_cfg = _load_perception_config(cp, defaults)
     pick_config_cfg = _load_pick_config(cp, defaults)
+    go2_locomotion_config_cfg = _load_go2_locomotion_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -1077,5 +1172,6 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         ik_config=ik_config_cfg,
         perception_config=perception_config_cfg,
         pick_config=pick_config_cfg,
+        go2_locomotion_config=go2_locomotion_config_cfg,
         mapping_config=mapping_config_cfg,
     )

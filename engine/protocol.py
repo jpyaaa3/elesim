@@ -150,6 +150,7 @@ def pack_state(
     perceived_scale: Optional[float] = None,
     perceived_timestamp_s: Optional[float] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
+    go2_vel: Optional[tuple[float, float, float]] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -198,6 +199,8 @@ def pack_state(
         out["perceived_scale"] = float(perceived_scale)
     if perceived_timestamp_s is not None:
         out["perceived_timestamp_s"] = float(perceived_timestamp_s)
+    if go2_vel is not None:
+        out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
     if debug_markers is not None:
         packed_markers: list[dict[str, Any]] = []
         for raw in list(debug_markers):
@@ -262,3 +265,9 @@ def unpack_q(d: Dict[str, Any]) -> SimQ:
         theta1_rad=float(d.get("theta1_rad", 0.0)),
         theta2_rad=float(d.get("theta2_rad", 0.0)),
     )
+
+
+def unpack_go2_vel(raw: Any) -> tuple[float, float, float]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        raise ValueError("go2_vel must be [vx, vy, wz]")
+    return (float(raw[0]), float(raw[1]), float(raw[2]))

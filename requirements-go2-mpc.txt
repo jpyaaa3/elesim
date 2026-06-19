@@ -1,0 +1,7 @@
+# Optional GO2 convex MPC locomotion (https://github.com/elijah-waichong-chan/go2-convex-mpc)
+# Install into the elesim conda env:
+#
+#   conda install -c conda-forge pinocchio casadi
+#   pip install -e git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git
+#
+# Then set config.ini [go2_locomotion] mode = convex_mpc

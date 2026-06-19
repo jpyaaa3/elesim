@@ -36,6 +36,7 @@ from builder.robot_defs import (
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "craft")
 DEFAULT_ASSET_ROOT_DIR = os.path.join(PROJECT_ROOT, "assets")
+GO2_LOCAL_ASSET_FILES = ("go2_mesh.obj", "go2_frame.json", "go2_physics.json")
 
 
 def _pick_named_file(dir_path: str, names: List[str]) -> Optional[str]:
@@ -115,21 +116,29 @@ def _load_connector_spec_from_static_frame(kind: PartKind) -> ConnectorSpec:
     raise ValueError(f"frame.json for kind '{kind.value}' must define connectors.from and connectors.to with connector poses: {frame_path}")
 
 
-def make_default_config() -> RobotBuildConfig:
-    connectors = {
-        kind: _load_connector_spec_from_static_frame(kind)
-        for kind in (
-            PartKind.plate,
-            PartKind.housing,
-            PartKind.wedge,
-            PartKind.node,
-            PartKind.node_end,
-            PartKind.gripper_base,
-            PartKind.gripper_claw_left,
-            PartKind.gripper_claw_right,
-        )
-    }
-    return RobotBuildConfig(
+def _has_local_go2_assets(root_dir: str = DEFAULT_ASSET_ROOT_DIR) -> bool:
+    base = os.path.join(root_dir, "go2")
+    if not os.path.isdir(base):
+        return False
+    return all(os.path.isfile(os.path.join(base, name)) for name in GO2_LOCAL_ASSET_FILES)
+
+
+def make_default_config(*, use_go2: bool = False) -> RobotBuildConfig:
+    connectors: Dict[PartKind, ConnectorSpec] = {}
+    include_local_go2 = bool(use_go2) and _has_local_go2_assets()
+    for kind in (
+        PartKind.plate,
+        PartKind.housing,
+        PartKind.wedge,
+        PartKind.node,
+        PartKind.node_end,
+        PartKind.gripper_base,
+        PartKind.gripper_claw_left,
+        PartKind.gripper_claw_right,
+        *((PartKind.go2,) if include_local_go2 else ()),
+    ):
+        connectors[kind] = _load_connector_spec_from_static_frame(kind)
+    kwargs = dict(
         plate=PartSpec(connectors=connectors[PartKind.plate]),
         housing=PartSpec(connectors=connectors[PartKind.housing]),
         wedge=PartSpec(connectors=connectors[PartKind.wedge]),
@@ -140,6 +149,9 @@ def make_default_config() -> RobotBuildConfig:
         gripper_claw_right=PartSpec(connectors=connectors[PartKind.gripper_claw_right]),
         joint_axis_rules={},
     )
+    if include_local_go2:
+        kwargs["go2"] = PartSpec(connectors=connectors[PartKind.go2])
+    return RobotBuildConfig(**kwargs)
 
 
 class AssetFinder:
@@ -211,7 +223,7 @@ class PartPolicySetter:
 
     @staticmethod
     def _is_go2_part(part_name: str, kind: PartKind) -> bool:
-        return str(part_name).strip().lower() == "go2"
+        return str(part_name).strip().lower() == "go2" or kind == PartKind.go2
 
     @staticmethod
     def _is_fixed_base_part(part_name: str, kind: PartKind) -> bool:
@@ -279,6 +291,8 @@ class AssemblyDesigner:
             robot_graph.add_part(PartInstance("gripper_claw_left", PartKind.gripper_claw_left, self._cfg.gripper_claw_left.connectors))
         if self._cfg.gripper_claw_right is not None:
             robot_graph.add_part(PartInstance("gripper_claw_right", PartKind.gripper_claw_right, self._cfg.gripper_claw_right.connectors))
+        if self._cfg.go2 is not None:
+            robot_graph.add_part(PartInstance("go2", PartKind.go2, self._cfg.go2.connectors))
 
         robot_graph.connect(
             "plate",
@@ -306,6 +320,14 @@ class AssemblyDesigner:
                 "gripper_base",
                 "gripper_claw_right",
                 JointSpec(name="j_gripper_base_claw_right", type=JointType.prismatic, limit_deg=(0.0, 0.02)),
+            )
+        if self._cfg.go2 is not None:
+            robot_graph.connect(
+                "plate",
+                "go2",
+                JointSpec(name="j_plate_go2", type=JointType.fixed),
+                parent_to="from",
+                child_from="from",
             )
         return robot_graph
 
@@ -419,7 +441,23 @@ class ManifestWriter:
     def _load_assets(self, parts: Dict[str, PartInstance]) -> Dict[str, PartAssets]:
         emitted: Dict[str, PartAssets] = {}
         for name, part in parts.items():
-            emitted[name] = self._asset_finder.resolve_assets(part.kind)
+            try:
+                emitted[name] = self._asset_finder.resolve_assets(part.kind)
+            except FileNotFoundError as exc:
+                if part.kind == PartKind.go2:
+                    root = DEFAULT_ASSET_ROOT_DIR
+                    expected = [
+                        os.path.join(root, "go2", "go2_mesh.obj"),
+                        os.path.join(root, "go2", "go2_frame.json"),
+                        os.path.join(root, "go2", "go2_physics.json"),
+                    ]
+                    expected_text = ", ".join(expected)
+                    raise FileNotFoundError(
+                        "GO2 assets not found. Expected files: "
+                        f"{expected_text}. "
+                        "Set [runtime] use_go2=false or add GO2 assets under assets/go2."
+                    ) from exc
+                raise
         return emitted
 
     def _record_no_clip_pairs(self, joints: List[JointLayout]) -> None:
@@ -499,7 +537,13 @@ def build_default_manifest(
     use_hardware: bool = False,
     use_go2: bool = False,
 ) -> str:
-    config = make_default_config()
+    include_local_go2 = bool(use_go2) and _has_local_go2_assets()
+    if bool(use_go2) and (not include_local_go2):
+        print(
+            "[builder] use_go2=true but local assets/go2 not found; "
+            "manifest GO2 part is skipped (runtime Genesis GO2 fallback expected)."
+        )
+    config = make_default_config(use_go2=bool(include_local_go2))
     asset_finder = AssetFinder()
     policy = PartPolicySetter()
     policy.set_use_hardware(use_hardware)

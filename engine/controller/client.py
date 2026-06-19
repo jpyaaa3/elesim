@@ -70,6 +70,7 @@ class ControlClient:
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -110,6 +111,11 @@ class ControlClient:
             perceived_center_uv=self.last_perceived_center_uv,
             perceived_scale=self.last_perceived_scale,
             perceived_timestamp_s=float(self.last_perceived_timestamp_s),
+            go2_vel=(
+                float(self.last_go2_vel[0]),
+                float(self.last_go2_vel[1]),
+                float(self.last_go2_vel[2]),
+            ),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -250,6 +256,16 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            if "go2_vel" in msg:
+                try:
+                    raw_go2_vel = msg.get("go2_vel", [0.0, 0.0, 0.0])
+                    self.last_go2_vel = (
+                        float(raw_go2_vel[0]),
+                        float(raw_go2_vel[1]),
+                        float(raw_go2_vel[2]),
+                    )
+                except (TypeError, ValueError, IndexError):
+                    self.last_go2_vel = (0.0, 0.0, 0.0)
             self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
@@ -357,6 +373,19 @@ class ControlClient:
         now = time.time()
         self.tx_seq += 1
         self._send({"t": "target", "ts": now, "seq": self.tx_seq, "source": str(source), "claw_closed": bool(claw_closed)})
+
+    def send_go2_velocity(self, *, vx: float, vy: float, wz: float, source: str = "target") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "go2_vel": [float(vx), float(vy), float(wz)],
+            }
+        )
 
     def send_partial_control_u(self, partial_u: dict[str, float], *, source: str = "slider") -> None:
         now = time.time()
