@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
+from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.sport_api import (
     API_MOVE,
     API_STOP_MOVE,
@@ -17,10 +18,11 @@ from engine.go2_hardware.sport_api import (
 
 
 class UnitreeRos2Bridge:
-    """Jetson-side bridge: elesim go2_vel -> unitree_ros2 Sport API; /odom -> base state."""
+    """Jetson-side bridge: elesim go2_vel -> unitree_ros2 Sport API; pose topic -> base state."""
 
     def __init__(self, cfg: Go2HardwareConfig) -> None:
         self._cfg = cfg
+        self._pose_source = str(cfg.pose_source).strip().lower()
         self._lock = threading.Lock()
         self._latest: Optional[OdomSample] = None
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -39,12 +41,22 @@ class UnitreeRos2Bridge:
         self._import_ros()
         self._node = self._RosNode("elesim_go2_bridge")
         self._pub = self._node.create_publisher(self._Request, str(self._cfg.sport_request_topic), 10)
-        self._node.create_subscription(
-            self._Odometry,
-            str(self._cfg.odom_topic),
-            self._on_odom,
-            10,
-        )
+        if self._pose_source == "sportmodestate":
+            self._node.create_subscription(
+                self._SportModeState,
+                str(self._cfg.sport_state_topic),
+                self._on_sportmodestate,
+                10,
+            )
+            pose_topic = str(self._cfg.sport_state_topic)
+        else:
+            self._node.create_subscription(
+                self._Odometry,
+                str(self._cfg.odom_topic),
+                self._on_odom,
+                10,
+            )
+            pose_topic = str(self._cfg.odom_topic)
         self._stop_event.clear()
         self._spin_thread = threading.Thread(target=self._spin_loop, name="go2-ros2-spin", daemon=True)
         self._spin_thread.start()
@@ -53,8 +65,8 @@ class UnitreeRos2Bridge:
         if stand_id is not None:
             self._publish_api(stand_id, "")
         print(
-            "[go2_bridge] started | sport=%s odom=%s cmd_hz=%.1f"
-            % (self._cfg.sport_request_topic, self._cfg.odom_topic, float(self._cfg.cmd_hz))
+            "[go2_bridge] started | sport=%s pose=%s(%s) cmd_hz=%.1f"
+            % (self._cfg.sport_request_topic, self._pose_source, pose_topic, float(self._cfg.cmd_hz))
         )
 
     def stop(self) -> None:
@@ -152,19 +164,34 @@ class UnitreeRos2Bridge:
         with self._lock:
             self._latest = sample
 
+    def _on_sportmodestate(self, msg: Any) -> None:
+        try:
+            sample = sportmodestate_to_sample(
+                msg,
+                offset_xyz=self._cfg.world_frame_offset_xyz,
+                yaw_deg=float(self._cfg.world_frame_yaw_deg),
+            )
+        except Exception as exc:
+            print(f"[go2_bridge] sportmodestate parse failed: {exc}")
+            return
+        with self._lock:
+            self._latest = sample
+
     def _import_ros(self) -> None:
         try:
             import rclpy
             from nav_msgs.msg import Odometry
             from rclpy.node import Node
             from unitree_api.msg import Request
+            from unitree_go.msg import SportModeState
         except ImportError as exc:
             raise RuntimeError(
-                "ROS2 Humble deps missing for GO2 bridge (rclpy, nav_msgs, unitree_api): "
+                "ROS2 Humble deps missing for GO2 bridge (rclpy, nav_msgs, unitree_api, unitree_go): "
                 f"{exc}"
             ) from exc
         self._rclpy = rclpy
         self._Odometry = Odometry
+        self._SportModeState = SportModeState
         self._Request = Request
         self._RosNode = Node
 

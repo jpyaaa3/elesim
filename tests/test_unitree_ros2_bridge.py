@@ -18,6 +18,7 @@ from engine.go2_hardware.sport_api import (
     stand_api_id,
     velocity_below_deadband,
 )
+from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, create_go2_bridge_if_enabled
 
 
@@ -67,6 +68,30 @@ class TestOdomParser(unittest.TestCase):
         self.assertAlmostEqual(sample.lin_vel_body[0], 1.0, places=5)
         self.assertAlmostEqual(sample.ang_vel_body[2], 0.5, places=5)
         self.assertAlmostEqual(sample.timestamp_s, 1.25, places=5)
+
+
+class TestSportModeStateParser(unittest.TestCase):
+    def test_sportmodestate_to_sample_from_user_echo(self) -> None:
+        class _Stamp:
+            sec = 1782134663
+            nanosec = 28960662
+
+        class _Imu:
+            rpy = [0.01275869831442833, -0.0844469740986824, -0.005300145596265793]
+            gyroscope = [-0.011717907153069973, 0.027696872130036354, -0.017044229432940483]
+
+        class _Msg:
+            stamp = _Stamp()
+            position = [-0.007525680121034384, 0.0019341090228408575, 0.049848105758428574]
+            velocity = [2.432839352195515e-08, 3.750767252341802e-09, 2.831849030826561e-07]
+            yaw_speed = -0.017044229432940483
+            imu_state = _Imu()
+
+        sample = sportmodestate_to_sample(_Msg(), offset_xyz=(0.0, 0.0, 0.0), yaw_deg=0.0)
+        self.assertAlmostEqual(sample.pos[0], -0.007525680121034384, places=6)
+        self.assertAlmostEqual(sample.pos[2], 0.049848105758428574, places=6)
+        self.assertAlmostEqual(sample.rpy[1], -0.0844469740986824, places=6)
+        self.assertAlmostEqual(sample.ang_vel_body[2], -0.017044229432940483, places=6)
 
 
 class TestGo2HardwareConfig(unittest.TestCase):
