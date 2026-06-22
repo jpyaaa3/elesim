@@ -14,7 +14,7 @@ dynamixel-sdk>=4.0
 # Simulation (sim.py)
 genesis-world>=0.4.7
 
-# Perception (addons/autonomous_pick_place_app, hand-eye, visual tracking)
+# Perception (camera, hand-eye, visual tracking)
 opencv-python>=4.8
 pyrealsense2>=2.54
 

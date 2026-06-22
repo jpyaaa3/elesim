@@ -7,7 +7,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 
-from addons.perception_bridge.hand_eye import camera_axes_world, world_point_to_camera
+from engine.perception_bridge.hand_eye import camera_axes_world, world_point_to_camera
 
 
 @dataclass(frozen=True)

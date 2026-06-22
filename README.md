@@ -39,16 +39,8 @@
 
 ### 부가 도구
 
-- [addons](./addons)  
-  본 실행계와 분리된 실험/분석 도구 모음입니다.
-
-addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine/ik.py)** 만 공개 API로 사용하고,  
+별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine/ik.py)** 만 공개 API로 사용하고,
 `engine/iklib/*` 는 내부 구현으로 취급하는 편이 좋습니다.
-
-대표 예시:
-
-- [addons/ik_test.py](./addons/ik_test.py)  
-  특정 목표점에 대해 IK 해공간을 샘플링하고 시각화하는 도구
 
 ## 이 시스템으로 할 수 있는 일
 
@@ -89,7 +81,6 @@ addon이나 별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine
 
 외부 companion app을 붙일 때도 같은 구조를 유지합니다.
 
-- 예: [addons/autonomous_pick_place_app](./addons/autonomous_pick_place_app)
 - 현재 기본 UI에는 `Visual Servoing` 패널이 있고, 여기서 카메라 인식, Look, Aim, Ready Pose, Tweak을 시작할 수 있습니다.
 - 인식 경로는 rough 3D 좌표를 절대 정답으로 믿지 않고, 먼저 Look으로 현재 tip에서 물체를 바라보는 기준 시선을 만든 뒤, Aim으로 UV 중심 정렬을 수행하고 그 차이를 임시 등각 처짐으로 해석하는 방식입니다.
 - 외부 앱이 별도로 좌표를 보낼 때는 `tcp://127.0.0.1:5555`로 `source="perception"` 메시지를 보내고, `host.py`가 world 좌표계 디버그 마커로 바꿔 `sim.py`에 중계합니다.

@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from addons.perception_bridge.transforms import make_transform_from_pose
+from engine.perception_bridge.transforms import make_transform_from_pose
 from engine.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
 # RealSense optical (+X right, +Y down, +Z look) -> Genesis/OpenGL camera (+X right, +Y up, -Z look).
