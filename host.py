@@ -1636,6 +1636,7 @@ class ControlHost:
                     sample = self._go2_bridge.latest_state()
                     if sample is not None:
                         self._apply_go2_base_from_odom(sample)
+                    self._go2_bridge.maybe_log_status(now)
                 self._broadcast(
                     proto.pack_state(
                         u=self.last_u,

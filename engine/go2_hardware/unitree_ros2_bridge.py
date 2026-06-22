@@ -20,6 +20,28 @@ from engine.go2_hardware.sport_api import (
 )
 
 
+def _ros_topic(name: str) -> str:
+    topic = str(name).strip()
+    if not topic:
+        return topic
+    if not topic.startswith("/"):
+        topic = "/" + topic
+    return topic
+
+
+def _age_s(now_s: float, last_s: float) -> Optional[float]:
+    if last_s <= 0.0:
+        return None
+    return max(0.0, float(now_s) - float(last_s))
+
+
+def _fmt_age(now_s: float, last_s: float) -> str:
+    age = _age_s(now_s, last_s)
+    if age is None:
+        return "never"
+    return f"{age:.3f}s ago"
+
+
 class UnitreeRos2Bridge:
     """Jetson-side bridge: elesim go2_vel -> unitree_ros2 Sport API; pose topic -> base state."""
 
@@ -38,33 +60,48 @@ class UnitreeRos2Bridge:
         self._node: Any = None
         self._pub: Any = None
         self._Request: Any = None
+        self._sport_request_topic = _ros_topic(cfg.sport_request_topic)
+        self._pose_topic = (
+            _ros_topic(cfg.sport_state_topic)
+            if self._pose_source == "sportmodestate"
+            else _ros_topic(cfg.odom_topic)
+        )
+        self._lowstate_topic = _ros_topic(cfg.lowstate_topic)
+        self._pose_rx_count = 0
+        self._lowstate_rx_count = 0
+        self._api_pub_count = 0
+        self._t_last_pose_rx = 0.0
+        self._t_last_lowstate_rx = 0.0
+        self._t_last_status_log = 0.0
+        self._last_api_id = 0
+        self._last_api_parameter = ""
+        self._spin_ok = False
+        self._spin_error = ""
 
     def start(self) -> None:
         if self._started:
             return
         self._import_ros()
         self._node = self._RosNode("elesim_go2_bridge")
-        self._pub = self._node.create_publisher(self._Request, str(self._cfg.sport_request_topic), 10)
+        self._pub = self._node.create_publisher(self._Request, self._sport_request_topic, 10)
         if self._pose_source == "sportmodestate":
             self._node.create_subscription(
                 self._SportModeState,
-                str(self._cfg.sport_state_topic),
+                self._pose_topic,
                 self._on_sportmodestate,
                 10,
             )
-            pose_topic = str(self._cfg.sport_state_topic)
         else:
             self._node.create_subscription(
                 self._Odometry,
-                str(self._cfg.odom_topic),
+                self._pose_topic,
                 self._on_odom,
                 10,
             )
-            pose_topic = str(self._cfg.odom_topic)
         if bool(self._cfg.leg_sync):
             self._node.create_subscription(
                 self._LowState,
-                str(self._cfg.lowstate_topic),
+                self._lowstate_topic,
                 self._on_lowstate,
                 10,
             )
@@ -76,13 +113,15 @@ class UnitreeRos2Bridge:
         if stand_id is not None:
             self._publish_api(stand_id, "")
         print(
-            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s cmd_hz=%.1f"
+            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs"
             % (
-                self._cfg.sport_request_topic,
+                self._sport_request_topic,
                 self._pose_source,
-                pose_topic,
+                self._pose_topic,
                 bool(self._cfg.leg_sync),
+                self._lowstate_topic if bool(self._cfg.leg_sync) else "-",
                 float(self._cfg.cmd_hz),
+                float(self._cfg.status_log_interval_s),
             )
         )
 
@@ -136,6 +175,89 @@ class UnitreeRos2Bridge:
         with self._lock:
             return self._latest
 
+    def maybe_log_status(self, now_s: Optional[float] = None) -> None:
+        interval = float(self._cfg.status_log_interval_s)
+        if interval <= 0.0:
+            return
+        now = float(now_s if now_s is not None else time.time())
+        with self._lock:
+            if self._t_last_status_log > 0.0 and (now - self._t_last_status_log) < interval:
+                return
+            self._t_last_status_log = now
+            pose_rx = int(self._pose_rx_count)
+            lowstate_rx = int(self._lowstate_rx_count)
+            api_pub = int(self._api_pub_count)
+            t_pose = float(self._t_last_pose_rx)
+            t_low = float(self._t_last_lowstate_rx)
+            target_vel = tuple(float(v) for v in self._target_vel)
+            sample = self._latest
+            leg_q = self._latest_leg_q
+            last_api_id = int(self._last_api_id)
+            last_api_parameter = str(self._last_api_parameter)
+            spin_ok = bool(self._spin_ok)
+            spin_error = str(self._spin_error)
+
+        pose_age = _fmt_age(now, t_pose)
+        low_age = _fmt_age(now, t_low)
+        spin_state = "ok" if spin_ok else ("failed" if spin_error else "starting")
+
+        if sample is None:
+            pos_txt = "none"
+            rpy_txt = "none"
+            lin_txt = "none"
+            ang_txt = "none"
+        else:
+            pos_txt = "(%.3f, %.3f, %.3f)" % (sample.pos[0], sample.pos[1], sample.pos[2])
+            rpy_txt = "(%.3f, %.3f, %.3f)" % (sample.rpy[0], sample.rpy[1], sample.rpy[2])
+            lin_txt = "(%.3f, %.3f, %.3f)" % (
+                sample.lin_vel_body[0],
+                sample.lin_vel_body[1],
+                sample.lin_vel_body[2],
+            )
+            ang_txt = "(%.3f, %.3f, %.3f)" % (
+                sample.ang_vel_body[0],
+                sample.ang_vel_body[1],
+                sample.ang_vel_body[2],
+            )
+
+        if leg_q is not None and len(leg_q) == 12:
+            legs_txt = "12 joints FL=(%.2f,%.2f,%.2f)" % (leg_q[0], leg_q[1], leg_q[2])
+        elif leg_q is not None:
+            legs_txt = f"{len(leg_q)} joints"
+        else:
+            legs_txt = "none"
+
+        warn = ""
+        if pose_rx == 0:
+            warn = f" | WARNING: no pose on {self._pose_topic}"
+        elif t_pose > 0.0 and (now - t_pose) > max(1.0, interval * 2.0):
+            warn = f" | WARNING: pose stale ({pose_age})"
+        if bool(self._cfg.leg_sync) and lowstate_rx == 0:
+            warn += f" | WARNING: no lowstate on {self._lowstate_topic}"
+
+        print(
+            "[go2_bridge] status | spin=%s | pub=%s pose_rx=%d(%s) lowstate_rx=%d(%s) api_pub=%d"
+            % (spin_state, self._sport_request_topic, pose_rx, pose_age, lowstate_rx, low_age, api_pub)
+        )
+        print(
+            "[go2_bridge]   cmd_vel=%s | pos=%s rpy=%s | vel_body=%s ang_body=%s | legs=%s"
+            % (
+                "(%.2f, %.2f, %.2f)" % target_vel,
+                pos_txt,
+                rpy_txt,
+                lin_txt,
+                ang_txt,
+                legs_txt,
+            )
+        )
+        if last_api_id > 0:
+            param_short = last_api_parameter if len(last_api_parameter) <= 80 else (last_api_parameter[:77] + "...")
+            print("[go2_bridge]   last_api id=%d param=%s%s" % (last_api_id, param_short, warn))
+        else:
+            print("[go2_bridge]   last_api=none%s" % warn)
+        if spin_error:
+            print("[go2_bridge]   spin_error=%s" % spin_error)
+
     def _should_stop(self, vx: float, vy: float, wz: float) -> bool:
         return velocity_below_deadband(vx, vy, wz, float(self._cfg.vel_deadband))
 
@@ -148,13 +270,18 @@ class UnitreeRos2Bridge:
         msg = self._Request()
         fill_unitree_request(msg, api_id=int(api_id), parameter=str(parameter))
         self._pub.publish(msg)
+        with self._lock:
+            self._api_pub_count += 1
+            self._last_api_id = int(api_id)
+            self._last_api_parameter = str(parameter)
 
     def _on_odom(self, msg: Any) -> None:
+        now = time.time()
         try:
             stamp = msg.header.stamp
             ts = float(stamp.sec) + float(stamp.nanosec) * 1e-9
         except Exception:
-            ts = time.time()
+            ts = now
         pose = msg.pose.pose
         twist = msg.twist.twist
         sample = odom_msg_to_sample(
@@ -172,6 +299,8 @@ class UnitreeRos2Bridge:
             yaw_deg=float(self._cfg.world_frame_yaw_deg),
         )
         with self._lock:
+            self._pose_rx_count += 1
+            self._t_last_pose_rx = now
             self._latest = self._attach_leg_q(sample)
 
     def _attach_leg_q(self, sample: OdomSample) -> OdomSample:
@@ -180,6 +309,7 @@ class UnitreeRos2Bridge:
         return sample
 
     def _on_sportmodestate(self, msg: Any) -> None:
+        now = time.time()
         try:
             sample = sportmodestate_to_sample(
                 msg,
@@ -190,15 +320,20 @@ class UnitreeRos2Bridge:
             print(f"[go2_bridge] sportmodestate parse failed: {exc}")
             return
         with self._lock:
+            self._pose_rx_count += 1
+            self._t_last_pose_rx = now
             self._latest = self._attach_leg_q(sample)
 
     def _on_lowstate(self, msg: Any) -> None:
+        now = time.time()
         try:
             leg_q = lowstate_leg_q_genesis_order(msg)
         except Exception as exc:
             print(f"[go2_bridge] lowstate parse failed: {exc}")
             return
         with self._lock:
+            self._lowstate_rx_count += 1
+            self._t_last_lowstate_rx = now
             self._latest_leg_q = leg_q
             if self._latest is not None:
                 self._latest = replace(self._latest, leg_q=leg_q)
@@ -226,11 +361,14 @@ class UnitreeRos2Bridge:
         try:
             if not self._rclpy.ok():
                 self._rclpy.init()
+            self._spin_ok = True
             while not self._stop_event.is_set() and self._rclpy.ok():
                 self._rclpy.spin_once(self._node, timeout_sec=0.05)
         except Exception as exc:
+            self._spin_error = str(exc)
             print(f"[go2_bridge] spin failed: {exc}")
         finally:
+            self._spin_ok = False
             try:
                 if self._rclpy.ok():
                     self._rclpy.shutdown()

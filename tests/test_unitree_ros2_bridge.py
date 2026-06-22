@@ -20,7 +20,7 @@ from engine.go2_hardware.sport_api import (
     velocity_below_deadband,
 )
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
-from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, create_go2_bridge_if_enabled
+from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic, create_go2_bridge_if_enabled
 
 
 class TestSportApi(unittest.TestCase):
@@ -136,6 +136,15 @@ class TestGo2HardwareConfig(unittest.TestCase):
 
 
 class TestBridgeMock(unittest.TestCase):
+    def test_ros_topic_normalization(self) -> None:
+        self.assertEqual(_ros_topic("api/sport/request"), "/api/sport/request")
+        self.assertEqual(_ros_topic("/sportmodestate"), "/sportmodestate")
+
+    def test_maybe_log_status_no_crash(self) -> None:
+        cfg = Go2HardwareConfig(enabled=True, status_log_interval_s=0.0)
+        bridge = UnitreeRos2Bridge(cfg)
+        bridge.maybe_log_status(1.0)
+
     def test_set_velocity_publishes_move_and_stop(self) -> None:
         cfg = Go2HardwareConfig(enabled=True, vel_deadband=0.02, stop_on_zero_vel=True)
         bridge = UnitreeRos2Bridge(cfg)

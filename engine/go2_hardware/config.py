@@ -8,7 +8,7 @@ from typing import Tuple
 class Go2HardwareConfig:
     enabled: bool = False
     backend: str = "unitree_ros2"
-    sport_request_topic: str = "api/sport/request"
+    sport_request_topic: str = "/api/sport/request"
     # pose_source: odom (nav_msgs/Odometry) | sportmodestate (unitree_go SportModeState)
     pose_source: str = "odom"
     odom_topic: str = "/odom"
@@ -22,6 +22,8 @@ class Go2HardwareConfig:
     shutdown_mode: str = "damp"
     world_frame_offset_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     world_frame_yaw_deg: float = 0.0
+    # Periodic ROS2 link diagnostics on Jetson (0 = disabled).
+    status_log_interval_s: float = 2.0
 
     def is_active(self, *, use_go2: bool) -> bool:
         return bool(self.enabled) and bool(use_go2) and str(self.backend).strip().lower() == "unitree_ros2"

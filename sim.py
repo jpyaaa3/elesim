@@ -1667,6 +1667,12 @@ class HostStateSource(StateSource):
     def go2_leg_q(self) -> Optional[tuple[float, ...]]:
         return self._cache.go2_leg_q()
 
+    def host_state_age_s(self) -> Optional[float]:
+        ts = float(self._sub.last_state_ts)
+        if ts <= 0.0:
+            return None
+        return max(0.0, time.time() - ts)
+
     def sim_reset_seq(self) -> int:
         return self._cache.sim_reset_seq()
 
@@ -1963,6 +1969,55 @@ class SimRuntime:
     def __init__(self, app: "GenesisApp"):
         self.app = app
         self._applied_sim_reset_seq: int = 0
+        self._t_mirror_status_log: float = 0.0
+
+    def _maybe_log_mirror_status(self, now: float) -> None:
+        a = self.app
+        if a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode:
+            return
+        if a.state_source is None:
+            return
+        if (now - self._t_mirror_status_log) < 2.0:
+            return
+        self._t_mirror_status_log = now
+        age = a.state_source.host_state_age_s() if hasattr(a.state_source, "host_state_age_s") else None
+        base_pos = a.state_source.go2_base_pos()
+        base_rpy = a.state_source.go2_base_rpy()
+        leg_q = a.state_source.go2_leg_q()
+        go2_vel = a.state_source.go2_vel()
+        endpoint = str(a.cfg.host_sim_port).strip()
+        if age is None:
+            link_txt = "no host state yet"
+        else:
+            link_txt = "host state %.2fs ago" % float(age)
+        pos_txt = (
+            "(%.3f, %.3f, %.3f)" % (base_pos[0], base_pos[1], base_pos[2])
+            if base_pos is not None
+            else "none"
+        )
+        rpy_txt = (
+            "(%.3f, %.3f, %.3f)" % (base_rpy[0], base_rpy[1], base_rpy[2])
+            if base_rpy is not None
+            else "none"
+        )
+        legs_txt = (
+            "12 joints FL=(%.2f,%.2f,%.2f)" % (leg_q[0], leg_q[1], leg_q[2])
+            if leg_q is not None and len(leg_q) == 12
+            else ("none" if leg_q is None else f"{len(leg_q)} joints")
+        )
+        print(
+            "[sim_mirror] %s | endpoint=%s | go2_base_pos=%s rpy=%s | legs=%s | host_go2_vel=(%.2f,%.2f,%.2f)"
+            % (
+                link_txt,
+                endpoint,
+                pos_txt,
+                rpy_txt,
+                legs_txt,
+                float(go2_vel[0]),
+                float(go2_vel[1]),
+                float(go2_vel[2]),
+            )
+        )
 
     def _poll_host_and_update_model(self) -> None:
         a = self.app
@@ -1993,6 +2048,7 @@ class SimRuntime:
         try:
             while True:
                 self._poll_host_and_update_model()
+                self._maybe_log_mirror_status(time.time())
                 ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
                 ik_target_dir = a.state_source.ik_target_dir() if a.state_source is not None else None
                 sag_model = a.state_source.sag_model() if a.state_source is not None else {}
