@@ -22,6 +22,8 @@ class Go2HardwareConfig:
     shutdown_mode: str = "damp"
     world_frame_offset_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     world_frame_yaw_deg: float = 0.0
+    # Path to unitree_ros2 workspace root (optional; also UNITREE_ROS2_WS env).
+    ros_workspace: str = ""
     # Periodic ROS2 link diagnostics on Jetson (0 = disabled).
     status_log_interval_s: float = 2.0
 

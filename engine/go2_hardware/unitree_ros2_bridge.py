@@ -7,6 +7,7 @@ from typing import Any, Optional, Tuple
 
 from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order
+from engine.go2_hardware.ros_env import bootstrap_ros_python_path, ros_import_hint
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.sport_api import (
@@ -339,6 +340,7 @@ class UnitreeRos2Bridge:
                 self._latest = replace(self._latest, leg_q=leg_q)
 
     def _import_ros(self) -> None:
+        bootstrap_ros_python_path(config_workspace=str(self._cfg.ros_workspace))
         try:
             import rclpy
             from nav_msgs.msg import Odometry
@@ -346,10 +348,7 @@ class UnitreeRos2Bridge:
             from unitree_api.msg import Request
             from unitree_go.msg import LowState, SportModeState
         except ImportError as exc:
-            raise RuntimeError(
-                "ROS2 Humble deps missing for GO2 bridge (rclpy, nav_msgs, unitree_api, unitree_go): "
-                f"{exc}"
-            ) from exc
+            raise RuntimeError(ros_import_hint(config_workspace=str(self._cfg.ros_workspace))) from exc
         self._rclpy = rclpy
         self._Odometry = Odometry
         self._SportModeState = SportModeState
