@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import threading
 import time
@@ -12,6 +13,8 @@ import numpy as np
 import zmq
 
 from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
+from engine.go2_hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
+from engine.go2_hardware.odom_parser import OdomSample
 from engine.profile.pick_timing import enabled as pick_profile_enabled
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
@@ -49,6 +52,7 @@ class ControlHost:
         state_hz: float = 10.0,
         hw_read_hz: float = 20.0,
         hw_cmd_hz: float = 30.0,
+        go2_bridge: Optional[UnitreeRos2Bridge] = None,
     ) -> None:
         if zmq is None:
             raise SystemExit("pyzmq is required. Install: pip install pyzmq")
@@ -62,6 +66,7 @@ class ControlHost:
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
         self.pick_config = pick_config or PickConfig()
         self.show_all_ports = bool(show_all_ports)
+        self._go2_bridge = go2_bridge
 
         self.ctx = zmq.Context.instance()
         self.sock = self.ctx.socket(zmq.ROUTER)
@@ -673,6 +678,13 @@ class ControlHost:
         )
         return True, "perception markers updated", p_w
 
+    def _apply_go2_base_from_odom(self, sample: OdomSample) -> None:
+        self.last_go2_base_pos = tuple(float(v) for v in sample.pos)
+        self.last_go2_base_rpy = tuple(float(v) for v in sample.rpy)
+        self.last_go2_base_lin_vel_body = tuple(float(v) for v in sample.lin_vel_body)
+        self.last_go2_base_ang_vel = tuple(float(v) for v in sample.ang_vel_body)
+        self.last_go2_base_timestamp_s = float(sample.timestamp_s)
+
     def _broadcast_state_now(self) -> None:
         now = proto.now_s()
         self._broadcast(
@@ -1052,6 +1064,11 @@ class ControlHost:
             self._red_torque_off_ids = set()
 
     def close(self) -> None:
+        if self._go2_bridge is not None:
+            try:
+                self._go2_bridge.stop()
+            except Exception:
+                pass
         try:
             self.poller.unregister(self.sock)
         except Exception:
@@ -1094,18 +1111,18 @@ class ControlHost:
                 float(actual_tip_dir_raw[2]),
             )
         rpy_raw = msg.get("go2_base_rpy", None)
-        if isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
+        if self._go2_bridge is None and isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
             self.last_go2_base_rpy = (float(rpy_raw[0]), float(rpy_raw[1]), float(rpy_raw[2]))
         pos_raw = msg.get("go2_base_pos", None)
-        if isinstance(pos_raw, (list, tuple)) and len(pos_raw) == 3:
+        if self._go2_bridge is None and isinstance(pos_raw, (list, tuple)) and len(pos_raw) == 3:
             self.last_go2_base_pos = (float(pos_raw[0]), float(pos_raw[1]), float(pos_raw[2]))
         lin_raw = msg.get("go2_base_lin_vel_body", None)
-        if isinstance(lin_raw, (list, tuple)) and len(lin_raw) == 3:
+        if self._go2_bridge is None and isinstance(lin_raw, (list, tuple)) and len(lin_raw) == 3:
             self.last_go2_base_lin_vel_body = (float(lin_raw[0]), float(lin_raw[1]), float(lin_raw[2]))
         ang_raw = msg.get("go2_base_ang_vel", None)
-        if isinstance(ang_raw, (list, tuple)) and len(ang_raw) == 3:
+        if self._go2_bridge is None and isinstance(ang_raw, (list, tuple)) and len(ang_raw) == 3:
             self.last_go2_base_ang_vel = (float(ang_raw[0]), float(ang_raw[1]), float(ang_raw[2]))
-        if "go2_base_timestamp_s" in msg:
+        if self._go2_bridge is None and "go2_base_timestamp_s" in msg:
             try:
                 self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
             except (TypeError, ValueError):
@@ -1442,6 +1459,9 @@ class ControlHost:
                         },
                     )
                     return
+                if self._go2_bridge is not None:
+                    vx, vy, wz = self.last_go2_vel
+                    self._go2_bridge.set_velocity(vx, vy, wz)
             if q is None:
                 if (
                     target_raw is None
@@ -1607,6 +1627,11 @@ class ControlHost:
                             )
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
+                if self._go2_bridge is not None:
+                    self._go2_bridge.tick_cmd(now)
+                    sample = self._go2_bridge.latest_state()
+                    if sample is not None:
+                        self._apply_go2_base_from_odom(sample)
                 self._broadcast(
                     proto.pack_state(
                         u=self.last_u,
@@ -1669,6 +1694,17 @@ def run_host(
     device = str(device).strip()
     if device:
         hw, direction = load_hardware(device, hardware_cfg=hw_cfg)
+    go2_bridge: Optional[UnitreeRos2Bridge] = None
+    try:
+        go2_bridge = create_go2_bridge_if_enabled(
+            bundle.go2_hardware_config,
+            use_go2=bool(bundle.sim_config.use_go2),
+        )
+        if go2_bridge is not None:
+            go2_bridge.start()
+    except Exception as exc:
+        print(f"[host] go2 bridge unavailable: {exc}")
+        go2_bridge = None
     try:
         if hw is not None:
             hw.open()
@@ -1703,6 +1739,7 @@ def run_host(
                 angular_scale_rad=float(bundle.sim_config.traj_angular_scale_rad),
             ),
             traj_lji_enable=bool(bundle.sim_config.traj_lji_enable),
+            go2_bridge=go2_bridge,
         )
         print(f"[host] comm with ctrl by {bind_addr}")
         print(f"[host] comm with sim by {bundle.sim_config.host_sim_port}")
@@ -1719,7 +1756,14 @@ def run_host(
 
 
 def main() -> None:
-    config_path = os.path.join(os.path.dirname(__file__), "config.ini")
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--config",
+        default=os.path.join(os.path.dirname(__file__), "config.ini"),
+        help="path to ini config file",
+    )
+    args = ap.parse_args()
+    config_path = str(args.config)
     bundle = load_app_config_from_ini(config_path)
 
     run_host(

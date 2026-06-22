@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
+from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_locomotion.config import Go2LocomotionConfig
 from engine.gaze_stabilizer.controller import GazeStabilizerConfig
 from engine.joint_defs import JointLimit
@@ -337,6 +338,7 @@ class AppConfigBundle:
     perception_config: PerceptionConfig
     pick_config: PickConfig
     go2_locomotion_config: Go2LocomotionConfig
+    go2_hardware_config: Go2HardwareConfig
     gaze_stabilizer_config: GazeStabilizerConfig
     mapping_config: proto.SimMappingConfig
 
@@ -972,6 +974,34 @@ def _load_go2_locomotion_config(cp: configparser.ConfigParser, defaults: AppConf
     )
 
 
+def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> Go2HardwareConfig:
+    gh0 = defaults.go2_hardware_config
+    if not cp.has_section("go2_hardware"):
+        return gh0
+    return Go2HardwareConfig(
+        enabled=cp.getboolean("go2_hardware", "enabled", fallback=gh0.enabled),
+        backend=cp.get("go2_hardware", "backend", fallback=gh0.backend).strip().lower(),
+        sport_request_topic=cp.get(
+            "go2_hardware", "sport_request_topic", fallback=gh0.sport_request_topic
+        ).strip(),
+        odom_topic=cp.get("go2_hardware", "odom_topic", fallback=gh0.odom_topic).strip(),
+        cmd_hz=cp.getfloat("go2_hardware", "cmd_hz", fallback=gh0.cmd_hz),
+        vel_deadband=cp.getfloat("go2_hardware", "vel_deadband", fallback=gh0.vel_deadband),
+        stop_on_zero_vel=cp.getboolean(
+            "go2_hardware", "stop_on_zero_vel", fallback=gh0.stop_on_zero_vel
+        ),
+        stand_on_start=cp.get("go2_hardware", "stand_on_start", fallback=gh0.stand_on_start).strip().lower(),
+        shutdown_mode=cp.get("go2_hardware", "shutdown_mode", fallback=gh0.shutdown_mode).strip().lower(),
+        world_frame_offset_xyz=_parse_vec3(
+            cp.get("go2_hardware", "world_frame_offset_xyz", fallback=""),
+            gh0.world_frame_offset_xyz,
+        ),
+        world_frame_yaw_deg=cp.getfloat(
+            "go2_hardware", "world_frame_yaw_deg", fallback=gh0.world_frame_yaw_deg
+        ),
+    )
+
+
 def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> GazeStabilizerConfig:
     g0 = defaults.gaze_stabilizer_config
     if not cp.has_section("gaze_stabilizer"):
@@ -1025,6 +1055,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         perception_config=PerceptionConfig(),
         pick_config=PickConfig(),
         go2_locomotion_config=Go2LocomotionConfig(),
+        go2_hardware_config=Go2HardwareConfig(),
         gaze_stabilizer_config=GazeStabilizerConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
@@ -1234,6 +1265,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     perception_config_cfg = _load_perception_config(cp, defaults)
     pick_config_cfg = _load_pick_config(cp, defaults)
     go2_locomotion_config_cfg = _load_go2_locomotion_config(cp, defaults)
+    go2_hardware_config_cfg = _load_go2_hardware_config(cp, defaults)
     gaze_stabilizer_config_cfg = _load_gaze_stabilizer_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
@@ -1248,6 +1280,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         perception_config=perception_config_cfg,
         pick_config=pick_config_cfg,
         go2_locomotion_config=go2_locomotion_config_cfg,
+        go2_hardware_config=go2_hardware_config_cfg,
         gaze_stabilizer_config=gaze_stabilizer_config_cfg,
         mapping_config=mapping_config_cfg,
     )
