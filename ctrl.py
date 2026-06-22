@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from addons.perception_bridge.hand_eye import load_hand_eye_transform
+from engine.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
 from engine.coordinates.go2_arm_frame import Go2ArmFrameConfig
 from engine.controller import ControlClient, ControlService, PanelState

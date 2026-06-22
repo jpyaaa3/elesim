@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from addons.perception_bridge.hand_eye import load_hand_eye_transform
+from engine.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
 from engine.controller import ControlClient, ControlService, PanelState
 from engine.controller.object_pick import ObjectPickPhase

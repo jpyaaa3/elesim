@@ -10,6 +10,7 @@ Thumbs.db
 
 imgui.ini
 
+addons/
 addons/**/output/
 addons/**/models/*.pt
 addons/opencv/images/
@@ -21,3 +22,6 @@ update/
 
 # Generated runtime URDF; source is builder/config/assets.
 craft/arm.urdf
+
+# Local scratch handoff notes.
+elesim_wip_save.txt

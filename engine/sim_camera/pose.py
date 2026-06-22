@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from addons.perception_bridge.transforms import make_transform_from_world_pose, transform_point
+from engine.perception_bridge.transforms import make_transform_from_world_pose, transform_point
 from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw, _to_numpy_1d
 from engine.sim_camera.mount import load_hand_eye_offset_T, _OPTICAL_FROM_GENESIS_CAMERA
 

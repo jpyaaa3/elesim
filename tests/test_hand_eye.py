@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from addons.perception_bridge.hand_eye import load_hand_eye_transform
-from addons.perception_bridge.transforms import transform_point
+from engine.perception_bridge.hand_eye import load_hand_eye_transform
+from engine.perception_bridge.transforms import transform_point
 
 
 class TestHandEye(unittest.TestCase):
