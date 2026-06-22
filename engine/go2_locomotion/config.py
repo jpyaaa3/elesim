@@ -39,6 +39,8 @@ class Go2LocomotionConfig:
     mpc_foot_placement_scale: float = 1.35
     mpc_payload_enable: bool = True
     mpc_payload_mass_kg: float = 0.0
+    mpc_pitch_trim_gain_x_forward: float = 0.0
+    mpc_pitch_trim_gain_x_backward: float = -0.15
     mpc_pitch_trim_gain_z: float = 0.55
     mpc_pitch_trim_z_ref_m: float = 0.12
     mpc_pitch_trim_max_rad: float = 0.10

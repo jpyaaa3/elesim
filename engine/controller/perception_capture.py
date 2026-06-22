@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 import time
@@ -16,6 +17,46 @@ from engine.config_loader import PerceptionConfig
 
 _PICK_PLACE_ROOT = Path(__file__).resolve().parents[2] / "addons" / "autonomous_pick_place_app"
 _PREVIEW_WINDOW = "elesim_perception"
+
+
+def default_perception_capture_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "logs" / "perception_capture"
+
+
+def save_perception_frame_bundle(
+    *,
+    out_dir: Path,
+    color_bgr: np.ndarray,
+    overlay_bgr: Optional[np.ndarray] = None,
+    depth_raw: Optional[np.ndarray] = None,
+    meta: Optional[dict[str, Any]] = None,
+    stem: Optional[str] = None,
+) -> Path:
+    import cv2
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = str(stem or time.strftime("%Y%m%d_%H%M%S"))
+    color_path = out_dir / f"{tag}_color.jpg"
+    cv2.imwrite(str(color_path), np.ascontiguousarray(color_bgr, dtype=np.uint8))
+    if overlay_bgr is not None:
+        overlay_path = out_dir / f"{tag}_overlay.jpg"
+        cv2.imwrite(str(overlay_path), np.ascontiguousarray(overlay_bgr, dtype=np.uint8))
+    if depth_raw is not None and np.asarray(depth_raw).size > 0:
+        depth = np.asarray(depth_raw)
+        depth_path = out_dir / f"{tag}_depth.png"
+        cv2.imwrite(str(depth_path), depth.astype(np.uint16))
+        depth_vis_path = out_dir / f"{tag}_depth_vis.jpg"
+        d = depth.astype(np.float32)
+        if float(np.nanmax(d)) > 0.0:
+            vis = cv2.normalize(d, None, 0, 255, cv2.NORM_MINMAX)
+        else:
+            vis = np.zeros_like(d, dtype=np.float32)
+        cv2.imwrite(str(depth_vis_path), vis.astype(np.uint8))
+    if meta is not None:
+        meta_path = out_dir / f"{tag}_meta.json"
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+    return color_path
 
 
 class TrackerPhase(str, Enum):
@@ -99,6 +140,8 @@ class PerceptionSnapshot:
 class PerceptionCapture:
     """Runs detection in a worker thread; publishes via ``publish_fn``."""
 
+    _warned_missing_sim_pose: bool = False
+
     @staticmethod
     def _normalize_pipeline(pipeline: str) -> str:
         p = str(pipeline).strip().lower().replace("-", "_")
@@ -130,6 +173,11 @@ class PerceptionCapture:
         self._refresh_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._frame_lock = threading.Lock()
+        self._cached_color: Optional[np.ndarray] = None
+        self._cached_overlay: Optional[np.ndarray] = None
+        self._cached_depth: Optional[np.ndarray] = None
+        self._cached_frame_idx: int = -1
         self._snapshot = PerceptionSnapshot(
             running=False,
             failed=False,
@@ -147,6 +195,64 @@ class PerceptionCapture:
     def snapshot(self) -> PerceptionSnapshot:
         with self._lock:
             return self._snapshot
+
+    def has_cached_frame(self) -> bool:
+        with self._frame_lock:
+            return self._cached_color is not None
+
+    def _update_frame_cache(
+        self,
+        color_bgr: np.ndarray,
+        *,
+        overlay_bgr: Optional[np.ndarray] = None,
+        depth_raw: Optional[np.ndarray] = None,
+        frame_idx: int = 0,
+    ) -> None:
+        with self._frame_lock:
+            self._cached_color = np.ascontiguousarray(color_bgr, dtype=np.uint8).copy()
+            self._cached_overlay = (
+                None
+                if overlay_bgr is None
+                else np.ascontiguousarray(overlay_bgr, dtype=np.uint8).copy()
+            )
+            self._cached_depth = None if depth_raw is None else np.asarray(depth_raw).copy()
+            self._cached_frame_idx = int(frame_idx)
+
+    def save_cached_frames(
+        self,
+        out_dir: Path,
+        *,
+        extra_meta: Optional[dict[str, Any]] = None,
+    ) -> Optional[Path]:
+        with self._frame_lock:
+            if self._cached_color is None:
+                return None
+            color = self._cached_color.copy()
+            overlay = None if self._cached_overlay is None else self._cached_overlay.copy()
+            depth = None if self._cached_depth is None else self._cached_depth.copy()
+            frame_idx = int(self._cached_frame_idx)
+        snap = self.snapshot()
+        meta: dict[str, Any] = {
+            "frame_idx": frame_idx,
+            "label": snap.label,
+            "confidence": float(snap.confidence),
+            "status": snap.status_msg,
+            "tracker_phase": snap.tracker_phase,
+            "center_uv": snap.center_uv,
+            "p_camera": snap.p_camera,
+            "p_world": snap.p_world,
+            "image_scale": float(snap.image_scale),
+            "bbox_wh": list(snap.bbox_wh),
+        }
+        if extra_meta:
+            meta.update(extra_meta)
+        return save_perception_frame_bundle(
+            out_dir=out_dir,
+            color_bgr=color,
+            overlay_bgr=overlay,
+            depth_raw=depth,
+            meta=meta,
+        )
 
     def tracker_phase(self) -> str:
         return str(self.snapshot().tracker_phase)
@@ -263,9 +369,11 @@ class PerceptionCapture:
             detector = create_detector(detector_cfg)
         except (RealSenseUnavailableError, YoloUnavailableError) as exc:
             self._set_snapshot(running=False, failed=True, status_msg=str(exc))
+            print(f"[perception] start failed: {exc}")
             return
         except Exception as exc:
             self._set_snapshot(running=False, failed=True, status_msg=f"detector init failed: {exc}")
+            print(f"[perception] detector init failed: {exc}")
             return
 
         target_label = str(detector_cfg.get("target_label", "") or "")
@@ -313,6 +421,31 @@ class PerceptionCapture:
                         run_mock_frame=run_mock_frame,
                         **common,
                     )
+            elif mode == "sim":
+                from perception.sim_rendered_camera import SimRenderedCamera  # type: ignore[import-not-found]
+
+                sim_cam_cls = lambda: SimRenderedCamera(  # noqa: E731
+                    endpoint=str(cfg.sim_camera_port),
+                    use_jpeg=bool(cfg.sim_camera_jpeg),
+                )
+                if use_search_track:
+                    self._run_camera_search_track(
+                        RealSenseCamera=sim_cam_cls,
+                        publish_period=publish_period,
+                        **common,
+                    )
+                elif use_yolo_mask:
+                    self._run_camera_yolo_seg(
+                        RealSenseCamera=sim_cam_cls,
+                        publish_period=publish_period,
+                        **common,
+                    )
+                else:
+                    self._run_camera_yolo_seg(
+                        RealSenseCamera=sim_cam_cls,
+                        publish_period=publish_period,
+                        **common,
+                    )
             elif use_search_track:
                 self._run_camera_search_track(
                     RealSenseCamera=RealSenseCamera,
@@ -334,7 +467,9 @@ class PerceptionCapture:
         except RealSenseUnavailableError as exc:
             self._set_snapshot(running=False, failed=True, status_msg=f"RealSense: {exc}")
         except Exception as exc:
-            self._set_snapshot(running=False, failed=True, status_msg=str(exc))
+            msg = str(exc)
+            self._set_snapshot(running=False, failed=True, status_msg=msg)
+            print(f"[perception] worker failed: {msg}")
         finally:
             if enable_preview:
                 close_preview(_PREVIEW_WINDOW)
@@ -414,6 +549,21 @@ class PerceptionCapture:
 
         return refine_detection_mask(det, erode_px=int(erode_px))
 
+    @staticmethod
+    def _world_from_sim_frame(frame: Any, p_camera: np.ndarray) -> Optional[tuple[float, float, float]]:
+        origin = getattr(frame, "camera_world_origin", None)
+        look = getattr(frame, "camera_world_look", None)
+        right = getattr(frame, "camera_world_right", None)
+        if origin is None or look is None or right is None:
+            return None
+        try:
+            from engine.sim_camera.pose import camera_point_to_world_from_axes
+
+            p_w = camera_point_to_world_from_axes(origin, look, right, p_camera)
+            return (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+        except Exception:
+            return None
+
     def _publish_observation(
         self,
         *,
@@ -427,6 +577,7 @@ class PerceptionCapture:
         depth_valid: bool = True,
         detector_cfg: Optional[dict[str, Any]] = None,
         scale_override: Optional[float] = None,
+        frame: Any = None,
     ) -> Optional[tuple[float, float, float]]:
         p_cam = np.asarray(obs.p_camera_object, dtype=float).reshape(3)
         uv = normalized_center_uv_fn(det, image_width=image_width, image_height=image_height)
@@ -439,6 +590,24 @@ class PerceptionCapture:
         mock_world = self._resolve_mock_world(detector_cfg or {})
         if mock_world is not None:
             msg = f"{msg} | mock_world_xyz"
+        else:
+            sim_world = self._world_from_sim_frame(frame, p_cam) if frame is not None else None
+            if sim_world is not None:
+                msg = f"{msg} | sim_frame_pose"
+            elif str(self._config.mode).strip().lower() == "sim" and not getattr(
+                PerceptionCapture, "_warned_missing_sim_pose", False
+            ):
+                PerceptionCapture._warned_missing_sim_pose = True
+                print(
+                    "[perception] sim mode but camera frame has no pose metadata; "
+                    "restart sim.py after update (world coords will use host FK until then)"
+                )
+        object_world = mock_world
+        if object_world is None and frame is not None:
+            object_world = self._world_from_sim_frame(frame, p_cam)
+        cam_origin = getattr(frame, "camera_world_origin", None) if frame is not None else None
+        cam_look = getattr(frame, "camera_world_look", None) if frame is not None else None
+        cam_right = getattr(frame, "camera_world_right", None) if frame is not None else None
         p_world = self._publish_fn(
             object_camera_xyz=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
             label=str(obs.label),
@@ -446,7 +615,10 @@ class PerceptionCapture:
             image_center_uv=uv,
             image_scale=scale,
             depth_valid=bool(depth_valid),
-            object_world=mock_world,
+            object_world=object_world,
+            camera_world_origin=cam_origin,
+            camera_world_look=cam_look,
+            camera_world_right=cam_right,
         )
         x0, y0, x1, y1 = det.bbox_xyxy
         bbox_wh = (int(max(0, x1 - x0)), int(max(0, y1 - y0)))
@@ -520,6 +692,7 @@ class PerceptionCapture:
             depth_valid=depth_valid,
             detector_cfg=detector_cfg,
             scale_override=scale_override,
+            frame=frame,
         )
 
     def _track_needs_redetect(
@@ -807,25 +980,31 @@ class PerceptionCapture:
                     all_dets = []
 
                 snap = self.snapshot()
+                target_uv, center_uv = self._preview_uv_overlay()
+                vis = draw_detection_overlay(
+                    frame.color_bgr,
+                    det,
+                    status=status,
+                    target_label=target_label,
+                    frame_idx=frame_idx,
+                    p_camera=p_camera,
+                    p_world=np.asarray(p_world) if p_world is not None else None,
+                    all_detections=all_dets if phase == TrackerPhase.SEARCH else [],
+                    model_classes=model_class_names(detector) if phase == TrackerPhase.SEARCH else [],
+                    image_scale=float(snap.image_scale),
+                    bbox_wh=tuple(snap.bbox_wh),
+                    tracker_phase=str(phase.value),
+                    tracker_backend=str(tracker.backend_name) if tracker.initialized else "",
+                    target_uv=target_uv,
+                    center_uv=center_uv,
+                )
+                self._update_frame_cache(
+                    frame.color_bgr,
+                    overlay_bgr=vis,
+                    depth_raw=getattr(frame, "depth_raw", None),
+                    frame_idx=frame_idx,
+                )
                 if show_preview:
-                    target_uv, center_uv = self._preview_uv_overlay()
-                    vis = draw_detection_overlay(
-                        frame.color_bgr,
-                        det,
-                        status=status,
-                        target_label=target_label,
-                        frame_idx=frame_idx,
-                        p_camera=p_camera,
-                        p_world=np.asarray(p_world) if p_world is not None else None,
-                        all_detections=all_dets if phase == TrackerPhase.SEARCH else [],
-                        model_classes=model_class_names(detector) if phase == TrackerPhase.SEARCH else [],
-                        image_scale=float(snap.image_scale),
-                        bbox_wh=tuple(snap.bbox_wh),
-                        tracker_phase=str(phase.value),
-                        tracker_backend=str(tracker.backend_name) if tracker.initialized else "",
-                        target_uv=target_uv,
-                        center_uv=center_uv,
-                    )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
                         self._set_snapshot(status_msg="preview quit")
@@ -1153,30 +1332,36 @@ class PerceptionCapture:
                 if manual_refresh and yolo_det is None:
                     status = "refresh miss"
 
+                target_uv, center_uv = self._preview_uv_overlay()
+                snap = self.snapshot()
+                vis = draw_detection_overlay(
+                    frame.color_bgr,
+                    det,
+                    status=status,
+                    target_label=target_label,
+                    frame_idx=frame_idx,
+                    p_camera=p_camera if p_camera is not None else snap.p_camera,
+                    p_world=np.asarray(p_world) if p_world is not None else None,
+                    all_detections=all_dets,
+                    model_classes=model_class_names(detector),
+                    image_scale=float(snap.image_scale),
+                    bbox_wh=tuple(snap.bbox_wh),
+                    tracker_phase=str(phase.value),
+                    tracker_backend=(
+                        str(tracker.backend_name)
+                        if tracker is not None and tracker.initialized
+                        else backend
+                    ),
+                    target_uv=target_uv,
+                    center_uv=center_uv,
+                )
+                self._update_frame_cache(
+                    frame.color_bgr,
+                    overlay_bgr=vis,
+                    depth_raw=getattr(frame, "depth_raw", None),
+                    frame_idx=frame_idx,
+                )
                 if show_preview:
-                    target_uv, center_uv = self._preview_uv_overlay()
-                    snap = self.snapshot()
-                    vis = draw_detection_overlay(
-                        frame.color_bgr,
-                        det,
-                        status=status,
-                        target_label=target_label,
-                        frame_idx=frame_idx,
-                        p_camera=p_camera if p_camera is not None else snap.p_camera,
-                        p_world=np.asarray(p_world) if p_world is not None else None,
-                        all_detections=all_dets,
-                        model_classes=model_class_names(detector),
-                        image_scale=float(snap.image_scale),
-                        bbox_wh=tuple(snap.bbox_wh),
-                        tracker_phase=str(phase.value),
-                        tracker_backend=(
-                            str(tracker.backend_name)
-                            if tracker is not None and tracker.initialized
-                            else backend
-                        ),
-                        target_uv=target_uv,
-                        center_uv=center_uv,
-                    )
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
                         self._set_snapshot(status_msg="preview quit")
@@ -1248,19 +1433,20 @@ class PerceptionCapture:
             normalized_center_uv_fn=normalized_detection_center_uv,
             status_msg="mock detected",
         )
+        target_uv, center_uv = self._preview_uv_overlay()
+        vis = draw_detection_overlay(
+            color,
+            det,
+            status="detected",
+            target_label=target_label,
+            frame_idx=0,
+            p_camera=self.snapshot().p_camera,
+            p_world=np.asarray(p_world) if p_world is not None else None,
+            target_uv=target_uv,
+            center_uv=center_uv,
+        )
+        self._update_frame_cache(color, overlay_bgr=vis, depth_raw=depth, frame_idx=0)
         if show_preview and p_world is not None:
-            target_uv, center_uv = self._preview_uv_overlay()
-            vis = draw_detection_overlay(
-                color,
-                det,
-                status="detected",
-                target_label=target_label,
-                frame_idx=0,
-                p_camera=self.snapshot().p_camera,
-                p_world=np.asarray(p_world),
-                target_uv=target_uv,
-                center_uv=center_uv,
-            )
             show_preview_fn(_PREVIEW_WINDOW, vis)
             time.sleep(0.05)
         self._set_snapshot(running=False, status_msg="mock done")
@@ -1420,25 +1606,31 @@ class PerceptionCapture:
                     phase = TrackerPhase.SEARCH
                 status = "mock searching"
 
+            target_uv, center_uv = self._preview_uv_overlay()
+            vis = draw_detection_overlay(
+                color,
+                det,
+                status=status,
+                target_label=target_label,
+                frame_idx=frame_idx,
+                p_camera=p_camera,
+                p_world=np.asarray(p_world) if p_world is not None else None,
+                target_uv=target_uv,
+                center_uv=center_uv,
+                tracker_phase=str(phase.value),
+                tracker_backend=(
+                    str(getattr(tracker, "backend_name", backend))
+                    if tracker is not None and getattr(tracker, "initialized", False)
+                    else backend
+                ),
+            )
+            self._update_frame_cache(
+                color,
+                overlay_bgr=vis,
+                depth_raw=depth,
+                frame_idx=frame_idx,
+            )
             if show_preview:
-                target_uv, center_uv = self._preview_uv_overlay()
-                vis = draw_detection_overlay(
-                    color,
-                    det,
-                    status=status,
-                    target_label=target_label,
-                    frame_idx=frame_idx,
-                    p_camera=p_camera,
-                    p_world=np.asarray(p_world) if p_world is not None else None,
-                    target_uv=target_uv,
-                    center_uv=center_uv,
-                    tracker_phase=str(phase.value),
-                    tracker_backend=(
-                        str(getattr(tracker, "backend_name", backend))
-                        if tracker is not None and getattr(tracker, "initialized", False)
-                        else backend
-                    ),
-                )
                 key = show_preview_fn(_PREVIEW_WINDOW, vis)
                 if key in (ord("q"), 27):
                     break
@@ -1543,18 +1735,24 @@ class PerceptionCapture:
                     normalized_center_uv_fn=normalized_detection_center_uv,
                     status_msg="mock tracking",
                 )
+            target_uv, center_uv = self._preview_uv_overlay()
+            vis = draw_detection_overlay(
+                color,
+                det_track or det,
+                status="mock tracking",
+                target_label=target_label,
+                frame_idx=frame_idx,
+                p_camera=self.snapshot().p_camera,
+                target_uv=target_uv,
+                center_uv=center_uv,
+            )
+            self._update_frame_cache(
+                color,
+                overlay_bgr=vis,
+                depth_raw=depth,
+                frame_idx=frame_idx,
+            )
             if show_preview:
-                target_uv, center_uv = self._preview_uv_overlay()
-                vis = draw_detection_overlay(
-                    color,
-                    det_track or det,
-                    status="mock tracking",
-                    target_label=target_label,
-                    frame_idx=frame_idx,
-                    p_camera=self.snapshot().p_camera,
-                    target_uv=target_uv,
-                    center_uv=center_uv,
-                )
                 key = show_preview_fn(_PREVIEW_WINDOW, vis)
                 if key in (ord("q"), 27):
                     break

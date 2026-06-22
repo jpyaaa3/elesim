@@ -11,6 +11,7 @@ Thumbs.db
 imgui.ini
 
 addons/**/output/
+addons/**/models/*.pt
 addons/opencv/images/
 
 *.log

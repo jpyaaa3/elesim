@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -26,6 +26,9 @@ class RealSenseFrame:
     depth_raw: np.ndarray
     depth_scale: float
     intrinsics: CameraIntrinsics
+    camera_world_origin: Optional[tuple[float, float, float]] = None
+    camera_world_look: Optional[tuple[float, float, float]] = None
+    camera_world_right: Optional[tuple[float, float, float]] = None
 
 
 class RealSenseCamera:

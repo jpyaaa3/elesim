@@ -19,6 +19,7 @@ from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
 from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
+from engine.sim_camera.pose import camera_point_to_world_from_axes
 
 from serial.tools import list_ports as serial_list_ports
 
@@ -98,6 +99,16 @@ class ControlHost:
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_timestamp_s: float = 0.0
+        self._sim_camera_origin: Optional[tuple[float, float, float]] = None
+        self._sim_camera_look: Optional[tuple[float, float, float]] = None
+        self._sim_camera_right: Optional[tuple[float, float, float]] = None
+        self._sim_camera_ts: float = 0.0
+        self._sim_reset_seq: int = 0
         self._last_hw_pos_by_id: Dict[int, int] = {}
         self._last_claw_current: int = 0
         self._claw_close_stalled: bool = False
@@ -155,6 +166,26 @@ class ControlHost:
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
         self._last_target_apply_error = ""
         self._trajectory.cancel()
+
+    def _reset_simulation_state(self) -> None:
+        """Virtual/sim mode: reset host-side command state and bump sim reset counter."""
+        self._sim_reset_seq += 1
+        self._set_virtual_neutral_state()
+        self.last_go2_vel = (0.0, 0.0, 0.0)
+        self.last_go2_base_rpy = None
+        self.last_go2_base_lin_vel_body = None
+        self.last_go2_base_ang_vel = None
+        self.last_go2_base_timestamp_s = 0.0
+        self.last_claw_closed = False
+        self.last_perceived_object_label = ""
+        self.last_perceived_object_confidence = 0.0
+        self.last_perceived_object_camera_xyz = None
+        self.last_perceived_center_uv = None
+        self.last_perceived_scale = None
+        self.last_perceived_timestamp_s = 0.0
+        self.last_actual_tip_xyz = None
+        self.last_actual_tip_dir = None
+        print(f"[host] sim reset | seq={int(self._sim_reset_seq)}")
 
     def _cancel_trajectory(self) -> None:
         self._trajectory.cancel()
@@ -510,12 +541,93 @@ class ControlHost:
             ttl_ms=int(ttl_ms),
         )
 
+    def _set_perception_debug_markers(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        object_label: str,
+        object_camera_xyz: tuple[float, float, float],
+        world_tag: str,
+        camera_world: Optional[tuple[float, float, float]] = None,
+        camera_look: Optional[tuple[float, float, float]] = None,
+        camera_right: Optional[tuple[float, float, float]] = None,
+        ttl_ms: int = 3000,
+    ) -> None:
+        p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
+        p_w = np.asarray(object_world, dtype=float).reshape(3)
+        label_txt = str(object_label).strip()
+        print(
+            f"[Perception] label={label_txt or '-'} "
+            f"camera=[{p_cam[0]:+.4f}, {p_cam[1]:+.4f}, {p_cam[2]:+.4f}] m "
+            f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m ({world_tag})"
+        )
+        label_suffix = f":{label_txt}" if label_txt else ""
+        self._set_debug_marker(
+            name=f"perceived_object{label_suffix}",
+            pos=object_world,
+            color=[0.1, 0.95, 0.2, 0.95],
+            radius=0.012,
+            ttl_ms=int(ttl_ms),
+        )
+        if camera_world is not None and camera_look is not None and camera_right is not None:
+            self._set_debug_marker(
+                name="camera_optical",
+                pos=camera_world,
+                color=[0.1, 0.7, 1.0, 0.95],
+                radius=0.010,
+                ttl_ms=int(ttl_ms),
+            )
+            self._set_debug_marker(
+                name="camera_look",
+                pos=camera_world,
+                direction=camera_look,
+                color=[0.1, 0.7, 1.0, 0.95],
+                radius=0.004,
+                ttl_ms=int(ttl_ms),
+            )
+            self._set_debug_marker(
+                name="camera_right",
+                pos=camera_world,
+                direction=camera_right,
+                color=[1.0, 0.8, 0.2, 0.95],
+                radius=0.004,
+                ttl_ms=int(ttl_ms),
+            )
+
+    def _sim_camera_pose_fresh(self, *, max_age_s: float = 0.35) -> bool:
+        if self._sim_camera_origin is None:
+            return False
+        if float(self._sim_camera_ts) <= 0.0:
+            return False
+        return (time.time() - float(self._sim_camera_ts)) <= float(max(max_age_s, 0.05))
+
     def _update_perception_markers(
         self, object_camera_xyz: tuple[float, float, float], *, object_label: str = ""
     ) -> tuple[bool, str, Optional[np.ndarray]]:
-        if not self.ik_context or self.hand_eye_transform is None:
-            return False, "perception disabled: missing hand-eye or IK context", None
-        if self.last_q is None:
+        if self.hand_eye_transform is None:
+            return False, "perception disabled: missing hand-eye", None
+        p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
+        if self._sim_camera_pose_fresh():
+            origin = np.asarray(self._sim_camera_origin, dtype=float).reshape(3)
+            look = np.asarray(self._sim_camera_look, dtype=float).reshape(3)
+            right = np.asarray(self._sim_camera_right, dtype=float).reshape(3)
+            try:
+                p_w = camera_point_to_world_from_axes(origin, look, right, p_cam)
+                object_world = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+                self.last_perceived_object_world_xyz = object_world
+                self._set_perception_debug_markers(
+                    object_world=object_world,
+                    object_label=object_label,
+                    object_camera_xyz=tuple(float(v) for v in p_cam),
+                    world_tag="sim feedback",
+                    camera_world=(float(origin[0]), float(origin[1]), float(origin[2])),
+                    camera_look=(float(look[0]), float(look[1]), float(look[2])),
+                    camera_right=(float(right[0]), float(right[1]), float(right[2])),
+                )
+                return True, "perception markers updated (sim feedback)", np.asarray(object_world, dtype=float)
+            except Exception:
+                pass
+        if not self.ik_context or self.last_q is None:
             return False, "perception rejected: no robot q available yet", None
         q4 = np.array(
             [
@@ -550,42 +662,14 @@ class ControlHost:
             float(p_w[2]),
         )
         label_txt = str(object_label).strip()
-        print(
-            f"[Perception] label={label_txt or '-'} "
-            f"camera=[{p_cam[0]:+.4f}, {p_cam[1]:+.4f}, {p_cam[2]:+.4f}] m "
-            f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
-        )
-        label_suffix = f":{label_txt}" if label_txt else ""
-        marker_ttl_ms = 3000
-        self._set_debug_marker(
-            name=f"perceived_object{label_suffix}",
-            pos=object_world,
-            color=[0.1, 0.95, 0.2, 0.95],
-            radius=0.012,
-            ttl_ms=marker_ttl_ms,
-        )
-        self._set_debug_marker(
-            name="camera_optical",
-            pos=camera_world,
-            color=[0.1, 0.7, 1.0, 0.95],
-            radius=0.010,
-            ttl_ms=marker_ttl_ms,
-        )
-        self._set_debug_marker(
-            name="camera_look",
-            pos=camera_world,
-            direction=camera_look,
-            color=[0.1, 0.7, 1.0, 0.95],
-            radius=0.004,
-            ttl_ms=marker_ttl_ms,
-        )
-        self._set_debug_marker(
-            name="camera_right",
-            pos=camera_world,
-            direction=camera_right,
-            color=[1.0, 0.8, 0.2, 0.95],
-            radius=0.004,
-            ttl_ms=marker_ttl_ms,
+        self._set_perception_debug_markers(
+            object_world=(float(p_w[0]), float(p_w[1]), float(p_w[2])),
+            object_label=object_label,
+            object_camera_xyz=(float(p_cam[0]), float(p_cam[1]), float(p_cam[2])),
+            world_tag="fk",
+            camera_world=(float(camera_world[0]), float(camera_world[1]), float(camera_world[2])),
+            camera_look=(float(camera_look[0]), float(camera_look[1]), float(camera_look[2])),
+            camera_right=(float(camera_right[0]), float(camera_right[1]), float(camera_right[2])),
         )
         return True, "perception markers updated", p_w
 
@@ -610,6 +694,12 @@ class ControlHost:
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self.last_go2_vel,
+                go2_base_rpy=self.last_go2_base_rpy,
+                go2_base_pos=self.last_go2_base_pos,
+                go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
+                go2_base_ang_vel=self.last_go2_base_ang_vel,
+                go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
+                sim_reset_seq=int(self._sim_reset_seq),
                 claw_current=self._last_claw_current,
                 motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                 safety_fault=(self._safety_fault or None),
@@ -1003,6 +1093,33 @@ class ControlHost:
                 float(actual_tip_dir_raw[1]),
                 float(actual_tip_dir_raw[2]),
             )
+        rpy_raw = msg.get("go2_base_rpy", None)
+        if isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
+            self.last_go2_base_rpy = (float(rpy_raw[0]), float(rpy_raw[1]), float(rpy_raw[2]))
+        pos_raw = msg.get("go2_base_pos", None)
+        if isinstance(pos_raw, (list, tuple)) and len(pos_raw) == 3:
+            self.last_go2_base_pos = (float(pos_raw[0]), float(pos_raw[1]), float(pos_raw[2]))
+        lin_raw = msg.get("go2_base_lin_vel_body", None)
+        if isinstance(lin_raw, (list, tuple)) and len(lin_raw) == 3:
+            self.last_go2_base_lin_vel_body = (float(lin_raw[0]), float(lin_raw[1]), float(lin_raw[2]))
+        ang_raw = msg.get("go2_base_ang_vel", None)
+        if isinstance(ang_raw, (list, tuple)) and len(ang_raw) == 3:
+            self.last_go2_base_ang_vel = (float(ang_raw[0]), float(ang_raw[1]), float(ang_raw[2]))
+        if "go2_base_timestamp_s" in msg:
+            try:
+                self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        cam_origin_raw = msg.get("camera_world_origin", None)
+        if isinstance(cam_origin_raw, (list, tuple)) and len(cam_origin_raw) == 3:
+            self._sim_camera_origin = (float(cam_origin_raw[0]), float(cam_origin_raw[1]), float(cam_origin_raw[2]))
+            self._sim_camera_ts = float(msg.get("ts", proto.now_s()))
+        cam_look_raw = msg.get("camera_world_look", None)
+        if isinstance(cam_look_raw, (list, tuple)) and len(cam_look_raw) == 3:
+            self._sim_camera_look = (float(cam_look_raw[0]), float(cam_look_raw[1]), float(cam_look_raw[2]))
+        cam_right_raw = msg.get("camera_world_right", None)
+        if isinstance(cam_right_raw, (list, tuple)) and len(cam_right_raw) == 3:
+            self._sim_camera_right = (float(cam_right_raw[0]), float(cam_right_raw[1]), float(cam_right_raw[2]))
 
     def _handle_msg(self, ident: bytes, msg: Dict[str, Any]) -> None:
         self.clients.add(ident)
@@ -1034,6 +1151,32 @@ class ControlHost:
             except Exception:
                 ok = False
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "torque_enabled": self.torque_enabled})
+            return
+        if t == "sim_reset":
+            ok = True
+            reason = "sim_reset"
+            try:
+                if self._has_hw():
+                    ok = False
+                    reason = "sim_reset_hw_unsupported"
+                else:
+                    self._reset_simulation_state()
+                    self._broadcast_state_now()
+            except Exception as exc:
+                ok = False
+                reason = f"sim_reset_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                    "sim_reset_seq": int(self._sim_reset_seq),
+                },
+            )
             return
         if t == "ports":
             ports = self._list_ports()
@@ -1137,7 +1280,20 @@ class ControlHost:
                         float(object_camera_raw[2]),
                     )
                 object_world = None
+                ok = True
+                reason = ""
                 object_world_raw = msg.get("object_world", None)
+                cam_origin_raw = msg.get("camera_world_origin", None)
+                cam_look_raw = msg.get("camera_world_look", None)
+                cam_right_raw = msg.get("camera_world_right", None)
+                has_frame_cam_pose = (
+                    isinstance(cam_origin_raw, (list, tuple))
+                    and len(cam_origin_raw) == 3
+                    and isinstance(cam_look_raw, (list, tuple))
+                    and len(cam_look_raw) == 3
+                    and isinstance(cam_right_raw, (list, tuple))
+                    and len(cam_right_raw) == 3
+                )
                 if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
                     try:
                         p_w = np.asarray(
@@ -1149,20 +1305,24 @@ class ControlHost:
                     if p_w is not None:
                         object_world = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
                         self.last_perceived_object_world_xyz = object_world
-                        label_txt = str(self.last_perceived_object_label).strip()
-                        label_suffix = f":{label_txt}" if label_txt else ""
-                        print(
-                            f"[Perception] label={label_txt or '-'} "
-                            f"mock_world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m"
+                        world_tag = "sim_frame_pose" if has_frame_cam_pose else "mock_world"
+                        cam_world = cam_look = cam_right = None
+                        if has_frame_cam_pose:
+                            cam_world = (float(cam_origin_raw[0]), float(cam_origin_raw[1]), float(cam_origin_raw[2]))
+                            cam_look = (float(cam_look_raw[0]), float(cam_look_raw[1]), float(cam_look_raw[2]))
+                            cam_right = (float(cam_right_raw[0]), float(cam_right_raw[1]), float(cam_right_raw[2]))
+                        p_cam = self.last_perceived_object_camera_xyz or (0.0, 0.0, 0.0)
+                        self._set_perception_debug_markers(
+                            object_world=object_world,
+                            object_label=str(self.last_perceived_object_label),
+                            object_camera_xyz=tuple(float(v) for v in p_cam),
+                            world_tag=world_tag,
+                            camera_world=cam_world,
+                            camera_look=cam_look,
+                            camera_right=cam_right,
+                            ttl_ms=30000 if world_tag == "mock_world" else 3000,
                         )
-                        self._set_debug_marker(
-                            name=f"perceived_object{label_suffix}",
-                            pos=object_world,
-                            color=[0.1, 0.95, 0.2, 0.95],
-                            radius=0.012,
-                            ttl_ms=30000,
-                        )
-                        ok, reason = True, "perception mock world override"
+                        ok, reason = True, f"perception {world_tag}"
                 elif depth_valid and self.last_perceived_object_camera_xyz is not None:
                     ok, reason, object_world = self._update_perception_markers(
                         self.last_perceived_object_camera_xyz,
@@ -1191,7 +1351,18 @@ class ControlHost:
                     "reason": str(reason),
                     "device": self.device,
                     "torque_enabled": self.torque_enabled,
+                    "perceived_center_uv": [
+                        float(self.last_perceived_center_uv[0]),
+                        float(self.last_perceived_center_uv[1]),
+                    ],
+                    "perceived_scale": float(self.last_perceived_scale or 0.0),
+                    "perceived_timestamp_s": float(self.last_perceived_timestamp_s),
+                    "perceived_object_label": str(self.last_perceived_object_label),
+                    "perceived_object_confidence": float(self.last_perceived_object_confidence),
                 }
+                if self.last_perceived_object_camera_xyz is not None:
+                    p_cam = self.last_perceived_object_camera_xyz
+                    ack["perceived_object_camera"] = [float(p_cam[0]), float(p_cam[1]), float(p_cam[2])]
                 if object_world is not None:
                     p_w = np.asarray(object_world, dtype=float).reshape(3)
                     ack["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
@@ -1455,6 +1626,12 @@ class ControlHost:
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         go2_vel=self.last_go2_vel,
+                        go2_base_rpy=self.last_go2_base_rpy,
+                        go2_base_pos=self.last_go2_base_pos,
+                        go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
+                        go2_base_ang_vel=self.last_go2_base_ang_vel,
+                        go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
+                        sim_reset_seq=int(self._sim_reset_seq),
                         claw_current=self._last_claw_current,
                         motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                         safety_fault=(self._safety_fault or None),

@@ -8,11 +8,8 @@ import os
 
 from addons.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
-from engine.controller import (
-    ControlClient,
-    ControlService,
-    PanelState,
-)
+from engine.coordinates.go2_arm_frame import Go2ArmFrameConfig
+from engine.controller import ControlClient, ControlService, PanelState
 from ui.control_panel import ControlPanel
 
 
@@ -52,6 +49,16 @@ def main() -> None:
     state.visual_ready_distance_m = float(pick_cfg.ready_pose_standoff_m)
     state.visual_look_distance_m = float(pick_cfg.look_pose_standoff_m)
 
+    go2_arm_frame = Go2ArmFrameConfig.from_context(
+        use_go2=bool(bundle.sim_config.use_go2),
+        spawn_xyz=bundle.spawn_config.spawn_xyz,
+        spawn_euler_deg=bundle.spawn_config.spawn_euler_deg,
+        go2_spawn_height=float(bundle.spawn_config.go2_spawn_height),
+        go2_spawn_euler_deg=bundle.spawn_config.go2_spawn_euler_deg,
+        mount_offset_body_m=bundle.spawn_config.go2_mount_offset_m,
+        ik_context=ik_context,
+    )
+
     service = ControlService(
         state,
         client=link,
@@ -61,8 +68,10 @@ def main() -> None:
         config_path=args.config,
         perception_cfg=perception_cfg,
         pick_cfg=pick_cfg,
+        gaze_cfg=bundle.gaze_stabilizer_config,
         hand_eye_transform=hand_eye_transform,
         hand_eye_parent_frame=hand_eye_parent_frame,
+        go2_arm_frame=go2_arm_frame,
         use_hardware=bool(bundle.sim_config.use_hardware),
     )
     gui = ControlPanel(

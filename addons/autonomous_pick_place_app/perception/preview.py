@@ -55,13 +55,34 @@ def ensure_cv2_gui_env() -> None:
         pass
 
 
+_preview_disabled_reason: Optional[str] = None
+
+
+def preview_disabled_reason() -> Optional[str]:
+    return _preview_disabled_reason
+
+
+def _disable_preview(reason: str) -> None:
+    global _preview_disabled_reason
+    if _preview_disabled_reason is None:
+        _preview_disabled_reason = str(reason)
+        print(f"[preview] disabled: {reason}")
+
+
 def open_preview_window(window_name: str) -> None:
     ensure_cv2_gui_env()
+    if _preview_disabled_reason is not None:
+        return
     name = str(window_name)
     if name in _open_preview_windows:
         return
-    cv2.namedWindow(name, cv2.WINDOW_NORMAL)
-    _open_preview_windows.add(name)
+    try:
+        cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+        _open_preview_windows.add(name)
+    except cv2.error as exc:
+        _disable_preview(f"namedWindow failed: {exc}")
+    except Exception as exc:
+        _disable_preview(f"namedWindow failed: {exc}")
 
 
 def normalized_uv_to_pixel(
@@ -304,10 +325,24 @@ def draw_detection_overlay(
 
 
 def show_preview(window_name: str, image_bgr: np.ndarray) -> int:
-    """Show frame; returns waitKey code (lower 8 bits)."""
-    open_preview_window(window_name)
-    cv2.imshow(str(window_name), image_bgr)
-    return int(cv2.waitKey(1)) & 0xFF
+    """Show frame; returns waitKey code (lower 8 bits). Never raises on GUI failures."""
+    if _preview_disabled_reason is not None:
+        return -1
+    try:
+        vis = np.ascontiguousarray(image_bgr, dtype=np.uint8)
+        if vis.ndim != 3 or vis.shape[2] != 3 or vis.size == 0:
+            return -1
+        open_preview_window(window_name)
+        if _preview_disabled_reason is not None:
+            return -1
+        cv2.imshow(str(window_name), vis)
+        return int(cv2.waitKey(1)) & 0xFF
+    except cv2.error as exc:
+        _disable_preview(str(exc))
+        return -1
+    except Exception as exc:
+        _disable_preview(str(exc))
+        return -1
 
 
 def close_preview(window_name: str) -> None:

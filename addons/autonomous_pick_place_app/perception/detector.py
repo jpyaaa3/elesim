@@ -39,7 +39,12 @@ class HsvDetector:
         self._min_area = int(cfg.get("min_area_px", 200))
 
     def detect(self, color_bgr: np.ndarray) -> DetectionResult | None:
-        hsv = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2HSV)
+        if color_bgr is None or color_bgr.size == 0:
+            return None
+        img = np.ascontiguousarray(color_bgr, dtype=np.uint8)
+        if img.ndim != 3 or img.shape[2] != 3:
+            return None
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self._lower, self._upper)
         kernel = np.ones((5, 5), dtype=np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)

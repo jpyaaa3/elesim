@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
 from engine.go2_locomotion.config import Go2LocomotionConfig
+from engine.gaze_stabilizer.controller import GazeStabilizerConfig
 from engine.joint_defs import JointLimit
 
 
@@ -57,6 +58,13 @@ class SimConfig:
     traj_lji_duration_s: float = 0.14
     traj_lji_min_s: float = 0.07
     traj_lji_max_s: float = 0.35
+    sim_camera_enable: bool = True
+    sim_camera_port: str = "tcp://127.0.0.1:5568"
+    sim_camera_jpeg: bool = True
+    sim_camera_max_hz: float = 30.0
+    sim_camera_width: int = 640
+    sim_camera_height: int = 480
+    sim_camera_fov_deg: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,9 @@ class SpawnConfig:
     go2_teleop_vx_mps: float = 0.35
     go2_teleop_vy_mps: float = 0.25
     go2_teleop_wz_radps: float = 0.80
+    sim_target_enable: bool = True
+    sim_target_xyz: Tuple[float, float, float] = (1.2, 0.0, 0.08)
+    sim_target_radius: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -154,6 +165,8 @@ class PerceptionConfig:
     track_proximity_mask_erode_px: int = 0
     track_redetect_grow_ratio: float = 1.12
     track_redetect_grow_ratio_stale: float = 1.03
+    sim_camera_port: str = "tcp://127.0.0.1:5568"
+    sim_camera_jpeg: bool = True
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -324,6 +337,7 @@ class AppConfigBundle:
     perception_config: PerceptionConfig
     pick_config: PickConfig
     go2_locomotion_config: Go2LocomotionConfig
+    gaze_stabilizer_config: GazeStabilizerConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -484,6 +498,8 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
             "track_redetect_grow_ratio_stale",
             fallback=pc0.track_redetect_grow_ratio_stale,
         ),
+        sim_camera_port=cp.get("runtime", "sim_camera_port", fallback=pc0.sim_camera_port),
+        sim_camera_jpeg=cp.getboolean("runtime", "sim_camera_jpeg", fallback=pc0.sim_camera_jpeg),
     )
 
 
@@ -938,6 +954,12 @@ def _load_go2_locomotion_config(cp: configparser.ConfigParser, defaults: AppConf
         mpc_payload_mass_kg=cp.getfloat(
             "go2_locomotion", "mpc_payload_mass_kg", fallback=gl0.mpc_payload_mass_kg
         ),
+        mpc_pitch_trim_gain_x_forward=cp.getfloat(
+            "go2_locomotion", "mpc_pitch_trim_gain_x_forward", fallback=gl0.mpc_pitch_trim_gain_x_forward
+        ),
+        mpc_pitch_trim_gain_x_backward=cp.getfloat(
+            "go2_locomotion", "mpc_pitch_trim_gain_x_backward", fallback=gl0.mpc_pitch_trim_gain_x_backward
+        ),
         mpc_pitch_trim_gain_z=cp.getfloat(
             "go2_locomotion", "mpc_pitch_trim_gain_z", fallback=gl0.mpc_pitch_trim_gain_z
         ),
@@ -947,6 +969,47 @@ def _load_go2_locomotion_config(cp: configparser.ConfigParser, defaults: AppConf
         mpc_pitch_trim_max_rad=cp.getfloat(
             "go2_locomotion", "mpc_pitch_trim_max_rad", fallback=gl0.mpc_pitch_trim_max_rad
         ),
+    )
+
+
+def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> GazeStabilizerConfig:
+    g0 = defaults.gaze_stabilizer_config
+    if not cp.has_section("gaze_stabilizer"):
+        return g0
+    return GazeStabilizerConfig(
+        enable_feedback=cp.getboolean("gaze_stabilizer", "gaze_enable_feedback", fallback=g0.enable_feedback),
+        enable_base_ff=cp.getboolean("gaze_stabilizer", "gaze_enable_base_ff", fallback=g0.enable_base_ff),
+        uv_gain=cp.getfloat("gaze_stabilizer", "gaze_uv_gain", fallback=g0.uv_gain),
+        base_ff_gain_pitch=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_pitch", fallback=g0.base_ff_gain_pitch),
+        base_ff_gain_roll=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_roll", fallback=g0.base_ff_gain_roll),
+        base_ff_gain_yaw=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_yaw", fallback=g0.base_ff_gain_yaw),
+        max_du_roll=cp.getfloat("gaze_stabilizer", "gaze_max_du_roll", fallback=g0.max_du_roll),
+        max_du_s1=cp.getfloat("gaze_stabilizer", "gaze_max_du_s1", fallback=g0.max_du_s1),
+        max_du_s2=cp.getfloat("gaze_stabilizer", "gaze_max_du_s2", fallback=g0.max_du_s2),
+        hz=cp.getfloat("gaze_stabilizer", "gaze_hz", fallback=g0.hz),
+        center_tol=cp.getfloat("gaze_stabilizer", "gaze_center_tol", fallback=g0.center_tol),
+        center_u_gain=cp.getfloat("gaze_stabilizer", "gaze_center_u_gain", fallback=g0.center_u_gain),
+        center_v_gain=cp.getfloat("gaze_stabilizer", "gaze_center_v_gain", fallback=g0.center_v_gain),
+        center_roll_max=cp.getfloat("gaze_stabilizer", "gaze_center_roll_max", fallback=g0.center_roll_max),
+        center_seg_max=cp.getfloat("gaze_stabilizer", "gaze_center_seg_max", fallback=g0.center_seg_max),
+        step_scale=cp.getfloat("gaze_stabilizer", "gaze_step_scale", fallback=g0.step_scale),
+        enable_roll=cp.getboolean("gaze_stabilizer", "gaze_enable_roll", fallback=g0.enable_roll),
+        center_u_kd=cp.getfloat("gaze_stabilizer", "gaze_center_u_kd", fallback=g0.center_u_kd),
+        center_v_kd=cp.getfloat("gaze_stabilizer", "gaze_center_v_kd", fallback=g0.center_v_kd),
+        center_d_seg_max=cp.getfloat("gaze_stabilizer", "gaze_center_d_seg_max", fallback=g0.center_d_seg_max),
+        d_filter_alpha=cp.getfloat("gaze_stabilizer", "gaze_d_filter_alpha", fallback=g0.d_filter_alpha),
+        max_seg_du_per_tick=cp.getfloat(
+            "gaze_stabilizer", "gaze_max_seg_du_per_tick", fallback=g0.max_seg_du_per_tick
+        ),
+        cmd_settle_s=cp.getfloat("gaze_stabilizer", "gaze_cmd_settle_s", fallback=g0.cmd_settle_s),
+        center_u_seg_s2_scale=cp.getfloat(
+            "gaze_stabilizer", "gaze_center_u_seg_s2_scale", fallback=g0.center_u_seg_s2_scale
+        ),
+        center_u_seg_s1_scale=cp.getfloat(
+            "gaze_stabilizer", "gaze_center_u_seg_s1_scale", fallback=g0.center_u_seg_s1_scale
+        ),
+        fine_err_max=cp.getfloat("gaze_stabilizer", "gaze_fine_err_max", fallback=g0.fine_err_max),
+        fine_settle_scale=cp.getfloat("gaze_stabilizer", "gaze_fine_settle_scale", fallback=g0.fine_settle_scale),
     )
 
 
@@ -962,6 +1025,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         perception_config=PerceptionConfig(),
         pick_config=PickConfig(),
         go2_locomotion_config=Go2LocomotionConfig(),
+        gaze_stabilizer_config=GazeStabilizerConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -1026,6 +1090,13 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         traj_lji_max_s=cp.getfloat(
             "runtime", "traj_lji_max_s", fallback=sc0.traj_lji_max_s
         ),
+        sim_camera_enable=cp.getboolean("runtime", "sim_camera_enable", fallback=sc0.sim_camera_enable),
+        sim_camera_port=cp.get("runtime", "sim_camera_port", fallback=sc0.sim_camera_port),
+        sim_camera_jpeg=cp.getboolean("runtime", "sim_camera_jpeg", fallback=sc0.sim_camera_jpeg),
+        sim_camera_max_hz=cp.getfloat("runtime", "sim_camera_max_hz", fallback=sc0.sim_camera_max_hz),
+        sim_camera_width=cp.getint("runtime", "sim_camera_width", fallback=sc0.sim_camera_width),
+        sim_camera_height=cp.getint("runtime", "sim_camera_height", fallback=sc0.sim_camera_height),
+        sim_camera_fov_deg=cp.getfloat("runtime", "sim_camera_fov_deg", fallback=sc0.sim_camera_fov_deg),
     )
 
 
@@ -1069,6 +1140,9 @@ def _load_spawn_config(cp: configparser.ConfigParser, defaults: AppConfigBundle)
         go2_teleop_vx_mps=cp.getfloat("spawn", "go2_teleop_vx_mps", fallback=am0.go2_teleop_vx_mps),
         go2_teleop_vy_mps=cp.getfloat("spawn", "go2_teleop_vy_mps", fallback=am0.go2_teleop_vy_mps),
         go2_teleop_wz_radps=cp.getfloat("spawn", "go2_teleop_wz_radps", fallback=am0.go2_teleop_wz_radps),
+        sim_target_enable=cp.getboolean("spawn", "sim_target_enable", fallback=am0.sim_target_enable),
+        sim_target_xyz=_parse_vec3(cp.get("spawn", "sim_target_xyz", fallback=""), am0.sim_target_xyz),
+        sim_target_radius=cp.getfloat("spawn", "sim_target_radius", fallback=am0.sim_target_radius),
     )
 
 
@@ -1160,6 +1234,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     perception_config_cfg = _load_perception_config(cp, defaults)
     pick_config_cfg = _load_pick_config(cp, defaults)
     go2_locomotion_config_cfg = _load_go2_locomotion_config(cp, defaults)
+    gaze_stabilizer_config_cfg = _load_gaze_stabilizer_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -1173,5 +1248,6 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         perception_config=perception_config_cfg,
         pick_config=pick_config_cfg,
         go2_locomotion_config=go2_locomotion_config_cfg,
+        gaze_stabilizer_config=gaze_stabilizer_config_cfg,
         mapping_config=mapping_config_cfg,
     )

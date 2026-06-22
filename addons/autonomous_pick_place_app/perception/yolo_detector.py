@@ -27,25 +27,39 @@ def resolve_yolo_device(raw: Any) -> str | int:
     """
     Normalize device for Ultralytics predict().
 
-    Accepts:
-      - int: 0, 1, 2 -> cuda device index
-      - str: "0", "1", "cuda:2", "cpu"
-      - None / "auto": 0 (first visible CUDA GPU)
+    Accepts int GPU index, ``cpu``, ``mps``, ``cuda:N``, or ``auto``
+    (CUDA when available, else MPS on Apple Silicon, else CPU).
     """
+    import torch
+
+    def _auto_device() -> str | int:
+        if torch.cuda.is_available():
+            return 0
+        if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
     if raw is None:
-        return 0
+        return _auto_device()
     if isinstance(raw, int):
+        if int(raw) == 0 and not torch.cuda.is_available():
+            return _auto_device()
         return int(raw)
     text = str(raw).strip()
     if not text or text.lower() == "auto":
-        return 0
+        return _auto_device()
     lowered = text.lower()
     if lowered == "cpu":
         return "cpu"
+    if lowered == "mps":
+        return "mps"
     if lowered.startswith("cuda:"):
         return text
     if text.isdigit():
-        return int(text)
+        idx = int(text)
+        if idx == 0 and not torch.cuda.is_available():
+            return _auto_device()
+        return idx
     return text
 
 
@@ -66,6 +80,9 @@ def resolve_model_path(raw: str, *, config_dir: Path | None = None) -> Path:
     for cand in candidates:
         if cand.is_file():
             return cand.resolve()
+    # Standard Ultralytics weight names can be fetched on first YOLO() load.
+    if p.suffix.lower() == ".pt" and not p.is_absolute() and "/" not in text and "\\" not in text:
+        return p
     raise FileNotFoundError(f"YOLO weights not found: {text!r} (cwd={Path.cwd()})")
 
 

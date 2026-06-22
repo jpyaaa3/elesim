@@ -6,6 +6,7 @@ import imgui
 
 from engine.config_loader import PerceptionConfig, PROJECT_ROOT
 from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
+from ui.panels.live_visual_status import draw_live_visual_status
 
 
 def _draw_mock_object_editor(panel) -> None:
@@ -87,6 +88,8 @@ def draw_perception_panel(panel) -> None:
     if not imgui.collapsing_header("Visual Servoing", visible=True)[0]:
         return
 
+    draw_live_visual_status(panel)
+
     changed_path, path_draft = imgui.input_text(
         "detector config",
         str(panel._perception_config_path_draft),
@@ -101,13 +104,22 @@ def draw_perception_panel(panel) -> None:
         if mock_xyz is not None:
             panel.state.set_mock_object_world_xyz(*mock_xyz)
 
+    _PERCEPTION_MODES = ("camera", "mock", "sim")
+
+    def _mode_index(name: str) -> int:
+        key = str(name).strip().lower()
+        try:
+            return _PERCEPTION_MODES.index(key)
+        except ValueError:
+            return 0
+
     changed_mode, mode_idx = imgui.combo(
         "mode",
-        0 if str(panel._perception_mode_draft).strip().lower() == "camera" else 1,
-        ["camera", "mock"],
+        _mode_index(panel._perception_mode_draft),
+        list(_PERCEPTION_MODES),
     )
     if changed_mode:
-        panel._perception_mode_draft = "camera" if int(mode_idx) == 0 else "mock"
+        panel._perception_mode_draft = _PERCEPTION_MODES[int(mode_idx)]
 
     _draw_mock_object_editor(panel)
 
@@ -155,6 +167,9 @@ def draw_perception_panel(panel) -> None:
         panel._perception_tracker_draft = tracker_options[int(tr_idx)]
 
     running = bool(panel.state.perception_running)
+    if imgui.button("Save Frame"):
+        panel.service.capture_perception_frame()
+    imgui.same_line()
     if running:
         if imgui.button("Stop Perception"):
             panel.service.stop_perception_capture()
@@ -169,6 +184,10 @@ def draw_perception_panel(panel) -> None:
         imgui.same_line()
         if imgui.button("Refresh"):
             panel.service.refresh_perception_capture()
+
+    last_capture = str(getattr(panel.state, "perception_last_capture_path", "") or "").strip()
+    if last_capture:
+        imgui.text_wrapped(f"last save: {last_capture}")
 
     imgui.separator()
     imgui.text("Look / Aim / Grasp (UV centering + equal-sag + object IK)")
@@ -281,6 +300,9 @@ def draw_perception_panel(panel) -> None:
 
     label = str(panel.state.perception_label) or "(none)"
     imgui.text(f"Detection: {label} | conf: {float(panel.state.perception_confidence):.2f}")
+    cuv = panel.state.perception_center_uv
+    cuv_str = f"({cuv[0]:+.3f}, {cuv[1]:+.3f})" if cuv is not None else "—"
+    imgui.text(f"Center UV: {cuv_str}")
     if panel.state.perception_camera_xyz is not None:
         p = panel.state.perception_camera_xyz
         imgui.text(f"Camera XYZ [m]: ({p[0]:+.3f}, {p[1]:+.3f}, {p[2]:+.3f})")

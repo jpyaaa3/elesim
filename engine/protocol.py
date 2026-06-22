@@ -151,6 +151,12 @@ def pack_state(
     perceived_timestamp_s: Optional[float] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
     go2_vel: Optional[tuple[float, float, float]] = None,
+    go2_base_rpy: Optional[tuple[float, float, float]] = None,
+    go2_base_pos: Optional[tuple[float, float, float]] = None,
+    go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None,
+    go2_base_ang_vel: Optional[tuple[float, float, float]] = None,
+    go2_base_timestamp_s: Optional[float] = None,
+    sim_reset_seq: Optional[int] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -201,6 +207,26 @@ def pack_state(
         out["perceived_timestamp_s"] = float(perceived_timestamp_s)
     if go2_vel is not None:
         out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
+    if go2_base_rpy is not None:
+        out["go2_base_rpy"] = [float(go2_base_rpy[0]), float(go2_base_rpy[1]), float(go2_base_rpy[2])]
+    if go2_base_pos is not None:
+        out["go2_base_pos"] = [float(go2_base_pos[0]), float(go2_base_pos[1]), float(go2_base_pos[2])]
+    if go2_base_lin_vel_body is not None:
+        out["go2_base_lin_vel_body"] = [
+            float(go2_base_lin_vel_body[0]),
+            float(go2_base_lin_vel_body[1]),
+            float(go2_base_lin_vel_body[2]),
+        ]
+    if go2_base_ang_vel is not None:
+        out["go2_base_ang_vel"] = [
+            float(go2_base_ang_vel[0]),
+            float(go2_base_ang_vel[1]),
+            float(go2_base_ang_vel[2]),
+        ]
+    if go2_base_timestamp_s is not None:
+        out["go2_base_timestamp_s"] = float(go2_base_timestamp_s)
+    if sim_reset_seq is not None:
+        out["sim_reset_seq"] = int(sim_reset_seq)
     if debug_markers is not None:
         packed_markers: list[dict[str, Any]] = []
         for raw in list(debug_markers):
@@ -270,4 +296,10 @@ def unpack_q(d: Dict[str, Any]) -> SimQ:
 def unpack_go2_vel(raw: Any) -> tuple[float, float, float]:
     if not isinstance(raw, (list, tuple)) or len(raw) != 3:
         raise ValueError("go2_vel must be [vx, vy, wz]")
+    return (float(raw[0]), float(raw[1]), float(raw[2]))
+
+
+def unpack_vec3(raw: Any, *, name: str) -> tuple[float, float, float]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        raise ValueError(f"{name} must be [x, y, z]")
     return (float(raw[0]), float(raw[1]), float(raw[2]))

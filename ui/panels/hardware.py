@@ -11,6 +11,10 @@ def draw_hardware_panel(panel) -> None:
     if imgui.collapsing_header("Hardware", visible=True)[0]:
         if not panel._use_hardware:
             imgui.text("Simulation Only - Please connect the robot!")
+            if imgui.button("Reset Simulation"):
+                panel.service.reset_simulation()
+                if hasattr(panel, "_go2_was_active"):
+                    panel._go2_was_active = False
             return
         if not panel.service.has_client():
             imgui.text("Host: OFF")

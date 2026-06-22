@@ -5,9 +5,11 @@ import numpy as np
 from engine.go2_locomotion.kinematics import Go2KinematicsModel
 from engine.go2_locomotion.types import Go2Command
 from engine.go2_mpc.config import Go2MpcConfig
+from engine.go2_mpc.control_rate import ControlRateInfo
 from engine.go2_mpc.gait_adapter import ScaledGait
-from engine.go2_mpc.genesis_pin_bridge import GenesisPinBridge, _to_numpy_1d
-from engine.go2_mpc.payload_model import ArmPayloadCompensator, backward_pitch_trim_rad
+from engine.go2_mpc.genesis_pin_bridge import GenesisPinBridge, _quat_wxyz_to_xyzw, _to_numpy_1d
+from engine.go2_mpc.payload_model import ArmPayloadCompensator, payload_pitch_trim_rad
+from engine.go2_mpc.walking_metrics import WalkingMetricsLogger, detect_fall
 
 LEG_NAMES = ("FL", "FR", "RL", "RR")
 LEG_SLICE = {
@@ -58,7 +60,16 @@ def _require_convex_mpc():
 class ConvexMpcGenesisController:
     """go2-convex-mpc stack on Genesis: Pinocchio dynamics + MPC + torque actuation."""
 
-    def __init__(self, entity, *, dt: float, config: Go2MpcConfig, arm_entity=None) -> None:
+    def __init__(
+        self,
+        entity,
+        *,
+        dt: float,
+        config: Go2MpcConfig,
+        arm_entity=None,
+        metrics: WalkingMetricsLogger | None = None,
+        command_source: str = "teleop",
+    ) -> None:
         PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC = _require_convex_mpc()
 
         self._entity = entity
@@ -85,6 +96,10 @@ class ConvexMpcGenesisController:
             )
         self._bridge = GenesisPinBridge(entity, self._leg_dof_idxs, payload=payload)
         self._payload = payload
+        self._metrics = metrics
+        self._command_source = str(command_source)
+        self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._rate_info = ControlRateInfo.from_sim_dt(self._dt, float(config.ctrl_hz))
 
         self._pin = PinGo2Model()
         self._gait = ScaledGait(
@@ -102,11 +117,32 @@ class ConvexMpcGenesisController:
         self._z_des_m = float(config.z_pos_des_m)
 
         ctrl_hz = max(1.0, float(config.ctrl_hz))
-        self._ctrl_decim = max(1, int(round((1.0 / self._dt) / ctrl_hz)))
+        self._ctrl_decim = self._rate_info.ctrl_decim
         mpc_hz = 1.0 / float(config.mpc_dt_s)
-        self._steps_per_mpc = max(1, int(round(ctrl_hz / mpc_hz)))
+        self._steps_per_mpc = max(1, int(round(self._rate_info.ctrl_hz_effective / mpc_hz)))
         self._ctrl_dt = float(self._ctrl_decim * self._dt)
         self._tau_lim = _TAU_LIM * float(config.torque_safety_scale)
+        if self._metrics is not None:
+            self._metrics.set_tau_limits(self._tau_lim)
+            self._metrics.meta.control_rate = {
+                "sim_hz_est": self._rate_info.sim_hz,
+                "ctrl_hz_config": self._rate_info.ctrl_hz_config,
+                "ctrl_hz_effective": self._rate_info.ctrl_hz_effective,
+                "ctrl_decim": float(self._rate_info.ctrl_decim),
+            }
+            self._metrics.meta.pitch_trim_config = {
+                "gain_x_forward": float(config.pitch_trim_gain_x_forward),
+                "gain_x_backward": float(config.pitch_trim_gain_x_backward),
+                "gain_z": float(config.pitch_trim_gain_z),
+                "z_ref_m": float(config.pitch_trim_z_ref_m),
+                "max_rad": float(config.pitch_trim_max_rad),
+            }
+            self._metrics._write_meta()
+        print(
+            "[go2_mpc] control rate: "
+            f"sim={self._rate_info.sim_hz:.1f}Hz config={self._rate_info.ctrl_hz_config:.1f}Hz "
+            f"effective={self._rate_info.ctrl_hz_effective:.1f}Hz decim={self._rate_info.ctrl_decim}"
+        )
 
         self._init_pose_and_actuation()
         self._bridge.sync_pin_model(self._pin)
@@ -204,18 +240,21 @@ class ConvexMpcGenesisController:
         self._bridge.sync_pin_model(self._pin)
         self._z_des_m = max(float(self._config.z_pos_des_m), float(self._pin.pos_com_world[2]) - 0.01)
 
-    def _apply_backward_pitch_trim(self, vx: float) -> None:
-        if vx >= -0.05 or self._payload is None:
+    @property
+    def control_rate_info(self) -> ControlRateInfo:
+        return self._rate_info
+
+    @property
+    def tau_hold(self) -> np.ndarray:
+        return np.asarray(self._tau_hold, dtype=float)
+
+    def _apply_payload_pitch_trim(self, vx: float) -> None:
+        if self._payload is None or abs(float(vx)) < 0.05:
             return
         com_body = self._payload.measure_com_body(self._entity)
         if com_body is None:
             return
-        pitch_trim = backward_pitch_trim_rad(
-            com_body,
-            gain_z=float(self._config.pitch_trim_gain_z),
-            z_ref_m=float(self._config.pitch_trim_z_ref_m),
-            max_trim_rad=float(self._config.pitch_trim_max_rad),
-        )
+        pitch_trim = payload_pitch_trim_rad(com_body, vx=vx, config=self._config)
         if abs(pitch_trim) < 1e-6:
             return
         self._traj.rpy_traj_world[1, :] = pitch_trim
@@ -234,7 +273,7 @@ class ConvexMpcGenesisController:
             float(wz),
             time_step=float(self._config.mpc_dt_s),
         )
-        self._apply_backward_pitch_trim(vx)
+        self._apply_payload_pitch_trim(vx)
         try:
             sol = self._mpc.solve_QP(self._pin, self._traj, False)
             w_opt = sol["x"].full().flatten()
@@ -310,6 +349,60 @@ class ConvexMpcGenesisController:
     def set_command(self, cmd: Go2Command) -> None:
         self._cmd = cmd
 
+    def set_arm_q(self, arm_q: tuple[float, float, float, float]) -> None:
+        self._arm_q = tuple(float(x) for x in arm_q)
+
+    def reset(self) -> None:
+        self._cmd = Go2Command()
+        self._sim_time = 0.0
+        self._ctrl_i = 0
+        self._sim_step_i = 0
+        self._loco_time = 0.0
+        self._torque_mode = False
+        self._ready_mode = False
+        self._ready_until_t = 0.0
+        self._tau_hold = np.zeros(12, dtype=float)
+        self._tau_filt = np.zeros(12, dtype=float)
+        self._force_filt = np.zeros(12, dtype=float)
+        self._U_opt = np.zeros((12, 1), dtype=float)
+        self._init_pose_and_actuation()
+        try:
+            self._entity.zero_all_dofs_velocity()
+        except Exception:
+            pass
+
+    def _record_metrics_sample(
+        self,
+        *,
+        go2_cmd: tuple[float, float, float],
+        tau: np.ndarray,
+        torque_update_flag: bool,
+        torque_hold_flag: bool,
+        arm_q: tuple[float, float, float, float] | None = None,
+    ) -> None:
+        if self._metrics is None:
+            return
+        base = self._entity.get_link("base")
+        pos = _to_numpy_1d(base.get_pos())[:3]
+        quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(base.get_quat())[:4])
+        from scipy.spatial.transform import Rotation as Rot
+
+        pitch = float(Rot.from_quat(quat_xyzw).as_euler("xyz")[1])
+        com_body = self._payload.measure_com_body(self._entity) if self._payload is not None else None
+        aq = arm_q if arm_q is not None else self._arm_q
+        self._metrics.sample_go2(
+            go2_entity=self._entity,
+            go2_cmd=go2_cmd,
+            command_source=self._command_source,
+            arm_q=aq,
+            payload_com_body=com_body,
+            tau=tau,
+            torque_update_flag=torque_update_flag,
+            torque_hold_flag=torque_hold_flag,
+            fall_flag=detect_fall(float(pos[2]), pitch),
+            time_s=float(self._sim_time),
+        )
+
     def step(self) -> None:
         self._sim_time += self._dt
 
@@ -343,6 +436,14 @@ class ConvexMpcGenesisController:
             return
 
         if self._sim_step_i % self._ctrl_decim != 0:
+            if self._metrics is not None:
+                self._metrics.record_torque_step(recomputed=False, hold=True)
+            self._record_metrics_sample(
+                go2_cmd=(float(self._cmd.vx), float(self._cmd.vy), float(self._cmd.yaw_rate)),
+                tau=self._tau_hold,
+                torque_update_flag=False,
+                torque_hold_flag=True,
+            )
             self._entity.control_dofs_force(
                 self._tau_hold,
                 dofs_idx_local=self._leg_dof_idxs,
@@ -351,6 +452,8 @@ class ConvexMpcGenesisController:
             return
 
         assert self._mpc is not None
+        if self._metrics is not None:
+            self._metrics.record_torque_step(recomputed=True, hold=False)
         self._bridge.sync_pin_model(self._pin)
         self._loco_time += self._ctrl_dt
 
@@ -360,6 +463,12 @@ class ConvexMpcGenesisController:
         wz = float(self._cmd.yaw_rate) * cmd_scale
 
         self._tau_hold = self._compute_tau_cmd(vx, vy, wz)
+        self._record_metrics_sample(
+            go2_cmd=(vx, vy, wz),
+            tau=self._tau_hold,
+            torque_update_flag=True,
+            torque_hold_flag=False,
+        )
         self._entity.control_dofs_force(
             self._tau_hold,
             dofs_idx_local=self._leg_dof_idxs,

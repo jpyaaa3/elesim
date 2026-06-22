@@ -50,3 +50,39 @@ def extract_visual_observation(
         scale=float(scale),
         timestamp_s=float(host_state.perceived_timestamp_s),
     )
+
+
+def extract_local_perception_observation(
+    *,
+    running: bool,
+    center_uv: Optional[tuple[float, float]],
+    image_scale: float,
+    last_update_s: float,
+    label: str,
+    confidence: float,
+    target_label: str = "",
+    stale_timeout_s: float = 0.75,
+    min_confidence: float = 0.0,
+) -> Optional[VisualObservation]:
+    """Fallback when host relay timestamp lags behind local perception worker."""
+    if not bool(running):
+        return None
+    if center_uv is None:
+        return None
+    if float(last_update_s) <= 0.0:
+        return None
+    if (time.time() - float(last_update_s)) > float(max(stale_timeout_s, 0.0)):
+        return None
+    if float(confidence) < float(min_confidence):
+        return None
+    target_key = str(target_label).strip().lower()
+    obs_label = str(label).strip()
+    if target_key and obs_label.lower() != target_key:
+        return None
+    return VisualObservation(
+        label=obs_label,
+        confidence=float(confidence),
+        center_uv=(float(center_uv[0]), float(center_uv[1])),
+        scale=float(max(float(image_scale), 0.0)),
+        timestamp_s=float(last_update_s),
+    )

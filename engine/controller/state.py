@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional, Tuple
 
@@ -31,6 +32,11 @@ class HostState:
     reply_reason: str
     q: Optional[SimQ]
     u: Optional[ControlU]
+    go2_base_rpy: Optional[tuple[float, float, float]] = None
+    go2_base_pos: Optional[tuple[float, float, float]] = None
+    go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
+    go2_base_ang_vel: Optional[tuple[float, float, float]] = None
+    go2_base_timestamp_s: float = 0.0
 
 
 @dataclass
@@ -72,6 +78,20 @@ class PanelState:
     perception_image_scale: float = 0.0
     perception_bbox_wh: tuple[int, int] = (0, 0)
     perception_tracker_backend: str = ""
+    perception_last_capture_path: str = ""
+    perception_center_uv: Optional[tuple[float, float]] = None
+    perception_last_update_s: float = 0.0
+
+    gaze_running: bool = False
+    gaze_mode: str = "idle"
+    gaze_status_msg: str = ""
+    gaze_u_err: float = 0.0
+    gaze_v_err: float = 0.0
+    gaze_du_roll: float = 0.0
+    gaze_du_s1: float = 0.0
+    gaze_du_s2: float = 0.0
+    gaze_update_count: int = 0
+    gaze_obs_age_s: float = -1.0
 
     mock_object_x: float = 0.5
     mock_object_y: float = 0.0
@@ -230,6 +250,7 @@ class PanelState:
         image_scale: float = -1.0,
         bbox_wh: Optional[tuple[int, int]] = None,
         tracker_backend: str = "",
+        center_uv: Optional[tuple[float, float]] = None,
     ) -> None:
         with self._lock:
             self.perception_running = bool(running)
@@ -252,6 +273,49 @@ class PanelState:
                 self.perception_bbox_wh = (int(bbox_wh[0]), int(bbox_wh[1]))
             if str(tracker_backend).strip():
                 self.perception_tracker_backend = str(tracker_backend)
+            if center_uv is not None:
+                self.perception_center_uv = (float(center_uv[0]), float(center_uv[1]))
+            if bool(running) and int(frame_idx) > 0:
+                self.perception_last_update_s = float(time.time())
+
+    def set_gaze_status(
+        self,
+        *,
+        running: bool,
+        mode: str = "",
+        msg: str = "",
+        u_err: Optional[float] = None,
+        v_err: Optional[float] = None,
+        du_roll: Optional[float] = None,
+        du_s1: Optional[float] = None,
+        du_s2: Optional[float] = None,
+        obs_age_s: Optional[float] = None,
+        update_count: Optional[int] = None,
+    ) -> None:
+        with self._lock:
+            self.gaze_running = bool(running)
+            if str(mode).strip():
+                self.gaze_mode = str(mode)
+            if msg is not None:
+                self.gaze_status_msg = str(msg)
+            if u_err is not None:
+                self.gaze_u_err = float(u_err)
+            if v_err is not None:
+                self.gaze_v_err = float(v_err)
+            if du_roll is not None:
+                self.gaze_du_roll = float(du_roll)
+            if du_s1 is not None:
+                self.gaze_du_s1 = float(du_s1)
+            if du_s2 is not None:
+                self.gaze_du_s2 = float(du_s2)
+            if obs_age_s is not None:
+                self.gaze_obs_age_s = float(obs_age_s)
+            if update_count is not None:
+                self.gaze_update_count = int(update_count)
+
+    def set_perception_last_capture(self, path: str) -> None:
+        with self._lock:
+            self.perception_last_capture_path = str(path)
 
     def clear_perception_status(self) -> None:
         self.set_perception_status(running=False, failed=False, msg="")

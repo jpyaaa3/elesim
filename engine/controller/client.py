@@ -71,6 +71,11 @@ class ControlClient:
         self.last_perceived_timestamp_s: float = 0.0
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
+        self.last_go2_base_timestamp_s: float = 0.0
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
@@ -116,6 +121,11 @@ class ControlClient:
                 float(self.last_go2_vel[1]),
                 float(self.last_go2_vel[2]),
             ),
+            go2_base_rpy=self.last_go2_base_rpy,
+            go2_base_pos=self.last_go2_base_pos,
+            go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
+            go2_base_ang_vel=self.last_go2_base_ang_vel,
+            go2_base_timestamp_s=float(self.last_go2_base_timestamp_s),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
@@ -266,6 +276,23 @@ class ControlClient:
                     )
                 except (TypeError, ValueError, IndexError):
                     self.last_go2_vel = (0.0, 0.0, 0.0)
+            rpy_raw = msg.get("go2_base_rpy", None)
+            if isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
+                self.last_go2_base_rpy = (float(rpy_raw[0]), float(rpy_raw[1]), float(rpy_raw[2]))
+            pos_raw = msg.get("go2_base_pos", None)
+            if isinstance(pos_raw, (list, tuple)) and len(pos_raw) == 3:
+                self.last_go2_base_pos = (float(pos_raw[0]), float(pos_raw[1]), float(pos_raw[2]))
+            lin_raw = msg.get("go2_base_lin_vel_body", None)
+            if isinstance(lin_raw, (list, tuple)) and len(lin_raw) == 3:
+                self.last_go2_base_lin_vel_body = (float(lin_raw[0]), float(lin_raw[1]), float(lin_raw[2]))
+            ang_raw = msg.get("go2_base_ang_vel", None)
+            if isinstance(ang_raw, (list, tuple)) and len(ang_raw) == 3:
+                self.last_go2_base_ang_vel = (float(ang_raw[0]), float(ang_raw[1]), float(ang_raw[2]))
+            if "go2_base_timestamp_s" in msg:
+                try:
+                    self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
+                except (TypeError, ValueError):
+                    pass
             self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
@@ -291,6 +318,9 @@ class ControlClient:
 
     def estop(self) -> None:
         self._send({"t": "estop", "ts": time.time()})
+
+    def send_sim_reset(self) -> None:
+        self._send({"t": "sim_reset", "ts": time.time()})
 
     def torque_on(self, *, resume: bool = False) -> None:
         self._send(
@@ -323,11 +353,24 @@ class ControlClient:
         image_scale: float,
         depth_valid: bool = True,
         object_world: Optional[tuple[float, float, float]] = None,
-        wait_ack_s: float = 0.08,
+        camera_world_origin: Optional[tuple[float, float, float]] = None,
+        camera_world_look: Optional[tuple[float, float, float]] = None,
+        camera_world_right: Optional[tuple[float, float, float]] = None,
+        wait_ack_s: float = 0.0,
     ) -> Optional[tuple[float, float, float]]:
         now = time.time()
         with self._io_lock:
             self.tx_seq += 1
+            self.last_perceived_center_uv = (float(image_center_uv[0]), float(image_center_uv[1]))
+            self.last_perceived_scale = float(image_scale)
+            self.last_perceived_timestamp_s = float(now)
+            self.last_perceived_object_label = str(label)
+            self.last_perceived_object_confidence = float(confidence)
+            self.last_perceived_object_camera_xyz = (
+                float(object_camera_xyz[0]),
+                float(object_camera_xyz[1]),
+                float(object_camera_xyz[2]),
+            )
             if bool(depth_valid) and object_world is None:
                 self.last_object_world_xyz = None
             try:
@@ -353,6 +396,12 @@ class ControlClient:
                         float(object_world[1]),
                         float(object_world[2]),
                     ]
+                if camera_world_origin is not None:
+                    payload["camera_world_origin"] = [float(x) for x in camera_world_origin]
+                if camera_world_look is not None:
+                    payload["camera_world_look"] = [float(x) for x in camera_world_look]
+                if camera_world_right is not None:
+                    payload["camera_world_right"] = [float(x) for x in camera_world_right]
                 self.sock.send_json(payload, flags=zmq.NOBLOCK)
             except zmq.ZMQError as exc:
                 self.is_connected = False
@@ -361,7 +410,10 @@ class ControlClient:
                 return None
             if not bool(depth_valid):
                 return self.last_object_world_xyz
-            deadline = time.time() + max(float(wait_ack_s), 0.0)
+            wait_s = max(float(wait_ack_s), 0.0)
+            if wait_s <= 0.0:
+                return self.last_object_world_xyz
+            deadline = time.time() + wait_s
             while time.time() < deadline:
                 self._poll_unlocked()
                 if self.last_object_world_xyz is not None:

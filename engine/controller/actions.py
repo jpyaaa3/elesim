@@ -6,6 +6,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import replace
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional, Sequence
 
@@ -14,6 +15,15 @@ import numpy as np
 from engine import ik as ik_pipeline
 from engine.iklib import kinematics as ik_kin
 from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
+from engine.coordinates.go2_arm_frame import (
+    Go2ArmFrameConfig,
+    ik_direction_to_sim_frame,
+    ik_point_to_sim_frame,
+    sim_direction_to_ik_frame,
+    sim_point_to_ik_frame,
+)
+from engine.gaze_stabilizer.controller import GazeStabilizerConfig
+from engine.controller.gaze_service import GazeControlService
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
 from engine.visual_servoing.equal_sag_probe import (
@@ -56,7 +66,7 @@ from engine.visual_servoing.uv_jacobian import (
 )
 
 from .client import ControlClient
-from .perception import VisualObservation, extract_visual_observation
+from .perception import VisualObservation, extract_local_perception_observation, extract_visual_observation
 from .object_pick import (
     ObjectPickPhase,
     compute_ready_pose_target,
@@ -64,7 +74,14 @@ from .object_pick import (
     pick_ready_for_extend,
     pick_uv_deltas,
 )
-from .perception_capture import PerceptionCapture, PerceptionSnapshot, TrackerPhase
+from .perception_capture import (
+    PerceptionCapture,
+    PerceptionSnapshot,
+    TrackerPhase,
+    default_perception_capture_dir,
+    save_perception_frame_bundle,
+    _ensure_pick_place_path,
+)
 from .state import HostState, PanelState
 
 
@@ -108,8 +125,10 @@ class ControlService:
         config_path: Optional[str] = None,
         perception_cfg: Optional[PerceptionConfig] = None,
         pick_cfg: Optional[PickConfig] = None,
+        gaze_cfg: Optional[GazeStabilizerConfig] = None,
         hand_eye_transform: Optional[np.ndarray] = None,
         hand_eye_parent_frame: str = "node9",
+        go2_arm_frame: Optional[Go2ArmFrameConfig] = None,
         use_hardware: bool = True,
     ) -> None:
         self.state = state
@@ -127,6 +146,7 @@ class ControlService:
             else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4).copy()
         )
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
+        self._go2_arm_frame = go2_arm_frame
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_capture_epoch: int = 0
         self._last_pick_profile: Optional[PickPhaseProfile] = None
@@ -260,6 +280,15 @@ class ControlService:
             "s2": ("s2", "seg2"),
         }
         self._visual_obs_stale_s = 0.75
+        self._gaze_cfg = gaze_cfg or GazeStabilizerConfig()
+        self._gaze_service = GazeControlService(self, self._gaze_cfg)
+        self._gaze_prev_uv_err: Optional[tuple[float, float]] = None
+        self._gaze_dv_err_rate_filt: float = 0.0
+        self._gaze_last_cmd_wall_s: float = 0.0
+        self._gaze_last_sent_du_mag: float = 0.0
+
+    def _gaze_busy(self) -> bool:
+        return self._gaze_service.is_running
 
     def _wait_until_q_settled(
         self,
@@ -652,12 +681,29 @@ class ControlService:
         return self.client.get_state()
 
     def current_visual_observation(self, host_state: Optional[HostState] = None) -> Optional[VisualObservation]:
+        target_label = str(self.state.visual_target_label)
+        stale_s = float(self._visual_obs_stale_s)
+        min_conf = float(self.state.visual_confidence_min)
         state = host_state if host_state is not None else self.current_host_state()
-        return extract_visual_observation(
+        obs = extract_visual_observation(
             state,
-            target_label=str(self.state.visual_target_label),
-            stale_timeout_s=float(self._visual_obs_stale_s),
-            min_confidence=float(self.state.visual_confidence_min),
+            target_label=target_label,
+            stale_timeout_s=stale_s,
+            min_confidence=min_conf,
+        )
+        if obs is not None:
+            return obs
+        st = self.state
+        return extract_local_perception_observation(
+            running=bool(st.perception_running),
+            center_uv=st.perception_center_uv,
+            image_scale=float(st.perception_image_scale),
+            last_update_s=float(st.perception_last_update_s),
+            label=str(st.perception_label),
+            confidence=float(st.perception_confidence),
+            target_label=target_label,
+            stale_timeout_s=stale_s,
+            min_confidence=min_conf,
         )
 
     def _visual_target_uv(self) -> tuple[float, float]:
@@ -745,7 +791,7 @@ class ControlService:
         self._pick_uv_jacobian_last_uv = uv
 
     def _visual_busy(self) -> bool:
-        return self._ik_worker is not None or self._pick_worker is not None
+        return self._ik_worker is not None or self._pick_worker is not None or self._gaze_busy()
 
     def _pick_busy(self) -> bool:
         return self._pick_worker is not None
@@ -2028,6 +2074,70 @@ class ControlService:
             return tuple(self.state.perception_world_xyz)
         return None
 
+    def _go2_arm_transforms(
+        self, host_state: Optional[HostState] = None
+    ) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        cfg = self._go2_arm_frame
+        if cfg is None:
+            return None
+        T_ik = cfg.ik_spawn_transform()
+        go2_pos, go2_rpy = cfg.default_go2_pose()
+        if host_state is not None:
+            if host_state.go2_base_pos is not None:
+                go2_pos = host_state.go2_base_pos
+            if host_state.go2_base_rpy is not None:
+                go2_rpy = host_state.go2_base_rpy
+        T_arm = cfg.arm_base_transform(go2_pos, go2_rpy)
+        return T_ik, T_arm
+
+    def _sim_point_to_ik(
+        self,
+        point_sim: Sequence[float],
+        host_state: Optional[HostState] = None,
+    ) -> np.ndarray:
+        xform = self._go2_arm_transforms(host_state)
+        if xform is None:
+            return np.asarray(point_sim, dtype=float).reshape(3)
+        T_ik, T_arm = xform
+        return sim_point_to_ik_frame(point_sim, T_ik_spawn=T_ik, T_arm_current=T_arm)
+
+    def _ik_point_to_sim(
+        self,
+        point_ik: Sequence[float],
+        host_state: Optional[HostState] = None,
+    ) -> np.ndarray:
+        xform = self._go2_arm_transforms(host_state)
+        if xform is None:
+            return np.asarray(point_ik, dtype=float).reshape(3)
+        T_ik, T_arm = xform
+        return ik_point_to_sim_frame(point_ik, T_ik_spawn=T_ik, T_arm_current=T_arm)
+
+    def _sim_dir_to_ik(
+        self,
+        direction_sim: Sequence[float],
+        host_state: Optional[HostState] = None,
+    ) -> Optional[np.ndarray]:
+        xform = self._go2_arm_transforms(host_state)
+        if xform is None:
+            arr = np.asarray(direction_sim, dtype=float).reshape(3)
+            n = float(np.linalg.norm(arr))
+            return None if n <= 1e-9 else arr / n
+        T_ik, T_arm = xform
+        return sim_direction_to_ik_frame(direction_sim, T_ik_spawn=T_ik, T_arm_current=T_arm)
+
+    def _ik_dir_to_sim(
+        self,
+        direction_ik: Sequence[float],
+        host_state: Optional[HostState] = None,
+    ) -> Optional[np.ndarray]:
+        xform = self._go2_arm_transforms(host_state)
+        if xform is None:
+            arr = np.asarray(direction_ik, dtype=float).reshape(3)
+            n = float(np.linalg.norm(arr))
+            return None if n <= 1e-9 else arr / n
+        T_ik, T_arm = xform
+        return ik_direction_to_sim_frame(direction_ik, T_ik_spawn=T_ik, T_arm_current=T_arm)
+
     def _pick_grasp_object_world(self) -> Optional[tuple[float, float, float]]:
         """Target object for Grasp: Aim-centered > Look-latched > live perception."""
         for candidate in (
@@ -3157,7 +3267,14 @@ class ControlService:
         try:
             model = self._pick_reach_model(base_sag)
             q0 = self._q_array_from_state(host_state)
-            tip = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
+            if (
+                self._go2_arm_frame is not None
+                and host_state is not None
+                and host_state.actual_tip_xyz is not None
+            ):
+                tip = np.asarray(host_state.actual_tip_xyz, dtype=float).reshape(3)
+            else:
+                tip = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
         except Exception as exc:
             self.state.set_pick_status(
                 running=False,
@@ -3168,9 +3285,10 @@ class ControlService:
             return
 
         object_arr = np.asarray(object_world, dtype=float).reshape(3)
-        object_tuple = tuple(float(v) for v in object_arr)
+        object_sim_tuple = tuple(float(v) for v in object_arr)
+        object_tuple = object_sim_tuple
         tip_tuple = tuple(float(v) for v in tip)
-        auto_dir = self._pick_auto_preferred_dir(object_tuple, tip_world=tip_tuple)
+        auto_dir = self._pick_auto_preferred_dir(object_sim_tuple, tip_world=tip_tuple)
         if auto_dir is None:
             self.state.set_pick_status(
                 running=False,
@@ -3224,6 +3342,19 @@ class ControlService:
             host_times: dict[str, float] = {}
             success = False
             try:
+                host_now = self.client.refresh_state() if self.client is not None else host_state
+                object_ik = self._sim_point_to_ik(object_sim_tuple, host_now)
+                object_ik_tuple = tuple(float(v) for v in object_ik)
+                preferred_ik = self._sim_dir_to_ik(preferred_arr, host_now)
+                if preferred_ik is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="cannot infer look seed direction (GO2 frame)",
+                    )
+                    return
+                preferred_ik_arr = np.asarray(preferred_ik, dtype=float).reshape(3)
                 pk = self._pick_config_effective()
                 resolve_dir = bool(pk.look_pose_resolve_dir)
                 q: Optional[np.ndarray] = None
@@ -3234,8 +3365,8 @@ class ControlService:
 
                 if bool(resolve_dir):
                     resolved = resolve_feasible_ready_pose(
-                        object_world=object_tuple,
-                        preferred_dir=preferred_arr,
+                        object_world=object_ik_tuple,
+                        preferred_dir=preferred_ik_arr,
                         standoff_m=float(pk.look_pose_standoff_m),
                         ik_context=ctx,
                         current_seed=q0,
@@ -3297,8 +3428,8 @@ class ControlService:
                 else:
                     try:
                         target_tuple = compute_ready_pose_target(
-                            object_tuple,
-                            tuple(float(v) for v in preferred_arr),
+                            object_ik_tuple,
+                            tuple(float(v) for v in preferred_ik_arr),
                             standoff_m=float(pk.look_pose_standoff_m),
                         )
                     except ValueError as exc:
@@ -3310,7 +3441,7 @@ class ControlService:
                         )
                         return
                     target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
-                    look_dir_used = preferred_arr
+                    look_dir_used = preferred_ik_arr
                     if timing is not None:
                         timing.ik_calls += 1
                         with timing.span("resolve_single"):
@@ -3371,20 +3502,33 @@ class ControlService:
                     )
                     return
 
-                look_tuple = tuple(float(v) for v in look_dir_used)
-                view_tuple = tuple(float(v) for v in target_arr)
-                self.state.set_target(float(target_arr[0]), float(target_arr[1]), float(target_arr[2]))
+                look_dir_ik = np.asarray(look_dir_used, dtype=float).reshape(3)
+                target_ik = np.asarray(target_arr, dtype=float).reshape(3)
+                look_dir_sim = self._ik_dir_to_sim(look_dir_ik, host_now)
+                target_sim = self._ik_point_to_sim(target_ik, host_now)
+                if look_dir_sim is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="look: invalid direction after GO2 frame transform",
+                    )
+                    return
+
+                look_tuple = tuple(float(v) for v in look_dir_sim)
+                view_tuple = tuple(float(v) for v in target_sim)
+                self.state.set_target(float(target_sim[0]), float(target_sim[1]), float(target_sim[2]))
                 self.state.set_target_dir(
-                    float(look_dir_used[0]),
-                    float(look_dir_used[1]),
-                    float(look_dir_used[2]),
+                    float(look_dir_sim[0]),
+                    float(look_dir_sim[1]),
+                    float(look_dir_sim[2]),
                 )
                 self._pick_resolved_ready_dir_world = look_tuple
                 self._pick_resolved_ready_pose_world_xyz = view_tuple
                 self._apply_ik_solution_to_host(
                     q,
-                    ik_target=target_arr,
-                    ik_target_dir=look_dir_used,
+                    ik_target=target_sim,
+                    ik_target_dir=look_dir_sim,
                     err_m=float(err_m),
                     status_msg="look | " + align_msg,
                     timeout_s=3.0,
@@ -3398,7 +3542,7 @@ class ControlService:
                 )
                 if bool(pk.look_post_sag_trim_enabled):
                     host_after = self._look_post_sag_trim_to_object(
-                        object_world=object_tuple,
+                        object_world=object_sim_tuple,
                         sag_model=dict(base_sag),
                         host_state=host_after,
                     )
@@ -3406,7 +3550,7 @@ class ControlService:
                     host_after = self._look_post_move_uv_recover(
                         pk=pk,
                         host_state=host_after,
-                        object_world=object_tuple,
+                        object_world=object_sim_tuple,
                         sag_model=dict(base_sag),
                     )
                     if self._pick_look_object_world_xyz is not None:
@@ -3627,6 +3771,7 @@ class ControlService:
             image_scale=float(snap.image_scale),
             bbox_wh=tuple(snap.bbox_wh),
             tracker_backend=str(snap.tracker_backend),
+            center_uv=snap.center_uv,
         )
 
     def _pick_config_effective(self) -> PickConfig:
@@ -3648,6 +3793,53 @@ class ControlService:
         pk = self._pick_config_effective()
         aim_tol = float(max(0.01, float(self._pick_cfg.aim_center_tol)))
         return replace(pk, center_tol=aim_tol)
+
+    def _gaze_center_pick_config(self) -> PickConfig:
+        """Gaze UV centering: dedicated gains/deadband from [gaze_stabilizer]."""
+        pk = self._pick_config_effective()
+        g = self._gaze_cfg
+        gain = float(max(g.uv_gain, 0.05))
+        return replace(
+            pk,
+            center_tol=float(g.center_tol),
+            center_u_gain=float(g.center_u_gain) * gain,
+            center_v_gain=float(g.center_v_gain) * gain,
+            center_roll_max=float(g.center_roll_max),
+            center_seg_max=float(g.center_seg_max),
+        )
+
+    def reset_gaze_derivative_state(self) -> None:
+        self._gaze_prev_uv_err = None
+        self._gaze_dv_err_rate_filt = 0.0
+        self._gaze_last_cmd_wall_s = 0.0
+        self._gaze_last_sent_du_mag = 0.0
+
+    def _gaze_derivative_seg_du(
+        self,
+        u_err: float,
+        v_err: float,
+        *,
+        dt_s: float,
+    ) -> tuple[float, float]:
+        """PD derivative term on normalized UV error (s1/s2 only, matches P coupling)."""
+        g = self._gaze_cfg
+        kd_v = float(g.center_v_kd)
+        if kd_v <= 0.0:
+            self._gaze_prev_uv_err = (float(u_err), float(v_err))
+            return 0.0, 0.0
+        if self._gaze_prev_uv_err is None:
+            self._gaze_prev_uv_err = (float(u_err), float(v_err))
+            return 0.0, 0.0
+        dt = max(float(dt_s), 1e-3)
+        _prev_u, prev_v = self._gaze_prev_uv_err
+        raw_dv = (float(v_err) - float(prev_v)) / dt
+        alpha = float(np.clip(float(g.d_filter_alpha), 0.0, 1.0))
+        self._gaze_dv_err_rate_filt = alpha * raw_dv + (1.0 - alpha) * float(self._gaze_dv_err_rate_filt)
+        self._gaze_prev_uv_err = (float(u_err), float(v_err))
+        cap = float(g.center_d_seg_max) * float(max(g.step_scale, 0.05))
+        s1_d = float(np.clip(kd_v * self._gaze_dv_err_rate_filt, -cap, cap))
+        s2_d = float(np.clip(-0.5 * kd_v * self._gaze_dv_err_rate_filt, -cap, cap))
+        return s1_d, s2_d
 
     def _pick_config_for_grasp(self) -> PickConfig:
         """UV tolerance for guided grasp (defaults to aim_center_tol when unset)."""
@@ -7323,6 +7515,7 @@ class ControlService:
         cfg: Optional[PickConfig] = None,
         fallback_gains: bool = False,
         coupled_axes: bool = False,
+        step_scale: Optional[float] = None,
     ) -> tuple[ControlU, str, float, float]:
         cfg = self._pick_config_effective() if cfg is None else cfg
         center_tol = float(cfg.center_tol)
@@ -7355,7 +7548,15 @@ class ControlService:
         step_scale = (
             1.0
             if v_only
-            else float(max(min(float(self._pick_aim_step_scale), 1.0), 0.05))
+            else float(
+                max(
+                    min(
+                        float(step_scale if step_scale is not None else self._pick_aim_step_scale),
+                        1.0,
+                    ),
+                    0.05,
+                )
+            )
             if coupled_axes
             else 1.0
         )
@@ -8517,6 +8718,9 @@ class ControlService:
         image_scale: float,
         depth_valid: bool = True,
         object_world: Optional[tuple[float, float, float]] = None,
+        camera_world_origin: Optional[tuple[float, float, float]] = None,
+        camera_world_look: Optional[tuple[float, float, float]] = None,
+        camera_world_right: Optional[tuple[float, float, float]] = None,
     ) -> Optional[tuple[float, float, float]]:
         if self.client is None:
             return None
@@ -8535,6 +8739,9 @@ class ControlService:
             image_scale=image_scale,
             depth_valid=publish_depth,
             object_world=object_world,
+            camera_world_origin=camera_world_origin,
+            camera_world_look=camera_world_look,
+            camera_world_right=camera_world_right,
         )
         if freeze_world:
             frozen = self._pick_frozen_world()
@@ -8605,6 +8812,67 @@ class ControlService:
         else:
             self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
 
+    def capture_perception_frame(self) -> bool:
+        """Save latest perception frame (or one-shot sim grab) under logs/perception_capture/."""
+        out_dir = default_perception_capture_dir()
+        cap = self._perception_capture
+        path: Optional[Path] = None
+        if cap is not None and cap.has_cached_frame():
+            path = cap.save_cached_frames(
+                out_dir,
+                extra_meta={"mode": str(self._perception_cfg.mode)},
+            )
+        if path is None:
+            path = self._capture_sim_perception_frame_once(out_dir)
+        if path is None:
+            msg = "capture failed: no frame (start perception or check sim camera)"
+            self.state.set_perception_status(
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg=msg,
+            )
+            print(f"[perception] {msg}")
+            return False
+        path_s = str(path.resolve())
+        self.state.set_perception_last_capture(path_s)
+        self.state.set_perception_status(
+            running=bool(self.state.perception_running),
+            failed=False,
+            msg=f"saved {path_s}",
+        )
+        print(f"[perception] saved {path_s}")
+        return True
+
+    def _capture_sim_perception_frame_once(self, out_dir: Path) -> Optional[Path]:
+        if str(self._perception_cfg.mode).strip().lower() != "sim":
+            return None
+        _ensure_pick_place_path()
+        try:
+            from perception.sim_rendered_camera import SimRenderedCamera  # type: ignore[import-not-found]
+        except Exception as exc:
+            print(f"[perception] sim camera import failed: {exc}")
+            return None
+        cfg = self._perception_cfg
+        try:
+            with SimRenderedCamera(
+                endpoint=str(cfg.sim_camera_port),
+                use_jpeg=bool(cfg.sim_camera_jpeg),
+            ) as cam:
+                frame = cam.capture(retries=60)
+            return save_perception_frame_bundle(
+                out_dir=out_dir,
+                color_bgr=frame.color_bgr,
+                depth_raw=frame.depth_raw,
+                meta={
+                    "mode": "sim",
+                    "one_shot": True,
+                    "depth_scale": float(frame.depth_scale),
+                },
+            )
+        except Exception as exc:
+            print(f"[perception] one-shot sim capture failed: {exc}")
+            return None
+
     def update_perception_config(self, config: PerceptionConfig) -> None:
         self._perception_cfg = config
         self.state.visual_target_label = str(config.target_label).strip()
@@ -8653,8 +8921,201 @@ class ControlService:
         )
         return p_world is not None
 
+    def _gaze_u_error_via_seg(
+        self,
+        u_err: float,
+        *,
+        center_tol: float,
+        step_scale: float,
+    ) -> tuple[float, float]:
+        """Horizontal UV → s1/s2 when gaze roll is disabled (GO2 mount)."""
+        g = self._gaze_cfg
+        if bool(g.enable_roll) or abs(float(u_err)) <= float(center_tol):
+            return 0.0, 0.0
+        pk = self._gaze_center_pick_config()
+        cap = float(g.center_seg_max) * float(max(step_scale, 0.05))
+        u_gain = float(pk.center_u_gain) * float(max(g.uv_gain, 0.05)) * float(max(step_scale, 0.05))
+        s2_u = float(
+            np.clip(
+                u_gain * float(u_err) * float(g.center_u_seg_s2_scale),
+                -cap,
+                cap,
+            )
+        )
+        s1_u = float(
+            np.clip(
+                -u_gain * float(u_err) * float(g.center_u_seg_s1_scale),
+                -cap,
+                cap,
+            )
+        )
+        return s1_u, s2_u
+
+    def apply_gaze_uv_correction(
+        self,
+        obs: VisualObservation,
+        *,
+        extra_du: Optional[np.ndarray] = None,
+        dt_s: Optional[float] = None,
+    ) -> tuple[str, ControlU, ControlU, float, float]:
+        """Apply one gaze UV step: P centering + optional D damping on seg axes."""
+        tu = float(self.state.visual_target_uv_u)
+        tv = float(self.state.visual_target_uv_v)
+        u_err = float(obs.center_uv[0]) - tu
+        v_err = float(obs.center_uv[1]) - tv
+        current_u = self.current_control_u()
+        g = self._gaze_cfg
+        period = float(dt_s) if dt_s is not None else (1.0 / max(1.0, float(g.hz)))
+        next_u, mode, _, _ = self._apply_pick_center_step(
+            obs,
+            current_u,
+            cfg=self._gaze_center_pick_config(),
+            coupled_axes=True,
+            fallback_gains=True,
+            step_scale=float(g.step_scale),
+        )
+        if not bool(g.enable_roll):
+            next_u = ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll),
+                u_s1=float(next_u.u_s1),
+                u_s2=float(next_u.u_s2),
+            )
+            if mode != "none" and next_u == current_u:
+                mode = "none"
+        pk_gaze = self._gaze_center_pick_config()
+        s1_u, s2_u = self._gaze_u_error_via_seg(
+            u_err,
+            center_tol=float(pk_gaze.center_tol),
+            step_scale=float(g.step_scale),
+        )
+        if abs(s1_u) > 1e-9 or abs(s2_u) > 1e-9:
+            next_u = self._clamp_display_u(
+                ControlU(
+                    u_linear=float(current_u.u_linear),
+                    u_roll=float(next_u.u_roll),
+                    u_s1=float(next_u.u_s1 + s1_u),
+                    u_s2=float(next_u.u_s2 + s2_u),
+                )
+            )
+            if mode == "none" and next_u != current_u:
+                mode = "gain_u_seg"
+        s1_d, s2_d = self._gaze_derivative_seg_du(u_err, v_err, dt_s=period)
+        if abs(s1_d) > 1e-9 or abs(s2_d) > 1e-9:
+            next_u = self._clamp_display_u(
+                ControlU(
+                    u_linear=float(current_u.u_linear),
+                    u_roll=float(next_u.u_roll),
+                    u_s1=float(next_u.u_s1 + s1_d),
+                    u_s2=float(next_u.u_s2 + s2_d),
+                )
+            )
+            if mode == "none" and next_u != current_u:
+                mode = "pd_damp"
+        if extra_du is not None:
+            du = np.asarray(extra_du, dtype=float).reshape(3)
+            roll_du = float(du[0]) if bool(g.enable_roll) else 0.0
+            next_u = self._clamp_display_u(
+                ControlU(
+                    u_linear=float(current_u.u_linear),
+                    u_roll=float(next_u.u_roll + roll_du),
+                    u_s1=float(next_u.u_s1 + float(du[1])),
+                    u_s2=float(next_u.u_s2 + float(du[2])),
+                )
+            )
+            if not bool(g.enable_roll):
+                next_u = ControlU(
+                    u_linear=float(current_u.u_linear),
+                    u_roll=float(current_u.u_roll),
+                    u_s1=float(next_u.u_s1),
+                    u_s2=float(next_u.u_s2),
+                )
+        seg_cap = float(g.max_seg_du_per_tick)
+        if seg_cap > 0.0:
+            ds1 = float(np.clip(float(next_u.u_s1 - current_u.u_s1), -seg_cap, seg_cap))
+            ds2 = float(np.clip(float(next_u.u_s2 - current_u.u_s2), -seg_cap, seg_cap))
+            next_u = ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(next_u.u_roll),
+                u_s1=float(current_u.u_s1 + ds1),
+                u_s2=float(current_u.u_s2 + ds2),
+            )
+            if mode != "none" and next_u == current_u:
+                mode = "none"
+        settle_s = float(g.cmd_settle_s)
+        err_mag = max(abs(float(u_err)), abs(float(v_err)))
+        if err_mag <= float(g.fine_err_max) and float(g.fine_settle_scale) > 0.0:
+            settle_s *= float(g.fine_settle_scale)
+        if (
+            settle_s > 0.0
+            and mode != "none"
+            and next_u != current_u
+            and self._gaze_last_sent_du_mag > 0.15
+            and (time.time() - float(self._gaze_last_cmd_wall_s)) < settle_s
+        ):
+            return "settling", current_u, current_u, u_err, v_err
+        if mode != "none" and next_u != current_u:
+            partial: dict[str, float] = {
+                "s1": float(next_u.u_s1),
+                "s2": float(next_u.u_s2),
+            }
+            if bool(g.enable_roll):
+                partial["roll"] = float(next_u.u_roll)
+            self.apply_partial_control_u(partial)
+            self._gaze_last_cmd_wall_s = float(time.time())
+            self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
+                float(next_u.u_s2 - current_u.u_s2)
+            )
+        return mode, current_u, next_u, u_err, v_err
+
     def close(self) -> None:
+        self.stop_gaze_stabilizer()
         self.stop_object_pick()
         self.stop_perception_capture()
         if self.client is not None:
             self.client.close()
+
+    def start_gaze_stabilizer_standing(self, *, run_id: str = "") -> None:
+        if self._visual_busy() and not self._gaze_busy():
+            self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
+            print("[gaze] rejected: visual pipeline busy")
+            return
+        try:
+            self._gaze_service.start_standing_uv_only(run_id=run_id)
+            self.state.set_gaze_status(running=True, mode="standing", msg="started")
+        except Exception as exc:
+            self.state.set_gaze_status(running=False, mode="idle", msg=f"start failed: {exc}")
+            print(f"[gaze] start standing failed: {exc}")
+
+    def start_gaze_stabilizer_walking(self, *, run_id: str = "") -> None:
+        if self._visual_busy() and not self._gaze_busy():
+            self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
+            print("[gaze] rejected: visual pipeline busy")
+            return
+        try:
+            self._gaze_service.start_walking_gaze(run_id=run_id)
+            self.state.set_gaze_status(running=True, mode="walking", msg="started")
+        except Exception as exc:
+            self.state.set_gaze_status(running=False, mode="idle", msg=f"start failed: {exc}")
+            print(f"[gaze] start walking failed: {exc}")
+
+    def stop_gaze_stabilizer(self) -> None:
+        self._gaze_service.stop()
+
+    def start_demo4_stop_and_grasp(self) -> None:
+        if self._pick_busy() or self._gaze_busy():
+            print("[demo4] rejected: pipeline busy")
+            return
+        self._gaze_service.start_stop_and_grasp_demo()
+
+    def reset_simulation(self) -> None:
+        """Reset sim GO2+arm pose, stop workers, and zero teleop commands."""
+        self.stop_gaze_stabilizer()
+        self.stop_object_pick()
+        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        self.state.reset_q()
+        self.state.clear_ik_status()
+        self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="")
+        if self.client is not None:
+            self.client.send_sim_reset()
+        print("[ctrl] simulation reset requested")

@@ -3,7 +3,7 @@
   <link name="plate">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
-      <mass value="0.5" />
+      <mass value="1.5" />
       <inertia ixx="0.0750208333" ixy="0" ixz="0" iyy="0.300020833" iyz="0" izz="0.375" />
     </inertial>
     <visual>
@@ -25,7 +25,7 @@
   <link name="housing">
     <inertial>
       <origin xyz="-0.125 0 0.090106019" rpy="0 0 0" />
-      <mass value="0.5" />
+      <mass value="1.8" />
       <inertia ixx="0.0122324069" ixy="0" ixz="0" iyy="0.0239337826" iyz="0" izz="0.0195486244" />
     </inertial>
     <visual>
@@ -69,7 +69,7 @@
   <link name="node0">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -91,7 +91,7 @@
   <link name="node1">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -113,7 +113,7 @@
   <link name="node2">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -135,7 +135,7 @@
   <link name="node3">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -157,7 +157,7 @@
   <link name="node4">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -179,7 +179,7 @@
   <link name="node5">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -201,7 +201,7 @@
   <link name="node6">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -223,7 +223,7 @@
   <link name="node7">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -245,7 +245,7 @@
   <link name="node8">
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
@@ -267,7 +267,7 @@
   <link name="node9">
     <inertial>
       <origin xyz="0.0277214464 0 0" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.15" />
       <inertia ixx="0.000102746922" ixy="0" ixz="-0" iyy="5.51153233e-05" iyz="0" izz="8.14350676e-05" />
     </inertial>
     <visual>

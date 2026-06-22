@@ -28,6 +28,8 @@ class Go2MpcConfig:
     foot_placement_scale: float = 1.35
     payload_enable: bool = True
     payload_mass_kg: float = 0.0
+    pitch_trim_gain_x_forward: float = 0.0
+    pitch_trim_gain_x_backward: float = -0.15
     pitch_trim_gain_z: float = 0.55
     pitch_trim_z_ref_m: float = 0.12
     pitch_trim_max_rad: float = 0.10

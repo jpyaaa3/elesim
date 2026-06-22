@@ -142,3 +142,22 @@ def backward_pitch_trim_rad(
     excess_z = max(0.0, com_z - float(z_ref_m))
     trim = -float(gain_z) * excess_z
     return float(np.clip(trim, -abs(float(max_trim_rad)), 0.0))
+
+
+def payload_pitch_trim_rad(com_body: np.ndarray, *, vx: float, config) -> float:
+    """Body-frame payload COM based pitch reference trim."""
+    com_x = float(com_body[0])
+    com_z = float(com_body[2])
+    vx_f = float(vx)
+    if vx_f >= 0.05:
+        kx = float(config.pitch_trim_gain_x_forward)
+    elif vx_f <= -0.05:
+        kx = float(config.pitch_trim_gain_x_backward)
+    else:
+        kx = 0.0
+    kz = float(config.pitch_trim_gain_z)
+    z_ref = float(config.pitch_trim_z_ref_m)
+    pitch_max = abs(float(config.pitch_trim_max_rad))
+    excess_z = max(0.0, com_z - z_ref)
+    trim = kx * com_x + kz * excess_z
+    return float(np.clip(trim, -pitch_max, pitch_max))
