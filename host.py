@@ -21,7 +21,7 @@ from engine.motor import load_hardware, tick_to_deg_0_360
 from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
-from addons.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
+from engine.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
 from engine.sim_camera.pose import camera_point_to_world_from_axes
 
 from serial.tools import list_ports as serial_list_ports
@@ -108,8 +108,8 @@ class ControlHost:
         self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
         self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
-        self.last_go2_base_timestamp_s: float = 0.0
         self.last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self.last_go2_base_timestamp_s: float = 0.0
         self._sim_camera_origin: Optional[tuple[float, float, float]] = None
         self._sim_camera_look: Optional[tuple[float, float, float]] = None
         self._sim_camera_right: Optional[tuple[float, float, float]] = None
@@ -684,9 +684,9 @@ class ControlHost:
         self.last_go2_base_rpy = tuple(float(v) for v in sample.rpy)
         self.last_go2_base_lin_vel_body = tuple(float(v) for v in sample.lin_vel_body)
         self.last_go2_base_ang_vel = tuple(float(v) for v in sample.ang_vel_body)
-        self.last_go2_base_timestamp_s = float(sample.timestamp_s)
         if sample.leg_q is not None and len(sample.leg_q) == 12:
             self.last_go2_leg_q = tuple(float(v) for v in sample.leg_q)
+        self.last_go2_base_timestamp_s = float(sample.timestamp_s)
 
     def _broadcast_state_now(self) -> None:
         now = proto.now_s()
@@ -1660,7 +1660,7 @@ class ControlHost:
                         go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
                         go2_base_ang_vel=self.last_go2_base_ang_vel,
                         go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
-                go2_leg_q=self.last_go2_leg_q,
+                        go2_leg_q=self.last_go2_leg_q,
                         sim_reset_seq=int(self._sim_reset_seq),
                         claw_current=self._last_claw_current,
                         motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},

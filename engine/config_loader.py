@@ -42,6 +42,7 @@ class SimConfig:
     build_dir: str = DEFAULT_BUILD_DIR
     assy_build_json: str = "manifest.json"
     urdf_name: str = "robot.urdf"
+    arm_urdf_name: str = "arm.urdf"
     rebuild_assembly: bool = True
 
     host_ctrl_port: str = "tcp://127.0.0.1:5555"
@@ -136,9 +137,9 @@ class SpawnConfig:
 @dataclass(frozen=True)
 class PerceptionConfig:
     enabled: bool = True
-    detector_config: str = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
-    mode: str = "camera"
-    detector: str = "config"
+    detector_config: str = ""
+    mode: str = "external"
+    detector: str = "external"
     target_label: str = "sports ball"
     yolo_device: str = ""
     publish_hz: float = 15.0
@@ -172,8 +173,6 @@ class PerceptionConfig:
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
-        if not raw:
-            raw = "addons/autonomous_pick_place_app/configs/detector.yolo.example.json"
         path = Path(raw)
         if path.is_absolute():
             return path
@@ -1102,6 +1101,7 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         build_dir=build_dir,
         assy_build_json=cp.get("runtime", "assy_build_json", fallback=sc0.assy_build_json),
         urdf_name=cp.get("runtime", "urdf_name", fallback=sc0.urdf_name),
+        arm_urdf_name=cp.get("runtime", "arm_urdf_name", fallback=sc0.arm_urdf_name),
         rebuild_assembly=cp.getboolean(
             "model",
             "rebuild_robot",

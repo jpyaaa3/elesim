@@ -19,6 +19,7 @@ from genesis.utils import geom as gs_geom
 
 import engine.protocol as proto
 import builder.json_builder as assembly_builder
+from builder.go2_arm_merger import merge_go2_arm_urdf
 from engine.config_loader import (
     Go2LocomotionConfig,
     HardwareConfig,
@@ -32,6 +33,7 @@ from engine.config_loader import (
 )
 from engine.go2_locomotion import Go2Command
 from engine.go2_locomotion.controller import RaibertTrotController
+from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q
 from engine.motor import estimate_ideal_sim_rates
 from builder.urdf_converter import convert_manifest_file
 from engine.sag_model import segment_errors_from_model
@@ -276,6 +278,33 @@ def _make_urdf_morph(
             return gs.morphs.URDF(**common, default_armature=0.0)
         except TypeError:
             return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
+
+
+def _set_go2_initial_leg_pose(go2_entity, *, pose_name: str = "ready") -> None:
+    """Set GO2 leg joints after Genesis build so calf joints start within limits."""
+    pose = GO2_READY_Q if str(pose_name).strip().lower() == "ready" else GO2_STAND_Q
+    dof_idxs: list[int] = []
+    q_vals: list[float] = []
+    for joint_name, q in pose.items():
+        try:
+            joint = go2_entity.get_joint(str(joint_name))
+            raw_idxs = getattr(joint, "dofs_idx_local", None)
+        except Exception:
+            continue
+        if raw_idxs is None:
+            continue
+        for idx in np.asarray(raw_idxs, dtype=int).reshape(-1):
+            dof_idxs.append(int(idx))
+            q_vals.append(float(q))
+    if not dof_idxs:
+        return
+    q_arr = np.asarray(q_vals, dtype=float)
+    try:
+        go2_entity.set_dofs_position(q_arr, dofs_idx_local=dof_idxs)
+        go2_entity.control_dofs_position(q_arr, dofs_idx_local=dof_idxs)
+        print(f"[runtime] GO2 initial leg pose set: {pose_name} ({len(dof_idxs)} dofs)")
+    except Exception as exc:
+        print(f"[runtime] GO2 initial leg pose skipped: {exc}")
 
 
 @dataclass
@@ -943,10 +972,15 @@ class AssetProcessor:
         c = self.app.cfg
         return os.path.join(c.build_dir, c.urdf_name)
 
+    def _arm_urdf_path(self) -> str:
+        c = self.app.cfg
+        return os.path.join(c.build_dir, c.arm_urdf_name)
+
     def prepare_assets(self) -> str:
         t0 = time.time()
         in_json = self._json_path()
-        out_urdf = self._urdf_path()
+        arm_urdf = self._arm_urdf_path()
+        robot_urdf = self._urdf_path()
         if self.app.cfg.rebuild_assembly or (not os.path.isfile(in_json)):
             os.makedirs(self.app.cfg.build_dir, exist_ok=True)
             try:
@@ -981,10 +1015,21 @@ class AssetProcessor:
 
         self._load_joint_layout(in_json)
         self.app._apply_ideal_rates_if_needed()
-        convert_manifest_file(in_json, out_urdf, cfg=self.app.urdf_export_cfg)
+        convert_manifest_file(in_json, arm_urdf, cfg=self.app.urdf_export_cfg)
+        if bool(getattr(self.app.cfg, "use_go2", False)):
+            go2_urdf = RuntimePrep._resolve_genesis_go2_urdf()
+            merge_go2_arm_urdf(
+                go2_urdf_path=go2_urdf,
+                arm_urdf_path=arm_urdf,
+                out_urdf_path=robot_urdf,
+                mount_xyz=tuple(float(x) for x in self.app.spawn.go2_mount_offset_m),
+            )
+            print(f"[runtime] combined GO2+arm URDF saved: {robot_urdf}")
+        else:
+            convert_manifest_file(in_json, robot_urdf, cfg=self.app.urdf_export_cfg)
         print(f"[runtime] use_hardware = {str(bool(self.app.cfg.use_hardware)).lower()}")
         print("[runtime] assets prepared in %.2fs" % (time.time() - t0))
-        return out_urdf
+        return arm_urdf
 
     def _load_joint_layout(self, json_path: str) -> None:
         with open(json_path, "r", encoding="utf-8") as f:
@@ -1815,6 +1860,7 @@ class RuntimePrep:
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
 
         if use_go2 and go2_entity is not None:
+            _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
             if not go2_mirror:
                 self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
@@ -1899,14 +1945,15 @@ class RuntimePrep:
 
     @staticmethod
     def _resolve_genesis_go2_urdf() -> str:
-        try:
-            gs_root = os.path.dirname(getattr(gs, "__file__", ""))
-        except Exception:
-            gs_root = ""
-        if not gs_root:
-            return ""
-        candidate = os.path.join(gs_root, "assets", "urdf", "go2", "urdf", "go2.urdf")
-        return candidate if os.path.isfile(candidate) else ""
+        local_candidate = os.path.join(
+            os.path.dirname(__file__),
+            "assets",
+            "go2",
+            "go2.urdf",
+        )
+        if os.path.isfile(local_candidate):
+            return local_candidate
+        return ""
 
 
 

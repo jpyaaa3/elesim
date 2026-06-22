@@ -15,3 +15,9 @@ addons/**/models/*.pt
 addons/opencv/images/
 
 *.log
+
+# Local reference clone used for upstream comparison.
+update/
+
+# Generated runtime URDF; source is builder/config/assets.
+craft/arm.urdf
