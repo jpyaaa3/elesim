@@ -78,11 +78,13 @@ class UnitreeRos2Bridge:
         self._last_api_parameter = ""
         self._spin_ok = False
         self._spin_error = ""
+        self._we_inited_rclpy = False
 
     def start(self) -> None:
         if self._started:
             return
         self._import_ros()
+        self._ensure_rclpy_init()
         self._node = self._RosNode("elesim_go2_bridge")
         self._pub = self._node.create_publisher(self._Request, self._sport_request_topic, 10)
         if self._pose_source == "sportmodestate":
@@ -147,6 +149,13 @@ class UnitreeRos2Bridge:
         self._node = None
         self._pub = None
         self._started = False
+        if self._we_inited_rclpy:
+            try:
+                if self._rclpy.ok():
+                    self._rclpy.shutdown()
+            except Exception:
+                pass
+            self._we_inited_rclpy = False
         print("[go2_bridge] stopped")
 
     def set_velocity(self, vx: float, vy: float, wz: float) -> None:
@@ -356,10 +365,14 @@ class UnitreeRos2Bridge:
         self._Request = Request
         self._RosNode = Node
 
+    def _ensure_rclpy_init(self) -> None:
+        if self._rclpy.ok():
+            return
+        self._rclpy.init()
+        self._we_inited_rclpy = True
+
     def _spin_loop(self) -> None:
         try:
-            if not self._rclpy.ok():
-                self._rclpy.init()
             self._spin_ok = True
             while not self._stop_event.is_set() and self._rclpy.ok():
                 self._rclpy.spin_once(self._node, timeout_sec=0.05)
@@ -368,11 +381,6 @@ class UnitreeRos2Bridge:
             print(f"[go2_bridge] spin failed: {exc}")
         finally:
             self._spin_ok = False
-            try:
-                if self._rclpy.ok():
-                    self._rclpy.shutdown()
-            except Exception:
-                pass
 
 
 def create_go2_bridge_if_enabled(
