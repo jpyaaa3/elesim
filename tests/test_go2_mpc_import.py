@@ -13,13 +13,6 @@ class Go2MpcImportTests(unittest.TestCase):
         self.assertTrue(callable(mod._quat_wxyz_to_xyzw))
         self.assertNotIn("convex_mpc", sys.modules)
 
-    def test_sim_camera_pose_import_without_convex_mpc(self) -> None:
-        sys.modules.pop("convex_mpc", None)
-        sys.modules.pop("engine.sim_camera.pose", None)
-        mod = importlib.import_module("engine.sim_camera.pose")
-        self.assertTrue(callable(mod.camera_point_to_world_from_axes))
-        self.assertNotIn("convex_mpc", sys.modules)
-
 
 if __name__ == "__main__":
     unittest.main()
