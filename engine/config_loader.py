@@ -994,6 +994,8 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
         sport_state_topic=cp.get(
             "go2_hardware", "sport_state_topic", fallback=gh0.sport_state_topic
         ).strip(),
+        leg_sync=cp.getboolean("go2_hardware", "leg_sync", fallback=gh0.leg_sync),
+        lowstate_topic=cp.get("go2_hardware", "lowstate_topic", fallback=gh0.lowstate_topic).strip(),
         cmd_hz=cp.getfloat("go2_hardware", "cmd_hz", fallback=gh0.cmd_hz),
         vel_deadband=cp.getfloat("go2_hardware", "vel_deadband", fallback=gh0.vel_deadband),
         stop_on_zero_vel=cp.getboolean(

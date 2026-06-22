@@ -156,6 +156,7 @@ def pack_state(
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None,
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None,
     go2_base_timestamp_s: Optional[float] = None,
+    go2_leg_q: Optional[tuple[float, ...]] = None,
     sim_reset_seq: Optional[int] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
@@ -225,6 +226,8 @@ def pack_state(
         ]
     if go2_base_timestamp_s is not None:
         out["go2_base_timestamp_s"] = float(go2_base_timestamp_s)
+    if go2_leg_q is not None and len(go2_leg_q) == 12:
+        out["go2_leg_q"] = [float(v) for v in go2_leg_q]
     if sim_reset_seq is not None:
         out["sim_reset_seq"] = int(sim_reset_seq)
     if debug_markers is not None:

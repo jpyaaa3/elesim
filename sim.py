@@ -110,9 +110,10 @@ class Go2Locomotion:
 
             self._kin = Go2KinematicsModel.from_entity(entity)
             self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
-            self._stand_kp = float(config.leg_kp)
-            self._stand_kv = float(config.leg_kv)
-            self._init_mirror_pose()
+            self._last_mirror_pos: Optional[tuple[float, float, float]] = None
+            self._last_mirror_rpy: Optional[tuple[float, float, float]] = None
+            self._last_mirror_leg_q: Optional[tuple[float, ...]] = None
+            self._init_mirror_kinematic()
             return
 
         mode = str(config.mode).strip().lower()
@@ -165,14 +166,12 @@ class Go2Locomotion:
     def mirror_mode(self) -> bool:
         return bool(self._mirror)
 
-    def _init_mirror_pose(self) -> None:
-        stand_q = np.asarray(self._kin.stand_q, dtype=float)
-        self._entity.set_dofs_position(stand_q, dofs_idx_local=self._leg_dof_idxs)
+    def _init_mirror_kinematic(self) -> None:
+        """Mirror puppet: no PD actuation; pose is overwritten each frame."""
         n = len(self._leg_dof_idxs)
-        kp = np.full(n, self._stand_kp, dtype=float)
-        kv = np.full(n, self._stand_kv, dtype=float)
-        self._entity.set_dofs_kp(kp, dofs_idx_local=self._leg_dof_idxs)
-        self._entity.set_dofs_kv(kv, dofs_idx_local=self._leg_dof_idxs)
+        self._entity.set_dofs_kp(np.zeros(n, dtype=float), dofs_idx_local=self._leg_dof_idxs)
+        self._entity.set_dofs_kv(np.zeros(n, dtype=float), dofs_idx_local=self._leg_dof_idxs)
+        self._hold_mirror_stand()
 
     def _hold_mirror_stand(self) -> None:
         stand_q = np.asarray(self._kin.stand_q, dtype=float)
@@ -182,9 +181,28 @@ class Go2Locomotion:
         self,
         pos: tuple[float, float, float],
         rpy: tuple[float, float, float],
+        leg_q: Optional[tuple[float, ...]] = None,
     ) -> None:
         if not self._mirror:
             return
+        self._last_mirror_pos = (float(pos[0]), float(pos[1]), float(pos[2]))
+        self._last_mirror_rpy = (float(rpy[0]), float(rpy[1]), float(rpy[2]))
+        if leg_q is not None and len(leg_q) == 12:
+            self._last_mirror_leg_q = tuple(float(v) for v in leg_q)
+        self._set_mirror_pose(self._last_mirror_pos, self._last_mirror_rpy, self._last_mirror_leg_q)
+
+    def reapply_last_mirror_pose(self) -> bool:
+        if not self._mirror or self._last_mirror_pos is None or self._last_mirror_rpy is None:
+            return False
+        self._set_mirror_pose(self._last_mirror_pos, self._last_mirror_rpy, self._last_mirror_leg_q)
+        return True
+
+    def _set_mirror_pose(
+        self,
+        pos: tuple[float, float, float],
+        rpy: tuple[float, float, float],
+        leg_q: Optional[tuple[float, ...]] = None,
+    ) -> None:
         rot = Rot.from_euler("xyz", np.asarray(rpy, dtype=float), degrees=False)
         quat_xyzw = rot.as_quat()
         quat_wxyz = np.array(
@@ -193,11 +211,14 @@ class Go2Locomotion:
         )
         self._entity.set_pos(np.asarray(pos, dtype=float).reshape(3))
         self._entity.set_quat(quat_wxyz)
+        if leg_q is not None and len(leg_q) == 12:
+            self._entity.set_dofs_position(np.asarray(leg_q, dtype=float), dofs_idx_local=self._leg_dof_idxs)
+        else:
+            self._hold_mirror_stand()
         try:
             self._entity.zero_all_dofs_velocity()
         except Exception:
             pass
-        self._hold_mirror_stand()
 
     def set_command_source(self, source: str) -> None:
         if self._controller is not None and hasattr(self._controller, "_command_source"):
@@ -214,7 +235,7 @@ class Go2Locomotion:
             self._controller.reset()
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
         if self._mirror:
-            self._init_mirror_pose()
+            self._init_mirror_kinematic()
 
     def set_planar_velocity(self, vx: float, vy: float, wz: float) -> None:
         if self._mirror or self._controller is None:
@@ -223,7 +244,6 @@ class Go2Locomotion:
 
     def step(self) -> None:
         if self._mirror:
-            self._hold_mirror_stand()
             return
         if self._controller is not None and hasattr(self._controller, "set_arm_q"):
             self._controller.set_arm_q(self._arm_q)
@@ -1228,6 +1248,9 @@ class StateSource:
     def go2_base_rpy(self) -> Optional[tuple[float, float, float]]:
         return None
 
+    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
+        return None
+
     def sim_reset_seq(self) -> int:
         return 0
 
@@ -1253,6 +1276,7 @@ class HardwareStateCache(StateSource):
         self._last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self._last_go2_base_rpy: Optional[tuple[float, float, float]] = None
+        self._last_go2_leg_q: Optional[tuple[float, ...]] = None
         self._last_sim_reset_seq: int = 0
         self._last_debug_markers: list[dict[str, Any]] = []
 
@@ -1283,6 +1307,10 @@ class HardwareStateCache(StateSource):
             self._last_go2_base_pos = (float(go2_base_pos[0]), float(go2_base_pos[1]), float(go2_base_pos[2]))
         if go2_base_rpy is not None:
             self._last_go2_base_rpy = (float(go2_base_rpy[0]), float(go2_base_rpy[1]), float(go2_base_rpy[2]))
+
+    def update_go2_leg_q(self, go2_leg_q: Optional[tuple[float, ...]]) -> None:
+        if go2_leg_q is not None and len(go2_leg_q) == 12:
+            self._last_go2_leg_q = tuple(float(v) for v in go2_leg_q)
 
     def update_sim_reset_seq(self, seq: int) -> None:
         self._last_sim_reset_seq = int(seq)
@@ -1341,6 +1369,11 @@ class HardwareStateCache(StateSource):
             float(self._last_go2_base_rpy[2]),
         )
 
+    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
+        if self._last_go2_leg_q is None:
+            return None
+        return tuple(float(v) for v in self._last_go2_leg_q)
+
     def sim_reset_seq(self) -> int:
         return int(self._last_sim_reset_seq)
 
@@ -1373,6 +1406,7 @@ class HostStateSubscriber:
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
+        self.last_go2_leg_q: Optional[tuple[float, ...]] = None
         self.last_sim_reset_seq: int = 0
         self.last_debug_markers: list[dict[str, Any]] = []
 
@@ -1444,6 +1478,9 @@ class HostStateSubscriber:
             rpy_raw = msg.get("go2_base_rpy", None)
             if isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
                 self.last_go2_base_rpy = (float(rpy_raw[0]), float(rpy_raw[1]), float(rpy_raw[2]))
+            leg_raw = msg.get("go2_leg_q", None)
+            if isinstance(leg_raw, (list, tuple)) and len(leg_raw) == 12:
+                self.last_go2_leg_q = tuple(float(v) for v in leg_raw)
             if "sim_reset_seq" in msg:
                 try:
                     self.last_sim_reset_seq = int(msg.get("sim_reset_seq", 0))
@@ -1562,6 +1599,7 @@ class HostStateSource(StateSource):
         self._cache.update_claw_closed(self._sub.last_claw_closed)
         self._cache.update_go2_vel(self._sub.last_go2_vel)
         self._cache.update_go2_base(self._sub.last_go2_base_pos, self._sub.last_go2_base_rpy)
+        self._cache.update_go2_leg_q(self._sub.last_go2_leg_q)
         self._cache.update_sim_reset_seq(self._sub.last_sim_reset_seq)
         if self._sub.last_q is not None:
             self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
@@ -1589,6 +1627,9 @@ class HostStateSource(StateSource):
 
     def go2_base_rpy(self) -> Optional[tuple[float, float, float]]:
         return self._cache.go2_base_rpy()
+
+    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
+        return self._cache.go2_leg_q()
 
     def sim_reset_seq(self) -> int:
         return self._cache.sim_reset_seq()
@@ -1783,7 +1824,11 @@ class RuntimePrep:
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
 
         if use_go2 and go2_entity is not None:
-            self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
+            go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
+            if not go2_mirror:
+                self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
+            else:
+                print("[runtime] GO2 mirror: kinematic base+legs; arm follows via sync")
             a.sim_scene.record_arm_go2_mount(arm_ent=ent, go2_ent=go2_entity)
             from engine.go2_mpc.walking_metrics import WalkingMetricsLogger, WalkingMetricsMeta
 
@@ -1922,7 +1967,8 @@ class SimRuntime:
                         base_pos = a.state_source.go2_base_pos()
                         base_rpy = a.state_source.go2_base_rpy()
                         if base_pos is not None and base_rpy is not None:
-                            a.sim_scene.go2.apply_mirror_pose(base_pos, base_rpy)
+                            leg_q = a.state_source.go2_leg_q()
+                            a.sim_scene.go2.apply_mirror_pose(base_pos, base_rpy, leg_q=leg_q)
                     else:
                         go2_vel = a.state_source.go2_vel() if a.state_source is not None else (0.0, 0.0, 0.0)
                         a.sim_scene.go2.set_planar_velocity(
@@ -2049,6 +2095,9 @@ class SimRuntime:
                             )
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 a.sim_scene.step()
+                if a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
+                    if a.sim_scene.go2.reapply_last_mirror_pose():
+                        a.sim_scene.sync_arm_to_go2_base()
                 q_cam = a._errmodel_q() if a._has_state_source() else None
                 arm_q = None
                 if q_cam is not None:

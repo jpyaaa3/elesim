@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Optional
+from dataclasses import replace
+from typing import Any, Optional, Tuple
 
 from engine.go2_hardware.config import Go2HardwareConfig
+from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.sport_api import (
@@ -25,6 +27,7 @@ class UnitreeRos2Bridge:
         self._pose_source = str(cfg.pose_source).strip().lower()
         self._lock = threading.Lock()
         self._latest: Optional[OdomSample] = None
+        self._latest_leg_q: Optional[Tuple[float, ...]] = None
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._cmd_period = 1.0 / max(float(cfg.cmd_hz), 1.0)
         self._t_last_cmd = 0.0
@@ -57,6 +60,13 @@ class UnitreeRos2Bridge:
                 10,
             )
             pose_topic = str(self._cfg.odom_topic)
+        if bool(self._cfg.leg_sync):
+            self._node.create_subscription(
+                self._LowState,
+                str(self._cfg.lowstate_topic),
+                self._on_lowstate,
+                10,
+            )
         self._stop_event.clear()
         self._spin_thread = threading.Thread(target=self._spin_loop, name="go2-ros2-spin", daemon=True)
         self._spin_thread.start()
@@ -65,8 +75,14 @@ class UnitreeRos2Bridge:
         if stand_id is not None:
             self._publish_api(stand_id, "")
         print(
-            "[go2_bridge] started | sport=%s pose=%s(%s) cmd_hz=%.1f"
-            % (self._cfg.sport_request_topic, self._pose_source, pose_topic, float(self._cfg.cmd_hz))
+            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s cmd_hz=%.1f"
+            % (
+                self._cfg.sport_request_topic,
+                self._pose_source,
+                pose_topic,
+                bool(self._cfg.leg_sync),
+                float(self._cfg.cmd_hz),
+            )
         )
 
     def stop(self) -> None:
@@ -162,7 +178,12 @@ class UnitreeRos2Bridge:
             yaw_deg=float(self._cfg.world_frame_yaw_deg),
         )
         with self._lock:
-            self._latest = sample
+            self._latest = self._attach_leg_q(sample)
+
+    def _attach_leg_q(self, sample: OdomSample) -> OdomSample:
+        if self._latest_leg_q is not None:
+            return replace(sample, leg_q=self._latest_leg_q)
+        return sample
 
     def _on_sportmodestate(self, msg: Any) -> None:
         try:
@@ -175,7 +196,18 @@ class UnitreeRos2Bridge:
             print(f"[go2_bridge] sportmodestate parse failed: {exc}")
             return
         with self._lock:
-            self._latest = sample
+            self._latest = self._attach_leg_q(sample)
+
+    def _on_lowstate(self, msg: Any) -> None:
+        try:
+            leg_q = lowstate_leg_q_genesis_order(msg)
+        except Exception as exc:
+            print(f"[go2_bridge] lowstate parse failed: {exc}")
+            return
+        with self._lock:
+            self._latest_leg_q = leg_q
+            if self._latest is not None:
+                self._latest = replace(self._latest, leg_q=leg_q)
 
     def _import_ros(self) -> None:
         try:
@@ -183,7 +215,7 @@ class UnitreeRos2Bridge:
             from nav_msgs.msg import Odometry
             from rclpy.node import Node
             from unitree_api.msg import Request
-            from unitree_go.msg import SportModeState
+            from unitree_go.msg import LowState, SportModeState
         except ImportError as exc:
             raise RuntimeError(
                 "ROS2 Humble deps missing for GO2 bridge (rclpy, nav_msgs, unitree_api, unitree_go): "
@@ -192,6 +224,7 @@ class UnitreeRos2Bridge:
         self._rclpy = rclpy
         self._Odometry = Odometry
         self._SportModeState = SportModeState
+        self._LowState = LowState
         self._Request = Request
         self._RosNode = Node
 

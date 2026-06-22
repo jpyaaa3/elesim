@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
@@ -14,6 +14,8 @@ class OdomSample:
     lin_vel_body: Tuple[float, float, float]
     ang_vel_body: Tuple[float, float, float]
     timestamp_s: float
+    # 12 leg joint angles (rad) in Genesis URDF order when available from /lf/lowstate.
+    leg_q: Optional[Tuple[float, ...]] = None
 
 
 def parse_odom_pose(
