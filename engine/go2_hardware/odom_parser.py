@@ -14,7 +14,7 @@ class OdomSample:
     lin_vel_body: Tuple[float, float, float]
     ang_vel_body: Tuple[float, float, float]
     timestamp_s: float
-    # 12 leg joint angles (rad) in Genesis URDF order when available from /lf/lowstate.
+    # 12 leg joint angles (rad) in Genesis URDF order when available from /lowstate.
     leg_q: Optional[Tuple[float, ...]] = None
 
 

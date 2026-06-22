@@ -12,9 +12,9 @@ class Go2HardwareConfig:
     # pose_source: odom (nav_msgs/Odometry) | sportmodestate (unitree_go SportModeState)
     pose_source: str = "odom"
     odom_topic: str = "/odom"
-    sport_state_topic: str = "/lf/sportmodestate"
+    sport_state_topic: str = "/sportmodestate"
     leg_sync: bool = True
-    lowstate_topic: str = "/lf/lowstate"
+    lowstate_topic: str = "/lowstate"
     cmd_hz: float = 20.0
     vel_deadband: float = 0.02
     stop_on_zero_vel: bool = True

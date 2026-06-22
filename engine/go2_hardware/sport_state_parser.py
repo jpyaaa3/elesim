@@ -18,7 +18,7 @@ def sportmodestate_to_sample(
     offset_xyz: Sequence[float],
     yaw_deg: float,
 ) -> OdomSample:
-    """Parse unitree_go SportModeState (/lf/sportmodestate) into host base state."""
+    """Parse unitree_go SportModeState (/sportmodestate) into host base state."""
     try:
         stamp = msg.stamp
         ts = float(stamp.sec) + float(stamp.nanosec) * 1e-9
