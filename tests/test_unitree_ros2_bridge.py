@@ -14,6 +14,7 @@ from engine.go2_hardware.sport_api import (
     API_MOVE,
     API_STOP_MOVE,
     build_move_parameter,
+    fill_unitree_request,
     shutdown_api_id,
     stand_api_id,
     velocity_below_deadband,
@@ -23,6 +24,38 @@ from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, create_go
 
 
 class TestSportApi(unittest.TestCase):
+    def test_fill_unitree_request_header(self) -> None:
+        class _Policy:
+            priority = -1
+            noreply = False
+
+        class _Lease:
+            id = -1
+
+        class _Identity:
+            id = -1
+            api_id = -1
+
+        class _Header:
+            identity = _Identity()
+            lease = _Lease()
+            policy = _Policy()
+
+        class _Request:
+            header = _Header()
+            parameter = ""
+            binary = [1]
+
+        req = _Request()
+        fill_unitree_request(req, api_id=1008, parameter='{"x":0.2,"y":0.0,"z":0.0}')
+        self.assertEqual(req.header.identity.id, 0)
+        self.assertEqual(req.header.identity.api_id, 1008)
+        self.assertEqual(req.header.lease.id, 0)
+        self.assertEqual(req.header.policy.priority, 0)
+        self.assertTrue(req.header.policy.noreply)
+        self.assertEqual(req.parameter, '{"x":0.2,"y":0.0,"z":0.0}')
+        self.assertEqual(req.binary, [])
+
     def test_build_move_parameter(self) -> None:
         raw = build_move_parameter(0.3, -0.1, 0.5)
         data = json.loads(raw)

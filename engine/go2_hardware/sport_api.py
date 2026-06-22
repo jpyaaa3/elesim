@@ -58,3 +58,25 @@ def shutdown_api_id(shutdown_mode: str) -> int | None:
 
 def clamp_velocity(vx: float, vy: float, wz: float) -> tuple[float, float, float]:
     return float(vx), float(vy), float(wz)
+
+
+def fill_unitree_request(msg: object, *, api_id: int, parameter: str = "") -> None:
+    """Populate unitree_api/msg/Request fields required by GO2 Sport service."""
+    header = getattr(msg, "header", None)
+    if header is None:
+        raise ValueError("unitree Request missing header")
+    identity = getattr(header, "identity", None)
+    if identity is None:
+        raise ValueError("unitree Request missing header.identity")
+    identity.id = 0
+    identity.api_id = int(api_id)
+    lease = getattr(header, "lease", None)
+    if lease is not None:
+        lease.id = 0
+    policy = getattr(header, "policy", None)
+    if policy is not None:
+        policy.priority = 0
+        policy.noreply = True
+    msg.parameter = str(parameter)
+    if hasattr(msg, "binary"):
+        msg.binary = []

@@ -1,0 +1,10 @@
+{
+  "run_id": "run_20260622_224642",
+  "arm_preset": "neutral",
+  "gaze_enabled": false,
+  "turn_direction": "none",
+  "command_source": "teleop",
+  "pitch_trim_config": {},
+  "control_rate": {},
+  "extra": {}
+}

@@ -856,25 +856,16 @@ class SimMover:
         return self._q_cmd.copy()
 
     def _apply_q_direct(self, q_target: np.ndarray) -> None:
-        try:
-            self.entity.set_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
-        except Exception:
-            self.entity.control_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
+        self.entity.set_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
 
     def set_sag_model(self, sag_model: dict[str, Any]) -> None:
         self._sag_model = dict(sag_model or {})
 
     def _apply_claw_direct(self, left_value: float, right_value: float) -> None:
         if self._claw_left_idx is not None:
-            try:
-                self.entity.set_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx])
-            except Exception:
-                self.entity.control_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx])
+            self.entity.set_dofs_position(np.array([left_value], dtype=float), dofs_idx_local=[self._claw_left_idx])
         if self._claw_right_idx is not None:
-            try:
-                self.entity.set_dofs_position(np.array([right_value], dtype=float), dofs_idx_local=[self._claw_right_idx])
-            except Exception:
-                self.entity.control_dofs_position(np.array([right_value], dtype=float), dofs_idx_local=[self._claw_right_idx])
+            self.entity.set_dofs_position(np.array([right_value], dtype=float), dofs_idx_local=[self._claw_right_idx])
 
     def _step_claws(self) -> None:
         max_step = float(self._claw_rate) * float(self.p.dt)

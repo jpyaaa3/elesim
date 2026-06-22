@@ -13,6 +13,7 @@ from engine.go2_hardware.sport_api import (
     API_MOVE,
     API_STOP_MOVE,
     build_move_parameter,
+    fill_unitree_request,
     shutdown_api_id,
     stand_api_id,
     velocity_below_deadband,
@@ -145,14 +146,7 @@ class UnitreeRos2Bridge:
         if self._pub is None or self._Request is None:
             return
         msg = self._Request()
-        try:
-            msg.header.identity.api_id = int(api_id)
-        except Exception:
-            try:
-                msg.identity.api_id = int(api_id)
-            except Exception:
-                pass
-        msg.parameter = str(parameter)
+        fill_unitree_request(msg, api_id=int(api_id), parameter=str(parameter))
         self._pub.publish(msg)
 
     def _on_odom(self, msg: Any) -> None:
