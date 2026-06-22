@@ -46,6 +46,7 @@ class ControlPanel:
         self._go2_teleop_vy_mps = float(go2_teleop_vy_mps)
         self._go2_teleop_wz_radps = float(go2_teleop_wz_radps)
         pc = perception_cfg or PerceptionConfig()
+        self._perception_run_local = bool(pc.run_local)
         pk = pick_cfg or PickConfig()
         self._stop = False
         self._hw_header_init_open = False

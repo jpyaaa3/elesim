@@ -168,6 +168,7 @@ class PerceptionConfig:
     track_redetect_grow_ratio_stale: float = 1.03
     sim_camera_port: str = "tcp://127.0.0.1:5568"
     sim_camera_jpeg: bool = True
+    run_local: bool = True
 
     def resolved_detector_config_path(self) -> Path:
         raw = str(self.detector_config).strip()
@@ -502,6 +503,7 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         ),
         sim_camera_port=cp.get("runtime", "sim_camera_port", fallback=pc0.sim_camera_port),
         sim_camera_jpeg=cp.getboolean("runtime", "sim_camera_jpeg", fallback=pc0.sim_camera_jpeg),
+        run_local=cp.getboolean("perception", "run_local", fallback=pc0.run_local),
     )
 
 
@@ -892,6 +894,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
 def _load_go2_locomotion_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> Go2LocomotionConfig:
     gl0 = defaults.go2_locomotion_config
     return Go2LocomotionConfig(
+        mirror_from_host=cp.getboolean(
+            "go2_locomotion", "mirror_from_host", fallback=gl0.mirror_from_host
+        ),
         mode=cp.get("go2_locomotion", "mode", fallback=gl0.mode).strip().lower(),
         stance_time_s=cp.getfloat("go2_locomotion", "stance_time_s", fallback=gl0.stance_time_s),
         swing_time_s=cp.getfloat("go2_locomotion", "swing_time_s", fallback=gl0.swing_time_s),

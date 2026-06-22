@@ -26,16 +26,29 @@ def draw_live_visual_status(panel) -> None:
     """Perception / host relay / gaze heartbeat shown at panel top."""
     st = panel.state
     now = time.time()
+    run_local = bool(getattr(panel, "_perception_run_local", True))
 
     imgui.separator()
     imgui.text("Live Status")
 
+    host = panel._host_state
+    host_age = -1.0
+    host_live = False
+    if host is not None and bool(getattr(host, "connected", False)):
+        if float(host.perceived_timestamp_s) > 0.0:
+            host_age = max(0.0, now - float(host.perceived_timestamp_s))
+        host_live = host.perceived_center_uv is not None and host_age >= 0.0 and host_age <= 0.75
+
     perc_active = bool(st.perception_running) and not bool(st.perception_failed)
+    if not run_local and host_live:
+        perc_active = True
     perc_tag = _heartbeat_tag(st.perception_last_update_s, active=perc_active)
     if st.perception_failed:
         perc_tag = "FAILED"
-    elif not st.perception_running:
+    elif not perc_active:
         perc_tag = "OFF"
+    elif not run_local:
+        perc_tag = "REMOTE"
 
     imgui.text(
         "Perception [%s]  frame=%d  center_uv=%s  det=%s  conf=%.2f"
@@ -47,11 +60,9 @@ def draw_live_visual_status(panel) -> None:
             float(st.perception_confidence),
         )
     )
-    if str(st.perception_status_msg).strip() and (st.perception_failed or not st.perception_running):
+    if str(st.perception_status_msg).strip() and (st.perception_failed or (run_local and not st.perception_running)):
         imgui.text_wrapped(f"  {st.perception_status_msg}")
 
-    host = panel._host_state
-    st = panel.state
     if host is None or not bool(getattr(host, "connected", False)):
         imgui.text("Host relay [OFF]  (host not connected)")
     else:
@@ -69,7 +80,8 @@ def draw_live_visual_status(panel) -> None:
         elif host_age >= 0.0:
             host_tag = f"WAIT {host_age:.1f}s"
         if (
-            perc_active
+            run_local
+            and perc_active
             and local_age >= 0.0
             and local_age <= 0.75
             and host_age > 0.75
@@ -86,7 +98,7 @@ def draw_live_visual_status(panel) -> None:
                 str(host.perceived_object_label) or "(none)",
             )
         )
-        if perc_active and local_age >= 0.0 and host_age > 0.75:
+        if run_local and perc_active and local_age >= 0.0 and host_age > 0.75:
             imgui.text_wrapped(
                 "  Perception is LIVE locally but host relay is stale. "
                 "Gaze uses local UV; restart host.py/ctrl.py if relay stays stale."
@@ -119,15 +131,22 @@ def draw_live_visual_status(panel) -> None:
         imgui.text_wrapped(f"  {st.gaze_status_msg}")
 
     needed = (
-        not st.perception_running
+        (run_local and not st.perception_running)
         or st.perception_center_uv is None
         or (host is not None and host.perceived_center_uv is None)
     )
     if bool(st.gaze_running) and needed:
-        imgui.text_wrapped(
-            "  Tip: Gaze needs Perception Start + host UV relay. "
-            "Check sim camera, target label, and that a target is visible."
-        )
+        if run_local:
+            tip = (
+                "  Tip: Gaze needs Perception Start + host UV relay. "
+                "Check sim camera, target label, and that a target is visible."
+            )
+        else:
+            tip = (
+                "  Tip: Gaze needs Jetson perception_worker + host UV relay. "
+                "Check RealSense, target label, and worker process on Jetson."
+            )
+        imgui.text_wrapped(tip)
 
     imgui.separator()
 

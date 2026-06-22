@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Go2LocomotionConfig:
+    # When true, sim GO2 follows host go2_base_* (real robot odom relay) instead of Genesis MPC.
+    mirror_from_host: bool = False
     mode: str = "raibert_trot"
     stance_time_s: float = 0.30
     swing_time_s: float = 0.15

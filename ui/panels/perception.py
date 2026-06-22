@@ -76,6 +76,7 @@ def _build_perception_config(panel) -> PerceptionConfig:
         show_preview=bool(panel._perception_show_preview_draft),
         pipeline=str(panel._perception_pipeline_draft),
         tracker=str(panel._perception_tracker_draft),
+        run_local=bool(getattr(panel, "_perception_run_local", True)),
     )
 
 
@@ -89,6 +90,14 @@ def draw_perception_panel(panel) -> None:
         return
 
     draw_live_visual_status(panel)
+
+    run_local = bool(getattr(panel, "_perception_run_local", True))
+    if not run_local:
+        imgui.text_wrapped(
+            "Remote perception: capture runs on Jetson (perception_worker.py). "
+            "Start/Stop here are disabled; use host relay below."
+        )
+        imgui.separator()
 
     changed_path, path_draft = imgui.input_text(
         "detector config",
@@ -167,23 +176,26 @@ def draw_perception_panel(panel) -> None:
         panel._perception_tracker_draft = tracker_options[int(tr_idx)]
 
     running = bool(panel.state.perception_running)
-    if imgui.button("Save Frame"):
-        panel.service.capture_perception_frame()
-    imgui.same_line()
-    if running:
-        if imgui.button("Stop Perception"):
-            panel.service.stop_perception_capture()
+    if run_local:
+        if imgui.button("Save Frame"):
+            panel.service.capture_perception_frame()
         imgui.same_line()
-        if imgui.button("Refresh"):
-            panel.service.refresh_perception_capture()
+        if running:
+            if imgui.button("Stop Perception"):
+                panel.service.stop_perception_capture()
+            imgui.same_line()
+            if imgui.button("Refresh"):
+                panel.service.refresh_perception_capture()
+        else:
+            if imgui.button("Start Perception"):
+                cfg = _build_perception_config(panel)
+                panel.service.update_perception_config(cfg)
+                panel.service.start_perception_capture(config=cfg)
+            imgui.same_line()
+            if imgui.button("Refresh"):
+                panel.service.refresh_perception_capture()
     else:
-        if imgui.button("Start Perception"):
-            cfg = _build_perception_config(panel)
-            panel.service.update_perception_config(cfg)
-            panel.service.start_perception_capture(config=cfg)
-        imgui.same_line()
-        if imgui.button("Refresh"):
-            panel.service.refresh_perception_capture()
+        imgui.text("Perception capture: Jetson worker (see Live Status host relay)")
 
     last_capture = str(getattr(panel.state, "perception_last_capture_path", "") or "").strip()
     if last_capture:

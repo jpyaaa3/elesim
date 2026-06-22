@@ -139,6 +139,7 @@ class ControlService:
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
         self._perception_cfg = perception_cfg or PerceptionConfig()
+        self._perception_run_local = bool(self._perception_cfg.run_local)
         self._pick_cfg = pick_cfg or PickConfig()
         self._hand_eye_transform = (
             None
@@ -659,6 +660,50 @@ class ControlService:
         except Exception as exc:
             print(f"[UI] IK context reload failed: {exc}")
 
+    def perception_run_local(self) -> bool:
+        return bool(self._perception_run_local)
+
+    def _maybe_start_local_perception(self) -> None:
+        if not self._perception_run_local:
+            return
+        if self._perception_capture is None or not self._perception_capture.is_running():
+            self.start_perception_capture()
+
+    def _sync_remote_perception_from_host(self, host_state: HostState) -> None:
+        if self._perception_run_local:
+            return
+        stale_s = float(self._visual_obs_stale_s)
+        now = time.time()
+        ts = float(host_state.perceived_timestamp_s)
+        center_uv = host_state.perceived_center_uv
+        scale = host_state.perceived_scale
+        fresh = (
+            center_uv is not None
+            and scale is not None
+            and ts > 0.0
+            and (now - ts) <= stale_s
+        )
+        if fresh:
+            self.state.set_perception_status(
+                running=True,
+                failed=False,
+                msg="remote Jetson worker (host relay)",
+                frame_idx=1,
+                label=str(host_state.perceived_object_label),
+                confidence=float(host_state.perceived_object_confidence),
+                camera_xyz=host_state.perceived_object_camera_xyz,
+                image_scale=float(scale),
+                center_uv=(float(center_uv[0]), float(center_uv[1])),
+            )
+            with self.state._lock:
+                self.state.perception_last_update_s = float(ts)
+            return
+        self.state.set_perception_status(
+            running=False,
+            failed=False,
+            msg="remote: waiting for Jetson perception_worker",
+        )
+
     def refresh_host_state(self) -> Optional[HostState]:
         if self.client is None:
             return None
@@ -670,6 +715,7 @@ class ControlService:
                 float(host_state.q.theta1_rad),
                 float(host_state.q.theta2_rad),
             )
+        self._sync_remote_perception_from_host(host_state)
         return host_state
 
     def has_client(self) -> bool:
@@ -693,6 +739,8 @@ class ControlService:
         )
         if obs is not None:
             return obs
+        if not self._perception_run_local:
+            return None
         st = self.state
         return extract_local_perception_observation(
             running=bool(st.perception_running),
@@ -5032,7 +5080,7 @@ class ControlService:
             print("[Look] post-move uv recover | skipped (mock/sim)")
             return host_state
         if self._perception_capture is None or not self._perception_capture.is_running():
-            self.start_perception_capture()
+            self._maybe_start_local_perception()
 
         acquire_s = float(max(pk.look_post_uv_acquire_s, 0.5))
         max_steps = max(1, int(pk.look_post_uv_max_steps))
@@ -6222,7 +6270,7 @@ class ControlService:
             return
         try:
             if self._perception_capture is None or not self._perception_capture.is_running():
-                self.start_perception_capture()
+                self._maybe_start_local_perception()
 
             host_state = self.client.refresh_state() if self.client is not None else None
             q_cmd: Optional[np.ndarray] = None
@@ -6682,7 +6730,7 @@ class ControlService:
             return
         try:
             if self._perception_capture is None or not self._perception_capture.is_running():
-                self.start_perception_capture()
+                self._maybe_start_local_perception()
 
             host_state = self.client.refresh_state() if self.client is not None else None
             q_cmd: Optional[np.ndarray] = None
@@ -7800,7 +7848,7 @@ class ControlService:
         )
 
         if self._perception_capture is None or not self._perception_capture.is_running():
-            self.start_perception_capture()
+            self._maybe_start_local_perception()
 
         def _worker() -> None:
             try:
@@ -8273,7 +8321,7 @@ class ControlService:
         )
 
         if self._perception_capture is None or not self._perception_capture.is_running():
-            self.start_perception_capture()
+            self._maybe_start_local_perception()
 
         def _worker() -> None:
             try:
@@ -8751,6 +8799,13 @@ class ControlService:
         return p_world
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=False,
+                failed=False,
+                msg="remote: start perception_worker on Jetson",
+            )
+            return
         if self.client is None:
             self.state.set_perception_status(running=False, failed=True, msg="no host client")
             return
@@ -8791,6 +8846,13 @@ class ControlService:
         cap.start()
 
     def stop_perception_capture(self) -> None:
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=False,
+                failed=False,
+                msg="remote: perception_worker on Jetson",
+            )
+            return
         cap = self._perception_capture
         if cap is None:
             self.state.set_perception_status(running=False, failed=False, msg="stopped")
@@ -8803,6 +8865,13 @@ class ControlService:
         self.state.set_perception_status(running=False, failed=False, msg="stopped")
 
     def refresh_perception_capture(self) -> None:
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=False,
+                failed=False,
+                msg="remote: refresh via Jetson perception_worker",
+            )
+            return
         cap = self._perception_capture
         if cap is None or not cap.is_running():
             self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
@@ -8814,6 +8883,13 @@ class ControlService:
 
     def capture_perception_frame(self) -> bool:
         """Save latest perception frame (or one-shot sim grab) under logs/perception_capture/."""
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg="remote: frame save only on Jetson perception_worker",
+            )
+            return False
         out_dir = default_perception_capture_dir()
         cap = self._perception_capture
         path: Optional[Path] = None
