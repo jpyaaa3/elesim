@@ -71,7 +71,7 @@ class SimConfig:
 
 @dataclass(frozen=True)
 class HardwareConfig:
-    command_direction: Tuple[int, int, int, int] = (-1, 1, 1, 1)
+    command_direction: Tuple[int, int, int, int] = (1, 1, 1, 1)
     motor_direction: Tuple[int, int, int, int] = (1, 1, 1, 1)
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
