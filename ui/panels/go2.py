@@ -90,6 +90,16 @@ def draw_go2_panel(panel) -> None:
         panel._go2_was_active = False
 
     imgui.separator()
+    imgui.text("Obstacle Avoid")
+    changed_avoid, enabled = imgui.checkbox(
+        "Enable obstacle avoidance",
+        bool(getattr(panel, "_go2_obstacles_avoid_enabled", False)),
+    )
+    if changed_avoid:
+        panel._go2_obstacles_avoid_enabled = bool(enabled)
+        panel.service.send_go2_obstacles_avoid(enabled=bool(enabled))
+
+    imgui.separator()
     if imgui.button("Gaze Standing (3a)"):
         panel.service.start_gaze_stabilizer_standing()
     imgui.same_line()

@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any, Optional, Tuple
 
 from engine.go2_hardware.config import Go2HardwareConfig
-from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order
+from engine.go2_hardware.obstacles_avoid_api import build_obstacles_avoid_parameter
 from engine.go2_hardware.ros_env import bootstrap_ros_python_path, ros_import_hint
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
@@ -62,8 +62,11 @@ class UnitreeRos2Bridge:
         self._spin_thread: Optional[threading.Thread] = None
         self._node: Any = None
         self._pub: Any = None
+        self._obstacles_pub: Any = None
         self._Request: Any = None
         self._sport_request_topic = _ros_topic(cfg.sport_request_topic)
+        self._obstacles_request_topic = _ros_topic(cfg.obstacles_avoid_request_topic)
+        self._obstacles_avoid_api_id = int(cfg.obstacles_avoid_api_id)
         self._pose_topic = (
             _ros_topic(cfg.sport_state_topic)
             if self._pose_source == "sportmodestate"
@@ -89,6 +92,7 @@ class UnitreeRos2Bridge:
         self._ensure_rclpy_init()
         self._node = self._RosNode("elesim_go2_bridge")
         self._pub = self._node.create_publisher(self._Request, self._sport_request_topic, 10)
+        self._obstacles_pub = self._node.create_publisher(self._Request, self._obstacles_request_topic, 10)
         if self._pose_source == "sportmodestate":
             self._node.create_subscription(
                 self._SportModeState,
@@ -154,6 +158,7 @@ class UnitreeRos2Bridge:
             pass
         self._node = None
         self._pub = None
+        self._obstacles_pub = None
         self._started = False
         if self._we_inited_rclpy:
             try:
@@ -185,6 +190,14 @@ class UnitreeRos2Bridge:
         self._publish_api(int(api_id), "")
         self._t_last_cmd = time.time()
         print("[go2_bridge] sport_pose=%s api_id=%d" % (str(pose).strip().lower(), int(api_id)))
+
+    def set_obstacles_avoid(self, enabled: bool) -> None:
+        parameter = build_obstacles_avoid_parameter(enable=bool(enabled))
+        self._publish_obstacles_avoid_api(int(self._obstacles_avoid_api_id), parameter)
+        print(
+            "[go2_bridge] obstacles_avoid enable=%s api_id=%d topic=%s"
+            % (bool(enabled), int(self._obstacles_avoid_api_id), self._obstacles_request_topic)
+        )
 
     def tick_cmd(self, now_s: Optional[float] = None) -> None:
         if not self._started:
@@ -293,11 +306,31 @@ class UnitreeRos2Bridge:
         self._publish_api(API_MOVE, build_move_parameter(vx, vy, wz))
 
     def _publish_api(self, api_id: int, parameter: str) -> None:
-        if self._pub is None or self._Request is None:
+        self._publish_request(self._pub, int(api_id), str(parameter), identity_id=0, noreply=True)
+
+    def _publish_obstacles_avoid_api(self, api_id: int, parameter: str) -> None:
+        self._publish_request(self._obstacles_pub, int(api_id), str(parameter), identity_id=1, noreply=False)
+
+    def _publish_request(
+        self,
+        pub: Any,
+        api_id: int,
+        parameter: str,
+        *,
+        identity_id: int,
+        noreply: bool,
+    ) -> None:
+        if pub is None or self._Request is None:
             return
         msg = self._Request()
-        fill_unitree_request(msg, api_id=int(api_id), parameter=str(parameter))
-        self._pub.publish(msg)
+        fill_unitree_request(
+            msg,
+            api_id=int(api_id),
+            parameter=str(parameter),
+            identity_id=int(identity_id),
+            noreply=bool(noreply),
+        )
+        pub.publish(msg)
         with self._lock:
             self._api_pub_count += 1
             self._last_api_id = int(api_id)

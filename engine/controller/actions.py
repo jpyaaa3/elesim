@@ -1774,6 +1774,10 @@ class ControlService:
         if self.client is not None:
             self.client.send_go2_sport_pose(pose=str(pose), source="target")
 
+    def send_go2_obstacles_avoid(self, *, enabled: bool) -> None:
+        if self.client is not None:
+            self.client.send_go2_obstacles_avoid(enabled=bool(enabled), source="target")
+
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._visual_busy():
             return

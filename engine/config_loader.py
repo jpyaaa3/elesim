@@ -1012,6 +1012,12 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
             "go2_hardware", "world_frame_yaw_deg", fallback=gh0.world_frame_yaw_deg
         ),
         ros_workspace=cp.get("go2_hardware", "ros_workspace", fallback=gh0.ros_workspace).strip(),
+        obstacles_avoid_request_topic=cp.get(
+            "go2_hardware", "obstacles_avoid_request_topic", fallback=gh0.obstacles_avoid_request_topic
+        ).strip(),
+        obstacles_avoid_api_id=cp.getint(
+            "go2_hardware", "obstacles_avoid_api_id", fallback=gh0.obstacles_avoid_api_id
+        ),
         status_log_interval_s=cp.getfloat(
             "go2_hardware", "status_log_interval_s", fallback=gh0.status_log_interval_s
         ),

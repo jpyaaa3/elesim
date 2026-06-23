@@ -331,6 +331,19 @@ def unpack_go2_sport_pose(raw: Any) -> str:
     return pose
 
 
+def unpack_go2_obstacles_avoid_enable(raw: Any) -> bool:
+    if isinstance(raw, bool):
+        return bool(raw)
+    if isinstance(raw, (int, float)):
+        return bool(int(raw))
+    text = str(raw).strip().lower()
+    if text in ("1", "true", "yes", "on", "enable", "enabled"):
+        return True
+    if text in ("0", "false", "no", "off", "disable", "disabled"):
+        return False
+    raise ValueError("go2_obstacles_avoid_enable must be a boolean")
+
+
 def unpack_vec3(raw: Any, *, name: str) -> tuple[float, float, float]:
     if not isinstance(raw, (list, tuple)) or len(raw) != 3:
         raise ValueError(f"{name} must be [x, y, z]")

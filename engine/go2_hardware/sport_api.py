@@ -110,7 +110,14 @@ def sport_pose_api_id(pose: str) -> int | None:
     return GO2_SPORT_POSES.get(key)
 
 
-def fill_unitree_request(msg: object, *, api_id: int, parameter: str = "") -> None:
+def fill_unitree_request(
+    msg: object,
+    *,
+    api_id: int,
+    parameter: str = "",
+    identity_id: int = 0,
+    noreply: bool = True,
+) -> None:
     """Populate unitree_api/msg/Request fields required by GO2 Sport service."""
     header = getattr(msg, "header", None)
     if header is None:
@@ -118,7 +125,7 @@ def fill_unitree_request(msg: object, *, api_id: int, parameter: str = "") -> No
     identity = getattr(header, "identity", None)
     if identity is None:
         raise ValueError("unitree Request missing header.identity")
-    identity.id = 0
+    identity.id = int(identity_id)
     identity.api_id = int(api_id)
     lease = getattr(header, "lease", None)
     if lease is not None:
@@ -126,7 +133,7 @@ def fill_unitree_request(msg: object, *, api_id: int, parameter: str = "") -> No
     policy = getattr(header, "policy", None)
     if policy is not None:
         policy.priority = 0
-        policy.noreply = True
+        policy.noreply = bool(noreply)
     msg.parameter = str(parameter)
     if hasattr(msg, "binary"):
         msg.binary = []

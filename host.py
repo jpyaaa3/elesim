@@ -1499,6 +1499,24 @@ class ControlHost:
                         )
                         return
                 self.last_go2_vel = (0.0, 0.0, 0.0)
+            if "go2_obstacles_avoid_enable" in msg:
+                try:
+                    enabled = proto.unpack_go2_obstacles_avoid_enable(msg.get("go2_obstacles_avoid_enable"))
+                except Exception:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "bad_go2_obstacles_avoid_enable",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
+                if self._go2_bridge is not None:
+                    self._go2_bridge.set_obstacles_avoid(enabled)
             if q is None:
                 if (
                     target_raw is None
@@ -1509,11 +1527,12 @@ class ControlHost:
                     and "claw_closed" not in msg
                     and "go2_vel" not in msg
                     and "go2_sport_pose" not in msg
+                    and "go2_obstacles_avoid_enable" not in msg
                 ):
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
-                if "go2_vel" in msg or "claw_closed" in msg or "go2_sport_pose" in msg:
+                if "go2_vel" in msg or "claw_closed" in msg or "go2_sport_pose" in msg or "go2_obstacles_avoid_enable" in msg:
                     self._broadcast_state_now()
                 return
             self._pending_target_q = q

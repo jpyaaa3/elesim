@@ -452,6 +452,19 @@ class ControlClient:
             }
         )
 
+    def send_go2_obstacles_avoid(self, *, enabled: bool, source: str = "target") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "go2_obstacles_avoid_enable": bool(enabled),
+            }
+        )
+
     def send_partial_control_u(self, partial_u: dict[str, float], *, source: str = "slider") -> None:
         now = time.time()
         self.tx_seq += 1

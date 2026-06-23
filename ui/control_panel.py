@@ -88,6 +88,7 @@ class ControlPanel:
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
         self._go2_was_active = False
+        self._go2_obstacles_avoid_enabled = False
 
     def stop(self) -> None:
         self._stop = True
