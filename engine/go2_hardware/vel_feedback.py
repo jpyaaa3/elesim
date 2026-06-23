@@ -24,8 +24,50 @@ class Go2VelFeedbackGains:
     max_corr_vy: float = 0.15
     max_corr_wz: float = 0.25
     axis_deadband: float = 0.02
-    heading_hold_kp: float = 1.5
-    heading_hold_max_wz: float = 0.35
+    heading_hold_kp: float = 2.5
+    heading_hold_ki: float = 0.4
+    heading_hold_kd: float = 0.15
+    heading_hold_max_wz: float = 0.5
+    heading_hold_integral_max: float = 0.35
+
+
+@dataclass
+class HeadingHoldController:
+    integral: float = 0.0
+    last_err: float = 0.0
+    _t_last: float | None = None
+
+    def reset(self) -> None:
+        self.integral = 0.0
+        self.last_err = 0.0
+        self._t_last = None
+
+    def compute(
+        self,
+        held_yaw: float,
+        current_yaw: float,
+        ang_vel_z: float,
+        now_s: float,
+        *,
+        gains: Go2VelFeedbackGains,
+    ) -> float:
+        dt = 0.05
+        if self._t_last is not None:
+            dt = _clamp(float(now_s) - float(self._t_last), 1e-3, 0.2)
+        self._t_last = float(now_s)
+
+        err = wrap_to_pi(float(held_yaw) - float(current_yaw))
+        self.last_err = float(err)
+        self.integral += float(err) * float(dt)
+        i_max = float(gains.heading_hold_integral_max)
+        self.integral = _clamp(self.integral, -i_max, i_max)
+
+        wz = (
+            float(gains.heading_hold_kp) * float(err)
+            + float(gains.heading_hold_ki) * float(self.integral)
+            - float(gains.heading_hold_kd) * float(ang_vel_z)
+        )
+        return _clamp(wz, -float(gains.heading_hold_max_wz), float(gains.heading_hold_max_wz))
 
 
 def linear_motion_active(target_vx: float, target_vy: float, *, axis_deadband: float) -> bool:
@@ -35,17 +77,6 @@ def linear_motion_active(target_vx: float, target_vy: float, *, axis_deadband: f
 
 def yaw_command_active(target_wz: float, *, axis_deadband: float) -> bool:
     return abs(float(target_wz)) > float(axis_deadband)
-
-
-def compute_heading_hold_wz(
-    held_yaw: float,
-    current_yaw: float,
-    *,
-    kp: float,
-    max_wz: float,
-) -> float:
-    err = wrap_to_pi(float(held_yaw) - float(current_yaw))
-    return _clamp(float(kp) * err, -float(max_wz), float(max_wz))
 
 
 def _axis_cmd(
@@ -77,6 +108,8 @@ def compute_feedback_cmd(
     held_yaw: float | None = None,
     current_yaw: float | None = None,
     heading_hold_enable: bool = False,
+    heading_ctl: HeadingHoldController | None = None,
+    now_s: float | None = None,
 ) -> tuple[float, float, float]:
     """Outer-loop correction on Sport Move using body-frame velocity feedback."""
     db = float(gains.axis_deadband)
@@ -110,12 +143,15 @@ def compute_feedback_cmd(
         and linear_motion_active(target_vx, target_vy, axis_deadband=db)
         and held_yaw is not None
         and current_yaw is not None
+        and heading_ctl is not None
+        and now_s is not None
     ):
-        cmd_wz = compute_heading_hold_wz(
+        cmd_wz = heading_ctl.compute(
             float(held_yaw),
             float(current_yaw),
-            kp=float(gains.heading_hold_kp),
-            max_wz=float(gains.heading_hold_max_wz),
+            float(actual_wz),
+            float(now_s),
+            gains=gains,
         )
     else:
         cmd_wz = 0.0

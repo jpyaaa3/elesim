@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from engine.go2_hardware.vel_feedback import Go2VelFeedbackGains, compute_feedback_cmd
+from engine.go2_hardware.vel_feedback import (
+    Go2VelFeedbackGains,
+    HeadingHoldController,
+    compute_feedback_cmd,
+)
 
 
 class TestGo2VelFeedback(unittest.TestCase):
@@ -31,7 +35,13 @@ class TestGo2VelFeedback(unittest.TestCase):
         self.assertAlmostEqual(cmd[2], 0.0, places=6)
 
     def test_heading_hold_applies_wz_for_linear_only(self) -> None:
-        gains = Go2VelFeedbackGains(heading_hold_kp=2.0, heading_hold_max_wz=0.5)
+        gains = Go2VelFeedbackGains(
+            heading_hold_kp=2.0,
+            heading_hold_ki=0.0,
+            heading_hold_kd=0.0,
+            heading_hold_max_wz=0.5,
+        )
+        ctl = HeadingHoldController()
         cmd = compute_feedback_cmd(
             0.25,
             0.0,
@@ -43,8 +53,23 @@ class TestGo2VelFeedback(unittest.TestCase):
             held_yaw=0.0,
             current_yaw=0.2,
             heading_hold_enable=True,
+            heading_ctl=ctl,
+            now_s=1.0,
         )
         self.assertAlmostEqual(cmd[2], -0.4, places=6)
+
+    def test_heading_hold_integral_reduces_steady_state_error(self) -> None:
+        gains = Go2VelFeedbackGains(
+            heading_hold_kp=0.0,
+            heading_hold_ki=1.0,
+            heading_hold_kd=0.0,
+            heading_hold_max_wz=0.5,
+            heading_hold_integral_max=0.5,
+        )
+        ctl = HeadingHoldController()
+        ctl.integral = 0.2
+        wz = ctl.compute(0.0, 0.0, 0.0, 1.0, gains=gains)
+        self.assertAlmostEqual(wz, 0.2, places=6)
 
     def test_heading_hold_disabled_keeps_wz_zero(self) -> None:
         gains = Go2VelFeedbackGains()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import math
 from dataclasses import replace
 from typing import Any, Optional, Tuple
 
@@ -24,8 +25,8 @@ from engine.go2_hardware.sport_api import (
 )
 from engine.go2_hardware.vel_feedback import (
     Go2VelFeedbackGains,
+    HeadingHoldController,
     compute_feedback_cmd,
-    compute_heading_hold_wz,
     linear_motion_active,
     yaw_command_active,
 )
@@ -65,6 +66,8 @@ class UnitreeRos2Bridge:
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_move_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._heading_hold_yaw: Optional[float] = None
+        self._heading_ctl = HeadingHoldController()
+        self._last_heading_err: float = 0.0
         self._cmd_period = 1.0 / max(float(cfg.cmd_hz), 1.0)
         self._t_last_cmd = 0.0
         self._started = False
@@ -187,6 +190,8 @@ class UnitreeRos2Bridge:
         if self._should_stop(vx, vy, wz):
             with self._lock:
                 self._heading_hold_yaw = None
+                self._heading_ctl.reset()
+                self._last_heading_err = 0.0
                 self._last_move_vel = (0.0, 0.0, 0.0)
             if bool(self._cfg.stop_on_zero_vel):
                 self._publish_api(API_STOP_MOVE, "")
@@ -255,6 +260,8 @@ class UnitreeRos2Bridge:
             last_api_parameter = str(self._last_api_parameter)
             spin_ok = bool(self._spin_ok)
             spin_error = str(self._spin_error)
+            heading_hold_yaw = self._heading_hold_yaw
+            heading_err = float(self._last_heading_err)
 
         pose_age = _fmt_age(now, t_pose)
         low_age = _fmt_age(now, t_low)
@@ -315,6 +322,11 @@ class UnitreeRos2Bridge:
             print("[go2_bridge]   last_api id=%d param=%s%s" % (last_api_id, param_short, warn))
         else:
             print("[go2_bridge]   last_api=none%s" % warn)
+        if heading_hold_yaw is not None:
+            print(
+                "[go2_bridge]   heading_hold yaw=%.3f err=%.1fdeg move_wz=%.2f"
+                % (float(heading_hold_yaw), math.degrees(float(heading_err)), float(move_vel[2]))
+            )
         if spin_error:
             print("[go2_bridge]   spin_error=%s" % spin_error)
 
@@ -334,7 +346,10 @@ class UnitreeRos2Bridge:
             max_corr_wz=float(self._cfg.vel_feedback_max_corr_wz),
             axis_deadband=float(self._cfg.vel_deadband),
             heading_hold_kp=float(self._cfg.vel_heading_hold_kp),
+            heading_hold_ki=float(self._cfg.vel_heading_hold_ki),
+            heading_hold_kd=float(self._cfg.vel_heading_hold_kd),
             heading_hold_max_wz=float(self._cfg.vel_heading_hold_max_wz),
+            heading_hold_integral_max=float(self._cfg.vel_heading_hold_integral_max),
         )
 
     def _sync_heading_hold(self, vx: float, vy: float, wz: float, sample: Optional[OdomSample]) -> Optional[float]:
@@ -343,24 +358,33 @@ class UnitreeRos2Bridge:
             if linear_motion_active(vx, vy, axis_deadband=db) and not yaw_command_active(wz, axis_deadband=db):
                 if sample is not None and self._heading_hold_yaw is None:
                     self._heading_hold_yaw = float(sample.rpy[2])
+                    self._heading_ctl.reset()
             else:
+                if self._heading_hold_yaw is not None:
+                    self._heading_ctl.reset()
+                    self._last_heading_err = 0.0
                 self._heading_hold_yaw = None
             return self._heading_hold_yaw
 
     def _cmd_vel_for_target(self, vx: float, vy: float, wz: float) -> tuple[float, float, float]:
         target = (float(vx), float(vy), float(wz))
+        now_s = time.time()
         sample = self.latest_state()
         held_yaw = self._sync_heading_hold(vx, vy, wz, sample)
         heading_hold = bool(self._cfg.vel_heading_hold_enable)
+        gains = self._vel_feedback_gains()
 
         if not bool(self._cfg.vel_feedback_enable):
             if heading_hold and held_yaw is not None and sample is not None:
-                cmd_wz = compute_heading_hold_wz(
+                cmd_wz = self._heading_ctl.compute(
                     held_yaw,
                     float(sample.rpy[2]),
-                    kp=float(self._cfg.vel_heading_hold_kp),
-                    max_wz=float(self._cfg.vel_heading_hold_max_wz),
+                    float(sample.ang_vel_body[2]),
+                    now_s,
+                    gains=gains,
                 )
+                with self._lock:
+                    self._last_heading_err = float(self._heading_ctl.last_err)
                 cmd = (target[0], target[1], cmd_wz)
             else:
                 cmd = target
@@ -377,11 +401,15 @@ class UnitreeRos2Bridge:
             sample.lin_vel_body[0],
             sample.lin_vel_body[1],
             sample.ang_vel_body[2],
-            gains=self._vel_feedback_gains(),
+            gains=gains,
             held_yaw=held_yaw,
             current_yaw=float(sample.rpy[2]),
             heading_hold_enable=heading_hold,
+            heading_ctl=self._heading_ctl,
+            now_s=now_s,
         )
+        with self._lock:
+            self._last_heading_err = float(self._heading_ctl.last_err)
         self._last_move_vel = cmd
         return cmd
 
