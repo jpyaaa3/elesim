@@ -30,6 +30,38 @@ class TestGo2VelFeedback(unittest.TestCase):
         self.assertAlmostEqual(cmd[1], 0.0, places=6)
         self.assertAlmostEqual(cmd[2], 0.0, places=6)
 
+    def test_heading_hold_applies_wz_for_linear_only(self) -> None:
+        gains = Go2VelFeedbackGains(heading_hold_kp=2.0, heading_hold_max_wz=0.5)
+        cmd = compute_feedback_cmd(
+            0.25,
+            0.0,
+            0.0,
+            0.2,
+            0.0,
+            0.0,
+            gains=gains,
+            held_yaw=0.0,
+            current_yaw=0.2,
+            heading_hold_enable=True,
+        )
+        self.assertAlmostEqual(cmd[2], -0.4, places=6)
+
+    def test_heading_hold_disabled_keeps_wz_zero(self) -> None:
+        gains = Go2VelFeedbackGains()
+        cmd = compute_feedback_cmd(
+            0.25,
+            0.0,
+            0.0,
+            0.2,
+            0.0,
+            0.1,
+            gains=gains,
+            held_yaw=0.0,
+            current_yaw=0.2,
+            heading_hold_enable=False,
+        )
+        self.assertAlmostEqual(cmd[2], 0.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

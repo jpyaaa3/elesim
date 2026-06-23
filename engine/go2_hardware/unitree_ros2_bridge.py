@@ -22,7 +22,13 @@ from engine.go2_hardware.sport_api import (
     stand_api_id,
     velocity_below_deadband,
 )
-from engine.go2_hardware.vel_feedback import Go2VelFeedbackGains, compute_feedback_cmd
+from engine.go2_hardware.vel_feedback import (
+    Go2VelFeedbackGains,
+    compute_feedback_cmd,
+    compute_heading_hold_wz,
+    linear_motion_active,
+    yaw_command_active,
+)
 
 
 def _ros_topic(name: str) -> str:
@@ -58,6 +64,7 @@ class UnitreeRos2Bridge:
         self._latest_leg_q: Optional[Tuple[float, ...]] = None
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_move_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._heading_hold_yaw: Optional[float] = None
         self._cmd_period = 1.0 / max(float(cfg.cmd_hz), 1.0)
         self._t_last_cmd = 0.0
         self._started = False
@@ -128,7 +135,7 @@ class UnitreeRos2Bridge:
         if gait_id is not None:
             self._publish_api(gait_id, "")
         print(
-            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs gait_on_start=%s vel_fb=%s"
+            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs gait_on_start=%s vel_fb=%s heading_hold=%s"
             % (
                 self._sport_request_topic,
                 self._pose_source,
@@ -139,6 +146,7 @@ class UnitreeRos2Bridge:
                 float(self._cfg.status_log_interval_s),
                 str(self._cfg.gait_on_start).strip().lower(),
                 bool(self._cfg.vel_feedback_enable),
+                bool(self._cfg.vel_heading_hold_enable),
             )
         )
 
@@ -177,7 +185,9 @@ class UnitreeRos2Bridge:
         with self._lock:
             self._target_vel = (float(vx), float(vy), float(wz))
         if self._should_stop(vx, vy, wz):
-            self._last_move_vel = (0.0, 0.0, 0.0)
+            with self._lock:
+                self._heading_hold_yaw = None
+                self._last_move_vel = (0.0, 0.0, 0.0)
             if bool(self._cfg.stop_on_zero_vel):
                 self._publish_api(API_STOP_MOVE, "")
             return
@@ -323,14 +333,40 @@ class UnitreeRos2Bridge:
             max_corr_vy=float(self._cfg.vel_feedback_max_corr_vy),
             max_corr_wz=float(self._cfg.vel_feedback_max_corr_wz),
             axis_deadband=float(self._cfg.vel_deadband),
+            heading_hold_kp=float(self._cfg.vel_heading_hold_kp),
+            heading_hold_max_wz=float(self._cfg.vel_heading_hold_max_wz),
         )
+
+    def _sync_heading_hold(self, vx: float, vy: float, wz: float, sample: Optional[OdomSample]) -> Optional[float]:
+        db = float(self._cfg.vel_deadband)
+        with self._lock:
+            if linear_motion_active(vx, vy, axis_deadband=db) and not yaw_command_active(wz, axis_deadband=db):
+                if sample is not None and self._heading_hold_yaw is None:
+                    self._heading_hold_yaw = float(sample.rpy[2])
+            else:
+                self._heading_hold_yaw = None
+            return self._heading_hold_yaw
 
     def _cmd_vel_for_target(self, vx: float, vy: float, wz: float) -> tuple[float, float, float]:
         target = (float(vx), float(vy), float(wz))
-        if not bool(self._cfg.vel_feedback_enable):
-            self._last_move_vel = target
-            return target
         sample = self.latest_state()
+        held_yaw = self._sync_heading_hold(vx, vy, wz, sample)
+        heading_hold = bool(self._cfg.vel_heading_hold_enable)
+
+        if not bool(self._cfg.vel_feedback_enable):
+            if heading_hold and held_yaw is not None and sample is not None:
+                cmd_wz = compute_heading_hold_wz(
+                    held_yaw,
+                    float(sample.rpy[2]),
+                    kp=float(self._cfg.vel_heading_hold_kp),
+                    max_wz=float(self._cfg.vel_heading_hold_max_wz),
+                )
+                cmd = (target[0], target[1], cmd_wz)
+            else:
+                cmd = target
+            self._last_move_vel = cmd
+            return cmd
+
         if sample is None:
             self._last_move_vel = target
             return target
@@ -342,6 +378,9 @@ class UnitreeRos2Bridge:
             sample.lin_vel_body[1],
             sample.ang_vel_body[2],
             gains=self._vel_feedback_gains(),
+            held_yaw=held_yaw,
+            current_yaw=float(sample.rpy[2]),
+            heading_hold_enable=heading_hold,
         )
         self._last_move_vel = cmd
         return cmd

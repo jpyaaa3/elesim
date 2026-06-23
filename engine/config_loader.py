@@ -1031,6 +1031,15 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
         vel_feedback_max_corr_wz=cp.getfloat(
             "go2_hardware", "vel_feedback_max_corr_wz", fallback=gh0.vel_feedback_max_corr_wz
         ),
+        vel_heading_hold_enable=cp.getboolean(
+            "go2_hardware", "vel_heading_hold_enable", fallback=gh0.vel_heading_hold_enable
+        ),
+        vel_heading_hold_kp=cp.getfloat(
+            "go2_hardware", "vel_heading_hold_kp", fallback=gh0.vel_heading_hold_kp
+        ),
+        vel_heading_hold_max_wz=cp.getfloat(
+            "go2_hardware", "vel_heading_hold_max_wz", fallback=gh0.vel_heading_hold_max_wz
+        ),
         stand_on_start=cp.get("go2_hardware", "stand_on_start", fallback=gh0.stand_on_start).strip().lower(),
         gait_on_start=cp.get("go2_hardware", "gait_on_start", fallback=gh0.gait_on_start).strip().lower(),
         shutdown_mode=cp.get("go2_hardware", "shutdown_mode", fallback=gh0.shutdown_mode).strip().lower(),

@@ -29,6 +29,9 @@ class Go2HardwareConfig:
     vel_feedback_max_corr_vx: float = 0.15
     vel_feedback_max_corr_vy: float = 0.15
     vel_feedback_max_corr_wz: float = 0.25
+    vel_heading_hold_enable: bool = True
+    vel_heading_hold_kp: float = 1.5
+    vel_heading_hold_max_wz: float = 0.35
     stand_on_start: str = "balance"
     # Gait mode applied after stand_on_start: none | static_walk | trot_run | economic_gait
     gait_on_start: str = "static_walk"
