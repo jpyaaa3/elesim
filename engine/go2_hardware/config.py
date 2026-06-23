@@ -19,6 +19,8 @@ class Go2HardwareConfig:
     vel_deadband: float = 0.02
     stop_on_zero_vel: bool = True
     stand_on_start: str = "balance"
+    # Gait mode applied after stand_on_start: none | static_walk | trot_run | economic_gait
+    gait_on_start: str = "static_walk"
     shutdown_mode: str = "damp"
     world_frame_offset_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     world_frame_yaw_deg: float = 0.0

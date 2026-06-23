@@ -14,9 +14,13 @@ from engine.go2_hardware.sport_api import (
     API_MOVE,
     API_RECOVERY_STAND,
     API_STAND_DOWN,
+    API_STATIC_WALK,
     API_STOP_MOVE,
+    API_TROT_RUN,
     build_move_parameter,
     fill_unitree_request,
+    gait_on_start_api_id,
+    normalize_gait_on_start,
     normalize_go2_sport_pose,
     shutdown_api_id,
     sport_pose_api_id,
@@ -79,8 +83,16 @@ class TestSportApi(unittest.TestCase):
         self.assertEqual(sport_pose_api_id("balance_stand"), API_BALANCE_STAND)
         self.assertEqual(sport_pose_api_id("stand_down"), API_STAND_DOWN)
         self.assertEqual(sport_pose_api_id("recovery_stand"), API_RECOVERY_STAND)
+        self.assertEqual(sport_pose_api_id("static_walk"), API_STATIC_WALK)
         self.assertEqual(normalize_go2_sport_pose("lie-down"), "stand_down")
         self.assertIsNone(sport_pose_api_id("dance"))
+
+    def test_gait_on_start_ids(self) -> None:
+        self.assertEqual(gait_on_start_api_id("static_walk"), API_STATIC_WALK)
+        self.assertEqual(gait_on_start_api_id("static"), API_STATIC_WALK)
+        self.assertEqual(gait_on_start_api_id("trot_run"), API_TROT_RUN)
+        self.assertIsNone(gait_on_start_api_id("none"))
+        self.assertEqual(normalize_gait_on_start("static-walk"), "static_walk")
 
 
 class TestOdomParser(unittest.TestCase):

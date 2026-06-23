@@ -1002,6 +1002,7 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
             "go2_hardware", "stop_on_zero_vel", fallback=gh0.stop_on_zero_vel
         ),
         stand_on_start=cp.get("go2_hardware", "stand_on_start", fallback=gh0.stand_on_start).strip().lower(),
+        gait_on_start=cp.get("go2_hardware", "gait_on_start", fallback=gh0.gait_on_start).strip().lower(),
         shutdown_mode=cp.get("go2_hardware", "shutdown_mode", fallback=gh0.shutdown_mode).strip().lower(),
         world_frame_offset_xyz=_parse_vec3(
             cp.get("go2_hardware", "world_frame_offset_xyz", fallback=""),

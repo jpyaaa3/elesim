@@ -16,6 +16,7 @@ from engine.go2_hardware.sport_api import (
     build_move_parameter,
     fill_unitree_request,
     shutdown_api_id,
+    gait_on_start_api_id,
     sport_pose_api_id,
     stand_api_id,
     velocity_below_deadband,
@@ -116,8 +117,11 @@ class UnitreeRos2Bridge:
         stand_id = stand_api_id(self._cfg.stand_on_start)
         if stand_id is not None:
             self._publish_api(stand_id, "")
+        gait_id = gait_on_start_api_id(self._cfg.gait_on_start)
+        if gait_id is not None:
+            self._publish_api(gait_id, "")
         print(
-            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs"
+            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs gait_on_start=%s"
             % (
                 self._sport_request_topic,
                 self._pose_source,
@@ -126,6 +130,7 @@ class UnitreeRos2Bridge:
                 self._lowstate_topic if bool(self._cfg.leg_sync) else "-",
                 float(self._cfg.cmd_hz),
                 float(self._cfg.status_log_interval_s),
+                str(self._cfg.gait_on_start).strip().lower(),
             )
         )
 

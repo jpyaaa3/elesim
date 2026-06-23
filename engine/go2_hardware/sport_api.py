@@ -10,11 +10,17 @@ API_STAND_UP = 1004
 API_STAND_DOWN = 1005
 API_RECOVERY_STAND = 1006
 API_MOVE = 1008
+API_STATIC_WALK = 1061
+API_TROT_RUN = 1062
+API_ECONOMIC_GAIT = 1063
 
 GO2_SPORT_POSES: dict[str, int] = {
     "balance_stand": API_BALANCE_STAND,
     "stand_down": API_STAND_DOWN,
     "recovery_stand": API_RECOVERY_STAND,
+    "static_walk": API_STATIC_WALK,
+    "trot_run": API_TROT_RUN,
+    "economic_gait": API_ECONOMIC_GAIT,
 }
 
 
@@ -62,6 +68,25 @@ def shutdown_api_id(shutdown_mode: str) -> int | None:
     if mode == "stop":
         return API_STOP_MOVE
     return None
+
+
+def normalize_gait_on_start(value: str) -> str:
+    raw = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "static": "static_walk",
+        "staticwalk": "static_walk",
+        "trot": "trot_run",
+        "trotrun": "trot_run",
+        "economic": "economic_gait",
+    }
+    return aliases.get(raw, raw)
+
+
+def gait_on_start_api_id(gait_on_start: str) -> int | None:
+    mode = normalize_gait_on_start(gait_on_start)
+    if mode in ("none", ""):
+        return None
+    return sport_pose_api_id(mode)
 
 
 def clamp_velocity(vx: float, vy: float, wz: float) -> tuple[float, float, float]:
