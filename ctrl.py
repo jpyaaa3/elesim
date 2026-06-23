@@ -10,6 +10,7 @@ from engine.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
 from engine.coordinates.go2_arm_frame import Go2ArmFrameConfig
 from engine.controller import ControlClient, ControlService, PanelState
+from engine.protocol import default_start_sim_q
 from ui.control_panel import ControlPanel
 
 
@@ -37,6 +38,13 @@ def main() -> None:
     state = PanelState(
         sag_model_path="",
         raw_sag_model=None,
+    )
+    spawn_q = default_start_sim_q(bundle.mapping_config)
+    state.set_q(
+        float(spawn_q.linear_m),
+        float(spawn_q.roll_rad),
+        float(spawn_q.theta1_rad),
+        float(spawn_q.theta2_rad),
     )
     perception_cfg = bundle.perception_config
     pick_cfg = bundle.pick_config

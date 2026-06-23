@@ -26,6 +26,15 @@ class SimQ:
     theta2_rad: float
 
 
+# Default arm pose at startup / sim reset (control-panel display [u]).
+DEFAULT_START_CONTROL_U = ControlU(
+    u_linear=250.0,
+    u_roll=180.0,
+    u_s1=0.0,
+    u_s2=180.0,
+)
+
+
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
@@ -57,25 +66,22 @@ def linear_motor_u_limit(cfg: SimMappingConfig) -> float:
     return float(min(float(cfg.linear_u_max), float(cfg.linear_u_limit)))
 
 
-def _linear_u_span(cfg: SimMappingConfig) -> tuple[float, float]:
-    return float(cfg.linear_u_min), linear_motor_u_limit(cfg)
-
-
 def _linear_q_forward_m(cfg: SimMappingConfig) -> float:
-    """Sim joint q at fully extended (앞) — maps to motor u=0."""
+    """Fully extended (앞) — motor u=0 on the 0..linear_u_max scale."""
     return float(cfg.linear_q_max_m)
 
 
 def _linear_q_backward_m(cfg: SimMappingConfig) -> float:
-    """Sim joint q at fully retracted (뒤) — maps to motor u=linear_u_limit."""
+    """Fully retracted (뒤) — motor u=linear_u_max on the 0..linear_u_max scale."""
     return float(cfg.linear_q_min_m)
 
 
 def _map_linear_q_to_u(q_m: float, cfg: SimMappingConfig) -> float:
-    """Map prismatic q to motor [u] with forward=0, backward=linear_u_limit."""
+    """Map prismatic q to motor [u] on full 0..linear_u_max travel (not panel cap)."""
     q_fwd = _linear_q_forward_m(cfg)
     q_bwd = _linear_q_backward_m(cfg)
-    u_lo, u_hi = _linear_u_span(cfg)
+    u_lo = float(cfg.linear_u_min)
+    u_hi = float(cfg.linear_u_max)
     q_lo = min(q_fwd, q_bwd)
     q_hi = max(q_fwd, q_bwd)
     q_m = _clamp(float(q_m), q_lo, q_hi)
@@ -87,10 +93,11 @@ def _map_linear_q_to_u(q_m: float, cfg: SimMappingConfig) -> float:
 
 
 def _map_linear_u_to_q(u_linear: float, cfg: SimMappingConfig) -> float:
-    """Inverse of _map_linear_q_to_u."""
+    """Map motor [u] on 0..linear_u_max back to prismatic q."""
     q_fwd = _linear_q_forward_m(cfg)
     q_bwd = _linear_q_backward_m(cfg)
-    u_lo, u_hi = _linear_u_span(cfg)
+    u_lo = float(cfg.linear_u_min)
+    u_hi = float(cfg.linear_u_max)
     u_linear = _clamp(float(u_linear), u_lo, u_hi)
     if abs(u_hi - u_lo) < 1e-12:
         return q_fwd
@@ -99,18 +106,25 @@ def _map_linear_u_to_q(u_linear: float, cfg: SimMappingConfig) -> float:
 
 
 def _motor_u_from_display_linear(display_u: float, cfg: SimMappingConfig) -> float:
-    u_lo, u_hi = _linear_u_span(cfg)
+    """Panel/command u (0..linear_u_limit) -> motor u on 0..linear_u_max scale."""
+    u_lo = float(cfg.linear_u_min)
+    u_hi = float(cfg.linear_u_max)
     direction = int(cfg.command_direction[0])
-    return clamp_linear_motor_u(
-        _apply_axis_direction(float(display_u), direction, u_lo, u_hi),
-        cfg,
+    panel_u = clamp_linear_motor_u(float(display_u), cfg)
+    return _clamp(
+        _apply_axis_direction(panel_u, direction, u_lo, u_hi),
+        u_lo,
+        u_hi,
     )
 
 
 def _display_u_from_motor_linear(motor_u: float, cfg: SimMappingConfig) -> float:
-    u_lo, u_hi = _linear_u_span(cfg)
+    """Motor u on 0..linear_u_max -> panel display (clamped to linear_u_limit)."""
+    u_lo = float(cfg.linear_u_min)
+    u_hi = float(cfg.linear_u_max)
     direction = int(cfg.command_direction[0])
-    return _apply_axis_direction(clamp_linear_motor_u(float(motor_u), cfg), direction, u_lo, u_hi)
+    panel_u = _apply_axis_direction(float(motor_u), direction, u_lo, u_hi)
+    return clamp_linear_motor_u(panel_u, cfg)
 
 
 def clamp_linear_motor_u(u_linear: float, cfg: SimMappingConfig) -> float:
@@ -158,6 +172,10 @@ def motor_deg_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) 
         theta1_rad=_map_u_to_axis(u.u_s1, cfg.seg_u_min, cfg.seg_u_max, cfg.seg1_q_min_rad, cfg.seg1_q_max_rad),
         theta2_rad=_map_u_to_axis(u.u_s2, cfg.seg_u_min, cfg.seg_u_max, cfg.seg2_q_min_rad, cfg.seg2_q_max_rad),
     )
+
+
+def default_start_sim_q(cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
+    return control_u_to_sim_q(DEFAULT_START_CONTROL_U, cfg)
 
 
 def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:

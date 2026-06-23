@@ -159,14 +159,9 @@ class ControlHost:
             self._set_virtual_neutral_state()
 
     def _set_virtual_neutral_state(self) -> None:
-        neutral_q = proto.SimQ(
-            linear_m=0.0,
-            roll_rad=0.0,
-            theta1_rad=0.0,
-            theta2_rad=0.0,
-        )
+        neutral_q = proto.default_start_sim_q(self.cfg)
         self.last_q = neutral_q
-        self.last_u = proto.sim_q_to_control_u(neutral_q, self.cfg)
+        self.last_u = proto.DEFAULT_START_CONTROL_U
         self._target_u_state = self.last_u
         self.last_state_ts = time.time()
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
@@ -177,6 +172,10 @@ class ControlHost:
         """Virtual/sim mode: reset host-side command state and bump sim reset counter."""
         self._sim_reset_seq += 1
         self._set_virtual_neutral_state()
+        self._pending_target_q = None
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        self._pending_target_seq = -1
         self.last_go2_vel = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy = None
         self.last_go2_base_lin_vel_body = None
@@ -979,7 +978,7 @@ class ControlHost:
     def _merge_partial_target_u(self, partial_u: Dict[str, float]) -> Optional[proto.ControlU]:
         base = self._target_u_state if self._target_u_state is not None else self.last_u
         if base is None:
-            base = proto.ControlU(u_linear=0.0, u_roll=0.0, u_s1=180.0, u_s2=180.0)
+            base = proto.DEFAULT_START_CONTROL_U
         values = {
             "linear": float(base.u_linear),
             "roll": float(base.u_roll),
