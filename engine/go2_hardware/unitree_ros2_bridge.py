@@ -177,6 +177,7 @@ class UnitreeRos2Bridge:
         with self._lock:
             self._target_vel = (float(vx), float(vy), float(wz))
         if self._should_stop(vx, vy, wz):
+            self._last_move_vel = (0.0, 0.0, 0.0)
             if bool(self._cfg.stop_on_zero_vel):
                 self._publish_api(API_STOP_MOVE, "")
             return
@@ -318,6 +319,10 @@ class UnitreeRos2Bridge:
             max_vx=float(self._cfg.vel_feedback_max_vx),
             max_vy=float(self._cfg.vel_feedback_max_vy),
             max_wz=float(self._cfg.vel_feedback_max_wz),
+            max_corr_vx=float(self._cfg.vel_feedback_max_corr_vx),
+            max_corr_vy=float(self._cfg.vel_feedback_max_corr_vy),
+            max_corr_wz=float(self._cfg.vel_feedback_max_corr_wz),
+            axis_deadband=float(self._cfg.vel_deadband),
         )
 
     def _cmd_vel_for_target(self, vx: float, vy: float, wz: float) -> tuple[float, float, float]:

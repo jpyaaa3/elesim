@@ -15,6 +15,27 @@ class Go2VelFeedbackGains:
     max_vx: float = 0.6
     max_vy: float = 0.6
     max_wz: float = 1.0
+    max_corr_vx: float = 0.15
+    max_corr_vy: float = 0.15
+    max_corr_wz: float = 0.25
+    axis_deadband: float = 0.02
+
+
+def _axis_cmd(
+    target: float,
+    actual: float,
+    *,
+    kp: float,
+    max_cmd: float,
+    max_corr: float,
+    axis_deadband: float,
+) -> float:
+    t = float(target)
+    if abs(t) <= float(axis_deadband):
+        return 0.0
+    corr = float(kp) * (t - float(actual))
+    corr = _clamp(corr, -float(max_corr), float(max_corr))
+    return _clamp(t + corr, -float(max_cmd), float(max_cmd))
 
 
 def compute_feedback_cmd(
@@ -28,14 +49,30 @@ def compute_feedback_cmd(
     gains: Go2VelFeedbackGains,
 ) -> tuple[float, float, float]:
     """Outer-loop correction on Sport Move using body-frame velocity feedback."""
-    err_vx = float(target_vx) - float(actual_vx)
-    err_vy = float(target_vy) - float(actual_vy)
-    err_wz = float(target_wz) - float(actual_wz)
-    cmd_vx = float(target_vx) + float(gains.kp_vx) * err_vx
-    cmd_vy = float(target_vy) + float(gains.kp_vy) * err_vy
-    cmd_wz = float(target_wz) + float(gains.kp_wz) * err_wz
+    db = float(gains.axis_deadband)
     return (
-        _clamp(cmd_vx, -float(gains.max_vx), float(gains.max_vx)),
-        _clamp(cmd_vy, -float(gains.max_vy), float(gains.max_vy)),
-        _clamp(cmd_wz, -float(gains.max_wz), float(gains.max_wz)),
+        _axis_cmd(
+            target_vx,
+            actual_vx,
+            kp=float(gains.kp_vx),
+            max_cmd=float(gains.max_vx),
+            max_corr=float(gains.max_corr_vx),
+            axis_deadband=db,
+        ),
+        _axis_cmd(
+            target_vy,
+            actual_vy,
+            kp=float(gains.kp_vy),
+            max_cmd=float(gains.max_vy),
+            max_corr=float(gains.max_corr_vy),
+            axis_deadband=db,
+        ),
+        _axis_cmd(
+            target_wz,
+            actual_wz,
+            kp=float(gains.kp_wz),
+            max_cmd=float(gains.max_wz),
+            max_corr=float(gains.max_corr_wz),
+            axis_deadband=db,
+        ),
     )

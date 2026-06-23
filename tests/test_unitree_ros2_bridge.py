@@ -214,7 +214,10 @@ class TestBridgeMock(unittest.TestCase):
         bridge._publish_api = _capture  # type: ignore[method-assign]
         bridge.set_velocity(0.3, 0.0, 0.0)
         self.assertEqual(published[-1][0], API_MOVE)
-        self.assertEqual(json.loads(published[-1][1]), {"x": 0.5, "y": 0.0, "z": 0.0})
+        data = json.loads(published[-1][1])
+        self.assertAlmostEqual(data["x"], 0.45, places=5)
+        self.assertAlmostEqual(data["y"], 0.0, places=5)
+        self.assertAlmostEqual(data["z"], 0.0, places=5)
 
     def test_call_sport_pose_publishes_pose_and_stop(self) -> None:
         cfg = Go2HardwareConfig(enabled=True, stop_on_zero_vel=True)
