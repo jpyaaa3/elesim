@@ -244,6 +244,11 @@ class Go2Locomotion:
             return
         self._controller.set_command(Go2Command(vx=float(vx), vy=float(vy), yaw_rate=float(wz)))
 
+    def sim_time_s(self) -> float:
+        if self._controller is not None and hasattr(self._controller, "_sim_time"):
+            return float(self._controller._sim_time)
+        return 0.0
+
     def step(self) -> None:
         if self._mirror:
             return
@@ -1584,7 +1589,7 @@ class HostFeedbackPublisher:
         except Exception:
             pass
 
-    def send_go2_base(self, go2_entity) -> None:
+    def send_go2_base(self, go2_entity, *, sim_time_s: Optional[float] = None) -> None:
         try:
             from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw, _to_numpy_1d
             from scipy.spatial.transform import Rotation as Rot
@@ -1599,6 +1604,7 @@ class HostFeedbackPublisher:
             vel_body = rot.inv().apply(vel_world)
             ang_body = rot.inv().apply(ang_world)
             now = time.time()
+            ts_sim = float(sim_time_s) if sim_time_s is not None else now
             msg = {
                 "t": "sim_state",
                 "ts": now,
@@ -1606,7 +1612,7 @@ class HostFeedbackPublisher:
                 "go2_base_rpy": [float(rpy[0]), float(rpy[1]), float(rpy[2])],
                 "go2_base_lin_vel_body": [float(vel_body[0]), float(vel_body[1]), float(vel_body[2])],
                 "go2_base_ang_vel": [float(ang_body[0]), float(ang_body[1]), float(ang_body[2])],
-                "go2_base_timestamp_s": float(now),
+                "go2_base_timestamp_s": float(ts_sim),
             }
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
@@ -1866,7 +1872,9 @@ class RuntimePrep:
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
 
         if use_go2 and go2_entity is not None:
-            _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
+            loco_mode = str(a.go2_locomotion_config.mode).strip().lower()
+            init_pose = "stand" if loco_mode == "raibert_trot" else "ready"
+            _set_go2_initial_leg_pose(go2_entity, pose_name=init_pose)
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
             if not go2_mirror:
                 self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
@@ -2036,6 +2044,11 @@ class SimRuntime:
                 a.sim_scene.camera_publisher.close()
             except Exception:
                 pass
+        if getattr(a.sim_scene, "walking_metrics", None) is not None:
+            try:
+                a.sim_scene.walking_metrics.close()
+            except Exception:
+                pass
         if a.state_source is not None:
             a.state_source.close()
         if a.feedback_pub is not None:
@@ -2116,7 +2129,8 @@ class SimRuntime:
                     if a.sim_scene.go2_entity is not None and (
                         a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode
                     ):
-                        a.feedback_pub.send_go2_base(a.sim_scene.go2_entity)
+                        sim_t = a.sim_scene.go2.sim_time_s() if a.sim_scene.go2 is not None else None
+                        a.feedback_pub.send_go2_base(a.sim_scene.go2_entity, sim_time_s=sim_t)
                 if a.spawn.draw_debug_markers and sim_tip is not None:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
                     if sim_tip_dir is not None:

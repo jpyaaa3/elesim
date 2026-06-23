@@ -73,6 +73,20 @@ class RaibertTrotController:
             self._stance_foot_body[leg] = _world_to_body(foot_world, base_pos, base_rot)
             self._leg_q_des[leg] = self._solve_leg_ik(leg, foot_world, fallback=self._stand_q_for_leg(leg))
 
+    def _hold_idle_stance(self, leg_dofs: list[int]) -> None:
+        base_pos, base_rot = self._read_base_pose()
+        for leg in ALL_LEGS:
+            if leg not in self._stance_foot_world:
+                foot_world = self._snap_foot_to_ground(self._kin.read_foot_pos_world(self._entity, leg))
+                self._stance_foot_world[leg] = foot_world.copy()
+                self._stance_foot_body[leg] = _world_to_body(foot_world, base_pos, base_rot)
+        q_des_parts: list[float] = []
+        for leg in ALL_LEGS:
+            foot_world = self._stance_world_target(leg)
+            q_leg = self._solve_leg_ik(leg, foot_world, fallback=self._stand_q_for_leg(leg))
+            q_des_parts.extend(q_leg.tolist())
+        self._entity.control_dofs_position(np.asarray(q_des_parts, dtype=float), dofs_idx_local=leg_dofs)
+
     def set_command(self, cmd: Go2Command) -> None:
         self._cmd = cmd
 
@@ -125,7 +139,7 @@ class RaibertTrotController:
         if self._cmd.is_idle(self._config.command_idle_threshold):
             self._gait.reset()
             self._prev_leg_q_cmd = None
-            self._entity.control_dofs_position(self._kin.stand_q, dofs_idx_local=leg_dofs)
+            self._hold_idle_stance(leg_dofs)
             return
 
         base_pos, base_rot = self._read_base_pose()

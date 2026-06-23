@@ -126,6 +126,7 @@ class ControlClient:
             go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
             go2_base_ang_vel=self.last_go2_base_ang_vel,
             go2_base_timestamp_s=float(self.last_go2_base_timestamp_s),
+            host_state_age_s=float(self.rx_age_s()),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,

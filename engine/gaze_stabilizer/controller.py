@@ -4,43 +4,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from engine.gaze_stabilizer.config import GazeStabilizerConfig
 from engine.visual_servoing.uv_jacobian import solve_uv_control_delta
 
 
-@dataclass(frozen=True)
-class GazeStabilizerConfig:
-    enable_feedback: bool = True
-    enable_base_ff: bool = False
-    uv_gain: float = 1.0
-    base_ff_gain_pitch: float = 0.0
-    base_ff_gain_roll: float = 0.0
-    base_ff_gain_yaw: float = 0.0
-    max_du_roll: float = 1.0
-    max_du_s1: float = 1.0
-    max_du_s2: float = 1.0
-    jacobian_damping: float = 0.03
-    hz: float = 20.0
-    center_tol: float = 0.06
-    center_u_gain: float = 18.0
-    center_v_gain: float = 18.0
-    center_roll_max: float = 8.0
-    center_seg_max: float = 8.0
-    step_scale: float = 1.0
-    enable_roll: bool = False
-    center_u_kd: float = 0.0
-    center_v_kd: float = 4.0
-    center_d_seg_max: float = 4.0
-    d_filter_alpha: float = 0.35
-    # Cap |Δs1|,|Δs2| per gaze tick so P does not outrun sim/motor slew.
-    max_seg_du_per_tick: float = 1.5
-    # After sending seg motion, skip new P steps briefly so the plant can catch up.
-    cmd_settle_s: float = 0.10
-    # When roll is off, route horizontal UV error through seg (roll path is disabled).
-    center_u_seg_s2_scale: float = 0.55
-    center_u_seg_s1_scale: float = 0.35
-    fine_err_max: float = 0.11
-    fine_settle_scale: float = 0.35
-
+__all__ = ["GazeStabilizerConfig", "GazeStabilizer"]
 
 class GazeStabilizer:
     """Display-space UV gaze stabilizer with optional additive base feedforward."""
