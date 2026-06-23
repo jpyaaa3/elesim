@@ -18,6 +18,14 @@ class Go2HardwareConfig:
     cmd_hz: float = 20.0
     vel_deadband: float = 0.02
     stop_on_zero_vel: bool = True
+    # Closed-loop Sport Move using pose topic body velocity (/sportmodestate or /odom).
+    vel_feedback_enable: bool = True
+    vel_feedback_kp_vx: float = 0.8
+    vel_feedback_kp_vy: float = 0.8
+    vel_feedback_kp_wz: float = 1.0
+    vel_feedback_max_vx: float = 0.6
+    vel_feedback_max_vy: float = 0.6
+    vel_feedback_max_wz: float = 1.0
     stand_on_start: str = "balance"
     # Gait mode applied after stand_on_start: none | static_walk | trot_run | economic_gait
     gait_on_start: str = "static_walk"

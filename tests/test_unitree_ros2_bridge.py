@@ -28,6 +28,7 @@ from engine.go2_hardware.sport_api import (
     velocity_below_deadband,
 )
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
+from engine.go2_hardware.odom_parser import OdomSample
 from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic, create_go2_bridge_if_enabled
 
 
@@ -187,6 +188,33 @@ class TestBridgeMock(unittest.TestCase):
 
         bridge.set_velocity(0.0, 0.0, 0.0)
         self.assertEqual(published[-1][0], API_STOP_MOVE)
+
+    def test_set_velocity_with_feedback_corrects_from_body_vel(self) -> None:
+        cfg = Go2HardwareConfig(
+            enabled=True,
+            vel_deadband=0.02,
+            vel_feedback_enable=True,
+            vel_feedback_kp_vx=1.0,
+            vel_feedback_max_vx=0.6,
+        )
+        bridge = UnitreeRos2Bridge(cfg)
+        bridge._started = True
+        bridge._latest = OdomSample(
+            pos=(0.0, 0.0, 0.0),
+            rpy=(0.0, 0.0, 0.0),
+            lin_vel_body=(0.1, 0.0, 0.0),
+            ang_vel_body=(0.0, 0.0, 0.0),
+            timestamp_s=1.0,
+        )
+        published: list[tuple[int, str]] = []
+
+        def _capture(api_id: int, parameter: str) -> None:
+            published.append((int(api_id), str(parameter)))
+
+        bridge._publish_api = _capture  # type: ignore[method-assign]
+        bridge.set_velocity(0.3, 0.0, 0.0)
+        self.assertEqual(published[-1][0], API_MOVE)
+        self.assertEqual(json.loads(published[-1][1]), {"x": 0.5, "y": 0.0, "z": 0.0})
 
     def test_call_sport_pose_publishes_pose_and_stop(self) -> None:
         cfg = Go2HardwareConfig(enabled=True, stop_on_zero_vel=True)

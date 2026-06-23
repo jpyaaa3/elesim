@@ -1001,6 +1001,27 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
         stop_on_zero_vel=cp.getboolean(
             "go2_hardware", "stop_on_zero_vel", fallback=gh0.stop_on_zero_vel
         ),
+        vel_feedback_enable=cp.getboolean(
+            "go2_hardware", "vel_feedback_enable", fallback=gh0.vel_feedback_enable
+        ),
+        vel_feedback_kp_vx=cp.getfloat(
+            "go2_hardware", "vel_feedback_kp_vx", fallback=gh0.vel_feedback_kp_vx
+        ),
+        vel_feedback_kp_vy=cp.getfloat(
+            "go2_hardware", "vel_feedback_kp_vy", fallback=gh0.vel_feedback_kp_vy
+        ),
+        vel_feedback_kp_wz=cp.getfloat(
+            "go2_hardware", "vel_feedback_kp_wz", fallback=gh0.vel_feedback_kp_wz
+        ),
+        vel_feedback_max_vx=cp.getfloat(
+            "go2_hardware", "vel_feedback_max_vx", fallback=gh0.vel_feedback_max_vx
+        ),
+        vel_feedback_max_vy=cp.getfloat(
+            "go2_hardware", "vel_feedback_max_vy", fallback=gh0.vel_feedback_max_vy
+        ),
+        vel_feedback_max_wz=cp.getfloat(
+            "go2_hardware", "vel_feedback_max_wz", fallback=gh0.vel_feedback_max_wz
+        ),
         stand_on_start=cp.get("go2_hardware", "stand_on_start", fallback=gh0.stand_on_start).strip().lower(),
         gait_on_start=cp.get("go2_hardware", "gait_on_start", fallback=gh0.gait_on_start).strip().lower(),
         shutdown_mode=cp.get("go2_hardware", "shutdown_mode", fallback=gh0.shutdown_mode).strip().lower(),

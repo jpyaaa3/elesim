@@ -21,6 +21,7 @@ from engine.go2_hardware.sport_api import (
     stand_api_id,
     velocity_below_deadband,
 )
+from engine.go2_hardware.vel_feedback import Go2VelFeedbackGains, compute_feedback_cmd
 
 
 def _ros_topic(name: str) -> str:
@@ -55,6 +56,7 @@ class UnitreeRos2Bridge:
         self._latest: Optional[OdomSample] = None
         self._latest_leg_q: Optional[Tuple[float, ...]] = None
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._last_move_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._cmd_period = 1.0 / max(float(cfg.cmd_hz), 1.0)
         self._t_last_cmd = 0.0
         self._started = False
@@ -125,7 +127,7 @@ class UnitreeRos2Bridge:
         if gait_id is not None:
             self._publish_api(gait_id, "")
         print(
-            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs gait_on_start=%s"
+            "[go2_bridge] started | sport=%s pose=%s(%s) leg_sync=%s lowstate=%s cmd_hz=%.1f status_log=%.1fs gait_on_start=%s vel_fb=%s"
             % (
                 self._sport_request_topic,
                 self._pose_source,
@@ -135,6 +137,7 @@ class UnitreeRos2Bridge:
                 float(self._cfg.cmd_hz),
                 float(self._cfg.status_log_interval_s),
                 str(self._cfg.gait_on_start).strip().lower(),
+                bool(self._cfg.vel_feedback_enable),
             )
         )
 
@@ -176,7 +179,8 @@ class UnitreeRos2Bridge:
             if bool(self._cfg.stop_on_zero_vel):
                 self._publish_api(API_STOP_MOVE, "")
             return
-        self._publish_move(vx, vy, wz)
+        cmd_vx, cmd_vy, cmd_wz = self._cmd_vel_for_target(vx, vy, wz)
+        self._publish_move(cmd_vx, cmd_vy, cmd_wz)
         self._t_last_cmd = time.time()
 
     def call_sport_pose(self, pose: str) -> None:
@@ -209,7 +213,8 @@ class UnitreeRos2Bridge:
             return
         if (now - self._t_last_cmd) < self._cmd_period:
             return
-        self._publish_move(vx, vy, wz)
+        cmd_vx, cmd_vy, cmd_wz = self._cmd_vel_for_target(vx, vy, wz)
+        self._publish_move(cmd_vx, cmd_vy, cmd_wz)
         self._t_last_cmd = now
 
     def latest_state(self) -> Optional[OdomSample]:
@@ -231,6 +236,7 @@ class UnitreeRos2Bridge:
             t_pose = float(self._t_last_pose_rx)
             t_low = float(self._t_last_lowstate_rx)
             target_vel = tuple(float(v) for v in self._target_vel)
+            move_vel = tuple(float(v) for v in self._last_move_vel)
             sample = self._latest
             leg_q = self._latest_leg_q
             last_api_id = int(self._last_api_id)
@@ -281,9 +287,10 @@ class UnitreeRos2Bridge:
             % (spin_state, self._sport_request_topic, pose_rx, pose_age, lowstate_rx, low_age, api_pub)
         )
         print(
-            "[go2_bridge]   cmd_vel=%s | pos=%s rpy=%s | vel_body=%s ang_body=%s | legs=%s"
+            "[go2_bridge]   target_vel=%s move_vel=%s | pos=%s rpy=%s | vel_body=%s ang_body=%s | legs=%s"
             % (
                 "(%.2f, %.2f, %.2f)" % target_vel,
+                "(%.2f, %.2f, %.2f)" % move_vel,
                 pos_txt,
                 rpy_txt,
                 lin_txt,
@@ -301,6 +308,37 @@ class UnitreeRos2Bridge:
 
     def _should_stop(self, vx: float, vy: float, wz: float) -> bool:
         return velocity_below_deadband(vx, vy, wz, float(self._cfg.vel_deadband))
+
+    def _vel_feedback_gains(self) -> Go2VelFeedbackGains:
+        return Go2VelFeedbackGains(
+            kp_vx=float(self._cfg.vel_feedback_kp_vx),
+            kp_vy=float(self._cfg.vel_feedback_kp_vy),
+            kp_wz=float(self._cfg.vel_feedback_kp_wz),
+            max_vx=float(self._cfg.vel_feedback_max_vx),
+            max_vy=float(self._cfg.vel_feedback_max_vy),
+            max_wz=float(self._cfg.vel_feedback_max_wz),
+        )
+
+    def _cmd_vel_for_target(self, vx: float, vy: float, wz: float) -> tuple[float, float, float]:
+        target = (float(vx), float(vy), float(wz))
+        if not bool(self._cfg.vel_feedback_enable):
+            self._last_move_vel = target
+            return target
+        sample = self.latest_state()
+        if sample is None:
+            self._last_move_vel = target
+            return target
+        cmd = compute_feedback_cmd(
+            target[0],
+            target[1],
+            target[2],
+            sample.lin_vel_body[0],
+            sample.lin_vel_body[1],
+            sample.ang_vel_body[2],
+            gains=self._vel_feedback_gains(),
+        )
+        self._last_move_vel = cmd
+        return cmd
 
     def _publish_move(self, vx: float, vy: float, wz: float) -> None:
         self._publish_api(API_MOVE, build_move_parameter(vx, vy, wz))
