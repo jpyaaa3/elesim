@@ -3,6 +3,7 @@ from __future__ import annotations
 import imgui
 import math
 
+import engine.protocol as proto
 from ui.helpers import begin_disabled_ui, end_disabled_ui
 
 
@@ -50,7 +51,7 @@ def draw_control_4dof_panel(panel) -> None:
     disable_token = begin_disabled_ui(sliders_locked)
     changed_linear, u_linear = imgui.slider_float(
         "linear [u] |", float(u_now.u_linear),
-        float(cfg.linear_u_min), float(cfg.linear_u_max),
+        float(cfg.linear_u_min), float(proto.linear_motor_u_limit(cfg)),
         format="%.1f"
     )
     end_disabled_ui(disable_token)

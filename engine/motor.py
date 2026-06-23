@@ -299,6 +299,6 @@ def load_hardware(
         }
         for k, v in raw.items():
             hw.direction[k] = -1 if int(v) < 0 else 1
-        linear_max = float(getattr(hardware_cfg, "linear_u_max_deg", 250.0))
+        linear_max = float(getattr(hardware_cfg, "linear_u_limit_deg", 250.0))
         hw.constraints_deg[hw.cfg.id_linear] = JointConstraintDeg(0.0, linear_max)
     return hw, dict(hw.direction)

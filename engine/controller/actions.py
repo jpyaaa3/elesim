@@ -24,7 +24,7 @@ from engine.coordinates.go2_arm_frame import (
 )
 from engine.gaze_stabilizer.controller import GazeStabilizerConfig
 from engine.controller.gaze_service import GazeControlService
-from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
+from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, linear_motor_u_limit, sim_q_to_control_u
 from engine.sag_model import load_sag_model_json
 from engine.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
@@ -1472,7 +1472,7 @@ class ControlService:
     def _clamp_display_u(self, display_u: ControlU) -> ControlU:
         cfg = self.control_mapping()
         return ControlU(
-            u_linear=float(np.clip(display_u.u_linear, cfg.linear_u_min, cfg.linear_u_max)),
+            u_linear=float(np.clip(display_u.u_linear, cfg.linear_u_min, linear_motor_u_limit(cfg))),
             u_roll=float(np.clip(display_u.u_roll, cfg.roll_u_min, cfg.roll_u_max)),
             u_s1=float(np.clip(display_u.u_s1, cfg.seg_u_min, cfg.seg_u_max)),
             u_s2=float(np.clip(display_u.u_s2, cfg.seg_u_min, cfg.seg_u_max)),
@@ -1600,7 +1600,7 @@ class ControlService:
         display_u = self._actual_to_display_u(actual_u)
         cfg = self.control_mapping()
         return ControlU(
-            u_linear=float(min(max(display_u.u_linear, cfg.linear_u_min), cfg.linear_u_max)),
+            u_linear=float(min(max(display_u.u_linear, cfg.linear_u_min), linear_motor_u_limit(cfg))),
             u_roll=float(min(max(display_u.u_roll, cfg.roll_u_min), cfg.roll_u_max)),
             u_s1=float(min(max(display_u.u_s1, cfg.seg_u_min), cfg.seg_u_max)),
             u_s2=float(min(max(display_u.u_s2, cfg.seg_u_min), cfg.seg_u_max)),

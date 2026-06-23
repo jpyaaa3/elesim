@@ -29,7 +29,9 @@ class SimQ:
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    linear_u_max: float = 250.0
+    linear_u_max: float = 360.0
+    # Hardware travel cap in motor [u] units; mapping scale stays linear_u_max.
+    linear_u_limit: float = 250.0
     roll_u_min: float = 0.0
     roll_u_max: float = 360.0
     seg_u_min: float = 0.0
@@ -49,6 +51,14 @@ class SimMappingConfig:
 
 def _clamp(x: float, lo: float, hi: float) -> float:
     return float(min(max(float(x), float(lo)), float(hi)))
+
+
+def linear_motor_u_limit(cfg: SimMappingConfig) -> float:
+    return float(min(float(cfg.linear_u_max), float(cfg.linear_u_limit)))
+
+
+def clamp_linear_motor_u(u_linear: float, cfg: SimMappingConfig) -> float:
+    return _clamp(u_linear, float(cfg.linear_u_min), linear_motor_u_limit(cfg))
 
 
 def _apply_axis_direction(u_value: float, direction: int, u_min: float, u_max: float) -> float:
@@ -78,7 +88,10 @@ def _map_u_to_axis(u_value: float, u_min: float, u_max: float, q_min: float, q_m
 
 def sim_q_to_motor_deg(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> ControlU:
     return ControlU(
-        u_linear=_map_axis_to_u(q.linear_m, cfg.linear_q_min_m, cfg.linear_q_max_m, cfg.linear_u_min, cfg.linear_u_max),
+        u_linear=clamp_linear_motor_u(
+            _map_axis_to_u(q.linear_m, cfg.linear_q_min_m, cfg.linear_q_max_m, cfg.linear_u_min, cfg.linear_u_max),
+            cfg,
+        ),
         u_roll=_map_axis_to_u(q.roll_rad, cfg.roll_q_min_rad, cfg.roll_q_max_rad, cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_map_axis_to_u(q.theta1_rad, cfg.seg1_q_min_rad, cfg.seg1_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_map_axis_to_u(q.theta2_rad, cfg.seg2_q_min_rad, cfg.seg2_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
@@ -97,7 +110,16 @@ def motor_deg_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) 
 def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
     dirs = tuple(int(v) for v in cfg.command_direction)
     motor_u = ControlU(
-        u_linear=_clamp(_apply_axis_direction(u.u_linear, dirs[0], cfg.linear_u_min, cfg.linear_u_max), cfg.linear_u_min, cfg.linear_u_max),
+        u_linear=_clamp(
+            _apply_axis_direction(
+                clamp_linear_motor_u(u.u_linear, cfg),
+                dirs[0],
+                cfg.linear_u_min,
+                cfg.linear_u_max,
+            ),
+            cfg.linear_u_min,
+            cfg.linear_u_max,
+        ),
         u_roll=_clamp(_apply_axis_direction(u.u_roll, dirs[1], cfg.roll_u_min, cfg.roll_u_max), cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_clamp(_apply_axis_direction(u.u_s1, dirs[2], cfg.seg_u_min, cfg.seg_u_max), cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_clamp(_apply_axis_direction(u.u_s2, dirs[3], cfg.seg_u_min, cfg.seg_u_max), cfg.seg_u_min, cfg.seg_u_max),
