@@ -17,6 +17,9 @@ addons/opencv/images/
 
 *.log
 
+# Runtime / experiment logs (generated locally).
+logs/
+
 # Local reference clone used for upstream comparison.
 update/
 
