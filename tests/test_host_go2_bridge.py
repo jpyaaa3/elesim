@@ -38,6 +38,22 @@ class TestHostGo2Bridge(unittest.TestCase):
         )
         server._go2_bridge.set_velocity.assert_called_once_with(0.2, 0.1, -0.3)
 
+    def test_go2_sport_pose_forwards_to_bridge(self) -> None:
+        server = self._make_host(with_bridge=True)
+        ident = b"client-1"
+        server._handle_msg(
+            ident,
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 2,
+                "source": "target",
+                "go2_sport_pose": "balance_stand",
+            },
+        )
+        server._go2_bridge.call_sport_pose.assert_called_once_with("balance_stand")
+        self.assertEqual(server.last_go2_vel, (0.0, 0.0, 0.0))
+
     def test_sim_feedback_ignores_go2_base_when_bridge_active(self) -> None:
         server = self._make_host(with_bridge=True)
         server.last_go2_base_pos = (1.0, 2.0, 3.0)

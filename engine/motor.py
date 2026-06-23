@@ -152,7 +152,7 @@ class Dynamixel3dofDriver:
         self.direction: Dict[int, int] = {dxl_id: +1 for dxl_id in self.ids}
         self.profiles: Dict[int, JointProfile] = default_joint_profiles(cfg)
         self.constraints_deg: Dict[int, JointConstraintDeg] = {
-            cfg.id_linear: JointConstraintDeg(0.0, 360.0),
+            cfg.id_linear: JointConstraintDeg(0.0, 250.0),
             cfg.id_roll: JointConstraintDeg(0.0, 360.0),
             cfg.id_seg1: JointConstraintDeg(0.0, 360.0),
             cfg.id_seg2: JointConstraintDeg(0.0, 360.0),
@@ -299,4 +299,6 @@ def load_hardware(
         }
         for k, v in raw.items():
             hw.direction[k] = -1 if int(v) < 0 else 1
+        linear_max = float(getattr(hardware_cfg, "linear_u_max_deg", 250.0))
+        hw.constraints_deg[hw.cfg.id_linear] = JointConstraintDeg(0.0, linear_max)
     return hw, dict(hw.direction)

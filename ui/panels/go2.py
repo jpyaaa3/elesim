@@ -73,6 +73,23 @@ def draw_go2_panel(panel) -> None:
     )
 
     imgui.separator()
+    imgui.text("Posture")
+    if imgui.button("Balance Stand"):
+        panel.service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        panel.service.send_go2_sport_pose(pose="balance_stand")
+        panel._go2_was_active = False
+    imgui.same_line()
+    if imgui.button("Lie Down"):
+        panel.service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        panel.service.send_go2_sport_pose(pose="stand_down")
+        panel._go2_was_active = False
+    imgui.same_line()
+    if imgui.button("Recovery Stand"):
+        panel.service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        panel.service.send_go2_sport_pose(pose="recovery_stand")
+        panel._go2_was_active = False
+
+    imgui.separator()
     if imgui.button("Gaze Standing (3a)"):
         panel.service.start_gaze_stabilizer_standing()
     imgui.same_line()

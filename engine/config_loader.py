@@ -73,6 +73,7 @@ class SimConfig:
 class HardwareConfig:
     command_direction: Tuple[int, int, int, int] = (-1, 1, 1, 1)
     motor_direction: Tuple[int, int, int, int] = (1, 1, 1, 1)
+    linear_u_max_deg: float = 250.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
 
@@ -1156,6 +1157,7 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
     return HardwareConfig(
         command_direction=_parse_direction4(cp.get("hardware", "command_direction"), key="hardware.command_direction"),
         motor_direction=_parse_direction4(cp.get("hardware", "motor_direction"), key="hardware.motor_direction"),
+        linear_u_max_deg=cp.getfloat("hardware", "linear_u_max_deg", fallback=HardwareConfig().linear_u_max_deg),
         current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=HardwareConfig().current_yellow_ma),
         current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=HardwareConfig().current_limit_ma),
     )
@@ -1245,7 +1247,9 @@ def _load_ik_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) ->
 
 
 def _build_mapping_config(joint_limit: JointLimit, hardware_config: HardwareConfig) -> proto.SimMappingConfig:
+    linear_u_max = float(hardware_config.linear_u_max_deg)
     return proto.SimMappingConfig(
+        linear_u_max=linear_u_max,
         linear_q_min_m=-0.230,
         linear_q_max_m=0.010,
         roll_q_min_rad=joint_limit.roll_min_rad(),

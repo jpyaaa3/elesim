@@ -7,7 +7,15 @@ API_DAMP = 1001
 API_BALANCE_STAND = 1002
 API_STOP_MOVE = 1003
 API_STAND_UP = 1004
+API_STAND_DOWN = 1005
+API_RECOVERY_STAND = 1006
 API_MOVE = 1008
+
+GO2_SPORT_POSES: dict[str, int] = {
+    "balance_stand": API_BALANCE_STAND,
+    "stand_down": API_STAND_DOWN,
+    "recovery_stand": API_RECOVERY_STAND,
+}
 
 
 def build_move_parameter(vx: float, vy: float, wz: float) -> str:
@@ -58,6 +66,23 @@ def shutdown_api_id(shutdown_mode: str) -> int | None:
 
 def clamp_velocity(vx: float, vy: float, wz: float) -> tuple[float, float, float]:
     return float(vx), float(vy), float(wz)
+
+
+def normalize_go2_sport_pose(value: str) -> str:
+    raw = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "balance": "balance_stand",
+        "lie_down": "stand_down",
+        "prone": "stand_down",
+        "stand_up_from_fall": "recovery_stand",
+        "get_up": "recovery_stand",
+    }
+    return aliases.get(raw, raw)
+
+
+def sport_pose_api_id(pose: str) -> int | None:
+    key = normalize_go2_sport_pose(pose)
+    return GO2_SPORT_POSES.get(key)
 
 
 def fill_unitree_request(msg: object, *, api_id: int, parameter: str = "") -> None:

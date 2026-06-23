@@ -16,6 +16,7 @@ from engine.go2_hardware.sport_api import (
     build_move_parameter,
     fill_unitree_request,
     shutdown_api_id,
+    sport_pose_api_id,
     stand_api_id,
     velocity_below_deadband,
 )
@@ -167,6 +168,18 @@ class UnitreeRos2Bridge:
             return
         self._publish_move(vx, vy, wz)
         self._t_last_cmd = time.time()
+
+    def call_sport_pose(self, pose: str) -> None:
+        api_id = sport_pose_api_id(pose)
+        if api_id is None:
+            raise ValueError(f"unknown GO2 sport pose: {pose}")
+        with self._lock:
+            self._target_vel = (0.0, 0.0, 0.0)
+        if bool(self._cfg.stop_on_zero_vel):
+            self._publish_api(API_STOP_MOVE, "")
+        self._publish_api(int(api_id), "")
+        self._t_last_cmd = time.time()
+        print("[go2_bridge] sport_pose=%s api_id=%d" % (str(pose).strip().lower(), int(api_id)))
 
     def tick_cmd(self, now_s: Optional[float] = None) -> None:
         if not self._started:

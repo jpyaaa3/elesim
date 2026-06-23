@@ -29,7 +29,7 @@ class SimQ:
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    linear_u_max: float = 360.0
+    linear_u_max: float = 250.0
     roll_u_min: float = 0.0
     roll_u_max: float = 360.0
     seg_u_min: float = 0.0
@@ -300,6 +300,13 @@ def unpack_go2_vel(raw: Any) -> tuple[float, float, float]:
     if not isinstance(raw, (list, tuple)) or len(raw) != 3:
         raise ValueError("go2_vel must be [vx, vy, wz]")
     return (float(raw[0]), float(raw[1]), float(raw[2]))
+
+
+def unpack_go2_sport_pose(raw: Any) -> str:
+    pose = str(raw).strip().lower()
+    if not pose:
+        raise ValueError("go2_sport_pose must be a non-empty string")
+    return pose
 
 
 def unpack_vec3(raw: Any, *, name: str) -> tuple[float, float, float]:

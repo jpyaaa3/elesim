@@ -1466,6 +1466,39 @@ class ControlHost:
                 if self._go2_bridge is not None:
                     vx, vy, wz = self.last_go2_vel
                     self._go2_bridge.set_velocity(vx, vy, wz)
+            if "go2_sport_pose" in msg:
+                try:
+                    pose = proto.unpack_go2_sport_pose(msg.get("go2_sport_pose"))
+                except Exception:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": "bad_go2_sport_pose",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
+                if self._go2_bridge is not None:
+                    try:
+                        self._go2_bridge.call_sport_pose(pose)
+                    except ValueError as exc:
+                        self._reply(
+                            ident,
+                            {
+                                "t": "ack",
+                                "ts": proto.now_s(),
+                                "ok": False,
+                                "reason": str(exc),
+                                "device": self.device,
+                                "torque_enabled": self.torque_enabled,
+                            },
+                        )
+                        return
+                self.last_go2_vel = (0.0, 0.0, 0.0)
             if q is None:
                 if (
                     target_raw is None
@@ -1475,11 +1508,12 @@ class ControlHost:
                     and sag_raw is None
                     and "claw_closed" not in msg
                     and "go2_vel" not in msg
+                    and "go2_sport_pose" not in msg
                 ):
                     self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_target", "device": self.device, "torque_enabled": self.torque_enabled})
                     return
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": True, "seq": seq, "device": self.device, "torque_enabled": self.torque_enabled})
-                if "go2_vel" in msg or "claw_closed" in msg:
+                if "go2_vel" in msg or "claw_closed" in msg or "go2_sport_pose" in msg:
                     self._broadcast_state_now()
                 return
             self._pending_target_q = q

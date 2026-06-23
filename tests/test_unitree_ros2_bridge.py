@@ -12,10 +12,14 @@ from engine.go2_hardware.sport_api import (
     API_BALANCE_STAND,
     API_DAMP,
     API_MOVE,
+    API_RECOVERY_STAND,
+    API_STAND_DOWN,
     API_STOP_MOVE,
     build_move_parameter,
     fill_unitree_request,
+    normalize_go2_sport_pose,
     shutdown_api_id,
+    sport_pose_api_id,
     stand_api_id,
     velocity_below_deadband,
 )
@@ -70,6 +74,13 @@ class TestSportApi(unittest.TestCase):
         self.assertEqual(stand_api_id("balance"), API_BALANCE_STAND)
         self.assertEqual(shutdown_api_id("damp"), API_DAMP)
         self.assertEqual(shutdown_api_id("stop"), API_STOP_MOVE)
+
+    def test_sport_pose_ids(self) -> None:
+        self.assertEqual(sport_pose_api_id("balance_stand"), API_BALANCE_STAND)
+        self.assertEqual(sport_pose_api_id("stand_down"), API_STAND_DOWN)
+        self.assertEqual(sport_pose_api_id("recovery_stand"), API_RECOVERY_STAND)
+        self.assertEqual(normalize_go2_sport_pose("lie-down"), "stand_down")
+        self.assertIsNone(sport_pose_api_id("dance"))
 
 
 class TestOdomParser(unittest.TestCase):
@@ -164,6 +175,23 @@ class TestBridgeMock(unittest.TestCase):
 
         bridge.set_velocity(0.0, 0.0, 0.0)
         self.assertEqual(published[-1][0], API_STOP_MOVE)
+
+    def test_call_sport_pose_publishes_pose_and_stop(self) -> None:
+        cfg = Go2HardwareConfig(enabled=True, stop_on_zero_vel=True)
+        bridge = UnitreeRos2Bridge(cfg)
+        bridge._started = True
+        bridge._Request = MagicMock()
+        bridge._pub = MagicMock()
+        published: list[tuple[int, str]] = []
+
+        def _capture(api_id: int, parameter: str) -> None:
+            published.append((int(api_id), str(parameter)))
+
+        bridge._publish_api = _capture  # type: ignore[method-assign]
+
+        bridge.call_sport_pose("recovery_stand")
+        self.assertEqual(published[0][0], API_STOP_MOVE)
+        self.assertEqual(published[-1][0], API_RECOVERY_STAND)
 
     def test_create_bridge_if_disabled(self) -> None:
         cfg = Go2HardwareConfig(enabled=False)
