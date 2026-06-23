@@ -46,7 +46,7 @@ class SimMappingConfig:
     seg2_q_min_rad: float = -math.radians(36.0)
     seg2_q_max_rad: float = +math.radians(36.0)
 
-    command_direction: tuple[int, int, int, int] = (-1, 1, 1, 1)
+    command_direction: tuple[int, int, int, int] = (1, 1, 1, 1)
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -55,6 +55,62 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 def linear_motor_u_limit(cfg: SimMappingConfig) -> float:
     return float(min(float(cfg.linear_u_max), float(cfg.linear_u_limit)))
+
+
+def _linear_u_span(cfg: SimMappingConfig) -> tuple[float, float]:
+    return float(cfg.linear_u_min), linear_motor_u_limit(cfg)
+
+
+def _linear_q_forward_m(cfg: SimMappingConfig) -> float:
+    """Sim joint q at fully extended (앞) — maps to motor u=0."""
+    return float(cfg.linear_q_max_m)
+
+
+def _linear_q_backward_m(cfg: SimMappingConfig) -> float:
+    """Sim joint q at fully retracted (뒤) — maps to motor u=linear_u_limit."""
+    return float(cfg.linear_q_min_m)
+
+
+def _map_linear_q_to_u(q_m: float, cfg: SimMappingConfig) -> float:
+    """Map prismatic q to motor [u] with forward=0, backward=linear_u_limit."""
+    q_fwd = _linear_q_forward_m(cfg)
+    q_bwd = _linear_q_backward_m(cfg)
+    u_lo, u_hi = _linear_u_span(cfg)
+    q_lo = min(q_fwd, q_bwd)
+    q_hi = max(q_fwd, q_bwd)
+    q_m = _clamp(float(q_m), q_lo, q_hi)
+    span_q = q_bwd - q_fwd
+    if abs(span_q) < 1e-12:
+        return u_lo
+    t = (q_m - q_fwd) / span_q
+    return _clamp(u_lo + t * (u_hi - u_lo), u_lo, u_hi)
+
+
+def _map_linear_u_to_q(u_linear: float, cfg: SimMappingConfig) -> float:
+    """Inverse of _map_linear_q_to_u."""
+    q_fwd = _linear_q_forward_m(cfg)
+    q_bwd = _linear_q_backward_m(cfg)
+    u_lo, u_hi = _linear_u_span(cfg)
+    u_linear = _clamp(float(u_linear), u_lo, u_hi)
+    if abs(u_hi - u_lo) < 1e-12:
+        return q_fwd
+    t = (u_linear - u_lo) / (u_hi - u_lo)
+    return float(q_fwd + t * (q_bwd - q_fwd))
+
+
+def _motor_u_from_display_linear(display_u: float, cfg: SimMappingConfig) -> float:
+    u_lo, u_hi = _linear_u_span(cfg)
+    direction = int(cfg.command_direction[0])
+    return clamp_linear_motor_u(
+        _apply_axis_direction(float(display_u), direction, u_lo, u_hi),
+        cfg,
+    )
+
+
+def _display_u_from_motor_linear(motor_u: float, cfg: SimMappingConfig) -> float:
+    u_lo, u_hi = _linear_u_span(cfg)
+    direction = int(cfg.command_direction[0])
+    return _apply_axis_direction(clamp_linear_motor_u(float(motor_u), cfg), direction, u_lo, u_hi)
 
 
 def clamp_linear_motor_u(u_linear: float, cfg: SimMappingConfig) -> float:
@@ -88,10 +144,7 @@ def _map_u_to_axis(u_value: float, u_min: float, u_max: float, q_min: float, q_m
 
 def sim_q_to_motor_deg(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> ControlU:
     return ControlU(
-        u_linear=clamp_linear_motor_u(
-            _map_axis_to_u(q.linear_m, cfg.linear_q_min_m, cfg.linear_q_max_m, cfg.linear_u_min, cfg.linear_u_max),
-            cfg,
-        ),
+        u_linear=_map_linear_q_to_u(q.linear_m, cfg),
         u_roll=_map_axis_to_u(q.roll_rad, cfg.roll_q_min_rad, cfg.roll_q_max_rad, cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_map_axis_to_u(q.theta1_rad, cfg.seg1_q_min_rad, cfg.seg1_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_map_axis_to_u(q.theta2_rad, cfg.seg2_q_min_rad, cfg.seg2_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
@@ -100,7 +153,7 @@ def sim_q_to_motor_deg(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> C
 
 def motor_deg_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
     return SimQ(
-        linear_m=_map_u_to_axis(u.u_linear, cfg.linear_u_min, cfg.linear_u_max, cfg.linear_q_min_m, cfg.linear_q_max_m),
+        linear_m=_map_linear_u_to_q(u.u_linear, cfg),
         roll_rad=_map_u_to_axis(u.u_roll, cfg.roll_u_min, cfg.roll_u_max, cfg.roll_q_min_rad, cfg.roll_q_max_rad),
         theta1_rad=_map_u_to_axis(u.u_s1, cfg.seg_u_min, cfg.seg_u_max, cfg.seg1_q_min_rad, cfg.seg1_q_max_rad),
         theta2_rad=_map_u_to_axis(u.u_s2, cfg.seg_u_min, cfg.seg_u_max, cfg.seg2_q_min_rad, cfg.seg2_q_max_rad),
@@ -110,16 +163,7 @@ def motor_deg_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) 
 def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
     dirs = tuple(int(v) for v in cfg.command_direction)
     motor_u = ControlU(
-        u_linear=_clamp(
-            _apply_axis_direction(
-                clamp_linear_motor_u(u.u_linear, cfg),
-                dirs[0],
-                cfg.linear_u_min,
-                cfg.linear_u_max,
-            ),
-            cfg.linear_u_min,
-            cfg.linear_u_max,
-        ),
+        u_linear=_motor_u_from_display_linear(u.u_linear, cfg),
         u_roll=_clamp(_apply_axis_direction(u.u_roll, dirs[1], cfg.roll_u_min, cfg.roll_u_max), cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_clamp(_apply_axis_direction(u.u_s1, dirs[2], cfg.seg_u_min, cfg.seg_u_max), cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_clamp(_apply_axis_direction(u.u_s2, dirs[3], cfg.seg_u_min, cfg.seg_u_max), cfg.seg_u_min, cfg.seg_u_max),
@@ -131,7 +175,7 @@ def sim_q_to_control_u(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> C
     dirs = tuple(int(v) for v in cfg.command_direction)
     motor_u = sim_q_to_motor_deg(q, cfg)
     return ControlU(
-        u_linear=_apply_axis_direction(motor_u.u_linear, dirs[0], cfg.linear_u_min, cfg.linear_u_max),
+        u_linear=_display_u_from_motor_linear(motor_u.u_linear, cfg),
         u_roll=_apply_axis_direction(motor_u.u_roll, dirs[1], cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_apply_axis_direction(motor_u.u_s1, dirs[2], cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_apply_axis_direction(motor_u.u_s2, dirs[3], cfg.seg_u_min, cfg.seg_u_max),
