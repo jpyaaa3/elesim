@@ -457,6 +457,7 @@ class SimScene:
     _last_camera_publish_t: float = 0.0
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
+    _force_instant_arm_frames: int = 0
 
     def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
         """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
@@ -681,21 +682,38 @@ class SimScene:
         except Exception:
             return None
 
+    def apply_spawn_arm_pose(
+        self,
+        mapping_cfg: proto.SimMappingConfig,
+        *,
+        hold_instant_frames: int = 0,
+    ) -> proto.SimQ:
+        start_q = proto.default_start_sim_q(mapping_cfg)
+        if self.mover is not None:
+            self.mover.set_4dof_instant(
+                float(start_q.linear_m),
+                float(start_q.roll_rad),
+                float(start_q.theta1_rad),
+                float(start_q.theta2_rad),
+            )
+        self.sync_arm_to_go2_base()
+        if int(hold_instant_frames) > 0:
+            self._force_instant_arm_frames = int(hold_instant_frames)
+        return start_q
+
     def apply_sim_q(self, q_errmodel: proto.SimQ) -> Optional[np.ndarray]:
         if self.mover is None:
             return None
-        self.mover.control_4dof(
-            float(q_errmodel.linear_m),
-            float(q_errmodel.roll_rad),
-            float(q_errmodel.theta1_rad),
-            float(q_errmodel.theta2_rad),
-        )
-        return self.mover.target_from_4dof(
-            float(q_errmodel.linear_m),
-            float(q_errmodel.roll_rad),
-            float(q_errmodel.theta1_rad),
-            float(q_errmodel.theta2_rad),
-        )
+        linear_m = float(q_errmodel.linear_m)
+        roll_rad = float(q_errmodel.roll_rad)
+        theta1_rad = float(q_errmodel.theta1_rad)
+        theta2_rad = float(q_errmodel.theta2_rad)
+        if int(self._force_instant_arm_frames) > 0:
+            self.mover.set_4dof_instant(linear_m, roll_rad, theta1_rad, theta2_rad)
+            self._force_instant_arm_frames -= 1
+        else:
+            self.mover.control_4dof(linear_m, roll_rad, theta1_rad, theta2_rad)
+        return self.mover.target_from_4dof(linear_m, roll_rad, theta1_rad, theta2_rad)
 
     def step(self) -> None:
         if self.go2 is not None:
@@ -703,7 +721,8 @@ class SimScene:
         if self.scene is not None:
             self.scene.step()
 
-    def reset_environment(self) -> None:
+    def reset_environment(self, *, mapping_cfg: Optional[proto.SimMappingConfig] = None) -> None:
+        cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
         if self.scene is not None:
             try:
                 self.scene.reset()
@@ -711,9 +730,6 @@ class SimScene:
                 print(f"[sim] scene.reset failed: {exc}")
         if self.go2 is not None:
             self.go2.reset_locomotion()
-        if self.mover is not None:
-            self.mover.set_4dof_instant(0.0, 0.0, 0.0, 0.0)
-            self.mover.set_claw_closed(False)
         for entity in (self.go2_entity, getattr(self.mover, "entity", None) if self.mover is not None else None):
             if entity is None:
                 continue
@@ -721,7 +737,31 @@ class SimScene:
                 entity.zero_all_dofs_velocity()
             except Exception:
                 pass
-        print("[sim] environment reset")
+        if self.mover is not None:
+            self.mover.set_claw_closed(False)
+        start_q = self.apply_spawn_arm_pose(cfg, hold_instant_frames=8)
+        if self.go2 is not None:
+            self.go2.set_arm_q_for_metrics(
+                (
+                    float(start_q.linear_m),
+                    float(start_q.roll_rad),
+                    float(start_q.theta1_rad),
+                    float(start_q.theta2_rad),
+                )
+            )
+        print(
+            "[sim] environment reset | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
+            % (
+                proto.DEFAULT_START_CONTROL_U.u_linear,
+                proto.DEFAULT_START_CONTROL_U.u_roll,
+                proto.DEFAULT_START_CONTROL_U.u_s1,
+                proto.DEFAULT_START_CONTROL_U.u_s2,
+                start_q.linear_m,
+                start_q.roll_rad,
+                start_q.theta1_rad,
+                start_q.theta2_rad,
+            )
+        )
 
     def maybe_publish_camera(
         self,
@@ -1373,6 +1413,9 @@ class HardwareStateCache(StateSource):
     def estimate_q(self) -> Optional[proto.SimQ]:
         return self._last_q
 
+    def seed_estimate_q(self, q: proto.SimQ) -> None:
+        self._last_q = q
+
     def ik_target_xyz(self) -> Optional[np.ndarray]:
         return None if self._last_ik_target_xyz is None else self._last_ik_target_xyz.copy()
 
@@ -1649,6 +1692,10 @@ class HostStateSource(StateSource):
     def estimate_q(self) -> Optional[proto.SimQ]:
         return self._cache.estimate_q()
 
+    def seed_estimate_q(self, q: proto.SimQ) -> None:
+        self._cache.seed_estimate_q(q)
+        self._sub.last_q = q
+
     def ik_target_xyz(self) -> Optional[np.ndarray]:
         return self._cache.ik_target_xyz()
 
@@ -1911,6 +1958,20 @@ class RuntimePrep:
         )
         a.sim_scene.n_nodes = n_nodes
         a.sim_scene.n_seg = n_seg
+        start_q = a.sim_scene.apply_spawn_arm_pose(a._proto_cfg)
+        print(
+            "[runtime] arm spawn pose | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
+            % (
+                proto.DEFAULT_START_CONTROL_U.u_linear,
+                proto.DEFAULT_START_CONTROL_U.u_roll,
+                proto.DEFAULT_START_CONTROL_U.u_s1,
+                proto.DEFAULT_START_CONTROL_U.u_s2,
+                start_q.linear_m,
+                start_q.roll_rad,
+                start_q.theta1_rad,
+                start_q.theta2_rad,
+            )
+        )
 
         if eye_camera is not None:
             eye_camera.bind(ent, hand_eye_path=str(a.cfg.hand_eye_config))
@@ -2034,8 +2095,19 @@ class SimRuntime:
             reset_seq = int(a.state_source.sim_reset_seq())
             if reset_seq > int(self._applied_sim_reset_seq):
                 self._applied_sim_reset_seq = reset_seq
-                a.sim_scene.reset_environment()
-                a.sim_scene.maybe_publish_camera(arm_q=(0.0, 0.0, 0.0, 0.0), max_hz=float(a.cfg.sim_camera_max_hz), force=True)
+                start_q = proto.default_start_sim_q(a._proto_cfg)
+                a.state_source.seed_estimate_q(start_q)
+                a.sim_scene.reset_environment(mapping_cfg=a._proto_cfg)
+                a.sim_scene.maybe_publish_camera(
+                    arm_q=(
+                        float(start_q.linear_m),
+                        float(start_q.roll_rad),
+                        float(start_q.theta1_rad),
+                        float(start_q.theta2_rad),
+                    ),
+                    max_hz=float(a.cfg.sim_camera_max_hz),
+                    force=True,
+                )
 
     def _cleanup(self) -> None:
         a = self.app
@@ -2294,12 +2366,14 @@ class GenesisApp:
         return bool(self.state_source is not None)
 
     def _errmodel_q(self) -> Optional[proto.SimQ]:
+        fallback = proto.default_start_sim_q(self._proto_cfg)
         if self.state_source is None:
-            return None
+            return fallback
         try:
-            return self.state_source.estimate_q()
+            q = self.state_source.estimate_q()
         except Exception:
-            return None
+            q = None
+        return q if q is not None else fallback
 
     def run(self) -> None:
         urdf_path = AssetProcessor(self).prepare_assets()

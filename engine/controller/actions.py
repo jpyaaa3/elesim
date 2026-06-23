@@ -24,7 +24,16 @@ from engine.coordinates.go2_arm_frame import (
 )
 from engine.gaze_stabilizer.config import GazeStabilizerConfig
 from engine.controller.gaze_service import GazeControlService
-from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, linear_motor_u_limit, sim_q_to_control_u
+from engine.protocol import (
+    ControlU,
+    DEFAULT_START_CONTROL_U,
+    SimMappingConfig,
+    SimQ,
+    control_u_to_sim_q,
+    default_start_sim_q,
+    linear_motor_u_limit,
+    sim_q_to_control_u,
+)
 from engine.sag_model import load_sag_model_json
 from engine.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
@@ -9202,9 +9211,16 @@ class ControlService:
         self.stop_gaze_stabilizer()
         self.stop_object_pick()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
-        self.state.reset_q()
+        start_q = default_start_sim_q(self._mapping_cfg)
+        self.state.set_q(
+            float(start_q.linear_m),
+            float(start_q.roll_rad),
+            float(start_q.theta1_rad),
+            float(start_q.theta2_rad),
+        )
         self.state.clear_ik_status()
         self.state.set_pick_status(running=False, failed=False, phase=ObjectPickPhase.IDLE.value, msg="")
         if self.client is not None:
             self.client.send_sim_reset()
+            self.send_current_target(source="sim", force=True)
         print("[ctrl] simulation reset requested")
