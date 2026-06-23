@@ -9,6 +9,7 @@ from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_hardware.obstacles_avoid_api import build_obstacles_avoid_parameter
 from engine.go2_hardware.ros_env import bootstrap_ros_python_path, ros_import_hint
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
+from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.sport_api import (
     API_MOVE,
