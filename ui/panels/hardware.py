@@ -18,7 +18,7 @@ class _EmptyHardwareState:
     motor_currents_ma = {}
 
 
-_CONTROL_LABEL_W = 76.0
+_CONTROL_LABEL_W = 96.0
 _SWITCH_W = 58.0
 _WARN_W = 28.0
 
@@ -36,6 +36,32 @@ def _reserved_text(text: str, *, color: tuple[float, float, float] | None = None
             imgui.text_colored(str(text), float(color[0]), float(color[1]), float(color[2]))
     else:
         imgui.dummy(1.0, float(imgui.get_text_line_height()))
+
+
+def _is_device_reply(reason_key: str) -> bool:
+    return (
+        reason_key == "ports"
+        or "device" in reason_key
+        or "port" in reason_key
+        or reason_key.startswith("failed to open")
+    )
+
+
+def _device_hint(reply_reason: str, *, reply_ok: bool, ports: list[str]) -> tuple[str, bool]:
+    key = str(reply_reason).strip().lower()
+    if not key:
+        return "", False
+    if key == "ports":
+        return ("No serial ports found" if not ports else ""), True
+    if "empty device" in key:
+        return "No devices detected", True
+    if "device disconnected" in key:
+        return "Device disconnected", True
+    if "failed to open device" in key:
+        return str(reply_reason).replace("failed to open device", "Failed to open device", 1), bool(reply_ok)
+    if _is_device_reply(key):
+        return str(reply_reason), bool(reply_ok)
+    return "", False
 
 
 def _switch_button(label: str, enabled: bool, *, width: float = 58.0) -> bool:
@@ -124,12 +150,15 @@ def draw_hardware_panel(panel) -> None:
         reply_reason = str(state.reply_reason or "").strip()
         reply_reason_key = reply_reason.lower()
         is_perception_reason = reply_reason.lower().startswith("perception")
-        port_hint = ""
-        if bool(state.reply_ok) and reply_reason == "ports" and not ports:
-            port_hint = "No serial ports found"
-        if "empty device" in reply_reason_key:
-            port_hint = "No devices detected"
-        _reserved_text(port_hint)
+        device_hint, device_hint_ok = _device_hint(
+            reply_reason,
+            reply_ok=bool(state.reply_ok),
+            ports=ports,
+        )
+        _reserved_text(
+            device_hint,
+            color=None if device_hint_ok else (1.0, 0.35, 0.35),
+        )
 
         _control_label("Apply Port")
         if _switch_button("hardware_port_switch", bool(current_device), width=_SWITCH_W):
@@ -148,9 +177,9 @@ def draw_hardware_panel(panel) -> None:
 
         if reply_reason:
             if bool(state.reply_ok):
-                if reply_reason != "ports" and "empty device" not in reply_reason_key and not is_perception_reason:
+                if not _is_device_reply(reply_reason_key) and not is_perception_reason:
                     imgui.text(f"Host: {reply_reason}")
-            elif "empty device" not in reply_reason_key and not is_perception_reason:
+            elif not _is_device_reply(reply_reason_key) and not is_perception_reason:
                 imgui.text_colored(f"Host: {reply_reason}", 1.0, 0.35, 0.35)
         if str(state.safety_fault).strip():
             imgui.text_colored(f"Safety fault: {state.safety_fault}", 1.0, 0.25, 0.25)

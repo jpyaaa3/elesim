@@ -112,7 +112,8 @@ class ControlPanel:
         try:
             font = fonts.add_font_from_file_ttf(str(font_path), float(FONT_SPEC.content_px))
             if font is not None:
-                io.font_default = font
+                if hasattr(io, "font_default"):
+                    io.font_default = font
                 print(f"[ui] content font: {font_path} ({FONT_SPEC.content_px:.1f}px)")
             header_path = TITLE_FONT
             if header_path.exists():
@@ -143,10 +144,10 @@ class ControlPanel:
                 except Exception:
                     pass
         for attr, value in (
-            ("item_spacing", (8.0, 7.0)),
-            ("frame_padding", (7.0, 4.0)),
-            ("window_padding", (10.0, 10.0)),
-            ("cell_padding", (6.0, 4.0)),
+            ("item_spacing", (8.0, 9.0)),
+            ("frame_padding", (8.0, 5.0)),
+            ("window_padding", (11.0, 12.0)),
+            ("cell_padding", (7.0, 5.0)),
         ):
             if hasattr(style, attr):
                 try:
