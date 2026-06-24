@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import imgui
 
+from ui.helpers import panel_header
 from ui.panels.live_visual_status import draw_gaze_status_compact
 
 
@@ -119,7 +120,7 @@ def draw_go2_panel(panel) -> None:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._go2_header_init_open = True
-    if not imgui.collapsing_header("GO2 Locomotion", visible=True)[0]:
+    if not panel_header("GO2 Locomotion", visible=True)[0]:
         return
 
     width = max(220.0, float(imgui.get_content_region_available_width()))

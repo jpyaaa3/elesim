@@ -4,7 +4,7 @@ import imgui
 import math
 
 import engine.protocol as proto
-from ui.helpers import begin_disabled_ui, end_disabled_ui
+from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header
 
 
 def _draw_offset_editor(panel, *, label: str, draft_attr: str, axis: str) -> None:
@@ -26,7 +26,7 @@ def draw_control_4dof_panel(panel) -> None:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._ctrl_header_init_open = True
-    if not imgui.collapsing_header("4-DOF Controls", visible=True)[0]:
+    if not panel_header("4-DOF Controls", visible=True)[0]:
         return
 
     link_state = panel._host_state if panel._host_state is not None else None

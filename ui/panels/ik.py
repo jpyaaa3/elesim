@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import imgui
 
+from ui.helpers import panel_header
+
 
 def draw_ik_panel(panel) -> None:
     if not panel._ik_header_init_open:
@@ -9,7 +11,7 @@ def draw_ik_panel(panel) -> None:
         imgui.set_next_item_open(True, cond)
         panel._ik_header_init_open = True
 
-    if imgui.collapsing_header("Inverse Kinematics", visible=True)[0]:
+    if panel_header("Inverse Kinematics", visible=True)[0]:
         ret = imgui.input_float3(
             "target [m]",
             panel.state.target_x,

@@ -6,6 +6,7 @@ import imgui
 
 from engine.config_loader import PerceptionConfig, PROJECT_ROOT
 from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
+from ui.helpers import panel_header
 from ui.panels.live_visual_status import draw_live_visual_status
 
 
@@ -86,7 +87,7 @@ def draw_perception_panel(panel) -> None:
         imgui.set_next_item_open(True, cond)
         panel._perception_header_init_open = True
 
-    if not imgui.collapsing_header("Visual Servoing", visible=True)[0]:
+    if not panel_header("Visual Servoing", visible=True)[0]:
         return
 
     draw_live_visual_status(panel)

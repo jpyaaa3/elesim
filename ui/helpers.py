@@ -4,6 +4,15 @@ from typing import Optional
 
 import imgui
 
+from ui.theme import FONT_SPEC
+
+_PANEL_HEADER_FONT = None
+
+
+def set_panel_header_font(font) -> None:
+    global _PANEL_HEADER_FONT
+    _PANEL_HEADER_FONT = font
+
 
 def begin_disabled_ui(disabled: bool) -> Optional[str]:
     if not disabled:
@@ -40,3 +49,23 @@ def end_disabled_ui(token: Optional[str]) -> None:
     pop_item_flag = getattr(imgui, "pop_item_flag", None)
     if callable(pop_item_flag):
         pop_item_flag()
+
+
+def panel_header(label: str, *, visible: bool = True):
+    if _PANEL_HEADER_FONT is not None:
+        try:
+            imgui.push_font(_PANEL_HEADER_FONT)
+            try:
+                return imgui.collapsing_header(label, visible=visible)
+            finally:
+                imgui.pop_font()
+        except Exception:
+            pass
+    set_scale = getattr(imgui, "set_window_font_scale", None)
+    if not callable(set_scale):
+        return imgui.collapsing_header(label, visible=visible)
+    set_scale(float(FONT_SPEC.title_fallback_scale))
+    try:
+        return imgui.collapsing_header(label, visible=visible)
+    finally:
+        set_scale(1.0)
