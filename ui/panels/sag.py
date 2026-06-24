@@ -65,11 +65,3 @@ def draw_sag_panel(panel) -> None:
             except Exception as exc:
                 panel._sag_status_text = f"load failed: {exc}"
                 panel._sag_status_ok = False
-
-        model_path = str(panel.state.sag_model_path or "").strip()
-        if panel._sag_status_text and (not panel._sag_status_ok):
-            imgui.text_colored(panel._sag_status_text, 1.0, 0.35, 0.35)
-        elif model_path:
-            imgui.text_wrapped(f"Model loaded: {model_path}")
-        else:
-            imgui.text("Model not loaded")

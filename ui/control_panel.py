@@ -21,6 +21,7 @@ from .panels import (
     draw_ik_panel,
     draw_perception_panel,
     draw_sag_panel,
+    draw_status_panel,
 )
 
 def _set_style_color(style, name: str, rgba: tuple[float, float, float, float]) -> None:
@@ -65,6 +66,7 @@ class ControlPanel:
         self._ik_header_init_open = False
         self._go2_header_init_open = False
         self._perception_header_init_open = False
+        self._status_header_init_open = False
         self._sag_header_init_open = False
         self._perception_config_path_draft = str(pc.detector_config)
         self._perception_mode_draft = str(pc.mode)
@@ -98,6 +100,7 @@ class ControlPanel:
         self._offset_s1_draft = float(s1_off)
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
+        self._offset_editing = False
         self._go2_was_active = False
         self._go2_obstacles_avoid_enabled = False
 
@@ -144,10 +147,10 @@ class ControlPanel:
                 except Exception:
                     pass
         for attr, value in (
-            ("item_spacing", (8.0, 9.0)),
-            ("frame_padding", (8.0, 5.0)),
-            ("window_padding", (11.0, 12.0)),
-            ("cell_padding", (7.0, 5.0)),
+            ("item_spacing", (8.0, 10.5)),
+            ("frame_padding", (8.0, 6.0)),
+            ("window_padding", (11.0, 13.5)),
+            ("cell_padding", (7.0, 6.0)),
         ):
             if hasattr(style, attr):
                 try:
@@ -209,6 +212,8 @@ class ControlPanel:
         self._stop = True
 
     def sync_offset_drafts(self) -> None:
+        if bool(getattr(self, "_offset_editing", False)):
+            return
         linear_off, roll_off, s1_off, s2_off, rev = self.state.offset_values()
         if int(rev) == int(self._offset_revision_seen):
             return
@@ -251,6 +256,8 @@ class ControlPanel:
                     draw_hardware_panel,
                     draw_control_4dof_panel,
                     draw_go2_panel,
+                    draw_ik_panel,
+                    draw_sag_panel,
                 ),
                 item_width=item_w,
             )
@@ -260,9 +267,8 @@ class ControlPanel:
             right_w = max(300.0, float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
-                    draw_ik_panel,
+                    draw_status_panel,
                     draw_perception_panel,
-                    draw_sag_panel,
                 ),
                 item_width=max(120.0, right_w * 0.45),
             )
@@ -274,8 +280,9 @@ class ControlPanel:
                     draw_control_4dof_panel,
                     draw_go2_panel,
                     draw_ik_panel,
-                    draw_perception_panel,
                     draw_sag_panel,
+                    draw_status_panel,
+                    draw_perception_panel,
                 ),
                 item_width=max(120.0, avail_w * 0.45),
             )

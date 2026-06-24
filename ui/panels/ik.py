@@ -47,14 +47,3 @@ def draw_ik_panel(panel) -> None:
         imgui.same_line()
         if imgui.button("Stop IK"):
             panel.state.clear_ik_status()
-
-        status = "idle"
-        if panel.state.ik_running:
-            status = "running"
-        if panel.state.ik_converged:
-            status = "converged"
-        if panel.state.ik_failed:
-            status = "failed"
-        imgui.text(f"IK status: {status} | err: {panel.state.ik_err_m*1000:.2f} mm")
-        if str(panel.state.ik_status_msg).strip():
-            imgui.text_wrapped(str(panel.state.ik_status_msg))

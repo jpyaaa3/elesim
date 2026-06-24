@@ -1,24 +1,254 @@
 from __future__ import annotations
 
 import imgui
-import math
 
 import engine.protocol as proto
 from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header
 
 
-def _draw_offset_editor(panel, *, label: str, draft_attr: str, axis: str) -> None:
-    imgui.same_line()
-    imgui.text("offset")
-    imgui.same_line()
-    imgui.push_item_width(70.0)
-    changed, new_value = imgui.input_float(f"##{label}_offset", float(getattr(panel, draft_attr)), 0.0, 0.0, format="%.1f")
-    imgui.pop_item_width()
+_CONTROL_LABEL_W = 66.0
+_COMMAND_LABEL_W = 96.0
+_OFFSET_INPUT_W = 62.0
+_ROW_GAP_W = 10.0
+_MIN_SLIDER_W = 132.0
+_OFFSET_BUTTON_W = 118.0
+_SWITCH_W = 58.0
+_WARN_W = 28.0
+
+
+def _push_locked_slider_style() -> int:
+    pushed = 0
+    for color in (
+        (imgui.COLOR_FRAME_BACKGROUND, 0.78, 0.80, 0.83, 1.0),
+        (imgui.COLOR_FRAME_BACKGROUND_HOVERED, 0.78, 0.80, 0.83, 1.0),
+        (imgui.COLOR_FRAME_BACKGROUND_ACTIVE, 0.78, 0.80, 0.83, 1.0),
+        (imgui.COLOR_SLIDER_GRAB, 0.54, 0.56, 0.60, 1.0),
+        (imgui.COLOR_SLIDER_GRAB_ACTIVE, 0.50, 0.52, 0.56, 1.0),
+    ):
+        try:
+            imgui.push_style_color(*color)
+            pushed += 1
+        except Exception:
+            break
+    return pushed
+
+
+def _control_label(text: str) -> None:
+    imgui.text(str(text))
+    imgui.same_line(_COMMAND_LABEL_W)
+
+
+def _switch_button(label: str, enabled: bool, *, width: float = _SWITCH_W, on_text: str = "ON", off_text: str = "OFF") -> bool:
+    text = str(on_text if enabled else off_text)
+    pushed = 0
+    if enabled:
+        colors = (
+            (imgui.COLOR_BUTTON, 0.94, 0.82, 0.42, 1.0),
+            (imgui.COLOR_BUTTON_HOVERED, 1.0, 0.88, 0.48, 1.0),
+            (imgui.COLOR_BUTTON_ACTIVE, 0.88, 0.68, 0.26, 1.0),
+        )
+    else:
+        colors = (
+            (imgui.COLOR_BUTTON, 0.82, 0.84, 0.87, 1.0),
+            (imgui.COLOR_BUTTON_HOVERED, 0.76, 0.79, 0.84, 1.0),
+            (imgui.COLOR_BUTTON_ACTIVE, 0.66, 0.70, 0.76, 1.0),
+        )
+    try:
+        for color in colors:
+            imgui.push_style_color(*color)
+            pushed += 1
+    except Exception:
+        pass
+    try:
+        return bool(imgui.button(f"{text}##{label}", float(width), 0.0))
+    finally:
+        if pushed:
+            imgui.pop_style_color(pushed)
+
+
+def _warn_button(label: str) -> bool:
+    pushed = 0
+    for color in (
+        (imgui.COLOR_BUTTON, 0.93, 0.48, 0.18, 1.0),
+        (imgui.COLOR_BUTTON_HOVERED, 1.0, 0.56, 0.22, 1.0),
+        (imgui.COLOR_BUTTON_ACTIVE, 0.78, 0.34, 0.10, 1.0),
+    ):
+        try:
+            imgui.push_style_color(*color)
+            pushed += 1
+        except Exception:
+            break
+    try:
+        return bool(imgui.button(f"!##{label}", _WARN_W, 0.0))
+    finally:
+        if pushed:
+            imgui.pop_style_color(pushed)
+
+
+def _reload_offset_drafts(panel) -> None:
+    linear_off, roll_off, s1_off, s2_off, rev = panel.state.offset_values()
+    panel._offset_linear_draft = float(linear_off)
+    panel._offset_roll_draft = float(roll_off)
+    panel._offset_s1_draft = float(s1_off)
+    panel._offset_s2_draft = float(s2_off)
+    panel._offset_revision_seen = int(rev)
+
+
+def _apply_offset_drafts(panel) -> None:
+    current_linear, current_roll, current_s1, current_s2, _ = panel.state.offset_values()
+    current = {
+        "linear": float(current_linear),
+        "roll": float(current_roll),
+        "s1": float(current_s1),
+        "s2": float(current_s2),
+    }
+    for axis, draft_attr in (
+        ("linear", "_offset_linear_draft"),
+        ("roll", "_offset_roll_draft"),
+        ("s1", "_offset_s1_draft"),
+        ("s2", "_offset_s2_draft"),
+    ):
+        value = float(getattr(panel, draft_attr))
+        if abs(value - current[axis]) > 1e-9:
+            panel.service.set_display_offset(axis, value)
+
+
+def _draw_offset_input(panel, *, row_id: str, draft_attr: str, editing: bool) -> None:
+    value = float(getattr(panel, draft_attr))
+    if not editing:
+        pushed_colors = 0
+        try:
+            imgui.push_style_color(imgui.COLOR_BUTTON, 0.82, 0.84, 0.87, 1.0)
+            pushed_colors += 1
+            imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 0.82, 0.84, 0.87, 1.0)
+            pushed_colors += 1
+            imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, 0.82, 0.84, 0.87, 1.0)
+            pushed_colors += 1
+            imgui.push_style_color(imgui.COLOR_TEXT, 0.42, 0.44, 0.48, 1.0)
+            pushed_colors += 1
+        except Exception:
+            pass
+        disable_token = begin_disabled_ui(True)
+        try:
+            imgui.button(f"{value:.1f}##{row_id}_offset_disabled", _OFFSET_INPUT_W, 0.0)
+        finally:
+            end_disabled_ui(disable_token)
+            if pushed_colors:
+                imgui.pop_style_color(pushed_colors)
+        return
+
+    imgui.push_item_width(_OFFSET_INPUT_W)
+    try:
+        changed, new_value = imgui.input_float(
+            f"##{row_id}_offset",
+            value,
+            0.0,
+            0.0,
+            format="%.1f",
+        )
+    finally:
+        imgui.pop_item_width()
     if changed:
         setattr(panel, draft_attr, float(new_value))
+
+
+def _draw_control_row(
+    panel,
+    *,
+    label: str,
+    row_id: str,
+    value: float,
+    min_value: float,
+    max_value: float,
+    draft_attr: str,
+    sliders_locked: bool,
+    editing_offsets: bool,
+) -> tuple[bool, float]:
+    avail_w = max(1.0, float(imgui.get_content_region_available_width()))
+    slider_w = max(
+        _MIN_SLIDER_W,
+        avail_w - _CONTROL_LABEL_W - _OFFSET_INPUT_W - _ROW_GAP_W,
+    )
+    input_x = _CONTROL_LABEL_W + slider_w + _ROW_GAP_W
+
+    imgui.text(str(label))
+    imgui.same_line(_CONTROL_LABEL_W)
+    disable_token = begin_disabled_ui(sliders_locked)
+    pushed_slider_colors = _push_locked_slider_style() if sliders_locked else 0
+    imgui.push_item_width(slider_w)
+    try:
+        changed, new_value = imgui.slider_float(
+            f"##{row_id}_slider",
+            float(value),
+            float(min_value),
+            float(max_value),
+            format="%.1f",
+        )
+    finally:
+        imgui.pop_item_width()
+        if pushed_slider_colors:
+            imgui.pop_style_color(pushed_slider_colors)
+        end_disabled_ui(disable_token)
+
+    imgui.same_line(input_x)
+    _draw_offset_input(
+        panel,
+        row_id=row_id,
+        draft_attr=draft_attr,
+        editing=bool(editing_offsets),
+    )
+    return bool(changed), float(new_value)
+
+
+def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
+    row_x = float(imgui.get_cursor_pos_x())
+    row_w = max(1.0, float(imgui.get_content_region_available_width()))
+    _, paused = imgui.checkbox("Lock", bool(panel.state.paused))
+    panel.state.set_paused(bool(paused))
+
+    button_x = row_x + row_w - _OFFSET_BUTTON_W
+    current_x = float(imgui.get_cursor_pos_x())
+    if button_x > current_x:
+        imgui.same_line(button_x)
+    else:
+        imgui.same_line()
+    if editing_offsets:
+        if imgui.button("Apply Offset", _OFFSET_BUTTON_W, 0.0):
+            _apply_offset_drafts(panel)
+            panel._offset_editing = False
+            panel.sync_offset_drafts()
+    else:
+        if imgui.button("Change Offset", _OFFSET_BUTTON_W, 0.0):
+            _reload_offset_drafts(panel)
+            panel._offset_editing = True
+
+
+def _draw_gripper_row(panel) -> None:
+    _control_label("Gripper")
+    claw_closed = bool(panel.state.claw_closed)
+    if _switch_button(
+        "gripper_close_switch",
+        claw_closed,
+        width=_SWITCH_W,
+        on_text="CLOSE",
+        off_text="OPEN",
+    ):
+        next_closed = not claw_closed
+        panel.state.set_claw_closed(next_closed)
+        panel.service.send_claw_command(closed=next_closed)
     imgui.same_line()
-    if imgui.button(f"Apply##{label}_offset_apply"):
-        panel.service.set_display_offset(axis, float(getattr(panel, draft_attr)))
+    if _warn_button("gripper_open_abort"):
+        panel.state.set_claw_closed(False)
+        panel.service.send_claw_command(closed=False)
+
+
+def _draw_preset_row(panel) -> None:
+    _control_label("Preset")
+    if imgui.button("Home", _SWITCH_W, 0.0):
+        panel.service.home_controls()
+    imgui.same_line()
+    if imgui.button("Extend Arm"):
+        panel.service.extend_arm_controls()
 
 
 def draw_control_4dof_panel(panel) -> None:
@@ -37,52 +267,71 @@ def draw_control_4dof_panel(panel) -> None:
         and panel.service.has_client()
         and link_state is not None
     )
+    slider_lock_paused = bool(panel.state.paused)
     sliders_locked = bool(
-        panel._use_hardware
-        and (
-            (not panel.service.has_client())
-            or link_state is None
-            or (not bool(link_state.torque_enabled) and not torque_lock_bypass)
+        slider_lock_paused
+        or (
+            panel._use_hardware
+            and (
+                (not panel.service.has_client())
+                or link_state is None
+                or (not bool(link_state.torque_enabled) and not torque_lock_bypass)
+            )
         )
     )
     u_now = panel.service.current_control_u()
     cfg = panel.service.control_mapping()
+    editing_offsets = bool(getattr(panel, "_offset_editing", False))
 
-    disable_token = begin_disabled_ui(sliders_locked)
-    changed_linear, u_linear = imgui.slider_float(
-        "linear |", float(u_now.u_linear),
-        float(cfg.linear_u_min), float(proto.linear_motor_u_limit(cfg)),
-        format="%.1f"
+    changed_linear, u_linear = _draw_control_row(
+        panel,
+        label="Linear",
+        row_id="linear",
+        value=float(u_now.u_linear),
+        min_value=float(cfg.linear_u_min),
+        max_value=float(proto.linear_motor_u_limit(cfg)),
+        draft_attr="_offset_linear_draft",
+        sliders_locked=sliders_locked,
+        editing_offsets=editing_offsets,
     )
-    end_disabled_ui(disable_token)
-    _draw_offset_editor(panel, label="linear", draft_attr="_offset_linear_draft", axis="linear")
 
-    disable_token = begin_disabled_ui(sliders_locked)
-    changed_rdeg, u_roll = imgui.slider_float(
-        "roll   |", float(u_now.u_roll),
-        float(cfg.roll_u_min), float(cfg.roll_u_max),
-        format="%.1f"
+    changed_rdeg, u_roll = _draw_control_row(
+        panel,
+        label="Roll",
+        row_id="roll",
+        value=float(u_now.u_roll),
+        min_value=float(cfg.roll_u_min),
+        max_value=float(cfg.roll_u_max),
+        draft_attr="_offset_roll_draft",
+        sliders_locked=sliders_locked,
+        editing_offsets=editing_offsets,
     )
-    end_disabled_ui(disable_token)
-    _draw_offset_editor(panel, label="roll", draft_attr="_offset_roll_draft", axis="roll")
 
-    disable_token = begin_disabled_ui(sliders_locked)
-    changed_s1, u_s1 = imgui.slider_float(
-        "seg1   |", float(u_now.u_s1),
-        float(cfg.seg_u_min), float(cfg.seg_u_max),
-        format="%.1f"
+    changed_s1, u_s1 = _draw_control_row(
+        panel,
+        label="Seg1",
+        row_id="s1",
+        value=float(u_now.u_s1),
+        min_value=float(cfg.seg_u_min),
+        max_value=float(cfg.seg_u_max),
+        draft_attr="_offset_s1_draft",
+        sliders_locked=sliders_locked,
+        editing_offsets=editing_offsets,
     )
-    end_disabled_ui(disable_token)
-    _draw_offset_editor(panel, label="s1", draft_attr="_offset_s1_draft", axis="s1")
 
-    disable_token = begin_disabled_ui(sliders_locked)
-    changed_s2, u_s2 = imgui.slider_float(
-        "seg2   |", float(u_now.u_s2),
-        float(cfg.seg_u_min), float(cfg.seg_u_max),
-        format="%.1f"
+    changed_s2, u_s2 = _draw_control_row(
+        panel,
+        label="Seg2",
+        row_id="s2",
+        value=float(u_now.u_s2),
+        min_value=float(cfg.seg_u_min),
+        max_value=float(cfg.seg_u_max),
+        draft_attr="_offset_s2_draft",
+        sliders_locked=sliders_locked,
+        editing_offsets=editing_offsets,
     )
-    end_disabled_ui(disable_token)
-    _draw_offset_editor(panel, label="s2", draft_attr="_offset_s2_draft", axis="s2")
+
+    _draw_lock_and_offset_row(panel, editing_offsets=editing_offsets)
 
     changed_any = bool((not sliders_locked) and (changed_linear or changed_rdeg or changed_s1 or changed_s2))
     if panel.state.ik_running and changed_any:
@@ -98,44 +347,5 @@ def draw_control_4dof_panel(panel) -> None:
         if changed_s2:
             partial_u["s2"] = float(u_s2)
         panel.service.apply_partial_control_u(partial_u)
-    if sliders_locked:
-        imgui.text("Sliders locked until Torque On")
-    elif torque_lock_bypass and link_state is not None and not bool(link_state.torque_enabled):
-        imgui.text("Torque lock bypass active after Apply Port")
-
-    tip_xyz = link_state.actual_tip_xyz if link_state is not None else None
-    if tip_xyz is None:
-        imgui.text("Tip xyz [m]: unavailable")
-    else:
-        imgui.text(
-            "Tip xyz [m]: (%.3f, %.3f, %.3f)"
-            % (float(tip_xyz[0]), float(tip_xyz[1]), float(tip_xyz[2]))
-        )
-    tip_dir = link_state.actual_tip_dir if link_state is not None else None
-    if tip_dir is None:
-        imgui.text("Tip dir: unavailable")
-    else:
-        dx, dy, dz = float(tip_dir[0]), float(tip_dir[1]), float(tip_dir[2])
-        norm = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if norm <= 1e-9:
-            imgui.text("Tip dir: unavailable")
-        else:
-            imgui.text(
-                "Tip dir: (%.3f, %.3f, %.3f)"
-                % (dx / norm, dy / norm, dz / norm)
-            )
-
-    if imgui.button("Open Gripper"):
-        panel.state.set_claw_closed(False)
-        panel.service.send_claw_command(closed=False)
-    imgui.same_line()
-    if imgui.button("Close Gripper"):
-        panel.state.set_claw_closed(True)
-        panel.service.send_claw_command(closed=True)
-    if imgui.button("Home"):
-        panel.service.home_controls()
-    imgui.same_line()
-    if imgui.button("Extend Arm"):
-        panel.service.extend_arm_controls()
-    _, paused = imgui.checkbox("Lock", panel.state.paused)
-    panel.state.set_paused(bool(paused))
+    _draw_gripper_row(panel)
+    _draw_preset_row(panel)

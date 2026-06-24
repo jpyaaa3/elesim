@@ -3,7 +3,6 @@ from __future__ import annotations
 import imgui
 
 from ui.helpers import panel_header
-from ui.panels.live_visual_status import draw_gaze_status_compact
 
 
 _PAD_H = 34.0
@@ -22,22 +21,6 @@ def _hold_button(label: str, width: float, height: float = _PAD_H) -> bool:
 def _stop_go2(panel) -> None:
     panel.service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
     panel._go2_was_active = False
-
-
-def _draw_status(panel) -> None:
-    host_vel = (0.0, 0.0, 0.0)
-    if panel._host_state is not None:
-        host_vel = tuple(float(v) for v in panel._host_state.go2_vel)
-    moving = any(abs(v) > 1e-3 for v in host_vel)
-    if moving:
-        imgui.text_colored("GO2 moving", 0.25, 0.85, 0.35)
-    else:
-        imgui.text_colored("GO2 idle", 0.65, 0.65, 0.65)
-    imgui.same_line()
-    imgui.text(
-        "vx=%+.2f  vy=%+.2f  wz=%+.2f"
-        % (float(host_vel[0]), float(host_vel[1]), float(host_vel[2]))
-    )
 
 
 def _draw_teleop_pad(panel, width: float) -> bool:
@@ -124,8 +107,6 @@ def draw_go2_panel(panel) -> None:
         return
 
     width = max(220.0, float(imgui.get_content_region_available_width()))
-    _draw_status(panel)
-    imgui.separator()
     _draw_teleop_pad(panel, width)
 
     imgui.separator()
@@ -152,7 +133,6 @@ def draw_go2_panel(panel) -> None:
         imgui.same_line()
         if _button("Stop Gaze##go2_stop_gaze", 96.0):
             panel.service.stop_gaze_stabilizer()
-        draw_gaze_status_compact(panel)
         if _button("Demo 4: Stop + Grasp##go2_demo4", 176.0):
             panel.service.start_demo4_stop_and_grasp()
         imgui.tree_pop()

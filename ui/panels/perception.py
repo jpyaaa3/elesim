@@ -7,7 +7,6 @@ import imgui
 from engine.config_loader import PerceptionConfig, PROJECT_ROOT
 from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
 from ui.helpers import panel_header
-from ui.panels.live_visual_status import draw_live_visual_status
 
 
 def _draw_mock_object_editor(panel) -> None:
@@ -89,8 +88,6 @@ def draw_perception_panel(panel) -> None:
 
     if not panel_header("Visual Servoing", visible=True)[0]:
         return
-
-    draw_live_visual_status(panel)
 
     run_local = bool(getattr(panel, "_perception_run_local", True))
     if not run_local:
@@ -196,11 +193,7 @@ def draw_perception_panel(panel) -> None:
             if imgui.button("Refresh"):
                 panel.service.refresh_perception_capture()
     else:
-        imgui.text("Perception capture: Jetson worker (see Live Status host relay)")
-
-    last_capture = str(getattr(panel.state, "perception_last_capture_path", "") or "").strip()
-    if last_capture:
-        imgui.text_wrapped(f"last save: {last_capture}")
+        imgui.text("Perception capture: Jetson worker (see Status host relay)")
 
     imgui.separator()
     imgui.text("Look / Aim / Grasp (UV centering + equal-sag + object IK)")
@@ -274,55 +267,3 @@ def draw_perception_panel(panel) -> None:
             if imgui.button("Pick forward"):
                 panel.service.start_pick_forward(distance_m=0.15)
             imgui.tree_pop()
-
-    pick_phase = str(panel.state.pick_phase) or "idle"
-    pick_status = "running" if pick_running else "idle"
-    if panel.state.pick_failed:
-        pick_status = "failed"
-    imgui.text(f"Pick: {pick_status} | phase: {pick_phase}")
-    if str(panel.state.pick_status_msg).strip():
-        imgui.text_wrapped(str(panel.state.pick_status_msg))
-
-    imgui.separator()
-    status = "idle"
-    if panel.state.perception_running:
-        status = "running"
-    if panel.state.perception_failed:
-        status = "failed"
-    imgui.text(
-        "Status: %s | frame: %d | tracker: %s | track_ok: %d"
-        % (
-            status,
-            int(panel.state.perception_frame_idx),
-            str(panel.state.perception_tracker_phase),
-            int(panel.state.perception_track_ok_frames),
-        )
-    )
-    bw = panel.state.perception_bbox_wh
-    imgui.text(
-        "Scale: %.3f | bbox: %dx%d px | backend: %s"
-        % (
-            float(panel.state.perception_image_scale),
-            int(bw[0]),
-            int(bw[1]),
-            str(panel.state.perception_tracker_backend) or "—",
-        )
-    )
-    if str(panel.state.perception_status_msg).strip():
-        imgui.text_wrapped(str(panel.state.perception_status_msg))
-
-    label = str(panel.state.perception_label) or "(none)"
-    imgui.text(f"Detection: {label} | conf: {float(panel.state.perception_confidence):.2f}")
-    cuv = panel.state.perception_center_uv
-    cuv_str = f"({cuv[0]:+.3f}, {cuv[1]:+.3f})" if cuv is not None else "—"
-    imgui.text(f"Center UV: {cuv_str}")
-    if panel.state.perception_camera_xyz is not None:
-        p = panel.state.perception_camera_xyz
-        imgui.text(f"Camera XYZ [m]: ({p[0]:+.3f}, {p[1]:+.3f}, {p[2]:+.3f})")
-    else:
-        imgui.text("Camera XYZ [m]: —")
-    if panel.state.perception_world_xyz is not None:
-        p = panel.state.perception_world_xyz
-        imgui.text(f"World XYZ [m]: ({p[0]:+.3f}, {p[1]:+.3f}, {p[2]:+.3f})")
-    else:
-        imgui.text("World XYZ [m]: —")
