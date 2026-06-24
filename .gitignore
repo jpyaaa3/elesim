@@ -31,3 +31,6 @@ elesim_wip_save.txt
 
 # Local helper scripts.
 u
+
+# Local backups of heavy GO2 source meshes.
+assets/go2_original_*/

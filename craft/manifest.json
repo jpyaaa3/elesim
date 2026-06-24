@@ -384,9 +384,9 @@
       },
       "pose_root": {
         "p": [
-          0.5279999999999999,
-          -0.012000000000000004,
-          0.155
+          0.5469999999999999,
+          -0.03787,
+          0.16546
         ],
         "q": [
           0.5,
@@ -410,15 +410,41 @@
       },
       "pose_root": {
         "p": [
-          0.5279999999999999,
-          -0.012000000000000004,
-          0.155
+          0.5469999999999999,
+          0.013869999999999997,
+          0.16546
         ],
         "q": [
           0.5,
           -0.5,
           0.5,
           0.5
+        ]
+      }
+    },
+    {
+      "name": "camera",
+      "kind": "camera",
+      "assets": {
+        "mesh": "../assets/camera/camera_mesh.obj",
+        "frame": "../assets/camera/camera_frame.json",
+        "physics": "../assets/camera/camera_physics.json"
+      },
+      "flags": {
+        "control_mode": "fixed",
+        "collision_enabled": false
+      },
+      "pose_root": {
+        "p": [
+          0.5329499999999999,
+          -0.012000000000000004,
+          0.13
+        ],
+        "q": [
+          0.5,
+          -0.5,
+          0.5,
+          -0.5
         ]
       }
     }
@@ -687,6 +713,23 @@
         0.0,
         0.02
       ]
+    },
+    {
+      "name": "j_gripper_base_camera",
+      "type": "fixed",
+      "parent": "gripper_base",
+      "child": "camera",
+      "anchor_root": [
+        0.5279999999999999,
+        -0.012000000000000004,
+        0.155
+      ],
+      "axis_root": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "limit_deg": null
     }
   ]
 }

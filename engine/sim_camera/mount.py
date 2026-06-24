@@ -124,34 +124,45 @@ class Node9EyeInHandCamera:
         *,
         arm_q: Optional[tuple[float, float, float, float]] = None,
         ts: Optional[float] = None,
+        rgb_enabled: bool = True,
+        depth_enabled: bool = True,
     ) -> SimCameraFrame:
         import time
 
-        rgb, depth, _, _ = self.camera.render(rgb=True, depth=True)
-        if hasattr(rgb, "cpu"):
-            rgb = rgb.cpu().numpy()
-        if hasattr(depth, "cpu"):
-            depth = depth.cpu().numpy()
-        rgb_np = np.asarray(rgb)
-        if rgb_np.dtype != np.uint8:
-            rgb_f = rgb_np.astype(np.float32, copy=False)
-            if float(np.nanmax(rgb_f)) <= 1.0:
-                rgb_np = np.clip(rgb_f * 255.0, 0.0, 255.0).astype(np.uint8)
-            else:
-                rgb_np = np.clip(rgb_f, 0.0, 255.0).astype(np.uint8)
-        if rgb_np.ndim == 3 and rgb_np.shape[-1] >= 3:
-            color_bgr = np.ascontiguousarray(rgb_np[..., :3][:, :, ::-1], dtype=np.uint8)
-        else:
-            color_bgr = np.ascontiguousarray(rgb_np, dtype=np.uint8)
-
-        depth_np = np.asarray(depth, dtype=float)
-        if depth_np.ndim == 3:
-            depth_np = depth_np[..., 0]
-        depth_m = np.nan_to_num(depth_np, nan=0.0, posinf=0.0, neginf=0.0)
-        depth_mm = np.clip(depth_m * 1000.0, 0.0, 65535.0).astype(np.uint16)
-
         target_w = int(self.intrinsics.width)
         target_h = int(self.intrinsics.height)
+        rgb = depth = None
+        if bool(rgb_enabled) or bool(depth_enabled):
+            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+
+        if bool(rgb_enabled) and rgb is not None:
+            if hasattr(rgb, "cpu"):
+                rgb = rgb.cpu().numpy()
+            rgb_np = np.asarray(rgb)
+            if rgb_np.dtype != np.uint8:
+                rgb_f = rgb_np.astype(np.float32, copy=False)
+                if float(np.nanmax(rgb_f)) <= 1.0:
+                    rgb_np = np.clip(rgb_f * 255.0, 0.0, 255.0).astype(np.uint8)
+                else:
+                    rgb_np = np.clip(rgb_f, 0.0, 255.0).astype(np.uint8)
+            if rgb_np.ndim == 3 and rgb_np.shape[-1] >= 3:
+                color_bgr = np.ascontiguousarray(rgb_np[..., :3][:, :, ::-1], dtype=np.uint8)
+            else:
+                color_bgr = np.ascontiguousarray(rgb_np, dtype=np.uint8)
+        else:
+            color_bgr = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+
+        if bool(depth_enabled) and depth is not None:
+            if hasattr(depth, "cpu"):
+                depth = depth.cpu().numpy()
+            depth_np = np.asarray(depth, dtype=float)
+            if depth_np.ndim == 3:
+                depth_np = depth_np[..., 0]
+            depth_m = np.nan_to_num(depth_np, nan=0.0, posinf=0.0, neginf=0.0)
+            depth_mm = np.clip(depth_m * 1000.0, 0.0, 65535.0).astype(np.uint16)
+        else:
+            depth_mm = np.zeros((target_h, target_w), dtype=np.uint16)
+
         if color_bgr.shape[0] != target_h or color_bgr.shape[1] != target_w:
             import cv2
 

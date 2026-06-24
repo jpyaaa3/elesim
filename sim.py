@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 from pathlib import Path
@@ -63,7 +64,27 @@ def _to_numpy_1d(raw) -> np.ndarray:
 
 
 class PerfLogger:
-    def __init__(self, *, enabled: bool, interval_s: float = 2.0) -> None:
+    _FIELDS = (
+        "wall_time_s",
+        "samples",
+        "fps",
+        "loop_avg_ms",
+        "loop_max_ms",
+        "poll_avg_ms",
+        "poll_max_ms",
+        "go2_avg_ms",
+        "go2_max_ms",
+        "markers_avg_ms",
+        "markers_max_ms",
+        "feedback_avg_ms",
+        "feedback_max_ms",
+        "physics_avg_ms",
+        "physics_max_ms",
+        "camera_avg_ms",
+        "camera_max_ms",
+    )
+
+    def __init__(self, *, enabled: bool, interval_s: float = 2.0, log_path: str = "") -> None:
         self.enabled = bool(enabled)
         self.interval_s = max(0.25, float(interval_s))
         self._last_report_t = time.perf_counter()
@@ -71,6 +92,29 @@ class PerfLogger:
         self._sum: dict[str, float] = {}
         self._max: dict[str, float] = {}
         self._t0 = self._last_report_t
+        self._started_wall = time.time()
+        self._log_file = None
+        self._writer: Optional[csv.DictWriter] = None
+        if self.enabled:
+            path = self._resolve_log_path(log_path)
+            if path:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._log_file = open(path, "w", newline="", encoding="utf-8")
+                self._writer = csv.DictWriter(self._log_file, fieldnames=list(self._FIELDS))
+                self._writer.writeheader()
+                print(f"[perf] logging to {path}")
+
+    @staticmethod
+    def _resolve_log_path(raw: str) -> Optional[Path]:
+        value = str(raw or "").strip()
+        if not value:
+            stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
+            return Path("logs") / "perf" / stamp
+        path = Path(value).expanduser()
+        if path.is_dir() or value.endswith(("/", os.sep)):
+            stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
+            path = path / stamp
+        return path
 
     def reset_loop(self) -> None:
         if self.enabled:
@@ -96,18 +140,34 @@ class PerfLogger:
             return
         count = max(1, self._count)
         fps = count / max(1e-9, elapsed)
+        row = {
+            "wall_time_s": time.time() - self._started_wall,
+            "samples": count,
+            "fps": fps,
+        }
         parts = [f"fps={fps:.1f}"]
         for name in ("loop", "poll", "go2", "markers", "feedback", "physics", "camera"):
+            avg_ms = 1000.0 * self._sum.get(name, 0.0) / count
+            max_ms = 1000.0 * self._max.get(name, 0.0)
+            row[f"{name}_avg_ms"] = avg_ms
+            row[f"{name}_max_ms"] = max_ms
             if name not in self._sum:
                 continue
-            avg_ms = 1000.0 * self._sum[name] / count
-            max_ms = 1000.0 * self._max.get(name, 0.0)
             parts.append(f"{name}={avg_ms:.2f}/{max_ms:.2f}ms")
         print("[perf] " + " ".join(parts))
+        if self._writer is not None:
+            self._writer.writerow(row)
+            if self._log_file is not None:
+                self._log_file.flush()
         self._last_report_t = now
         self._count = 0
         self._sum.clear()
         self._max.clear()
+
+    def close(self) -> None:
+        if self._log_file is not None:
+            self._log_file.close()
+            self._log_file = None
 
 
 def _as_single_dof_index(raw_idx) -> int:
@@ -772,6 +832,8 @@ class SimScene:
         arm_q: Optional[tuple[float, float, float, float]],
         max_hz: float,
         force: bool = False,
+        rgb_enabled: bool = True,
+        depth_enabled: bool = True,
     ) -> None:
         if self.eye_camera is None or self.camera_publisher is None:
             return
@@ -782,7 +844,12 @@ class SimScene:
         if not force and (now - float(self._last_camera_publish_t)) < period:
             return
         try:
-            frame = self.eye_camera.capture(arm_q=arm_q, ts=now)
+            frame = self.eye_camera.capture(
+                arm_q=arm_q,
+                ts=now,
+                rgb_enabled=bool(rgb_enabled),
+                depth_enabled=bool(depth_enabled),
+            )
             if self.camera_publisher.publish(frame):
                 self._last_camera_publish_t = now
         except Exception as exc:
@@ -1961,6 +2028,7 @@ class RuntimePrep:
             a.sim_scene.camera_publisher = SimCameraPublisher(
                 str(a.cfg.sim_camera_port),
                 use_jpeg=bool(a.cfg.sim_camera_jpeg),
+                jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
             )
 
     def _spawn_perception_target(self) -> None:
@@ -2075,7 +2143,13 @@ class SimRuntime:
             if reset_seq > int(self._applied_sim_reset_seq):
                 self._applied_sim_reset_seq = reset_seq
                 a.sim_scene.reset_environment()
-                a.sim_scene.maybe_publish_camera(arm_q=(0.0, 0.0, 0.0, 0.0), max_hz=float(a.cfg.sim_camera_max_hz), force=True)
+                a.sim_scene.maybe_publish_camera(
+                    arm_q=(0.0, 0.0, 0.0, 0.0),
+                    max_hz=float(a.cfg.sim_camera_max_hz),
+                    force=True,
+                    rgb_enabled=bool(a.cfg.sim_camera_rgb),
+                    depth_enabled=bool(a.cfg.sim_camera_depth),
+                )
 
     def _cleanup(self) -> None:
         a = self.app
@@ -2095,6 +2169,7 @@ class SimRuntime:
         perf = PerfLogger(
             enabled=bool(getattr(a.cfg, "perf_log_enable", False)),
             interval_s=float(getattr(a.cfg, "perf_log_interval_s", 2.0)),
+            log_path=str(getattr(a.cfg, "perf_log_path", "")),
         )
 
         try:
@@ -2268,12 +2343,15 @@ class SimRuntime:
                 a.sim_scene.maybe_publish_camera(
                     arm_q=arm_q,
                     max_hz=float(a.cfg.sim_camera_max_hz),
+                    rgb_enabled=bool(a.cfg.sim_camera_rgb),
+                    depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
                 perf.section("camera", t_sec)
                 perf.report_if_due()
         except KeyboardInterrupt:
             pass
         finally:
+            perf.close()
             self._cleanup()
 
 
@@ -2369,9 +2447,13 @@ def main() -> None:
     )
     ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
+    ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
     ap.add_argument("--no-viewer", action="store_true", help="disable Genesis viewer for profiling/headless runs")
     ap.add_argument("--no-sim-camera", action="store_true", help="disable simulated RGB-D camera")
     ap.add_argument("--sim-camera-hz", type=float, default=None, help="override simulated camera publish rate")
+    ap.add_argument("--sim-camera-rgb", action=argparse.BooleanOptionalAction, default=None, help="enable/disable simulated camera RGB rendering")
+    ap.add_argument("--sim-camera-depth", action=argparse.BooleanOptionalAction, default=None, help="enable/disable simulated camera depth rendering")
+    ap.add_argument("--sim-camera-jpeg-quality", type=int, default=None, help="override simulated camera JPEG quality")
     ap.add_argument(
         "--sim-camera-size",
         default=None,
@@ -2384,15 +2466,16 @@ def main() -> None:
     bundle = load_app_config_from_ini(args.config)
     sim_cfg = bundle.sim_config
     spawn_cfg = bundle.spawn_config
-    if args.perf_log or args.perf_interval is not None:
+    if args.perf_log or args.perf_interval is not None or args.perf_log_file is not None:
         sim_cfg = replace(
             sim_cfg,
-            perf_log_enable=True if args.perf_log else bool(sim_cfg.perf_log_enable),
+            perf_log_enable=True if args.perf_log or args.perf_log_file is not None else bool(sim_cfg.perf_log_enable),
             perf_log_interval_s=(
                 float(args.perf_interval)
                 if args.perf_interval is not None
                 else float(sim_cfg.perf_log_interval_s)
             ),
+            perf_log_path=str(args.perf_log_file) if args.perf_log_file is not None else str(sim_cfg.perf_log_path),
         )
     if args.no_viewer:
         sim_cfg = replace(sim_cfg, enable_viewer=False)
@@ -2400,12 +2483,23 @@ def main() -> None:
         sim_cfg = replace(sim_cfg, sim_camera_enable=False)
     if args.sim_camera_hz is not None:
         sim_cfg = replace(sim_cfg, sim_camera_max_hz=max(1.0, float(args.sim_camera_hz)))
+    if args.sim_camera_rgb is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_rgb=bool(args.sim_camera_rgb))
+    if args.sim_camera_depth is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_depth=bool(args.sim_camera_depth))
+    if args.sim_camera_jpeg_quality is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_jpeg_quality=max(1, min(100, int(args.sim_camera_jpeg_quality))))
     if args.sim_camera_size:
         try:
             raw_w, raw_h = str(args.sim_camera_size).lower().split("x", 1)
             sim_cfg = replace(sim_cfg, sim_camera_width=max(1, int(raw_w)), sim_camera_height=max(1, int(raw_h)))
         except Exception as exc:
             raise SystemExit(f"invalid --sim-camera-size {args.sim_camera_size!r}; expected WIDTHxHEIGHT") from exc
+    perception_mode = str(bundle.perception_config.mode).strip().lower()
+    if bool(sim_cfg.sim_camera_auto_disable_unused) and perception_mode not in ("sim", "sim_rendered"):
+        if bool(sim_cfg.sim_camera_enable):
+            print(f"[sim_camera] disabled: perception.mode={perception_mode!r} does not consume sim camera")
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
     if args.no_debug_markers:
         spawn_cfg = replace(spawn_cfg, draw_debug_markers=False)
     app = GenesisApp(

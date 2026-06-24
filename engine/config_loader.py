@@ -63,12 +63,17 @@ class SimConfig:
     sim_camera_enable: bool = True
     sim_camera_port: str = "tcp://127.0.0.1:5568"
     sim_camera_jpeg: bool = True
+    sim_camera_jpeg_quality: int = 85
+    sim_camera_rgb: bool = True
+    sim_camera_depth: bool = True
+    sim_camera_auto_disable_unused: bool = False
     sim_camera_max_hz: float = 30.0
     sim_camera_width: int = 640
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0
+    perf_log_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -1197,12 +1202,21 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         sim_camera_enable=cp.getboolean("runtime", "sim_camera_enable", fallback=sc0.sim_camera_enable),
         sim_camera_port=cp.get("runtime", "sim_camera_port", fallback=sc0.sim_camera_port),
         sim_camera_jpeg=cp.getboolean("runtime", "sim_camera_jpeg", fallback=sc0.sim_camera_jpeg),
+        sim_camera_jpeg_quality=cp.getint("runtime", "sim_camera_jpeg_quality", fallback=sc0.sim_camera_jpeg_quality),
+        sim_camera_rgb=cp.getboolean("runtime", "sim_camera_rgb", fallback=sc0.sim_camera_rgb),
+        sim_camera_depth=cp.getboolean("runtime", "sim_camera_depth", fallback=sc0.sim_camera_depth),
+        sim_camera_auto_disable_unused=cp.getboolean(
+            "runtime",
+            "sim_camera_auto_disable_unused",
+            fallback=sc0.sim_camera_auto_disable_unused,
+        ),
         sim_camera_max_hz=cp.getfloat("runtime", "sim_camera_max_hz", fallback=sc0.sim_camera_max_hz),
         sim_camera_width=cp.getint("runtime", "sim_camera_width", fallback=sc0.sim_camera_width),
         sim_camera_height=cp.getint("runtime", "sim_camera_height", fallback=sc0.sim_camera_height),
         sim_camera_fov_deg=cp.getfloat("runtime", "sim_camera_fov_deg", fallback=sc0.sim_camera_fov_deg),
         perf_log_enable=cp.getboolean("runtime", "perf_log_enable", fallback=sc0.perf_log_enable),
         perf_log_interval_s=cp.getfloat("runtime", "perf_log_interval_s", fallback=sc0.perf_log_interval_s),
+        perf_log_path=cp.get("runtime", "perf_log_path", fallback=sc0.perf_log_path),
     )
 
 
