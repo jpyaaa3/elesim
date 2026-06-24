@@ -1021,7 +1021,7 @@
   <joint name="j_housing_wedge" type="revolute">
     <parent link="housing" />
     <child link="wedge" />
-    <origin xyz="0 0 0.128" rpy="0 0 0" />
+    <origin xyz="0 0 0.155" rpy="0 0 0" />
     <axis xyz="1 0 0" />
     <limit lower="0" upper="0" effort="200" velocity="3" />
     <dynamics damping="0.12" friction="0.06" />

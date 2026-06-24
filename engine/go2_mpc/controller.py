@@ -45,6 +45,8 @@ _TAU_LIM = np.array(
 
 def _require_convex_mpc():
     try:
+        import casadi as ca
+        import convex_mpc.centroidal_mpc as centroidal_mpc
         import convex_mpc.go2_robot_data as go2_robot_data
         from convex_mpc.centroidal_mpc import CentroidalMPC
         from convex_mpc.com_trajectory import ComTraj
@@ -62,6 +64,19 @@ def _require_convex_mpc():
     if go2_urdf.exists():
         go2_robot_data.URDF_PATH = go2_urdf
         go2_robot_data.PACKAGE_DIRS = go2_asset_dir
+    if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):
+        for solver_name, solver_opts in (
+            ("qpoases", {"printLevel": "none"}),
+            ("qrqp", {}),
+        ):
+            if ca.has_conic(solver_name):
+                print(
+                    "[go2_mpc] casadi conic solver "
+                    f"{centroidal_mpc.SOLVER_NAME!r} unavailable; using {solver_name!r}"
+                )
+                centroidal_mpc.SOLVER_NAME = solver_name
+                centroidal_mpc.OPTS = solver_opts
+                break
     PinGo2Model = go2_robot_data.PinGo2Model
     return PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC
 
