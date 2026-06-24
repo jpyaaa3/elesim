@@ -62,6 +62,54 @@ def _to_numpy_1d(raw) -> np.ndarray:
     return np.array(raw, dtype=float).reshape(-1)
 
 
+class PerfLogger:
+    def __init__(self, *, enabled: bool, interval_s: float = 2.0) -> None:
+        self.enabled = bool(enabled)
+        self.interval_s = max(0.25, float(interval_s))
+        self._last_report_t = time.perf_counter()
+        self._count = 0
+        self._sum: dict[str, float] = {}
+        self._max: dict[str, float] = {}
+        self._t0 = self._last_report_t
+
+    def reset_loop(self) -> None:
+        if self.enabled:
+            self._t0 = time.perf_counter()
+
+    def section(self, name: str, t0: float) -> None:
+        if not self.enabled:
+            return
+        dt = time.perf_counter() - float(t0)
+        self._sum[name] = self._sum.get(name, 0.0) + dt
+        self._max[name] = max(self._max.get(name, 0.0), dt)
+
+    def report_if_due(self) -> None:
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        loop_dt = now - self._t0
+        self._count += 1
+        self._sum["loop"] = self._sum.get("loop", 0.0) + loop_dt
+        self._max["loop"] = max(self._max.get("loop", 0.0), loop_dt)
+        elapsed = now - self._last_report_t
+        if elapsed < self.interval_s:
+            return
+        count = max(1, self._count)
+        fps = count / max(1e-9, elapsed)
+        parts = [f"fps={fps:.1f}"]
+        for name in ("loop", "poll", "go2", "markers", "feedback", "physics", "camera"):
+            if name not in self._sum:
+                continue
+            avg_ms = 1000.0 * self._sum[name] / count
+            max_ms = 1000.0 * self._max.get(name, 0.0)
+            parts.append(f"{name}={avg_ms:.2f}/{max_ms:.2f}ms")
+        print("[perf] " + " ".join(parts))
+        self._last_report_t = now
+        self._count = 0
+        self._sum.clear()
+        self._max.clear()
+
+
 def _as_single_dof_index(raw_idx) -> int:
     if isinstance(raw_idx, (list, tuple, np.ndarray)):
         arr = np.array(raw_idx).reshape(-1)
@@ -2044,9 +2092,15 @@ class SimRuntime:
     def run(self) -> None:
         a = self.app
         assert a.sim_scene.scene is not None and a.sim_scene.mover is not None
+        perf = PerfLogger(
+            enabled=bool(getattr(a.cfg, "perf_log_enable", False)),
+            interval_s=float(getattr(a.cfg, "perf_log_interval_s", 2.0)),
+        )
 
         try:
             while True:
+                perf.reset_loop()
+                t_sec = time.perf_counter()
                 self._poll_host_and_update_model()
                 self._maybe_log_mirror_status(time.time())
                 ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
@@ -2055,6 +2109,8 @@ class SimRuntime:
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                perf.section("poll", t_sec)
+                t_sec = time.perf_counter()
                 if a.sim_scene.go2 is not None:
                     go2_mirror = bool(a.sim_scene.go2.mirror_mode)
                     if go2_mirror and a.state_source is not None:
@@ -2081,6 +2137,7 @@ class SimRuntime:
                             )
                         )
                     a.sim_scene.sync_arm_to_go2_base()
+                perf.section("go2", t_sec)
                 if ik_target is not None and a.spawn.draw_debug_markers:
                     a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
                     if ik_target_dir is not None:
@@ -2098,6 +2155,7 @@ class SimRuntime:
                 if q_errmodel is not None:
                     a.sim_scene.apply_sim_q(q_errmodel)
 
+                t_sec = time.perf_counter()
                 sim_tip = a.sim_scene.actual_tip_world(a.layout)
                 sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                 cam_origin = cam_look = cam_right = None
@@ -2117,6 +2175,8 @@ class SimRuntime:
                         a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode
                     ):
                         a.feedback_pub.send_go2_base(a.sim_scene.go2_entity)
+                perf.section("feedback", t_sec)
+                t_sec = time.perf_counter()
                 if a.spawn.draw_debug_markers and sim_tip is not None:
                     a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
                     if sim_tip_dir is not None:
@@ -2188,7 +2248,10 @@ class SimRuntime:
                                 length,
                             )
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
+                perf.section("markers", t_sec)
+                t_sec = time.perf_counter()
                 a.sim_scene.step()
+                perf.section("physics", t_sec)
                 if a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
                     if a.sim_scene.go2.reapply_last_mirror_pose():
                         a.sim_scene.sync_arm_to_go2_base()
@@ -2201,10 +2264,13 @@ class SimRuntime:
                         float(q_cam.theta1_rad),
                         float(q_cam.theta2_rad),
                     )
+                t_sec = time.perf_counter()
                 a.sim_scene.maybe_publish_camera(
                     arm_q=arm_q,
                     max_hz=float(a.cfg.sim_camera_max_hz),
                 )
+                perf.section("camera", t_sec)
+                perf.report_if_due()
         except KeyboardInterrupt:
             pass
         finally:
@@ -2301,15 +2367,53 @@ def main() -> None:
         default=os.path.join(os.path.dirname(__file__), "config.ini"),
         help="path to ini config file",
     )
+    ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
+    ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
+    ap.add_argument("--no-viewer", action="store_true", help="disable Genesis viewer for profiling/headless runs")
+    ap.add_argument("--no-sim-camera", action="store_true", help="disable simulated RGB-D camera")
+    ap.add_argument("--sim-camera-hz", type=float, default=None, help="override simulated camera publish rate")
+    ap.add_argument(
+        "--sim-camera-size",
+        default=None,
+        metavar="WIDTHxHEIGHT",
+        help="override simulated camera resolution, e.g. 424x240",
+    )
+    ap.add_argument("--no-debug-markers", action="store_true", help="disable dynamic debug markers")
     args = ap.parse_args()
 
     bundle = load_app_config_from_ini(args.config)
+    sim_cfg = bundle.sim_config
+    spawn_cfg = bundle.spawn_config
+    if args.perf_log or args.perf_interval is not None:
+        sim_cfg = replace(
+            sim_cfg,
+            perf_log_enable=True if args.perf_log else bool(sim_cfg.perf_log_enable),
+            perf_log_interval_s=(
+                float(args.perf_interval)
+                if args.perf_interval is not None
+                else float(sim_cfg.perf_log_interval_s)
+            ),
+        )
+    if args.no_viewer:
+        sim_cfg = replace(sim_cfg, enable_viewer=False)
+    if args.no_sim_camera:
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
+    if args.sim_camera_hz is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_max_hz=max(1.0, float(args.sim_camera_hz)))
+    if args.sim_camera_size:
+        try:
+            raw_w, raw_h = str(args.sim_camera_size).lower().split("x", 1)
+            sim_cfg = replace(sim_cfg, sim_camera_width=max(1, int(raw_w)), sim_camera_height=max(1, int(raw_h)))
+        except Exception as exc:
+            raise SystemExit(f"invalid --sim-camera-size {args.sim_camera_size!r}; expected WIDTHxHEIGHT") from exc
+    if args.no_debug_markers:
+        spawn_cfg = replace(spawn_cfg, draw_debug_markers=False)
     app = GenesisApp(
         params=bundle.sim_param,
-        cfg=bundle.sim_config,
+        cfg=sim_cfg,
         hardware_cfg=bundle.hardware_config,
         limit=bundle.joint_limit,
-        model=bundle.spawn_config,
+        model=spawn_cfg,
         urdf_export_cfg=bundle.urdf_export_config,
         ik_cfg=bundle.ik_config,
         go2_locomotion_config=bundle.go2_locomotion_config,

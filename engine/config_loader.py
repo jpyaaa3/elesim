@@ -67,6 +67,8 @@ class SimConfig:
     sim_camera_width: int = 640
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
+    perf_log_enable: bool = False
+    perf_log_interval_s: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -1199,6 +1201,8 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         sim_camera_width=cp.getint("runtime", "sim_camera_width", fallback=sc0.sim_camera_width),
         sim_camera_height=cp.getint("runtime", "sim_camera_height", fallback=sc0.sim_camera_height),
         sim_camera_fov_deg=cp.getfloat("runtime", "sim_camera_fov_deg", fallback=sc0.sim_camera_fov_deg),
+        perf_log_enable=cp.getboolean("runtime", "perf_log_enable", fallback=sc0.perf_log_enable),
+        perf_log_interval_s=cp.getfloat("runtime", "perf_log_interval_s", fallback=sc0.perf_log_interval_s),
     )
 
 
