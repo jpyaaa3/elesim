@@ -14,6 +14,7 @@ _MIN_SLIDER_W = 132.0
 _OFFSET_BUTTON_W = 118.0
 _SWITCH_W = 58.0
 _WARN_W = 28.0
+_RESPAWN_W = 84.0
 
 
 def _push_locked_slider_style() -> int:
@@ -243,12 +244,23 @@ def _draw_gripper_row(panel) -> None:
 
 
 def _draw_preset_row(panel) -> None:
+    row_x = float(imgui.get_cursor_pos_x())
+    row_w = max(1.0, float(imgui.get_content_region_available_width()))
     _control_label("Preset")
     if imgui.button("Home", _SWITCH_W, 0.0):
         panel.service.home_controls()
     imgui.same_line()
     if imgui.button("Extend Arm"):
         panel.service.extend_arm_controls()
+    button_x = row_x + row_w - _RESPAWN_W
+    current_x = float(imgui.get_cursor_pos_x())
+    if button_x > current_x:
+        imgui.same_line(button_x)
+    else:
+        imgui.same_line()
+    if imgui.button("Respawn", _RESPAWN_W, 0.0):
+        panel.service.reset_simulation()
+        panel._go2_was_active = False
 
 
 def draw_control_4dof_panel(panel) -> None:

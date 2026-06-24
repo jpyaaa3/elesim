@@ -8,9 +8,15 @@ import imgui
 from ui.helpers import panel_header
 
 
+_HOST_STALE_S = 2.0
+_STATUS_LABEL_W = 96.0
+_CURRENT_YELLOW_COLOR = (1.0, 0.67, 0.08)
+_CURRENT_RED_COLOR = (1.0, 0.18, 0.18)
+
+
 def _fmt_xyz(vec: tuple[float, float, float] | None, *, signed: bool = False) -> str:
     if vec is None:
-        return "—"
+        return "-"
     if signed:
         return "(%+.3f, %+.3f, %+.3f)" % (float(vec[0]), float(vec[1]), float(vec[2]))
     return "(%.3f, %.3f, %.3f)" % (float(vec[0]), float(vec[1]), float(vec[2]))
@@ -39,13 +45,23 @@ def _heartbeat_tag(last_update_s: float, *, active: bool, stale_s: float = 2.0) 
 
 def _fmt_uv(uv: tuple[float, float] | None) -> str:
     if uv is None:
-        return "—"
+        return "-"
     return f"({float(uv[0]):+.3f}, {float(uv[1]):+.3f})"
 
 
 def _blank(value: object) -> str:
     text = str(value or "").strip()
-    return text if text else "—"
+    return text if text else "-"
+
+
+def _calc_text_size(text: str) -> tuple[float, float]:
+    calc = getattr(imgui, "calc_text_size", None)
+    if callable(calc):
+        size = calc(str(text))
+        if hasattr(size, "x") and hasattr(size, "y"):
+            return float(size.x), float(size.y)
+        return float(size[0]), float(size[1])
+    return float(len(str(text)) * 8), 14.0
 
 
 def _line(label: str, value: object, *, color: tuple[float, float, float] | None = None) -> None:
@@ -56,62 +72,252 @@ def _line(label: str, value: object, *, color: tuple[float, float, float] | None
         imgui.text_colored(text, float(color[0]), float(color[1]), float(color[2]))
 
 
-def _host_connected(host) -> bool:
-    return host is not None and bool(getattr(host, "connected", False))
+def _section_title(text: str) -> None:
+    imgui.text(str(text))
+
+
+def _draw_collapsible_section(label: str, draw_fn, panel) -> None:
+    tree_node = getattr(imgui, "tree_node", None)
+    tree_pop = getattr(imgui, "tree_pop", None)
+    set_open = getattr(imgui, "set_next_item_open", None)
+    if not callable(tree_node) or not callable(tree_pop):
+        _section_title(label)
+        draw_fn(panel)
+        return
+    if callable(set_open):
+        cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
+        set_open(True, cond)
+    item_id = str(label).lower().replace(" ", "_").replace("/", "_")
+    if tree_node(f"{label}##status_section_{item_id}"):
+        try:
+            draw_fn(panel)
+        finally:
+            tree_pop()
+
+
+def _text_value(value: object, *, color: tuple[float, float, float] | None = None) -> None:
+    if color is None:
+        imgui.text(_blank(value))
+    else:
+        imgui.text_colored(_blank(value), float(color[0]), float(color[1]), float(color[2]))
+
+
+def _readonly_text_field(label: str, value: object, identifier: str) -> None:
+    text = _blank(value)
+    imgui.text(str(label))
+    imgui.same_line(_STATUS_LABEL_W)
+    _readonly_text_value(text, identifier)
+
+
+def _readonly_text_value(value: object, identifier: str) -> None:
+    text = _blank(value)
+    width_getter = getattr(imgui, "get_content_region_available_width", None)
+    field_w = max(80.0, float(width_getter()) if callable(width_getter) else 220.0)
+    _readonly_text_box(text, identifier, field_w)
+
+
+def _readonly_text_box(value: object, identifier: str, width: float) -> None:
+    text = _blank(value)
+    flags = getattr(
+        imgui,
+        "INPUT_TEXT_READ_ONLY",
+        getattr(imgui, "INPUT_TEXT_FLAGS_READ_ONLY", 1 << 14),
+    )
+    imgui.push_item_width(float(width))
+    try:
+        try:
+            imgui.input_text(f"##{identifier}", text, max(64, len(text) + 1), flags=flags)
+        except TypeError:
+            imgui.input_text(f"##{identifier}", text, max(64, len(text) + 1), flags)
+    finally:
+        imgui.pop_item_width()
+
+
+def _readonly_float3_field(
+    label: str,
+    vec: tuple[float, float, float] | None,
+    identifier: str,
+    *,
+    format: str = "%.3f",
+) -> None:
+    imgui.text(str(label))
+    imgui.same_line(_STATUS_LABEL_W)
+    width_getter = getattr(imgui, "get_content_region_available_width", None)
+    available = max(120.0, float(width_getter()) if callable(width_getter) else 260.0)
+    style = imgui.get_style()
+    spacing = float(getattr(style, "item_spacing", (8.0, 0.0))[0])
+    component_w = max(52.0, (available - spacing * 2.0) / 3.0)
+    if vec is None:
+        values = ("-", "-", "-")
+    else:
+        values = tuple(format % float(vec[idx]) for idx in range(3))
+    for idx, value in enumerate(values):
+        if idx > 0:
+            imgui.same_line()
+        _readonly_text_box(value, f"{identifier}_{idx}", component_w)
+
+
+def _table_child_height() -> float:
+    getter = getattr(imgui, "get_text_line_height_with_spacing", None)
+    line_h = float(getter()) if callable(getter) else 20.0
+    return line_h * 2.0 + 18.0
+
+
+def _draw_columns_table(
+    identifier: str,
+    headers: tuple[str, ...],
+    values: tuple[object, ...],
+    *,
+    colors: tuple[tuple[float, float, float] | None, ...] | None = None,
+    center: bool = False,
+) -> None:
+    columns = getattr(imgui, "columns", None)
+    next_column = getattr(imgui, "next_column", None)
+    if not callable(columns) or not callable(next_column):
+        _line(" / ".join(headers), " / ".join(_blank(v) for v in values))
+        return
+    count = len(headers)
+    colors = colors or tuple(None for _ in headers)
+    flags = getattr(imgui, "WINDOW_NO_SCROLLBAR", 0) | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
+    imgui.begin_child(str(identifier), 0.0, _table_child_height(), True, flags=flags)
+    try:
+        table_w = max(1.0, float(imgui.get_content_region_available_width()))
+        col_w = table_w / max(1, count)
+        cell_x0 = float(getattr(imgui, "get_cursor_pos_x", lambda: 0.0)())
+        for args in ((count, f"{identifier}_cols", False), (count, f"{identifier}_cols"), (count,)):
+            try:
+                columns(*args)
+                break
+            except TypeError:
+                continue
+        else:
+            _line(" / ".join(headers), " / ".join(_blank(v) for v in values))
+            return
+        for idx, header in enumerate(headers):
+            if center:
+                text_w, _ = _calc_text_size(str(header))
+                imgui.set_cursor_pos_x(cell_x0 + col_w * idx + max(0.0, (col_w - text_w) * 0.5))
+            imgui.text(str(header))
+            next_column()
+        imgui.separator()
+        for idx, (value, color) in enumerate(zip(values, colors)):
+            if center:
+                text_w, _ = _calc_text_size(_blank(value))
+                imgui.set_cursor_pos_x(cell_x0 + col_w * idx + max(0.0, (col_w - text_w) * 0.5))
+            _text_value(value, color=color)
+            next_column()
+        for args in ((1, f"{identifier}_cols", False), (1, f"{identifier}_cols"), (1,)):
+            try:
+                columns(*args)
+                break
+            except TypeError:
+                continue
+    finally:
+        imgui.end_child()
+
+
+def _fmt_ma(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        return "%dmA" % int(value)
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _current_color(panel, value: object) -> tuple[float, float, float] | None:
+    if value is None:
+        return None
+    try:
+        current_abs = abs(int(value))
+    except (TypeError, ValueError):
+        return None
+    red = abs(int(getattr(panel, "_current_limit_ma", 2500) or 0))
+    yellow = abs(int(getattr(panel, "_current_yellow_ma", 1800) or 0))
+    if red > 0 and current_abs > red:
+        return _CURRENT_RED_COLOR
+    if yellow > 0 and current_abs > yellow:
+        return _CURRENT_YELLOW_COLOR
+    return None
+
+
+def _motor_current(host, *names: str) -> int | None:
+    if host is None:
+        return None
+    currents = getattr(host, "motor_currents_ma", {}) or {}
+    normalized = {
+        str(key).strip().lower().replace("_", "").replace("-", ""): value
+        for key, value in dict(currents).items()
+    }
+    for name in names:
+        key = str(name).strip().lower().replace("_", "").replace("-", "")
+        if key in normalized:
+            try:
+                return int(normalized[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _host_status(host) -> tuple[str, tuple[float, float, float] | None]:
+    if host is None or not bool(getattr(host, "connected", False)):
+        return "OFF", (0.70, 0.36, 0.05)
+    try:
+        rx_age = float(getattr(host, "rx_age_s", float("inf")))
+    except (TypeError, ValueError):
+        rx_age = float("inf")
+    if not math.isfinite(rx_age):
+        return "NO REPLY", (0.70, 0.36, 0.05)
+    if rx_age > _HOST_STALE_S:
+        return "STALE %.1fs" % rx_age, (0.85, 0.46, 0.10)
+    return "OK", None
 
 
 def _draw_hardware_brief(panel) -> None:
     host = panel._host_state
-    connected = _host_connected(host)
-    _line(
-        "Host",
-        "OK" if connected else "OFF",
-        color=None if connected else (0.70, 0.36, 0.05),
-    )
-    _line("Device", getattr(host, "device", "") if host is not None else "")
+    host_text, host_color = _host_status(host)
+    device = getattr(host, "device", "") if host is not None else ""
     ports = tuple(getattr(host, "ports", ()) or ()) if host is not None else ()
-    _line("Ports", ", ".join(str(p) for p in ports))
-    _line(
-        "Link",
-        "rx_age=%.2fs  tx=%d"
-        % (
-            float(getattr(host, "rx_age_s", 0.0)) if host is not None else 0.0,
-            int(getattr(host, "tx_seq", 0)) if host is not None else 0,
-        ),
+    _draw_columns_table(
+        "hardware_host_table",
+        ("Host", "Device", "Port"),
+        (host_text, device, ", ".join(str(p) for p in ports)),
+        colors=(host_color, None, None),
+        center=True,
     )
-    _line("Torque", "ON" if bool(getattr(host, "torque_enabled", False)) else "OFF")
-    _line("Gripper", "CLOSED" if bool(panel.state.claw_closed) else "OPEN")
-    _line("Claw current", "%dmA" % int(getattr(host, "claw_current", 0) if host is not None else 0))
-    currents = getattr(host, "motor_currents_ma", {}) if host is not None else {}
-    current_text = ", ".join(f"{k}={int(v)}mA" for k, v in (currents or {}).items())
-    _line("Motor currents", current_text)
-    safety_fault = str(getattr(host, "safety_fault", "") if host is not None else "").strip()
-    _line("Safety fault", safety_fault, color=(1.0, 0.25, 0.25) if safety_fault else None)
+
+    gripper_current = _motor_current(host, "gripper", "claw")
+    if gripper_current is None and host is not None:
+        try:
+            gripper_current = int(getattr(host, "claw_current", 0))
+        except (TypeError, ValueError):
+            gripper_current = None
+    current_values = (
+        _motor_current(host, "linear"),
+        _motor_current(host, "roll"),
+        _motor_current(host, "seg1", "s1"),
+        _motor_current(host, "seg2", "s2"),
+        gripper_current,
+    )
+    _draw_columns_table(
+        "hardware_current_table",
+        ("Linear", "Roll", "Seg1", "Seg2", "Gripper"),
+        tuple(_fmt_ma(value) for value in current_values),
+        colors=tuple(_current_color(panel, value) for value in current_values),
+        center=True,
+    )
+
     reply_reason = str(getattr(host, "reply_reason", "") or "").strip()
     reply_ok = bool(getattr(host, "reply_ok", True)) if host is not None else True
-    _line("Host reply", reply_reason, color=(1.0, 0.35, 0.35) if reply_reason and not reply_ok else None)
+    _line("Command status", reply_reason, color=(1.0, 0.35, 0.35) if reply_reason and not reply_ok else None)
 
 
 def _draw_arm_brief(panel) -> None:
     host = panel._host_state
     tip_xyz = host.actual_tip_xyz if host is not None else None
     tip_dir = host.actual_tip_dir if host is not None else None
-    _line("Tip xyz [m]", _fmt_xyz(tip_xyz))
-    _line("Tip dir", _fmt_xyz(_normalized_xyz(tip_dir), signed=True))
-
-    u_now = panel.service.current_control_u()
-    _line(
-        "U",
-        "linear=%.1f  roll=%.1f  seg1=%.1f  seg2=%.1f"
-        % (float(u_now.u_linear), float(u_now.u_roll), float(u_now.u_s1), float(u_now.u_s2)),
-    )
-    off_linear, off_roll, off_s1, off_s2, _ = panel.state.offset_values()
-    _line(
-        "Offsets",
-        "linear=%.1f  roll=%.1f  seg1=%.1f  seg2=%.1f"
-        % (float(off_linear), float(off_roll), float(off_s1), float(off_s2)),
-    )
-    _line("Control lock", "ON" if bool(panel.state.paused) else "OFF")
+    _readonly_float3_field("Tip xyz", tip_xyz, "status_tip_xyz", format="%.3f")
+    _readonly_float3_field("Tip dir", _normalized_xyz(tip_dir), "status_tip_dir", format="%+.3f")
 
 
 def _draw_go2_brief(panel) -> None:
@@ -119,6 +325,15 @@ def _draw_go2_brief(panel) -> None:
     host = panel._host_state
     vel = (0.0, 0.0, 0.0) if host is None else tuple(float(v) for v in getattr(host, "go2_vel", (0.0, 0.0, 0.0)))
     _line("GO2", "enabled" if enabled else "disabled")
+    _line(
+        "GO2 teleop step",
+        "vx=%.2fm/s  vy=%.2fm/s  wz=%.2frad/s"
+        % (
+            float(getattr(panel, "_go2_teleop_vx_mps", 0.0)),
+            float(getattr(panel, "_go2_teleop_vy_mps", 0.0)),
+            float(getattr(panel, "_go2_teleop_wz_radps", 0.0)),
+        ),
+    )
     _line("GO2 vel", "vx=%+.2f  vy=%+.2f  wz=%+.2f" % vel)
     _line("GO2 base pos [m]", _fmt_xyz(getattr(host, "go2_base_pos", None) if host is not None else None, signed=True))
     _line("GO2 base rpy [rad]", _fmt_xyz(getattr(host, "go2_base_rpy", None) if host is not None else None, signed=True))
@@ -164,7 +379,7 @@ def _draw_pick_brief(panel) -> None:
     _line("Sag status", getattr(panel, "_sag_status_text", ""))
 
 
-def draw_live_visual_status(panel, *, show_separators: bool = True) -> None:
+def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: bool = True) -> None:
     """Perception / host relay / gaze heartbeat shown at panel top."""
     st = panel.state
     now = time.time()
@@ -172,7 +387,8 @@ def draw_live_visual_status(panel, *, show_separators: bool = True) -> None:
 
     if show_separators:
         imgui.separator()
-    imgui.text("Vision / Gaze")
+    if show_title:
+        _section_title("Vision / Gaze")
     _line("Perception source", "local" if run_local else "remote")
     _line("Detector config", getattr(panel, "_perception_config_path_draft", ""))
     _line(
@@ -235,7 +451,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True) -> None:
     _line("Perception msg", st.perception_status_msg)
 
     if host is None or not bool(getattr(host, "connected", False)):
-        relay_text = "[OFF]  uv=—  scale=—  label=—  age=—"
+        relay_text = "[OFF]  uv=-  scale=-  label=-  age=-"
     else:
         host_age = -1.0
         if float(host.perceived_timestamp_s) > 0.0:
@@ -259,8 +475,8 @@ def draw_live_visual_status(panel, *, show_separators: bool = True) -> None:
             and st.perception_center_uv is not None
         ):
             host_tag = f"{host_tag} (local ok {local_age:.1f}s)"
-        scale_str = "—" if host.perceived_scale is None else f"{float(host.perceived_scale):.3f}"
-        age_str = "—" if host_age < 0.0 else "%.2fs" % float(host_age)
+        scale_str = "-" if host.perceived_scale is None else f"{float(host.perceived_scale):.3f}"
+        age_str = "-" if host_age < 0.0 else "%.2fs" % float(host_age)
         relay_text = "[%s]  uv=%s  scale=%s  label=%s  age=%s" % (
             host_tag,
             _fmt_uv(host.perceived_center_uv),
@@ -325,6 +541,24 @@ def draw_live_visual_status(panel, *, show_separators: bool = True) -> None:
         imgui.separator()
 
 
+def _draw_status_sections_single(panel) -> None:
+    _draw_collapsible_section("Hardware", _draw_hardware_brief, panel)
+    imgui.separator()
+    _draw_collapsible_section("Arm", _draw_arm_brief, panel)
+    imgui.separator()
+    _draw_collapsible_section("GO2", _draw_go2_brief, panel)
+    imgui.separator()
+    _draw_collapsible_section("IK", _draw_ik_brief, panel)
+    imgui.separator()
+    _draw_collapsible_section("Pick / Sag", _draw_pick_brief, panel)
+    imgui.separator()
+    _draw_collapsible_section(
+        "Vision / Gaze",
+        lambda p: draw_live_visual_status(p, show_separators=False, show_title=False),
+        panel,
+    )
+
+
 def draw_status_panel(panel) -> None:
     if not panel._status_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
@@ -333,17 +567,7 @@ def draw_status_panel(panel) -> None:
     if not panel_header("Status", visible=True)[0]:
         return
 
-    _draw_hardware_brief(panel)
-    imgui.separator()
-    _draw_arm_brief(panel)
-    imgui.separator()
-    _draw_go2_brief(panel)
-    imgui.separator()
-    _draw_ik_brief(panel)
-    imgui.separator()
-    _draw_pick_brief(panel)
-    imgui.separator()
-    draw_live_visual_status(panel, show_separators=False)
+    _draw_status_sections_single(panel)
 
 
 def draw_gaze_status_compact(panel) -> None:

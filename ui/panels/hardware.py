@@ -19,6 +19,7 @@ class _EmptyHardwareState:
 
 
 _CONTROL_LABEL_W = 96.0
+_PORT_LABEL_W = 66.0
 _SWITCH_W = 58.0
 _WARN_W = 28.0
 
@@ -86,8 +87,9 @@ def draw_hardware_panel(panel) -> None:
             panel._port_input = current_device
 
         imgui.text("Port")
-        imgui.same_line()
-        imgui.push_item_width(max(120.0, float(imgui.get_content_region_available_width()) - 112.0))
+        imgui.same_line(_PORT_LABEL_W)
+        port_input_w = max(60.0, (float(imgui.get_content_region_available_width()) - 112.0) * 0.5)
+        imgui.push_item_width(port_input_w)
         changed_port, new_port = imgui.input_text("##hardware_port", panel._port_input, 256)
         imgui.pop_item_width()
         if changed_port:

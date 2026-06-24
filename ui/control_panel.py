@@ -9,7 +9,7 @@ import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
 from engine.controller import ControlService, HostState, PanelState
-from engine.config_loader import PerceptionConfig, PickConfig
+from engine.config_loader import HardwareConfig, PerceptionConfig, PickConfig
 from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
 from ui.helpers import set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT
@@ -47,6 +47,7 @@ class ControlPanel:
         go2_teleop_vx_mps: float = 0.35,
         go2_teleop_vy_mps: float = 0.25,
         go2_teleop_wz_radps: float = 0.80,
+        hardware_cfg: HardwareConfig | None = None,
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
     ):
@@ -57,6 +58,9 @@ class ControlPanel:
         self._go2_teleop_vx_mps = float(go2_teleop_vx_mps)
         self._go2_teleop_vy_mps = float(go2_teleop_vy_mps)
         self._go2_teleop_wz_radps = float(go2_teleop_wz_radps)
+        hw_cfg = hardware_cfg or HardwareConfig()
+        self._current_yellow_ma = abs(int(hw_cfg.current_yellow_ma))
+        self._current_limit_ma = abs(int(hw_cfg.current_limit_ma))
         pc = perception_cfg or PerceptionConfig()
         self._perception_run_local = bool(pc.run_local)
         pk = pick_cfg or PickConfig()

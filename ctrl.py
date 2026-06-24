@@ -82,6 +82,7 @@ def main() -> None:
         go2_teleop_vx_mps=float(getattr(bundle.spawn_config, "go2_teleop_vx_mps", 0.35)),
         go2_teleop_vy_mps=float(getattr(bundle.spawn_config, "go2_teleop_vy_mps", 0.25)),
         go2_teleop_wz_radps=float(getattr(bundle.spawn_config, "go2_teleop_wz_radps", 0.80)),
+        hardware_cfg=bundle.hardware_config,
         perception_cfg=perception_cfg,
         pick_cfg=pick_cfg,
     )
