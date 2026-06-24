@@ -160,6 +160,8 @@ class ControlHost:
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._last_go2_vel_ts: float = 0.0
+        self._go2_vel_deadman_s: float = 0.35
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
         self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
@@ -229,11 +231,28 @@ class ControlHost:
         self._last_target_apply_error = ""
         self._trajectory.cancel()
 
+    def _clear_go2_vel(self) -> None:
+        self.last_go2_vel = (0.0, 0.0, 0.0)
+        self._last_go2_vel_ts = 0.0
+
+    def _effective_go2_vel(self, now: Optional[float] = None) -> tuple[float, float, float]:
+        if self._last_go2_vel_ts <= 0.0:
+            return (0.0, 0.0, 0.0)
+        now_s = proto.now_s() if now is None else float(now)
+        if (now_s - self._last_go2_vel_ts) <= self._go2_vel_deadman_s:
+            return self.last_go2_vel
+        if any(abs(v) > 1e-9 for v in self.last_go2_vel):
+            print("[host] go2 velocity deadman: stopping stale command")
+        self._clear_go2_vel()
+        if self._go2_bridge is not None:
+            self._go2_bridge.set_velocity(0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0)
+
     def _reset_simulation_state(self) -> None:
         """Virtual/sim mode: reset host-side command state and bump sim reset counter."""
         self._sim_reset_seq += 1
         self._set_virtual_neutral_state()
-        self.last_go2_vel = (0.0, 0.0, 0.0)
+        self._clear_go2_vel()
         self.last_go2_base_rpy = None
         self.last_go2_base_lin_vel_body = None
         self.last_go2_base_ang_vel = None
@@ -394,7 +413,7 @@ class ControlHost:
             self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
-            self.last_go2_vel = (0.0, 0.0, 0.0)
+            self._clear_go2_vel()
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
@@ -451,7 +470,7 @@ class ControlHost:
             self.last_perceived_timestamp_s = 0.0
             self.last_sag_model = {}
             self.last_claw_closed = False
-            self.last_go2_vel = (0.0, 0.0, 0.0)
+            self._clear_go2_vel()
             self._last_hw_pos_by_id = {}
             self._last_claw_current = 0
             self._claw_close_stalled = False
@@ -764,7 +783,7 @@ class ControlHost:
                 perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
-                go2_vel=self.last_go2_vel,
+                go2_vel=self._effective_go2_vel(now),
                 go2_base_rpy=self.last_go2_base_rpy,
                 go2_base_pos=self.last_go2_base_pos,
                 go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
@@ -1506,6 +1525,7 @@ class ControlHost:
             if "go2_vel" in msg:
                 try:
                     self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
+                    self._last_go2_vel_ts = proto.now_s()
                 except Exception:
                     self._reply(
                         ident,
@@ -1554,7 +1574,7 @@ class ControlHost:
                             },
                         )
                         return
-                self.last_go2_vel = (0.0, 0.0, 0.0)
+                self._clear_go2_vel()
             if "go2_obstacles_avoid_enable" in msg:
                 try:
                     enabled = proto.unpack_go2_obstacles_avoid_enable(msg.get("go2_obstacles_avoid_enable"))
@@ -1740,6 +1760,7 @@ class ControlHost:
                             )
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
+                go2_vel = self._effective_go2_vel(now)
                 if self._go2_bridge is not None:
                     self._go2_bridge.tick_cmd(now)
                     sample = self._go2_bridge.latest_state()
@@ -1764,7 +1785,7 @@ class ControlHost:
                         perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
-                        go2_vel=self.last_go2_vel,
+                        go2_vel=go2_vel,
                         go2_base_rpy=self.last_go2_base_rpy,
                         go2_base_pos=self.last_go2_base_pos,
                         go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,

@@ -1023,6 +1023,22 @@
       </geometry>
     </visual>
   </link>
+  <link name="camera_optical_marker">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.001" />
+      <inertia ixx="1e-08" ixy="0" ixz="0" iyy="1e-08" iyz="0" izz="1e-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../assets/camera_optical_marker/camera_optical_marker_mesh.obj" />
+      </geometry>
+      <material name="camera_optical_marker_mat">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+  </link>
   <joint name="j_plate_housing" type="prismatic">
     <parent link="plate" />
     <child link="housing" />
@@ -1146,6 +1162,12 @@
     <child link="camera" />
     <origin xyz="-0.025 0 -0.00495" rpy="-3.14159265 0 -1.57079633" />
     <axis xyz="0 -1 0" />
+  </joint>
+  <joint name="j_camera_optical_marker" type="fixed">
+    <parent link="camera" />
+    <child link="camera_optical_marker" />
+    <origin xyz="-0.037 0 0.02505" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
   </joint>
   <joint name="j_go2_base_arm_plate" type="fixed">
     <parent link="base" />

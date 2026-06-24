@@ -66,8 +66,8 @@ def _require_convex_mpc():
         go2_robot_data.PACKAGE_DIRS = go2_asset_dir
     if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):
         for solver_name, solver_opts in (
-            ("qpoases", {"printLevel": "none"}),
             ("qrqp", {}),
+            ("qpoases", {"printLevel": "none"}),
         ):
             if ca.has_conic(solver_name):
                 print(

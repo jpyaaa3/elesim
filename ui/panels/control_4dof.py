@@ -50,7 +50,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_linear, u_linear = imgui.slider_float(
-        "linear [u] |", float(u_now.u_linear),
+        "linear |", float(u_now.u_linear),
         float(cfg.linear_u_min), float(proto.linear_motor_u_limit(cfg)),
         format="%.1f"
     )
@@ -59,7 +59,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_rdeg, u_roll = imgui.slider_float(
-        "roll [u]   |", float(u_now.u_roll),
+        "roll   |", float(u_now.u_roll),
         float(cfg.roll_u_min), float(cfg.roll_u_max),
         format="%.1f"
     )
@@ -68,7 +68,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_s1, u_s1 = imgui.slider_float(
-        "seg1 [u]   |", float(u_now.u_s1),
+        "seg1   |", float(u_now.u_s1),
         float(cfg.seg_u_min), float(cfg.seg_u_max),
         format="%.1f"
     )
@@ -77,7 +77,7 @@ def draw_control_4dof_panel(panel) -> None:
 
     disable_token = begin_disabled_ui(sliders_locked)
     changed_s2, u_s2 = imgui.slider_float(
-        "seg2 [u]   |", float(u_now.u_s2),
+        "seg2   |", float(u_now.u_s2),
         float(cfg.seg_u_min), float(cfg.seg_u_max),
         format="%.1f"
     )
@@ -137,10 +137,5 @@ def draw_control_4dof_panel(panel) -> None:
     imgui.same_line()
     if imgui.button("Extend Arm"):
         panel.service.extend_arm_controls()
-    imgui.same_line()
-    if imgui.button("Calibration"):
-        panel.service.start_calibration()
     _, paused = imgui.checkbox("Lock", panel.state.paused)
     panel.state.set_paused(bool(paused))
-    if str(panel.state.calibration_status_msg).strip():
-        imgui.text_wrapped(f"Calibration: {panel.state.calibration_status_msg}")

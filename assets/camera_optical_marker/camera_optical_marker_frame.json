@@ -1,0 +1,17 @@
+{
+  "notes": "Small visual marker for the D435 optical origin. Collision is disabled by builder policy.",
+  "connectors": {
+    "from": {
+      "p": [0.0, 0.0, 0.0],
+      "q": [0.0, 0.0, 0.0, 1.0],
+      "joint": {
+        "type": "fixed",
+        "axis": [1.0, 0.0, 0.0]
+      }
+    },
+    "to": {
+      "p": [0.0, 0.0, 0.0],
+      "q": [0.0, 0.0, 0.0, 1.0]
+    }
+  }
+}

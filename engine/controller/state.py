@@ -53,8 +53,6 @@ class PanelState:
     paused: bool = False
     claw_closed: bool = False
     torque_lock_bypass: bool = False
-    calibration_running: bool = False
-    calibration_status_msg: str = ""
     visual_target_scale: float = 0.16
     visual_center_tol: float = 0.12
     visual_target_uv_u: float = 0.5
@@ -184,11 +182,6 @@ class PanelState:
             else:
                 raise ValueError(f"unknown offset axis: {axis}")
             self.offset_revision += 1
-
-    def set_calibration_status(self, *, running: bool, msg: str) -> None:
-        with self._lock:
-            self.calibration_running = bool(running)
-            self.calibration_status_msg = str(msg)
 
     def set_target(self, x: float, y: float, z: float) -> None:
         with self._lock:

@@ -447,6 +447,32 @@
           -0.5
         ]
       }
+    },
+    {
+      "name": "camera_optical_marker",
+      "kind": "camera_optical_marker",
+      "assets": {
+        "mesh": "../assets/camera_optical_marker/camera_optical_marker_mesh.obj",
+        "frame": "../assets/camera_optical_marker/camera_optical_marker_frame.json",
+        "physics": "../assets/camera_optical_marker/camera_optical_marker_physics.json"
+      },
+      "flags": {
+        "control_mode": "fixed",
+        "collision_enabled": false
+      },
+      "pose_root": {
+        "p": [
+          0.5579999999999999,
+          0.024999999999999994,
+          0.13
+        ],
+        "q": [
+          0.5,
+          -0.5,
+          0.5,
+          -0.5
+        ]
+      }
     }
   ],
   "joints": [
@@ -728,6 +754,23 @@
         0.0,
         0.0,
         1.0
+      ],
+      "limit_deg": null
+    },
+    {
+      "name": "j_camera_optical_marker",
+      "type": "fixed",
+      "parent": "camera",
+      "child": "camera_optical_marker",
+      "anchor_root": [
+        0.5579999999999999,
+        0.024999999999999994,
+        0.13
+      ],
+      "axis_root": [
+        0.0,
+        -1.0,
+        0.0
       ],
       "limit_deg": null
     }

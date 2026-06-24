@@ -131,6 +131,7 @@ def make_default_config(*, use_go2: bool = False) -> RobotBuildConfig:
         PartKind.gripper_claw_left,
         PartKind.gripper_claw_right,
         PartKind.camera,
+        PartKind.camera_optical_marker,
     ):
         connectors[kind] = _load_connector_spec_from_static_frame(kind)
     kwargs = dict(
@@ -143,6 +144,7 @@ def make_default_config(*, use_go2: bool = False) -> RobotBuildConfig:
         gripper_claw_left=PartSpec(connectors=connectors[PartKind.gripper_claw_left]),
         gripper_claw_right=PartSpec(connectors=connectors[PartKind.gripper_claw_right]),
         camera=PartSpec(connectors=connectors[PartKind.camera]),
+        camera_optical_marker=PartSpec(connectors=connectors[PartKind.camera_optical_marker]),
         joint_axis_rules={},
     )
     return RobotBuildConfig(**kwargs)
@@ -234,7 +236,7 @@ class PartPolicySetter:
 
     def resolve_runtime_props(self, part_name: str, kind: PartKind) -> RuntimePartProps:
         name = str(part_name).strip().lower()
-        collision = kind != PartKind.camera
+        collision = kind not in (PartKind.camera, PartKind.camera_optical_marker)
         mode = self._default_mode(name, kind)
 
         ov = self._overrides.get(part_name)
@@ -269,6 +271,8 @@ class AssemblyDesigner:
             robot_graph.add_part(PartInstance("gripper_claw_right", PartKind.gripper_claw_right, self._cfg.gripper_claw_right.connectors))
         if self._cfg.camera is not None:
             robot_graph.add_part(PartInstance("camera", PartKind.camera, self._cfg.camera.connectors))
+        if self._cfg.camera_optical_marker is not None:
+            robot_graph.add_part(PartInstance("camera_optical_marker", PartKind.camera_optical_marker, self._cfg.camera_optical_marker.connectors))
         robot_graph.connect(
             "plate",
             "housing",
@@ -301,6 +305,12 @@ class AssemblyDesigner:
                 "gripper_base",
                 "camera",
                 JointSpec(name="j_gripper_base_camera", type=JointType.fixed),
+            )
+        if self._cfg.camera is not None and self._cfg.camera_optical_marker is not None:
+            robot_graph.connect(
+                "camera",
+                "camera_optical_marker",
+                JointSpec(name="j_camera_optical_marker", type=JointType.fixed),
             )
         return robot_graph
 

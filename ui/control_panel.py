@@ -103,6 +103,18 @@ class ControlPanel:
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
 
+    def _draw_panel_stack(self, drawers, *, item_width: float) -> None:
+        imgui.push_item_width(float(item_width))
+        try:
+            first = True
+            for draw in drawers:
+                if not first:
+                    imgui.separator()
+                draw(self)
+                first = False
+        finally:
+            imgui.pop_item_width()
+
     def _draw_controls_window(self) -> None:
         if not self._ctrl_window_init:
             cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
@@ -111,24 +123,46 @@ class ControlPanel:
             imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
             self._ctrl_window_init = True
         imgui.begin("###arm_control_window", True)
-        base_item_width = max(120.0, float(imgui.get_content_region_available_width()) * 0.45)
-        imgui.push_item_width(base_item_width)
-        try:
-            draw_hardware_panel(self)
-            if self._use_hardware and self.service.has_client():
-                imgui.separator()
-            draw_control_4dof_panel(self)
-            imgui.separator()
-            draw_go2_panel(self)
-            if self._use_go2:
-                imgui.separator()
-            draw_ik_panel(self)
-            imgui.separator()
-            draw_perception_panel(self)
-            imgui.separator()
-            draw_sag_panel(self)
-        finally:
-            imgui.pop_item_width()
+        avail_w = max(1.0, float(imgui.get_content_region_available_width()))
+        style = imgui.get_style()
+        spacing_x = float(getattr(style.item_spacing, "x", 8.0))
+        if avail_w >= 720.0:
+            col_w = max(300.0, (avail_w - spacing_x) * 0.5)
+            item_w = max(120.0, col_w * 0.45)
+            imgui.begin_child("left_controls", col_w, 0.0, True)
+            self._draw_panel_stack(
+                (
+                    draw_hardware_panel,
+                    draw_control_4dof_panel,
+                    draw_go2_panel,
+                ),
+                item_width=item_w,
+            )
+            imgui.end_child()
+            imgui.same_line()
+            imgui.begin_child("right_controls", 0.0, 0.0, True)
+            right_w = max(300.0, float(imgui.get_content_region_available_width()))
+            self._draw_panel_stack(
+                (
+                    draw_ik_panel,
+                    draw_perception_panel,
+                    draw_sag_panel,
+                ),
+                item_width=max(120.0, right_w * 0.45),
+            )
+            imgui.end_child()
+        else:
+            self._draw_panel_stack(
+                (
+                    draw_hardware_panel,
+                    draw_control_4dof_panel,
+                    draw_go2_panel,
+                    draw_ik_panel,
+                    draw_perception_panel,
+                    draw_sag_panel,
+                ),
+                item_width=max(120.0, avail_w * 0.45),
+            )
         imgui.end()
 
     def run(self) -> None:
@@ -151,7 +185,7 @@ class ControlPanel:
                 width = int(getattr(mode.size, "width", 0) or 0)
                 height = int(getattr(mode.size, "height", 0) or 0)
                 if width > 0 and height > 0:
-                    win_w = int(width * 0.3)
+                    win_w = int(width * 0.55)
                     win_h = int(height * 0.9)
         window = glfw.create_window(win_w, win_h, "Arm Control", None, None)
         if not window:
