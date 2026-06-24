@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import threading
 import time
 from typing import Any, Dict, Optional, Set
@@ -25,6 +26,61 @@ from engine.perception_bridge.hand_eye import camera_axes_world, camera_point_to
 from engine.sim_camera.pose import camera_point_to_world_from_axes
 
 from serial.tools import list_ports as serial_list_ports
+
+
+def _read_cmdline(pid: int) -> list[str]:
+    try:
+        raw = open(f"/proc/{int(pid)}/cmdline", "rb").read()
+    except Exception:
+        return []
+    return [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+
+
+def _find_host_processes() -> list[int]:
+    current = os.getpid()
+    found: list[int] = []
+    proc_root = "/proc"
+    try:
+        entries = os.listdir(proc_root)
+    except Exception:
+        return found
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == current:
+            continue
+        cmd = _read_cmdline(pid)
+        if not cmd:
+            continue
+        if any(os.path.basename(arg) == "host.py" for arg in cmd):
+            found.append(pid)
+    return sorted(found)
+
+
+def _terminate_host_processes(*, timeout_s: float = 2.0, force: bool = True) -> None:
+    pids = _find_host_processes()
+    if not pids:
+        return
+    print(f"[host] terminating existing host.py process(es): {', '.join(str(p) for p in pids)}")
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.time() + max(0.1, float(timeout_s))
+    while time.time() < deadline:
+        alive = [pid for pid in pids if os.path.isdir(f"/proc/{pid}")]
+        if not alive:
+            return
+        time.sleep(0.05)
+    if force:
+        for pid in pids:
+            if os.path.isdir(f"/proc/{pid}"):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 class ControlHost:
@@ -1821,8 +1877,11 @@ def main() -> None:
         default=os.path.join(os.path.dirname(__file__), "config.ini"),
         help="path to ini config file",
     )
+    ap.add_argument("--replace", action="store_true", help="terminate an existing host.py process before binding ports")
     args = ap.parse_args()
     config_path = str(args.config)
+    if args.replace:
+        _terminate_host_processes()
     bundle = load_app_config_from_ini(config_path)
 
     run_host(

@@ -16,7 +16,7 @@ from engine.perception_bridge.transforms import transform_point
 
 class TestHandEye(unittest.TestCase):
     def test_node9_mount_axes(self) -> None:
-        cfg_path = ROOT / "configs" / "hand_eye.node9_mount.json"
+        cfg_path = ROOT / "assets" / "camera" / "camera_frame.json"
         T, meta = load_hand_eye_transform(cfg_path)
         self.assertEqual(meta["parent_frame"], "node9")
         p_look = transform_point(T, [0.0, 0.0, 0.5])

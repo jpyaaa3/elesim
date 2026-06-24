@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 
-from engine.perception_bridge.transforms import make_transform_from_pose
+from engine.perception_bridge.hand_eye import load_hand_eye_transform
 from engine.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
 # RealSense optical (+X right, +Y down, +Z look) -> Genesis/OpenGL camera (+X right, +Y up, -Z look).
@@ -16,12 +15,8 @@ _OPTICAL_FROM_GENESIS_CAMERA = np.linalg.inv(_OPTICAL_TO_GENESIS_CAMERA)
 
 
 def load_hand_eye_offset_T(hand_eye_path: str | Path) -> np.ndarray:
-    p = Path(hand_eye_path)
-    with open(p, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    translation = data.get("translation_m", [0.0, 0.0, 0.0])
-    quat = data.get("quaternion_xyzw", [0.0, 0.0, 0.0, 1.0])
-    return make_transform_from_pose(translation, quat)
+    T, _meta = load_hand_eye_transform(hand_eye_path)
+    return T
 
 
 def hand_eye_to_genesis_attach_T(hand_eye_path: str | Path) -> np.ndarray:

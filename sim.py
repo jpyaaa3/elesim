@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
+import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
@@ -386,6 +387,74 @@ def _make_urdf_morph(
             return gs.morphs.URDF(**common, default_armature=0.0)
         except TypeError:
             return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
+
+
+def _prepare_go2_urdf_with_config_colors(
+    source_urdf: str,
+    *,
+    build_dir: str,
+    colors: Dict[str, Tuple[float, float, float, float]],
+) -> str:
+    go2_colors = {str(k).strip(): v for k, v in (colors or {}).items() if str(k).strip().startswith("go2")}
+    if not go2_colors:
+        return source_urdf
+
+    def fmt_rgba(rgba: Tuple[float, float, float, float]) -> str:
+        vals = [float(x) for x in rgba]
+        if len(vals) == 3:
+            vals.append(1.0)
+        return " ".join(f"{x:.9g}" for x in vals[:4])
+
+    default = go2_colors.get("go2")
+    group_color = {
+        "base": go2_colors.get("go2_base", default),
+        "hip": go2_colors.get("go2_hip", default),
+        "thigh": go2_colors.get("go2_thigh", default),
+        "calf": go2_colors.get("go2_calf", default),
+        "foot": go2_colors.get("go2_foot", default),
+    }
+    tree = ET.parse(source_urdf)
+    root = tree.getroot()
+    source_dir = os.path.dirname(os.path.abspath(source_urdf))
+    changed = 0
+    for mesh in root.findall(".//mesh"):
+        filename = str(mesh.attrib.get("filename", "")).strip()
+        if filename and not os.path.isabs(filename):
+            mesh.attrib["filename"] = os.path.abspath(os.path.join(source_dir, filename))
+    for link in root.findall("link"):
+        name = str(link.attrib.get("name", ""))
+        lname = name.lower()
+        rgba = None
+        if name == "base":
+            rgba = group_color["base"]
+        elif "hip" in lname:
+            rgba = group_color["hip"]
+        elif "thigh" in lname:
+            rgba = group_color["thigh"]
+        elif "calf" in lname:
+            rgba = group_color["calf"]
+        elif "foot" in lname:
+            rgba = group_color["foot"]
+        if rgba is None:
+            continue
+        for visual in link.findall("visual"):
+            material = visual.find("material")
+            if material is None:
+                material = ET.SubElement(visual, "material", attrib={"name": f"{name}_mat"})
+            material.attrib["name"] = f"go2_{name}_mat"
+            color = material.find("color")
+            if color is None:
+                color = ET.SubElement(material, "color")
+            color.attrib["rgba"] = fmt_rgba(rgba)
+            changed += 1
+
+    if changed <= 0:
+        return source_urdf
+    os.makedirs(build_dir, exist_ok=True)
+    out = os.path.join(build_dir, "go2_colored.urdf")
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+    print(f"[runtime] GO2 URDF colors applied: {out} visuals={changed}")
+    return out
 
 
 def _set_go2_initial_leg_pose(go2_entity, *, pose_name: str = "ready") -> None:
@@ -1133,6 +1202,11 @@ class AssetProcessor:
         convert_manifest_file(in_json, arm_urdf, cfg=self.app.urdf_export_cfg)
         if bool(getattr(self.app.cfg, "use_go2", False)):
             go2_urdf = RuntimePrep._resolve_genesis_go2_urdf()
+            go2_urdf = _prepare_go2_urdf_with_config_colors(
+                go2_urdf,
+                build_dir=self.app.cfg.build_dir,
+                colors=self.app.urdf_export_cfg.part_color_rgba_by_name,
+            )
             merge_go2_arm_urdf(
                 go2_urdf_path=go2_urdf,
                 arm_urdf_path=arm_urdf,
@@ -1940,6 +2014,11 @@ class RuntimePrep:
         go2_entity = None
         if use_go2:
             go2_urdf = self._resolve_genesis_go2_urdf()
+            go2_urdf = _prepare_go2_urdf_with_config_colors(
+                go2_urdf,
+                build_dir=a.cfg.build_dir,
+                colors=a.urdf_export_cfg.part_color_rgba_by_name,
+            )
             if not go2_urdf:
                 raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
             go2_entity = a.sim_scene.scene.add_entity(

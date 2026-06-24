@@ -11,16 +11,22 @@ from engine.iklib.kinematics import _forward_link_tf
 from .transforms import make_transform_from_pose, make_transform_from_world_pose, transform_point
 
 
+def _hand_eye_payload(data: dict[str, Any]) -> dict[str, Any]:
+    optical = data.get("optical_frame")
+    return optical if isinstance(optical, dict) else data
+
+
 def load_hand_eye_transform(path: str | Path) -> tuple[np.ndarray, dict[str, Any]]:
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"hand-eye config not found: {p}")
     with open(p, "r", encoding="utf-8") as f:
         data = json.load(f)
-    parent = str(data.get("parent_frame", "node9"))
-    child = str(data.get("child_frame", "camera_color_optical_frame"))
-    translation = data.get("translation_m", [0.0, 0.0, 0.0])
-    quat = data.get("quaternion_xyzw", [0.0, 0.0, 0.0, 1.0])
+    payload = _hand_eye_payload(data)
+    parent = str(payload.get("parent_frame", "node9"))
+    child = str(payload.get("child_frame", "camera_color_optical_frame"))
+    translation = payload.get("translation_m", [0.0, 0.0, 0.0])
+    quat = payload.get("quaternion_xyzw", [0.0, 0.0, 0.0, 1.0])
     T = make_transform_from_pose(translation, quat)
     meta = {
         "parent_frame": parent,

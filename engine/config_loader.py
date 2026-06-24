@@ -1334,6 +1334,36 @@ def _build_mapping_config(joint_limit: JointLimit, hardware_config: HardwareConf
     )
 
 
+def _read_config_with_extends(path: str) -> tuple[configparser.ConfigParser, str]:
+    root_path = os.path.abspath(path)
+    seen: set[str] = set()
+
+    def collect(current: str) -> list[str]:
+        current_abs = os.path.abspath(current)
+        if current_abs in seen:
+            raise ValueError(f"config extends cycle detected at {current_abs}")
+        if not os.path.isfile(current_abs):
+            raise FileNotFoundError(f"config file not found: {current_abs}")
+        seen.add(current_abs)
+
+        probe = configparser.ConfigParser()
+        probe.optionxform = str
+        probe.read(current_abs, encoding="utf-8-sig")
+        parent_raw = probe.get("config", "extends", fallback="").strip()
+        paths: list[str] = []
+        if parent_raw:
+            parent = parent_raw if os.path.isabs(parent_raw) else os.path.join(os.path.dirname(current_abs), parent_raw)
+            paths.extend(collect(parent))
+        paths.append(current_abs)
+        return paths
+
+    paths = collect(root_path)
+    cp = configparser.ConfigParser()
+    cp.optionxform = str
+    cp.read(paths, encoding="utf-8-sig")
+    return cp, os.path.dirname(root_path)
+
+
 def load_app_config_from_ini(path: str) -> AppConfigBundle:
     defaults = _default_app_config_bundle()
     if not path:
@@ -1341,11 +1371,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     if not os.path.isfile(path):
         raise FileNotFoundError(f"config file not found: {path}")
 
-    config_dir = os.path.dirname(os.path.abspath(path))
-
-    cp = configparser.ConfigParser()
-    cp.optionxform = str
-    cp.read(path, encoding="utf-8-sig")
+    cp, config_dir = _read_config_with_extends(path)
     sim_param_cfg = _load_sim_param_config(cp, defaults)
     sim_config_cfg = _load_sim_config(cp, defaults, config_dir=config_dir)
     hardware_config_cfg = _load_hardware_config(cp)
