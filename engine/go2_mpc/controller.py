@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from engine.go2_locomotion.kinematics import Go2KinematicsModel
@@ -43,10 +45,10 @@ _TAU_LIM = np.array(
 
 def _require_convex_mpc():
     try:
+        import convex_mpc.go2_robot_data as go2_robot_data
         from convex_mpc.centroidal_mpc import CentroidalMPC
         from convex_mpc.com_trajectory import ComTraj
         from convex_mpc.gait import Gait
-        from convex_mpc.go2_robot_data import PinGo2Model
         from convex_mpc.leg_controller import LegController
     except ImportError as exc:
         raise ImportError(
@@ -54,6 +56,13 @@ def _require_convex_mpc():
             "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git "
             "and conda install -c conda-forge pinocchio casadi"
         ) from exc
+    repo_root = Path(__file__).resolve().parents[2]
+    go2_asset_dir = repo_root / "assets" / "go2"
+    go2_urdf = go2_asset_dir / "go2.urdf"
+    if go2_urdf.exists():
+        go2_robot_data.URDF_PATH = go2_urdf
+        go2_robot_data.PACKAGE_DIRS = go2_asset_dir
+    PinGo2Model = go2_robot_data.PinGo2Model
     return PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC
 
 
