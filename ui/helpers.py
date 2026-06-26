@@ -14,6 +14,20 @@ def set_panel_header_font(font) -> None:
     _PANEL_HEADER_FONT = font
 
 
+def ui_scale(panel) -> float:
+    scale_fn = getattr(panel, "ui_resolution_scale", None)
+    if callable(scale_fn):
+        try:
+            return max(0.1, float(scale_fn()))
+        except Exception:
+            return 1.0
+    return 1.0
+
+
+def scaled(panel, value: float) -> float:
+    return float(value) * ui_scale(panel)
+
+
 def begin_disabled_ui(disabled: bool) -> Optional[str]:
     if not disabled:
         return None

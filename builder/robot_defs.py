@@ -85,7 +85,6 @@ class RobotBuildConfig:
     gripper_claw_left: Optional[PartSpec] = None
     gripper_claw_right: Optional[PartSpec] = None
     camera: Optional[PartSpec] = None
-    camera_optical_marker: Optional[PartSpec] = None
     go2: Optional[PartSpec] = None
     joint_axis_rules: Optional[Dict[str, JointAxisRule]] = None
 
@@ -100,7 +99,6 @@ class PartKind(Enum):
     gripper_claw_left = "gripper_claw_left"
     gripper_claw_right = "gripper_claw_right"
     camera = "camera"
-    camera_optical_marker = "camera_optical_marker"
     go2 = "go2"
 
 

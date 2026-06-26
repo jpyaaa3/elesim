@@ -37,6 +37,7 @@ from engine.go2_locomotion import Go2Command
 from engine.go2_locomotion.controller import RaibertTrotController
 from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q
 from engine.motor import estimate_ideal_sim_rates
+from engine.runtime_urdf import select_runtime_urdf
 from builder.urdf_converter import convert_manifest_file
 from engine.sag_model import segment_errors_from_model
 
@@ -208,6 +209,7 @@ class Go2Locomotion:
         dt: float,
         config: Go2LocomotionConfig,
         arm_entity=None,
+        arm_link_names: set[str] | None = None,
         metrics=None,
         command_source: str = "teleop",
     ):
@@ -267,6 +269,7 @@ class Go2Locomotion:
                 dt=float(dt),
                 config=mpc_cfg,
                 arm_entity=arm_entity,
+                arm_link_names=arm_link_names,
                 metrics=metrics,
                 command_source=str(command_source),
             )
@@ -507,6 +510,7 @@ class JointLayout:
     fk_root_link: str = "plate"
     fk_joint_chain: List[Dict[str, object]] = field(default_factory=list)
     no_clip_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    arm_link_names: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -626,52 +630,9 @@ class SimScene:
     hand_eye_config_path: str = ""
     n_nodes: int = 0
     n_seg: int = 0
+    sim_step_count: int = 0
+    _sim_wall_start_s: float = field(default_factory=time.perf_counter)
     _last_camera_publish_t: float = 0.0
-    _arm_mount_pos_body: Optional[np.ndarray] = None
-    _arm_mount_rot_body: Optional[Rot] = None
-
-    def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
-        """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
-        from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
-
-        base = go2_ent.get_link("base")
-        base_pos = self._to_numpy_1d(base.get_pos())[:3]
-        base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
-        arm_pos = self._to_numpy_1d(arm_ent.get_pos())[:3]
-        arm_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(arm_ent.get_quat())[:4])
-        R_b = Rot.from_quat(base_quat_xyzw)
-        R_a = Rot.from_quat(arm_quat_xyzw)
-        self._arm_mount_pos_body = np.asarray(R_b.inv().apply(arm_pos - base_pos), dtype=float)
-        self._arm_mount_rot_body = R_b.inv() * R_a
-
-    def sync_arm_to_go2_base(self) -> None:
-        """Keep sim arm entity welded to GO2 base (Genesis weld can drift under MPC)."""
-        if (
-            self.go2_entity is None
-            or self.mover is None
-            or self._arm_mount_pos_body is None
-            or self._arm_mount_rot_body is None
-        ):
-            return
-        try:
-            from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
-
-            base = self.go2_entity.get_link("base")
-            arm_ent = self.mover.entity
-            base_pos = self._to_numpy_1d(base.get_pos())[:3]
-            base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
-            R_b = Rot.from_quat(base_quat_xyzw)
-            new_pos = base_pos + R_b.apply(self._arm_mount_pos_body)
-            new_rot = R_b * self._arm_mount_rot_body
-            quat_xyzw = new_rot.as_quat()
-            quat_wxyz = np.array(
-                [float(quat_xyzw[3]), float(quat_xyzw[0]), float(quat_xyzw[1]), float(quat_xyzw[2])],
-                dtype=float,
-            )
-            arm_ent.set_pos(new_pos)
-            arm_ent.set_quat(quat_wxyz)
-        except Exception:
-            pass
 
     @staticmethod
     def _to_numpy_1d(raw) -> np.ndarray:
@@ -873,7 +834,33 @@ class SimScene:
         if self.go2 is not None:
             self.go2.step()
         if self.scene is not None:
+            if int(self.sim_step_count) <= 0:
+                self._sim_wall_start_s = time.perf_counter()
             self.scene.step()
+            self.sim_step_count += 1
+
+    def sim_time_s(self, dt: float) -> float:
+        return float(max(0, int(self.sim_step_count))) * float(dt)
+
+    def sim_wall_elapsed_s(self) -> float:
+        if int(self.sim_step_count) <= 0:
+            return 0.0
+        return max(0.0, float(time.perf_counter() - float(self._sim_wall_start_s)))
+
+    def sim_realtime_factor(self, dt: float) -> float:
+        wall = self.sim_wall_elapsed_s()
+        if wall <= 1e-9:
+            return 0.0
+        return self.sim_time_s(float(dt)) / wall
+
+    def throttle_realtime(self, dt: float, *, realtime_factor: float = 1.0) -> None:
+        if self.scene is None or int(self.sim_step_count) <= 0:
+            return
+        factor = max(1e-6, float(realtime_factor))
+        target_wall = float(self._sim_wall_start_s) + self.sim_time_s(float(dt)) / factor
+        delay_s = target_wall - time.perf_counter()
+        if delay_s > 0.0:
+            time.sleep(delay_s)
 
     def reset_environment(self) -> None:
         if self.scene is not None:
@@ -886,13 +873,20 @@ class SimScene:
         if self.mover is not None:
             self.mover.set_4dof_instant(0.0, 0.0, 0.0, 0.0)
             self.mover.set_claw_closed(False)
+        seen_entities: set[int] = set()
         for entity in (self.go2_entity, getattr(self.mover, "entity", None) if self.mover is not None else None):
             if entity is None:
                 continue
+            entity_id = id(entity)
+            if entity_id in seen_entities:
+                continue
+            seen_entities.add(entity_id)
             try:
                 entity.zero_all_dofs_velocity()
             except Exception:
                 pass
+        self.sim_step_count = 0
+        self._sim_wall_start_s = time.perf_counter()
         print("[sim] environment reset")
 
     def maybe_publish_camera(
@@ -1200,8 +1194,12 @@ class AssetProcessor:
         self._load_joint_layout(in_json)
         self.app._apply_ideal_rates_if_needed()
         convert_manifest_file(in_json, arm_urdf, cfg=self.app.urdf_export_cfg)
-        if bool(getattr(self.app.cfg, "use_go2", False)):
+        use_go2 = bool(getattr(self.app.cfg, "use_go2", False))
+        runtime_urdf = select_runtime_urdf(use_go2=use_go2, arm_urdf=arm_urdf, robot_urdf=robot_urdf)
+        if use_go2:
             go2_urdf = RuntimePrep._resolve_genesis_go2_urdf()
+            if not go2_urdf:
+                raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
             go2_urdf = _prepare_go2_urdf_with_config_colors(
                 go2_urdf,
                 build_dir=self.app.cfg.build_dir,
@@ -1214,11 +1212,9 @@ class AssetProcessor:
                 mount_xyz=tuple(float(x) for x in self.app.spawn.go2_mount_offset_m),
             )
             print(f"[runtime] combined GO2+arm URDF saved: {robot_urdf}")
-        else:
-            convert_manifest_file(in_json, robot_urdf, cfg=self.app.urdf_export_cfg)
         print(f"[runtime] use_hardware = {str(bool(self.app.cfg.use_hardware)).lower()}")
         print("[runtime] assets prepared in %.2fs" % (time.time() - t0))
-        return arm_urdf
+        return runtime_urdf
 
     def _load_joint_layout(self, json_path: str) -> None:
         with open(json_path, "r", encoding="utf-8") as f:
@@ -1284,6 +1280,11 @@ class AssetProcessor:
             if kind in ("housing", "wedge", "node", "node_end"):
                 controlled_modes.append(mode)
         part_by_name = {str(_pick_manifest_value(p, "name", default="")): p for p in parts}
+        self.app.layout.arm_link_names = [
+            str(_pick_manifest_value(p, "name", default="")).strip()
+            for p in parts
+            if str(_pick_manifest_value(p, "name", default="")).strip()
+        ]
         def _load_tip_offset(part_name: str) -> np.ndarray:
             part = part_by_name.get(part_name)
             if part is None:
@@ -1740,13 +1741,25 @@ class HostFeedbackPublisher:
         camera_origin: Optional[np.ndarray] = None,
         camera_look: Optional[np.ndarray] = None,
         camera_right: Optional[np.ndarray] = None,
+        sim_time_s: Optional[float] = None,
+        sim_wall_elapsed_s: Optional[float] = None,
+        sim_realtime_factor: Optional[float] = None,
+        sim_step_count: Optional[int] = None,
     ) -> None:
-        if actual_tip_xyz is None and camera_origin is None:
+        if actual_tip_xyz is None and camera_origin is None and sim_time_s is None:
             return
         msg: dict[str, Any] = {
             "t": "sim_state",
             "ts": time.time(),
         }
+        if sim_time_s is not None:
+            msg["sim_time_s"] = float(sim_time_s)
+        if sim_wall_elapsed_s is not None:
+            msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
+        if sim_realtime_factor is not None:
+            msg["sim_realtime_factor"] = float(sim_realtime_factor)
+        if sim_step_count is not None:
+            msg["sim_step_count"] = int(sim_step_count)
         if actual_tip_xyz is not None:
             msg["actual_tip"] = [
                 float(actual_tip_xyz[0]),
@@ -1773,7 +1786,15 @@ class HostFeedbackPublisher:
         except Exception:
             pass
 
-    def send_go2_base(self, go2_entity) -> None:
+    def send_go2_base(
+        self,
+        go2_entity,
+        *,
+        sim_time_s: Optional[float] = None,
+        sim_wall_elapsed_s: Optional[float] = None,
+        sim_realtime_factor: Optional[float] = None,
+        sim_step_count: Optional[int] = None,
+    ) -> None:
         try:
             from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw, _to_numpy_1d
             from scipy.spatial.transform import Rotation as Rot
@@ -1797,6 +1818,14 @@ class HostFeedbackPublisher:
                 "go2_base_ang_vel": [float(ang_body[0]), float(ang_body[1]), float(ang_body[2])],
                 "go2_base_timestamp_s": float(now),
             }
+            if sim_time_s is not None:
+                msg["sim_time_s"] = float(sim_time_s)
+            if sim_wall_elapsed_s is not None:
+                msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
+            if sim_realtime_factor is not None:
+                msg["sim_realtime_factor"] = float(sim_realtime_factor)
+            if sim_step_count is not None:
+                msg["sim_step_count"] = int(sim_step_count)
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
             pass
@@ -2011,31 +2040,29 @@ class RuntimePrep:
         else:
             floor_ent = None
 
-        go2_entity = None
         if use_go2:
-            go2_urdf = self._resolve_genesis_go2_urdf()
-            go2_urdf = _prepare_go2_urdf_with_config_colors(
-                go2_urdf,
-                build_dir=a.cfg.build_dir,
-                colors=a.urdf_export_cfg.part_color_rgba_by_name,
-            )
-            if not go2_urdf:
-                raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
-            go2_entity = a.sim_scene.scene.add_entity(
+            ent = a.sim_scene.scene.add_entity(
                 _make_urdf_morph(
-                    str(go2_urdf),
+                    urdf_path,
                     go2_pos,
                     go2_euler,
                     fixed=False,
                     requires_jac_and_IK=True,
                 )
             )
-            print(f"[runtime] GO2 spawned at {go2_pos} fixed=false from {go2_urdf}")
-
-        arm_fixed = not use_go2
-        ent = a.sim_scene.scene.add_entity(_make_urdf_morph(urdf_path, arm_pos, arm_euler, fixed=arm_fixed))
-        if use_go2:
-            print(f"[runtime] arm mounted at {arm_pos} fixed=false (weld to GO2 base)")
+            go2_entity = ent
+            print(f"[runtime] GO2+arm spawned at {go2_pos} fixed=false from {urdf_path}")
+        else:
+            go2_entity = None
+            ent = a.sim_scene.scene.add_entity(
+                _make_urdf_morph(
+                    urdf_path,
+                    arm_pos,
+                    arm_euler,
+                    fixed=True,
+                )
+            )
+            print(f"[runtime] arm spawned at {arm_pos} fixed=true from {urdf_path}")
 
         if bool(a.spawn.sim_target_enable):
             self._spawn_perception_target()
@@ -2062,12 +2089,7 @@ class RuntimePrep:
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
-            if not go2_mirror:
-                self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
-            else:
-                print("[runtime] GO2 mirror: kinematic base+legs; arm follows via sync")
-            a.sim_scene.record_arm_go2_mount(arm_ent=ent, go2_ent=go2_entity)
-            from engine.go2_mpc.walking_metrics import WalkingMetricsLogger, WalkingMetricsMeta
+            from engine.go2_mpc.walking_metrics import WalkingMetricsLogger
 
             metrics = WalkingMetricsLogger.from_env()
             a.sim_scene.walking_metrics = metrics
@@ -2077,10 +2099,11 @@ class RuntimePrep:
                 dt=a.params.dt,
                 config=a.go2_locomotion_config,
                 arm_entity=ent,
+                arm_link_names=set(a.layout.arm_link_names),
                 metrics=metrics,
             )
-            if a.go2_locomotion_config.mirror_from_host:
-                print("[runtime] GO2 mirror_from_host=true: sim follows host go2_base_* (MPC off)")
+            if go2_mirror:
+                print("[runtime] GO2 mirror_from_host=true: merged robot follows host go2_base_* (MPC off)")
 
         n_nodes = self._detect_n_nodes(ent)
         n_seg = int(a.spawn.n_seg) if a.spawn.n_seg is not None else max(1, n_nodes // 2)
@@ -2129,20 +2152,6 @@ class RuntimePrep:
             print(f"[runtime] sim perception target sphere at {pos} r={radius:.3f}")
         except Exception as exc:
             print(f"[runtime] sim target spawn failed: {exc}")
-
-    def _weld_arm_to_go2(self, *, arm_ent, go2_ent) -> None:
-        a = self.app
-        scene = a.sim_scene.scene
-        if scene is None:
-            return
-        try:
-            plate = arm_ent.get_link("plate")
-            base = go2_ent.get_link("base")
-            solver = scene.rigid_solver
-            solver.add_weld_constraint(int(plate.idx), int(base.idx))
-            print(f"[runtime] GO2 weld: plate(idx={plate.idx}) <-> base(idx={base.idx})")
-        except Exception as exc:
-            print(f"[runtime] GO2 weld failed: {exc}")
 
     @staticmethod
     def _resolve_genesis_go2_urdf() -> str:
@@ -2290,7 +2299,6 @@ class SimRuntime:
                                 float(q_errmodel.theta2_rad),
                             )
                         )
-                    a.sim_scene.sync_arm_to_go2_base()
                 perf.section("go2", t_sec)
                 if ik_target is not None and a.spawn.draw_debug_markers:
                     a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
@@ -2318,17 +2326,31 @@ class SimRuntime:
                     if cam_axes is not None:
                         cam_origin, cam_look, cam_right = cam_axes
                 if a.feedback_pub is not None:
+                    sim_time_s = a.sim_scene.sim_time_s(float(a.params.dt))
+                    sim_wall_elapsed_s = a.sim_scene.sim_wall_elapsed_s()
+                    sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
+                    sim_step_count = int(a.sim_scene.sim_step_count)
                     a.feedback_pub.send_actual_tip(
                         sim_tip,
                         sim_tip_dir,
                         camera_origin=cam_origin,
                         camera_look=cam_look,
                         camera_right=cam_right,
+                        sim_time_s=sim_time_s,
+                        sim_wall_elapsed_s=sim_wall_elapsed_s,
+                        sim_realtime_factor=sim_realtime_factor,
+                        sim_step_count=sim_step_count,
                     )
                     if a.sim_scene.go2_entity is not None and (
                         a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode
                     ):
-                        a.feedback_pub.send_go2_base(a.sim_scene.go2_entity)
+                        a.feedback_pub.send_go2_base(
+                            a.sim_scene.go2_entity,
+                            sim_time_s=sim_time_s,
+                            sim_wall_elapsed_s=sim_wall_elapsed_s,
+                            sim_realtime_factor=sim_realtime_factor,
+                            sim_step_count=sim_step_count,
+                        )
                 perf.section("feedback", t_sec)
                 t_sec = time.perf_counter()
                 if a.spawn.draw_debug_markers and sim_tip is not None:
@@ -2407,8 +2429,7 @@ class SimRuntime:
                 a.sim_scene.step()
                 perf.section("physics", t_sec)
                 if a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
-                    if a.sim_scene.go2.reapply_last_mirror_pose():
-                        a.sim_scene.sync_arm_to_go2_base()
+                    a.sim_scene.go2.reapply_last_mirror_pose()
                 q_cam = a._errmodel_q() if a._has_state_source() else None
                 arm_q = None
                 if q_cam is not None:
@@ -2426,6 +2447,11 @@ class SimRuntime:
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
                 perf.section("camera", t_sec)
+                if bool(getattr(a.params, "realtime", True)):
+                    a.sim_scene.throttle_realtime(
+                        float(a.params.dt),
+                        realtime_factor=float(getattr(a.params, "realtime_factor", 1.0)),
+                    )
                 perf.report_if_due()
         except KeyboardInterrupt:
             pass

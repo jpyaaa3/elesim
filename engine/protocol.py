@@ -180,6 +180,10 @@ def pack_state(
     go2_base_timestamp_s: Optional[float] = None,
     go2_leg_q: Optional[tuple[float, ...]] = None,
     sim_reset_seq: Optional[int] = None,
+    sim_time_s: Optional[float] = None,
+    sim_wall_elapsed_s: Optional[float] = None,
+    sim_realtime_factor: Optional[float] = None,
+    sim_step_count: Optional[int] = None,
 ) -> Dict[str, Any]:
     ts = now_s() if ts is None else float(ts)
     out: Dict[str, Any] = {"t": "state", "ts": ts}
@@ -252,6 +256,14 @@ def pack_state(
         out["go2_leg_q"] = [float(v) for v in go2_leg_q]
     if sim_reset_seq is not None:
         out["sim_reset_seq"] = int(sim_reset_seq)
+    if sim_time_s is not None:
+        out["sim_time_s"] = float(sim_time_s)
+    if sim_wall_elapsed_s is not None:
+        out["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
+    if sim_realtime_factor is not None:
+        out["sim_realtime_factor"] = float(sim_realtime_factor)
+    if sim_step_count is not None:
+        out["sim_step_count"] = int(sim_step_count)
     if debug_markers is not None:
         packed_markers: list[dict[str, Any]] = []
         for raw in list(debug_markers):

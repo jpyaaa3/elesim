@@ -5,13 +5,17 @@ import time
 
 import imgui
 
-from ui.helpers import panel_header
+from ui.helpers import panel_header, scaled
 
 
 _HOST_STALE_S = 2.0
-_STATUS_LABEL_W = 96.0
+_STATUS_LABEL_W = 82.0
 _CURRENT_YELLOW_COLOR = (1.0, 0.67, 0.08)
 _CURRENT_RED_COLOR = (1.0, 0.18, 0.18)
+_DEFAULT_TEXT_COLOR = (0.10, 0.11, 0.13, 1.0)
+_GO2_VEL_COLOR = (0.12, 0.44, 0.95)
+_FLOAT3_LABEL_W = 94.0
+_FLOAT3_WIDTH_SCALE = 0.92
 
 
 def _fmt_xyz(vec: tuple[float, float, float] | None, *, signed: bool = False) -> str:
@@ -62,6 +66,73 @@ def _calc_text_size(text: str) -> tuple[float, float]:
             return float(size.x), float(size.y)
         return float(size[0]), float(size[1])
     return float(len(str(text)) * 8), 14.0
+
+
+def _xy(pos) -> tuple[float, float]:
+    if hasattr(pos, "x") and hasattr(pos, "y"):
+        return float(pos.x), float(pos.y)
+    return float(pos[0]), float(pos[1])
+
+
+def _content_region_available_size() -> tuple[float, float] | None:
+    getter = getattr(imgui, "get_content_region_available", None)
+    if not callable(getter):
+        return None
+    try:
+        return _xy(getter())
+    except Exception:
+        return None
+
+
+def _color_u32(r: float, g: float, b: float, a: float = 1.0) -> int:
+    getter = getattr(imgui, "get_color_u32_rgba", None)
+    if callable(getter):
+        return int(getter(float(r), float(g), float(b), float(a)))
+    ri = max(0, min(255, int(float(r) * 255.0)))
+    gi = max(0, min(255, int(float(g) * 255.0)))
+    bi = max(0, min(255, int(float(b) * 255.0)))
+    ai = max(0, min(255, int(float(a) * 255.0)))
+    return (ai << 24) | (bi << 16) | (gi << 8) | ri
+
+
+def _draw_line(draw_list, x1: float, y1: float, x2: float, y2: float, color: int, thickness: float = 1.0) -> None:
+    for args in (
+        ((x1, y1), (x2, y2), color, float(thickness)),
+        (x1, y1, x2, y2, color, float(thickness)),
+        ((x1, y1), (x2, y2), color),
+        (x1, y1, x2, y2, color),
+    ):
+        try:
+            draw_list.add_line(*args)
+            return
+        except TypeError:
+            continue
+
+
+def _draw_text(draw_list, x: float, y: float, color: int, text: str) -> None:
+    for args in (
+        ((x, y), color, str(text)),
+        (x, y, color, str(text)),
+    ):
+        try:
+            draw_list.add_text(*args)
+            return
+        except TypeError:
+            continue
+
+
+def _style_text_color_u32() -> int:
+    getter = getattr(imgui, "get_style_color_vec4", None)
+    color_idx = getattr(imgui, "COLOR_TEXT", None)
+    if callable(getter) and color_idx is not None:
+        try:
+            color = getter(color_idx)
+            if hasattr(color, "x"):
+                return _color_u32(color.x, color.y, color.z, color.w)
+            return _color_u32(color[0], color[1], color[2], color[3])
+        except Exception:
+            pass
+    return _color_u32(*_DEFAULT_TEXT_COLOR)
 
 
 def _line(label: str, value: object, *, color: tuple[float, float, float] | None = None) -> None:
@@ -116,13 +187,32 @@ def _readonly_text_value(value: object, identifier: str) -> None:
     _readonly_text_box(text, identifier, field_w)
 
 
-def _readonly_text_box(value: object, identifier: str, width: float) -> None:
+def _readonly_text_box(
+    value: object,
+    identifier: str,
+    width: float,
+    *,
+    text_color: tuple[float, float, float] | None = None,
+) -> None:
     text = _blank(value)
     flags = getattr(
         imgui,
         "INPUT_TEXT_READ_ONLY",
         getattr(imgui, "INPUT_TEXT_FLAGS_READ_ONLY", 1 << 14),
     )
+    pushed = 0
+    if text_color is not None:
+        try:
+            imgui.push_style_color(
+                imgui.COLOR_TEXT,
+                float(text_color[0]),
+                float(text_color[1]),
+                float(text_color[2]),
+                1.0,
+            )
+            pushed += 1
+        except Exception:
+            pushed = 0
     imgui.push_item_width(float(width))
     try:
         try:
@@ -131,22 +221,35 @@ def _readonly_text_box(value: object, identifier: str, width: float) -> None:
             imgui.input_text(f"##{identifier}", text, max(64, len(text) + 1), flags)
     finally:
         imgui.pop_item_width()
+        if pushed:
+            imgui.pop_style_color(pushed)
+
+
+def _right_align_next_field(field_width: float, available_width: float) -> None:
+    set_x = getattr(imgui, "set_cursor_pos_x", None)
+    get_x = getattr(imgui, "get_cursor_pos_x", None)
+    if callable(set_x) and callable(get_x):
+        set_x(float(get_x()) + max(0.0, float(available_width) - float(field_width)))
 
 
 def _readonly_float3_field(
+    panel,
     label: str,
     vec: tuple[float, float, float] | None,
     identifier: str,
     *,
     format: str = "%.3f",
+    text_color: tuple[float, float, float] | None = None,
 ) -> None:
     imgui.text(str(label))
-    imgui.same_line(_STATUS_LABEL_W)
+    imgui.same_line(scaled(panel, _FLOAT3_LABEL_W))
     width_getter = getattr(imgui, "get_content_region_available_width", None)
-    available = max(120.0, float(width_getter()) if callable(width_getter) else 260.0)
+    available = max(1.0, float(width_getter()) if callable(width_getter) else 260.0)
     style = imgui.get_style()
     spacing = float(getattr(style, "item_spacing", (8.0, 0.0))[0])
-    component_w = max(52.0, (available - spacing * 2.0) / 3.0)
+    field_w = max(1.0, available * _FLOAT3_WIDTH_SCALE)
+    _right_align_next_field(field_w, available)
+    component_w = max(scaled(panel, 40.0), (field_w - spacing * 2.0) / 3.0)
     if vec is None:
         values = ("-", "-", "-")
     else:
@@ -154,13 +257,126 @@ def _readonly_float3_field(
     for idx, value in enumerate(values):
         if idx > 0:
             imgui.same_line()
-        _readonly_text_box(value, f"{identifier}_{idx}", component_w)
+        _readonly_text_box(value, f"{identifier}_{idx}", component_w, text_color=text_color)
+
+
+def _go2_forward_dir(rpy: tuple[float, float, float] | None) -> tuple[float, float, float] | None:
+    if rpy is None:
+        return None
+    try:
+        _, pitch, yaw = float(rpy[0]), float(rpy[1]), float(rpy[2])
+    except (TypeError, ValueError, IndexError):
+        return None
+    cp = math.cos(pitch)
+    return _normalized_xyz((math.cos(yaw) * cp, math.sin(yaw) * cp, -math.sin(pitch)))
+
+
+def _fmt_go2_yaw_rate(value: float) -> str:
+    yaw = float(value)
+    if abs(yaw) < 0.005:
+        return "0.00"
+    return "%.2f %s" % (abs(yaw), "CCW" if yaw > 0.0 else "CW")
+
+
+def _zero_small(value: float, eps: float = 0.005) -> float:
+    value_f = float(value)
+    return 0.0 if abs(value_f) < float(eps) else value_f
+
+
+def _fmt_duration_s(value: object) -> str:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    if not math.isfinite(seconds) or seconds < 0.0:
+        return "-"
+    if seconds < 60.0:
+        return "%.2fs" % seconds
+    minutes = int(seconds // 60.0)
+    rem = seconds - minutes * 60.0
+    return "%d:%05.2f" % (minutes, rem)
+
+
+def _fmt_factor(value: object) -> str:
+    try:
+        factor = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    if not math.isfinite(factor) or factor <= 0.0:
+        return "-"
+    return "%.2fx" % factor
+
+
+def _ui_local_sim_clock(panel, sim_time_s: float, sim_steps: int) -> tuple[float | None, float | None]:
+    now = time.perf_counter()
+    if int(sim_steps) <= 0 or float(sim_time_s) <= 0.0:
+        panel._status_sim_clock_start_igt = None
+        panel._status_sim_clock_start_wall = None
+        panel._status_sim_clock_last_steps = None
+        return None, None
+
+    start_igt = getattr(panel, "_status_sim_clock_start_igt", None)
+    start_wall = getattr(panel, "_status_sim_clock_start_wall", None)
+    last_steps = getattr(panel, "_status_sim_clock_last_steps", None)
+    if (
+        start_igt is None
+        or start_wall is None
+        or last_steps is None
+        or int(sim_steps) < int(last_steps)
+        or float(sim_time_s) < float(start_igt)
+    ):
+        panel._status_sim_clock_start_igt = float(sim_time_s)
+        panel._status_sim_clock_start_wall = float(now)
+        panel._status_sim_clock_last_steps = int(sim_steps)
+        return 0.0, None
+
+    panel._status_sim_clock_last_steps = int(sim_steps)
+    elapsed = max(0.0, float(now) - float(start_wall))
+    if elapsed <= 1e-6:
+        return elapsed, None
+    rtf = max(0.0, (float(sim_time_s) - float(start_igt)) / elapsed)
+    return elapsed, rtf
+
+
+def _readonly_go2_velocity_field(
+    panel,
+    label: str,
+    vel: tuple[float, float, float] | None,
+    identifier: str,
+) -> None:
+    imgui.text(str(label))
+    imgui.same_line(scaled(panel, _FLOAT3_LABEL_W))
+    width_getter = getattr(imgui, "get_content_region_available_width", None)
+    available = max(1.0, float(width_getter()) if callable(width_getter) else 280.0)
+    style = imgui.get_style()
+    spacing = float(getattr(style, "item_spacing", (8.0, 0.0))[0])
+    field_w = max(1.0, available * _FLOAT3_WIDTH_SCALE)
+    _right_align_next_field(field_w, available)
+    component_w = max(scaled(panel, 40.0), (field_w - spacing * 2.0) / 3.0)
+    if vel is None:
+        values = ("-", "-", "-")
+    else:
+        values = (
+            "%+.2f" % _zero_small(float(vel[0])),
+            "%+.2f" % _zero_small(float(vel[1])),
+            _fmt_go2_yaw_rate(_zero_small(float(vel[2]))),
+        )
+    for idx, value in enumerate(values):
+        if idx > 0:
+            imgui.same_line()
+        _readonly_text_box(value, f"{identifier}_{idx}", component_w, text_color=_GO2_VEL_COLOR)
 
 
 def _table_child_height() -> float:
     getter = getattr(imgui, "get_text_line_height_with_spacing", None)
     line_h = float(getter()) if callable(getter) else 20.0
     return line_h * 2.0 + 18.0
+
+
+def _compact_table_child_height(rows: int) -> float:
+    getter = getattr(imgui, "get_text_line_height_with_spacing", None)
+    line_h = float(getter()) if callable(getter) else 20.0
+    return line_h * int(rows) + 46.0
 
 
 def _draw_columns_table(
@@ -216,6 +432,91 @@ def _draw_columns_table(
         imgui.end_child()
 
 
+def _draw_go2_current_table(
+    panel,
+    identifier: str,
+    values: dict[tuple[str, str], object],
+) -> None:
+    draw_list_getter = getattr(imgui, "get_window_draw_list", None)
+    if not callable(draw_list_getter):
+        for left_leg, right_leg in (("FL", "FR"), ("RL", "RR")):
+            text = "  ".join(
+                f"{joint_label} {_blank(values.get((left_leg, joint_name)))} | "
+                f"{_blank(values.get((right_leg, joint_name)))} {joint_label}"
+                for joint_label, joint_name in (("H", "Hip"), ("T", "Thigh"), ("C", "Calf"))
+            )
+            _line(f"{left_leg}/{right_leg}", text)
+        return
+
+    row_count = 6
+    pairs = (("FL", "FR"), ("RL", "RR"))
+    joints = (("H", "Hip"), ("T", "Thigh"), ("C", "Calf"))
+    flags = getattr(imgui, "WINDOW_NO_SCROLLBAR", 0) | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
+    child_h = _compact_table_child_height(row_count)
+    imgui.begin_child(str(identifier), 0.0, child_h, True, flags=flags)
+    try:
+        available_size = _content_region_available_size()
+        table_w = max(
+            1.0,
+            float(available_size[0]) if available_size is not None else float(imgui.get_content_region_available_width()),
+        )
+        col_weights = (0.54, 0.46, 1.32, 1.32, 0.46, 0.54)
+        weight_total = sum(col_weights)
+        pad_x = scaled(panel, 6.0)
+        pad_y = scaled(panel, 4.0)
+        content_w = max(1.0, table_w - pad_x * 2.0)
+        available_h = float(available_size[1]) if available_size is not None else child_h - scaled(panel, 28.0)
+        content_h = max(1.0, available_h - pad_y * 2.0)
+        col_widths = tuple(content_w * weight / weight_total for weight in col_weights)
+        col_offsets: list[float] = []
+        offset = 0.0
+        for col_width in col_widths:
+            col_offsets.append(offset)
+            offset += col_width
+        screen_x0, screen_y0 = _xy(imgui.get_cursor_screen_pos())
+        text_color = _style_text_color_u32()
+        line_color = _color_u32(0.46, 0.48, 0.52, 0.85)
+        line_thickness = scaled(panel, 1.0)
+        row_h = content_h / row_count
+        x0 = screen_x0 + pad_x
+        x1 = x0 + content_w
+        y0 = screen_y0 + pad_y
+        y1 = y0 + content_h
+        draw_list = draw_list_getter()
+
+        def draw_cell(row_idx: int, col_idx: int, text: object, *, placeholder: bool = True) -> None:
+            value = _blank(text) if placeholder else str(text or "")
+            text_w, _ = _calc_text_size(value)
+            _, text_h = _calc_text_size(value)
+            cell_x = x0 + col_offsets[col_idx]
+            cell_y = y0 + row_h * row_idx
+            text_x = cell_x + max(0.0, (col_widths[col_idx] - text_w) * 0.5)
+            text_y = cell_y + max(0.0, (row_h - text_h) * 0.5)
+            _draw_text(draw_list, text_x, text_y, text_color, value)
+
+        row_idx = 0
+        for left_leg, right_leg in pairs:
+            for joint_idx, (joint_label, joint_name) in enumerate(joints):
+                draw_cell(row_idx, 0, left_leg if joint_idx == 1 else "", placeholder=False)
+                draw_cell(row_idx, 1, joint_label, placeholder=False)
+                draw_cell(row_idx, 2, values.get((left_leg, joint_name)))
+                draw_cell(row_idx, 3, values.get((right_leg, joint_name)))
+                draw_cell(row_idx, 4, joint_label, placeholder=False)
+                draw_cell(row_idx, 5, right_leg if joint_idx == 1 else "", placeholder=False)
+                row_idx += 1
+
+        divider_xs = (
+            x0 + sum(col_widths[:1]),
+            x0 + sum(col_widths[:3]),
+            x0 + sum(col_widths[:5]),
+        )
+        for x in divider_xs:
+            _draw_line(draw_list, x, y0, x, y1, line_color, line_thickness)
+        _draw_line(draw_list, x0, y0 + row_h * 3.0, x1, y0 + row_h * 3.0, line_color, line_thickness)
+    finally:
+        imgui.end_child()
+
+
 def _fmt_ma(value: object) -> str:
     if value is None:
         return "-"
@@ -259,18 +560,46 @@ def _motor_current(host, *names: str) -> int | None:
     return None
 
 
+def _go2_joint_current(host, leg: str, joint: str) -> int | None:
+    leg_key = str(leg).strip().upper()
+    leg_alias = {
+        "FL": "front_left",
+        "FR": "front_right",
+        "RL": "rear_left",
+        "RR": "rear_right",
+    }.get(leg_key, leg_key.lower())
+    joint_key = str(joint).strip().lower()
+    joint_alias = {
+        "hip": ("hip", "abduction", "abad"),
+        "thigh": ("thigh", "upper", "upperleg"),
+        "calf": ("calf", "knee", "lower", "lowerleg"),
+    }.get(joint_key, (joint_key,))
+    names: list[str] = []
+    for alias in joint_alias:
+        names.extend(
+            (
+                f"{leg_key}_{alias}_joint",
+                f"{leg_key}_{alias}",
+                f"go2_{leg_key}_{alias}",
+                f"{leg_alias}_{alias}",
+                f"go2_{leg_alias}_{alias}",
+            )
+        )
+    return _motor_current(host, *names)
+
+
 def _host_status(host) -> tuple[str, tuple[float, float, float] | None]:
     if host is None or not bool(getattr(host, "connected", False)):
-        return "OFF", (0.70, 0.36, 0.05)
+        return "Offline", (0.02, 0.02, 0.02)
     try:
         rx_age = float(getattr(host, "rx_age_s", float("inf")))
     except (TypeError, ValueError):
         rx_age = float("inf")
     if not math.isfinite(rx_age):
-        return "NO REPLY", (0.70, 0.36, 0.05)
+        return "Waiting", (0.46, 0.48, 0.52)
     if rx_age > _HOST_STALE_S:
-        return "STALE %.1fs" % rx_age, (0.85, 0.46, 0.10)
-    return "OK", None
+        return "Stopped (%.1fs)" % rx_age, (0.90, 0.12, 0.12)
+    return "Online", (0.10, 0.55, 0.18)
 
 
 def _draw_hardware_brief(panel) -> None:
@@ -284,6 +613,19 @@ def _draw_hardware_brief(panel) -> None:
         (host_text, device, ", ".join(str(p) for p in ports)),
         colors=(host_color, None, None),
         center=True,
+    )
+
+    go2_rows = ("FL", "FR", "RL", "RR")
+    go2_cols = ("Hip", "Thigh", "Calf")
+    go2_current_values = {
+        (leg, joint): _fmt_ma(_go2_joint_current(host, leg, joint))
+        for leg in go2_rows
+        for joint in go2_cols
+    }
+    _draw_go2_current_table(
+        panel,
+        "hardware_go2_current_table",
+        go2_current_values,
     )
 
     gripper_current = _motor_current(host, "gripper", "claw")
@@ -316,27 +658,43 @@ def _draw_arm_brief(panel) -> None:
     host = panel._host_state
     tip_xyz = host.actual_tip_xyz if host is not None else None
     tip_dir = host.actual_tip_dir if host is not None else None
-    _readonly_float3_field("Tip xyz", tip_xyz, "status_tip_xyz", format="%.3f")
-    _readonly_float3_field("Tip dir", _normalized_xyz(tip_dir), "status_tip_dir", format="%+.3f")
+    _readonly_float3_field(panel, "Tip xyz", tip_xyz, "status_tip_xyz", format="%.3f")
+    _readonly_float3_field(panel, "Tip dir", _normalized_xyz(tip_dir), "status_tip_dir", format="%+.3f")
 
 
 def _draw_go2_brief(panel) -> None:
-    enabled = bool(getattr(panel, "_use_go2", False))
     host = panel._host_state
-    vel = (0.0, 0.0, 0.0) if host is None else tuple(float(v) for v in getattr(host, "go2_vel", (0.0, 0.0, 0.0)))
-    _line("GO2", "enabled" if enabled else "disabled")
-    _line(
-        "GO2 teleop step",
-        "vx=%.2fm/s  vy=%.2fm/s  wz=%.2frad/s"
-        % (
-            float(getattr(panel, "_go2_teleop_vx_mps", 0.0)),
-            float(getattr(panel, "_go2_teleop_vy_mps", 0.0)),
-            float(getattr(panel, "_go2_teleop_wz_radps", 0.0)),
-        ),
-    )
-    _line("GO2 vel", "vx=%+.2f  vy=%+.2f  wz=%+.2f" % vel)
-    _line("GO2 base pos [m]", _fmt_xyz(getattr(host, "go2_base_pos", None) if host is not None else None, signed=True))
-    _line("GO2 base rpy [rad]", _fmt_xyz(getattr(host, "go2_base_rpy", None) if host is not None else None, signed=True))
+    pos = getattr(host, "go2_base_pos", None) if host is not None else None
+    rpy = getattr(host, "go2_base_rpy", None) if host is not None else None
+    lin_vel = getattr(host, "go2_base_lin_vel_body", None) if host is not None else None
+    ang_vel = getattr(host, "go2_base_ang_vel", None) if host is not None else None
+    vel = None
+    if lin_vel is not None and ang_vel is not None:
+        try:
+            vel = (float(lin_vel[0]), float(lin_vel[1]), float(ang_vel[2]))
+        except (TypeError, ValueError, IndexError):
+            vel = None
+    _readonly_float3_field(panel, "GO2 xyz", pos, "status_go2_xyz", format="%+.3f")
+    _readonly_float3_field(panel, "GO2 dir", _go2_forward_dir(rpy), "status_go2_dir", format="%+.3f")
+    _readonly_go2_velocity_field(panel, "GO2 vel", vel, "status_go2_vel")
+
+
+def _draw_sim_brief(panel) -> None:
+    host = panel._host_state
+    sim_steps = int(getattr(host, "sim_step_count", 0) or 0) if host is not None else 0
+    sim_time = float(getattr(host, "sim_time_s", 0.0) or 0.0) if host is not None else 0.0
+    if host is None or (sim_steps <= 0 and sim_time <= 0.0):
+        _ui_local_sim_clock(panel, 0.0, 0)
+        _line("Sim IGT", "-")
+        _line("Real elapsed", "-")
+        _line("Sim RTF", "-")
+        _line("Sim steps", "-")
+        return
+    real_elapsed, local_rtf = _ui_local_sim_clock(panel, sim_time, sim_steps)
+    _line("Sim IGT", _fmt_duration_s(sim_time))
+    _line("Real elapsed", _fmt_duration_s(real_elapsed))
+    _line("Sim RTF", _fmt_factor(local_rtf))
+    _line("Sim steps", str(sim_steps))
 
 
 def _draw_ik_brief(panel) -> None:
@@ -544,6 +902,8 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
 def _draw_status_sections_single(panel) -> None:
     _draw_collapsible_section("Hardware", _draw_hardware_brief, panel)
     imgui.separator()
+    _draw_collapsible_section("Sim", _draw_sim_brief, panel)
+    imgui.separator()
     _draw_collapsible_section("Arm", _draw_arm_brief, panel)
     imgui.separator()
     _draw_collapsible_section("GO2", _draw_go2_brief, panel)
@@ -559,6 +919,27 @@ def _draw_status_sections_single(panel) -> None:
     )
 
 
+def _draw_ui_resolution_controls(panel) -> None:
+    presets_fn = getattr(panel, "ui_resolution_presets", None)
+    scale_fn = getattr(panel, "ui_resolution_scale", None)
+    set_scale = getattr(panel, "set_ui_resolution_scale", None)
+    radio_button = getattr(imgui, "radio_button", None)
+    if not callable(presets_fn) or not callable(scale_fn) or not callable(set_scale) or not callable(radio_button):
+        return
+    presets = tuple(presets_fn())
+    if not presets:
+        return
+    current = float(scale_fn())
+    imgui.text("UI Resolution")
+    for idx, (label, scale) in enumerate(presets):
+        if idx > 0:
+            imgui.same_line()
+        active = abs(float(scale) - current) <= 1e-6
+        clicked = bool(radio_button(f"{label}##ui_resolution_{idx}", active))
+        if clicked:
+            set_scale(float(scale))
+
+
 def draw_status_panel(panel) -> None:
     if not panel._status_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
@@ -568,6 +949,16 @@ def draw_status_panel(panel) -> None:
         return
 
     _draw_status_sections_single(panel)
+
+
+def draw_resolution_panel(panel) -> None:
+    if not getattr(panel, "_resolution_header_init_open", False):
+        cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
+        imgui.set_next_item_open(True, cond)
+        panel._resolution_header_init_open = True
+    if not panel_header("Resolution", visible=True)[0]:
+        return
+    _draw_ui_resolution_controls(panel)
 
 
 def draw_gaze_status_compact(panel) -> None:

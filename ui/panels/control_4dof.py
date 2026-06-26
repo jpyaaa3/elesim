@@ -3,7 +3,7 @@ from __future__ import annotations
 import imgui
 
 import engine.protocol as proto
-from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header
+from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header, scaled
 
 
 _CONTROL_LABEL_W = 66.0
@@ -14,6 +14,7 @@ _MIN_SLIDER_W = 132.0
 _OFFSET_BUTTON_W = 118.0
 _SWITCH_W = 58.0
 _WARN_W = 28.0
+_EXTEND_ARM_W = 104.0
 _RESPAWN_W = 84.0
 
 
@@ -34,12 +35,20 @@ def _push_locked_slider_style() -> int:
     return pushed
 
 
-def _control_label(text: str) -> None:
+def _control_label(panel, text: str) -> None:
     imgui.text(str(text))
-    imgui.same_line(_COMMAND_LABEL_W)
+    imgui.same_line(scaled(panel, _COMMAND_LABEL_W))
 
 
-def _switch_button(label: str, enabled: bool, *, width: float = _SWITCH_W, on_text: str = "ON", off_text: str = "OFF") -> bool:
+def _switch_button(
+    panel,
+    label: str,
+    enabled: bool,
+    *,
+    width: float = _SWITCH_W,
+    on_text: str = "ON",
+    off_text: str = "OFF",
+) -> bool:
     text = str(on_text if enabled else off_text)
     pushed = 0
     if enabled:
@@ -61,13 +70,13 @@ def _switch_button(label: str, enabled: bool, *, width: float = _SWITCH_W, on_te
     except Exception:
         pass
     try:
-        return bool(imgui.button(f"{text}##{label}", float(width), 0.0))
+        return bool(imgui.button(f"{text}##{label}", scaled(panel, width), 0.0))
     finally:
         if pushed:
             imgui.pop_style_color(pushed)
 
 
-def _warn_button(label: str) -> bool:
+def _warn_button(panel, label: str) -> bool:
     pushed = 0
     for color in (
         (imgui.COLOR_BUTTON, 0.93, 0.48, 0.18, 1.0),
@@ -80,7 +89,7 @@ def _warn_button(label: str) -> bool:
         except Exception:
             break
     try:
-        return bool(imgui.button(f"!##{label}", _WARN_W, 0.0))
+        return bool(imgui.button(f"!##{label}", scaled(panel, _WARN_W), 0.0))
     finally:
         if pushed:
             imgui.pop_style_color(pushed)
@@ -116,6 +125,7 @@ def _apply_offset_drafts(panel) -> None:
 
 def _draw_offset_input(panel, *, row_id: str, draft_attr: str, editing: bool) -> None:
     value = float(getattr(panel, draft_attr))
+    input_w = scaled(panel, _OFFSET_INPUT_W)
     if not editing:
         pushed_colors = 0
         try:
@@ -131,14 +141,14 @@ def _draw_offset_input(panel, *, row_id: str, draft_attr: str, editing: bool) ->
             pass
         disable_token = begin_disabled_ui(True)
         try:
-            imgui.button(f"{value:.1f}##{row_id}_offset_disabled", _OFFSET_INPUT_W, 0.0)
+            imgui.button(f"{value:.1f}##{row_id}_offset_disabled", input_w, 0.0)
         finally:
             end_disabled_ui(disable_token)
             if pushed_colors:
                 imgui.pop_style_color(pushed_colors)
         return
 
-    imgui.push_item_width(_OFFSET_INPUT_W)
+    imgui.push_item_width(input_w)
     try:
         changed, new_value = imgui.input_float(
             f"##{row_id}_offset",
@@ -166,14 +176,17 @@ def _draw_control_row(
     editing_offsets: bool,
 ) -> tuple[bool, float]:
     avail_w = max(1.0, float(imgui.get_content_region_available_width()))
+    label_w = scaled(panel, _CONTROL_LABEL_W)
+    input_w = scaled(panel, _OFFSET_INPUT_W)
+    gap_w = scaled(panel, _ROW_GAP_W)
     slider_w = max(
-        _MIN_SLIDER_W,
-        avail_w - _CONTROL_LABEL_W - _OFFSET_INPUT_W - _ROW_GAP_W,
+        scaled(panel, _MIN_SLIDER_W),
+        avail_w - label_w - input_w - gap_w,
     )
-    input_x = _CONTROL_LABEL_W + slider_w + _ROW_GAP_W
+    input_x = label_w + slider_w + gap_w
 
     imgui.text(str(label))
-    imgui.same_line(_CONTROL_LABEL_W)
+    imgui.same_line(label_w)
     disable_token = begin_disabled_ui(sliders_locked)
     pushed_slider_colors = _push_locked_slider_style() if sliders_locked else 0
     imgui.push_item_width(slider_w)
@@ -204,30 +217,32 @@ def _draw_control_row(
 def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
     row_x = float(imgui.get_cursor_pos_x())
     row_w = max(1.0, float(imgui.get_content_region_available_width()))
+    button_w = scaled(panel, _OFFSET_BUTTON_W)
     _, paused = imgui.checkbox("Lock", bool(panel.state.paused))
     panel.state.set_paused(bool(paused))
 
-    button_x = row_x + row_w - _OFFSET_BUTTON_W
+    button_x = row_x + row_w - button_w
     current_x = float(imgui.get_cursor_pos_x())
     if button_x > current_x:
         imgui.same_line(button_x)
     else:
         imgui.same_line()
     if editing_offsets:
-        if imgui.button("Apply Offset", _OFFSET_BUTTON_W, 0.0):
+        if imgui.button("Apply Offset", button_w, 0.0):
             _apply_offset_drafts(panel)
             panel._offset_editing = False
             panel.sync_offset_drafts()
     else:
-        if imgui.button("Change Offset", _OFFSET_BUTTON_W, 0.0):
+        if imgui.button("Change Offset", button_w, 0.0):
             _reload_offset_drafts(panel)
             panel._offset_editing = True
 
 
 def _draw_gripper_row(panel) -> None:
-    _control_label("Gripper")
+    _control_label(panel, "Gripper")
     claw_closed = bool(panel.state.claw_closed)
     if _switch_button(
+        panel,
         "gripper_close_switch",
         claw_closed,
         width=_SWITCH_W,
@@ -238,27 +253,23 @@ def _draw_gripper_row(panel) -> None:
         panel.state.set_claw_closed(next_closed)
         panel.service.send_claw_command(closed=next_closed)
     imgui.same_line()
-    if _warn_button("gripper_open_abort"):
+    if _warn_button(panel, "gripper_open_abort"):
         panel.state.set_claw_closed(False)
         panel.service.send_claw_command(closed=False)
 
 
 def _draw_preset_row(panel) -> None:
-    row_x = float(imgui.get_cursor_pos_x())
-    row_w = max(1.0, float(imgui.get_content_region_available_width()))
-    _control_label("Preset")
-    if imgui.button("Home", _SWITCH_W, 0.0):
+    _control_label(panel, "Preset")
+    if imgui.button("Home", scaled(panel, _SWITCH_W), 0.0):
         panel.service.home_controls()
     imgui.same_line()
-    if imgui.button("Extend Arm"):
+    if imgui.button("Extend Arm", scaled(panel, _EXTEND_ARM_W), 0.0):
         panel.service.extend_arm_controls()
-    button_x = row_x + row_w - _RESPAWN_W
-    current_x = float(imgui.get_cursor_pos_x())
-    if button_x > current_x:
-        imgui.same_line(button_x)
-    else:
-        imgui.same_line()
-    if imgui.button("Respawn", _RESPAWN_W, 0.0):
+
+
+def _draw_respawn_row(panel) -> None:
+    _control_label(panel, "Respawn")
+    if imgui.button("Respawn", scaled(panel, _RESPAWN_W), 0.0):
         panel.service.reset_simulation()
         panel._go2_was_active = False
 
@@ -361,3 +372,4 @@ def draw_control_4dof_panel(panel) -> None:
         panel.service.apply_partial_control_u(partial_u)
     _draw_gripper_row(panel)
     _draw_preset_row(panel)
+    _draw_respawn_row(panel)

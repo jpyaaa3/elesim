@@ -66,7 +66,15 @@ def _require_convex_mpc():
         go2_robot_data.PACKAGE_DIRS = go2_asset_dir
     if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):
         for solver_name, solver_opts in (
-            ("qrqp", {}),
+            (
+                "qrqp",
+                {
+                    "print_header": False,
+                    "print_info": False,
+                    "print_iter": False,
+                    "print_lincomb": False,
+                },
+            ),
             ("qpoases", {"printLevel": "none"}),
         ):
             if ca.has_conic(solver_name):
@@ -91,6 +99,7 @@ class ConvexMpcGenesisController:
         dt: float,
         config: Go2MpcConfig,
         arm_entity=None,
+        arm_link_names: set[str] | None = None,
         metrics: WalkingMetricsLogger | None = None,
         command_source: str = "teleop",
     ) -> None:
@@ -117,6 +126,7 @@ class ConvexMpcGenesisController:
             payload = ArmPayloadCompensator(
                 arm_entity,
                 mass_override_kg=float(config.payload_mass_kg),
+                link_names=arm_link_names,
             )
         self._bridge = GenesisPinBridge(entity, self._leg_dof_idxs, payload=payload)
         self._payload = payload

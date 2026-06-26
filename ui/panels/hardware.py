@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import imgui
 
-from ui.helpers import panel_header
+from ui.helpers import panel_header, scaled
 
 
 class _EmptyHardwareState:
@@ -24,12 +24,12 @@ _SWITCH_W = 58.0
 _WARN_W = 28.0
 
 
-def _control_label(text: str) -> None:
+def _control_label(panel, text: str) -> None:
     imgui.text(str(text))
-    imgui.same_line(_CONTROL_LABEL_W)
+    imgui.same_line(scaled(panel, _CONTROL_LABEL_W))
 
 
-def _switch_button(label: str, enabled: bool, *, width: float = 58.0) -> bool:
+def _switch_button(panel, label: str, enabled: bool, *, width: float = 58.0) -> bool:
     text = "ON" if enabled else "OFF"
     pushed = False
     if enabled:
@@ -51,13 +51,13 @@ def _switch_button(label: str, enabled: bool, *, width: float = 58.0) -> bool:
     except Exception:
         pushed = False
     try:
-        return bool(imgui.button(f"{text}##{label}", float(width), 0.0))
+        return bool(imgui.button(f"{text}##{label}", scaled(panel, width), 0.0))
     finally:
         if pushed:
             imgui.pop_style_color(3)
 
 
-def _warn_button(label: str) -> bool:
+def _warn_button(panel, label: str) -> bool:
     pushed = False
     try:
         imgui.push_style_color(imgui.COLOR_BUTTON, 0.93, 0.48, 0.18, 1.0)
@@ -67,7 +67,7 @@ def _warn_button(label: str) -> bool:
     except Exception:
         pushed = False
     try:
-        return bool(imgui.button(f"!##{label}", 28.0, 0.0))
+        return bool(imgui.button(f"!##{label}", scaled(panel, _WARN_W), 0.0))
     finally:
         if pushed:
             imgui.pop_style_color(3)
@@ -87,8 +87,8 @@ def draw_hardware_panel(panel) -> None:
             panel._port_input = current_device
 
         imgui.text("Port")
-        imgui.same_line(_PORT_LABEL_W)
-        port_input_w = max(60.0, (float(imgui.get_content_region_available_width()) - 112.0) * 0.5)
+        imgui.same_line(scaled(panel, _PORT_LABEL_W))
+        port_input_w = max(scaled(panel, 132.0), float(imgui.get_content_region_available_width()) - scaled(panel, 72.0))
         imgui.push_item_width(port_input_w)
         changed_port, new_port = imgui.input_text("##hardware_port", panel._port_input, 256)
         imgui.pop_item_width()
@@ -98,8 +98,8 @@ def draw_hardware_panel(panel) -> None:
         if imgui.button("Search"):
             panel.service.request_ports()
 
-        _control_label("Apply Port")
-        if _switch_button("hardware_port_switch", bool(current_device), width=_SWITCH_W):
+        _control_label(panel, "Apply Port")
+        if _switch_button(panel, "hardware_port_switch", bool(current_device), width=_SWITCH_W):
             if current_device:
                 panel.state.set_torque_lock_bypass(False)
                 panel.service.disconnect_device()
@@ -108,13 +108,13 @@ def draw_hardware_panel(panel) -> None:
                 panel.state.set_torque_lock_bypass(bool(state.torque_enabled))
                 panel.service.set_device(panel._port_input.strip())
         imgui.same_line()
-        if _warn_button("hardware_port_abort"):
+        if _warn_button(panel, "hardware_port_abort"):
             panel.state.set_torque_lock_bypass(False)
             panel.service.disconnect_device()
             panel._port_input = ""
 
-        _control_label("Torque")
-        if _switch_button("hardware_torque_switch", bool(state.torque_enabled), width=_SWITCH_W):
+        _control_label(panel, "Torque")
+        if _switch_button(panel, "hardware_torque_switch", bool(state.torque_enabled), width=_SWITCH_W):
             if state.torque_enabled:
                 panel.state.set_torque_lock_bypass(False)
                 panel.service.torque_off()
@@ -124,6 +124,6 @@ def draw_hardware_panel(panel) -> None:
                 if not resume:
                     panel.state.set_torque_lock_bypass(False)
         imgui.same_line()
-        if _warn_button("hardware_torque_abort"):
+        if _warn_button(panel, "hardware_torque_abort"):
             panel.state.set_torque_lock_bypass(False)
             panel.service.torque_off()

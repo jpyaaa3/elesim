@@ -31,14 +31,43 @@ class ArmPayloadSnapshot:
 class ArmPayloadCompensator:
     """Estimate welded arm inertial properties from Genesis and patch PinGo2Model COM state."""
 
-    def __init__(self, arm_entity, *, mass_override_kg: float = 0.0) -> None:
+    def __init__(
+        self,
+        arm_entity,
+        *,
+        mass_override_kg: float = 0.0,
+        link_names: set[str] | None = None,
+    ) -> None:
         self._arm = arm_entity
         self._mass_override = max(0.0, float(mass_override_kg))
+        names = {str(name).strip() for name in (link_names or set()) if str(name).strip()}
+        self._link_names = names if names else None
+        self._link_ids: set[int] = set()
+        if self._link_names is not None:
+            for name in self._link_names:
+                try:
+                    self._link_ids.add(id(arm_entity.get_link(name)))
+                except Exception:
+                    continue
+
+    @staticmethod
+    def _link_name(link) -> str:
+        for attr in ("name", "_name"):
+            value = getattr(link, attr, None)
+            if value is not None:
+                return str(value).strip()
+        return ""
 
     def measure(self) -> ArmPayloadSnapshot | None:
         link_samples: list[tuple[float, np.ndarray, np.ndarray, np.ndarray | None]] = []
 
         for link in self._arm.links:
+            if (
+                self._link_names is not None
+                and self._link_name(link) not in self._link_names
+                and id(link) not in self._link_ids
+            ):
+                continue
             mass = link.inertial_mass
             if mass is None or float(mass) <= 1e-9:
                 continue

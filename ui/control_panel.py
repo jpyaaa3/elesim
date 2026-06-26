@@ -10,8 +10,7 @@ from imgui.integrations.glfw import GlfwRenderer
 
 from engine.controller import ControlService, HostState, PanelState
 from engine.config_loader import HardwareConfig, PerceptionConfig, PickConfig
-from engine.controller.perception_capture import load_mock_world_xyz_from_detector_path
-from ui.helpers import set_panel_header_font
+from ui.helpers import scaled, set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT
 
 from .panels import (
@@ -20,9 +19,30 @@ from .panels import (
     draw_hardware_panel,
     draw_ik_panel,
     draw_perception_panel,
+    draw_resolution_panel,
     draw_sag_panel,
     draw_status_panel,
 )
+
+_DEFAULT_SPACING_X = 8.0
+_DEFAULT_WINDOW_PADDING_X = 11.0
+_GO2_PAD_MIN_CELL_W = 36.0
+_GO2_PAD_MIN_ROW_W = _GO2_PAD_MIN_CELL_W * 5.0 + _DEFAULT_SPACING_X * 4.0
+_CONTROL_COLUMN_SCALE = 0.90
+_FIRST_COLUMN_MIN_W = _GO2_PAD_MIN_ROW_W + _DEFAULT_WINDOW_PADDING_X * 2.0
+_SECOND_COLUMN_MIN_W = 264.0
+_CONTROL_COLUMN_MIN_W = max(_FIRST_COLUMN_MIN_W, _SECOND_COLUMN_MIN_W)
+_THREE_COLUMN_BASE_W = _CONTROL_COLUMN_MIN_W / _CONTROL_COLUMN_SCALE
+_THREE_COLUMN_MIN_W = _THREE_COLUMN_BASE_W * 3.0 + _DEFAULT_SPACING_X * 2.0
+_TWO_COLUMN_MIN_W = 720.0
+_INITIAL_WINDOW_W = 1280
+_INITIAL_WINDOW_H = 800
+_UI_RESOLUTION_PRESETS = (
+    ("Small 80%", 0.80),
+    ("Default 100%", 1.00),
+    ("Large 120%", 1.20),
+)
+
 
 def _set_style_color(style, name: str, rgba: tuple[float, float, float, float]) -> None:
     color_id = getattr(imgui, name, None)
@@ -89,9 +109,6 @@ class ControlPanel:
         self.state.visual_scale_tol = float(pk.scale_tol)
         self.state.visual_ready_distance_m = float(pk.ready_pose_standoff_m)
         self.state.visual_look_distance_m = float(pk.look_pose_standoff_m)
-        mock_xyz = load_mock_world_xyz_from_detector_path(pc.resolved_detector_config_path())
-        if mock_xyz is not None:
-            self.state.set_mock_object_world_xyz(*mock_xyz)
         self._ctrl_window_init = False
         self._port_input = ""
         self._host_state: Optional[HostState] = None
@@ -107,6 +124,13 @@ class ControlPanel:
         self._offset_editing = False
         self._go2_was_active = False
         self._go2_obstacles_avoid_enabled = False
+        self._resolution_header_init_open = False
+        self._glfw_window = None
+        self._ui_resolution_scale = 1.0
+        self._ui_resolution_base_w = _INITIAL_WINDOW_W
+        self._ui_resolution_base_h = _INITIAL_WINDOW_H
+        self._ui_style_base_scalars: dict[str, float] = {}
+        self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
 
     def _install_ui_font(self) -> None:
         io = imgui.get_io()
@@ -211,6 +235,83 @@ class ControlPanel:
         }
         for name, rgba in colors.items():
             _set_style_color(style, name, rgba)
+        self._capture_ui_style_base()
+        self._apply_ui_resolution_scale()
+
+    def _capture_ui_style_base(self) -> None:
+        style = imgui.get_style()
+        self._ui_style_base_scalars = {}
+        for attr in (
+            "window_rounding",
+            "child_rounding",
+            "frame_rounding",
+            "grab_rounding",
+            "popup_rounding",
+            "scrollbar_rounding",
+            "tab_rounding",
+            "window_border_size",
+            "child_border_size",
+            "frame_border_size",
+            "scrollbar_size",
+            "grab_min_size",
+        ):
+            if hasattr(style, attr):
+                try:
+                    self._ui_style_base_scalars[attr] = float(getattr(style, attr))
+                except Exception:
+                    pass
+        self._ui_style_base_vectors = {}
+        for attr in ("item_spacing", "frame_padding", "window_padding", "cell_padding"):
+            if hasattr(style, attr):
+                try:
+                    value = getattr(style, attr)
+                    self._ui_style_base_vectors[attr] = (float(value.x), float(value.y))
+                except Exception:
+                    pass
+
+    def _apply_ui_resolution_scale(self) -> None:
+        scale = float(getattr(self, "_ui_resolution_scale", 1.0) or 1.0)
+        try:
+            io = imgui.get_io()
+            if hasattr(io, "font_global_scale"):
+                io.font_global_scale = scale
+        except Exception:
+            pass
+        try:
+            style = imgui.get_style()
+            for attr, value in self._ui_style_base_scalars.items():
+                if hasattr(style, attr):
+                    setattr(style, attr, float(value) * scale)
+            for attr, value in self._ui_style_base_vectors.items():
+                if hasattr(style, attr):
+                    target = getattr(style, attr)
+                    target.x = float(value[0]) * scale
+                    target.y = float(value[1]) * scale
+        except Exception:
+            pass
+
+    def ui_resolution_presets(self) -> tuple[tuple[str, float], ...]:
+        return _UI_RESOLUTION_PRESETS
+
+    def ui_resolution_scale(self) -> float:
+        return float(getattr(self, "_ui_resolution_scale", 1.0) or 1.0)
+
+    def set_ui_resolution_scale(self, scale: float) -> None:
+        scale = float(scale)
+        if abs(scale - self.ui_resolution_scale()) <= 1e-6:
+            return
+        self._ui_resolution_scale = scale
+        self._apply_ui_resolution_scale()
+        window = getattr(self, "_glfw_window", None)
+        if window is not None:
+            try:
+                glfw.set_window_size(
+                    window,
+                    max(1, int(round(float(self._ui_resolution_base_w) * scale))),
+                    max(1, int(round(float(self._ui_resolution_base_h) * scale))),
+                )
+            except Exception:
+                pass
 
     def stop(self) -> None:
         self._stop = True
@@ -240,20 +341,64 @@ class ControlPanel:
             imgui.pop_item_width()
 
     def _draw_controls_window(self) -> None:
-        if not self._ctrl_window_init:
-            cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
-            io = imgui.get_io()
-            imgui.set_next_window_position(0.0, 0.0, cond)
-            imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
-            self._ctrl_window_init = True
+        cond = getattr(imgui, "ALWAYS", 0)
+        io = imgui.get_io()
+        imgui.set_next_window_position(0.0, 0.0, cond)
+        imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
+        self._ctrl_window_init = True
         window_flags = getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
         imgui.begin("Arm Control###arm_control_window", True, flags=window_flags)
         avail_w = max(1.0, float(imgui.get_content_region_available_width()))
         style = imgui.get_style()
         spacing_x = float(getattr(style.item_spacing, "x", 8.0))
-        if avail_w >= 720.0:
-            col_w = max(300.0, (avail_w - spacing_x) * 0.5)
-            item_w = max(120.0, col_w * 0.45)
+        if avail_w >= scaled(self, _THREE_COLUMN_MIN_W):
+            col_w = max(1.0, (avail_w - spacing_x * 2.0) / 3.0)
+            first_w = max(1.0, col_w * _CONTROL_COLUMN_SCALE)
+            second_w = first_w
+            main_w = first_w + second_w + spacing_x
+            first_item_w = max(scaled(self, 108.0), first_w * 0.45)
+            second_item_w = max(scaled(self, 108.0), second_w * 0.45)
+            imgui.begin_child("main_controls_block", main_w, 0.0, True)
+            imgui.begin_child("primary_controls_inner", first_w, 0.0, False)
+            try:
+                self._draw_panel_stack(
+                    (
+                        draw_hardware_panel,
+                        draw_control_4dof_panel,
+                        draw_go2_panel,
+                        draw_sag_panel,
+                    ),
+                    item_width=first_item_w,
+                )
+            finally:
+                imgui.end_child()
+            imgui.same_line()
+            imgui.begin_child("motion_controls_inner", second_w, 0.0, False)
+            try:
+                self._draw_panel_stack(
+                    (
+                        draw_ik_panel,
+                        draw_perception_panel,
+                    ),
+                    item_width=second_item_w,
+                )
+            finally:
+                imgui.end_child()
+            imgui.end_child()
+            imgui.same_line()
+            imgui.begin_child("status_controls", 0.0, 0.0, True)
+            status_w = max(1.0, float(imgui.get_content_region_available_width()))
+            self._draw_panel_stack(
+                (
+                    draw_status_panel,
+                    draw_resolution_panel,
+                ),
+                item_width=max(scaled(self, 108.0), status_w * 0.45),
+            )
+            imgui.end_child()
+        elif avail_w >= scaled(self, _TWO_COLUMN_MIN_W):
+            col_w = max(scaled(self, 300.0), (avail_w - spacing_x) * 0.5)
+            item_w = max(scaled(self, 120.0), col_w * 0.45)
             imgui.begin_child("left_controls", col_w, 0.0, True)
             self._draw_panel_stack(
                 (
@@ -268,13 +413,14 @@ class ControlPanel:
             imgui.end_child()
             imgui.same_line()
             imgui.begin_child("right_controls", 0.0, 0.0, True)
-            right_w = max(300.0, float(imgui.get_content_region_available_width()))
+            right_w = max(scaled(self, 300.0), float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
                     draw_status_panel,
+                    draw_resolution_panel,
                     draw_perception_panel,
                 ),
-                item_width=max(120.0, right_w * 0.45),
+                item_width=max(scaled(self, 120.0), right_w * 0.45),
             )
             imgui.end_child()
         else:
@@ -286,9 +432,10 @@ class ControlPanel:
                     draw_ik_panel,
                     draw_sag_panel,
                     draw_status_panel,
+                    draw_resolution_panel,
                     draw_perception_panel,
                 ),
-                item_width=max(120.0, avail_w * 0.45),
+                item_width=max(scaled(self, 120.0), avail_w * 0.45),
             )
         imgui.end()
 
@@ -303,8 +450,8 @@ class ControlPanel:
             glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
             glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
-        win_w = 800
-        win_h = 600
+        win_w = _INITIAL_WINDOW_W
+        win_h = _INITIAL_WINDOW_H
         monitor = glfw.get_primary_monitor()
         if monitor is not None:
             mode = glfw.get_video_mode(monitor)
@@ -312,12 +459,17 @@ class ControlPanel:
                 width = int(getattr(mode.size, "width", 0) or 0)
                 height = int(getattr(mode.size, "height", 0) or 0)
                 if width > 0 and height > 0:
-                    win_w = int(width * 0.55)
-                    win_h = int(height * 0.9)
+                    max_w = int(width * 0.9)
+                    max_h = int(height * 0.9)
+                    win_w = min(_INITIAL_WINDOW_W, max_w, int(max_h * 16.0 / 10.0))
+                    win_h = int(win_w * 10.0 / 16.0)
         window = glfw.create_window(win_w, win_h, "Arm Control", None, None)
         if not window:
             glfw.terminate()
             raise SystemExit("Failed to create GLFW window.")
+        self._glfw_window = window
+        self._ui_resolution_base_w = int(win_w)
+        self._ui_resolution_base_h = int(win_h)
 
         glfw.make_context_current(window)
 

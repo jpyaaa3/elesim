@@ -4,20 +4,22 @@ import math
 
 import imgui
 
-from ui.helpers import panel_header
+from ui.helpers import panel_header, scaled, ui_scale
 
 
-_PAD_H = 34.0
+_PAD_MIN_CELL_W = 36.0
+_PAD_MAX_CELL_W = 56.0
+_PAD_H = 30.0
 _SMALL_H = 26.0
 _SHAPE_ROUNDING = 6.0
 
 
-def _button(label: str, width: float, height: float = _SMALL_H) -> bool:
-    return bool(imgui.button(label, float(width), float(height)))
+def _button(panel, label: str, width: float, height: float = _SMALL_H) -> bool:
+    return bool(imgui.button(label, scaled(panel, width), scaled(panel, height)))
 
 
-def _hold_button(label: str, width: float, height: float = _PAD_H) -> bool:
-    imgui.button(label, float(width), float(height))
+def _hold_button(panel, label: str, width: float, height: float = _PAD_H) -> bool:
+    imgui.button(label, scaled(panel, width), scaled(panel, height))
     return bool(imgui.is_item_active())
 
 
@@ -202,9 +204,9 @@ def _draw_turn_arrow(draw_list, x: float, y: float, size: float, *, direction: s
     _draw_arrow_head(draw_list, tip, points[1], color, size, extension=thickness * 2.0)
 
 
-def _shape_button(kind: str, widget_id: str, size: float, *, text: str = "") -> tuple[bool, bool]:
+def _shape_button(panel, kind: str, widget_id: str, size: float, *, text: str = "") -> tuple[bool, bool]:
     if not callable(getattr(imgui, "invisible_button", None)) or not callable(getattr(imgui, "get_window_draw_list", None)):
-        clicked = _button(text or kind, size, size)
+        clicked = bool(imgui.button(text or kind, float(size), float(size)))
         return clicked, bool(imgui.is_item_active())
 
     x, y = _xy(imgui.get_cursor_screen_pos())
@@ -232,7 +234,7 @@ def _shape_button(kind: str, widget_id: str, size: float, *, text: str = "") -> 
     fill = down if active else hover if hovered else base
     fg = _color_u32(0.12, 0.14, 0.17, 1.0)
     bg = _color_u32(*fill, 1.0)
-    _draw_rect_filled(draw_list, x, y, x + size, y + size, bg, _SHAPE_ROUNDING)
+    _draw_rect_filled(draw_list, x, y, x + size, y + size, bg, scaled(panel, _SHAPE_ROUNDING))
 
     cx = x + size * 0.5
     cy = y + size * 0.5
@@ -260,8 +262,9 @@ def _stop_go2(panel) -> None:
 
 
 def _draw_teleop_pad(panel, width: float) -> bool:
-    cell = max(44.0, min(68.0, (float(width) - 32.0) / 5.0))
-    row_w = cell * 5.0 + _style_spacing_x() * 4.0
+    spacing_x = _style_spacing_x()
+    cell = max(scaled(panel, _PAD_MIN_CELL_W), min(scaled(panel, _PAD_MAX_CELL_W), (float(width) - spacing_x * 4.0) / 5.0))
+    row_w = cell * 5.0 + spacing_x * 4.0
     active = False
     vx = 0.0
     vy = 0.0
@@ -273,7 +276,7 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
     imgui.same_line()
-    _, held = _shape_button("up", "go2_forward_shape", cell)
+    _, held = _shape_button(panel, "up", "go2_forward_shape", cell)
     if held:
         vx += float(panel._go2_teleop_vx_mps)
         active = True
@@ -282,26 +285,26 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
 
-    _, held = _shape_button("turn_left", "go2_turn_left_shape", cell)
+    _, held = _shape_button(panel, "turn_left", "go2_turn_left_shape", cell)
     if held:
         wz += float(panel._go2_teleop_wz_radps)
         active = True
     imgui.same_line()
-    _, held = _shape_button("left", "go2_left_shape", cell)
+    _, held = _shape_button(panel, "left", "go2_left_shape", cell)
     if held:
         vy += float(panel._go2_teleop_vy_mps)
         active = True
     imgui.same_line()
-    clicked, _ = _shape_button("stop", "go2_stop_shape", cell)
+    clicked, _ = _shape_button(panel, "stop", "go2_stop_shape", cell)
     if clicked:
         _stop_go2(panel)
     imgui.same_line()
-    _, held = _shape_button("right", "go2_right_shape", cell)
+    _, held = _shape_button(panel, "right", "go2_right_shape", cell)
     if held:
         vy -= float(panel._go2_teleop_vy_mps)
         active = True
     imgui.same_line()
-    _, held = _shape_button("turn_right", "go2_turn_right_shape", cell)
+    _, held = _shape_button(panel, "turn_right", "go2_turn_right_shape", cell)
     if held:
         wz -= float(panel._go2_teleop_wz_radps)
         active = True
@@ -310,7 +313,7 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
     imgui.same_line()
-    _, held = _shape_button("down", "go2_back_shape", cell)
+    _, held = _shape_button(panel, "down", "go2_back_shape", cell)
     if held:
         vx -= float(panel._go2_teleop_vx_mps)
         active = True
@@ -329,16 +332,17 @@ def _draw_teleop_pad(panel, width: float) -> bool:
 
 
 def _draw_posture(panel, width: float) -> None:
-    btn_w = max(86.0, min(130.0, (float(width) - 16.0) / 3.0))
-    if _button("Balance##go2_balance", btn_w):
+    scale = ui_scale(panel)
+    btn_w = max(86.0, min(130.0, ((float(width) / scale) - 16.0) / 3.0))
+    if _button(panel, "Balance##go2_balance", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="balance_stand")
     imgui.same_line()
-    if _button("Lie Down##go2_lie_down", btn_w):
+    if _button(panel, "Lie Down##go2_lie_down", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="stand_down")
     imgui.same_line()
-    if _button("Recover##go2_recovery", btn_w):
+    if _button(panel, "Recover##go2_recovery", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="recovery_stand")
 
@@ -353,7 +357,7 @@ def draw_go2_panel(panel) -> None:
     if not panel_header("GO2 Locomotion", visible=True)[0]:
         return
 
-    width = max(220.0, float(imgui.get_content_region_available_width()))
+    width = max(scaled(panel, 220.0), float(imgui.get_content_region_available_width()))
     _draw_teleop_pad(panel, width)
 
     changed_avoid, enabled = imgui.checkbox(
@@ -367,13 +371,13 @@ def draw_go2_panel(panel) -> None:
     _draw_posture(panel, width)
 
     imgui.text("Gaze / Demo")
-    if _button("Gaze Stand##go2_gaze_stand", 96.0):
+    if _button(panel, "Gaze Stand##go2_gaze_stand", 96.0):
         panel.service.start_gaze_stabilizer_standing()
     imgui.same_line()
-    if _button("Gaze Walk##go2_gaze_walk", 96.0):
+    if _button(panel, "Gaze Walk##go2_gaze_walk", 96.0):
         panel.service.start_gaze_stabilizer_walking()
     imgui.same_line()
-    if _button("Stop Gaze##go2_stop_gaze", 96.0):
+    if _button(panel, "Stop Gaze##go2_stop_gaze", 96.0):
         panel.service.stop_gaze_stabilizer()
-    if _button("Demo 4: Stop + Grasp##go2_demo4", 176.0):
+    if _button(panel, "Demo 4: Stop + Grasp##go2_demo4", 176.0):
         panel.service.start_demo4_stop_and_grasp()

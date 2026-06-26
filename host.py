@@ -173,6 +173,10 @@ class ControlHost:
         self._sim_camera_right: Optional[tuple[float, float, float]] = None
         self._sim_camera_ts: float = 0.0
         self._sim_reset_seq: int = 0
+        self.last_sim_time_s: float = 0.0
+        self.last_sim_wall_elapsed_s: float = 0.0
+        self.last_sim_realtime_factor: float = 0.0
+        self.last_sim_step_count: int = 0
         self._last_hw_pos_by_id: Dict[int, int] = {}
         self._last_claw_current: int = 0
         self._claw_close_stalled: bool = False
@@ -266,6 +270,10 @@ class ControlHost:
         self.last_perceived_timestamp_s = 0.0
         self.last_actual_tip_xyz = None
         self.last_actual_tip_dir = None
+        self.last_sim_time_s = 0.0
+        self.last_sim_wall_elapsed_s = 0.0
+        self.last_sim_realtime_factor = 0.0
+        self.last_sim_step_count = 0
         print(f"[host] sim reset | seq={int(self._sim_reset_seq)}")
 
     def _cancel_trajectory(self) -> None:
@@ -791,6 +799,10 @@ class ControlHost:
                 go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
                 go2_leg_q=self.last_go2_leg_q,
                 sim_reset_seq=int(self._sim_reset_seq),
+                sim_time_s=self.last_sim_time_s,
+                sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,
+                sim_realtime_factor=self.last_sim_realtime_factor,
+                sim_step_count=self.last_sim_step_count,
                 claw_current=self._last_claw_current,
                 motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                 safety_fault=(self._safety_fault or None),
@@ -1204,6 +1216,26 @@ class ControlHost:
         if self._go2_bridge is None and "go2_base_timestamp_s" in msg:
             try:
                 self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_time_s" in msg:
+            try:
+                self.last_sim_time_s = float(msg.get("sim_time_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_wall_elapsed_s" in msg:
+            try:
+                self.last_sim_wall_elapsed_s = float(msg.get("sim_wall_elapsed_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_realtime_factor" in msg:
+            try:
+                self.last_sim_realtime_factor = float(msg.get("sim_realtime_factor", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_step_count" in msg:
+            try:
+                self.last_sim_step_count = int(msg.get("sim_step_count", 0))
             except (TypeError, ValueError):
                 pass
         cam_origin_raw = msg.get("camera_world_origin", None)
@@ -1793,6 +1825,10 @@ class ControlHost:
                         go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
                         go2_leg_q=self.last_go2_leg_q,
                         sim_reset_seq=int(self._sim_reset_seq),
+                        sim_time_s=self.last_sim_time_s,
+                        sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,
+                        sim_realtime_factor=self.last_sim_realtime_factor,
+                        sim_step_count=self.last_sim_step_count,
                         claw_current=self._last_claw_current,
                         motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
                         safety_fault=(self._safety_fault or None),

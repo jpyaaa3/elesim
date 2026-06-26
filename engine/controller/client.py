@@ -49,6 +49,8 @@ class ControlClient:
         self.is_connected = True
         self.tx_seq = 0
         self._t_last_tx = 0.0
+        self._hello_period_s = 0.5
+        self._t_last_hello = 0.0
 
         self.last_ack_ts = 0.0
         self.last_state_ts = 0.0
@@ -76,10 +78,14 @@ class ControlClient:
         self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
         self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
         self.last_go2_base_timestamp_s: float = 0.0
+        self.last_sim_time_s: float = 0.0
+        self.last_sim_wall_elapsed_s: float = 0.0
+        self.last_sim_realtime_factor: float = 0.0
+        self.last_sim_step_count: int = 0
         self.last_reply_ok: bool = True
         self.last_reply_reason: str = ""
 
-        self._send({"t": "hello", "ts": time.time()})
+        self._send_hello(force=True)
 
     def close(self) -> None:
         try:
@@ -126,11 +132,37 @@ class ControlClient:
             go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
             go2_base_ang_vel=self.last_go2_base_ang_vel,
             go2_base_timestamp_s=float(self.last_go2_base_timestamp_s),
+            sim_time_s=float(self.last_sim_time_s),
+            sim_wall_elapsed_s=float(self.last_sim_wall_elapsed_s),
+            sim_realtime_factor=float(self.last_sim_realtime_factor),
+            sim_step_count=int(self.last_sim_step_count),
             reply_ok=bool(self.last_reply_ok),
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
             u=self.last_u,
         )
+
+    def _update_sim_clock_fields(self, msg: dict[str, Any]) -> None:
+        if "sim_time_s" in msg:
+            try:
+                self.last_sim_time_s = float(msg.get("sim_time_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_wall_elapsed_s" in msg:
+            try:
+                self.last_sim_wall_elapsed_s = float(msg.get("sim_wall_elapsed_s", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_realtime_factor" in msg:
+            try:
+                self.last_sim_realtime_factor = float(msg.get("sim_realtime_factor", 0.0))
+            except (TypeError, ValueError):
+                pass
+        if "sim_step_count" in msg:
+            try:
+                self.last_sim_step_count = int(msg.get("sim_step_count", 0))
+            except (TypeError, ValueError):
+                pass
 
     def _update_perception_fields(self, msg: dict[str, Any]) -> None:
         if "perceived_object_label" in msg:
@@ -169,6 +201,17 @@ class ControlClient:
                 self.is_connected = False
                 self.last_reply_ok = False
                 self.last_reply_reason = f"transport send failed: {exc}"
+
+    def _send_hello(self, *, force: bool = False) -> None:
+        now = time.time()
+        if (
+            not bool(force)
+            and self._hello_period_s > 0.0
+            and (now - self._t_last_hello) < self._hello_period_s
+        ):
+            return
+        self._t_last_hello = now
+        self._send({"t": "hello", "ts": now})
 
     def poll(self) -> None:
         with self._io_lock:
@@ -219,6 +262,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             object_world_raw = msg.get("object_world", None)
             if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
@@ -293,6 +337,7 @@ class ControlClient:
                     self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
                 except (TypeError, ValueError):
                     pass
+            self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
@@ -314,6 +359,8 @@ class ControlClient:
 
     def refresh_state(self) -> HostState:
         self.poll()
+        if self._t_last_rx_wall <= 0.0 or self.rx_age_s() > 1.0:
+            self._send_hello()
         return self.get_state()
 
     def estop(self) -> None:

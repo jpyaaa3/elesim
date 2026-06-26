@@ -23,6 +23,8 @@ DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "craft")
 class SimParam:
     dt: float = 0.01
     substeps: int = 1
+    realtime: bool = True
+    realtime_factor: float = 1.0
     gravity: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     roll_rate: float = float("inf")
@@ -1143,6 +1145,8 @@ def _load_sim_param_config(cp: configparser.ConfigParser, defaults: AppConfigBun
     return SimParam(
         dt=cp.getfloat("SimParam", "dt", fallback=sp0.dt),
         substeps=cp.getint("SimParam", "substeps", fallback=sp0.substeps),
+        realtime=cp.getboolean("SimParam", "realtime", fallback=sp0.realtime),
+        realtime_factor=cp.getfloat("SimParam", "realtime_factor", fallback=sp0.realtime_factor),
         gravity=_parse_vec3(cp.get("SimParam", "gravity", fallback=""), sp0.gravity),
         roll_rate=cp.getfloat("SimParam", "roll_rate", fallback=sp0.roll_rate),
         bend_rate=cp.getfloat("SimParam", "bend_rate", fallback=sp0.bend_rate),

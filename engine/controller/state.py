@@ -37,6 +37,10 @@ class HostState:
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None
     go2_base_timestamp_s: float = 0.0
+    sim_time_s: float = 0.0
+    sim_wall_elapsed_s: float = 0.0
+    sim_realtime_factor: float = 0.0
+    sim_step_count: int = 0
 
 
 @dataclass

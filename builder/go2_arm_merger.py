@@ -26,6 +26,22 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
         elem.tail = space
 
 
+def _names(root: ET.Element, tag: str) -> list[str]:
+    return [str(elem.attrib.get("name", "")).strip() for elem in root.findall(tag)]
+
+
+def _duplicates(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        if value in seen:
+            dupes.add(value)
+        seen.add(value)
+    return sorted(dupes)
+
+
 def merge_go2_arm_urdf(
     *,
     go2_urdf_path: str | os.PathLike[str],
@@ -50,6 +66,22 @@ def merge_go2_arm_urdf(
     arm_root = ET.parse(arm_path).getroot()
     if go2_root.tag != "robot" or arm_root.tag != "robot":
         raise ValueError("both inputs must be URDF robot documents")
+
+    link_names = _names(go2_root, "link") + _names(arm_root, "link")
+    joint_names = _names(go2_root, "joint") + _names(arm_root, "joint")
+    duplicate_links = _duplicates(link_names)
+    duplicate_joints = _duplicates(joint_names)
+    if duplicate_links:
+        raise ValueError(f"duplicate link names in merged URDF: {duplicate_links}")
+    if duplicate_joints:
+        raise ValueError(f"duplicate joint names in merged URDF: {duplicate_joints}")
+    if str(joint_name).strip() in set(joint_names):
+        raise ValueError(f"merge joint name already exists: {joint_name}")
+    available_links = set(link_names)
+    if str(parent_link).strip() not in available_links:
+        raise ValueError(f"merge parent link not found: {parent_link}")
+    if str(child_link).strip() not in available_links:
+        raise ValueError(f"merge child link not found: {child_link}")
 
     merged = ET.Element("robot", attrib={"name": "go2_arm"})
     for child in list(go2_root):
