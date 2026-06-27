@@ -403,6 +403,7 @@ class ControlPanel:
                         draw_hardware_panel,
                         draw_control_4dof_panel,
                         draw_go2_panel,
+                        draw_ik_panel,
                         draw_sag_panel,
                     ),
                     item_width=first_item_w,
@@ -414,7 +415,6 @@ class ControlPanel:
             try:
                 self._draw_panel_stack(
                     (
-                        draw_ik_panel,
                         draw_perception_panel,
                     ),
                     item_width=second_item_w,

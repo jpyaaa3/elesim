@@ -16,7 +16,7 @@ from engine.joint_defs import JointLimit
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "craft")
+DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 
 
 @dataclass(frozen=True)
@@ -1156,7 +1156,7 @@ def _load_sim_param_config(cp: configparser.ConfigParser, defaults: AppConfigBun
 
 def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *, config_dir: str) -> SimConfig:
     sc0 = defaults.sim_config
-    build_dir = os.path.abspath(os.path.join(config_dir, "craft"))
+    build_dir = os.path.abspath(os.path.join(config_dir, "crafts"))
     hand_eye_raw = cp.get("runtime", "hand_eye_config", fallback=sc0.hand_eye_config).strip()
     hand_eye_config = (
         os.path.abspath(os.path.join(config_dir, hand_eye_raw))

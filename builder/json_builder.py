@@ -34,7 +34,7 @@ from builder.robot_defs import (
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "craft")
+DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 DEFAULT_ASSET_ROOT_DIR = os.path.join(PROJECT_ROOT, "assets")
 
 

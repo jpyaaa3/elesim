@@ -177,7 +177,7 @@ use_hardware = true
 - spawn 위치
 - 디버그 마커 표시 여부
 
-로봇 조립 결과는 [craft](./craft) 아래에 생성되며,
+로봇 조립 결과는 [crafts](./crafts) 아래에 생성되며,
 원본 자산과 정의는 다음 위치에 있습니다.
 
 - [assets](./assets)

@@ -381,15 +381,3 @@ def draw_go2_panel(panel) -> None:
         panel.service.send_go2_obstacles_avoid(enabled=bool(enabled))
 
     _draw_posture(panel, width)
-
-    imgui.text("Gaze / Demo")
-    if _button(panel, "Gaze Stand##go2_gaze_stand", 96.0):
-        panel.service.start_gaze_stabilizer_standing()
-    imgui.same_line()
-    if _button(panel, "Gaze Walk##go2_gaze_walk", 96.0):
-        panel.service.start_gaze_stabilizer_walking()
-    imgui.same_line()
-    if _button(panel, "Stop Gaze##go2_stop_gaze", 96.0):
-        panel.service.stop_gaze_stabilizer()
-    if _button(panel, "Demo 4: Stop + Grasp##go2_demo4", 176.0):
-        panel.service.start_demo4_stop_and_grasp()

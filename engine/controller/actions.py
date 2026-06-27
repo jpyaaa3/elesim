@@ -85,7 +85,12 @@ from .perception_capture import (
 from .state import HostState, PanelState
 
 
-DEFAULT_SAG_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "sag_model.json")
+DEFAULT_SAG_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "model_presets",
+    "sag",
+    "sag_model.json",
+)
 
 
 def resolve_sag_model_path(path: str) -> str:

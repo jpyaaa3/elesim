@@ -100,6 +100,6 @@ def ros_import_hint(*, config_workspace: str = "") -> str:
         f"  source {ws}/install/setup.bash\n"
         "  export UNITREE_ROS2_WS=" + ws + "\n"
         "  python host.py --config config.jetson.ini\n"
-        "Or use: bash scripts/run_host_jetson.sh\n"
+        "Or use: bash engine/scripts/run_host_jetson.sh\n"
         "Verify: python3 -c \"from unitree_api.msg import Request; print('ok')\""
     )

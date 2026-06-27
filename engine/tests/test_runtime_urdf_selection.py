@@ -10,20 +10,20 @@ class RuntimeUrdfSelectionTests(unittest.TestCase):
         self.assertEqual(
             select_runtime_urdf(
                 use_go2=False,
-                arm_urdf="craft/arm.urdf",
-                robot_urdf="craft/robot.urdf",
+                arm_urdf="crafts/arm.urdf",
+                robot_urdf="crafts/robot.urdf",
             ),
-            "craft/arm.urdf",
+            "crafts/arm.urdf",
         )
 
     def test_runtime_urdf_selection_uses_robot_with_go2(self) -> None:
         self.assertEqual(
             select_runtime_urdf(
                 use_go2=True,
-                arm_urdf="craft/arm.urdf",
-                robot_urdf="craft/robot.urdf",
+                arm_urdf="crafts/arm.urdf",
+                robot_urdf="crafts/robot.urdf",
             ),
-            "craft/robot.urdf",
+            "crafts/robot.urdf",
         )
 
 

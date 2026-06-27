@@ -8,6 +8,9 @@ from ui.helpers import panel_header, scaled
 
 _CAPTURE_SOURCES = (("camera", "Camera"), ("sim", "Sim"))
 _PERCEPTION_LABEL_W = 88.0
+_TRACK_BUTTON_W = 124.0
+_TRACK_DEMO_BUTTON_W = 132.0
+_BUTTON_H = 26.0
 
 
 def _field_width(panel) -> float:
@@ -66,6 +69,24 @@ def _combo(panel, label: str, identifier: str, index: int, items: list[str]) -> 
 def _checkbox(panel, label: str, identifier: str, value: bool) -> tuple[bool, bool]:
     _control_label(panel, label)
     return imgui.checkbox(f"##{identifier}", bool(value))
+
+
+def _button(panel, label: str, width: float, height: float = _BUTTON_H) -> bool:
+    return bool(imgui.button(label, scaled(panel, width), scaled(panel, height)))
+
+
+def _draw_tracking_controls(panel) -> None:
+    imgui.text("Target Tracking")
+    if _button(panel, "Track Target##visual_gaze_stand", _TRACK_BUTTON_W):
+        panel.service.start_gaze_stabilizer_standing()
+    imgui.same_line()
+    if _button(panel, "Walk + Track##visual_gaze_walk", _TRACK_BUTTON_W):
+        panel.service.start_gaze_stabilizer_walking()
+    imgui.same_line()
+    if _button(panel, "Stop Tracking##visual_stop_gaze", _TRACK_BUTTON_W):
+        panel.service.stop_gaze_stabilizer()
+    if _button(panel, "Stop + Grasp##visual_demo4", _TRACK_DEMO_BUTTON_W):
+        panel.service.start_demo4_stop_and_grasp()
 
 
 def _capture_source_index(mode: str) -> int:
@@ -312,3 +333,6 @@ def draw_perception_panel(panel) -> None:
             if imgui.button("Pick forward"):
                 panel.service.start_pick_forward(distance_m=0.15)
             imgui.tree_pop()
+
+    imgui.separator()
+    _draw_tracking_controls(panel)

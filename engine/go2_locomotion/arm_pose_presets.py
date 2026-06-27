@@ -20,7 +20,7 @@ class ArmPoseValues:
     theta2_rad: float
 
 
-# Display-space defaults; tune against craft URDF joint limits.
+# Display-space defaults; tune against crafts URDF joint limits.
 _ARM_PRESETS: dict[ArmPosePreset, ArmPoseValues] = {
     ArmPosePreset.NEUTRAL: ArmPoseValues(0.0, 0.0, 0.0, 0.0),
     ArmPosePreset.FORWARD_EXTENDED: ArmPoseValues(0.55, 0.0, 0.45, 0.45),

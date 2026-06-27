@@ -23,8 +23,8 @@ logs/
 # Local reference clone used for upstream comparison.
 update/
 
-# Generated runtime URDF; source is builder/config/assets.
-craft/arm.urdf
+# Generated builder scratch outputs.
+crafts/_go2_check*/
 
 # Local scratch handoff notes.
 elesim_wip_save.txt
