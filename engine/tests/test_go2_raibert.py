@@ -4,12 +4,12 @@ import unittest
 
 import numpy as np
 
-from engine.go2_locomotion.config import Go2LocomotionConfig
-from engine.go2_locomotion.gait import GaitScheduler
-from engine.go2_locomotion.kinematics import HIP_OFFSET_BODY, TROT_PHASE_OFFSET
-from engine.go2_locomotion.raibert import RaibertFootPlacement
-from engine.go2_locomotion.swing import SwingTrajectory
-from engine.go2_locomotion.types import Go2Command, LegId, LegPhase
+from engine.go2.locomotion.config import Go2LocomotionConfig
+from engine.go2.locomotion.gait import GaitScheduler
+from engine.go2.locomotion.kinematics import HIP_OFFSET_BODY, TROT_PHASE_OFFSET
+from engine.go2.locomotion.raibert import RaibertFootPlacement
+from engine.go2.locomotion.swing import SwingTrajectory
+from engine.go2.locomotion.types import Go2Command, LegId, LegPhase
 
 
 class Go2RaibertMathTests(unittest.TestCase):

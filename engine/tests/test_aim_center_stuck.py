@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from engine.config_loader import PickConfig
 from engine.controller.actions import ControlService
-from engine.controller.perception import VisualObservation
+from engine.vision.perception.observation import VisualObservation
 from engine.controller.state import PanelState
 from engine.protocol import ControlU
 

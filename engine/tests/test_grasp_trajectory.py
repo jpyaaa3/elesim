@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.visual_servoing.grasp_trajectory import GraspWaypoint, build_grasp_trajectory_markers
+from engine.vision.visual_servoing.grasp_trajectory import GraspWaypoint, build_grasp_trajectory_markers
 
 
 class TestGraspTrajectoryMarkers(unittest.TestCase):

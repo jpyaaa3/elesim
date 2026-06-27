@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from engine.config_loader import PerceptionConfig
-from engine.controller.perception_capture import PerceptionCapture
+from engine.vision.perception.capture import PerceptionCapture
 
 
 class TrackWatchdogTests(unittest.TestCase):

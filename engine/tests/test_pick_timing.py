@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from engine.profile.pick_timing import PickPhaseProfile, PickTimingCollector, format_report
-from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
+from engine.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 
 
 @dataclass

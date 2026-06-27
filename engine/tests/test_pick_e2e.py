@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engine.controller.actions import ControlService
-from engine.controller.object_pick import ObjectPickPhase
+from engine.vision.pick.core import ObjectPickPhase
 from engine.controller.state import PanelState
 
 

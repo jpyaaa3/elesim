@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from engine.go2_hardware.config import Go2HardwareConfig
-from engine.go2_hardware.odom_parser import odom_msg_to_sample, parse_odom_pose, world_to_elesim
-from engine.go2_hardware.sport_api import (
+from engine.go2.hardware.config import Go2HardwareConfig
+from engine.go2.hardware.odom_parser import odom_msg_to_sample, parse_odom_pose, world_to_elesim
+from engine.go2.hardware.sport_api import (
     API_BALANCE_STAND,
     API_DAMP,
     API_MOVE,
@@ -28,9 +28,9 @@ from engine.go2_hardware.sport_api import (
     stand_api_id,
     velocity_below_deadband,
 )
-from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
-from engine.go2_hardware.odom_parser import OdomSample
-from engine.go2_hardware.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic, create_go2_bridge_if_enabled
+from engine.go2.hardware.sport_state_parser import sportmodestate_to_sample
+from engine.go2.hardware.odom_parser import OdomSample
+from engine.go2.hardware.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic, create_go2_bridge_if_enabled
 
 
 class TestSportApi(unittest.TestCase):

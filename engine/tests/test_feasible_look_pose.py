@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.visual_servoing.feasible_look_pose import resolve_feasible_look_pose
-from engine.visual_servoing.pick_view_pregrasp import ViewPregraspCandidate
+from engine.vision.visual_servoing.feasible_look_pose import resolve_feasible_look_pose
+from engine.vision.visual_servoing.pick_view_pregrasp import ViewPregraspCandidate
 
 
 @dataclass
@@ -58,7 +58,7 @@ class TestFeasibleLookPose(unittest.TestCase):
             return _ok_result(dir_deg=8.0)
 
         with patch(
-            "engine.visual_servoing.feasible_look_pose._build_candidates",
+            "engine.vision.visual_servoing.feasible_look_pose._build_candidates",
             return_value=[user_cand, other_cand],
         ):
             result = resolve_feasible_look_pose(
@@ -103,7 +103,7 @@ class TestFeasibleLookPose(unittest.TestCase):
             return _ok_result(dir_deg=3.0)
 
         with patch(
-            "engine.visual_servoing.feasible_look_pose._build_candidates",
+            "engine.vision.visual_servoing.feasible_look_pose._build_candidates",
             return_value=[user_cand, other_cand],
         ):
             result = resolve_feasible_look_pose(
@@ -146,7 +146,7 @@ class TestFeasibleLookPose(unittest.TestCase):
             return _ok_result(dir_deg=25.0)
 
         with patch(
-            "engine.visual_servoing.feasible_look_pose._build_candidates",
+            "engine.vision.visual_servoing.feasible_look_pose._build_candidates",
             return_value=[user_cand, other_cand],
         ):
             result = resolve_feasible_look_pose(

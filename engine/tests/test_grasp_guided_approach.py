@@ -13,10 +13,10 @@ if str(ROOT) not in sys.path:
 
 from engine.config_loader import IkConfig, PickConfig
 from engine.controller.actions import ControlService
-from engine.controller.perception_capture import PerceptionSnapshot
+from engine.vision.perception.capture import PerceptionSnapshot
 from engine.controller.state import PanelState
-from engine.visual_servoing.equal_sag_probe import EqualSagEstimate
-from engine.visual_servoing.grasp_trajectory import GraspWaypoint
+from engine.vision.visual_servoing.equal_sag_probe import EqualSagEstimate
+from engine.vision.visual_servoing.grasp_trajectory import GraspWaypoint
 
 
 class TestGraspGuidedHelpers(unittest.TestCase):
@@ -903,7 +903,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertGreaterEqual(len(applied), 1)
 
     def test_null_space_compose_via_module(self) -> None:
-        from engine.visual_servoing.local_image_jacobian import compose_dq_align_and_approach
+        from engine.vision.visual_servoing.local_image_jacobian import compose_dq_align_and_approach
 
         j = np.array([[0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]], dtype=float)
         seed = np.array([0.01, 0.02, 0.03, 0.04], dtype=float)
@@ -920,7 +920,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             max_dq_angle=0.05,
         )
         self.assertGreater(float(np.linalg.norm(dq_app)), 0.0)
-        from engine.visual_servoing.local_image_jacobian import null_space_projector
+        from engine.vision.visual_servoing.local_image_jacobian import null_space_projector
 
         n_proj = null_space_projector(j, damping=0.05)
         self.assertTrue(np.allclose(j @ (n_proj @ seed), np.zeros(2), atol=1e-4))

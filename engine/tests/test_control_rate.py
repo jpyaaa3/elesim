@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from engine.go2_mpc.control_rate import ControlRateInfo
+from engine.go2.mpc.control_rate import ControlRateInfo
 
 
 def test_effective_rate_capped_by_sim_hz() -> None:

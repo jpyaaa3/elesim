@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from engine.config_loader import PickConfig
-from engine.controller.object_pick import evaluate_pick_convergence
-from engine.controller.perception import VisualObservation
+from engine.vision.pick.core import evaluate_pick_convergence
+from engine.vision.perception.observation import VisualObservation
 
 
 class PickConvergenceTests(unittest.TestCase):

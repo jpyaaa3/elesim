@@ -15,11 +15,11 @@ if str(ROOT) not in sys.path:
 from dataclasses import dataclass
 from typing import Optional
 
-from engine.visual_servoing.feasible_ready_pose import (
+from engine.vision.visual_servoing.feasible_ready_pose import (
     _build_candidates,
     resolve_feasible_ready_pose,
 )
-from engine.visual_servoing.pick_view_pregrasp import ViewPregraspCandidate
+from engine.vision.visual_servoing.pick_view_pregrasp import ViewPregraspCandidate
 
 
 @dataclass
@@ -200,10 +200,10 @@ class TestResolveFeasibleReadyPose(unittest.TestCase):
             return type("M", (), {"score": 1.0, "look_dot": 0.95})()
 
         with patch(
-            "engine.visual_servoing.feasible_ready_pose._build_candidates",
+            "engine.vision.visual_servoing.feasible_ready_pose._build_candidates",
             return_value=[cand_a, cand_b],
         ), patch(
-            "engine.visual_servoing.feasible_ready_pose.evaluate_view_candidate",
+            "engine.vision.visual_servoing.feasible_ready_pose.evaluate_view_candidate",
             side_effect=_eval_side_effect,
         ):
             result = resolve_feasible_ready_pose(
@@ -256,13 +256,13 @@ class TestResolveFeasibleReadyPose(unittest.TestCase):
         )
 
         with patch(
-            "engine.visual_servoing.feasible_ready_pose._build_candidates",
+            "engine.vision.visual_servoing.feasible_ready_pose._build_candidates",
             return_value=[cand_a, cand_b],
         ), patch(
-            "engine.visual_servoing.feasible_ready_pose._default_solve_position_only",
+            "engine.vision.visual_servoing.feasible_ready_pose._default_solve_position_only",
             side_effect=screen_fn,
         ), patch(
-            "engine.visual_servoing.feasible_ready_pose._make_align_solve_fn",
+            "engine.vision.visual_servoing.feasible_ready_pose._make_align_solve_fn",
             return_value=full_fn,
         ):
             result = resolve_feasible_ready_pose(

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from .perception import VisualObservation, extract_visual_observation
-from .state import HostState, PanelState
-
 __all__ = [
     "DEFAULT_SAG_MODEL_PATH",
     "ControlClient",
@@ -22,6 +19,14 @@ def __getattr__(name: str):
         from .client import ControlClient
 
         return ControlClient
+    if name in {"HostState", "PanelState"}:
+        from . import state
+
+        return getattr(state, name)
+    if name in {"VisualObservation", "extract_visual_observation"}:
+        from engine.vision.perception import observation
+
+        return getattr(observation, name)
     if name in {
         "DEFAULT_SAG_MODEL_PATH",
         "ControlService",

@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engine import ik as ik_pipeline
-from engine.iklib import aligner as ik_aligner
+from engine.arm.iklib import aligner as ik_aligner
 
 
 class TestAlignSkip(unittest.TestCase):

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.visual_servoing.uv_jacobian import default_uv_jacobian, solve_uv_control_delta
+from engine.vision.visual_servoing.uv_jacobian import default_uv_jacobian, solve_uv_control_delta
 
 
 class TestUvJacobianSign(unittest.TestCase):

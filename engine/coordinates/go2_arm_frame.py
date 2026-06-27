@@ -8,7 +8,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from engine.perception_bridge.transforms import make_transform_from_world_pose, transform_point
+from engine.vision.perception_bridge.transforms import make_transform_from_world_pose, transform_point
 
 
 def _world_offset(

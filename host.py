@@ -14,17 +14,17 @@ import numpy as np
 import zmq
 
 from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
-from engine.go2_hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
-from engine.go2_hardware.odom_parser import OdomSample
-from engine.go2_hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
+from engine.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
+from engine.go2.hardware.odom_parser import OdomSample
+from engine.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
 from engine.profile.pick_timing import enabled as pick_profile_enabled
-from engine.iklib.solver import load_solver_context
-from engine.motor import load_hardware, tick_to_deg_0_360
+from engine.arm.iklib.solver import load_solver_context
+from engine.arm.dynamixel import load_hardware, tick_to_deg_0_360
 from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
-from engine.visual_servoing.ready_pose import compute_ready_pose_target
+from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
-from engine.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
-from engine.sim_camera.pose import camera_point_to_world_from_axes
+from engine.vision.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
+from engine.vision.sim_camera.pose import camera_point_to_world_from_axes
 
 from serial.tools import list_ports as serial_list_ports
 

@@ -13,7 +13,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from engine import ik as ik_pipeline
-from engine.iklib import kinematics as ik_kin
+from engine.arm.iklib import kinematics as ik_kin
 from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
 from engine.coordinates.go2_arm_frame import (
     Go2ArmFrameConfig,
@@ -25,8 +25,8 @@ from engine.coordinates.go2_arm_frame import (
 from engine.gaze_stabilizer.controller import GazeStabilizerConfig
 from engine.controller.gaze_service import GazeControlService
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, linear_motor_u_limit, sim_q_to_control_u
-from engine.sag_model import load_sag_model_json
-from engine.visual_servoing.equal_sag_probe import (
+from engine.arm.sag_model import load_sag_model_json
+from engine.vision.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
     SagDriftComponents,
     apply_equal_sag_offsets,
@@ -43,12 +43,12 @@ from engine.profile.pick_timing import (
     reset_fk_count,
     uninstall_fk_counter,
 )
-from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
-from engine.visual_servoing.grasp_trajectory import (
+from engine.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
+from engine.vision.visual_servoing.grasp_trajectory import (
     GraspWaypoint,
     build_grasp_trajectory_markers,
 )
-from engine.visual_servoing.local_image_jacobian import (
+from engine.vision.visual_servoing.local_image_jacobian import (
     GraspApproachMode,
     ImageJacobianEstimator3D,
     LocalImageJacobianServo3D,
@@ -59,22 +59,22 @@ from engine.visual_servoing.local_image_jacobian import (
     joint_saturated,
     z_jacobian_row_from_position_jacobian,
 )
-from engine.visual_servoing.uv_jacobian import (
+from engine.vision.visual_servoing.uv_jacobian import (
     broyden_update_uv_jacobian,
     default_uv_jacobian,
     solve_uv_control_delta,
 )
 
 from .client import ControlClient
-from .perception import VisualObservation, extract_local_perception_observation, extract_visual_observation
-from .object_pick import (
+from engine.vision.perception.observation import VisualObservation, extract_local_perception_observation, extract_visual_observation
+from engine.vision.pick.core import (
     ObjectPickPhase,
     compute_ready_pose_target,
     evaluate_pick_convergence,
     pick_ready_for_extend,
     pick_uv_deltas,
 )
-from .perception_capture import (
+from engine.vision.perception.capture import (
     PerceptionCapture,
     PerceptionSnapshot,
     TrackerPhase,
@@ -7087,7 +7087,7 @@ class ControlService:
             self._ik_worker = None
 
     def _pick_reach_model(self, sag_model: Optional[dict[str, Any]] = None):
-        from engine.iklib.kinematics import _ReachModel
+        from engine.arm.iklib.kinematics import _ReachModel
 
         self.refresh_ik_context()
         limit = self._ik_context.get("limit")
@@ -7120,7 +7120,7 @@ class ControlService:
         axis_local: tuple[float, float, float] = (1.0, 0.0, 0.0),
     ) -> np.ndarray:
         """Unit vector in world frame for a body-fixed axis (default EE local +X)."""
-        from engine.iklib.kinematics import _forward_link_tf
+        from engine.arm.iklib.kinematics import _forward_link_tf
 
         context = model.context
         q4 = model.clamp_q(q)

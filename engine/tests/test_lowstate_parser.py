@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from engine.go2_locomotion.kinematics import GO2_LEG_JOINTS
-from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order, lowstate_motor_sample_genesis_order
+from engine.go2.locomotion.kinematics import GO2_LEG_JOINTS
+from engine.go2.hardware.lowstate_parser import lowstate_leg_q_genesis_order, lowstate_motor_sample_genesis_order
 
 
 class LowStateParserTests(unittest.TestCase):

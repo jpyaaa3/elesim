@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from engine.controller.object_pick import compute_ready_pose_target
+from engine.vision.pick.core import compute_ready_pose_target
 
 
 class ReadyPoseTests(unittest.TestCase):

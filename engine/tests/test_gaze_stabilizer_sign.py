@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from engine.gaze_stabilizer.controller import GazeStabilizer, GazeStabilizerConfig
-from engine.visual_servoing.uv_jacobian import default_uv_jacobian, solve_uv_control_delta
+from engine.vision.visual_servoing.uv_jacobian import default_uv_jacobian, solve_uv_control_delta
 
 
 def test_positive_u_err_reduces_error_direction() -> None:

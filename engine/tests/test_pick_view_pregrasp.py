@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.pick_view_pregrasp import (
+from engine.vision.visual_servoing.pick_view_pregrasp import (
     ViewCandidateMetrics,
     ViewPregraspCandidate,
     ViewPregraspLimits,
@@ -88,7 +88,7 @@ class TestCameraVisibility(unittest.TestCase):
         self.assertGreater(center, off)
 
     def test_soft_score_finite_outside_fov(self) -> None:
-        from engine.pick_view_pregrasp import camera_visibility_score_soft
+        from engine.vision.visual_servoing.pick_view_pregrasp import camera_visibility_score_soft
 
         inside = camera_visibility_score_soft((0.0, 0.0, 0.50), self.limits)
         outside = camera_visibility_score_soft((0.30, 0.0, 0.50), self.limits)
@@ -219,7 +219,7 @@ class TestViewCandidateStrict(unittest.TestCase):
         assert best is not None
         self.assertEqual(best[0].tag, "b")
 
-    @patch("engine.pick_view_pregrasp.evaluate_view_candidate")
+    @patch("engine.vision.visual_servoing.pick_view_pregrasp.evaluate_view_candidate")
     def test_strict_only_no_visible_returns_none(self, mock_eval: object) -> None:
         del mock_eval
         rows: list[tuple[ViewPregraspCandidate, np.ndarray, ViewCandidateMetrics]] = []

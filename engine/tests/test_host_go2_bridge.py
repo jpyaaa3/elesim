@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 
 import host as host_mod
-from engine.go2_hardware.odom_parser import OdomSample
+from engine.go2.hardware.odom_parser import OdomSample
 
 
 class TestHostGo2Bridge(unittest.TestCase):

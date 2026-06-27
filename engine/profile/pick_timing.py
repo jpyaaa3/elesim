@@ -21,7 +21,7 @@ def install_fk_counter() -> None:
     global _FK_ORIGINAL, _FK_COUNT
     if _FK_ORIGINAL is not None:
         return
-    from engine.iklib import kinematics as ik_kin
+    from engine.arm.iklib import kinematics as ik_kin
 
     _FK_ORIGINAL = ik_kin._forward_grasp_world
 
@@ -37,7 +37,7 @@ def uninstall_fk_counter() -> None:
     global _FK_ORIGINAL, _FK_COUNT
     if _FK_ORIGINAL is None:
         return
-    from engine.iklib import kinematics as ik_kin
+    from engine.arm.iklib import kinematics as ik_kin
 
     ik_kin._forward_grasp_world = _FK_ORIGINAL
     _FK_ORIGINAL = None

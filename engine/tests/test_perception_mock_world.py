@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engine.config_loader import PerceptionConfig
-from engine.controller.perception_capture import PerceptionCapture
+from engine.vision.perception.capture import PerceptionCapture
 
 
 class TestResolveMockWorld(unittest.TestCase):

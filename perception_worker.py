@@ -12,7 +12,7 @@ from typing import Optional
 
 from engine.config_loader import load_app_config_from_ini
 from engine.controller.client import ControlClient
-from engine.controller.perception_capture import PerceptionCapture, PerceptionSnapshot
+from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
 
 
 def main() -> None:

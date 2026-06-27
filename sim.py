@@ -33,13 +33,13 @@ from engine.config_loader import (
     UrdfExportConfig,
     load_app_config_from_ini,
 )
-from engine.go2_locomotion import Go2Command
-from engine.go2_locomotion.controller import RaibertTrotController
-from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
-from engine.motor import estimate_ideal_sim_rates
+from engine.go2.locomotion import Go2Command
+from engine.go2.locomotion.controller import RaibertTrotController
+from engine.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
+from engine.arm.dynamixel import estimate_ideal_sim_rates
 from engine.runtime_urdf import select_runtime_urdf
 from builder.urdf_converter import convert_manifest_file
-from engine.sag_model import segment_errors_from_model
+from engine.arm.sag_model import segment_errors_from_model
 
 
 GO2_STAND_DOWN_Q: Dict[str, float] = {
@@ -266,8 +266,8 @@ class Go2Locomotion:
 
         mode = str(config.mode).strip().lower()
         if mode == "convex_mpc":
-            from engine.go2_mpc.config import Go2MpcConfig
-            from engine.go2_mpc.controller import ConvexMpcGenesisController
+            from engine.go2.mpc.config import Go2MpcConfig
+            from engine.go2.mpc.controller import ConvexMpcGenesisController
 
             mpc_cfg = Go2MpcConfig(
                 gait_hz=float(config.gait_hz),
@@ -1183,7 +1183,7 @@ class SimScene:
         if self.mover is None:
             return None
         try:
-            from engine.sim_camera.pose import camera_axes_from_genesis_link
+            from engine.vision.sim_camera.pose import camera_axes_from_genesis_link
 
             return camera_axes_from_genesis_link(
                 self.mover.entity,
@@ -2102,7 +2102,7 @@ class HostFeedbackPublisher:
         sim_step_count: Optional[int] = None,
     ) -> None:
         try:
-            from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw, _to_numpy_1d
+            from engine.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
             from scipy.spatial.transform import Rotation as Rot
 
             base = go2_entity.get_link("base")
@@ -2392,7 +2392,7 @@ class RuntimePrep:
 
         eye_camera = None
         if bool(a.cfg.sim_camera_enable) and str(a.cfg.hand_eye_config).strip():
-            from engine.sim_camera import Node9EyeInHandCamera
+            from engine.vision.sim_camera import Node9EyeInHandCamera
 
             eye_camera = Node9EyeInHandCamera.create(
                 a.sim_scene.scene,
@@ -2412,7 +2412,7 @@ class RuntimePrep:
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
-            from engine.go2_mpc.walking_metrics import WalkingMetricsLogger
+            from engine.profile.walking_metrics import WalkingMetricsLogger
 
             metrics = WalkingMetricsLogger.from_env()
             a.sim_scene.walking_metrics = metrics
@@ -2448,7 +2448,7 @@ class RuntimePrep:
             eye_camera.bind(ent, hand_eye_path=str(a.cfg.hand_eye_config))
             a.sim_scene.eye_camera = eye_camera
             a.sim_scene.hand_eye_config_path = str(a.cfg.hand_eye_config)
-            from engine.sim_camera import SimCameraPublisher
+            from engine.vision.sim_camera import SimCameraPublisher
 
             a.sim_scene.camera_publisher = SimCameraPublisher(
                 str(a.cfg.sim_camera_port),

@@ -17,7 +17,7 @@ from typing import Optional
 
 from engine.controller.actions import ControlService
 from engine.controller.state import PanelState
-from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
+from engine.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 
 
 @dataclass

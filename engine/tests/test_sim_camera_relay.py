@@ -4,9 +4,9 @@ import time
 
 import numpy as np
 
-from engine.sim_camera.publisher import SimCameraPublisher
-from engine.sim_camera.subscriber import SimCameraSubscriber
-from engine.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
+from engine.vision.sim_camera.publisher import SimCameraPublisher
+from engine.vision.sim_camera.subscriber import SimCameraSubscriber
+from engine.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
 
 def test_sim_camera_pub_sub_roundtrip() -> None:

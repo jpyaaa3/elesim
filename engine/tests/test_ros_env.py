@@ -5,7 +5,7 @@ import shutil
 import sys
 import unittest
 
-from engine.go2_hardware.ros_env import _dist_package_dirs, bootstrap_ros_python_path, ros_import_hint
+from engine.go2.hardware.ros_env import _dist_package_dirs, bootstrap_ros_python_path, ros_import_hint
 
 
 class TestRosEnv(unittest.TestCase):

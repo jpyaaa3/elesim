@@ -28,7 +28,7 @@ except ModuleNotFoundError:
     sys.modules["scipy.spatial"] = spatial_mod
     sys.modules["scipy.spatial.transform"] = transform_mod
 
-from engine.go2_mpc.payload_model import ArmPayloadCompensator
+from engine.go2.mpc.payload_model import ArmPayloadCompensator
 
 
 class _FakeLink:

@@ -9,7 +9,7 @@ import numpy as np
 
 from engine.controller.control_ownership import ControlOwner, ControlOwnership, ControlOwnershipError
 from engine.gaze_stabilizer.controller import GazeStabilizer, GazeStabilizerConfig
-from engine.go2_mpc.walking_metrics import CameraMetricsLogger
+from engine.profile.walking_metrics import CameraMetricsLogger
 from engine.protocol import ControlU
 
 if TYPE_CHECKING:

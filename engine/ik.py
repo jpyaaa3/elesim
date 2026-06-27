@@ -9,10 +9,10 @@ import numpy as np
 if TYPE_CHECKING:
     from engine.profile.pick_timing import PickTimingCollector
 
-from .iklib import aligner as ik_aligner
-from .iklib import kinematics as ik_kin
-from .iklib import solver as ik_solver
-from .iklib import tweaker as ik_tweaker
+from .arm.iklib import aligner as ik_aligner
+from .arm.iklib import kinematics as ik_kin
+from .arm.iklib import solver as ik_solver
+from .arm.iklib import tweaker as ik_tweaker
 
 AlignMode = Literal["full", "lite"]
 

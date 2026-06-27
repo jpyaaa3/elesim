@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from engine.config_loader import PickConfig
 from engine.controller.actions import ControlService
-from engine.controller.object_pick import ObjectPickPhase
+from engine.vision.pick.core import ObjectPickPhase
 from engine.controller.state import HostState, PanelState
 from engine.protocol import SimQ
 

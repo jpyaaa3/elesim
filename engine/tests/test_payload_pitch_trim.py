@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from engine.go2_mpc.payload_model import backward_pitch_trim_rad, payload_pitch_trim_rad
+from engine.go2.mpc.payload_model import backward_pitch_trim_rad, payload_pitch_trim_rad
 
 
 @dataclass

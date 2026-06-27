@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 
 from engine import ik as ik_pipeline
 from engine.controller import ControlClient, ControlService, PanelState
-from engine.controller.object_pick import ObjectPickPhase
+from engine.vision.pick.core import ObjectPickPhase
 
 
 def _parse_phases(raw: str) -> list[str]:

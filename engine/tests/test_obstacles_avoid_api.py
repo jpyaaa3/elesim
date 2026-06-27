@@ -4,11 +4,11 @@ import json
 import unittest
 
 import engine.protocol as proto
-from engine.go2_hardware.obstacles_avoid_api import (
+from engine.go2.hardware.obstacles_avoid_api import (
     API_OBSTACLES_AVOID_SWITCH,
     build_obstacles_avoid_parameter,
 )
-from engine.go2_hardware.sport_api import fill_unitree_request
+from engine.go2.hardware.sport_api import fill_unitree_request
 
 
 class TestObstaclesAvoidApi(unittest.TestCase):

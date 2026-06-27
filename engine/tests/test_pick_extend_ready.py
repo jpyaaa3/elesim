@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 
 from engine.config_loader import PickConfig
-from engine.controller.object_pick import pick_ready_for_extend
-from engine.controller.perception import VisualObservation
+from engine.vision.pick.core import pick_ready_for_extend
+from engine.vision.perception.observation import VisualObservation
 
 
 class PickExtendReadyTests(unittest.TestCase):

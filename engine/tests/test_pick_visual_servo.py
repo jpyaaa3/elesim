@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.pick_visual_servo import (
+from engine.vision.visual_servoing.pick_visual_servo import (
     JacobianLookGains,
     LookAlignLimits,
     LookGains,

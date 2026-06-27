@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from engine.go2_hardware.vel_feedback import (
+from engine.go2.hardware.vel_feedback import (
     Go2VelFeedbackGains,
     HeadingHoldController,
     compute_feedback_cmd,

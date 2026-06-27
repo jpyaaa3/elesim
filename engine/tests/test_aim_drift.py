@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from engine.controller.actions import ControlService
 from engine.controller.state import PanelState
-from engine.visual_servoing.ready_pose import compute_ready_pose_target
+from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 
 
 class TestAimDriftDirection(unittest.TestCase):

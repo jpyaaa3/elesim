@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from engine.sag_model import segment_errors_from_model
-from engine.visual_servoing.equal_sag_probe import solve_equal_sag_offsets
+from engine.arm.sag_model import segment_errors_from_model
+from engine.vision.visual_servoing.equal_sag_probe import solve_equal_sag_offsets
 
 
 class EqualSagModelTests(unittest.TestCase):

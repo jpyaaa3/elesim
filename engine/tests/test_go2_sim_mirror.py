@@ -4,7 +4,7 @@ import os
 import unittest
 
 from engine.config_loader import load_app_config_from_ini
-from engine.go2_locomotion.config import Go2LocomotionConfig
+from engine.go2.locomotion.config import Go2LocomotionConfig
 import engine.protocol as proto
 
 

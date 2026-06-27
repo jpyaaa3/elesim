@@ -7,8 +7,8 @@ import argparse
 import os
 import time
 
-from engine.go2_locomotion.arm_pose_presets import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
-from engine.go2_mpc.walking_metrics import WalkingMetricsLogger, WalkingMetricsMeta
+from engine.profile.walking_scenarios import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
+from engine.profile.walking_metrics import WalkingMetricsLogger, WalkingMetricsMeta
 
 
 def main() -> None:

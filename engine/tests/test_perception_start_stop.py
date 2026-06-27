@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from engine.config_loader import PerceptionConfig
 from engine.controller.actions import ControlService
-from engine.controller.perception_capture import PerceptionSnapshot
+from engine.vision.perception.capture import PerceptionSnapshot
 from engine.controller.state import PanelState
 
 

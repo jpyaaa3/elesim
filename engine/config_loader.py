@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 import engine.protocol as proto
-from engine.go2_hardware.config import Go2HardwareConfig
-from engine.go2_locomotion.config import Go2LocomotionConfig
+from engine.go2.hardware.config import Go2HardwareConfig
+from engine.go2.locomotion.config import Go2LocomotionConfig
 from engine.gaze_stabilizer.controller import GazeStabilizerConfig
-from engine.joint_defs import JointLimit
+from engine.arm.joint_defs import JointLimit
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -517,7 +517,7 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
 
 
 def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PickConfig:
-    from engine.controller.object_pick import grid_cell_center_uv, quadrant_fill_target_scale
+    from engine.vision.pick.core import grid_cell_center_uv, quadrant_fill_target_scale
 
     pk0 = defaults.pick_config
     quadrant_fill = cp.getfloat("pick", "quadrant_fill_min", fallback=pk0.quadrant_fill_min)

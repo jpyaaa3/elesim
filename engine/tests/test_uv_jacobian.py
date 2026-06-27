@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from engine.visual_servoing.uv_jacobian import (
+from engine.vision.visual_servoing.uv_jacobian import (
     broyden_update_uv_jacobian,
     default_uv_jacobian,
     solve_uv_control_delta,

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from engine.visual_servoing.uv_jacobian import solve_uv_control_delta
+from engine.vision.visual_servoing.uv_jacobian import solve_uv_control_delta
 
 
 @dataclass(frozen=True)
