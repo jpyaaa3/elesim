@@ -16,6 +16,31 @@ _DEFAULT_TEXT_COLOR = (0.10, 0.11, 0.13, 1.0)
 _GO2_VEL_COLOR = (0.12, 0.44, 0.95)
 _FLOAT3_LABEL_W = 94.0
 _FLOAT3_WIDTH_SCALE = 0.92
+_GO2_LEG_TORQUE_INDEX = {
+    ("FL", "Hip"): 0,
+    ("FL", "Thigh"): 1,
+    ("FL", "Calf"): 2,
+    ("FR", "Hip"): 3,
+    ("FR", "Thigh"): 4,
+    ("FR", "Calf"): 5,
+    ("RL", "Hip"): 6,
+    ("RL", "Thigh"): 7,
+    ("RL", "Calf"): 8,
+    ("RR", "Hip"): 9,
+    ("RR", "Thigh"): 10,
+    ("RR", "Calf"): 11,
+}
+
+
+def _imgui_scale() -> float:
+    try:
+        return max(0.1, float(getattr(imgui.get_io(), "font_global_scale", 1.0) or 1.0))
+    except Exception:
+        return 1.0
+
+
+def _scaled_px(value: float) -> float:
+    return float(value) * _imgui_scale()
 
 
 def _fmt_xyz(vec: tuple[float, float, float] | None, *, signed: bool = False) -> str:
@@ -65,7 +90,7 @@ def _calc_text_size(text: str) -> tuple[float, float]:
         if hasattr(size, "x") and hasattr(size, "y"):
             return float(size.x), float(size.y)
         return float(size[0]), float(size[1])
-    return float(len(str(text)) * 8), 14.0
+    return float(len(str(text)) * _scaled_px(8.0)), _scaled_px(14.0)
 
 
 def _xy(pos) -> tuple[float, float]:
@@ -176,14 +201,14 @@ def _text_value(value: object, *, color: tuple[float, float, float] | None = Non
 def _readonly_text_field(label: str, value: object, identifier: str) -> None:
     text = _blank(value)
     imgui.text(str(label))
-    imgui.same_line(_STATUS_LABEL_W)
+    imgui.same_line(_scaled_px(_STATUS_LABEL_W))
     _readonly_text_value(text, identifier)
 
 
 def _readonly_text_value(value: object, identifier: str) -> None:
     text = _blank(value)
     width_getter = getattr(imgui, "get_content_region_available_width", None)
-    field_w = max(80.0, float(width_getter()) if callable(width_getter) else 220.0)
+    field_w = max(_scaled_px(80.0), float(width_getter()) if callable(width_getter) else _scaled_px(220.0))
     _readonly_text_box(text, identifier, field_w)
 
 
@@ -367,19 +392,20 @@ def _readonly_go2_velocity_field(
         _readonly_text_box(value, f"{identifier}_{idx}", component_w, text_color=_GO2_VEL_COLOR)
 
 
-def _table_child_height() -> float:
+def _table_child_height(panel) -> float:
     getter = getattr(imgui, "get_text_line_height_with_spacing", None)
-    line_h = float(getter()) if callable(getter) else 20.0
-    return line_h * 2.0 + 18.0
+    line_h = float(getter()) if callable(getter) else scaled(panel, 20.0)
+    return line_h * 2.0 + scaled(panel, 18.0)
 
 
-def _compact_table_child_height(rows: int) -> float:
+def _compact_table_child_height(panel, rows: int) -> float:
     getter = getattr(imgui, "get_text_line_height_with_spacing", None)
-    line_h = float(getter()) if callable(getter) else 20.0
-    return line_h * int(rows) + 46.0
+    line_h = float(getter()) if callable(getter) else scaled(panel, 20.0)
+    return line_h * int(rows) + scaled(panel, 46.0)
 
 
 def _draw_columns_table(
+    panel,
     identifier: str,
     headers: tuple[str, ...],
     values: tuple[object, ...],
@@ -395,7 +421,7 @@ def _draw_columns_table(
     count = len(headers)
     colors = colors or tuple(None for _ in headers)
     flags = getattr(imgui, "WINDOW_NO_SCROLLBAR", 0) | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
-    imgui.begin_child(str(identifier), 0.0, _table_child_height(), True, flags=flags)
+    imgui.begin_child(str(identifier), 0.0, _table_child_height(panel), True, flags=flags)
     try:
         table_w = max(1.0, float(imgui.get_content_region_available_width()))
         col_w = table_w / max(1, count)
@@ -432,7 +458,7 @@ def _draw_columns_table(
         imgui.end_child()
 
 
-def _draw_go2_current_table(
+def _draw_go2_torque_table(
     panel,
     identifier: str,
     values: dict[tuple[str, str], object],
@@ -452,7 +478,7 @@ def _draw_go2_current_table(
     pairs = (("FL", "FR"), ("RL", "RR"))
     joints = (("H", "Hip"), ("T", "Thigh"), ("C", "Calf"))
     flags = getattr(imgui, "WINDOW_NO_SCROLLBAR", 0) | getattr(imgui, "WINDOW_NO_SCROLL_WITH_MOUSE", 0)
-    child_h = _compact_table_child_height(row_count)
+    child_h = _compact_table_child_height(panel, row_count)
     imgui.begin_child(str(identifier), 0.0, child_h, True, flags=flags)
     try:
         available_size = _content_region_available_size()
@@ -560,32 +586,26 @@ def _motor_current(host, *names: str) -> int | None:
     return None
 
 
-def _go2_joint_current(host, leg: str, joint: str) -> int | None:
-    leg_key = str(leg).strip().upper()
-    leg_alias = {
-        "FL": "front_left",
-        "FR": "front_right",
-        "RL": "rear_left",
-        "RR": "rear_right",
-    }.get(leg_key, leg_key.lower())
-    joint_key = str(joint).strip().lower()
-    joint_alias = {
-        "hip": ("hip", "abduction", "abad"),
-        "thigh": ("thigh", "upper", "upperleg"),
-        "calf": ("calf", "knee", "lower", "lowerleg"),
-    }.get(joint_key, (joint_key,))
-    names: list[str] = []
-    for alias in joint_alias:
-        names.extend(
-            (
-                f"{leg_key}_{alias}_joint",
-                f"{leg_key}_{alias}",
-                f"go2_{leg_key}_{alias}",
-                f"{leg_alias}_{alias}",
-                f"go2_{leg_alias}_{alias}",
-            )
-        )
-    return _motor_current(host, *names)
+def _fmt_go2_torque(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return "%.2fNm" % v
+
+
+def _go2_joint_torque(host, leg: str, joint: str) -> float | None:
+    if host is not None:
+        torques = getattr(host, "go2_leg_torque_nm", None)
+        idx = _GO2_LEG_TORQUE_INDEX.get((str(leg).strip().upper(), str(joint).strip()))
+        if idx is not None and isinstance(torques, (list, tuple)) and len(torques) == 12:
+            try:
+                return float(torques[int(idx)])
+            except (TypeError, ValueError, IndexError):
+                pass
+    return None
 
 
 def _host_status(host) -> tuple[str, tuple[float, float, float] | None]:
@@ -608,6 +628,7 @@ def _draw_hardware_brief(panel) -> None:
     device = getattr(host, "device", "") if host is not None else ""
     ports = tuple(getattr(host, "ports", ()) or ()) if host is not None else ()
     _draw_columns_table(
+        panel,
         "hardware_host_table",
         ("Host", "Device", "Port"),
         (host_text, device, ", ".join(str(p) for p in ports)),
@@ -617,15 +638,15 @@ def _draw_hardware_brief(panel) -> None:
 
     go2_rows = ("FL", "FR", "RL", "RR")
     go2_cols = ("Hip", "Thigh", "Calf")
-    go2_current_values = {
-        (leg, joint): _fmt_ma(_go2_joint_current(host, leg, joint))
+    go2_torque_values = {
+        (leg, joint): _fmt_go2_torque(_go2_joint_torque(host, leg, joint))
         for leg in go2_rows
         for joint in go2_cols
     }
-    _draw_go2_current_table(
+    _draw_go2_torque_table(
         panel,
-        "hardware_go2_current_table",
-        go2_current_values,
+        "hardware_go2_torque_table",
+        go2_torque_values,
     )
 
     gripper_current = _motor_current(host, "gripper", "claw")
@@ -642,6 +663,7 @@ def _draw_hardware_brief(panel) -> None:
         gripper_current,
     )
     _draw_columns_table(
+        panel,
         "hardware_current_table",
         ("Linear", "Roll", "Seg1", "Seg2", "Gripper"),
         tuple(_fmt_ma(value) for value in current_values),
@@ -922,6 +944,7 @@ def _draw_status_sections_single(panel) -> None:
 def _draw_ui_resolution_controls(panel) -> None:
     presets_fn = getattr(panel, "ui_resolution_presets", None)
     scale_fn = getattr(panel, "ui_resolution_scale", None)
+    requested_scale_fn = getattr(panel, "ui_resolution_requested_scale", None)
     set_scale = getattr(panel, "set_ui_resolution_scale", None)
     radio_button = getattr(imgui, "radio_button", None)
     if not callable(presets_fn) or not callable(scale_fn) or not callable(set_scale) or not callable(radio_button):
@@ -929,7 +952,8 @@ def _draw_ui_resolution_controls(panel) -> None:
     presets = tuple(presets_fn())
     if not presets:
         return
-    current = float(scale_fn())
+    current_fn = requested_scale_fn if callable(requested_scale_fn) else scale_fn
+    current = float(current_fn())
     imgui.text("UI Resolution")
     for idx, (label, scale) in enumerate(presets):
         if idx > 0:

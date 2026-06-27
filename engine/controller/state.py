@@ -27,16 +27,23 @@ class HostState:
     perceived_center_uv: Optional[tuple[float, float]]
     perceived_scale: Optional[float]
     perceived_timestamp_s: float
-    go2_vel: tuple[float, float, float]
     reply_ok: bool
     reply_reason: str
     q: Optional[SimQ]
     u: Optional[ControlU]
+    go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
     go2_base_rpy: Optional[tuple[float, float, float]] = None
     go2_base_pos: Optional[tuple[float, float, float]] = None
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None
     go2_base_timestamp_s: float = 0.0
+    go2_leg_q: Optional[tuple[float, ...]] = None
+    go2_leg_dq: Optional[tuple[float, ...]] = None
+    go2_leg_torque_nm: Optional[tuple[float, ...]] = None
+    go2_sport_pose: str = ""
+    go2_sport_pose_seq: int = 0
+    go2_obstacles_avoid_enabled: bool = False
+    go2_obstacles_avoid_seq: int = 0
     sim_time_s: float = 0.0
     sim_wall_elapsed_s: float = 0.0
     sim_realtime_factor: float = 0.0

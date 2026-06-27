@@ -126,6 +126,7 @@ class ControlPanel:
         self._go2_obstacles_avoid_enabled = False
         self._resolution_header_init_open = False
         self._glfw_window = None
+        self._ui_resolution_requested_scale = 1.0
         self._ui_resolution_scale = 1.0
         self._ui_resolution_base_w = _INITIAL_WINDOW_W
         self._ui_resolution_base_h = _INITIAL_WINDOW_H
@@ -296,12 +297,45 @@ class ControlPanel:
     def ui_resolution_scale(self) -> float:
         return float(getattr(self, "_ui_resolution_scale", 1.0) or 1.0)
 
-    def set_ui_resolution_scale(self, scale: float) -> None:
-        scale = float(scale)
+    def ui_resolution_requested_scale(self) -> float:
+        return float(getattr(self, "_ui_resolution_requested_scale", 1.0) or 1.0)
+
+    def _set_ui_resolution_effective_scale(self, scale: float) -> None:
+        scale = max(0.1, float(scale))
         if abs(scale - self.ui_resolution_scale()) <= 1e-6:
             return
         self._ui_resolution_scale = scale
         self._apply_ui_resolution_scale()
+
+    def _effective_ui_scale_from_window(self) -> float:
+        requested = self.ui_resolution_requested_scale()
+        window = getattr(self, "_glfw_window", None)
+        if window is None:
+            return requested
+        base_w = max(1.0, float(getattr(self, "_ui_resolution_base_w", _INITIAL_WINDOW_W) or _INITIAL_WINDOW_W))
+        base_h = max(1.0, float(getattr(self, "_ui_resolution_base_h", _INITIAL_WINDOW_H) or _INITIAL_WINDOW_H))
+        try:
+            size = glfw.get_window_size(window)
+        except Exception:
+            return requested
+        try:
+            actual_w = float(size[0])
+            actual_h = float(size[1])
+        except Exception:
+            return requested
+        if actual_w <= 0.0 or actual_h <= 0.0:
+            return requested
+        return max(0.1, min(float(requested), actual_w / base_w, actual_h / base_h))
+
+    def _sync_ui_resolution_scale_to_window(self) -> None:
+        self._set_ui_resolution_effective_scale(self._effective_ui_scale_from_window())
+
+    def set_ui_resolution_scale(self, scale: float) -> None:
+        scale = float(scale)
+        if abs(scale - self.ui_resolution_requested_scale()) <= 1e-6:
+            return
+        self._ui_resolution_requested_scale = scale
+        self._set_ui_resolution_effective_scale(scale)
         window = getattr(self, "_glfw_window", None)
         if window is not None:
             try:
@@ -312,6 +346,7 @@ class ControlPanel:
                 )
             except Exception:
                 pass
+            self._sync_ui_resolution_scale_to_window()
 
     def stop(self) -> None:
         self._stop = True
@@ -356,10 +391,12 @@ class ControlPanel:
             first_w = max(1.0, col_w * _CONTROL_COLUMN_SCALE)
             second_w = first_w
             main_w = first_w + second_w + spacing_x
-            first_item_w = max(scaled(self, 108.0), first_w * 0.45)
-            second_item_w = max(scaled(self, 108.0), second_w * 0.45)
             imgui.begin_child("main_controls_block", main_w, 0.0, True)
-            imgui.begin_child("primary_controls_inner", first_w, 0.0, False)
+            main_inner_w = max(1.0, float(imgui.get_content_region_available_width()))
+            inner_col_w = max(1.0, (main_inner_w - spacing_x) * 0.5)
+            first_item_w = max(scaled(self, 108.0), inner_col_w * 0.45)
+            second_item_w = first_item_w
+            imgui.begin_child("primary_controls_inner", inner_col_w, 0.0, False)
             try:
                 self._draw_panel_stack(
                     (
@@ -373,7 +410,7 @@ class ControlPanel:
             finally:
                 imgui.end_child()
             imgui.same_line()
-            imgui.begin_child("motion_controls_inner", second_w, 0.0, False)
+            imgui.begin_child("motion_controls_inner", 0.0, 0.0, False)
             try:
                 self._draw_panel_stack(
                     (
@@ -398,8 +435,8 @@ class ControlPanel:
             imgui.end_child()
         elif avail_w >= scaled(self, _TWO_COLUMN_MIN_W):
             col_w = max(scaled(self, 300.0), (avail_w - spacing_x) * 0.5)
-            item_w = max(scaled(self, 120.0), col_w * 0.45)
             imgui.begin_child("left_controls", col_w, 0.0, True)
+            left_w = max(1.0, float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
                     draw_hardware_panel,
@@ -408,7 +445,7 @@ class ControlPanel:
                     draw_ik_panel,
                     draw_sag_panel,
                 ),
-                item_width=item_w,
+                item_width=max(scaled(self, 120.0), left_w * 0.45),
             )
             imgui.end_child()
             imgui.same_line()
@@ -484,6 +521,7 @@ class ControlPanel:
                 self.sync_offset_drafts()
                 glfw.poll_events()
                 impl.process_inputs()
+                self._sync_ui_resolution_scale_to_window()
 
                 imgui.new_frame()
                 self._draw_controls_window()

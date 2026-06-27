@@ -10,9 +10,9 @@ _CAPTURE_SOURCES = (("camera", "Camera"), ("sim", "Sim"))
 _PERCEPTION_LABEL_W = 88.0
 
 
-def _field_width() -> float:
+def _field_width(panel) -> float:
     width_getter = getattr(imgui, "get_content_region_available_width", None)
-    available = float(width_getter()) if callable(width_getter) else 180.0
+    available = float(width_getter()) if callable(width_getter) else scaled(panel, 180.0)
     return max(1.0, available)
 
 
@@ -23,7 +23,7 @@ def _control_label(panel, text: str) -> None:
 
 def _input_text(panel, label: str, identifier: str, value: str, buffer_size: int) -> tuple[bool, str]:
     _control_label(panel, label)
-    imgui.push_item_width(_field_width())
+    imgui.push_item_width(_field_width(panel))
     try:
         return imgui.input_text(f"##{identifier}", str(value), int(buffer_size))
     finally:
@@ -41,7 +41,7 @@ def _input_float(
     format: str,
 ) -> tuple[bool, float]:
     _control_label(panel, label)
-    imgui.push_item_width(_field_width())
+    imgui.push_item_width(_field_width(panel))
     try:
         return imgui.input_float(
             f"##{identifier}",
@@ -56,7 +56,7 @@ def _input_float(
 
 def _combo(panel, label: str, identifier: str, index: int, items: list[str]) -> tuple[bool, int]:
     _control_label(panel, label)
-    imgui.push_item_width(_field_width())
+    imgui.push_item_width(_field_width(panel))
     try:
         return imgui.combo(f"##{identifier}", int(index), items)
     finally:

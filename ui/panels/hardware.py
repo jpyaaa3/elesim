@@ -22,6 +22,7 @@ _CONTROL_LABEL_W = 96.0
 _PORT_LABEL_W = 66.0
 _SWITCH_W = 58.0
 _WARN_W = 28.0
+_SEARCH_W = 72.0
 
 
 def _control_label(panel, text: str) -> None:
@@ -88,14 +89,16 @@ def draw_hardware_panel(panel) -> None:
 
         imgui.text("Port")
         imgui.same_line(scaled(panel, _PORT_LABEL_W))
-        port_input_w = max(scaled(panel, 132.0), float(imgui.get_content_region_available_width()) - scaled(panel, 72.0))
+        search_w = scaled(panel, _SEARCH_W)
+        spacing_x = float(getattr(imgui.get_style().item_spacing, "x", scaled(panel, 8.0)))
+        port_input_w = max(1.0, float(imgui.get_content_region_available_width()) - search_w - spacing_x)
         imgui.push_item_width(port_input_w)
         changed_port, new_port = imgui.input_text("##hardware_port", panel._port_input, 256)
         imgui.pop_item_width()
         if changed_port:
             panel._port_input = str(new_port)
         imgui.same_line()
-        if imgui.button("Search"):
+        if imgui.button("Search", search_w, 0.0):
             panel.service.request_ports()
 
         _control_label(panel, "Apply Port")

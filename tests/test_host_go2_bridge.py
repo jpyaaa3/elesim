@@ -53,6 +53,41 @@ class TestHostGo2Bridge(unittest.TestCase):
         )
         server._go2_bridge.call_sport_pose.assert_called_once_with("balance_stand")
         self.assertEqual(server.last_go2_vel, (0.0, 0.0, 0.0))
+        self.assertEqual(server.last_go2_sport_pose, "balance_stand")
+        self.assertEqual(server.last_go2_sport_pose_seq, 1)
+
+    def test_go2_sport_pose_records_for_sim_without_bridge(self) -> None:
+        server = self._make_host(with_bridge=False)
+        ident = b"client-1"
+        server._handle_msg(
+            ident,
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 2,
+                "source": "target",
+                "go2_sport_pose": "lie-down",
+            },
+        )
+        self.assertEqual(server.last_go2_sport_pose, "stand_down")
+        self.assertEqual(server.last_go2_sport_pose_seq, 1)
+
+    def test_go2_stand_alias_forwards_stand_up_to_bridge(self) -> None:
+        server = self._make_host(with_bridge=True)
+        ident = b"client-1"
+        server._handle_msg(
+            ident,
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 2,
+                "source": "target",
+                "go2_sport_pose": "stand",
+            },
+        )
+        server._go2_bridge.call_sport_pose.assert_called_once_with("stand_up")
+        self.assertEqual(server.last_go2_sport_pose, "stand_up")
+        self.assertEqual(server.last_go2_sport_pose_seq, 1)
 
     def test_go2_obstacles_avoid_forwards_to_bridge(self) -> None:
         server = self._make_host(with_bridge=True)
@@ -68,6 +103,8 @@ class TestHostGo2Bridge(unittest.TestCase):
             },
         )
         server._go2_bridge.set_obstacles_avoid.assert_called_once_with(False)
+        self.assertFalse(server.last_go2_obstacles_avoid_enabled)
+        self.assertEqual(server.last_go2_obstacles_avoid_seq, 1)
 
     def test_sim_feedback_ignores_go2_base_when_bridge_active(self) -> None:
         server = self._make_host(with_bridge=True)
@@ -93,10 +130,16 @@ class TestHostGo2Bridge(unittest.TestCase):
             lin_vel_body=(0.5, 0.0, 0.0),
             ang_vel_body=(0.0, 0.0, 0.1),
             timestamp_s=4.5,
+            leg_q=tuple(float(i) for i in range(12)),
+            leg_dq=tuple(float(i) * 0.1 for i in range(12)),
+            leg_torque_nm=tuple(float(i) * 0.2 for i in range(12)),
         )
         server._apply_go2_base_from_odom(sample)
         self.assertEqual(server.last_go2_base_pos, (1.0, 2.0, 3.0))
         self.assertEqual(server.last_go2_base_lin_vel_body, (0.5, 0.0, 0.0))
+        self.assertEqual(server.last_go2_leg_q, tuple(float(i) for i in range(12)))
+        self.assertEqual(server.last_go2_leg_dq, tuple(float(i) * 0.1 for i in range(12)))
+        self.assertEqual(server.last_go2_leg_torque_nm, tuple(float(i) * 0.2 for i in range(12)))
         self.assertAlmostEqual(server.last_go2_base_timestamp_s, 4.5)
 
 

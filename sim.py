@@ -35,11 +35,43 @@ from engine.config_loader import (
 )
 from engine.go2_locomotion import Go2Command
 from engine.go2_locomotion.controller import RaibertTrotController
-from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q
+from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
 from engine.motor import estimate_ideal_sim_rates
 from engine.runtime_urdf import select_runtime_urdf
 from builder.urdf_converter import convert_manifest_file
 from engine.sag_model import segment_errors_from_model
+
+
+GO2_STAND_DOWN_Q: Dict[str, float] = {
+    "FL_hip_joint": 0.10,
+    "FL_thigh_joint": 1.35,
+    "FL_calf_joint": -2.55,
+    "FR_hip_joint": -0.10,
+    "FR_thigh_joint": 1.35,
+    "FR_calf_joint": -2.55,
+    "RL_hip_joint": 0.10,
+    "RL_thigh_joint": 1.35,
+    "RL_calf_joint": -2.55,
+    "RR_hip_joint": -0.10,
+    "RR_thigh_joint": 1.35,
+    "RR_calf_joint": -2.55,
+}
+
+
+@dataclass
+class _Go2PostureTransition:
+    pose: str
+    start_wall_s: float
+    duration_s: float
+    start_pos: np.ndarray
+    target_pos: np.ndarray
+    start_quat: np.ndarray
+    target_quat: np.ndarray
+    start_q: np.ndarray
+    target_q: np.ndarray
+    kp: float
+    kv: float
+    hold_after: str = ""
 
 
 def _ensure_genesis_cache_dir() -> None:
@@ -217,12 +249,15 @@ class Go2Locomotion:
         self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._mirror = bool(config.mirror_from_host)
         self._entity = entity
+        self._kin = Go2KinematicsModel.from_entity(entity)
+        self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
+        self._spawn_pos = self._read_entity_pos()
+        self._spawn_quat = self._read_entity_quat()
+        self._posture_hold: str = ""
+        self._posture_transition: Optional[_Go2PostureTransition] = None
+        self._obstacles_avoid_enabled: bool = False
         self._controller = None
         if self._mirror:
-            from engine.go2_locomotion.kinematics import Go2KinematicsModel
-
-            self._kin = Go2KinematicsModel.from_entity(entity)
-            self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
             self._last_mirror_pos: Optional[tuple[float, float, float]] = None
             self._last_mirror_rpy: Optional[tuple[float, float, float]] = None
             self._last_mirror_leg_q: Optional[tuple[float, ...]] = None
@@ -275,6 +310,210 @@ class Go2Locomotion:
             )
         else:
             self._controller = RaibertTrotController(entity, dt=float(dt), config=config)
+
+    def _read_entity_pos(self) -> np.ndarray:
+        try:
+            return _to_numpy_1d(self._entity.get_pos())[:3].astype(float).copy()
+        except Exception:
+            return np.array([0.0, 0.0, 0.32], dtype=float)
+
+    def _read_entity_quat(self) -> np.ndarray:
+        try:
+            q = _to_numpy_1d(self._entity.get_quat())[:4].astype(float).copy()
+            if float(np.linalg.norm(q)) > 1e-9:
+                return q
+        except Exception:
+            pass
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+
+    def _read_leg_q(self) -> np.ndarray:
+        if len(self._leg_dof_idxs) <= 0:
+            return np.asarray(self._kin.stand_q, dtype=float).reshape(-1).copy()
+        try:
+            q = _to_numpy_1d(self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs)).astype(float)
+            if q.size == len(self._leg_dof_idxs):
+                return q.copy()
+        except Exception:
+            pass
+        return np.asarray(self._kin.stand_q, dtype=float).reshape(-1).copy()
+
+    def _normalized_quat(self, quat_wxyz: np.ndarray) -> np.ndarray:
+        q = np.asarray(quat_wxyz, dtype=float).reshape(4)
+        norm = float(np.linalg.norm(q))
+        if norm <= 1e-9:
+            return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+        return q / norm
+
+    def _interp_quat(self, q0_wxyz: np.ndarray, q1_wxyz: np.ndarray, alpha: float) -> np.ndarray:
+        q0 = self._normalized_quat(q0_wxyz)
+        q1 = self._normalized_quat(q1_wxyz)
+        if float(np.dot(q0, q1)) < 0.0:
+            q1 = -q1
+        a = float(np.clip(alpha, 0.0, 1.0))
+        return self._normalized_quat((1.0 - a) * q0 + a * q1)
+
+    def _pose_array(self, pose: Dict[str, float]) -> np.ndarray:
+        values: list[float] = []
+        for joint_name in GO2_STAND_Q.keys():
+            try:
+                joint = self._entity.get_joint(str(joint_name))
+                raw_idxs = joint.dofs_idx_local
+            except Exception:
+                raw_idxs = None
+            if raw_idxs is None:
+                continue
+            for _idx in np.asarray(raw_idxs, dtype=int).reshape(-1):
+                values.append(float(pose.get(str(joint_name), GO2_STAND_Q.get(str(joint_name), 0.0))))
+        return np.asarray(values, dtype=float)
+
+    def _set_root_pose(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> None:
+        try:
+            self._entity.set_pos(np.asarray(pos, dtype=float).reshape(3))
+            self._entity.set_quat(np.asarray(quat_wxyz, dtype=float).reshape(4))
+            self._entity.zero_all_dofs_velocity()
+        except Exception:
+            pass
+
+    def _set_leg_position_hold(self, q: np.ndarray, *, kp: float = 90.0, kv: float = 6.0) -> None:
+        if len(self._leg_dof_idxs) <= 0:
+            return
+        q_arr = np.asarray(q, dtype=float).reshape(-1)
+        if q_arr.size != len(self._leg_dof_idxs):
+            return
+        try:
+            self._entity.set_dofs_kp(np.full(len(self._leg_dof_idxs), float(kp)), dofs_idx_local=self._leg_dof_idxs)
+            self._entity.set_dofs_kv(np.full(len(self._leg_dof_idxs), float(kv)), dofs_idx_local=self._leg_dof_idxs)
+            self._entity.set_dofs_position(q_arr, dofs_idx_local=self._leg_dof_idxs)
+            self._entity.control_dofs_position(q_arr, dofs_idx_local=self._leg_dof_idxs)
+        except Exception:
+            pass
+
+    def _stand_down_root_pos(self) -> np.ndarray:
+        pos = np.asarray(self._spawn_pos, dtype=float).reshape(3).copy()
+        pos[2] = max(0.12, float(pos[2]) - 0.16)
+        return pos
+
+    def _hold_stand_down(self) -> None:
+        self._set_root_pose(self._stand_down_root_pos(), self._spawn_quat)
+        self._set_leg_position_hold(self._pose_array(GO2_STAND_DOWN_Q), kp=70.0, kv=5.0)
+
+    def _zero_controller_command(self) -> None:
+        if self._controller is not None and hasattr(self._controller, "set_command"):
+            self._controller.set_command(Go2Command())
+
+    def _reset_controller_for_posture(self) -> None:
+        self._zero_controller_command()
+        if self._controller is not None and hasattr(self._controller, "reset"):
+            self._controller.reset()
+
+    def _begin_posture_transition(
+        self,
+        *,
+        pose: str,
+        target_pos: np.ndarray,
+        target_quat: np.ndarray,
+        target_q: np.ndarray,
+        duration_s: float,
+        kp: float,
+        kv: float,
+        hold_after: str = "",
+    ) -> None:
+        self._posture_hold = ""
+        self._reset_controller_for_posture()
+        self._posture_transition = _Go2PostureTransition(
+            pose=str(pose),
+            start_wall_s=time.perf_counter(),
+            duration_s=max(1e-3, float(duration_s)),
+            start_pos=self._read_entity_pos(),
+            target_pos=np.asarray(target_pos, dtype=float).reshape(3),
+            start_quat=self._read_entity_quat(),
+            target_quat=self._normalized_quat(np.asarray(target_quat, dtype=float).reshape(4)),
+            start_q=self._read_leg_q(),
+            target_q=np.asarray(target_q, dtype=float).reshape(-1),
+            kp=float(kp),
+            kv=float(kv),
+            hold_after=str(hold_after),
+        )
+
+    def _advance_posture_transition(self) -> bool:
+        tr = self._posture_transition
+        if tr is None:
+            return False
+        raw_alpha = (time.perf_counter() - float(tr.start_wall_s)) / max(1e-3, float(tr.duration_s))
+        alpha = float(np.clip(raw_alpha, 0.0, 1.0))
+        smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+        pos = (1.0 - smooth) * np.asarray(tr.start_pos, dtype=float) + smooth * np.asarray(tr.target_pos, dtype=float)
+        quat = self._interp_quat(tr.start_quat, tr.target_quat, smooth)
+        start_q = np.asarray(tr.start_q, dtype=float).reshape(-1)
+        target_q = np.asarray(tr.target_q, dtype=float).reshape(-1)
+        if start_q.size == target_q.size:
+            leg_q = (1.0 - smooth) * start_q + smooth * target_q
+        else:
+            leg_q = target_q
+        self._set_root_pose(pos, quat)
+        self._set_leg_position_hold(leg_q, kp=tr.kp, kv=tr.kv)
+        if alpha >= 1.0:
+            self._posture_transition = None
+            self._posture_hold = str(tr.hold_after)
+        return True
+
+    def apply_sport_pose(self, pose: str) -> bool:
+        if self._mirror:
+            return False
+        key = str(pose).strip().lower().replace("-", "_")
+        if key in ("balance", "balance_stand"):
+            self._begin_posture_transition(
+                pose="balance_stand",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.stand_q, dtype=float),
+                duration_s=0.7,
+                kp=90.0,
+                kv=6.0,
+            )
+            return True
+        if key in ("stand", "stand_up"):
+            self._begin_posture_transition(
+                pose="stand_up",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.stand_q, dtype=float),
+                duration_s=0.7,
+                kp=90.0,
+                kv=6.0,
+            )
+            return True
+        if key in ("recovery_stand", "recover", "get_up", "stand_up_from_fall"):
+            self._begin_posture_transition(
+                pose="recovery_stand",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.ready_q, dtype=float),
+                duration_s=0.9,
+                kp=110.0,
+                kv=7.0,
+            )
+            return True
+        if key in ("stand_down", "lie_down", "prone"):
+            self._begin_posture_transition(
+                pose="stand_down",
+                target_pos=self._stand_down_root_pos(),
+                target_quat=self._spawn_quat,
+                target_q=self._pose_array(GO2_STAND_DOWN_Q),
+                duration_s=1.0,
+                kp=70.0,
+                kv=5.0,
+                hold_after="stand_down",
+            )
+            return True
+        return False
+
+    def set_obstacles_avoid_enabled(self, enabled: bool) -> None:
+        self._obstacles_avoid_enabled = bool(enabled)
+
+    @property
+    def obstacles_avoid_enabled(self) -> bool:
+        return bool(self._obstacles_avoid_enabled)
 
     @property
     def mirror_mode(self) -> bool:
@@ -345,6 +584,8 @@ class Go2Locomotion:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset_locomotion(self) -> None:
+        self._posture_hold = ""
+        self._posture_transition = None
         if self._controller is not None and hasattr(self._controller, "reset"):
             self._controller.reset()
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
@@ -354,10 +595,21 @@ class Go2Locomotion:
     def set_planar_velocity(self, vx: float, vy: float, wz: float) -> None:
         if self._mirror or self._controller is None:
             return
+        moving = max(abs(float(vx)), abs(float(vy)), abs(float(wz))) > 1e-6
+        if (self._posture_hold or self._posture_transition is not None) and moving:
+            self.reset_locomotion()
+        if self._posture_transition is not None:
+            self._zero_controller_command()
+            return
         self._controller.set_command(Go2Command(vx=float(vx), vy=float(vy), yaw_rate=float(wz)))
 
     def step(self) -> None:
         if self._mirror:
+            return
+        if self._advance_posture_transition():
+            return
+        if self._posture_hold == "stand_down":
+            self._hold_stand_down()
             return
         if self._controller is not None and hasattr(self._controller, "set_arm_q"):
             self._controller.set_arm_q(self._arm_q)
@@ -1477,6 +1729,18 @@ class StateSource:
     def go2_leg_q(self) -> Optional[tuple[float, ...]]:
         return None
 
+    def go2_sport_pose(self) -> str:
+        return ""
+
+    def go2_sport_pose_seq(self) -> int:
+        return 0
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return False
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return 0
+
     def sim_reset_seq(self) -> int:
         return 0
 
@@ -1503,6 +1767,10 @@ class HardwareStateCache(StateSource):
         self._last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self._last_go2_base_rpy: Optional[tuple[float, float, float]] = None
         self._last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self._last_go2_sport_pose: str = ""
+        self._last_go2_sport_pose_seq: int = 0
+        self._last_go2_obstacles_avoid_enabled: bool = False
+        self._last_go2_obstacles_avoid_seq: int = 0
         self._last_sim_reset_seq: int = 0
         self._last_debug_markers: list[dict[str, Any]] = []
 
@@ -1537,6 +1805,14 @@ class HardwareStateCache(StateSource):
     def update_go2_leg_q(self, go2_leg_q: Optional[tuple[float, ...]]) -> None:
         if go2_leg_q is not None and len(go2_leg_q) == 12:
             self._last_go2_leg_q = tuple(float(v) for v in go2_leg_q)
+
+    def update_go2_sport_pose(self, pose: str, seq: int) -> None:
+        self._last_go2_sport_pose = str(pose).strip().lower()
+        self._last_go2_sport_pose_seq = int(seq)
+
+    def update_go2_obstacles_avoid(self, enabled: bool, seq: int) -> None:
+        self._last_go2_obstacles_avoid_enabled = bool(enabled)
+        self._last_go2_obstacles_avoid_seq = int(seq)
 
     def update_sim_reset_seq(self, seq: int) -> None:
         self._last_sim_reset_seq = int(seq)
@@ -1600,6 +1876,18 @@ class HardwareStateCache(StateSource):
             return None
         return tuple(float(v) for v in self._last_go2_leg_q)
 
+    def go2_sport_pose(self) -> str:
+        return str(self._last_go2_sport_pose).strip().lower()
+
+    def go2_sport_pose_seq(self) -> int:
+        return int(self._last_go2_sport_pose_seq)
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return bool(self._last_go2_obstacles_avoid_enabled)
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return int(self._last_go2_obstacles_avoid_seq)
+
     def sim_reset_seq(self) -> int:
         return int(self._last_sim_reset_seq)
 
@@ -1633,6 +1921,10 @@ class HostStateSubscriber:
         self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
         self.last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self.last_go2_sport_pose: str = ""
+        self.last_go2_sport_pose_seq: int = 0
+        self.last_go2_obstacles_avoid_enabled: bool = False
+        self.last_go2_obstacles_avoid_seq: int = 0
         self.last_sim_reset_seq: int = 0
         self.last_debug_markers: list[dict[str, Any]] = []
 
@@ -1707,6 +1999,20 @@ class HostStateSubscriber:
             leg_raw = msg.get("go2_leg_q", None)
             if isinstance(leg_raw, (list, tuple)) and len(leg_raw) == 12:
                 self.last_go2_leg_q = tuple(float(v) for v in leg_raw)
+            if "go2_sport_pose" in msg:
+                self.last_go2_sport_pose = str(msg.get("go2_sport_pose", "")).strip().lower()
+            if "go2_sport_pose_seq" in msg:
+                try:
+                    self.last_go2_sport_pose_seq = int(msg.get("go2_sport_pose_seq", 0))
+                except (TypeError, ValueError):
+                    pass
+            if "go2_obstacles_avoid_enabled" in msg:
+                self.last_go2_obstacles_avoid_enabled = bool(msg.get("go2_obstacles_avoid_enabled", False))
+            if "go2_obstacles_avoid_seq" in msg:
+                try:
+                    self.last_go2_obstacles_avoid_seq = int(msg.get("go2_obstacles_avoid_seq", 0))
+                except (TypeError, ValueError):
+                    pass
             if "sim_reset_seq" in msg:
                 try:
                     self.last_sim_reset_seq = int(msg.get("sim_reset_seq", 0))
@@ -1854,6 +2160,11 @@ class HostStateSource(StateSource):
         self._cache.update_go2_vel(self._sub.last_go2_vel)
         self._cache.update_go2_base(self._sub.last_go2_base_pos, self._sub.last_go2_base_rpy)
         self._cache.update_go2_leg_q(self._sub.last_go2_leg_q)
+        self._cache.update_go2_sport_pose(self._sub.last_go2_sport_pose, self._sub.last_go2_sport_pose_seq)
+        self._cache.update_go2_obstacles_avoid(
+            self._sub.last_go2_obstacles_avoid_enabled,
+            self._sub.last_go2_obstacles_avoid_seq,
+        )
         self._cache.update_sim_reset_seq(self._sub.last_sim_reset_seq)
         if self._sub.last_q is not None:
             self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
@@ -1884,6 +2195,18 @@ class HostStateSource(StateSource):
 
     def go2_leg_q(self) -> Optional[tuple[float, ...]]:
         return self._cache.go2_leg_q()
+
+    def go2_sport_pose(self) -> str:
+        return self._cache.go2_sport_pose()
+
+    def go2_sport_pose_seq(self) -> int:
+        return self._cache.go2_sport_pose_seq()
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return self._cache.go2_obstacles_avoid_enabled()
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return self._cache.go2_obstacles_avoid_seq()
 
     def host_state_age_s(self) -> Optional[float]:
         ts = float(self._sub.last_state_ts)
@@ -2030,7 +2353,7 @@ class RuntimePrep:
                 camera_pos=cam_pos,
                 camera_lookat=cam_lookat,
                 camera_fov=35,
-                max_FPS=60,
+                refresh_rate=60,
             ),
             show_viewer=bool(a.cfg.enable_viewer),
         )
@@ -2173,6 +2496,8 @@ class SimRuntime:
     def __init__(self, app: "GenesisApp"):
         self.app = app
         self._applied_sim_reset_seq: int = 0
+        self._applied_go2_sport_pose_seq: int = 0
+        self._applied_go2_obstacles_avoid_seq: int = 0
         self._t_mirror_status_log: float = 0.0
 
     def _maybe_log_mirror_status(self, now: float) -> None:
@@ -2239,6 +2564,28 @@ class SimRuntime:
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
 
+    def _apply_go2_feature_commands(self) -> bool:
+        a = self.app
+        if a.state_source is None or a.sim_scene.go2 is None:
+            return False
+        posture_applied = False
+        avoid_seq = int(a.state_source.go2_obstacles_avoid_seq())
+        if avoid_seq > int(self._applied_go2_obstacles_avoid_seq):
+            self._applied_go2_obstacles_avoid_seq = avoid_seq
+            enabled = bool(a.state_source.go2_obstacles_avoid_enabled())
+            a.sim_scene.go2.set_obstacles_avoid_enabled(enabled)
+            print(f"[sim_go2] obstacle_avoid enabled={str(enabled).lower()} (state only)")
+
+        pose_seq = int(a.state_source.go2_sport_pose_seq())
+        if pose_seq > int(self._applied_go2_sport_pose_seq):
+            self._applied_go2_sport_pose_seq = pose_seq
+            pose = str(a.state_source.go2_sport_pose()).strip().lower()
+            if pose and not a.sim_scene.go2.mirror_mode:
+                posture_applied = bool(a.sim_scene.go2.apply_sport_pose(pose))
+                result = "applied" if posture_applied else "ignored"
+                print(f"[sim_go2] sport_pose={pose} {result}")
+        return posture_applied
+
     def _cleanup(self) -> None:
         a = self.app
         if a.sim_scene.camera_publisher is not None:
@@ -2275,6 +2622,7 @@ class SimRuntime:
                 perf.section("poll", t_sec)
                 t_sec = time.perf_counter()
                 if a.sim_scene.go2 is not None:
+                    posture_applied = self._apply_go2_feature_commands()
                     go2_mirror = bool(a.sim_scene.go2.mirror_mode)
                     if go2_mirror and a.state_source is not None:
                         base_pos = a.state_source.go2_base_pos()
@@ -2282,7 +2630,7 @@ class SimRuntime:
                         if base_pos is not None and base_rpy is not None:
                             leg_q = a.state_source.go2_leg_q()
                             a.sim_scene.go2.apply_mirror_pose(base_pos, base_rpy, leg_q=leg_q)
-                    else:
+                    elif not posture_applied:
                         go2_vel = a.state_source.go2_vel() if a.state_source is not None else (0.0, 0.0, 0.0)
                         a.sim_scene.go2.set_planar_velocity(
                             float(go2_vel[0]),

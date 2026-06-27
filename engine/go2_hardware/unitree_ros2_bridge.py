@@ -10,7 +10,7 @@ from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_hardware.obstacles_avoid_api import build_obstacles_avoid_parameter
 from engine.go2_hardware.ros_env import bootstrap_ros_python_path, ros_import_hint
 from engine.go2_hardware.odom_parser import OdomSample, odom_msg_to_sample
-from engine.go2_hardware.lowstate_parser import lowstate_leg_q_genesis_order
+from engine.go2_hardware.lowstate_parser import lowstate_motor_sample_genesis_order
 from engine.go2_hardware.sport_state_parser import sportmodestate_to_sample
 from engine.go2_hardware.sport_api import (
     API_MOVE,
@@ -63,6 +63,8 @@ class UnitreeRos2Bridge:
         self._lock = threading.Lock()
         self._latest: Optional[OdomSample] = None
         self._latest_leg_q: Optional[Tuple[float, ...]] = None
+        self._latest_leg_dq: Optional[Tuple[float, ...]] = None
+        self._latest_leg_torque_nm: Optional[Tuple[float, ...]] = None
         self._target_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_move_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._heading_hold_yaw: Optional[float] = None
@@ -256,6 +258,7 @@ class UnitreeRos2Bridge:
             move_vel = tuple(float(v) for v in self._last_move_vel)
             sample = self._latest
             leg_q = self._latest_leg_q
+            leg_torque_nm = self._latest_leg_torque_nm
             last_api_id = int(self._last_api_id)
             last_api_parameter = str(self._last_api_parameter)
             spin_ok = bool(self._spin_ok)
@@ -292,6 +295,12 @@ class UnitreeRos2Bridge:
             legs_txt = f"{len(leg_q)} joints"
         else:
             legs_txt = "none"
+        if leg_torque_nm is not None and len(leg_torque_nm) == 12:
+            legs_txt += " torque FL=(%.2f,%.2f,%.2f)Nm" % (
+                float(leg_torque_nm[0]),
+                float(leg_torque_nm[1]),
+                float(leg_torque_nm[2]),
+            )
 
         warn = ""
         if pose_rx == 0:
@@ -473,11 +482,16 @@ class UnitreeRos2Bridge:
         with self._lock:
             self._pose_rx_count += 1
             self._t_last_pose_rx = now
-            self._latest = self._attach_leg_q(sample)
+            self._latest = self._attach_leg_state(sample)
 
-    def _attach_leg_q(self, sample: OdomSample) -> OdomSample:
+    def _attach_leg_state(self, sample: OdomSample) -> OdomSample:
         if self._latest_leg_q is not None:
-            return replace(sample, leg_q=self._latest_leg_q)
+            return replace(
+                sample,
+                leg_q=self._latest_leg_q,
+                leg_dq=self._latest_leg_dq,
+                leg_torque_nm=self._latest_leg_torque_nm,
+            )
         return sample
 
     def _on_sportmodestate(self, msg: Any) -> None:
@@ -494,21 +508,28 @@ class UnitreeRos2Bridge:
         with self._lock:
             self._pose_rx_count += 1
             self._t_last_pose_rx = now
-            self._latest = self._attach_leg_q(sample)
+            self._latest = self._attach_leg_state(sample)
 
     def _on_lowstate(self, msg: Any) -> None:
         now = time.time()
         try:
-            leg_q = lowstate_leg_q_genesis_order(msg)
+            motor_sample = lowstate_motor_sample_genesis_order(msg)
         except Exception as exc:
             print(f"[go2_bridge] lowstate parse failed: {exc}")
             return
         with self._lock:
             self._lowstate_rx_count += 1
             self._t_last_lowstate_rx = now
-            self._latest_leg_q = leg_q
+            self._latest_leg_q = motor_sample.q
+            self._latest_leg_dq = motor_sample.dq
+            self._latest_leg_torque_nm = motor_sample.torque_nm
             if self._latest is not None:
-                self._latest = replace(self._latest, leg_q=leg_q)
+                self._latest = replace(
+                    self._latest,
+                    leg_q=motor_sample.q,
+                    leg_dq=motor_sample.dq,
+                    leg_torque_nm=motor_sample.torque_nm,
+                )
 
     def _import_ros(self) -> None:
         bootstrap_ros_python_path(config_workspace=str(self._cfg.ros_workspace))

@@ -14,6 +14,13 @@ _SMALL_H = 26.0
 _SHAPE_ROUNDING = 6.0
 
 
+def _imgui_scale() -> float:
+    try:
+        return max(0.1, float(getattr(imgui.get_io(), "font_global_scale", 1.0) or 1.0))
+    except Exception:
+        return 1.0
+
+
 def _button(panel, label: str, width: float, height: float = _SMALL_H) -> bool:
     return bool(imgui.button(label, scaled(panel, width), scaled(panel, height)))
 
@@ -44,14 +51,15 @@ def _calc_text_size(text: str) -> tuple[float, float]:
     calc = getattr(imgui, "calc_text_size", None)
     if callable(calc):
         return _xy(calc(str(text)))
-    return float(len(str(text)) * 8), 14.0
+    scale = _imgui_scale()
+    return float(len(str(text)) * 8.0 * scale), 14.0 * scale
 
 
 def _style_spacing_x() -> float:
     style = getattr(imgui, "get_style", lambda: None)()
     spacing = getattr(style, "item_spacing", None)
     if spacing is None:
-        return 8.0
+        return 8.0 * _imgui_scale()
     if hasattr(spacing, "x"):
         return float(spacing.x)
     return float(spacing[0])
@@ -160,8 +168,8 @@ def _draw_arrow_head(
     uy = dy / length
     nx = -uy
     ny = ux
-    head_len = max(10.0, size * 0.28)
-    head_width = max(9.0, size * 0.24)
+    head_len = size * 0.28
+    head_width = size * 0.24
     tip = (tip[0] + ux * float(extension), tip[1] + uy * float(extension))
     base = (tip[0] - ux * head_len, tip[1] - uy * head_len)
     left = (base[0] + nx * head_width * 0.5, base[1] + ny * head_width * 0.5)
@@ -185,7 +193,7 @@ def _draw_turn_arrow(draw_list, x: float, y: float, size: float, *, direction: s
     cx = x + size * 0.5
     cy = y + size * 0.52
     radius = size * 0.32
-    thickness = max(4.2, size * 0.095)
+    thickness = size * 0.095
 
     if direction == "left":
         start_deg, end_deg = 60.0, 300.0
@@ -334,13 +342,17 @@ def _draw_teleop_pad(panel, width: float) -> bool:
 def _draw_posture(panel, width: float) -> None:
     scale = ui_scale(panel)
     btn_w = max(86.0, min(130.0, ((float(width) / scale) - 16.0) / 3.0))
+    host = getattr(panel, "_host_state", None)
+    last_pose = str(getattr(host, "go2_sport_pose", "") if host is not None else "").strip().lower()
+    sit_stand_label = "Stand" if last_pose == "stand_down" else "Sit"
+    sit_stand_pose = "stand_up" if last_pose == "stand_down" else "stand_down"
     if _button(panel, "Balance##go2_balance", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="balance_stand")
     imgui.same_line()
-    if _button(panel, "Lie Down##go2_lie_down", btn_w):
+    if _button(panel, f"{sit_stand_label}##go2_sit_stand", btn_w):
         _stop_go2(panel)
-        panel.service.send_go2_sport_pose(pose="stand_down")
+        panel.service.send_go2_sport_pose(pose=sit_stand_pose)
     imgui.same_line()
     if _button(panel, "Recover##go2_recovery", btn_w):
         _stop_go2(panel)

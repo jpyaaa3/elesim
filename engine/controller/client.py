@@ -78,6 +78,13 @@ class ControlClient:
         self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
         self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
         self.last_go2_base_timestamp_s: float = 0.0
+        self.last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self.last_go2_leg_dq: Optional[tuple[float, ...]] = None
+        self.last_go2_leg_torque_nm: Optional[tuple[float, ...]] = None
+        self.last_go2_sport_pose: str = ""
+        self.last_go2_sport_pose_seq: int = 0
+        self.last_go2_obstacles_avoid_enabled: bool = False
+        self.last_go2_obstacles_avoid_seq: int = 0
         self.last_sim_time_s: float = 0.0
         self.last_sim_wall_elapsed_s: float = 0.0
         self.last_sim_realtime_factor: float = 0.0
@@ -132,6 +139,13 @@ class ControlClient:
             go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
             go2_base_ang_vel=self.last_go2_base_ang_vel,
             go2_base_timestamp_s=float(self.last_go2_base_timestamp_s),
+            go2_leg_q=self.last_go2_leg_q,
+            go2_leg_dq=self.last_go2_leg_dq,
+            go2_leg_torque_nm=self.last_go2_leg_torque_nm,
+            go2_sport_pose=str(self.last_go2_sport_pose),
+            go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
+            go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
+            go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
             sim_time_s=float(self.last_sim_time_s),
             sim_wall_elapsed_s=float(self.last_sim_wall_elapsed_s),
             sim_realtime_factor=float(self.last_sim_realtime_factor),
@@ -192,6 +206,25 @@ class ControlClient:
                 self.last_perceived_timestamp_s = float(msg.get("perceived_timestamp_s", 0.0))
             except (TypeError, ValueError):
                 self.last_perceived_timestamp_s = 0.0
+
+    def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
+        if not isinstance(raw, (list, tuple)) or len(raw) != 12:
+            return None
+        try:
+            return tuple(float(v) for v in raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _update_go2_motor_fields(self, msg: dict[str, Any]) -> None:
+        q = self._tuple12(msg.get("go2_leg_q", None))
+        if q is not None:
+            self.last_go2_leg_q = q
+        dq = self._tuple12(msg.get("go2_leg_dq", None))
+        if dq is not None:
+            self.last_go2_leg_dq = dq
+        torque_nm = self._tuple12(msg.get("go2_leg_torque_nm", None))
+        if torque_nm is not None:
+            self.last_go2_leg_torque_nm = torque_nm
 
     def _send(self, msg: dict) -> None:
         with self._io_lock:
@@ -262,6 +295,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_go2_motor_fields(msg)
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             object_world_raw = msg.get("object_world", None)
@@ -310,6 +344,7 @@ class ControlClient:
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
+            self._update_go2_motor_fields(msg)
             if "go2_vel" in msg:
                 try:
                     raw_go2_vel = msg.get("go2_vel", [0.0, 0.0, 0.0])
@@ -335,6 +370,20 @@ class ControlClient:
             if "go2_base_timestamp_s" in msg:
                 try:
                     self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
+                except (TypeError, ValueError):
+                    pass
+            if "go2_sport_pose" in msg:
+                self.last_go2_sport_pose = str(msg.get("go2_sport_pose", "")).strip().lower()
+            if "go2_sport_pose_seq" in msg:
+                try:
+                    self.last_go2_sport_pose_seq = int(msg.get("go2_sport_pose_seq", 0))
+                except (TypeError, ValueError):
+                    pass
+            if "go2_obstacles_avoid_enabled" in msg:
+                self.last_go2_obstacles_avoid_enabled = bool(msg.get("go2_obstacles_avoid_enabled", False))
+            if "go2_obstacles_avoid_seq" in msg:
+                try:
+                    self.last_go2_obstacles_avoid_seq = int(msg.get("go2_obstacles_avoid_seq", 0))
                 except (TypeError, ValueError):
                     pass
             self._update_sim_clock_fields(msg)

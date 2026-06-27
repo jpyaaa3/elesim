@@ -43,6 +43,17 @@ class Go2SimMirrorStateTests(unittest.TestCase):
             (0.0, 0.05, 1.2),
         )
 
+    def test_pack_state_includes_go2_motor_state(self) -> None:
+        msg = proto.pack_state(
+            go2_leg_q=tuple(float(i) for i in range(12)),
+            go2_leg_dq=tuple(float(i) * 0.1 for i in range(12)),
+            go2_leg_torque_nm=tuple(float(i) * 0.2 for i in range(12)),
+        )
+        decoded = proto.loads_msg(proto.dumps_msg(msg))
+        self.assertEqual(len(decoded["go2_leg_q"]), 12)
+        self.assertEqual(len(decoded["go2_leg_dq"]), 12)
+        self.assertEqual(len(decoded["go2_leg_torque_nm"]), 12)
+
 
 if __name__ == "__main__":
     unittest.main()

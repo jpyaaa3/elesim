@@ -179,6 +179,12 @@ def pack_state(
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None,
     go2_base_timestamp_s: Optional[float] = None,
     go2_leg_q: Optional[tuple[float, ...]] = None,
+    go2_leg_dq: Optional[tuple[float, ...]] = None,
+    go2_leg_torque_nm: Optional[tuple[float, ...]] = None,
+    go2_sport_pose: Optional[str] = None,
+    go2_sport_pose_seq: Optional[int] = None,
+    go2_obstacles_avoid_enabled: Optional[bool] = None,
+    go2_obstacles_avoid_seq: Optional[int] = None,
     sim_reset_seq: Optional[int] = None,
     sim_time_s: Optional[float] = None,
     sim_wall_elapsed_s: Optional[float] = None,
@@ -254,6 +260,18 @@ def pack_state(
         out["go2_base_timestamp_s"] = float(go2_base_timestamp_s)
     if go2_leg_q is not None and len(go2_leg_q) == 12:
         out["go2_leg_q"] = [float(v) for v in go2_leg_q]
+    if go2_leg_dq is not None and len(go2_leg_dq) == 12:
+        out["go2_leg_dq"] = [float(v) for v in go2_leg_dq]
+    if go2_leg_torque_nm is not None and len(go2_leg_torque_nm) == 12:
+        out["go2_leg_torque_nm"] = [float(v) for v in go2_leg_torque_nm]
+    if go2_sport_pose is not None:
+        out["go2_sport_pose"] = str(go2_sport_pose).strip().lower()
+    if go2_sport_pose_seq is not None:
+        out["go2_sport_pose_seq"] = int(go2_sport_pose_seq)
+    if go2_obstacles_avoid_enabled is not None:
+        out["go2_obstacles_avoid_enabled"] = bool(go2_obstacles_avoid_enabled)
+    if go2_obstacles_avoid_seq is not None:
+        out["go2_obstacles_avoid_seq"] = int(go2_obstacles_avoid_seq)
     if sim_reset_seq is not None:
         out["sim_reset_seq"] = int(sim_reset_seq)
     if sim_time_s is not None:

@@ -16,6 +16,7 @@ API_ECONOMIC_GAIT = 1063
 
 GO2_SPORT_POSES: dict[str, int] = {
     "balance_stand": API_BALANCE_STAND,
+    "stand_up": API_STAND_UP,
     "stand_down": API_STAND_DOWN,
     "recovery_stand": API_RECOVERY_STAND,
     "static_walk": API_STATIC_WALK,
@@ -97,6 +98,8 @@ def normalize_go2_sport_pose(value: str) -> str:
     raw = str(value).strip().lower().replace("-", "_")
     aliases = {
         "balance": "balance_stand",
+        "stand": "stand_up",
+        "sit": "stand_down",
         "lie_down": "stand_down",
         "prone": "stand_down",
         "stand_up_from_fall": "recovery_stand",

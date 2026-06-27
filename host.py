@@ -16,6 +16,7 @@ import zmq
 from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
 from engine.go2_hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
 from engine.go2_hardware.odom_parser import OdomSample
+from engine.go2_hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
 from engine.profile.pick_timing import enabled as pick_profile_enabled
 from engine.iklib.solver import load_solver_context
 from engine.motor import load_hardware, tick_to_deg_0_360
@@ -167,7 +168,13 @@ class ControlHost:
         self.last_go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
         self.last_go2_base_ang_vel: Optional[tuple[float, float, float]] = None
         self.last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self.last_go2_leg_dq: Optional[tuple[float, ...]] = None
+        self.last_go2_leg_torque_nm: Optional[tuple[float, ...]] = None
         self.last_go2_base_timestamp_s: float = 0.0
+        self.last_go2_sport_pose: str = ""
+        self.last_go2_sport_pose_seq: int = 0
+        self.last_go2_obstacles_avoid_enabled: bool = False
+        self.last_go2_obstacles_avoid_seq: int = 0
         self._sim_camera_origin: Optional[tuple[float, float, float]] = None
         self._sim_camera_look: Optional[tuple[float, float, float]] = None
         self._sim_camera_right: Optional[tuple[float, float, float]] = None
@@ -258,9 +265,15 @@ class ControlHost:
         self._set_virtual_neutral_state()
         self._clear_go2_vel()
         self.last_go2_base_rpy = None
+        self.last_go2_base_pos = None
         self.last_go2_base_lin_vel_body = None
         self.last_go2_base_ang_vel = None
+        self.last_go2_leg_q = None
+        self.last_go2_leg_dq = None
+        self.last_go2_leg_torque_nm = None
         self.last_go2_base_timestamp_s = 0.0
+        self.last_go2_sport_pose = ""
+        self.last_go2_obstacles_avoid_enabled = False
         self.last_claw_closed = False
         self.last_perceived_object_label = ""
         self.last_perceived_object_confidence = 0.0
@@ -769,6 +782,10 @@ class ControlHost:
         self.last_go2_base_ang_vel = tuple(float(v) for v in sample.ang_vel_body)
         if sample.leg_q is not None and len(sample.leg_q) == 12:
             self.last_go2_leg_q = tuple(float(v) for v in sample.leg_q)
+        if sample.leg_dq is not None and len(sample.leg_dq) == 12:
+            self.last_go2_leg_dq = tuple(float(v) for v in sample.leg_dq)
+        if sample.leg_torque_nm is not None and len(sample.leg_torque_nm) == 12:
+            self.last_go2_leg_torque_nm = tuple(float(v) for v in sample.leg_torque_nm)
         self.last_go2_base_timestamp_s = float(sample.timestamp_s)
 
     def _broadcast_state_now(self) -> None:
@@ -798,6 +815,12 @@ class ControlHost:
                 go2_base_ang_vel=self.last_go2_base_ang_vel,
                 go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
                 go2_leg_q=self.last_go2_leg_q,
+                go2_leg_dq=self.last_go2_leg_dq,
+                go2_leg_torque_nm=self.last_go2_leg_torque_nm,
+                go2_sport_pose=(self.last_go2_sport_pose or None),
+                go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
+                go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
+                go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
                 sim_reset_seq=int(self._sim_reset_seq),
                 sim_time_s=self.last_sim_time_s,
                 sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,
@@ -1218,6 +1241,16 @@ class ControlHost:
                 self.last_go2_base_timestamp_s = float(msg.get("go2_base_timestamp_s", 0.0))
             except (TypeError, ValueError):
                 pass
+        if self._go2_bridge is None:
+            leg_q_raw = msg.get("go2_leg_q", None)
+            if isinstance(leg_q_raw, (list, tuple)) and len(leg_q_raw) == 12:
+                self.last_go2_leg_q = tuple(float(v) for v in leg_q_raw)
+            leg_dq_raw = msg.get("go2_leg_dq", None)
+            if isinstance(leg_dq_raw, (list, tuple)) and len(leg_dq_raw) == 12:
+                self.last_go2_leg_dq = tuple(float(v) for v in leg_dq_raw)
+            leg_torque_raw = msg.get("go2_leg_torque_nm", None)
+            if isinstance(leg_torque_raw, (list, tuple)) and len(leg_torque_raw) == 12:
+                self.last_go2_leg_torque_nm = tuple(float(v) for v in leg_torque_raw)
         if "sim_time_s" in msg:
             try:
                 self.last_sim_time_s = float(msg.get("sim_time_s", 0.0))
@@ -1576,7 +1609,7 @@ class ControlHost:
                     self._go2_bridge.set_velocity(vx, vy, wz)
             if "go2_sport_pose" in msg:
                 try:
-                    pose = proto.unpack_go2_sport_pose(msg.get("go2_sport_pose"))
+                    pose = normalize_go2_sport_pose(proto.unpack_go2_sport_pose(msg.get("go2_sport_pose")))
                 except Exception:
                     self._reply(
                         ident,
@@ -1585,6 +1618,19 @@ class ControlHost:
                             "ts": proto.now_s(),
                             "ok": False,
                             "reason": "bad_go2_sport_pose",
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
+                if sport_pose_api_id(pose) is None:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": f"unknown GO2 sport pose: {pose}",
                             "device": self.device,
                             "torque_enabled": self.torque_enabled,
                         },
@@ -1607,6 +1653,8 @@ class ControlHost:
                         )
                         return
                 self._clear_go2_vel()
+                self.last_go2_sport_pose = str(pose)
+                self.last_go2_sport_pose_seq += 1
             if "go2_obstacles_avoid_enable" in msg:
                 try:
                     enabled = proto.unpack_go2_obstacles_avoid_enable(msg.get("go2_obstacles_avoid_enable"))
@@ -1625,6 +1673,8 @@ class ControlHost:
                     return
                 if self._go2_bridge is not None:
                     self._go2_bridge.set_obstacles_avoid(enabled)
+                self.last_go2_obstacles_avoid_enabled = bool(enabled)
+                self.last_go2_obstacles_avoid_seq += 1
             if q is None:
                 if (
                     target_raw is None
@@ -1824,6 +1874,12 @@ class ControlHost:
                         go2_base_ang_vel=self.last_go2_base_ang_vel,
                         go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
                         go2_leg_q=self.last_go2_leg_q,
+                        go2_leg_dq=self.last_go2_leg_dq,
+                        go2_leg_torque_nm=self.last_go2_leg_torque_nm,
+                        go2_sport_pose=(self.last_go2_sport_pose or None),
+                        go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
+                        go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
+                        go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
                         sim_reset_seq=int(self._sim_reset_seq),
                         sim_time_s=self.last_sim_time_s,
                         sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,

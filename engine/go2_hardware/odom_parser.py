@@ -16,6 +16,8 @@ class OdomSample:
     timestamp_s: float
     # 12 leg joint angles (rad) in Genesis URDF order when available from /lowstate.
     leg_q: Optional[Tuple[float, ...]] = None
+    leg_dq: Optional[Tuple[float, ...]] = None
+    leg_torque_nm: Optional[Tuple[float, ...]] = None
 
 
 def parse_odom_pose(

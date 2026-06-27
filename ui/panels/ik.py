@@ -8,11 +8,11 @@ from ui.helpers import panel_header, scaled
 _IK_LABEL_W = 82.0
 
 
-def _style_spacing_x() -> float:
+def _style_spacing_x(panel) -> float:
     style = getattr(imgui, "get_style", lambda: None)()
     spacing = getattr(style, "item_spacing", None)
     if spacing is None:
-        return 8.0
+        return scaled(panel, 8.0)
     if hasattr(spacing, "x"):
         return float(spacing.x)
     return float(spacing[0])
@@ -29,8 +29,8 @@ def _draw_float3_input(
     imgui.text(str(label))
     imgui.same_line(scaled(panel, _IK_LABEL_W))
     width_getter = getattr(imgui, "get_content_region_available_width", None)
-    available = max(1.0, float(width_getter()) if callable(width_getter) else 260.0)
-    spacing = _style_spacing_x()
+    available = max(1.0, float(width_getter()) if callable(width_getter) else scaled(panel, 260.0))
+    spacing = _style_spacing_x(panel)
     component_w = max(scaled(panel, 40.0), (available - spacing * 2.0) / 3.0)
 
     changed_any = False

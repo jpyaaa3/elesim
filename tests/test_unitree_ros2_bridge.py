@@ -14,6 +14,7 @@ from engine.go2_hardware.sport_api import (
     API_MOVE,
     API_RECOVERY_STAND,
     API_STAND_DOWN,
+    API_STAND_UP,
     API_STATIC_WALK,
     API_STOP_MOVE,
     API_TROT_RUN,
@@ -82,9 +83,12 @@ class TestSportApi(unittest.TestCase):
 
     def test_sport_pose_ids(self) -> None:
         self.assertEqual(sport_pose_api_id("balance_stand"), API_BALANCE_STAND)
+        self.assertEqual(sport_pose_api_id("stand_up"), API_STAND_UP)
         self.assertEqual(sport_pose_api_id("stand_down"), API_STAND_DOWN)
         self.assertEqual(sport_pose_api_id("recovery_stand"), API_RECOVERY_STAND)
         self.assertEqual(sport_pose_api_id("static_walk"), API_STATIC_WALK)
+        self.assertEqual(normalize_go2_sport_pose("stand"), "stand_up")
+        self.assertEqual(normalize_go2_sport_pose("sit"), "stand_down")
         self.assertEqual(normalize_go2_sport_pose("lie-down"), "stand_down")
         self.assertIsNone(sport_pose_api_id("dance"))
 
