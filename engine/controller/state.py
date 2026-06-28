@@ -48,6 +48,11 @@ class HostState:
     sim_wall_elapsed_s: float = 0.0
     sim_realtime_factor: float = 0.0
     sim_step_count: int = 0
+    perception_running: bool = False
+    perception_failed: bool = False
+    perception_status: str = ""
+    perception_source: str = ""
+    perception_preview_endpoint: str = ""
 
 
 @dataclass

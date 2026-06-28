@@ -142,6 +142,9 @@ class SpawnConfig:
     sim_target_enable: bool = True
     sim_target_xyz: Tuple[float, float, float] = (1.2, 0.0, 0.08)
     sim_target_radius: float = 0.05
+    sim_target_color_rgba: Tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
+    sim_target_collision: bool = True
+    sim_target_gravity: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,6 +153,11 @@ class PerceptionConfig:
     detector_config: str = ""
     mode: str = "external"
     detector: str = "external"
+    provider: str = "local"
+    autostart: bool = False
+    preview_bind: str = "tcp://127.0.0.1:5570"
+    preview_endpoint: str = "tcp://127.0.0.1:5570"
+    preview_jpeg_quality: int = 75
     target_label: str = "sports ball"
     yolo_device: str = ""
     publish_hz: float = 15.0
@@ -443,11 +451,27 @@ def _parse_direction4(text: str, *, key: str) -> Tuple[int, int, int, int]:
 
 def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> PerceptionConfig:
     pc0 = defaults.perception_config
+    run_local = cp.getboolean("perception", "run_local", fallback=pc0.run_local)
+    provider_default = str(getattr(pc0, "provider", "local") or "local").strip().lower()
+    if not cp.has_option("perception", "provider"):
+        provider_default = "local" if bool(run_local) else "host"
+    provider = cp.get("perception", "provider", fallback=provider_default).strip().lower()
+    if provider not in ("local", "host"):
+        provider = provider_default if provider_default in ("local", "host") else "local"
     return PerceptionConfig(
         enabled=cp.getboolean("perception", "enabled", fallback=pc0.enabled),
         detector_config=cp.get("perception", "detector_config", fallback=pc0.detector_config),
         mode=cp.get("perception", "mode", fallback=pc0.mode),
         detector=cp.get("perception", "detector", fallback=pc0.detector),
+        provider=provider,
+        autostart=cp.getboolean("perception", "autostart", fallback=pc0.autostart),
+        preview_bind=cp.get("perception", "preview_bind", fallback=pc0.preview_bind),
+        preview_endpoint=cp.get("perception", "preview_endpoint", fallback=pc0.preview_endpoint),
+        preview_jpeg_quality=cp.getint(
+            "perception",
+            "preview_jpeg_quality",
+            fallback=pc0.preview_jpeg_quality,
+        ),
         target_label=cp.get("perception", "target_label", fallback=pc0.target_label),
         yolo_device=cp.get("perception", "yolo_device", fallback=pc0.yolo_device),
         publish_hz=cp.getfloat("perception", "publish_hz", fallback=pc0.publish_hz),
@@ -512,7 +536,7 @@ def _load_perception_config(cp: configparser.ConfigParser, defaults: AppConfigBu
         ),
         sim_camera_port=cp.get("runtime", "sim_camera_port", fallback=pc0.sim_camera_port),
         sim_camera_jpeg=cp.getboolean("runtime", "sim_camera_jpeg", fallback=pc0.sim_camera_jpeg),
-        run_local=cp.getboolean("perception", "run_local", fallback=pc0.run_local),
+        run_local=bool(run_local),
     )
 
 
@@ -1268,6 +1292,12 @@ def _load_spawn_config(cp: configparser.ConfigParser, defaults: AppConfigBundle)
         sim_target_enable=cp.getboolean("spawn", "sim_target_enable", fallback=am0.sim_target_enable),
         sim_target_xyz=_parse_vec3(cp.get("spawn", "sim_target_xyz", fallback=""), am0.sim_target_xyz),
         sim_target_radius=cp.getfloat("spawn", "sim_target_radius", fallback=am0.sim_target_radius),
+        sim_target_color_rgba=_parse_color_rgba(
+            cp.get("spawn", "sim_target_color_rgba", fallback=""),
+            am0.sim_target_color_rgba,
+        ),
+        sim_target_collision=cp.getboolean("spawn", "sim_target_collision", fallback=am0.sim_target_collision),
+        sim_target_gravity=cp.getboolean("spawn", "sim_target_gravity", fallback=am0.sim_target_gravity),
     )
 
 

@@ -71,6 +71,11 @@ class ControlClient:
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
+        self.last_perception_running: bool = False
+        self.last_perception_failed: bool = False
+        self.last_perception_status: str = ""
+        self.last_perception_source: str = ""
+        self.last_perception_preview_endpoint: str = ""
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
@@ -85,6 +90,7 @@ class ControlClient:
         self.last_go2_sport_pose_seq: int = 0
         self.last_go2_obstacles_avoid_enabled: bool = False
         self.last_go2_obstacles_avoid_seq: int = 0
+        self.last_sim_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_sim_time_s: float = 0.0
         self.last_sim_wall_elapsed_s: float = 0.0
         self.last_sim_realtime_factor: float = 0.0
@@ -129,6 +135,11 @@ class ControlClient:
             perceived_center_uv=self.last_perceived_center_uv,
             perceived_scale=self.last_perceived_scale,
             perceived_timestamp_s=float(self.last_perceived_timestamp_s),
+            perception_running=bool(self.last_perception_running),
+            perception_failed=bool(self.last_perception_failed),
+            perception_status=str(self.last_perception_status),
+            perception_source=str(self.last_perception_source),
+            perception_preview_endpoint=str(self.last_perception_preview_endpoint),
             go2_vel=(
                 float(self.last_go2_vel[0]),
                 float(self.last_go2_vel[1]),
@@ -177,6 +188,16 @@ class ControlClient:
                 self.last_sim_step_count = int(msg.get("sim_step_count", 0))
             except (TypeError, ValueError):
                 pass
+        sim_target_raw = msg.get("sim_target", None)
+        if isinstance(sim_target_raw, (list, tuple)) and len(sim_target_raw) == 3:
+            try:
+                self.last_sim_target_xyz = (
+                    float(sim_target_raw[0]),
+                    float(sim_target_raw[1]),
+                    float(sim_target_raw[2]),
+                )
+            except (TypeError, ValueError):
+                pass
 
     def _update_perception_fields(self, msg: dict[str, Any]) -> None:
         if "perceived_object_label" in msg:
@@ -206,6 +227,16 @@ class ControlClient:
                 self.last_perceived_timestamp_s = float(msg.get("perceived_timestamp_s", 0.0))
             except (TypeError, ValueError):
                 self.last_perceived_timestamp_s = 0.0
+        if "perception_running" in msg:
+            self.last_perception_running = bool(msg.get("perception_running", False))
+        if "perception_failed" in msg:
+            self.last_perception_failed = bool(msg.get("perception_failed", False))
+        if "perception_status" in msg:
+            self.last_perception_status = str(msg.get("perception_status", ""))
+        if "perception_source" in msg:
+            self.last_perception_source = str(msg.get("perception_source", ""))
+        if "perception_preview_endpoint" in msg:
+            self.last_perception_preview_endpoint = str(msg.get("perception_preview_endpoint", ""))
 
     def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 12:
@@ -439,6 +470,29 @@ class ControlClient:
     def disconnect_device(self) -> None:
         self._send({"t": "disconnect_device", "ts": time.time()})
 
+    def send_perception_start(self, *, config: Optional[Any] = None) -> None:
+        now = time.time()
+        payload: dict[str, Any] = {"t": "perception_start", "ts": now}
+        cfg = config
+        if cfg is not None:
+            payload["config"] = {
+                "detector_config": str(getattr(cfg, "detector_config", "")),
+                "mode": str(getattr(cfg, "mode", "")),
+                "detector": str(getattr(cfg, "detector", "")),
+                "target_label": str(getattr(cfg, "target_label", "")),
+                "yolo_device": str(getattr(cfg, "yolo_device", "")),
+                "publish_hz": float(getattr(cfg, "publish_hz", 0.0)),
+                "pipeline": str(getattr(cfg, "pipeline", "")),
+                "tracker": str(getattr(cfg, "tracker", "")),
+            }
+        self._send(payload)
+
+    def send_perception_stop(self) -> None:
+        self._send({"t": "perception_stop", "ts": time.time()})
+
+    def send_perception_refresh(self) -> None:
+        self._send({"t": "perception_refresh", "ts": time.time()})
+
     def send_perception_observation(
         self,
         *,
@@ -558,6 +612,19 @@ class ControlClient:
                 "seq": self.tx_seq,
                 "source": str(source),
                 "go2_obstacles_avoid_enable": bool(enabled),
+            }
+        )
+
+    def send_sim_target_xyz(self, *, xyz: tuple[float, float, float], source: str = "target") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "target",
+                "ts": now,
+                "seq": self.tx_seq,
+                "source": str(source),
+                "sim_target": [float(xyz[0]), float(xyz[1]), float(xyz[2])],
             }
         )
 

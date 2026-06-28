@@ -8,7 +8,7 @@ import os
 
 from engine.vision.perception_bridge.hand_eye import load_hand_eye_transform
 from engine import ik as ik_pipeline
-from engine.coordinates.go2_arm_frame import Go2ArmFrameConfig
+from engine.arm.go2_mount import Go2ArmMount
 from engine.controller import ControlClient, ControlService, PanelState
 from ui.control_panel import ControlPanel
 
@@ -48,11 +48,14 @@ def main() -> None:
     state.visual_scale_tol = float(pick_cfg.scale_tol)
     state.visual_ready_distance_m = float(pick_cfg.ready_pose_standoff_m)
     state.visual_look_distance_m = float(pick_cfg.look_pose_standoff_m)
+    try:
+        state.set_mock_object_world_xyz(*tuple(float(v) for v in bundle.spawn_config.sim_target_xyz))
+    except Exception:
+        pass
 
-    go2_arm_frame = Go2ArmFrameConfig.from_context(
+    go2_arm_mount = Go2ArmMount.from_context(
         use_go2=bool(bundle.sim_config.use_go2),
         spawn_xyz=bundle.spawn_config.spawn_xyz,
-        spawn_euler_deg=bundle.spawn_config.spawn_euler_deg,
         go2_spawn_height=float(bundle.spawn_config.go2_spawn_height),
         go2_spawn_euler_deg=bundle.spawn_config.go2_spawn_euler_deg,
         mount_offset_body_m=bundle.spawn_config.go2_mount_offset_m,
@@ -71,7 +74,7 @@ def main() -> None:
         gaze_cfg=bundle.gaze_stabilizer_config,
         hand_eye_transform=hand_eye_transform,
         hand_eye_parent_frame=hand_eye_parent_frame,
-        go2_arm_frame=go2_arm_frame,
+        go2_arm_mount=go2_arm_mount,
         use_hardware=bool(bundle.sim_config.use_hardware),
     )
     gui = ControlPanel(

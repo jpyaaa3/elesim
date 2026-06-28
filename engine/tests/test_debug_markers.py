@@ -21,6 +21,11 @@ class DebugMarkerProtocolTests(unittest.TestCase):
 
         self.assertEqual(msg["debug_markers"][0]["length"], 0.3)
 
+    def test_pack_state_includes_sim_target(self) -> None:
+        msg = pack_state(sim_target_xyz=(1.2, 0.0, 0.08))
+
+        self.assertEqual(msg["sim_target"], [1.2, 0.0, 0.08])
+
 
 if __name__ == "__main__":
     unittest.main()

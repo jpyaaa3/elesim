@@ -880,6 +880,8 @@ class SimScene:
     eye_camera: object = None
     camera_publisher: object = None
     hand_eye_config_path: str = ""
+    sim_target_entity: object = None
+    sim_target_xyz: Optional[np.ndarray] = None
     n_nodes: int = 0
     n_seg: int = 0
     sim_step_count: int = 0
@@ -905,6 +907,25 @@ class SimScene:
         if self.scene is None:
             return
         markers.draw_direction(self.scene, attr_name, pos, direction, color)
+
+    def set_sim_target_position(self, xyz: np.ndarray) -> bool:
+        target = self.sim_target_entity
+        if target is None:
+            return False
+        pos = np.asarray(xyz, dtype=float).reshape(3)
+        prev = self.sim_target_xyz
+        if prev is not None and np.allclose(prev, pos, atol=1e-9):
+            return True
+        try:
+            target.set_pos(pos)
+            zero_vel = getattr(target, "zero_all_dofs_velocity", None)
+            if callable(zero_vel):
+                zero_vel()
+        except Exception as exc:
+            print(f"[runtime] sim target move failed: {exc}")
+            return False
+        self.sim_target_xyz = pos.copy()
+        return True
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         if self.mover is None:
@@ -1313,6 +1334,29 @@ class SimMover:
 
     def get_last_command_full(self) -> np.ndarray:
         return self._q_cmd.copy()
+
+    def current_4dof_q(self) -> proto.SimQ:
+        q = np.asarray(self._q_cmd, dtype=float).reshape(-1)
+
+        def value_at(pos: Optional[int], default: float = 0.0) -> float:
+            if pos is None or int(pos) < 0 or int(pos) >= q.size:
+                return float(default)
+            return float(q[int(pos)])
+
+        linear = value_at(self._linear_pos)
+        roll = value_at(self.idx_roll())
+        bend_values = [value_at(pos) for pos in self._bend_pos if int(pos) < q.size]
+        n_seg = max(0, min(int(self.n_seg), len(bend_values)))
+        seg1_vals = bend_values[:n_seg]
+        seg2_vals = bend_values[n_seg:]
+        theta1 = float(np.mean(seg1_vals)) if seg1_vals else 0.0
+        theta2 = float(np.mean(seg2_vals)) if seg2_vals else 0.0
+        return proto.SimQ(
+            linear_m=float(linear),
+            roll_rad=float(roll),
+            theta1_rad=float(theta1),
+            theta2_rad=float(theta2),
+        )
 
     def _apply_q_direct(self, q_target: np.ndarray) -> None:
         self.entity.set_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
@@ -1744,6 +1788,9 @@ class StateSource:
     def sim_reset_seq(self) -> int:
         return 0
 
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        return None
+
     def debug_markers(self) -> list[dict[str, Any]]:
         return []
 
@@ -1771,6 +1818,7 @@ class HardwareStateCache(StateSource):
         self._last_go2_sport_pose_seq: int = 0
         self._last_go2_obstacles_avoid_enabled: bool = False
         self._last_go2_obstacles_avoid_seq: int = 0
+        self._last_sim_target_xyz: Optional[np.ndarray] = None
         self._last_sim_reset_seq: int = 0
         self._last_debug_markers: list[dict[str, Any]] = []
 
@@ -1816,6 +1864,10 @@ class HardwareStateCache(StateSource):
 
     def update_sim_reset_seq(self, seq: int) -> None:
         self._last_sim_reset_seq = int(seq)
+
+    def update_sim_target_xyz(self, xyz: Optional[tuple[float, float, float]]) -> None:
+        if xyz is not None:
+            self._last_sim_target_xyz = np.asarray(xyz, dtype=float).reshape(3)
 
     def update_ik_target(self, ik_target_xyz: Optional[np.ndarray]) -> None:
         self._last_ik_target_xyz = None if ik_target_xyz is None else np.array(ik_target_xyz, dtype=float).reshape(3)
@@ -1891,6 +1943,11 @@ class HardwareStateCache(StateSource):
     def sim_reset_seq(self) -> int:
         return int(self._last_sim_reset_seq)
 
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        if self._last_sim_target_xyz is None:
+            return None
+        return self._last_sim_target_xyz.copy()
+
     def debug_markers(self) -> list[dict[str, Any]]:
         return [dict(marker) for marker in self._last_debug_markers]
 
@@ -1925,6 +1982,7 @@ class HostStateSubscriber:
         self.last_go2_sport_pose_seq: int = 0
         self.last_go2_obstacles_avoid_enabled: bool = False
         self.last_go2_obstacles_avoid_seq: int = 0
+        self.last_sim_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_sim_reset_seq: int = 0
         self.last_debug_markers: list[dict[str, Any]] = []
 
@@ -2018,6 +2076,16 @@ class HostStateSubscriber:
                     self.last_sim_reset_seq = int(msg.get("sim_reset_seq", 0))
                 except (TypeError, ValueError):
                     pass
+            sim_target_raw = msg.get("sim_target", None)
+            if isinstance(sim_target_raw, (list, tuple)) and len(sim_target_raw) == 3:
+                try:
+                    self.last_sim_target_xyz = (
+                        float(sim_target_raw[0]),
+                        float(sim_target_raw[1]),
+                        float(sim_target_raw[2]),
+                    )
+                except (TypeError, ValueError):
+                    pass
             debug_markers_raw = msg.get("debug_markers", None)
             if isinstance(debug_markers_raw, list):
                 next_markers: list[dict[str, Any]] = []
@@ -2044,6 +2112,7 @@ class HostFeedbackPublisher:
         actual_tip_xyz: Optional[np.ndarray],
         actual_tip_dir: Optional[np.ndarray] = None,
         *,
+        arm_q: Optional[proto.SimQ] = None,
         camera_origin: Optional[np.ndarray] = None,
         camera_look: Optional[np.ndarray] = None,
         camera_right: Optional[np.ndarray] = None,
@@ -2052,7 +2121,7 @@ class HostFeedbackPublisher:
         sim_realtime_factor: Optional[float] = None,
         sim_step_count: Optional[int] = None,
     ) -> None:
-        if actual_tip_xyz is None and camera_origin is None and sim_time_s is None:
+        if actual_tip_xyz is None and arm_q is None and camera_origin is None and sim_time_s is None:
             return
         msg: dict[str, Any] = {
             "t": "sim_state",
@@ -2066,6 +2135,13 @@ class HostFeedbackPublisher:
             msg["sim_realtime_factor"] = float(sim_realtime_factor)
         if sim_step_count is not None:
             msg["sim_step_count"] = int(sim_step_count)
+        if arm_q is not None:
+            msg["q"] = {
+                "linear_m": float(arm_q.linear_m),
+                "roll_rad": float(arm_q.roll_rad),
+                "theta1_rad": float(arm_q.theta1_rad),
+                "theta2_rad": float(arm_q.theta2_rad),
+            }
         if actual_tip_xyz is not None:
             msg["actual_tip"] = [
                 float(actual_tip_xyz[0]),
@@ -2165,6 +2241,7 @@ class HostStateSource(StateSource):
             self._sub.last_go2_obstacles_avoid_enabled,
             self._sub.last_go2_obstacles_avoid_seq,
         )
+        self._cache.update_sim_target_xyz(self._sub.last_sim_target_xyz)
         self._cache.update_sim_reset_seq(self._sub.last_sim_reset_seq)
         if self._sub.last_q is not None:
             self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
@@ -2216,6 +2293,9 @@ class HostStateSource(StateSource):
 
     def sim_reset_seq(self) -> int:
         return self._cache.sim_reset_seq()
+
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        return self._cache.sim_target_xyz()
 
     def debug_markers(self) -> list[dict[str, Any]]:
         return self._cache.debug_markers()
@@ -2463,16 +2543,40 @@ class RuntimePrep:
             return
         pos = tuple(float(x) for x in a.spawn.sim_target_xyz)
         radius = float(a.spawn.sim_target_radius)
+        color = tuple(float(x) for x in a.spawn.sim_target_color_rgba)
+        collision = bool(a.spawn.sim_target_collision)
+        gravity = bool(a.spawn.sim_target_gravity)
+        fixed = not gravity
+        sphere_kwargs: dict[str, Any] = {
+            "radius": max(0.01, radius),
+            "pos": pos,
+            "fixed": bool(fixed),
+            "collision": bool(collision),
+        }
         try:
-            scene.add_entity(
-                gs.morphs.Sphere(
-                    radius=max(0.01, radius),
-                    pos=pos,
-                    fixed=True,
-                ),
-                surface=gs.surfaces.Rough(color=(0.85, 0.15, 0.15, 1.0)),
+            try:
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            except TypeError as exc:
+                if not collision:
+                    print(f"[runtime] sim target collision flag ignored by this Genesis build: {exc}")
+                sphere_kwargs.pop("collision", None)
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            ent = scene.add_entity(
+                sphere,
+                surface=gs.surfaces.Rough(color=color),
             )
-            print(f"[runtime] sim perception target sphere at {pos} r={radius:.3f}")
+            a.sim_scene.sim_target_entity = ent
+            a.sim_scene.sim_target_xyz = np.asarray(pos, dtype=float).reshape(3)
+            print(
+                "[runtime] sim target ball at %s r=%.3f color=%s collision=%s gravity=%s"
+                % (
+                    str(pos),
+                    float(radius),
+                    str(tuple(round(float(v), 3) for v in color)),
+                    str(collision).lower(),
+                    str(gravity).lower(),
+                )
+            )
         except Exception as exc:
             print(f"[runtime] sim target spawn failed: {exc}")
 
@@ -2612,6 +2716,9 @@ class SimRuntime:
                 perf.reset_loop()
                 t_sec = time.perf_counter()
                 self._poll_host_and_update_model()
+                sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
+                if sim_target_xyz is not None:
+                    a.sim_scene.set_sim_target_position(sim_target_xyz)
                 self._maybe_log_mirror_status(time.time())
                 ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
                 ik_target_dir = a.state_source.ik_target_dir() if a.state_source is not None else None
@@ -2678,9 +2785,15 @@ class SimRuntime:
                     sim_wall_elapsed_s = a.sim_scene.sim_wall_elapsed_s()
                     sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
                     sim_step_count = int(a.sim_scene.sim_step_count)
+                    arm_feedback_q = (
+                        a.sim_scene.mover.current_4dof_q()
+                        if a.sim_scene.mover is not None
+                        else None
+                    )
                     a.feedback_pub.send_actual_tip(
                         sim_tip,
                         sim_tip_dir,
+                        arm_q=arm_feedback_q,
                         camera_origin=cam_origin,
                         camera_look=cam_look,
                         camera_right=cam_right,

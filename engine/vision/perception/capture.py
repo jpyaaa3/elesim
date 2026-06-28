@@ -16,7 +16,7 @@ import numpy as np
 if TYPE_CHECKING:
     from engine.config_loader import PerceptionConfig
 
-_PICK_PLACE_ROOT = Path(__file__).resolve().parents[2] / "addons" / "autonomous_pick_place_app"
+_PICK_PLACE_ROOT = Path(__file__).resolve().parent
 _PREVIEW_WINDOW = "elesim_perception"
 
 
@@ -68,9 +68,6 @@ class TrackerPhase(str, Enum):
 
 def _ensure_pick_place_path() -> Path:
     root = _PICK_PLACE_ROOT.resolve()
-    root_s = str(root)
-    if root_s not in sys.path:
-        sys.path.insert(0, root_s)
     return root
 
 
@@ -162,12 +159,14 @@ class PerceptionCapture:
         *,
         publish_fn: Callable[..., Optional[tuple[float, float, float]]],
         on_snapshot: Optional[Callable[[PerceptionSnapshot], None]] = None,
+        preview_publish_fn: Optional[Callable[..., None]] = None,
         target_uv_fn: Optional[Callable[[], Tuple[float, float]]] = None,
         mock_world_xyz_fn: Optional[Callable[[], Optional[tuple[float, float, float]]]] = None,
     ) -> None:
         self._config = config
         self._publish_fn = publish_fn
         self._on_snapshot = on_snapshot
+        self._preview_publish_fn = preview_publish_fn
         self._target_uv_fn = target_uv_fn
         self._mock_world_xyz_fn = mock_world_xyz_fn
         self._stop_event = threading.Event()
@@ -218,6 +217,28 @@ class PerceptionCapture:
             )
             self._cached_depth = None if depth_raw is None else np.asarray(depth_raw).copy()
             self._cached_frame_idx = int(frame_idx)
+
+    def _publish_preview_frame(self, image_bgr: np.ndarray, *, frame_idx: int, status: str) -> None:
+        cb = self._preview_publish_fn
+        if cb is None:
+            return
+        snap = self.snapshot()
+        try:
+            cb(
+                image_bgr,
+                meta={
+                    "frame_idx": int(frame_idx),
+                    "status": str(status),
+                    "label": str(snap.label),
+                    "confidence": float(snap.confidence),
+                    "center_uv": snap.center_uv,
+                    "scale": float(snap.image_scale),
+                    "tracker_phase": str(snap.tracker_phase),
+                    "tracker_backend": str(snap.tracker_backend),
+                },
+            )
+        except Exception:
+            pass
 
     def save_cached_frames(
         self,
@@ -307,7 +328,7 @@ class PerceptionCapture:
         if thread is not None:
             thread.join(timeout=max(float(timeout_s), 0.1))
             if thread.is_alive():
-                self._set_snapshot(running=True, status_msg="stopping")
+                self._set_snapshot(running=False, status_msg="stop pending")
                 return False
         self._thread = None
         self._refresh_event.clear()
@@ -321,29 +342,64 @@ class PerceptionCapture:
         self._set_snapshot(status_msg="refresh requested (YOLO)")
         return True
 
+    def _capture_live_frame(self, cam: Any) -> Any | None:
+        miss_count = 0
+        last_status = ""
+        while not self._stop_event.is_set():
+            try:
+                return cam.capture(retries=1, retry_sleep_s=0.0)
+            except TypeError:
+                pass
+            except Exception as exc:
+                miss_count += 1
+                last_status = self._set_camera_wait_status(exc, miss_count, last_status)
+                time.sleep(0.05)
+                continue
+            try:
+                return cam.capture(timeout_ms=500)
+            except TypeError:
+                try:
+                    return cam.capture()
+                except Exception as exc:
+                    miss_count += 1
+                    last_status = self._set_camera_wait_status(exc, miss_count, last_status)
+                    time.sleep(0.05)
+            except Exception as exc:
+                miss_count += 1
+                last_status = self._set_camera_wait_status(exc, miss_count, last_status)
+                time.sleep(0.05)
+        return None
+
+    def _set_camera_wait_status(self, exc: Exception, miss_count: int, last_status: str) -> str:
+        msg = str(exc).strip() or exc.__class__.__name__
+        status = f"waiting for camera frame ({miss_count}): {msg}"
+        if status != last_status:
+            self._set_snapshot(running=True, failed=False, status_msg=status)
+        return status
+
     def _run(self) -> None:
         _ensure_pick_place_path()
         try:
-            from main import (  # type: ignore[import-not-found]
+            from engine.vision.perception.pipeline import (
                 build_camera_observation,
                 detection_scale,
+                list_frame_detections,
                 measure_detection,
+                model_class_names,
                 normalized_detection_center_uv,
+                pick_target_detection,
                 resolve_detector_cfg,
                 run_mock_frame,
-                _list_frame_detections,
-                _model_class_names,
-                _pick_target_detection,
             )
-            from perception.detector import create_detector, load_detector_config  # type: ignore[import-not-found]
-            from perception.preview import (  # type: ignore[import-not-found]
+            from engine.vision.perception.detector import create_detector, load_detector_config
+            from engine.vision.perception.preview import (
                 close_preview,
                 draw_detection_overlay,
                 show_preview as render_preview_frame,
             )
-            from perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError  # type: ignore[import-not-found]
-            from engine.vision.perception.visual_tracker import BboxTracker, detection_from_bbox  # type: ignore[import-not-found]
-            from perception.yolo_detector import YoloUnavailableError  # type: ignore[import-not-found]
+            from engine.vision.perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError
+            from engine.vision.perception.visual_tracker import BboxTracker, detection_from_bbox
+            from engine.vision.perception.yolo_detector import YoloUnavailableError
         except Exception as exc:
             self._set_snapshot(running=False, failed=True, status_msg=f"import failed: {exc}")
             return
@@ -365,7 +421,6 @@ class PerceptionCapture:
                 detector_cli=str(cfg.detector),
                 target_label_cli=str(cfg.target_label),
                 yolo_device_cli=(str(cfg.yolo_device) if cfg.yolo_device else None),
-                mode=str(cfg.mode),
             )
             detector = create_detector(detector_cfg)
         except (RealSenseUnavailableError, YoloUnavailableError) as exc:
@@ -392,9 +447,9 @@ class PerceptionCapture:
             build_camera_observation=build_camera_observation,
             normalized_detection_center_uv=normalized_detection_center_uv,
             detection_scale=detection_scale,
-            list_frame_detections=_list_frame_detections,
-            pick_target_detection=_pick_target_detection,
-            model_class_names=_model_class_names,
+            list_frame_detections=list_frame_detections,
+            pick_target_detection=pick_target_detection,
+            model_class_names=model_class_names,
             show_preview=enable_preview,
             draw_detection_overlay=draw_detection_overlay,
             show_preview_fn=render_preview_frame,
@@ -423,7 +478,7 @@ class PerceptionCapture:
                         **common,
                     )
             elif mode == "sim":
-                from perception.sim_rendered_camera import SimRenderedCamera  # type: ignore[import-not-found]
+                from engine.vision.perception.sim_rendered_camera import SimRenderedCamera
 
                 sim_cam_cls = lambda: SimRenderedCamera(  # noqa: E731
                     endpoint=str(cfg.sim_camera_port),
@@ -830,7 +885,9 @@ class PerceptionCapture:
         with RealSenseCamera() as cam:
             while not self._stop_event.is_set():
                 t0 = time.time()
-                frame = cam.capture()
+                frame = self._capture_live_frame(cam)
+                if frame is None:
+                    break
                 img_h, img_w = frame.color_bgr.shape[:2]
                 det = None
                 status = phase.value
@@ -968,7 +1025,7 @@ class PerceptionCapture:
                             track_ok = 0
                             if not reacquire:
                                 self._set_snapshot(
-                                    failed=True,
+                                    failed=False,
                                     status_msg="track lost",
                                     tracker_phase=TrackerPhase.LOST.value,
                                 )
@@ -1005,6 +1062,7 @@ class PerceptionCapture:
                     depth_raw=getattr(frame, "depth_raw", None),
                     frame_idx=frame_idx,
                 )
+                self._publish_preview_frame(vis, frame_idx=frame_idx, status=status)
                 if show_preview:
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
@@ -1097,7 +1155,9 @@ class PerceptionCapture:
                     last_scale = None
                     scale_stale_streak = 0
 
-                frame = cam.capture()
+                frame = self._capture_live_frame(cam)
+                if frame is None:
+                    break
                 img_h, img_w = frame.color_bgr.shape[:2]
                 if phase == TrackerPhase.LOST and reacquire:
                     phase = TrackerPhase.SEARCH
@@ -1362,6 +1422,7 @@ class PerceptionCapture:
                     depth_raw=getattr(frame, "depth_raw", None),
                     frame_idx=frame_idx,
                 )
+                self._publish_preview_frame(vis, frame_idx=frame_idx, status=status)
                 if show_preview:
                     key = show_preview_fn(_PREVIEW_WINDOW, vis)
                     if key in (ord("q"), 27):
@@ -1378,7 +1439,7 @@ class PerceptionCapture:
                         if tracker is not None and tracker.initialized
                         else backend
                     ),
-                    failed=phase == TrackerPhase.LOST and not reacquire,
+                    failed=False,
                 )
                 frame_idx += 1
                 if publish_period > 0:
@@ -1447,6 +1508,7 @@ class PerceptionCapture:
             center_uv=center_uv,
         )
         self._update_frame_cache(color, overlay_bgr=vis, depth_raw=depth, frame_idx=0)
+        self._publish_preview_frame(vis, frame_idx=0, status="mock")
         if show_preview and p_world is not None:
             show_preview_fn(_PREVIEW_WINDOW, vis)
             time.sleep(0.05)
@@ -1631,6 +1693,7 @@ class PerceptionCapture:
                 depth_raw=depth,
                 frame_idx=frame_idx,
             )
+            self._publish_preview_frame(vis, frame_idx=frame_idx, status=status)
             if show_preview:
                 key = show_preview_fn(_PREVIEW_WINDOW, vis)
                 if key in (ord("q"), 27):
@@ -1753,6 +1816,7 @@ class PerceptionCapture:
                 depth_raw=depth,
                 frame_idx=frame_idx,
             )
+            self._publish_preview_frame(vis, frame_idx=frame_idx, status="mock tracking")
             if show_preview:
                 key = show_preview_fn(_PREVIEW_WINDOW, vis)
                 if key in (ord("q"), 27):

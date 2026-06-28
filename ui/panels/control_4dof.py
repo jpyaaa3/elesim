@@ -3,7 +3,7 @@ from __future__ import annotations
 import imgui
 
 import engine.protocol as proto
-from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header, scaled
+from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header, scaled, toggle_switch
 
 
 _CONTROL_LABEL_W = 66.0
@@ -38,42 +38,6 @@ def _push_locked_slider_style() -> int:
 def _control_label(panel, text: str) -> None:
     imgui.text(str(text))
     imgui.same_line(scaled(panel, _COMMAND_LABEL_W))
-
-
-def _switch_button(
-    panel,
-    label: str,
-    enabled: bool,
-    *,
-    width: float = _SWITCH_W,
-    on_text: str = "ON",
-    off_text: str = "OFF",
-) -> bool:
-    text = str(on_text if enabled else off_text)
-    pushed = 0
-    if enabled:
-        colors = (
-            (imgui.COLOR_BUTTON, 0.94, 0.82, 0.42, 1.0),
-            (imgui.COLOR_BUTTON_HOVERED, 1.0, 0.88, 0.48, 1.0),
-            (imgui.COLOR_BUTTON_ACTIVE, 0.88, 0.68, 0.26, 1.0),
-        )
-    else:
-        colors = (
-            (imgui.COLOR_BUTTON, 0.82, 0.84, 0.87, 1.0),
-            (imgui.COLOR_BUTTON_HOVERED, 0.76, 0.79, 0.84, 1.0),
-            (imgui.COLOR_BUTTON_ACTIVE, 0.66, 0.70, 0.76, 1.0),
-        )
-    try:
-        for color in colors:
-            imgui.push_style_color(*color)
-            pushed += 1
-    except Exception:
-        pass
-    try:
-        return bool(imgui.button(f"{text}##{label}", scaled(panel, width), 0.0))
-    finally:
-        if pushed:
-            imgui.pop_style_color(pushed)
 
 
 def _warn_button(panel, label: str) -> bool:
@@ -241,13 +205,12 @@ def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
 def _draw_gripper_row(panel) -> None:
     _control_label(panel, "Gripper")
     claw_closed = bool(panel.state.claw_closed)
-    if _switch_button(
+    if toggle_switch(
         panel,
         "gripper_close_switch",
         claw_closed,
-        width=_SWITCH_W,
-        on_text="CLOSE",
-        off_text="OPEN",
+        on_color=(0.94, 0.82, 0.42),
+        on_hover_color=(1.0, 0.88, 0.48),
     ):
         next_closed = not claw_closed
         panel.state.set_claw_closed(next_closed)

@@ -5,7 +5,7 @@ import time
 
 import imgui
 
-from ui.helpers import panel_header, scaled
+from ui.helpers import begin_collapsible_section, end_collapsible_section, panel_header, scaled, section_title
 
 
 _HOST_STALE_S = 2.0
@@ -168,27 +168,15 @@ def _line(label: str, value: object, *, color: tuple[float, float, float] | None
         imgui.text_colored(text, float(color[0]), float(color[1]), float(color[2]))
 
 
-def _section_title(text: str) -> None:
-    imgui.text(str(text))
-
-
 def _draw_collapsible_section(label: str, draw_fn, panel) -> None:
-    tree_node = getattr(imgui, "tree_node", None)
-    tree_pop = getattr(imgui, "tree_pop", None)
-    set_open = getattr(imgui, "set_next_item_open", None)
-    if not callable(tree_node) or not callable(tree_pop):
-        _section_title(label)
-        draw_fn(panel)
-        return
-    if callable(set_open):
-        cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
-        set_open(True, cond)
     item_id = str(label).lower().replace(" ", "_").replace("/", "_")
-    if tree_node(f"{label}##status_section_{item_id}"):
-        try:
-            draw_fn(panel)
-        finally:
-            tree_pop()
+    token = begin_collapsible_section(label, item_id, namespace="status")
+    if token is None:
+        return
+    try:
+        draw_fn(panel)
+    finally:
+        end_collapsible_section(token)
 
 
 def _text_value(value: object, *, color: tuple[float, float, float] | None = None) -> None:
@@ -627,12 +615,15 @@ def _draw_hardware_brief(panel) -> None:
     host_text, host_color = _host_status(host)
     device = getattr(host, "device", "") if host is not None else ""
     ports = tuple(getattr(host, "ports", ()) or ()) if host is not None else ()
+    camera_on = bool(getattr(panel.state, "perception_running", False))
+    camera_text = "On" if camera_on else "Off"
+    camera_color = (0.10, 0.55, 0.18) if camera_on else (0.46, 0.48, 0.52)
     _draw_columns_table(
         panel,
         "hardware_host_table",
-        ("Host", "Device", "Port"),
-        (host_text, device, ", ".join(str(p) for p in ports)),
-        colors=(host_color, None, None),
+        ("Host", "Device", "Port", "Camera"),
+        (host_text, device, ", ".join(str(p) for p in ports), camera_text),
+        colors=(host_color, None, None, camera_color),
         center=True,
     )
 
@@ -768,7 +759,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     if show_separators:
         imgui.separator()
     if show_title:
-        _section_title("Vision / Gaze")
+        section_title("Vision / Gaze")
     _line("Perception source", "local" if run_local else "remote")
     _line("Detector config", getattr(panel, "_perception_config_path_draft", ""))
     _line(
@@ -790,7 +781,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
             host_age = max(0.0, now - float(host.perceived_timestamp_s))
         host_live = host.perceived_center_uv is not None and host_age >= 0.0 and host_age <= 0.75
 
-    perc_active = bool(st.perception_running) and not bool(st.perception_failed)
+    perc_active = bool(st.perception_running)
     if not run_local and host_live:
         perc_active = True
     perc_tag = _heartbeat_tag(st.perception_last_update_s, active=perc_active)

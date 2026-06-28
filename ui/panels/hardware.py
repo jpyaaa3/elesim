@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import imgui
 
-from ui.helpers import panel_header, scaled
+from ui.helpers import panel_header, scaled, toggle_switch
 
 
 class _EmptyHardwareState:
@@ -20,7 +20,6 @@ class _EmptyHardwareState:
 
 _CONTROL_LABEL_W = 96.0
 _PORT_LABEL_W = 66.0
-_SWITCH_W = 58.0
 _WARN_W = 28.0
 _SEARCH_W = 72.0
 
@@ -28,34 +27,6 @@ _SEARCH_W = 72.0
 def _control_label(panel, text: str) -> None:
     imgui.text(str(text))
     imgui.same_line(scaled(panel, _CONTROL_LABEL_W))
-
-
-def _switch_button(panel, label: str, enabled: bool, *, width: float = 58.0) -> bool:
-    text = "ON" if enabled else "OFF"
-    pushed = False
-    if enabled:
-        colors = (
-            (imgui.COLOR_BUTTON, 0.12, 0.58, 0.26, 1.0),
-            (imgui.COLOR_BUTTON_HOVERED, 0.16, 0.66, 0.32, 1.0),
-            (imgui.COLOR_BUTTON_ACTIVE, 0.08, 0.44, 0.20, 1.0),
-        )
-    else:
-        colors = (
-            (imgui.COLOR_BUTTON, 0.82, 0.84, 0.87, 1.0),
-            (imgui.COLOR_BUTTON_HOVERED, 0.76, 0.79, 0.84, 1.0),
-            (imgui.COLOR_BUTTON_ACTIVE, 0.66, 0.70, 0.76, 1.0),
-        )
-    try:
-        for color in colors:
-            imgui.push_style_color(*color)
-        pushed = True
-    except Exception:
-        pushed = False
-    try:
-        return bool(imgui.button(f"{text}##{label}", scaled(panel, width), 0.0))
-    finally:
-        if pushed:
-            imgui.pop_style_color(3)
 
 
 def _warn_button(panel, label: str) -> bool:
@@ -102,7 +73,11 @@ def draw_hardware_panel(panel) -> None:
             panel.service.request_ports()
 
         _control_label(panel, "Apply Port")
-        if _switch_button(panel, "hardware_port_switch", bool(current_device), width=_SWITCH_W):
+        if toggle_switch(
+            panel,
+            "hardware_port_switch",
+            bool(current_device),
+        ):
             if current_device:
                 panel.state.set_torque_lock_bypass(False)
                 panel.service.disconnect_device()
@@ -117,7 +92,11 @@ def draw_hardware_panel(panel) -> None:
             panel._port_input = ""
 
         _control_label(panel, "Torque")
-        if _switch_button(panel, "hardware_torque_switch", bool(state.torque_enabled), width=_SWITCH_W):
+        if toggle_switch(
+            panel,
+            "hardware_torque_switch",
+            bool(state.torque_enabled),
+        ):
             if state.torque_enabled:
                 panel.state.set_torque_lock_bypass(False)
                 panel.service.torque_off()

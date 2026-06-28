@@ -19,6 +19,17 @@ class Go2SimMirrorConfigTests(unittest.TestCase):
         bundle = load_app_config_from_ini(os.path.join(root, "config.ini"))
         self.assertFalse(bundle.go2_locomotion_config.mirror_from_host)
 
+    def test_local_config_loads_sim_target_ball_spawn_options(self) -> None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        bundle = load_app_config_from_ini(os.path.join(root, "config.ini"))
+        spawn = bundle.spawn_config
+        self.assertTrue(spawn.sim_target_enable)
+        self.assertEqual(spawn.sim_target_xyz, (1.2, 0.0, 0.08))
+        self.assertAlmostEqual(spawn.sim_target_radius, 0.025)
+        self.assertEqual(spawn.sim_target_color_rgba, (0.85, 0.15, 0.15, 1.0))
+        self.assertTrue(spawn.sim_target_collision)
+        self.assertFalse(spawn.sim_target_gravity)
+
     def test_default_mirror_false(self) -> None:
         self.assertFalse(Go2LocomotionConfig().mirror_from_host)
 

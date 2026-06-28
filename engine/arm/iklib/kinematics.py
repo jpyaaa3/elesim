@@ -24,6 +24,31 @@ def _pick_manifest_value(mapping: dict[str, Any], *keys: str, default: Any = Non
     return default
 
 
+def base_world_transform_from_context(context: dict[str, Any]) -> np.ndarray:
+    """Current arm-base pose in world coordinates.
+
+    ``base_world_T`` is the runtime base pose.  Older fixed-arm callers only
+    provide ``spawn_xyz`` / ``spawn_euler_deg``; keep that as the fallback.
+    """
+    raw = context.get("base_world_T")
+    if raw is not None:
+        return np.asarray(raw, dtype=float).reshape(4, 4).copy()
+
+    spawn_pos = np.asarray(context["spawn_xyz"], dtype=float).reshape(3)
+    spawn_euler = np.asarray(context["spawn_euler_deg"], dtype=float).reshape(3)
+    T = np.eye(4, dtype=float)
+    T[:3, :3] = Rot.from_euler("xyz", spawn_euler, degrees=True).as_matrix()
+    T[:3, 3] = spawn_pos
+    return T
+
+
+def with_base_world_transform(context: dict[str, Any], base_world_T: Sequence[Sequence[float]]) -> dict[str, Any]:
+    """Return an IK context copy with an explicit runtime arm-base pose."""
+    out = dict(context)
+    out["base_world_T"] = np.asarray(base_world_T, dtype=float).reshape(4, 4).copy()
+    return out
+
+
 def _build_q_map(context: dict[str, Any], q4: Sequence[float]) -> dict[str, float]:
     q = np.asarray(q4, dtype=float).reshape(4)
     linear = float(q[0])
@@ -70,14 +95,14 @@ def _forward_link_tf(context: dict[str, Any], q4: Sequence[float]) -> dict[str, 
     part_pose_root = dict(context["part_pose_root"])
     part_rot_root = dict(context["part_rot_root"])
     root = str(context["fk_root_link"])
-    spawn_pos = np.asarray(context["spawn_xyz"], dtype=float).reshape(3)
-    spawn_euler = np.asarray(context["spawn_euler_deg"], dtype=float).reshape(3)
-    R_spawn = Rot.from_euler("xyz", spawn_euler, degrees=True).as_matrix()
+    T_base = base_world_transform_from_context(context)
+    base_pos = T_base[:3, 3]
+    R_base = T_base[:3, :3]
 
     link_tf: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     p_root_local = np.asarray(part_pose_root.get(root, np.zeros(3, dtype=float)), dtype=float).reshape(3)
     R_root_local = np.asarray(part_rot_root.get(root, np.eye(3, dtype=float)), dtype=float).reshape(3, 3)
-    link_tf[root] = (spawn_pos + R_spawn @ p_root_local, R_spawn @ R_root_local)
+    link_tf[root] = (base_pos + R_base @ p_root_local, R_base @ R_root_local)
 
     for meta in list(context["fk_joint_chain"]):
         parent = str(meta["parent"])
@@ -265,4 +290,6 @@ __all__ = [
     "_get_direction_convention_local",
     "_limited_step",
     "_pick_manifest_value",
+    "base_world_transform_from_context",
+    "with_base_world_transform",
 ]

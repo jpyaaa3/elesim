@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import glfw
 import imgui
 
 from ui.helpers import panel_header, scaled, ui_scale
@@ -189,6 +190,25 @@ def _draw_text(draw_list, x: float, y: float, color: int, text: str) -> None:
             continue
 
 
+def _draw_centered_text(draw_list, x: float, y: float, color: int, text: str) -> None:
+    tw, th = _calc_text_size(str(text))
+    _draw_text(draw_list, float(x) - tw * 0.5, float(y) - th * 0.5, color, str(text))
+
+
+def _draw_space_symbol(draw_list, cx: float, cy: float, size: float, color: int, *, width: float | None = None) -> None:
+    width = float(width) if width is not None else float(size) * 0.34
+    height = float(size) * 0.10
+    thickness = max(1.2, float(size) * 0.045)
+    left = float(cx) - width * 0.5
+    right = float(cx) + width * 0.5
+    top = float(cy) - height * 0.5
+    bottom = float(cy) + height * 0.5
+    half = thickness * 0.5
+    _draw_rect_filled(draw_list, left - half, top, left + half, bottom + half, color, 0.0)
+    _draw_rect_filled(draw_list, left - half, bottom - half, right + half, bottom + half, color, 0.0)
+    _draw_rect_filled(draw_list, right - half, top, right + half, bottom + half, color, 0.0)
+
+
 def _draw_turn_arrow(draw_list, x: float, y: float, size: float, *, direction: str, color: int) -> None:
     cx = x + size * 0.5
     cy = y + size * 0.52
@@ -212,14 +232,22 @@ def _draw_turn_arrow(draw_list, x: float, y: float, size: float, *, direction: s
     _draw_arrow_head(draw_list, tip, points[1], color, size, extension=thickness * 2.0)
 
 
-def _shape_button(panel, kind: str, widget_id: str, size: float, *, text: str = "") -> tuple[bool, bool]:
+def _shape_button(
+    panel,
+    kind: str,
+    widget_id: str,
+    size: float,
+    *,
+    text: str = "",
+    force_active: bool = False,
+) -> tuple[bool, bool]:
     if not callable(getattr(imgui, "invisible_button", None)) or not callable(getattr(imgui, "get_window_draw_list", None)):
         clicked = bool(imgui.button(text or kind, float(size), float(size)))
-        return clicked, bool(imgui.is_item_active())
+        return clicked, bool(imgui.is_item_active()) or bool(force_active)
 
     x, y = _xy(imgui.get_cursor_screen_pos())
     clicked = bool(imgui.invisible_button(f"##{widget_id}", float(size), float(size)))
-    active = bool(imgui.is_item_active())
+    active = bool(imgui.is_item_active()) or bool(force_active)
     hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
     draw_list = imgui.get_window_draw_list()
 
@@ -243,20 +271,30 @@ def _shape_button(panel, kind: str, widget_id: str, size: float, *, text: str = 
     fg = _color_u32(0.12, 0.14, 0.17, 1.0)
     bg = _color_u32(*fill, 1.0)
     _draw_rect_filled(draw_list, x, y, x + size, y + size, bg, scaled(panel, _SHAPE_ROUNDING))
+    cutout = bg
 
     cx = x + size * 0.5
     cy = y + size * 0.5
     pad = size * 0.24
     if kind == "up":
         _draw_triangle_filled(draw_list, ((cx, y + pad), (x + size - pad, y + size - pad), (x + pad, y + size - pad)), fg)
+        _draw_centered_text(draw_list, cx, y + size * 0.60, cutout, "W")
     elif kind == "down":
         _draw_triangle_filled(draw_list, ((x + pad, y + pad), (x + size - pad, y + pad), (cx, y + size - pad)), fg)
+        _draw_centered_text(draw_list, cx, y + size * 0.40, cutout, "S")
     elif kind == "left":
         _draw_triangle_filled(draw_list, ((x + pad, cy), (x + size - pad, y + pad), (x + size - pad, y + size - pad)), fg)
+        _draw_centered_text(draw_list, x + size * 0.60, cy, cutout, "A")
     elif kind == "right":
         _draw_triangle_filled(draw_list, ((x + pad, y + pad), (x + size - pad, cy), (x + pad, y + size - pad)), fg)
+        _draw_centered_text(draw_list, x + size * 0.40, cy, cutout, "D")
     elif kind in ("turn_left", "turn_right"):
         _draw_turn_arrow(draw_list, x, y, size, direction="left" if kind == "turn_left" else "right", color=fg)
+        _draw_centered_text(draw_list, cx, cy, fg, "Q" if kind == "turn_left" else "E")
+    elif kind == "stop":
+        _draw_centered_text(draw_list, cx, y + size * 0.42, fg, glyph)
+        glyph_w, _ = _calc_text_size(glyph)
+        _draw_space_symbol(draw_list, cx, y + size * 0.64, size, fg, width=glyph_w)
     else:
         tw, th = _calc_text_size(glyph)
         _draw_text(draw_list, cx - tw * 0.5, cy - th * 0.5, fg, glyph)
@@ -269,6 +307,33 @@ def _stop_go2(panel) -> None:
     panel._go2_was_active = False
 
 
+def _keyboard_teleop_enabled(panel) -> bool:
+    window = getattr(panel, "_glfw_window", None)
+    if window is None:
+        return False
+    try:
+        if glfw.get_window_attrib(window, glfw.FOCUSED) != glfw.TRUE:
+            return False
+    except Exception:
+        return False
+    try:
+        io = imgui.get_io()
+        if bool(getattr(io, "want_text_input", False)):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _key_down(panel, key: int) -> bool:
+    if not _keyboard_teleop_enabled(panel):
+        return False
+    try:
+        return glfw.get_key(panel._glfw_window, int(key)) == glfw.PRESS
+    except Exception:
+        return False
+
+
 def _draw_teleop_pad(panel, width: float) -> bool:
     spacing_x = _style_spacing_x()
     cell = max(scaled(panel, _PAD_MIN_CELL_W), min(scaled(panel, _PAD_MAX_CELL_W), (float(width) - spacing_x * 4.0) / 5.0))
@@ -277,6 +342,13 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     vx = 0.0
     vy = 0.0
     wz = 0.0
+    key_forward = _key_down(panel, glfw.KEY_W)
+    key_back = _key_down(panel, glfw.KEY_S)
+    key_left = _key_down(panel, glfw.KEY_A)
+    key_right = _key_down(panel, glfw.KEY_D)
+    key_turn_left = _key_down(panel, glfw.KEY_Q)
+    key_turn_right = _key_down(panel, glfw.KEY_E)
+    key_stop = _key_down(panel, glfw.KEY_SPACE)
 
     _center_next_item(row_w, width)
     imgui.begin_group()
@@ -284,7 +356,7 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
     imgui.same_line()
-    _, held = _shape_button(panel, "up", "go2_forward_shape", cell)
+    _, held = _shape_button(panel, "up", "go2_forward_shape", cell, force_active=key_forward)
     if held:
         vx += float(panel._go2_teleop_vx_mps)
         active = True
@@ -293,26 +365,26 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
 
-    _, held = _shape_button(panel, "turn_left", "go2_turn_left_shape", cell)
+    _, held = _shape_button(panel, "turn_left", "go2_turn_left_shape", cell, force_active=key_turn_left)
     if held:
         wz += float(panel._go2_teleop_wz_radps)
         active = True
     imgui.same_line()
-    _, held = _shape_button(panel, "left", "go2_left_shape", cell)
+    _, held = _shape_button(panel, "left", "go2_left_shape", cell, force_active=key_left)
     if held:
         vy += float(panel._go2_teleop_vy_mps)
         active = True
     imgui.same_line()
-    clicked, _ = _shape_button(panel, "stop", "go2_stop_shape", cell)
-    if clicked:
+    clicked, _ = _shape_button(panel, "stop", "go2_stop_shape", cell, force_active=key_stop)
+    if clicked or key_stop:
         _stop_go2(panel)
     imgui.same_line()
-    _, held = _shape_button(panel, "right", "go2_right_shape", cell)
+    _, held = _shape_button(panel, "right", "go2_right_shape", cell, force_active=key_right)
     if held:
         vy -= float(panel._go2_teleop_vy_mps)
         active = True
     imgui.same_line()
-    _, held = _shape_button(panel, "turn_right", "go2_turn_right_shape", cell)
+    _, held = _shape_button(panel, "turn_right", "go2_turn_right_shape", cell, force_active=key_turn_right)
     if held:
         wz -= float(panel._go2_teleop_wz_radps)
         active = True
@@ -321,7 +393,7 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.same_line()
     imgui.dummy(cell, cell)
     imgui.same_line()
-    _, held = _shape_button(panel, "down", "go2_back_shape", cell)
+    _, held = _shape_button(panel, "down", "go2_back_shape", cell, force_active=key_back)
     if held:
         vx -= float(panel._go2_teleop_vx_mps)
         active = True
@@ -331,6 +403,8 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     imgui.dummy(cell, cell)
     imgui.end_group()
 
+    if key_stop:
+        return False
     if active:
         panel.service.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz))
         panel._go2_was_active = True

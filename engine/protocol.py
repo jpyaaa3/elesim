@@ -129,9 +129,24 @@ def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) 
 
 def sim_q_to_control_u(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> ControlU:
     dirs = tuple(int(v) for v in cfg.command_direction)
-    motor_u = sim_q_to_motor_deg(q, cfg)
+    motor_linear = _map_axis_to_u(
+        q.linear_m,
+        cfg.linear_q_min_m,
+        cfg.linear_q_max_m,
+        cfg.linear_u_min,
+        cfg.linear_u_max,
+    )
+    motor_u = ControlU(
+        u_linear=float(motor_linear),
+        u_roll=_map_axis_to_u(q.roll_rad, cfg.roll_q_min_rad, cfg.roll_q_max_rad, cfg.roll_u_min, cfg.roll_u_max),
+        u_s1=_map_axis_to_u(q.theta1_rad, cfg.seg1_q_min_rad, cfg.seg1_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
+        u_s2=_map_axis_to_u(q.theta2_rad, cfg.seg2_q_min_rad, cfg.seg2_q_max_rad, cfg.seg_u_min, cfg.seg_u_max),
+    )
     return ControlU(
-        u_linear=_apply_axis_direction(motor_u.u_linear, dirs[0], cfg.linear_u_min, cfg.linear_u_max),
+        u_linear=clamp_linear_motor_u(
+            _apply_axis_direction(motor_u.u_linear, dirs[0], cfg.linear_u_min, cfg.linear_u_max),
+            cfg,
+        ),
         u_roll=_apply_axis_direction(motor_u.u_roll, dirs[1], cfg.roll_u_min, cfg.roll_u_max),
         u_s1=_apply_axis_direction(motor_u.u_s1, dirs[2], cfg.seg_u_min, cfg.seg_u_max),
         u_s2=_apply_axis_direction(motor_u.u_s2, dirs[3], cfg.seg_u_min, cfg.seg_u_max),
@@ -171,6 +186,11 @@ def pack_state(
     perceived_center_uv: Optional[tuple[float, float]] = None,
     perceived_scale: Optional[float] = None,
     perceived_timestamp_s: Optional[float] = None,
+    perception_running: Optional[bool] = None,
+    perception_failed: Optional[bool] = None,
+    perception_status: Optional[str] = None,
+    perception_source: Optional[str] = None,
+    perception_preview_endpoint: Optional[str] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
     go2_vel: Optional[tuple[float, float, float]] = None,
     go2_base_rpy: Optional[tuple[float, float, float]] = None,
@@ -185,6 +205,7 @@ def pack_state(
     go2_sport_pose_seq: Optional[int] = None,
     go2_obstacles_avoid_enabled: Optional[bool] = None,
     go2_obstacles_avoid_seq: Optional[int] = None,
+    sim_target_xyz: Optional[tuple[float, float, float]] = None,
     sim_reset_seq: Optional[int] = None,
     sim_time_s: Optional[float] = None,
     sim_wall_elapsed_s: Optional[float] = None,
@@ -238,6 +259,16 @@ def pack_state(
         out["perceived_scale"] = float(perceived_scale)
     if perceived_timestamp_s is not None:
         out["perceived_timestamp_s"] = float(perceived_timestamp_s)
+    if perception_running is not None:
+        out["perception_running"] = bool(perception_running)
+    if perception_failed is not None:
+        out["perception_failed"] = bool(perception_failed)
+    if perception_status is not None:
+        out["perception_status"] = str(perception_status)
+    if perception_source is not None:
+        out["perception_source"] = str(perception_source)
+    if perception_preview_endpoint is not None:
+        out["perception_preview_endpoint"] = str(perception_preview_endpoint)
     if go2_vel is not None:
         out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
     if go2_base_rpy is not None:
@@ -272,6 +303,8 @@ def pack_state(
         out["go2_obstacles_avoid_enabled"] = bool(go2_obstacles_avoid_enabled)
     if go2_obstacles_avoid_seq is not None:
         out["go2_obstacles_avoid_seq"] = int(go2_obstacles_avoid_seq)
+    if sim_target_xyz is not None:
+        out["sim_target"] = [float(sim_target_xyz[0]), float(sim_target_xyz[1]), float(sim_target_xyz[2])]
     if sim_reset_seq is not None:
         out["sim_reset_seq"] = int(sim_reset_seq)
     if sim_time_s is not None:

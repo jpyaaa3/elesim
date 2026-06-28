@@ -22,9 +22,9 @@ class UvJacobianTests(unittest.TestCase):
             max_abs_delta=(6.0, 6.0, 6.0),
         )
 
-        self.assertLess(delta[0], 0.0)
+        self.assertGreater(delta[0], 0.0)
         self.assertGreater(delta[1], 0.0)
-        self.assertGreater(delta[2], 0.0)
+        self.assertLess(delta[2], 0.0)
 
     def test_broyden_update_learns_cross_coupling(self) -> None:
         jac = default_uv_jacobian(center_u_gain=12.0, center_v_gain=12.0)

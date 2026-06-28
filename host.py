@@ -8,12 +8,13 @@ import os
 import signal
 import threading
 import time
+from dataclasses import replace
 from typing import Any, Dict, Optional, Set
 
 import numpy as np
 import zmq
 
-from engine.config_loader import HardwareConfig, PickConfig, load_app_config_from_ini
+from engine.config_loader import HardwareConfig, PerceptionConfig, PickConfig, load_app_config_from_ini
 from engine.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
 from engine.go2.hardware.odom_parser import OdomSample
 from engine.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
@@ -24,6 +25,8 @@ from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.protocol as proto
 from engine.vision.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
+from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
+from engine.vision.perception.preview_stream import PreviewFramePublisher
 from engine.vision.sim_camera.pose import camera_point_to_world_from_axes
 
 from serial.tools import list_ports as serial_list_ports
@@ -101,6 +104,7 @@ class ControlHost:
         hand_eye_transform: Optional[Any] = None,
         hand_eye_parent_frame: str = "node9",
         pick_config: Optional[PickConfig] = None,
+        perception_config: Optional[PerceptionConfig] = None,
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         trajectory_cfg: Optional[QuinticTimingConfig] = None,
@@ -122,6 +126,7 @@ class ControlHost:
         self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
         self.pick_config = pick_config or PickConfig()
+        self.perception_config = perception_config or PerceptionConfig()
         self.show_all_ports = bool(show_all_ports)
         self._go2_bridge = go2_bridge
 
@@ -158,6 +163,19 @@ class ControlHost:
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
+        self.perception_running: bool = False
+        self.perception_failed: bool = False
+        self.perception_status: str = "stopped"
+        self.perception_source: str = "host"
+        self._perception_capture: Optional[PerceptionCapture] = None
+        self._perception_lock = threading.RLock()
+        self._preview_publisher: Optional[PreviewFramePublisher] = None
+        preview_bind = str(getattr(self.perception_config, "preview_bind", "")).strip()
+        if preview_bind:
+            self._preview_publisher = PreviewFramePublisher(
+                preview_bind,
+                jpeg_quality=int(getattr(self.perception_config, "preview_jpeg_quality", 75)),
+            )
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -179,6 +197,7 @@ class ControlHost:
         self._sim_camera_look: Optional[tuple[float, float, float]] = None
         self._sim_camera_right: Optional[tuple[float, float, float]] = None
         self._sim_camera_ts: float = 0.0
+        self.last_sim_target_xyz: Optional[tuple[float, float, float]] = None
         self._sim_reset_seq: int = 0
         self.last_sim_time_s: float = 0.0
         self.last_sim_wall_elapsed_s: float = 0.0
@@ -226,6 +245,8 @@ class ControlHost:
         self._traj_profile_start_s: Optional[float] = None
         if not self._has_hw():
             self._set_virtual_neutral_state()
+        if bool(getattr(self.perception_config, "autostart", False)):
+            self.start_perception_worker()
 
     def _set_virtual_neutral_state(self) -> None:
         neutral_q = proto.SimQ(
@@ -806,6 +827,11 @@ class ControlHost:
                 perceived_center_uv=self.last_perceived_center_uv,
                 perceived_scale=self.last_perceived_scale,
                 perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
+                perception_running=bool(self.perception_running),
+                perception_failed=bool(self.perception_failed),
+                perception_status=str(self.perception_status),
+                perception_source=str(self.perception_source),
+                perception_preview_endpoint=str(getattr(self.perception_config, "preview_bind", "")),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -821,6 +847,7 @@ class ControlHost:
                 go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
                 go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
                 go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
+                sim_target_xyz=self.last_sim_target_xyz,
                 sim_reset_seq=int(self._sim_reset_seq),
                 sim_time_s=self.last_sim_time_s,
                 sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,
@@ -1177,7 +1204,192 @@ class ControlHost:
             self.torque_enabled = False
             self._red_torque_off_ids = set()
 
+    def _perception_state_payload(self) -> Dict[str, Any]:
+        return {
+            "perception_running": bool(self.perception_running),
+            "perception_failed": bool(self.perception_failed),
+            "perception_status": str(self.perception_status),
+            "perception_source": str(self.perception_source),
+            "perception_preview_endpoint": str(getattr(self.perception_config, "preview_bind", "")),
+        }
+
+    def _remote_perception_config(self, raw: Any = None) -> PerceptionConfig:
+        cfg = self.perception_config
+        if not isinstance(raw, dict):
+            return replace(cfg, mode="camera", run_local=True, provider="local", show_preview=False)
+        updates: Dict[str, Any] = {
+            "mode": "camera",
+            "run_local": True,
+            "provider": "local",
+            "show_preview": False,
+        }
+        for key in (
+            "detector_config",
+            "detector",
+            "target_label",
+            "yolo_device",
+            "pipeline",
+            "tracker",
+        ):
+            value = raw.get(key, None)
+            if value is not None and str(value).strip():
+                updates[key] = str(value).strip()
+        if raw.get("publish_hz", None) is not None:
+            try:
+                hz = float(raw.get("publish_hz"))
+                if hz > 0.0:
+                    updates["publish_hz"] = hz
+            except (TypeError, ValueError):
+                pass
+        return replace(cfg, **updates)
+
+    def _on_perception_snapshot(self, snap: PerceptionSnapshot) -> None:
+        with self._perception_lock:
+            self.perception_running = bool(snap.running)
+            self.perception_failed = bool(snap.failed)
+            self.perception_status = str(snap.status_msg)
+
+    def _publish_preview_frame(self, image_bgr: Any, *, meta: Optional[dict[str, Any]] = None) -> None:
+        publisher = self._preview_publisher
+        if publisher is None:
+            return
+        publisher.publish(image_bgr, meta=meta)
+
+    def _publish_perception_observation_from_worker(
+        self,
+        *,
+        object_camera_xyz: tuple[float, float, float],
+        label: str,
+        confidence: float,
+        image_center_uv: tuple[float, float],
+        image_scale: float,
+        depth_valid: bool = True,
+        object_world: Optional[tuple[float, float, float]] = None,
+        camera_world_origin: Optional[tuple[float, float, float]] = None,
+        camera_world_look: Optional[tuple[float, float, float]] = None,
+        camera_world_right: Optional[tuple[float, float, float]] = None,
+    ) -> Optional[tuple[float, float, float]]:
+        with self._perception_lock:
+            self.last_perceived_center_uv = (
+                float(image_center_uv[0]),
+                float(image_center_uv[1]),
+            )
+            self.last_perceived_scale = float(image_scale)
+            self.last_perceived_object_confidence = float(confidence)
+            self.last_perceived_object_label = str(label)
+            self.last_perceived_timestamp_s = float(proto.now_s())
+            self.last_perceived_object_camera_xyz = (
+                float(object_camera_xyz[0]),
+                float(object_camera_xyz[1]),
+                float(object_camera_xyz[2]),
+            )
+
+            result_world: Optional[tuple[float, float, float]] = None
+            if object_world is not None:
+                p_w = np.asarray(object_world, dtype=float).reshape(3)
+                result_world = (float(p_w[0]), float(p_w[1]), float(p_w[2]))
+                self.last_perceived_object_world_xyz = result_world
+                has_frame_cam_pose = (
+                    camera_world_origin is not None
+                    and camera_world_look is not None
+                    and camera_world_right is not None
+                )
+                self._set_perception_debug_markers(
+                    object_world=result_world,
+                    object_label=str(label),
+                    object_camera_xyz=self.last_perceived_object_camera_xyz,
+                    world_tag="sim_frame_pose" if has_frame_cam_pose else "worker_world",
+                    camera_world=camera_world_origin,
+                    camera_look=camera_world_look,
+                    camera_right=camera_world_right,
+                    ttl_ms=3000,
+                )
+            elif bool(depth_valid):
+                ok, _reason, p_w = self._update_perception_markers(
+                    self.last_perceived_object_camera_xyz,
+                    object_label=str(label),
+                )
+                if bool(ok) and p_w is not None:
+                    arr = np.asarray(p_w, dtype=float).reshape(3)
+                    result_world = (float(arr[0]), float(arr[1]), float(arr[2]))
+            else:
+                result_world = self.last_perceived_object_world_xyz
+            return result_world
+
+    def start_perception_worker(self, *, config: Optional[PerceptionConfig] = None) -> bool:
+        with self._perception_lock:
+            old = self._perception_capture
+            if old is not None and old.is_running():
+                self.perception_running = True
+                self.perception_failed = False
+                self.perception_status = "already running"
+                return True
+            if old is not None:
+                self._perception_capture = None
+            cfg = config or self._remote_perception_config()
+            self.perception_config = cfg
+            self.perception_running = True
+            self.perception_failed = False
+            self.perception_status = "starting"
+            self.perception_source = "host"
+            cap = PerceptionCapture(
+                cfg,
+                publish_fn=self._publish_perception_observation_from_worker,
+                on_snapshot=self._on_perception_snapshot,
+                preview_publish_fn=self._publish_preview_frame,
+            )
+            self._perception_capture = cap
+            cap.start()
+            return True
+
+    def stop_perception_worker(self, *, timeout_s: float = 5.0) -> bool:
+        with self._perception_lock:
+            cap = self._perception_capture
+        if cap is None:
+            with self._perception_lock:
+                self.perception_running = False
+                self.perception_failed = False
+                self.perception_status = "stopped"
+            return True
+        stopped = cap.stop(timeout_s=float(timeout_s))
+        with self._perception_lock:
+            if stopped:
+                self._perception_capture = None
+                self.perception_running = False
+                self.perception_failed = False
+                self.perception_status = "stopped"
+            else:
+                self.perception_running = False
+                self.perception_failed = True
+                self.perception_status = "stop pending"
+        return bool(stopped)
+
+    def refresh_perception_worker(self) -> bool:
+        with self._perception_lock:
+            cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            with self._perception_lock:
+                self.perception_running = False
+                self.perception_failed = True
+                self.perception_status = "not running"
+            return False
+        ok = cap.request_refresh()
+        with self._perception_lock:
+            self.perception_running = True
+            self.perception_failed = not bool(ok)
+            self.perception_status = "refresh requested" if ok else "refresh rejected"
+        return bool(ok)
+
     def close(self) -> None:
+        try:
+            self.stop_perception_worker(timeout_s=2.0)
+        except Exception:
+            pass
+        if self._preview_publisher is not None:
+            try:
+                self._preview_publisher.close()
+            except Exception:
+                pass
         if self._go2_bridge is not None:
             try:
                 self._go2_bridge.stop()
@@ -1203,7 +1415,7 @@ class ControlHost:
     def _handle_sim_feedback(self, msg: Dict[str, Any]) -> None:
         if str(msg.get("t", "")).lower() != "sim_state":
             return
-        if "q" in msg:
+        if "q" in msg and not self._has_hw():
             try:
                 self.last_q = proto.unpack_q(msg["q"])
                 self.last_u = proto.sim_q_to_control_u(self.last_q, self.cfg)
@@ -1366,7 +1578,100 @@ class ControlHost:
                 reason = str(exc)
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "ports": self._list_ports(), "reason": reason, "torque_enabled": self.torque_enabled})
             return
+        if t == "perception_start":
+            ok = True
+            reason = "perception_start"
+            try:
+                cfg = self._remote_perception_config(msg.get("config", None))
+                ok = self.start_perception_worker(config=cfg)
+            except Exception as exc:
+                ok = False
+                reason = f"perception_start_failed:{exc}"
+                with self._perception_lock:
+                    self.perception_running = False
+                    self.perception_failed = True
+                    self.perception_status = str(reason)
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "perception_stop":
+            ok = True
+            reason = "perception_stop"
+            try:
+                ok = self.stop_perception_worker()
+                if not ok:
+                    reason = "perception_stop_pending"
+            except Exception as exc:
+                ok = False
+                reason = f"perception_stop_failed:{exc}"
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "perception_refresh":
+            ok = self.refresh_perception_worker()
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": "perception_refresh" if ok else "perception_not_running",
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
         if t == "target":
+            source = str(msg.get("source", "sim"))
+            if not self._is_allowed_source(source):
+                self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "source_reject", "device": self.device, "torque_enabled": self.torque_enabled})
+                return
+            raw_sim_target = msg.get("sim_target", None)
+            if raw_sim_target is not None:
+                if not (isinstance(raw_sim_target, (list, tuple)) and len(raw_sim_target) == 3):
+                    self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_sim_target", "device": self.device, "torque_enabled": self.torque_enabled})
+                    return
+                try:
+                    self.last_sim_target_xyz = (
+                        float(raw_sim_target[0]),
+                        float(raw_sim_target[1]),
+                        float(raw_sim_target[2]),
+                    )
+                except (TypeError, ValueError):
+                    self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "bad_sim_target", "device": self.device, "torque_enabled": self.torque_enabled})
+                    return
+                self._reply(
+                    ident,
+                    {
+                        "t": "ack",
+                        "ts": proto.now_s(),
+                        "ok": True,
+                        "reason": "sim_target",
+                        "device": self.device,
+                        "torque_enabled": self.torque_enabled,
+                        "sim_target": [float(v) for v in self.last_sim_target_xyz],
+                    },
+                )
+                self._broadcast_state_now()
+                return
             if self._safety_fault:
                 self._reply(
                     ident,
@@ -1379,10 +1684,6 @@ class ControlHost:
                         "torque_enabled": self.torque_enabled,
                     },
                 )
-                return
-            source = str(msg.get("source", "sim"))
-            if not self._is_allowed_source(source):
-                self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "source_reject", "device": self.device, "torque_enabled": self.torque_enabled})
                 return
             raw_debug_markers = msg.get("debug_markers", None)
             if isinstance(raw_debug_markers, list):
@@ -1865,6 +2166,11 @@ class ControlHost:
                         perceived_center_uv=self.last_perceived_center_uv,
                         perceived_scale=self.last_perceived_scale,
                         perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
+                        perception_running=bool(self.perception_running),
+                        perception_failed=bool(self.perception_failed),
+                        perception_status=str(self.perception_status),
+                        perception_source=str(self.perception_source),
+                        perception_preview_endpoint=str(getattr(self.perception_config, "preview_bind", "")),
                         sag_model=self.last_sag_model,
                         claw_closed=self.last_claw_closed,
                         go2_vel=go2_vel,
@@ -1948,6 +2254,7 @@ def run_host(
             hand_eye_transform=hand_eye_transform,
             hand_eye_parent_frame=hand_eye_parent_frame,
             pick_config=bundle.pick_config,
+            perception_config=bundle.perception_config,
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
             trajectory_cfg=QuinticTimingConfig(

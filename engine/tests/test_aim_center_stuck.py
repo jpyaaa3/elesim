@@ -112,6 +112,34 @@ class TestAimCoupledAxes(unittest.TestCase):
         self.assertAlmostEqual(float(roll_req), 0.0, places=6)
         self.assertGreaterEqual(float(seg_req), float(svc._pick_aim_v_min_seg_step))
 
+    def test_v_only_respects_reduced_step_scale(self) -> None:
+        svc = ControlService(PanelState())
+        cfg = PickConfig(
+            target_uv_u=0.4,
+            target_uv_v=0.0,
+            center_tol=0.04,
+            center_u_gain=12.0,
+            center_v_gain=12.0,
+            center_roll_max=6.0,
+            center_seg_max=6.0,
+        )
+        current = ControlU(u_linear=0.0, u_roll=5.0, u_s1=50.0, u_s2=50.0)
+        obs = _obs(u=0.387, v=-0.22)
+
+        next_u, mode, roll_req, seg_req = svc._apply_pick_center_step(
+            obs,
+            current,
+            cfg=cfg,
+            fallback_gains=True,
+            coupled_axes=True,
+            step_scale=0.25,
+        )
+
+        self.assertEqual(mode, "gain_v_only")
+        self.assertAlmostEqual(float(roll_req), 0.0, places=6)
+        self.assertLessEqual(float(seg_req), float(cfg.center_seg_max) * 0.25 + 1e-6)
+        self.assertLess(float(abs(next_u.u_s1 - current.u_s1)), 2.0)
+
 
 class TestAimProgressStall(unittest.TestCase):
     def test_stuck_counter_resets_on_improvement(self) -> None:
@@ -128,6 +156,16 @@ class TestAimProgressStall(unittest.TestCase):
 
         self.assertEqual(svc._pick_aim_stuck_iters, 0)
         self.assertAlmostEqual(svc._pick_aim_best_uv_err, 0.50, places=6)
+
+    def test_divergence_detection_and_step_scale_reduction(self) -> None:
+        svc = ControlService(PanelState())
+        svc._reset_pick_aim_progress()
+        svc._pick_aim_last_command_err = 0.20
+
+        self.assertFalse(svc._aim_error_diverged(0.22))
+        self.assertTrue(svc._aim_error_diverged(0.30))
+        self.assertTrue(svc._reduce_aim_step_scale())
+        self.assertLess(float(svc._pick_aim_runtime_step_scale), float(svc._pick_aim_step_scale))
 
 
 if __name__ == "__main__":

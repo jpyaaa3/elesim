@@ -1,4 +1,8 @@
-"""Sim world ↔ IK arm-base frame when the arm rides on a moving GO2 base."""
+"""GO2 body mount geometry for the arm base.
+
+This module deliberately does not transform IK targets.  It only answers:
+"where is the arm base in world coordinates right now?"
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,12 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from engine.vision.perception_bridge.transforms import make_transform_from_world_pose, transform_point
+
+def _make_transform(pos: Sequence[float], rot: np.ndarray) -> np.ndarray:
+    T = np.eye(4, dtype=float)
+    T[:3, :3] = np.asarray(rot, dtype=float).reshape(3, 3)
+    T[:3, 3] = np.asarray(pos, dtype=float).reshape(3)
+    return T
 
 
 def _world_offset(
@@ -23,21 +32,10 @@ def _world_offset(
     return p + world_off
 
 
-def _normalize3(v: Sequence[float]) -> Optional[np.ndarray]:
-    arr = np.asarray(v, dtype=float).reshape(3)
-    n = float(np.linalg.norm(arr))
-    if n <= 1e-9:
-        return None
-    return arr / n
-
-
 @dataclass(frozen=True)
-class Go2ArmFrameConfig:
-    """Static mount geometry: IK spawn frame vs GO2 body-mounted arm."""
+class Go2ArmMount:
+    """Static GO2-to-arm mount geometry."""
 
-    use_go2: bool
-    ik_spawn_xyz: tuple[float, float, float]
-    ik_spawn_euler_deg: tuple[float, float, float]
     go2_spawn_xyz: tuple[float, float, float]
     go2_spawn_euler_deg: tuple[float, float, float]
     mount_offset_body_m: tuple[float, float, float]
@@ -50,15 +48,14 @@ class Go2ArmFrameConfig:
         *,
         use_go2: bool,
         spawn_xyz: Sequence[float],
-        spawn_euler_deg: Sequence[float],
         go2_spawn_height: float,
         go2_spawn_euler_deg: Sequence[float],
         mount_offset_body_m: Sequence[float],
         ik_context: dict[str, Any],
-    ) -> Optional["Go2ArmFrameConfig"]:
+    ) -> Optional["Go2ArmMount"]:
         if not bool(use_go2):
             return None
-        ik_spawn = tuple(float(x) for x in np.asarray(ik_context["spawn_xyz"], dtype=float).reshape(3))
+
         ik_euler = tuple(float(x) for x in np.asarray(ik_context["spawn_euler_deg"], dtype=float).reshape(3))
         go2_spawn = (
             float(spawn_xyz[0]),
@@ -67,6 +64,7 @@ class Go2ArmFrameConfig:
         )
         go2_euler = tuple(float(x) for x in np.asarray(go2_spawn_euler_deg, dtype=float).reshape(3))
         mount = tuple(float(x) for x in np.asarray(mount_offset_body_m, dtype=float).reshape(3))
+
         go2_pos = np.asarray(go2_spawn, dtype=float)
         R_go2 = Rot.from_euler("xyz", go2_euler, degrees=True)
         arm_pos_init = _world_offset(go2_spawn, go2_euler, mount)
@@ -74,10 +72,8 @@ class Go2ArmFrameConfig:
         R_arm_init = Rot.from_euler("xyz", ik_euler, degrees=True)
         mount_rot_body = R_go2.inv() * R_arm_init
         q = mount_rot_body.as_quat()
+
         return cls(
-            use_go2=True,
-            ik_spawn_xyz=ik_spawn,
-            ik_spawn_euler_deg=ik_euler,
             go2_spawn_xyz=go2_spawn,
             go2_spawn_euler_deg=go2_euler,
             mount_offset_body_m=mount,
@@ -94,15 +90,10 @@ class Go2ArmFrameConfig:
             ),
         )
 
-    def ik_spawn_transform(self) -> np.ndarray:
-        pos = np.asarray(self.ik_spawn_xyz, dtype=float).reshape(3)
-        rot = Rot.from_euler("xyz", np.asarray(self.ik_spawn_euler_deg, dtype=float), degrees=True)
-        return make_transform_from_world_pose(pos, rot.as_matrix())
-
     def _mount_rot_body(self) -> Rot:
         return Rot.from_quat(np.asarray(self.mount_rot_body_quat_xyzw, dtype=float).reshape(4))
 
-    def arm_base_transform(
+    def arm_base_world_transform(
         self,
         go2_pos: Sequence[float],
         go2_rpy_rad: Sequence[float],
@@ -112,7 +103,7 @@ class Go2ArmFrameConfig:
         mount_pos = np.asarray(self.mount_pos_body, dtype=float).reshape(3)
         arm_pos = pos_go2 + R_go2.apply(mount_pos)
         R_arm = R_go2 * self._mount_rot_body()
-        return make_transform_from_world_pose(arm_pos, R_arm.as_matrix())
+        return _make_transform(arm_pos, R_arm.as_matrix())
 
     def default_go2_pose(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         rpy = tuple(
@@ -122,49 +113,4 @@ class Go2ArmFrameConfig:
         return self.go2_spawn_xyz, rpy
 
 
-def sim_point_to_ik_frame(
-    point_sim: Sequence[float],
-    *,
-    T_ik_spawn: np.ndarray,
-    T_arm_current: np.ndarray,
-) -> np.ndarray:
-    """Map a sim-world point into the fixed IK arm-base frame."""
-    T = np.asarray(T_ik_spawn, dtype=float).reshape(4, 4) @ np.linalg.inv(np.asarray(T_arm_current, dtype=float).reshape(4, 4))
-    return transform_point(T, point_sim)
-
-
-def ik_point_to_sim_frame(
-    point_ik: Sequence[float],
-    *,
-    T_ik_spawn: np.ndarray,
-    T_arm_current: np.ndarray,
-) -> np.ndarray:
-    """Map an IK-frame point into sim world."""
-    T = np.asarray(T_arm_current, dtype=float).reshape(4, 4) @ np.linalg.inv(np.asarray(T_ik_spawn, dtype=float).reshape(4, 4))
-    return transform_point(T, point_ik)
-
-
-def sim_direction_to_ik_frame(
-    direction_sim: Sequence[float],
-    *,
-    T_ik_spawn: np.ndarray,
-    T_arm_current: np.ndarray,
-) -> Optional[np.ndarray]:
-    R = (
-        np.asarray(T_ik_spawn, dtype=float).reshape(4, 4)[:3, :3]
-        @ np.linalg.inv(np.asarray(T_arm_current, dtype=float).reshape(4, 4))[:3, :3]
-    )
-    return _normalize3(R @ np.asarray(direction_sim, dtype=float).reshape(3))
-
-
-def ik_direction_to_sim_frame(
-    direction_ik: Sequence[float],
-    *,
-    T_ik_spawn: np.ndarray,
-    T_arm_current: np.ndarray,
-) -> Optional[np.ndarray]:
-    R = (
-        np.asarray(T_arm_current, dtype=float).reshape(4, 4)[:3, :3]
-        @ np.linalg.inv(np.asarray(T_ik_spawn, dtype=float).reshape(4, 4))[:3, :3]
-    )
-    return _normalize3(R @ np.asarray(direction_ik, dtype=float).reshape(3))
+__all__ = ["Go2ArmMount"]

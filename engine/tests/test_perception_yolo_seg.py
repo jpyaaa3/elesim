@@ -80,6 +80,8 @@ class TestYoloSegPipeline(unittest.TestCase):
         det_schedule: list,
         aux_tracker: _FakeTracker | None = None,
         track_aux_csrt: bool = True,
+        track_lost_frames: int = 5,
+        reacquire_on_lost: bool = True,
     ) -> None:
         frame_count = 0
 
@@ -118,9 +120,10 @@ class TestYoloSegPipeline(unittest.TestCase):
         cap._config = PerceptionConfig(
             pipeline="yolo_seg",
             publish_hz=100.0,
-            track_lost_frames=5,
+            track_lost_frames=int(track_lost_frames),
             track_aux_csrt=bool(track_aux_csrt),
             track_coast_max_frames=12,
+            reacquire_on_lost=bool(reacquire_on_lost),
         )
         cap._run_camera_yolo_seg(
             detector=MagicMock(),
@@ -207,6 +210,28 @@ class TestYoloSegPipeline(unittest.TestCase):
 
         snap = cap.snapshot()
         self.assertEqual(int(snap.track_ok_frames), 0)
+
+    def test_yolo_seg_target_lost_does_not_mark_camera_failed(self) -> None:
+        cap = PerceptionCapture(
+            PerceptionConfig(
+                pipeline="yolo_seg",
+                track_aux_csrt=False,
+                track_lost_frames=1,
+                reacquire_on_lost=False,
+            ),
+            publish_fn=lambda **kwargs: (0.0, 0.0, 0.5),
+        )
+        det = _make_det()
+        self._run_loop(
+            cap=cap,
+            det_schedule=[det, None, None],
+            track_aux_csrt=False,
+            track_lost_frames=1,
+            reacquire_on_lost=False,
+        )
+
+        snap = cap.snapshot()
+        self.assertFalse(bool(snap.failed))
 
     def test_coast_publish_mask_not_full_rectangle(self) -> None:
         published_masks: list[np.ndarray] = []

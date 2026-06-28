@@ -4,17 +4,18 @@ import unittest
 from unittest.mock import MagicMock
 
 import host as host_mod
+import engine.protocol as proto
 from engine.go2.hardware.odom_parser import OdomSample
 
 
 class TestHostGo2Bridge(unittest.TestCase):
-    def _make_host(self, *, with_bridge: bool) -> host_mod.ControlHost:
+    def _make_host(self, *, with_bridge: bool, hw=None) -> host_mod.ControlHost:
         bridge = MagicMock() if with_bridge else None
         server = host_mod.ControlHost(
             bind_addr="tcp://127.0.0.1:0",
             sim_pub_addr="tcp://127.0.0.1:0",
             sim_feedback_addr="tcp://127.0.0.1:0",
-            hw=None,
+            hw=hw,
             direction_by_id={},
             device="",
             hardware_cfg=None,
@@ -105,6 +106,60 @@ class TestHostGo2Bridge(unittest.TestCase):
         server._go2_bridge.set_obstacles_avoid.assert_called_once_with(False)
         self.assertFalse(server.last_go2_obstacles_avoid_enabled)
         self.assertEqual(server.last_go2_obstacles_avoid_seq, 1)
+
+    def test_sim_target_records_and_broadcasts(self) -> None:
+        server = self._make_host(with_bridge=False)
+        server._broadcast_state_now = MagicMock()  # type: ignore[method-assign]
+        ident = b"client-1"
+        server._handle_msg(
+            ident,
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 4,
+                "source": "target",
+                "sim_target": [0.7, 0.0, 0.08],
+            },
+        )
+        self.assertEqual(server.last_sim_target_xyz, (0.7, 0.0, 0.08))
+        server._broadcast_state_now.assert_called_once()
+
+    def test_sim_feedback_q_updates_virtual_host(self) -> None:
+        server = self._make_host(with_bridge=False)
+        server._handle_sim_feedback(
+            {
+                "t": "sim_state",
+                "ts": 2.0,
+                "q": {
+                    "linear_m": -0.12,
+                    "roll_rad": 0.1,
+                    "theta1_rad": 0.2,
+                    "theta2_rad": -0.3,
+                },
+            }
+        )
+        self.assertIsNotNone(server.last_q)
+        self.assertAlmostEqual(server.last_q.linear_m, -0.12)
+        self.assertAlmostEqual(server.last_q.roll_rad, 0.1)
+        self.assertIsNotNone(server.last_u)
+
+    def test_sim_feedback_q_does_not_override_hardware_host(self) -> None:
+        server = self._make_host(with_bridge=False, hw=MagicMock())
+        server.last_q = proto.SimQ(linear_m=0.01, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0)
+        server._handle_sim_feedback(
+            {
+                "t": "sim_state",
+                "ts": 2.0,
+                "q": {
+                    "linear_m": -0.12,
+                    "roll_rad": 0.1,
+                    "theta1_rad": 0.2,
+                    "theta2_rad": -0.3,
+                },
+            }
+        )
+        self.assertIsNotNone(server.last_q)
+        self.assertAlmostEqual(server.last_q.linear_m, 0.01)
 
     def test_sim_feedback_ignores_go2_base_when_bridge_active(self) -> None:
         server = self._make_host(with_bridge=True)

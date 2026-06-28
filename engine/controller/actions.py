@@ -13,15 +13,9 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from engine import ik as ik_pipeline
+from engine.arm.go2_mount import Go2ArmMount
 from engine.arm.iklib import kinematics as ik_kin
 from engine.config_loader import IkConfig, PerceptionConfig, PickConfig
-from engine.coordinates.go2_arm_frame import (
-    Go2ArmFrameConfig,
-    ik_direction_to_sim_frame,
-    ik_point_to_sim_frame,
-    sim_direction_to_ik_frame,
-    sim_point_to_ik_frame,
-)
 from engine.gaze_stabilizer.controller import GazeStabilizerConfig
 from engine.controller.gaze_service import GazeControlService
 from engine.protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, linear_motor_u_limit, sim_q_to_control_u
@@ -133,7 +127,7 @@ class ControlService:
         gaze_cfg: Optional[GazeStabilizerConfig] = None,
         hand_eye_transform: Optional[np.ndarray] = None,
         hand_eye_parent_frame: str = "node9",
-        go2_arm_frame: Optional[Go2ArmFrameConfig] = None,
+        go2_arm_mount: Optional[Go2ArmMount] = None,
         use_hardware: bool = True,
     ) -> None:
         self.state = state
@@ -144,7 +138,7 @@ class ControlService:
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
         self._perception_cfg = perception_cfg or PerceptionConfig()
-        self._perception_run_local = bool(self._perception_cfg.run_local)
+        self._perception_run_local = self._perception_config_runs_locally(self._perception_cfg)
         self._pick_cfg = pick_cfg or PickConfig()
         self._hand_eye_transform = (
             None
@@ -152,9 +146,11 @@ class ControlService:
             else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4).copy()
         )
         self._hand_eye_parent_frame = str(hand_eye_parent_frame)
-        self._go2_arm_frame = go2_arm_frame
+        self._go2_arm_mount = go2_arm_mount
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_capture_epoch: int = 0
+        self._remote_preview_stop = threading.Event()
+        self._remote_preview_thread: Optional[threading.Thread] = None
         self._last_pick_profile: Optional[PickPhaseProfile] = None
         self._pick_worker: Optional[threading.Thread] = None
         self._pick_e2e_worker: Optional[threading.Thread] = None
@@ -242,6 +238,13 @@ class ControlService:
         self._pick_aim_best_uv_err: Optional[float] = None
         self._pick_aim_jacobian_resets = 0
         self._pick_aim_jacobian_reset_max = 2
+        self._pick_aim_runtime_step_scale = 1.0
+        self._pick_aim_step_scale_min = 0.20
+        self._pick_aim_diverge_ratio = 1.20
+        self._pick_aim_diverge_abs = 0.04
+        self._pick_aim_diverge_count = 0
+        self._pick_aim_last_command_u: Optional[ControlU] = None
+        self._pick_aim_last_command_err: Optional[float] = None
         self._pick_search_roll_step_u = 3.0
         self._pick_search_seg_step_u = 3.0
         self._pick_search_roll_max_u = 36.0
@@ -374,7 +377,7 @@ class ControlService:
         if host_state is None or host_state.q is None:
             return None
         try:
-            model = self._pick_reach_model(sag_model=sag_model)
+            model = self._pick_reach_model(sag_model=sag_model, host_state=host_state)
             q = np.array(
                 [
                     float(host_state.q.linear_m),
@@ -649,6 +652,49 @@ class ControlService:
         except Exception as exc:
             print(f"[UI] IK context reload failed: {exc}")
 
+    def _current_arm_base_world_T(self, host_state: Optional[HostState] = None) -> Optional[np.ndarray]:
+        mount = self._go2_arm_mount
+        if mount is None:
+            return None
+        go2_pos, go2_rpy = mount.default_go2_pose()
+        if host_state is not None:
+            if host_state.go2_base_pos is not None:
+                go2_pos = host_state.go2_base_pos
+            if host_state.go2_base_rpy is not None:
+                go2_rpy = host_state.go2_base_rpy
+        return mount.arm_base_world_transform(go2_pos, go2_rpy)
+
+    def _with_current_arm_base(
+        self,
+        context: dict[str, Any],
+        host_state: Optional[HostState] = None,
+    ) -> dict[str, Any]:
+        ctx = dict(context)
+        base_world_T = self._current_arm_base_world_T(host_state)
+        if base_world_T is None:
+            return ctx
+        return ik_kin.with_base_world_transform(ctx, base_world_T)
+
+    def _ik_context_for_host(
+        self,
+        host_state: Optional[HostState] = None,
+        *,
+        sag_model: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        ctx = dict(self._ik_context)
+        if sag_model is not None:
+            ctx["sag_model"] = dict(sag_model)
+        return self._with_current_arm_base(ctx, host_state)
+
+    @staticmethod
+    def _perception_config_runs_locally(config: PerceptionConfig) -> bool:
+        provider = str(getattr(config, "provider", "")).strip().lower()
+        if provider == "host":
+            return False
+        if not bool(getattr(config, "run_local", True)):
+            return False
+        return True
+
     def perception_run_local(self) -> bool:
         return bool(self._perception_run_local)
 
@@ -675,8 +721,8 @@ class ControlService:
         if fresh:
             self.state.set_perception_status(
                 running=True,
-                failed=False,
-                msg="remote Jetson worker (host relay)",
+                failed=bool(getattr(host_state, "perception_failed", False)),
+                msg=str(getattr(host_state, "perception_status", "") or "remote Jetson worker"),
                 frame_idx=1,
                 label=str(host_state.perceived_object_label),
                 confidence=float(host_state.perceived_object_confidence),
@@ -687,10 +733,20 @@ class ControlService:
             with self.state._lock:
                 self.state.perception_last_update_s = float(ts)
             return
+        worker_running = bool(getattr(host_state, "perception_running", False))
+        worker_failed = bool(getattr(host_state, "perception_failed", False))
+        worker_msg = str(getattr(host_state, "perception_status", "") or "").strip()
+        if worker_running or worker_failed or worker_msg:
+            self.state.set_perception_status(
+                running=worker_running,
+                failed=worker_failed,
+                msg=worker_msg or "remote: waiting for detection",
+            )
+            return
         self.state.set_perception_status(
             running=False,
             failed=False,
-            msg="remote: waiting for Jetson perception_worker",
+            msg="remote: stopped",
         )
 
     def refresh_host_state(self) -> Optional[HostState]:
@@ -711,7 +767,7 @@ class ControlService:
         return self.client is not None
 
     def current_host_state(self) -> Optional[HostState]:
-        if self.client is None:
+        if self.client is None or not hasattr(self.client, "get_state"):
             return None
         return self.client.get_state()
 
@@ -799,6 +855,26 @@ class ControlService:
         self._pick_aim_stuck_iters = 0
         self._pick_aim_best_uv_err = None
         self._pick_aim_jacobian_resets = 0
+        self._pick_aim_runtime_step_scale = float(self._pick_aim_step_scale)
+        self._pick_aim_diverge_count = 0
+        self._pick_aim_last_command_u = None
+        self._pick_aim_last_command_err = None
+
+    def _aim_error_diverged(self, err_mag: float) -> bool:
+        prev = self._pick_aim_last_command_err
+        if prev is None:
+            return False
+        threshold = max(
+            float(prev) * float(self._pick_aim_diverge_ratio),
+            float(prev) + float(self._pick_aim_diverge_abs),
+        )
+        return float(err_mag) > float(threshold)
+
+    def _reduce_aim_step_scale(self) -> bool:
+        old = float(self._pick_aim_runtime_step_scale)
+        new = max(float(self._pick_aim_step_scale_min), old * 0.5)
+        self._pick_aim_runtime_step_scale = new
+        return new < old - 1e-9
 
     def _update_pick_uv_jacobian(
         self,
@@ -1767,14 +1843,24 @@ class ControlService:
         if self.client is not None:
             self.client.send_go2_obstacles_avoid(enabled=bool(enabled), source="target")
 
+    def send_sim_target_xyz(self, x: float, y: float, z: float) -> None:
+        self.state.set_mock_object_world_xyz(float(x), float(y), float(z))
+        if self.client is not None and hasattr(self.client, "send_sim_target_xyz"):
+            self.client.send_sim_target_xyz(
+                xyz=(float(x), float(y), float(z)),
+                source="target",
+            )
+
     def _start_position_solve(self, target: np.ndarray) -> None:
         if self.state.ik_running or self._visual_busy():
             return
         if self._pick_busy():
             return
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+        ctx = self._ik_context_for_host(
+            self.current_host_state(),
+            sag_model=dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {},
+        )
         required = ("limit", "fk_joint_chain", "terminal_link_name", "old_tip_local_offset", "grasp_offset_node_local")
         if any(k not in ctx for k in required):
             print("[UI] IK solve rejected | missing ik_context fields")
@@ -1880,70 +1966,6 @@ class ControlService:
         if self.state.perception_world_xyz is not None:
             return tuple(self.state.perception_world_xyz)
         return None
-
-    def _go2_arm_transforms(
-        self, host_state: Optional[HostState] = None
-    ) -> Optional[tuple[np.ndarray, np.ndarray]]:
-        cfg = self._go2_arm_frame
-        if cfg is None:
-            return None
-        T_ik = cfg.ik_spawn_transform()
-        go2_pos, go2_rpy = cfg.default_go2_pose()
-        if host_state is not None:
-            if host_state.go2_base_pos is not None:
-                go2_pos = host_state.go2_base_pos
-            if host_state.go2_base_rpy is not None:
-                go2_rpy = host_state.go2_base_rpy
-        T_arm = cfg.arm_base_transform(go2_pos, go2_rpy)
-        return T_ik, T_arm
-
-    def _sim_point_to_ik(
-        self,
-        point_sim: Sequence[float],
-        host_state: Optional[HostState] = None,
-    ) -> np.ndarray:
-        xform = self._go2_arm_transforms(host_state)
-        if xform is None:
-            return np.asarray(point_sim, dtype=float).reshape(3)
-        T_ik, T_arm = xform
-        return sim_point_to_ik_frame(point_sim, T_ik_spawn=T_ik, T_arm_current=T_arm)
-
-    def _ik_point_to_sim(
-        self,
-        point_ik: Sequence[float],
-        host_state: Optional[HostState] = None,
-    ) -> np.ndarray:
-        xform = self._go2_arm_transforms(host_state)
-        if xform is None:
-            return np.asarray(point_ik, dtype=float).reshape(3)
-        T_ik, T_arm = xform
-        return ik_point_to_sim_frame(point_ik, T_ik_spawn=T_ik, T_arm_current=T_arm)
-
-    def _sim_dir_to_ik(
-        self,
-        direction_sim: Sequence[float],
-        host_state: Optional[HostState] = None,
-    ) -> Optional[np.ndarray]:
-        xform = self._go2_arm_transforms(host_state)
-        if xform is None:
-            arr = np.asarray(direction_sim, dtype=float).reshape(3)
-            n = float(np.linalg.norm(arr))
-            return None if n <= 1e-9 else arr / n
-        T_ik, T_arm = xform
-        return sim_direction_to_ik_frame(direction_sim, T_ik_spawn=T_ik, T_arm_current=T_arm)
-
-    def _ik_dir_to_sim(
-        self,
-        direction_ik: Sequence[float],
-        host_state: Optional[HostState] = None,
-    ) -> Optional[np.ndarray]:
-        xform = self._go2_arm_transforms(host_state)
-        if xform is None:
-            arr = np.asarray(direction_ik, dtype=float).reshape(3)
-            n = float(np.linalg.norm(arr))
-            return None if n <= 1e-9 else arr / n
-        T_ik, T_arm = xform
-        return ik_direction_to_sim_frame(direction_ik, T_ik_spawn=T_ik, T_arm_current=T_arm)
 
     def _pick_grasp_object_world(self) -> Optional[tuple[float, float, float]]:
         """Target object for Grasp: Aim-centered > Look-latched > live perception."""
@@ -2307,8 +2329,8 @@ class ControlService:
             return
         pk = self._pick_config_effective()
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
         base_sag = dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
+        ctx = self._ik_context_for_host(host_state, sag_model=base_sag)
         q4 = self._q_array_from_state(host_state)
         fk_axis = self._pick_fk_grasp_axis(host_state=host_state, sag_model=base_sag)
         centered_dir: Optional[tuple[float, float, float]] = None
@@ -2607,8 +2629,7 @@ class ControlService:
         close_gripper_after: bool = False,
     ) -> None:
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(None, sag_model=sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -2654,6 +2675,7 @@ class ControlService:
             success = False
             try:
                 host_state = self.client.refresh_state() if self.client is not None else None
+                ctx_live = self._ik_context_for_host(host_state, sag_model=sag_model)
                 current_seed = self._q_array_from_state(host_state)
                 target_arr: np.ndarray
                 direction_arr: np.ndarray
@@ -2674,7 +2696,7 @@ class ControlService:
                         object_world=object_world,
                         preferred_dir=preferred_arr,
                         standoff_m=float(pk.ready_pose_standoff_m),
-                        ik_context=ctx,
+                        ik_context=ctx_live,
                         current_seed=current_seed,
                         position_tol_m=float(self._ik_cfg.tol),
                         max_iters=max(int(self._ik_cfg.max_iters), 1),
@@ -2776,7 +2798,7 @@ class ControlService:
                             result = ik_pipeline.solve_then_align(
                                 target_world=target_arr,
                                 target_dir_world=direction_arr,
-                                context=ctx,
+                                context=ctx_live,
                                 position_tol_m=float(self._ik_cfg.tol),
                                 max_iters=max(int(self._ik_cfg.max_iters), 1),
                                 current_seed=current_seed,
@@ -2789,7 +2811,7 @@ class ControlService:
                         result = ik_pipeline.solve_then_align(
                             target_world=target_arr,
                             target_dir_world=direction_arr,
-                            context=ctx,
+                            context=ctx_live,
                             position_tol_m=float(self._ik_cfg.tol),
                             max_iters=max(int(self._ik_cfg.max_iters), 1),
                             current_seed=current_seed,
@@ -3075,7 +3097,7 @@ class ControlService:
             model = self._pick_reach_model(base_sag)
             q0 = self._q_array_from_state(host_state)
             if (
-                self._go2_arm_frame is not None
+                self._go2_arm_mount is not None
                 and host_state is not None
                 and host_state.actual_tip_xyz is not None
             ):
@@ -3106,8 +3128,7 @@ class ControlService:
             return
         preferred_arr = np.asarray(auto_dir, dtype=float).reshape(3)
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(base_sag)
+        ctx = self._ik_context_for_host(host_state, sag_model=base_sag)
         required = (
             "limit",
             "fk_joint_chain",
@@ -3150,18 +3171,9 @@ class ControlService:
             success = False
             try:
                 host_now = self.client.refresh_state() if self.client is not None else host_state
-                object_ik = self._sim_point_to_ik(object_sim_tuple, host_now)
-                object_ik_tuple = tuple(float(v) for v in object_ik)
-                preferred_ik = self._sim_dir_to_ik(preferred_arr, host_now)
-                if preferred_ik is None:
-                    self.state.set_pick_status(
-                        running=False,
-                        failed=True,
-                        phase=ObjectPickPhase.FAILED.value,
-                        msg="cannot infer look seed direction (GO2 frame)",
-                    )
-                    return
-                preferred_ik_arr = np.asarray(preferred_ik, dtype=float).reshape(3)
+                ctx_live = self._ik_context_for_host(host_now, sag_model=base_sag)
+                object_tuple = object_sim_tuple
+                preferred_world_arr = np.asarray(preferred_arr, dtype=float).reshape(3)
                 pk = self._pick_config_effective()
                 resolve_dir = bool(pk.look_pose_resolve_dir)
                 q: Optional[np.ndarray] = None
@@ -3172,10 +3184,10 @@ class ControlService:
 
                 if bool(resolve_dir):
                     resolved = resolve_feasible_ready_pose(
-                        object_world=object_ik_tuple,
-                        preferred_dir=preferred_ik_arr,
+                        object_world=object_tuple,
+                        preferred_dir=preferred_world_arr,
                         standoff_m=float(pk.look_pose_standoff_m),
-                        ik_context=ctx,
+                        ik_context=ctx_live,
                         current_seed=q0,
                         position_tol_m=float(self._ik_cfg.tol),
                         max_iters=max(int(self._ik_cfg.max_iters), 1),
@@ -3235,8 +3247,8 @@ class ControlService:
                 else:
                     try:
                         target_tuple = compute_ready_pose_target(
-                            object_ik_tuple,
-                            tuple(float(v) for v in preferred_ik_arr),
+                            object_tuple,
+                            tuple(float(v) for v in preferred_world_arr),
                             standoff_m=float(pk.look_pose_standoff_m),
                         )
                     except ValueError as exc:
@@ -3248,14 +3260,14 @@ class ControlService:
                         )
                         return
                     target_arr = np.asarray(target_tuple, dtype=float).reshape(3)
-                    look_dir_used = preferred_ik_arr
+                    look_dir_used = preferred_world_arr
                     if timing is not None:
                         timing.ik_calls += 1
                         with timing.span("resolve_single"):
                             result = ik_pipeline.solve_then_align(
                                 target_world=target_arr,
                                 target_dir_world=look_dir_used,
-                                context=ctx,
+                                context=ctx_live,
                                 position_tol_m=float(self._ik_cfg.tol),
                                 max_iters=max(int(self._ik_cfg.max_iters), 1),
                                 current_seed=q0,
@@ -3268,7 +3280,7 @@ class ControlService:
                         result = ik_pipeline.solve_then_align(
                             target_world=target_arr,
                             target_dir_world=look_dir_used,
-                            context=ctx,
+                            context=ctx_live,
                             position_tol_m=float(self._ik_cfg.tol),
                             max_iters=max(int(self._ik_cfg.max_iters), 1),
                             current_seed=q0,
@@ -3309,33 +3321,22 @@ class ControlService:
                     )
                     return
 
-                look_dir_ik = np.asarray(look_dir_used, dtype=float).reshape(3)
-                target_ik = np.asarray(target_arr, dtype=float).reshape(3)
-                look_dir_sim = self._ik_dir_to_sim(look_dir_ik, host_now)
-                target_sim = self._ik_point_to_sim(target_ik, host_now)
-                if look_dir_sim is None:
-                    self.state.set_pick_status(
-                        running=False,
-                        failed=True,
-                        phase=ObjectPickPhase.FAILED.value,
-                        msg="look: invalid direction after GO2 frame transform",
-                    )
-                    return
-
-                look_tuple = tuple(float(v) for v in look_dir_sim)
-                view_tuple = tuple(float(v) for v in target_sim)
-                self.state.set_target(float(target_sim[0]), float(target_sim[1]), float(target_sim[2]))
+                look_dir_world = np.asarray(look_dir_used, dtype=float).reshape(3)
+                target_world = np.asarray(target_arr, dtype=float).reshape(3)
+                look_tuple = tuple(float(v) for v in look_dir_world)
+                view_tuple = tuple(float(v) for v in target_world)
+                self.state.set_target(float(target_world[0]), float(target_world[1]), float(target_world[2]))
                 self.state.set_target_dir(
-                    float(look_dir_sim[0]),
-                    float(look_dir_sim[1]),
-                    float(look_dir_sim[2]),
+                    float(look_dir_world[0]),
+                    float(look_dir_world[1]),
+                    float(look_dir_world[2]),
                 )
                 self._pick_resolved_ready_dir_world = look_tuple
                 self._pick_resolved_ready_pose_world_xyz = view_tuple
                 self._apply_ik_solution_to_host(
                     q,
-                    ik_target=target_sim,
-                    ik_target_dir=look_dir_sim,
+                    ik_target=target_world,
+                    ik_target_dir=look_dir_world,
                     err_m=float(err_m),
                     status_msg="look | " + align_msg,
                     timeout_s=3.0,
@@ -3360,10 +3361,11 @@ class ControlService:
                         object_world=object_sim_tuple,
                         sag_model=dict(base_sag),
                     )
-                    if self._pick_look_object_world_xyz is not None:
-                        object_arr = np.asarray(
-                            self._pick_look_object_world_xyz, dtype=float
-                        )
+                latch_object_arr = np.asarray(object_sim_tuple, dtype=float).reshape(3)
+                if self._pick_look_object_world_xyz is not None:
+                    latch_object_arr = np.asarray(
+                        self._pick_look_object_world_xyz, dtype=float
+                    ).reshape(3)
                 look_latch = look_tuple
                 if self._pick_look_dir_world is not None:
                     look_latch = tuple(float(v) for v in self._pick_look_dir_world)
@@ -3387,9 +3389,9 @@ class ControlService:
                     )
                     dir_err_deg = float(math.degrees(math.acos(dot)))
                 latch_object = (
-                    float(object_arr[0]),
-                    float(object_arr[1]),
-                    float(object_arr[2]),
+                    float(latch_object_arr[0]),
+                    float(latch_object_arr[1]),
+                    float(latch_object_arr[2]),
                 )
                 self._pick_look_object_world_xyz = latch_object
                 self._pick_look_ready_pose_world_xyz = view_tuple
@@ -3418,9 +3420,9 @@ class ControlService:
                     "[Pick] look done | object=(%.3f, %.3f, %.3f) view_pose=(%.3f, %.3f, %.3f) "
                     "look_dir=(%.3f, %.3f, %.3f) standoff=%.0fmm dir_err=%.1fdeg"
                     % (
-                        float(object_arr[0]),
-                        float(object_arr[1]),
-                        float(object_arr[2]),
+                        float(latch_object_arr[0]),
+                        float(latch_object_arr[1]),
+                        float(latch_object_arr[2]),
                         float(target_arr[0]),
                         float(target_arr[1]),
                         float(target_arr[2]),
@@ -4302,8 +4304,7 @@ class ControlService:
         except ValueError:
             dir_hold = axis_w
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model)
         result = ik_pipeline.solve_then_align(
             target_world=target,
             target_dir_world=dir_hold,
@@ -5092,7 +5093,7 @@ class ControlService:
         if float(prepared.lateral_m) < float(min_lateral_m):
             return 0.0, 0.0
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
+        ctx = self._ik_context_for_host(host_state)
         try:
             estimate = estimate_equal_sag_from_ready_pose_drift(
                 context=ctx,
@@ -5266,8 +5267,7 @@ class ControlService:
             return False, None, host_state, float("inf")
 
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -5427,7 +5427,7 @@ class ControlService:
         if self.client is None or host_state is None or host_state.q is None:
             return False, host_state
         try:
-            model = self._pick_reach_model(sag_model=sag_model)
+            model = self._pick_reach_model(sag_model=sag_model, host_state=host_state)
             q0 = self._q_array_from_state(host_state)
             tip0 = np.asarray(model.grasp_position(q0), dtype=float).reshape(3)
             target_dir = self._unit_vec3(approach_dir)
@@ -5436,8 +5436,7 @@ class ControlService:
             return False, host_state
 
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -5534,8 +5533,7 @@ class ControlService:
             dir_hold = axis_w
 
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -7086,16 +7084,21 @@ class ControlService:
                 )
             self._ik_worker = None
 
-    def _pick_reach_model(self, sag_model: Optional[dict[str, Any]] = None):
+    def _pick_reach_model(
+        self,
+        sag_model: Optional[dict[str, Any]] = None,
+        host_state: Optional[HostState] = None,
+    ):
         from engine.arm.iklib.kinematics import _ReachModel
 
         self.refresh_ik_context()
         limit = self._ik_context.get("limit")
         if limit is None:
             raise RuntimeError("ik context missing joint limit")
-        ctx = dict(self._ik_context)
-        if sag_model is not None:
-            ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(
+            host_state if host_state is not None else self.current_host_state(),
+            sag_model=sag_model,
+        )
         return _ReachModel(context=ctx, limit=limit)
 
     def _pick_hold_align_display_u(
@@ -7155,7 +7158,7 @@ class ControlService:
             return 0.0
         try:
             sag_model = self._pick_final_sag_model()
-            model = self._pick_reach_model(sag_model=sag_model)
+            model = self._pick_reach_model(sag_model=sag_model, host_state=host_state)
         except Exception as exc:
             print(f"[Pick] extend | IK model unavailable: {exc}")
             return 0.0
@@ -7191,8 +7194,7 @@ class ControlService:
         dir_hold = np.asarray(model.grasp_direction(q0), dtype=float).reshape(3)
 
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
-        ctx["sag_model"] = dict(sag_model)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model)
         required = (
             "limit",
             "fk_joint_chain",
@@ -7352,10 +7354,8 @@ class ControlService:
         else:
             u_over = abs(u_delta) > center_tol
             v_over = abs(v_delta) > center_tol
-        step_scale = (
-            1.0
-            if v_only
-            else float(
+        if coupled_axes:
+            step_scale = float(
                 max(
                     min(
                         float(step_scale if step_scale is not None else self._pick_aim_step_scale),
@@ -7364,9 +7364,8 @@ class ControlService:
                     0.05,
                 )
             )
-            if coupled_axes
-            else 1.0
-        )
+        else:
+            step_scale = 1.0
         seg_cap = float(cfg.center_seg_max) * step_scale
         roll_cap = float(cfg.center_roll_max) * step_scale
         if not u_over and not v_over:
@@ -7411,7 +7410,7 @@ class ControlService:
                 else 0.0
             )
             if v_only and v_over:
-                min_step = float(self._pick_aim_v_min_seg_step)
+                min_step = float(self._pick_aim_v_min_seg_step) * float(step_scale)
                 if abs(float(s1_du)) < min_step and abs(float(v_delta)) > 1e-9:
                     s1_du = float(
                         np.copysign(
@@ -7686,6 +7685,59 @@ class ControlService:
                     conv = evaluate_pick_convergence(obs, cfg=aim_pk)
                     u_d, v_d, tu, tv = self._visual_uv_errors(obs)
                     err_mag = max(abs(float(u_d)), abs(float(v_d)))
+                    if self._aim_error_diverged(err_mag):
+                        self._pick_aim_diverge_count += 1
+                        rollback_u = self._pick_aim_last_command_u
+                        prev_err = float(self._pick_aim_last_command_err or 0.0)
+                        reduced = self._reduce_aim_step_scale()
+                        self._reset_pick_uv_jacobian()
+                        self._pick_aim_stuck_iters = 0
+                        self._pick_aim_best_uv_err = None
+                        self._pick_aim_last_command_u = None
+                        self._pick_aim_last_command_err = None
+                        print(
+                            "[Aim] diverging | rollback=%s err %.3f -> %.3f "
+                            "step_scale=%.2f count=%d"
+                            % (
+                                "yes" if rollback_u is not None else "no",
+                                float(prev_err),
+                                float(err_mag),
+                                float(self._pick_aim_runtime_step_scale),
+                                int(self._pick_aim_diverge_count),
+                            )
+                        )
+                        if rollback_u is not None:
+                            self.state.set_pick_status(
+                                running=True,
+                                failed=False,
+                                phase=ObjectPickPhase.CENTER.value,
+                                msg=(
+                                    "aim damping | uv=(%+.3f,%+.3f) step_scale=%.2f"
+                                    % (
+                                        float(u_d),
+                                        float(v_d),
+                                        float(self._pick_aim_runtime_step_scale),
+                                    )
+                                ),
+                            )
+                            self._send_display_control_u_and_wait(
+                                rollback_u,
+                                timeout_s=float(self._pick_aim_command_timeout_s),
+                                source="slider",
+                            )
+                            time.sleep(float(self._pick_aim_settle_s))
+                            continue
+                        if not reduced and self._pick_aim_diverge_count >= 3:
+                            self.state.set_pick_status(
+                                running=False,
+                                failed=True,
+                                phase=ObjectPickPhase.FAILED.value,
+                                msg=(
+                                    "aim diverging | delta=(%+.3f,%+.3f)"
+                                    % (float(u_d), float(v_d))
+                                ),
+                            )
+                            return
                     eps = float(self._pick_aim_progress_eps)
                     if (
                         self._pick_aim_best_uv_err is None
@@ -7693,6 +7745,10 @@ class ControlService:
                     ):
                         self._pick_aim_best_uv_err = float(err_mag)
                         self._pick_aim_stuck_iters = 0
+                        self._pick_aim_runtime_step_scale = min(
+                            float(self._pick_aim_step_scale),
+                            float(self._pick_aim_runtime_step_scale) * 1.15,
+                        )
                     else:
                         self._pick_aim_stuck_iters += 1
 
@@ -7714,12 +7770,17 @@ class ControlService:
                                 )
                             )
                             recovered = True
-                        elif self._pick_apply_fov_search_step(reason="aim_center_stuck"):
+                        elif self._reduce_aim_step_scale():
+                            self._reset_pick_uv_jacobian()
                             self._pick_aim_stuck_iters = 0
                             self._pick_aim_best_uv_err = None
                             print(
-                                "[Aim] center_stuck | fov_search | delta=(%+.3f,%+.3f)"
-                                % (float(u_d), float(v_d))
+                                "[Aim] center_stuck | damp step_scale=%.2f | delta=(%+.3f,%+.3f)"
+                                % (
+                                    float(self._pick_aim_runtime_step_scale),
+                                    float(u_d),
+                                    float(v_d),
+                                )
                             )
                             recovered = True
                         if recovered:
@@ -7783,6 +7844,7 @@ class ControlService:
                         cfg=aim_pk,
                         fallback_gains=(err_mag > float(self._pick_aim_gain_fallback_uv)),
                         coupled_axes=True,
+                        step_scale=float(self._pick_aim_runtime_step_scale),
                     )
                     du_roll = float(next_u.u_roll - current_u.u_roll)
                     du_s1 = float(next_u.u_s1 - current_u.u_s1)
@@ -7841,6 +7903,8 @@ class ControlService:
                         timeout_s=float(self._pick_aim_command_timeout_s),
                         source="slider",
                     )
+                    self._pick_aim_last_command_u = current_u
+                    self._pick_aim_last_command_err = float(err_mag)
                     time.sleep(float(self._pick_aim_settle_s))
 
                 self.state.set_pick_status(
@@ -7930,15 +7994,13 @@ class ControlService:
         target_tip = tip_world + dir_world * step_m
 
         self.refresh_ik_context()
-        ctx = dict(self._ik_context)
         if isinstance(self._pick_equal_sag_model, dict) and self._pick_equal_sag_model:
-            ctx["sag_model"] = dict(self._pick_equal_sag_model)
             sag_model_override = dict(self._pick_equal_sag_model)
         else:
             sag_model_override = (
                 dict(self.state.raw_sag_model) if isinstance(self.state.raw_sag_model, dict) else {}
             )
-            ctx["sag_model"] = dict(sag_model_override)
+        ctx = self._ik_context_for_host(host_state, sag_model=sag_model_override)
         required = ("limit", "fk_joint_chain", "terminal_link_name", "old_tip_local_offset", "grasp_offset_node_local")
         if any(k not in ctx for k in required):
             self.state.set_pick_status(
@@ -7961,9 +8023,9 @@ class ControlService:
         # IK minimizes grasp-point error; the orange marker is the visual TCP (actual_tip).
         try:
             grasp0 = ik_kin._forward_grasp_world(ctx, current_seed)
-            target_ik = target_tip + (np.asarray(grasp0, dtype=float).reshape(3) - tip_world)
+            target_world = target_tip + (np.asarray(grasp0, dtype=float).reshape(3) - tip_world)
         except Exception:
-            target_ik = target_tip.copy()
+            target_world = target_tip.copy()
 
         self.state.set_target(float(target_tip[0]), float(target_tip[1]), float(target_tip[2]))
         self.state.set_target_dir(float(dir_world[0]), float(dir_world[1]), float(dir_world[2]))
@@ -7984,7 +8046,7 @@ class ControlService:
         def _worker() -> None:
             try:
                 result = ik_pipeline.solve_then_align(
-                    target_world=target_ik,
+                    target_world=target_world,
                     target_dir_world=dir_world,
                     context=ctx,
                     position_tol_m=float(self._ik_cfg.tol),
@@ -8557,16 +8619,86 @@ class ControlService:
             self._pick_frozen_world_xyz = tuple(p_world)
         return p_world
 
-    def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
-        if not self._perception_run_local:
+    def _remote_preview_endpoint(self) -> str:
+        endpoint = str(getattr(self._perception_cfg, "preview_endpoint", "")).strip()
+        if endpoint:
+            return endpoint
+        host = self.current_host_state()
+        if host is not None:
+            endpoint = str(getattr(host, "perception_preview_endpoint", "")).strip()
+        return endpoint
+
+    def _start_remote_preview(self) -> None:
+        if not bool(getattr(self._perception_cfg, "show_preview", True)):
+            return
+        if self._remote_preview_thread is not None and self._remote_preview_thread.is_alive():
+            return
+        endpoint = self._remote_preview_endpoint()
+        if not endpoint:
             self.state.set_perception_status(
-                running=False,
-                failed=False,
-                msg="remote: start perception_worker on Jetson",
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg="remote preview endpoint missing",
             )
             return
-        if self.client is None:
-            self.state.set_perception_status(running=False, failed=True, msg="no host client")
+        self._remote_preview_stop.clear()
+
+        def _worker() -> None:
+            try:
+                from engine.vision.perception.preview import close_preview, show_preview
+                from engine.vision.perception.preview_stream import PreviewFrameSubscriber
+            except Exception as exc:
+                self.state.set_perception_status(
+                    running=bool(self.state.perception_running),
+                    failed=True,
+                    msg=f"remote preview import failed: {exc}",
+                )
+                return
+            sub = PreviewFrameSubscriber(endpoint)
+            try:
+                while not self._remote_preview_stop.is_set():
+                    frame = sub.recv_latest(timeout_ms=250)
+                    if frame is None:
+                        continue
+                    key = show_preview("elesim_remote_perception", frame.image_bgr)
+                    if key in (ord("q"), 27):
+                        break
+            finally:
+                try:
+                    sub.close()
+                except Exception:
+                    pass
+                try:
+                    close_preview("elesim_remote_perception")
+                except Exception:
+                    pass
+
+        self._remote_preview_thread = threading.Thread(
+            target=_worker,
+            name="remote-preview",
+            daemon=True,
+        )
+        self._remote_preview_thread.start()
+
+    def _stop_remote_preview(self) -> None:
+        self._remote_preview_stop.set()
+        thread = self._remote_preview_thread
+        if thread is not None:
+            thread.join(timeout=1.0)
+        self._remote_preview_thread = None
+
+    def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
+        if config is not None:
+            self.update_perception_config(config)
+        if not self._perception_run_local:
+            if self.client is not None and hasattr(self.client, "send_perception_start"):
+                self.client.send_perception_start(config=self._perception_cfg)
+                self._start_remote_preview()
+            self.state.set_perception_status(
+                running=True,
+                failed=False,
+                msg="remote: starting Jetson perception",
+            )
             return
         old = self._perception_capture
         if old is not None:
@@ -8606,10 +8738,13 @@ class ControlService:
 
     def stop_perception_capture(self) -> None:
         if not self._perception_run_local:
+            self._stop_remote_preview()
+            if self.client is not None and hasattr(self.client, "send_perception_stop"):
+                self.client.send_perception_stop()
             self.state.set_perception_status(
                 running=False,
                 failed=False,
-                msg="remote: perception_worker on Jetson",
+                msg="remote: stopping Jetson perception",
             )
             return
         cap = self._perception_capture
@@ -8618,17 +8753,20 @@ class ControlService:
             return
         stopped = cap.stop()
         if not stopped:
-            self.state.set_perception_status(running=True, failed=False, msg="stopping")
+            self._retire_perception_capture(cap)
+            self.state.set_perception_status(running=False, failed=True, msg="stop pending")
             return
         self._retire_perception_capture(cap)
         self.state.set_perception_status(running=False, failed=False, msg="stopped")
 
     def refresh_perception_capture(self) -> None:
         if not self._perception_run_local:
+            if self.client is not None and hasattr(self.client, "send_perception_refresh"):
+                self.client.send_perception_refresh()
             self.state.set_perception_status(
-                running=False,
+                running=bool(self.state.perception_running),
                 failed=False,
-                msg="remote: refresh via Jetson perception_worker",
+                msg="remote: refresh requested",
             )
             return
         cap = self._perception_capture
@@ -8683,7 +8821,7 @@ class ControlService:
             return None
         _ensure_pick_place_path()
         try:
-            from perception.sim_rendered_camera import SimRenderedCamera  # type: ignore[import-not-found]
+            from engine.vision.perception.sim_rendered_camera import SimRenderedCamera
         except Exception as exc:
             print(f"[perception] sim camera import failed: {exc}")
             return None
@@ -8710,6 +8848,7 @@ class ControlService:
 
     def update_perception_config(self, config: PerceptionConfig) -> None:
         self._perception_cfg = config
+        self._perception_run_local = self._perception_config_runs_locally(config)
         self.state.visual_target_label = str(config.target_label).strip()
 
     def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:

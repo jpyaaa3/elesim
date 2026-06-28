@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from engine.config_loader import PerceptionConfig
 from engine.controller.actions import ControlService
-from engine.vision.perception.capture import PerceptionSnapshot
+from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
 from engine.controller.state import PanelState
 
 
@@ -118,6 +118,27 @@ class TestPerceptionStartStop(unittest.TestCase):
         self.assertIsNot(svc._perception_capture, stuck)
         self.assertIs(svc._perception_capture, created)
         created.start.assert_called_once()
+
+    def test_live_capture_waits_through_transient_frame_miss(self) -> None:
+        cap = PerceptionCapture(
+            PerceptionConfig(mode="sim"),
+            publish_fn=lambda **kwargs: (0.0, 0.0, 0.5),
+        )
+        calls = 0
+
+        class _Cam:
+            def capture(self, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise RuntimeError("no sim camera frame received")
+                return "frame"
+
+        frame = cap._capture_live_frame(_Cam())
+
+        self.assertEqual(frame, "frame")
+        self.assertFalse(bool(cap.snapshot().failed))
+        self.assertIn("waiting for camera frame", str(cap.snapshot().status_msg))
 
 
 if __name__ == "__main__":

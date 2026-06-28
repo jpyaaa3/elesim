@@ -35,8 +35,8 @@ _CONTROL_COLUMN_MIN_W = max(_FIRST_COLUMN_MIN_W, _SECOND_COLUMN_MIN_W)
 _THREE_COLUMN_BASE_W = _CONTROL_COLUMN_MIN_W / _CONTROL_COLUMN_SCALE
 _THREE_COLUMN_MIN_W = _THREE_COLUMN_BASE_W * 3.0 + _DEFAULT_SPACING_X * 2.0
 _TWO_COLUMN_MIN_W = 720.0
-_INITIAL_WINDOW_W = 1280
-_INITIAL_WINDOW_H = 800
+_INITIAL_WINDOW_W = 1440
+_INITIAL_WINDOW_H = 900
 _UI_RESOLUTION_PRESETS = (
     ("Small 80%", 0.80),
     ("Default 100%", 1.00),
@@ -82,7 +82,13 @@ class ControlPanel:
         self._current_yellow_ma = abs(int(hw_cfg.current_yellow_ma))
         self._current_limit_ma = abs(int(hw_cfg.current_limit_ma))
         pc = perception_cfg or PerceptionConfig()
-        self._perception_run_local = bool(pc.run_local)
+        self._perception_provider_draft = str(getattr(pc, "provider", "") or ("local" if pc.run_local else "host"))
+        self._perception_run_local = self._perception_provider_draft.strip().lower() != "host" and bool(pc.run_local)
+        self._perception_real_provider_draft = (
+            self._perception_provider_draft
+            if str(pc.mode).strip().lower() != "sim"
+            else "local"
+        )
         pk = pick_cfg or PickConfig()
         self._stop = False
         self._hw_header_init_open = False
@@ -101,6 +107,9 @@ class ControlPanel:
         self._perception_show_preview_draft = bool(pc.show_preview)
         self._perception_pipeline_draft = str(pc.pipeline)
         self._perception_tracker_draft = str(pc.tracker)
+        self._perception_preview_bind = str(getattr(pc, "preview_bind", ""))
+        self._perception_preview_endpoint = str(getattr(pc, "preview_endpoint", ""))
+        self._perception_preview_jpeg_quality = int(getattr(pc, "preview_jpeg_quality", 75))
         self.state.visual_target_label = str(pc.target_label).strip()
         self.state.visual_target_scale = float(pk.target_scale)
         self.state.visual_center_tol = float(pk.center_tol)
@@ -481,11 +490,11 @@ class ControlPanel:
             raise SystemExit("glfw.init() failed.")
 
         glfw.window_hint(glfw.RESIZABLE, True)
+        # pyimgui's programmable pipeline renderer is most stable with an explicit 3.3 core context.
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         if sys.platform == "darwin":
-            # pyimgui programmable pipeline renderer is stable on macOS with an explicit 3.3 core context.
-            glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-            glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-            glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
             glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
         win_w = _INITIAL_WINDOW_W
         win_h = _INITIAL_WINDOW_H

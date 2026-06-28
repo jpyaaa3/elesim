@@ -44,6 +44,15 @@ _TAU_LIM = np.array(
 )
 
 
+def _repo_go2_urdf() -> tuple[Path, Path] | None:
+    for root in Path(__file__).resolve().parents:
+        go2_asset_dir = root / "assets" / "go2"
+        go2_urdf = go2_asset_dir / "go2.urdf"
+        if go2_urdf.is_file():
+            return go2_asset_dir, go2_urdf
+    return None
+
+
 def _require_convex_mpc():
     try:
         import casadi as ca
@@ -59,10 +68,9 @@ def _require_convex_mpc():
             "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git "
             "and conda install -c conda-forge pinocchio casadi"
         ) from exc
-    repo_root = Path(__file__).resolve().parents[2]
-    go2_asset_dir = repo_root / "assets" / "go2"
-    go2_urdf = go2_asset_dir / "go2.urdf"
-    if go2_urdf.exists():
+    go2_paths = _repo_go2_urdf()
+    if go2_paths is not None:
+        go2_asset_dir, go2_urdf = go2_paths
         go2_robot_data.URDF_PATH = go2_urdf
         go2_robot_data.PACKAGE_DIRS = go2_asset_dir
     if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):

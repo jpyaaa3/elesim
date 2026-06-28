@@ -4,7 +4,17 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
+
 from engine.controller.state import HostState
+
+
+@dataclass
+class CameraObservation:
+    label: str
+    confidence: float
+    p_camera_object: np.ndarray
+    timestamp: float
 
 
 @dataclass(frozen=True)
