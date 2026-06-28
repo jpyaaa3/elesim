@@ -109,7 +109,7 @@ class TestLookViewPoseResolver(unittest.TestCase):
         svc = ControlService(PanelState())
         svc.client = MagicMock()
         svc._pick_look_object_world_xyz = (0.5, 0.0, 0.2)
-        svc._pick_look_ready_pose_world_xyz = (0.20, 0.0, 0.2)
+        svc._pick_look_ready_pose_world_xyz = (0.30, 0.0, 0.2)
         svc._pick_look_dir_world = (1.0, 0.0, 0.0)
         with patch.object(svc, "_start_ready_pose_resolve_and_solve") as mock_solve:
             svc.start_ready_pose()
@@ -117,7 +117,7 @@ class TestLookViewPoseResolver(unittest.TestCase):
         kwargs = mock_solve.call_args.kwargs
         self.assertTrue(kwargs["resolve_dir"])
         self.assertEqual(kwargs["label"], "pre-grasp")
-        # Look latch is at look standoff (0.30m); Ready approaches to ready standoff (0.20m).
+        # Look and Ready now share the same 0.20m standoff.
         self.assertEqual(kwargs["target_world"], (0.30, 0.0, 0.2))
         self.assertEqual(tuple(float(v) for v in kwargs["preferred_dir"]), (1.0, 0.0, 0.0))
 

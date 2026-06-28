@@ -140,7 +140,7 @@ class SpawnConfig:
     go2_teleop_vy_mps: float = 0.25
     go2_teleop_wz_radps: float = 0.80
     sim_target_enable: bool = True
-    sim_target_xyz: Tuple[float, float, float] = (1.2, 0.0, 0.08)
+    sim_target_xyz: Tuple[float, float, float] = (0.8, 0.0, 0.2)
     sim_target_radius: float = 0.05
     sim_target_color_rgba: Tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
     sim_target_collision: bool = True
@@ -286,17 +286,17 @@ class PickConfig:
     lij_sag_min_lateral_m: float = 0.015
     lij_depth_settled_remain_delta_m: float = 0.005
     lij_max_dq_linear: float = 0.002
-    lij_max_dq_angle: float = 0.012
+    lij_max_dq_angle: float = 0.006
     lij_uv_handoff_m: float = 0.10
-    lij_far_linear_cap_m: float = 0.010
+    lij_far_linear_cap_m: float = 0.006
     lij_far_z_gain: float = 0.20
     lij_gain_scale_ref_m: float = 0.30
     lij_gain_scale_min: float = 0.12
-    lij_settle_dwell_s: float = 0.0
-    lij_settle_timeout_s: float = 0.0
+    lij_settle_dwell_s: float = 0.02
+    lij_settle_timeout_s: float = 0.35
     lij_dq_smooth_alpha: float = 0.35
-    lij_pipelined_motion: bool = True
-    lij_step_period_s: float = 0.05
+    lij_pipelined_motion: bool = False
+    lij_step_period_s: float = 0.10
     lij_condition_max: float = 100.0
     lij_probing_enabled: bool = False
     lij_probing_epsilon_linear: float = 0.001
@@ -307,7 +307,7 @@ class PickConfig:
     lij_approach_seed_q_delta: Tuple[float, float, float, float] = (0.0, 0.0, 0.01, 0.01)
     lij_approach_seed_travel_m: float = 0.003
     lij_sample_min_dq_norm: float = 0.0005
-    blind_micro_start_m: float = 0.06
+    blind_micro_start_m: float = 0.04
     grasp_close_tol_m: float = 0.003
     lij_depth_invalid_frames: int = 3
     lij_depth_valid_ratio_min: float = 0.6
@@ -325,7 +325,7 @@ class PickConfig:
     lij_reacquire_v_err_m: float = 0.45
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
-    look_pose_standoff_m: float = 0.30
+    look_pose_standoff_m: float = 0.20
     look_pose_resolve_dir: bool = True
     look_pose_max_dir_error_deg: float = 10.0
     look_pose_skip_search_under_deg: float = 5.0
@@ -333,6 +333,13 @@ class PickConfig:
     look_pose_height_offsets_m: Tuple[float, ...] = (0.0, 0.05, 0.10)
     look_pose_look_dot_min: float = 0.85
     look_pose_align_top_k: int = 3
+    look_pre_aim_enabled: bool = True
+    look_pre_aim_max_steps: int = 8
+    look_pre_aim_target_uv_u: float = 0.10
+    look_pre_aim_target_uv_v: float = 0.0
+    look_pre_aim_tol: float = 0.12
+    look_pre_aim_awful_tol: float = 0.45
+    look_pre_aim_step_scale: float = 0.35
     look_post_sag_trim_enabled: bool = True
     look_post_uv_recover_enabled: bool = True
     look_post_uv_max_steps: int = 30
@@ -901,6 +908,27 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         look_pose_align_top_k=cp.getint(
             "pick", "look_pose_align_top_k", fallback=pk0.look_pose_align_top_k
         ),
+        look_pre_aim_enabled=cp.getboolean(
+            "pick", "look_pre_aim_enabled", fallback=pk0.look_pre_aim_enabled
+        ),
+        look_pre_aim_max_steps=cp.getint(
+            "pick", "look_pre_aim_max_steps", fallback=pk0.look_pre_aim_max_steps
+        ),
+        look_pre_aim_target_uv_u=cp.getfloat(
+            "pick", "look_pre_aim_target_uv_u", fallback=pk0.look_pre_aim_target_uv_u
+        ),
+        look_pre_aim_target_uv_v=cp.getfloat(
+            "pick", "look_pre_aim_target_uv_v", fallback=pk0.look_pre_aim_target_uv_v
+        ),
+        look_pre_aim_tol=cp.getfloat(
+            "pick", "look_pre_aim_tol", fallback=pk0.look_pre_aim_tol
+        ),
+        look_pre_aim_awful_tol=cp.getfloat(
+            "pick", "look_pre_aim_awful_tol", fallback=pk0.look_pre_aim_awful_tol
+        ),
+        look_pre_aim_step_scale=cp.getfloat(
+            "pick", "look_pre_aim_step_scale", fallback=pk0.look_pre_aim_step_scale
+        ),
         look_post_sag_trim_enabled=cp.getboolean(
             "pick", "look_post_sag_trim_enabled", fallback=pk0.look_post_sag_trim_enabled
         ),
@@ -1357,7 +1385,7 @@ def _build_mapping_config(joint_limit: JointLimit, hardware_config: HardwareConf
     return proto.SimMappingConfig(
         linear_u_limit=float(hardware_config.linear_u_limit_deg),
         linear_q_min_m=-0.230,
-        linear_q_max_m=0.010,
+        linear_q_max_m=0.0,
         roll_q_min_rad=joint_limit.roll_min_rad(),
         roll_q_max_rad=joint_limit.roll_max_rad(),
         seg1_q_min_rad=-joint_limit.bend_lim_rad(),

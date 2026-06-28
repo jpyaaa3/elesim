@@ -31,6 +31,8 @@ class HostState:
     reply_reason: str
     q: Optional[SimQ]
     u: Optional[ControlU]
+    sim_q: Optional[SimQ] = None
+    sim_u: Optional[ControlU] = None
     go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
     go2_base_rpy: Optional[tuple[float, float, float]] = None
     go2_base_pos: Optional[tuple[float, float, float]] = None
@@ -110,6 +112,9 @@ class PanelState:
     mock_object_x: float = 0.5
     mock_object_y: float = 0.0
     mock_object_z: float = 1.2
+    mock_object_dir_x: float = 1.0
+    mock_object_dir_y: float = 0.0
+    mock_object_dir_z: float = 0.0
 
     pick_running: bool = False
     pick_failed: bool = False
@@ -333,11 +338,25 @@ class PanelState:
         with self._lock:
             return (float(self.mock_object_x), float(self.mock_object_y), float(self.mock_object_z))
 
+    def mock_object_preferred_dir(self) -> tuple[float, float, float]:
+        with self._lock:
+            return (
+                float(self.mock_object_dir_x),
+                float(self.mock_object_dir_y),
+                float(self.mock_object_dir_z),
+            )
+
     def set_mock_object_world_xyz(self, x: float, y: float, z: float) -> None:
         with self._lock:
             self.mock_object_x = float(x)
             self.mock_object_y = float(y)
             self.mock_object_z = float(z)
+
+    def set_mock_object_preferred_dir(self, x: float, y: float, z: float) -> None:
+        with self._lock:
+            self.mock_object_dir_x = float(x)
+            self.mock_object_dir_y = float(y)
+            self.mock_object_dir_z = float(z)
 
     def set_pick_status(
         self,

@@ -44,6 +44,18 @@ class TestPickAutoReadyDir(unittest.TestCase):
         got = np.asarray(result, dtype=float)
         self.assertTrue(np.allclose(got, expected, atol=1e-6))
 
+    def test_user_preferred_dir_has_look_seed_priority(self) -> None:
+        svc = self._service()
+        svc.state.set_mock_object_preferred_dir(0.0, 3.0, 0.0)
+        result = svc._pick_look_seed_dir((0.5, 0.0, 0.2), tip_world=(0.3, 0.0, 0.2))
+        self.assertEqual(result, (0.0, 1.0, 0.0))
+
+    def test_zero_user_preferred_dir_falls_back_to_auto(self) -> None:
+        svc = self._service()
+        svc.state.set_mock_object_preferred_dir(0.0, 0.0, 0.0)
+        result = svc._pick_look_seed_dir((0.5, 0.0, 0.2), tip_world=(0.3, 0.0, 0.2))
+        self.assertEqual(result, (1.0, 0.0, 0.0))
+
     def test_degenerate_object_tip_returns_none(self) -> None:
         svc = self._service()
         obj = (0.5, 0.0, 0.2)

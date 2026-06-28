@@ -14,12 +14,69 @@ if str(ROOT) not in sys.path:
 from engine.config_loader import IkConfig, PickConfig
 from engine.controller.actions import ControlService
 from engine.vision.perception.capture import PerceptionSnapshot
-from engine.controller.state import PanelState
+from engine.controller.state import HostState, PanelState
+from engine.protocol import SimQ
 from engine.vision.visual_servoing.equal_sag_probe import EqualSagEstimate
 from engine.vision.visual_servoing.grasp_trajectory import GraspWaypoint
 
 
 class TestGraspGuidedHelpers(unittest.TestCase):
+    def _host_state(
+        self,
+        *,
+        q: SimQ,
+        sim_q: SimQ | None = None,
+    ) -> HostState:
+        return HostState(
+            connected=True,
+            tx_seq=1,
+            rx_age_s=0.0,
+            device="test",
+            ports=(),
+            torque_enabled=False,
+            claw_current=0,
+            motor_currents_ma={},
+            safety_fault="",
+            actual_tip_xyz=None,
+            actual_tip_dir=None,
+            perceived_object_label="",
+            perceived_object_confidence=0.0,
+            perceived_object_camera_xyz=None,
+            perceived_center_uv=None,
+            perceived_scale=None,
+            perceived_timestamp_s=0.0,
+            reply_ok=True,
+            reply_reason="ok",
+            q=q,
+            u=None,
+            sim_q=sim_q,
+        )
+
+    def test_motion_feedback_prefers_sim_q_over_command_q(self) -> None:
+        svc = ControlService(PanelState())
+        host = self._host_state(
+            q=SimQ(linear_m=0.20, roll_rad=0.30, theta1_rad=0.40, theta2_rad=0.50),
+            sim_q=SimQ(linear_m=0.01, roll_rad=0.02, theta1_rad=0.03, theta2_rad=0.04),
+        )
+        got = svc._q_array_for_motion_feedback(host)
+        np.testing.assert_allclose(got, np.array([0.01, 0.02, 0.03, 0.04]))
+
+    def test_lji_motion_fraction_wait_uses_sim_q(self) -> None:
+        svc = ControlService(PanelState(), use_hardware=False)
+        svc.client = MagicMock()
+        svc.client.refresh_state.return_value = self._host_state(
+            q=SimQ(linear_m=0.10, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0),
+            sim_q=SimQ(linear_m=0.004, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0),
+        )
+        with patch("engine.controller.actions.time.sleep"):
+            out = svc._grasp_lji_wait_motion_fraction(
+                q_before=np.zeros(4),
+                dq_cmd=np.array([0.01, 0.0, 0.0, 0.0]),
+                timeout_s=0.05,
+                min_frac=0.30,
+            )
+        self.assertIsNotNone(out)
+
     def test_nominal_endpoint_shifts_with_object(self) -> None:
         e0 = ControlService._compute_grasp_nominal_endpoint(
             (0.30, 0.0, 0.90),
@@ -322,6 +379,57 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertIn("stop", call_order)
         self.assertEqual(str(svc.state.pick_phase), "done")
 
+    def test_guided_stop_keeps_perception_running(self) -> None:
+        svc = ControlService(PanelState())
+        svc._ik_cfg = IkConfig(tol=0.001)
+        svc._pick_cfg = PickConfig(
+            grasp_guided_enabled=True,
+            local_img_jacobian_enabled=False,
+        )
+        svc._grasp_traj_start = (0.10, 0.0, 0.90)
+        svc._grasp_look_anchor = (0.03, 0.0, 0.90)
+        svc._perception_capture = MagicMock()
+        svc._perception_capture.is_running.return_value = True
+        svc._pick_stop_event.set()
+        with patch.object(
+            svc, "_pick_current_tip_world", return_value=(0.10, 0.0, 0.90)
+        ), patch.object(
+            svc,
+            "_grasp_update_filtered_tracking",
+            return_value=((0.33, 0.01, 0.92), (1.0, 0.0, 0.0)),
+        ), patch.object(svc, "stop_perception_capture") as mock_stop:
+            svc._run_grasp_guided_approach_worker(
+                object_world=(0.33, 0.01, 0.92),
+                approach_dir=np.array([1.0, 0.0, 0.0]),
+                nominal_world=(0.31, 0.0, 0.90),
+            )
+        mock_stop.assert_not_called()
+        self.assertFalse(bool(svc.state.pick_running))
+        self.assertFalse(bool(svc.state.pick_failed))
+
+    def test_lji_stop_keeps_perception_running(self) -> None:
+        svc = ControlService(PanelState())
+        svc._ik_cfg = IkConfig(tol=0.001)
+        svc._pick_cfg = PickConfig(
+            grasp_guided_enabled=True,
+            local_img_jacobian_enabled=True,
+        )
+        svc._grasp_traj_start = (0.10, 0.0, 0.90)
+        svc._grasp_look_anchor = (0.03, 0.0, 0.90)
+        svc._grasp_init_lji_controller(svc._pick_cfg)
+        svc._perception_capture = MagicMock()
+        svc._perception_capture.is_running.return_value = True
+        svc._pick_stop_event.set()
+        with patch.object(svc, "stop_perception_capture") as mock_stop:
+            svc._run_grasp_guided_approach_worker(
+                object_world=(0.33, 0.01, 0.92),
+                approach_dir=np.array([1.0, 0.0, 0.0]),
+                nominal_world=(0.31, 0.0, 0.90),
+            )
+        mock_stop.assert_not_called()
+        self.assertFalse(bool(svc.state.pick_running))
+        self.assertFalse(bool(svc.state.pick_failed))
+
     def test_blind_final_one_shot_with_latched_look(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
@@ -444,6 +552,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=False
         ), patch.object(
+            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
+        ), patch.object(
             svc, "_grasp_apply_q_delta", return_value=(np.zeros(4), MagicMock())
         ), patch.object(
             svc,
@@ -513,7 +623,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             calls.append("lji_apply")
             return np.zeros(4), MagicMock()
 
-        def _remain(**_kwargs):
+        def _remain(*_args, **_kwargs):
             return float(next(remain_seq, 0.055))
 
         with patch.object(
@@ -524,6 +634,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_grasp_axial_distance", side_effect=_remain
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=False
+        ), patch.object(
+            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
         ), patch.object(
             svc, "_grasp_advance_waypoint_ik", side_effect=_advance
         ), patch.object(
@@ -581,6 +693,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             lij_min_samples=1,
             lij_condition_max=1000.0,
         )
+        svc._pick_cfg = pk
         svc._ik_cfg = IkConfig(tol=0.001)
         svc._grasp_traj_start = (0.10, 0.0, 0.90)
         svc._grasp_look_anchor = (0.03, 0.0, 0.90)
@@ -606,6 +719,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_grasp_axial_distance", return_value=0.055
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=False
+        ), patch.object(
+            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
         ), patch.object(
             svc, "_grasp_blind_final_approach", side_effect=_blind
         ), patch.object(
@@ -671,6 +786,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             lij_min_samples=1,
             lij_uv_handoff_m=0.10,
         )
+        svc._pick_cfg = pk
         svc._ik_cfg = IkConfig(tol=0.001)
         svc._grasp_traj_start = (0.10, 0.0, 0.90)
         svc._grasp_init_filtered_tracking((0.33, 0.01, 0.92), (1.0, 0.0, 0.0))
@@ -685,7 +801,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         svc._perception_capture.is_running.return_value = True
         calls: list[str] = []
 
-        def _apply(**_kwargs):
+        def _apply(*_args, **_kwargs):
             calls.append("lji_apply")
             return np.zeros(4), MagicMock()
 
@@ -695,6 +811,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_grasp_axial_distance", return_value=0.28
         ), patch.object(
             svc, "_grasp_apply_q_delta", side_effect=_apply
+        ), patch.object(
+            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
         ), patch.object(
             svc,
             "current_visual_observation",
@@ -834,6 +952,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             lij_reacquire_max_steps=3,
             lij_reacquire_retrace_gain=1.0,
         )
+        svc._pick_cfg = pk
         svc.client = MagicMock()
         svc._ik_cfg = IkConfig(tol=0.001)
         svc._grasp_traj_start = (0.10, 0.0, 0.90)
@@ -850,7 +969,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             applied.append(arr)
             return np.zeros(4) + arr, MagicMock()
 
-        def _obs(**_kwargs):
+        def _obs(*_args, **_kwargs):
             obs_calls["n"] += 1
             if obs_calls["n"] == 1:
                 return MagicMock(center_uv=(0.0, 0.0), scale=0.1)
@@ -862,6 +981,8 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             svc, "_grasp_axial_distance", return_value=0.15
         ), patch.object(
             svc, "_grasp_visual_recover_supported", return_value=False
+        ), patch.object(
+            svc, "_grasp_lji_fk_z_row", return_value=np.array([1.0, 0.0, 0.0, 0.0])
         ), patch.object(
             svc, "_grasp_apply_q_delta", side_effect=_apply
         ), patch.object(

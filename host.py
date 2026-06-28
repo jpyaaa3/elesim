@@ -149,6 +149,9 @@ class ControlHost:
         self.last_u: Optional[proto.ControlU] = None
         self.last_q: Optional[proto.SimQ] = None
         self.last_state_ts: float = 0.0
+        self.last_sim_u: Optional[proto.ControlU] = None
+        self.last_sim_q: Optional[proto.SimQ] = None
+        self.last_sim_state_ts: float = 0.0
         self.torque_enabled: bool = False
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
@@ -259,6 +262,9 @@ class ControlHost:
         self.last_u = proto.sim_q_to_control_u(neutral_q, self.cfg)
         self._target_u_state = self.last_u
         self.last_state_ts = time.time()
+        self.last_sim_u = None
+        self.last_sim_q = None
+        self.last_sim_state_ts = 0.0
         self._debug_markers_by_name: Dict[str, dict[str, Any]] = {}
         self._last_target_apply_error = ""
         self._trajectory.cancel()
@@ -304,6 +310,9 @@ class ControlHost:
         self.last_perceived_timestamp_s = 0.0
         self.last_actual_tip_xyz = None
         self.last_actual_tip_dir = None
+        self.last_sim_u = None
+        self.last_sim_q = None
+        self.last_sim_state_ts = 0.0
         self.last_sim_time_s = 0.0
         self.last_sim_wall_elapsed_s = 0.0
         self.last_sim_realtime_factor = 0.0
@@ -442,6 +451,9 @@ class ControlHost:
             self.last_u = None
             self.last_q = None
             self.last_state_ts = 0.0
+            self.last_sim_u = None
+            self.last_sim_q = None
+            self.last_sim_state_ts = 0.0
             self.torque_enabled = False
             self.last_ik_target_xyz = None
             self.last_ik_target_dir = None
@@ -499,6 +511,9 @@ class ControlHost:
             self.last_u = None
             self.last_q = None
             self.last_state_ts = 0.0
+            self.last_sim_u = None
+            self.last_sim_q = None
+            self.last_sim_state_ts = 0.0
             self.torque_enabled = False
             self.last_ik_target_xyz = None
             self.last_ik_target_dir = None
@@ -815,6 +830,7 @@ class ControlHost:
             proto.pack_state(
                 u=self.last_u,
                 q=self.last_q,
+                sim_q=self.last_sim_q,
                 ts=self.last_state_ts or now,
                 torque_enabled=self.torque_enabled,
                 ik_target_xyz=self.last_ik_target_xyz,
@@ -1056,6 +1072,8 @@ class ControlHost:
             ],
             dtype=float,
         )
+        linear_min_m, linear_max_m = proto.linear_effective_q_bounds(self.cfg)
+        target_vals[0] = float(np.clip(target_vals[0], linear_min_m, linear_max_m))
         limited_vals = current_vals.copy()
         complete = True
         for i, scale in enumerate(scales):
@@ -1415,11 +1433,12 @@ class ControlHost:
     def _handle_sim_feedback(self, msg: Dict[str, Any]) -> None:
         if str(msg.get("t", "")).lower() != "sim_state":
             return
-        if "q" in msg and not self._has_hw():
+        sim_q_raw = msg.get("sim_q", msg.get("q", None))
+        if sim_q_raw is not None:
             try:
-                self.last_q = proto.unpack_q(msg["q"])
-                self.last_u = proto.sim_q_to_control_u(self.last_q, self.cfg)
-                self.last_state_ts = float(msg.get("ts", proto.now_s()))
+                self.last_sim_q = proto.unpack_q(sim_q_raw)
+                self.last_sim_u = proto.sim_q_to_control_u(self.last_sim_q, self.cfg)
+                self.last_sim_state_ts = float(msg.get("ts", proto.now_s()))
             except (TypeError, ValueError):
                 pass
         actual_tip_raw = msg.get("actual_tip", None)
@@ -2154,6 +2173,7 @@ class ControlHost:
                     proto.pack_state(
                         u=self.last_u,
                         q=self.last_q,
+                        sim_q=self.last_sim_q,
                         ts=self.last_state_ts or now,
                         torque_enabled=self.torque_enabled,
                         ik_target_xyz=self.last_ik_target_xyz,

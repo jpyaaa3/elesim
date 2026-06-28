@@ -10,6 +10,7 @@ from scipy.spatial.transform import Rotation as Rot
 
 import builder.json_builder as assembly_builder
 from engine.config_loader import AppConfigBundle, load_app_config_from_ini
+from engine.protocol import linear_effective_q_bounds
 from .kinematics import Q4, Q_BENT, Q_NEUTRAL, Vec3, _ReachModel, _pick_manifest_value
 
 
@@ -190,13 +191,14 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
             approach_axis_local = np.array([0.0, 0.0, -1.0], dtype=float)
             approach_rot_tip = (term_r.inv() * base_r).as_matrix()
 
+    linear_min_m, linear_max_m = linear_effective_q_bounds(bundle.mapping_config)
     context = {
         "limit": bundle.joint_limit,
         "n_nodes": int(n_nodes),
         "n_seg": int(n_seg),
         "linear_joint_name": linear_joint_name,
-        "linear_min_m": float(bundle.mapping_config.linear_q_min_m),
-        "linear_max_m": float(bundle.mapping_config.linear_q_max_m),
+        "linear_min_m": float(linear_min_m),
+        "linear_max_m": float(linear_max_m),
         "roll_joint_name": roll_joint_name,
         "bend_joint_names": list(bend_joint_names),
         "fk_root_link": fk_root_link,

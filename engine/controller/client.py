@@ -57,6 +57,8 @@ class ControlClient:
         self._t_last_rx_wall = 0.0
         self.last_q: SimQ | None = None
         self.last_u: ControlU | None = None
+        self.last_sim_q: SimQ | None = None
+        self.last_sim_u: ControlU | None = None
         self.last_ports: list[str] = []
         self.last_device: str = ""
         self.torque_enabled: bool = False
@@ -165,6 +167,8 @@ class ControlClient:
             reply_reason=str(self.last_reply_reason),
             q=self.last_q,
             u=self.last_u,
+            sim_q=self.last_sim_q,
+            sim_u=self.last_sim_u,
         )
 
     def _update_sim_clock_fields(self, msg: dict[str, Any]) -> None:
@@ -316,6 +320,8 @@ class ControlClient:
                 if new_device != self.last_device:
                     self.last_q = None
                     self.last_u = None
+                    self.last_sim_q = None
+                    self.last_sim_u = None
                     self.last_state_ts = 0.0
                 self.last_device = new_device
             if "torque_enabled" in msg:
@@ -367,6 +373,13 @@ class ControlClient:
                 except (TypeError, ValueError) as exc:
                     self.last_reply_ok = False
                     self.last_reply_reason = f"state u decode failed: {exc}"
+            if "sim_q" in msg:
+                try:
+                    self.last_sim_q = unpack_q(msg["sim_q"])
+                    self.last_sim_u = sim_q_to_control_u(self.last_sim_q, self.cfg)
+                except (TypeError, ValueError) as exc:
+                    self.last_reply_ok = False
+                    self.last_reply_reason = f"state sim_q decode failed: {exc}"
             if "torque_enabled" in msg:
                 self.torque_enabled = bool(msg.get("torque_enabled", False))
             if "claw_current" in msg:

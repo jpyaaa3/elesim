@@ -10,7 +10,7 @@ class DebugMarkerProtocolTests(unittest.TestCase):
         msg = pack_state(
             debug_markers=[
                 {
-                    "name": "ready_pose_standoff",
+                    "name": "ready_pose_dir",
                     "frame": "world",
                     "pos": [1.0, 2.0, 3.0],
                     "dir": [0.3, 0.0, 0.0],

@@ -71,6 +71,25 @@ class TestReadyPoseAlign(unittest.TestCase):
         self.assertTrue(kwargs["resolve_dir"])
         self.assertAlmostEqual(float(kwargs["accept_best_effort_dir_error_deg"]), 15.0)
 
+    def test_ready_pose_marker_is_small_sphere_with_line_to_object(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        svc._send_ready_pose_markers(
+            object_world=(0.50, 0.0, 0.20),
+            target=np.array([0.30, 0.0, 0.20], dtype=float),
+            direction=np.array([1.0, 0.0, 0.0], dtype=float),
+            actual_offset_m=0.20,
+            corrected=False,
+        )
+        markers = svc.client.send_debug_markers.call_args.args[0]
+        self.assertEqual([m["name"] for m in markers], ["ready_pose", "ready_pose_dir"])
+        self.assertEqual(markers[0]["pos"], [0.30, 0.0, 0.20])
+        self.assertNotIn("dir", markers[0])
+        self.assertAlmostEqual(float(markers[0]["radius"]), 0.005)
+        self.assertEqual(markers[1]["pos"], [0.30, 0.0, 0.20])
+        self.assertEqual(markers[1]["dir"], [0.20, 0.0, 0.0])
+        self.assertAlmostEqual(float(markers[1]["length"]), 0.20)
+
     def test_tweak_wrapper_delegates_to_start_ready_pose(self) -> None:
         svc = ControlService(PanelState())
         svc._pick_equal_sag_model = {"seg1_equal_offset_deg": 1.0}

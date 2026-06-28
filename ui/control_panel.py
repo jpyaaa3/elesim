@@ -339,6 +339,18 @@ class ControlPanel:
     def _sync_ui_resolution_scale_to_window(self) -> None:
         self._set_ui_resolution_effective_scale(self._effective_ui_scale_from_window())
 
+    def _lock_os_window_size(self) -> None:
+        window = getattr(self, "_glfw_window", None)
+        if window is None:
+            return
+        try:
+            width, height = glfw.get_window_size(window)
+            width = max(1, int(width))
+            height = max(1, int(height))
+            glfw.set_window_size_limits(window, width, height, width, height)
+        except Exception:
+            pass
+
     def set_ui_resolution_scale(self, scale: float) -> None:
         scale = float(scale)
         if abs(scale - self.ui_resolution_requested_scale()) <= 1e-6:
@@ -355,6 +367,7 @@ class ControlPanel:
                 )
             except Exception:
                 pass
+            self._lock_os_window_size()
             self._sync_ui_resolution_scale_to_window()
 
     def stop(self) -> None:
@@ -489,7 +502,7 @@ class ControlPanel:
         if not glfw.init():
             raise SystemExit("glfw.init() failed.")
 
-        glfw.window_hint(glfw.RESIZABLE, True)
+        glfw.window_hint(glfw.RESIZABLE, False)
         # pyimgui's programmable pipeline renderer is most stable with an explicit 3.3 core context.
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -516,6 +529,7 @@ class ControlPanel:
         self._glfw_window = window
         self._ui_resolution_base_w = int(win_w)
         self._ui_resolution_base_h = int(win_h)
+        self._lock_os_window_size()
 
         glfw.make_context_current(window)
 

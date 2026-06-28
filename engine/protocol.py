@@ -38,7 +38,7 @@ class SimMappingConfig:
     seg_u_max: float = 360.0
 
     linear_q_min_m: float = -0.230
-    linear_q_max_m: float = 0.010
+    linear_q_max_m: float = 0.0
     roll_q_min_rad: float = -math.pi / 2.0
     roll_q_max_rad: float = +math.pi / 2.0
     seg1_q_min_rad: float = -math.radians(36.0)
@@ -153,6 +153,28 @@ def sim_q_to_control_u(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> C
     )
 
 
+def linear_effective_q_bounds(cfg: SimMappingConfig) -> tuple[float, float]:
+    q0 = control_u_to_sim_q(
+        ControlU(
+            u_linear=float(cfg.linear_u_min),
+            u_roll=0.0,
+            u_s1=0.0,
+            u_s2=0.0,
+        ),
+        cfg,
+    ).linear_m
+    q1 = control_u_to_sim_q(
+        ControlU(
+            u_linear=linear_motor_u_limit(cfg),
+            u_roll=0.0,
+            u_s1=0.0,
+            u_s2=0.0,
+        ),
+        cfg,
+    ).linear_m
+    return (float(min(q0, q1)), float(max(q0, q1)))
+
+
 def now_s() -> float:
     return time.time()
 
@@ -169,6 +191,7 @@ def pack_state(
     *,
     u: Optional[ControlU] = None,
     q: Optional[SimQ] = None,
+    sim_q: Optional[SimQ] = None,
     ts: Optional[float] = None,
     torque_enabled: Optional[bool] = None,
     ik_target_xyz: Optional[tuple[float, float, float]] = None,
@@ -222,6 +245,13 @@ def pack_state(
             "roll_rad": q.roll_rad,
             "theta1_rad": q.theta1_rad,
             "theta2_rad": q.theta2_rad,
+        }
+    if sim_q is not None:
+        out["sim_q"] = {
+            "linear_m": sim_q.linear_m,
+            "roll_rad": sim_q.roll_rad,
+            "theta1_rad": sim_q.theta1_rad,
+            "theta2_rad": sim_q.theta2_rad,
         }
     if torque_enabled is not None:
         out["torque_enabled"] = bool(torque_enabled)

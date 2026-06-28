@@ -124,13 +124,15 @@ class TestHostGo2Bridge(unittest.TestCase):
         self.assertEqual(server.last_sim_target_xyz, (0.7, 0.0, 0.08))
         server._broadcast_state_now.assert_called_once()
 
-    def test_sim_feedback_q_updates_virtual_host(self) -> None:
+    def test_sim_feedback_q_updates_virtual_telemetry_only(self) -> None:
         server = self._make_host(with_bridge=False)
+        self.assertIsNotNone(server.last_q)
+        initial_q = server.last_q
         server._handle_sim_feedback(
             {
                 "t": "sim_state",
                 "ts": 2.0,
-                "q": {
+                "sim_q": {
                     "linear_m": -0.12,
                     "roll_rad": 0.1,
                     "theta1_rad": 0.2,
@@ -139,9 +141,12 @@ class TestHostGo2Bridge(unittest.TestCase):
             }
         )
         self.assertIsNotNone(server.last_q)
-        self.assertAlmostEqual(server.last_q.linear_m, -0.12)
-        self.assertAlmostEqual(server.last_q.roll_rad, 0.1)
-        self.assertIsNotNone(server.last_u)
+        self.assertAlmostEqual(server.last_q.linear_m, initial_q.linear_m)
+        self.assertAlmostEqual(server.last_q.roll_rad, initial_q.roll_rad)
+        self.assertIsNotNone(server.last_sim_q)
+        self.assertAlmostEqual(server.last_sim_q.linear_m, -0.12)
+        self.assertAlmostEqual(server.last_sim_q.roll_rad, 0.1)
+        self.assertIsNotNone(server.last_sim_u)
 
     def test_sim_feedback_q_does_not_override_hardware_host(self) -> None:
         server = self._make_host(with_bridge=False, hw=MagicMock())
@@ -160,6 +165,45 @@ class TestHostGo2Bridge(unittest.TestCase):
         )
         self.assertIsNotNone(server.last_q)
         self.assertAlmostEqual(server.last_q.linear_m, 0.01)
+        self.assertIsNotNone(server.last_sim_q)
+        self.assertAlmostEqual(server.last_sim_q.linear_m, -0.12)
+
+    def test_sim_feedback_legacy_q_does_not_override_virtual_target(self) -> None:
+        server = self._make_host(with_bridge=False)
+        ident = b"client-1"
+        server._handle_msg(
+            ident,
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 5,
+                "source": "target",
+                "q": {
+                    "linear_m": -0.02,
+                    "roll_rad": 0.4,
+                    "theta1_rad": 0.5,
+                    "theta2_rad": -0.6,
+                },
+            },
+        )
+        self.assertIsNotNone(server.last_q)
+        self.assertAlmostEqual(server.last_q.linear_m, -0.02)
+        server._handle_sim_feedback(
+            {
+                "t": "sim_state",
+                "ts": 2.0,
+                "q": {
+                    "linear_m": -0.12,
+                    "roll_rad": 0.1,
+                    "theta1_rad": 0.2,
+                    "theta2_rad": -0.3,
+                },
+            }
+        )
+        self.assertIsNotNone(server.last_q)
+        self.assertAlmostEqual(server.last_q.linear_m, -0.02)
+        self.assertIsNotNone(server.last_sim_q)
+        self.assertAlmostEqual(server.last_sim_q.linear_m, -0.12)
 
     def test_sim_feedback_ignores_go2_base_when_bridge_active(self) -> None:
         server = self._make_host(with_bridge=True)

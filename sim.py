@@ -1382,7 +1382,7 @@ class SimMover:
         self._claw_right_target = 0.02 if self._claw_closed else 0.0
 
     def target_from_4dof(self, linear_m: float, roll: float, theta1: float, theta2: float) -> np.ndarray:
-        linear = float(np.clip(float(linear_m), -0.230, 0.010))
+        linear = float(np.clip(float(linear_m), -0.230, 0.0))
         rl = float(np.clip(float(roll), self.limit.roll_min_rad(), self.limit.roll_max_rad()))
         t1 = float(np.clip(float(theta1), -self.bend_lim, +self.bend_lim))
         t2 = float(np.clip(float(theta2), -self.bend_lim, +self.bend_lim))
@@ -2136,7 +2136,7 @@ class HostFeedbackPublisher:
         if sim_step_count is not None:
             msg["sim_step_count"] = int(sim_step_count)
         if arm_q is not None:
-            msg["q"] = {
+            msg["sim_q"] = {
                 "linear_m": float(arm_q.linear_m),
                 "roll_rad": float(arm_q.roll_rad),
                 "theta1_rad": float(arm_q.theta1_rad),
@@ -2755,19 +2755,6 @@ class SimRuntime:
                             )
                         )
                 perf.section("go2", t_sec)
-                if ik_target is not None and a.spawn.draw_debug_markers:
-                    a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
-                    if ik_target_dir is not None:
-                        desired_dir = np.asarray(ik_target_dir, dtype=float).reshape(3)
-                        dnorm = float(np.linalg.norm(desired_dir))
-                        if dnorm > 1e-9:
-                            a.sim_scene.draw_marker_direction(
-                                a.markers,
-                                "_ik_target_marker_dir",
-                                ik_target,
-                                desired_dir / dnorm,
-                                (1.0, 0.4, 0.4, 0.9),
-                            )
                 q_errmodel = a._errmodel_q() if a._has_state_source() else None
                 if q_errmodel is not None:
                     a.sim_scene.apply_sim_q(q_errmodel)
@@ -2814,11 +2801,8 @@ class SimRuntime:
                         )
                 perf.section("feedback", t_sec)
                 t_sec = time.perf_counter()
-                if a.spawn.draw_debug_markers and sim_tip is not None:
-                    a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
-                    if sim_tip_dir is not None:
-                        a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
                 active_dynamic_keys: set[str] = set()
+                _HOST_VISIBLE_MARKER_NAMES = frozenset({"ready_pose", "ready_pose_dir"})
                 _HOST_CAMERA_MARKER_NAMES = frozenset({"camera_optical", "camera_look", "camera_right"})
                 if a.spawn.draw_debug_markers and cam_origin is not None and cam_look is not None and cam_right is not None:
                     pos_arr = np.asarray(cam_origin, dtype=float).reshape(3)
@@ -2828,27 +2812,7 @@ class SimRuntime:
                         "sim_camera:sphere",
                         pos_arr,
                         [0.1, 0.7, 1.0, 0.95],
-                        0.010,
-                    )
-                    active_dynamic_keys.add("sim_camera:look")
-                    a.markers.draw_dynamic_arrow(
-                        a.sim_scene.scene,
-                        "sim_camera:look",
-                        pos_arr,
-                        np.asarray(cam_look, dtype=float).reshape(3),
-                        [0.1, 0.7, 1.0, 0.95],
                         0.004,
-                        0.09,
-                    )
-                    active_dynamic_keys.add("sim_camera:right")
-                    a.markers.draw_dynamic_arrow(
-                        a.sim_scene.scene,
-                        "sim_camera:right",
-                        pos_arr,
-                        np.asarray(cam_right, dtype=float).reshape(3),
-                        [1.0, 0.8, 0.2, 0.95],
-                        0.004,
-                        0.09,
                     )
                 if a.spawn.draw_debug_markers and a.state_source is not None:
                     for marker in a.state_source.debug_markers():
@@ -2858,7 +2822,11 @@ class SimRuntime:
                         if not isinstance(pos, (list, tuple)) or len(pos) != 3:
                             continue
                         name = str(marker.get("name", "")).strip()
-                        if not name or name in _HOST_CAMERA_MARKER_NAMES:
+                        if (
+                            not name
+                            or name in _HOST_CAMERA_MARKER_NAMES
+                            or name not in _HOST_VISIBLE_MARKER_NAMES
+                        ):
                             continue
                         color_raw = marker.get("color", [0.1, 1.0, 0.1, 0.95])
                         if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
@@ -2867,9 +2835,10 @@ class SimRuntime:
                             rgba = [0.1, 1.0, 0.1, 0.95]
                         radius = float(marker.get("radius", 0.012))
                         pos_arr = np.asarray(pos, dtype=float).reshape(3)
-                        sphere_key = f"{name}:sphere"
-                        active_dynamic_keys.add(sphere_key)
-                        a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
+                        if name != "ready_pose_dir":
+                            sphere_key = f"{name}:sphere"
+                            active_dynamic_keys.add(sphere_key)
+                            a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
                         direction = marker.get("dir", None)
                         if isinstance(direction, (list, tuple)) and len(direction) == 3:
                             arrow_key = f"{name}:dir"

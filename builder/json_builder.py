@@ -272,7 +272,7 @@ class AssemblyDesigner:
         robot_graph.connect(
             "plate",
             "housing",
-            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-0.230, 0.010)),
+            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-0.230, 0.0)),
         )
         robot_graph.connect("housing", "wedge", JointSpec(name="j_housing_wedge", type=JointType.revolute, axis_rule_key="housing_wedge"))
         robot_graph.connect("wedge", "node0", JointSpec(name="j_wedge_node0", type=JointType.revolute, axis_rule_key="wedge_node"))

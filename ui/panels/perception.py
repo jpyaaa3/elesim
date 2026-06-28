@@ -313,6 +313,39 @@ def _draw_ball_xyz_row(panel) -> None:
         panel.state.set_mock_object_world_xyz(float(values[0]), float(values[1]), float(values[2]))
 
 
+def _draw_ball_dir_row(panel) -> None:
+    _control_label(panel, "Ball dir")
+    x, y, z = panel.state.mock_object_preferred_dir()
+    spacing_x = float(getattr(imgui.get_style().item_spacing, "x", scaled(panel, 8.0)))
+    set_w = scaled(panel, _BALL_MOVE_W)
+    input_w = max(scaled(panel, 36.0), (_field_width(panel) - set_w - spacing_x * 3.0) / 3.0)
+    changed = False
+    values = []
+    for idx, value in enumerate((x, y, z)):
+        if idx > 0:
+            imgui.same_line()
+        imgui.push_item_width(input_w)
+        try:
+            changed_i, value_i = imgui.input_float(
+                f"##ball_dir_{idx}",
+                float(value),
+                0.0,
+                0.0,
+                format="%.3f",
+            )
+        finally:
+            imgui.pop_item_width()
+        changed = bool(changed or changed_i)
+        values.append(float(value_i))
+    imgui.same_line()
+    if imgui.button("Set##ball_dir", set_w, 0.0) or changed:
+        panel.state.set_mock_object_preferred_dir(
+            float(values[0]),
+            float(values[1]),
+            float(values[2]),
+        )
+
+
 def _xy(value) -> tuple[float, float]:
     if hasattr(value, "x") and hasattr(value, "y"):
         return float(value.x), float(value.y)
@@ -889,6 +922,7 @@ def draw_perception_panel(panel) -> None:
             panel.state.visual_target_uv_v = max(-1.0, min(1.0, float(target_uv_v)))
 
         _draw_ball_xyz_row(panel)
+        _draw_ball_dir_row(panel)
         _end_section()
 
     imgui.separator()

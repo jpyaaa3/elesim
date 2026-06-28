@@ -4,6 +4,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -29,6 +30,24 @@ def _obs(*, u: float, v: float, scale: float = 0.05) -> VisualObservation:
 
 
 class TestAimGainFallback(unittest.TestCase):
+    def test_aim_config_caps_motion_below_pick_caps(self) -> None:
+        svc = ControlService(PanelState())
+        svc._pick_cfg = PickConfig(
+            target_uv_u=0.0,
+            target_uv_v=0.0,
+            center_tol=0.16,
+            aim_center_tol=0.02,
+            center_roll_max=6.0,
+            center_seg_max=6.0,
+        )
+
+        aim_cfg = svc._pick_config_for_aim()
+
+        self.assertAlmostEqual(float(aim_cfg.center_tol), 0.02)
+        self.assertLessEqual(float(aim_cfg.center_roll_max), 3.0)
+        self.assertLessEqual(float(aim_cfg.center_seg_max), 3.0)
+        self.assertLess(float(svc._pick_aim_step_scale), 1.0)
+
     def test_large_u_error_uses_roll_not_only_seg(self) -> None:
         svc = ControlService(PanelState())
         cfg = PickConfig(
@@ -139,6 +158,48 @@ class TestAimCoupledAxes(unittest.TestCase):
         self.assertAlmostEqual(float(roll_req), 0.0, places=6)
         self.assertLessEqual(float(seg_req), float(cfg.center_seg_max) * 0.25 + 1e-6)
         self.assertLess(float(abs(next_u.u_s1 - current.u_s1)), 2.0)
+
+
+class TestLookPreAimRough(unittest.TestCase):
+    def test_uses_fixed_offset_target_without_full_centering(self) -> None:
+        svc = ControlService(PanelState())
+        svc.client = MagicMock()
+        svc.client.refresh_state.return_value = None
+        pk = PickConfig(
+            look_pre_aim_enabled=True,
+            look_pre_aim_max_steps=1,
+            look_pre_aim_target_uv_u=0.10,
+            look_pre_aim_target_uv_v=0.0,
+            look_pre_aim_tol=0.04,
+            look_pre_aim_awful_tol=0.45,
+            look_pre_aim_step_scale=0.35,
+        )
+        current = ControlU(u_linear=0.0, u_roll=5.0, u_s1=50.0, u_s2=50.0)
+        next_u = ControlU(u_linear=0.0, u_roll=5.1, u_s1=49.9, u_s2=50.1)
+        seen_targets: list[tuple[float, float, float]] = []
+
+        def _step(obs, current_u, *, cfg, **_kwargs):
+            seen_targets.append(
+                (
+                    float(cfg.target_uv_u),
+                    float(cfg.target_uv_v),
+                    float(cfg.center_tol),
+                )
+            )
+            return next_u, "test", 0.0, 0.0
+
+        with patch.object(svc, "_wait_for_track_lock", return_value=True):
+            with patch.object(svc, "current_visual_observation", return_value=_obs(u=-0.40, v=0.0)):
+                with patch.object(svc, "current_control_u", return_value=current):
+                    with patch.object(svc, "_apply_pick_center_step", side_effect=_step):
+                        with patch.object(svc, "apply_control_u") as apply_mock:
+                            with patch.object(svc, "send_current_target") as send_mock:
+                                ok, _, reason = svc._look_pre_aim_rough(pk=pk, host_state=None)
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(seen_targets, [(0.10, 0.0, 0.04)])
+        apply_mock.assert_called_once()
+        send_mock.assert_called_once_with(source="look_pre_aim")
 
 
 class TestAimProgressStall(unittest.TestCase):
