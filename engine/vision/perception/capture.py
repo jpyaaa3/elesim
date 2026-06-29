@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 import numpy as np
 
 if TYPE_CHECKING:
-    from engine.config_loader import PerceptionConfig
+    from engine.core.config_loader import PerceptionConfig
 
 _PICK_PLACE_ROOT = Path(__file__).resolve().parent
 _PREVIEW_WINDOW = "elesim_perception"

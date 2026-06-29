@@ -19,10 +19,10 @@ import zmq
 import genesis as gs
 from genesis.utils import geom as gs_geom
 
-import engine.protocol as proto
+import engine.core.protocol as proto
 import builder.json_builder as assembly_builder
 from builder.go2_arm_merger import merge_go2_arm_urdf
-from engine.config_loader import (
+from engine.core.config_loader import (
     Go2LocomotionConfig,
     HardwareConfig,
     IkConfig,
@@ -33,13 +33,13 @@ from engine.config_loader import (
     UrdfExportConfig,
     load_app_config_from_ini,
 )
-from engine.go2.locomotion import Go2Command
-from engine.go2.locomotion.controller import RaibertTrotController
-from engine.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
-from engine.arm.dynamixel import estimate_ideal_sim_rates
-from engine.runtime_urdf import select_runtime_urdf
+from engine.robot.go2.locomotion import Go2Command
+from engine.robot.go2.locomotion.controller import RaibertTrotController
+from engine.robot.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
+from engine.robot.arm.dynamixel import estimate_ideal_sim_rates
+from engine.core.runtime_urdf import select_runtime_urdf
 from builder.urdf_converter import convert_manifest_file
-from engine.arm.sag_model import segment_errors_from_model
+from engine.robot.arm.sag_model import segment_errors_from_model
 
 
 GO2_STAND_DOWN_Q: Dict[str, float] = {
@@ -266,8 +266,8 @@ class Go2Locomotion:
 
         mode = str(config.mode).strip().lower()
         if mode == "convex_mpc":
-            from engine.go2.mpc.config import Go2MpcConfig
-            from engine.go2.mpc.controller import ConvexMpcGenesisController
+            from engine.robot.go2.mpc.config import Go2MpcConfig
+            from engine.robot.go2.mpc.controller import ConvexMpcGenesisController
 
             mpc_cfg = Go2MpcConfig(
                 gait_hz=float(config.gait_hz),
@@ -2178,7 +2178,7 @@ class HostFeedbackPublisher:
         sim_step_count: Optional[int] = None,
     ) -> None:
         try:
-            from engine.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
+            from engine.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
             from scipy.spatial.transform import Rotation as Rot
 
             base = go2_entity.get_link("base")
@@ -2492,7 +2492,7 @@ class RuntimePrep:
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
-            from engine.profile.walking_metrics import WalkingMetricsLogger
+            from engine.observability.walking_metrics import WalkingMetricsLogger
 
             metrics = WalkingMetricsLogger.from_env()
             a.sim_scene.walking_metrics = metrics

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import imgui
 
-from engine.config_loader import PerceptionConfig
+from engine.core.config_loader import PerceptionConfig
 from ui.helpers import (
     begin_collapsible_section,
     begin_disabled_ui,

@@ -22,7 +22,7 @@ from .ready_pose import compute_ready_pose_target
 
 
 def _default_solve_then_align(**kwargs: Any) -> Any:
-    from engine import ik as ik_pipeline
+    from engine.robot.arm import ik as ik_pipeline
 
     return ik_pipeline.solve_then_align(**kwargs)
 

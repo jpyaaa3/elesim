@@ -6,7 +6,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from engine.arm.iklib.kinematics import _forward_link_tf
+from engine.robot.arm.iklib.kinematics import _forward_link_tf
 
 from .transforms import make_transform_from_pose, make_transform_from_world_pose, transform_point
 

@@ -10,8 +10,8 @@ import sys
 import time
 from typing import Optional
 
-from engine.config_loader import load_app_config_from_ini
-from engine.controller.client import ControlClient
+from engine.core.config_loader import load_app_config_from_ini
+from engine.behaviors.pick.client import ControlClient
 from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
 
 

@@ -7,9 +7,9 @@ import argparse
 import os
 
 from engine.vision.perception_bridge.hand_eye import load_hand_eye_transform
-from engine import ik as ik_pipeline
-from engine.arm.go2_mount import Go2ArmMount
-from engine.controller import ControlClient, ControlService, PanelState
+from engine.robot.arm import ik as ik_pipeline
+from engine.robot.arm.mounts.go2_mount import Go2ArmMount
+from engine.behaviors.pick import ControlClient, ControlService, PanelState
 from ui.control_panel import ControlPanel
 
 

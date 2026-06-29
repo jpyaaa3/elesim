@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence
 import numpy as np
 
 if TYPE_CHECKING:
-    from engine.profile.pick_timing import PickTimingCollector
+    from engine.observability.pick_timing import PickTimingCollector
 
 from .pick_view_pregrasp import (
     ViewPregraspCandidate,
@@ -23,13 +23,13 @@ AlignMode = Literal["full", "lite"]
 
 
 def _default_solve_then_align(**kwargs: Any) -> Any:
-    from engine import ik as ik_pipeline
+    from engine.robot.arm import ik as ik_pipeline
 
     return ik_pipeline.solve_then_align(**kwargs)
 
 
 def _default_solve_position_only(**kwargs: Any) -> Any:
-    from engine import ik as ik_pipeline
+    from engine.robot.arm import ik as ik_pipeline
 
     return ik_pipeline.solve_position_only(**kwargs)
 
@@ -44,7 +44,7 @@ def _make_align_solve_fn(
     tweak_rounds: int,
 ) -> Callable[..., Any]:
     def solve_fn(**kwargs: Any) -> Any:
-        from engine import ik as ik_pipeline
+        from engine.robot.arm import ik as ik_pipeline
 
         kwargs.setdefault("align_mode", align_mode)
         kwargs.setdefault("align_skip_under_deg", align_skip_under_deg)

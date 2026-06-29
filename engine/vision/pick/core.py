@@ -13,7 +13,7 @@ from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 from engine.vision.perception.observation import VisualObservation
 
 if TYPE_CHECKING:
-    from engine.config_loader import PickConfig
+    from engine.core.config_loader import PickConfig
 
 
 class ObjectPickPhase(str, Enum):

@@ -8,8 +8,8 @@ import glfw
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
-from engine.controller import ControlService, HostState, PanelState
-from engine.config_loader import HardwareConfig, PerceptionConfig, PickConfig
+from engine.behaviors.pick import ControlService, HostState, PanelState
+from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig
 from ui.helpers import scaled, set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT
 

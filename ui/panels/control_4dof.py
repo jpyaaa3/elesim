@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import imgui
 
-import engine.protocol as proto
+import engine.core.protocol as proto
 from ui.helpers import begin_disabled_ui, end_disabled_ui, panel_header, scaled, toggle_switch
 
 

@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 from engine.vision.perception_bridge.transforms import make_transform_from_world_pose, transform_point
-from engine.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
+from engine.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
 from engine.vision.sim_camera.mount import load_hand_eye_offset_T, _OPTICAL_FROM_GENESIS_CAMERA
 
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 import zmq
 
-from engine import protocol
+from engine.core import protocol
 from engine.vision.sim_camera.types import SimCameraFrame
 
 

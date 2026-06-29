@@ -14,16 +14,16 @@ from typing import Any, Dict, Optional, Set
 import numpy as np
 import zmq
 
-from engine.config_loader import HardwareConfig, PerceptionConfig, PickConfig, load_app_config_from_ini
-from engine.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
-from engine.go2.hardware.odom_parser import OdomSample
-from engine.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
-from engine.profile.pick_timing import enabled as pick_profile_enabled
-from engine.arm.iklib.solver import load_solver_context
-from engine.arm.dynamixel import load_hardware, tick_to_deg_0_360
-from engine.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
+from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig, load_app_config_from_ini
+from engine.robot.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
+from engine.robot.go2.hardware.odom_parser import OdomSample
+from engine.robot.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
+from engine.observability.pick_timing import enabled as pick_profile_enabled
+from engine.robot.arm.iklib.solver import load_solver_context
+from engine.robot.arm.dynamixel import load_hardware, tick_to_deg_0_360
+from engine.core.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
-import engine.protocol as proto
+import engine.core.protocol as proto
 from engine.vision.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
 from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
 from engine.vision.perception.preview_stream import PreviewFramePublisher

@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from engine.arm.iklib.kinematics import _forward_grasp_world
+from engine.robot.arm.iklib.kinematics import _forward_grasp_world
 from engine.vision.visual_servoing.sag_drift_frame import SagDriftComponents, prepare_sag_drift_input
 
 
