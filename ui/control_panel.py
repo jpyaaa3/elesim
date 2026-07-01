@@ -11,7 +11,7 @@ from imgui.integrations.glfw import GlfwRenderer
 from engine.behaviors.pick import ControlService, HostState, PanelState
 from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig
 from ui.helpers import scaled, set_panel_header_font
-from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT
+from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 
 from .panels import (
     draw_control_4dof_panel,
@@ -151,14 +151,14 @@ class ControlPanel:
         if font_path is None:
             return
         try:
-            font = fonts.add_font_from_file_ttf(str(font_path), float(FONT_SPEC.content_px))
+            font = add_font_with_korean_ranges(fonts, font_path, float(FONT_SPEC.content_px))
             if font is not None:
                 if hasattr(io, "font_default"):
                     io.font_default = font
                 print(f"[ui] content font: {font_path} ({FONT_SPEC.content_px:.1f}px)")
             header_path = TITLE_FONT
             if header_path.exists():
-                header_font = fonts.add_font_from_file_ttf(str(header_path), float(FONT_SPEC.title_px))
+                header_font = add_font_with_korean_ranges(fonts, header_path, float(FONT_SPEC.title_px))
                 if header_font is not None:
                     set_panel_header_font(header_font)
                     print(f"[ui] title font: {header_path} ({FONT_SPEC.title_px:.1f}px)")
