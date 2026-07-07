@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import imgui
 
+from ui.helpers import panel_header
+
 
 def _browse_sag_model_path(initial_path: str) -> str | None:
     try:
@@ -35,7 +37,7 @@ def draw_sag_panel(panel) -> None:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._sag_header_init_open = True
-    if imgui.collapsing_header("Sag Model", visible=True)[0]:
+    if panel_header("Sag Model", visible=True)[0]:
         changed, sag_path = imgui.input_text("sag model path", panel._sag_model_path_draft, 512)
         if changed:
             panel._sag_model_path_draft = str(sag_path)
@@ -63,11 +65,3 @@ def draw_sag_panel(panel) -> None:
             except Exception as exc:
                 panel._sag_status_text = f"load failed: {exc}"
                 panel._sag_status_ok = False
-
-        model_path = str(panel.state.sag_model_path or "").strip()
-        if panel._sag_status_text and (not panel._sag_status_ok):
-            imgui.text_colored(panel._sag_status_text, 1.0, 0.35, 0.35)
-        elif model_path:
-            imgui.text_wrapped(f"Model loaded: {model_path}")
-        else:
-            imgui.text("Model not loaded")

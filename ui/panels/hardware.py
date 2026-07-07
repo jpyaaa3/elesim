@@ -2,78 +2,110 @@ from __future__ import annotations
 
 import imgui
 
+from ui.helpers import panel_header, scaled, toggle_switch
+
+
+class _EmptyHardwareState:
+    connected = False
+    tx_seq = 0
+    rx_age_s = 0.0
+    device = ""
+    ports = ()
+    torque_enabled = False
+    reply_ok = True
+    reply_reason = ""
+    safety_fault = ""
+    motor_currents_ma = {}
+
+
+_CONTROL_LABEL_W = 96.0
+_PORT_LABEL_W = 66.0
+_WARN_W = 28.0
+_SEARCH_W = 72.0
+
+
+def _control_label(panel, text: str) -> None:
+    imgui.text(str(text))
+    imgui.same_line(scaled(panel, _CONTROL_LABEL_W))
+
+
+def _warn_button(panel, label: str) -> bool:
+    pushed = False
+    try:
+        imgui.push_style_color(imgui.COLOR_BUTTON, 0.93, 0.48, 0.18, 1.0)
+        imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 1.0, 0.56, 0.22, 1.0)
+        imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, 0.78, 0.34, 0.10, 1.0)
+        pushed = True
+    except Exception:
+        pushed = False
+    try:
+        return bool(imgui.button(f"!##{label}", scaled(panel, _WARN_W), 0.0))
+    finally:
+        if pushed:
+            imgui.pop_style_color(3)
+
 
 def draw_hardware_panel(panel) -> None:
     if not panel._hw_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._hw_header_init_open = True
-    if imgui.collapsing_header("Hardware", visible=True)[0]:
-        if not panel._use_hardware:
-            imgui.text("Simulation Only - Please connect the robot!")
-            if imgui.button("Reset Simulation"):
-                panel.service.reset_simulation()
-                if hasattr(panel, "_go2_was_active"):
-                    panel._go2_was_active = False
-            return
-        if not panel.service.has_client():
-            imgui.text("Host: OFF")
-            return
+    if panel_header("Hardware", visible=True)[0]:
         state = panel._host_state if panel._host_state is not None else panel.service.current_host_state()
         if state is None:
-            imgui.text("Host: OFF")
-            return
-        imgui.text(f"Host: {'OK' if state.connected else 'OFF'}")
-        imgui.text(f"tx_seq={state.tx_seq} rx_age={state.rx_age_s:.2f}s")
+            state = _EmptyHardwareState()
         current_device = str(state.device or "").strip()
-        if current_device:
-            imgui.text(f"Current Port: {current_device}")
-            if not panel._port_input:
-                panel._port_input = current_device
-        changed_port, new_port = imgui.input_text("Port", panel._port_input, 256)
+        if current_device and not panel._port_input:
+            panel._port_input = current_device
+
+        imgui.text("Port")
+        imgui.same_line(scaled(panel, _PORT_LABEL_W))
+        search_w = scaled(panel, _SEARCH_W)
+        spacing_x = float(getattr(imgui.get_style().item_spacing, "x", scaled(panel, 8.0)))
+        port_input_w = max(1.0, float(imgui.get_content_region_available_width()) - search_w - spacing_x)
+        imgui.push_item_width(port_input_w)
+        changed_port, new_port = imgui.input_text("##hardware_port", panel._port_input, 256)
+        imgui.pop_item_width()
         if changed_port:
             panel._port_input = str(new_port)
-        if imgui.button("Search Ports"):
-            panel.service.request_ports()
-        ports = list(state.ports)
-        if ports:
-            imgui.text("Detected Ports:")
-            imgui.same_line()
-            for idx, port in enumerate(ports):
-                if imgui.small_button(f"{port}##port_{idx}"):
-                    panel._port_input = str(port)
-                if (idx + 1) < len(ports):
-                    imgui.same_line()
-        if imgui.button("Apply Port"):
-            panel.state.set_torque_lock_bypass(bool(state.torque_enabled))
-            panel.service.set_device(panel._port_input.strip())
         imgui.same_line()
-        if imgui.button("Disconnect Port"):
+        if imgui.button("Search", search_w, 0.0):
+            panel.service.request_ports()
+
+        _control_label(panel, "Apply Port")
+        if toggle_switch(
+            panel,
+            "hardware_port_switch",
+            bool(current_device),
+        ):
+            if current_device:
+                panel.state.set_torque_lock_bypass(False)
+                panel.service.disconnect_device()
+                panel._port_input = ""
+            else:
+                panel.state.set_torque_lock_bypass(bool(state.torque_enabled))
+                panel.service.set_device(panel._port_input.strip())
+        imgui.same_line()
+        if _warn_button(panel, "hardware_port_abort"):
             panel.state.set_torque_lock_bypass(False)
             panel.service.disconnect_device()
             panel._port_input = ""
-        reply_reason = str(state.reply_reason or "").strip()
-        if reply_reason:
-            is_perception_reason = reply_reason.lower().startswith("perception")
-            if bool(state.reply_ok):
-                if reply_reason == "ports":
-                    if not ports:
-                        imgui.text("No serial ports found")
-                elif not is_perception_reason:
-                    imgui.text(f"Host: {reply_reason}")
-            elif not is_perception_reason:
-                imgui.text_colored(f"Host: {reply_reason}", 1.0, 0.35, 0.35)
-        if str(state.safety_fault).strip():
-            imgui.text_colored(f"Safety fault: {state.safety_fault}", 1.0, 0.25, 0.25)
-        if state.motor_currents_ma:
-            currents_text = ", ".join(f"{k}={int(v)}mA" for k, v in state.motor_currents_ma.items())
-            imgui.text_wrapped(f"Currents: {currents_text}")
-        if imgui.button("Torque On"):
-            resume = bool(panel.state.torque_lock_bypass and not bool(state.torque_enabled))
-            panel.service.torque_on(resume=resume)
-            if not resume:
+
+        _control_label(panel, "Torque")
+        if toggle_switch(
+            panel,
+            "hardware_torque_switch",
+            bool(state.torque_enabled),
+        ):
+            if state.torque_enabled:
                 panel.state.set_torque_lock_bypass(False)
+                panel.service.torque_off()
+            else:
+                resume = bool(panel.state.torque_lock_bypass)
+                panel.service.torque_on(resume=resume)
+                if not resume:
+                    panel.state.set_torque_lock_bypass(False)
         imgui.same_line()
-        if imgui.button("Torque Off"):
+        if _warn_button(panel, "hardware_torque_abort"):
             panel.state.set_torque_lock_bypass(False)
             panel.service.torque_off()

@@ -15,13 +15,13 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine import ik as ik_pipeline
-from engine.controller import ControlClient, ControlService, PanelState
-from engine.controller.object_pick import ObjectPickPhase
+from engine.robot.arm import ik as ik_pipeline
+from engine.behaviors.pick import ControlClient, ControlService, PanelState
+from engine.vision.pick.core import ObjectPickPhase
 
 
 def _parse_phases(raw: str) -> list[str]:

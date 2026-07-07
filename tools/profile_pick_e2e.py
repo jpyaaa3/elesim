@@ -19,15 +19,15 @@ import time
 from io import StringIO
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.perception_bridge.hand_eye import load_hand_eye_transform
-from engine import ik as ik_pipeline
-from engine.controller import ControlClient, ControlService, PanelState
-from engine.controller.object_pick import ObjectPickPhase
-from engine.profile.pick_timing import (
+from engine.vision.perception_bridge.hand_eye import load_hand_eye_transform
+from engine.robot.arm import ik as ik_pipeline
+from engine.behaviors.pick import ControlClient, ControlService, PanelState
+from engine.vision.pick.core import ObjectPickPhase
+from engine.observability.pick_timing import (
     PickTimingCollector,
     enabled as pick_profile_enabled,
     format_report,
@@ -35,7 +35,7 @@ from engine.profile.pick_timing import (
     reset_fk_count,
     uninstall_fk_counter,
 )
-from engine.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
+from engine.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 
 
 def _parse_phases(raw: str) -> list[str]:

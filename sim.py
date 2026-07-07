@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
+import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
@@ -17,10 +19,10 @@ import zmq
 import genesis as gs
 from genesis.utils import geom as gs_geom
 
-import engine.protocol as proto
+import engine.core.protocol as proto
 import builder.json_builder as assembly_builder
 from builder.go2_arm_merger import merge_go2_arm_urdf
-from engine.config_loader import (
+from engine.core.config_loader import (
     Go2LocomotionConfig,
     HardwareConfig,
     IkConfig,
@@ -31,12 +33,45 @@ from engine.config_loader import (
     UrdfExportConfig,
     load_app_config_from_ini,
 )
-from engine.go2_locomotion import Go2Command
-from engine.go2_locomotion.controller import RaibertTrotController
-from engine.go2_locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q
-from engine.motor import estimate_ideal_sim_rates
+from engine.robot.go2.locomotion import Go2Command
+from engine.robot.go2.locomotion.controller import RaibertTrotController
+from engine.robot.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
+from engine.robot.arm.dynamixel import estimate_ideal_sim_rates
+from engine.core.runtime_urdf import select_runtime_urdf
 from builder.urdf_converter import convert_manifest_file
-from engine.sag_model import segment_errors_from_model
+from engine.robot.arm.sag_model import segment_errors_from_model
+
+
+GO2_STAND_DOWN_Q: Dict[str, float] = {
+    "FL_hip_joint": 0.10,
+    "FL_thigh_joint": 1.35,
+    "FL_calf_joint": -2.55,
+    "FR_hip_joint": -0.10,
+    "FR_thigh_joint": 1.35,
+    "FR_calf_joint": -2.55,
+    "RL_hip_joint": 0.10,
+    "RL_thigh_joint": 1.35,
+    "RL_calf_joint": -2.55,
+    "RR_hip_joint": -0.10,
+    "RR_thigh_joint": 1.35,
+    "RR_calf_joint": -2.55,
+}
+
+
+@dataclass
+class _Go2PostureTransition:
+    pose: str
+    start_wall_s: float
+    duration_s: float
+    start_pos: np.ndarray
+    target_pos: np.ndarray
+    start_quat: np.ndarray
+    target_quat: np.ndarray
+    start_q: np.ndarray
+    target_q: np.ndarray
+    kp: float
+    kv: float
+    hold_after: str = ""
 
 
 def _ensure_genesis_cache_dir() -> None:
@@ -60,6 +95,113 @@ def _to_numpy_1d(raw) -> np.ndarray:
     if hasattr(raw, "numpy"):
         raw = raw.numpy()
     return np.array(raw, dtype=float).reshape(-1)
+
+
+class PerfLogger:
+    _FIELDS = (
+        "wall_time_s",
+        "samples",
+        "fps",
+        "loop_avg_ms",
+        "loop_max_ms",
+        "poll_avg_ms",
+        "poll_max_ms",
+        "go2_avg_ms",
+        "go2_max_ms",
+        "markers_avg_ms",
+        "markers_max_ms",
+        "feedback_avg_ms",
+        "feedback_max_ms",
+        "physics_avg_ms",
+        "physics_max_ms",
+        "camera_avg_ms",
+        "camera_max_ms",
+    )
+
+    def __init__(self, *, enabled: bool, interval_s: float = 2.0, log_path: str = "") -> None:
+        self.enabled = bool(enabled)
+        self.interval_s = max(0.25, float(interval_s))
+        self._last_report_t = time.perf_counter()
+        self._count = 0
+        self._sum: dict[str, float] = {}
+        self._max: dict[str, float] = {}
+        self._t0 = self._last_report_t
+        self._started_wall = time.time()
+        self._log_file = None
+        self._writer: Optional[csv.DictWriter] = None
+        if self.enabled:
+            path = self._resolve_log_path(log_path)
+            if path:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._log_file = open(path, "w", newline="", encoding="utf-8")
+                self._writer = csv.DictWriter(self._log_file, fieldnames=list(self._FIELDS))
+                self._writer.writeheader()
+                print(f"[perf] logging to {path}")
+
+    @staticmethod
+    def _resolve_log_path(raw: str) -> Optional[Path]:
+        value = str(raw or "").strip()
+        if not value:
+            stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
+            return Path("logs") / "perf" / stamp
+        path = Path(value).expanduser()
+        if path.is_dir() or value.endswith(("/", os.sep)):
+            stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
+            path = path / stamp
+        return path
+
+    def reset_loop(self) -> None:
+        if self.enabled:
+            self._t0 = time.perf_counter()
+
+    def section(self, name: str, t0: float) -> None:
+        if not self.enabled:
+            return
+        dt = time.perf_counter() - float(t0)
+        self._sum[name] = self._sum.get(name, 0.0) + dt
+        self._max[name] = max(self._max.get(name, 0.0), dt)
+
+    def report_if_due(self) -> None:
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        loop_dt = now - self._t0
+        self._count += 1
+        self._sum["loop"] = self._sum.get("loop", 0.0) + loop_dt
+        self._max["loop"] = max(self._max.get("loop", 0.0), loop_dt)
+        elapsed = now - self._last_report_t
+        if elapsed < self.interval_s:
+            return
+        count = max(1, self._count)
+        fps = count / max(1e-9, elapsed)
+        row = {
+            "wall_time_s": time.time() - self._started_wall,
+            "samples": count,
+            "fps": fps,
+        }
+        parts = [f"fps={fps:.1f}"]
+        for name in ("loop", "poll", "go2", "markers", "feedback", "physics", "camera"):
+            avg_ms = 1000.0 * self._sum.get(name, 0.0) / count
+            max_ms = 1000.0 * self._max.get(name, 0.0)
+            row[f"{name}_avg_ms"] = avg_ms
+            row[f"{name}_max_ms"] = max_ms
+            if name not in self._sum:
+                continue
+            parts.append(f"{name}={avg_ms:.2f}/{max_ms:.2f}ms")
+        print("[perf] " + " ".join(parts))
+        if self._writer is not None:
+            self._writer.writerow(row)
+            if self._log_file is not None:
+                self._log_file.flush()
+        self._last_report_t = now
+        self._count = 0
+        self._sum.clear()
+        self._max.clear()
+
+    def close(self) -> None:
+        if self._log_file is not None:
+            self._log_file.close()
+            self._log_file = None
 
 
 def _as_single_dof_index(raw_idx) -> int:
@@ -99,6 +241,7 @@ class Go2Locomotion:
         dt: float,
         config: Go2LocomotionConfig,
         arm_entity=None,
+        arm_link_names: set[str] | None = None,
         metrics=None,
         command_source: str = "teleop",
     ):
@@ -106,12 +249,15 @@ class Go2Locomotion:
         self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._mirror = bool(config.mirror_from_host)
         self._entity = entity
+        self._kin = Go2KinematicsModel.from_entity(entity)
+        self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
+        self._spawn_pos = self._read_entity_pos()
+        self._spawn_quat = self._read_entity_quat()
+        self._posture_hold: str = ""
+        self._posture_transition: Optional[_Go2PostureTransition] = None
+        self._obstacles_avoid_enabled: bool = False
         self._controller = None
         if self._mirror:
-            from engine.go2_locomotion.kinematics import Go2KinematicsModel
-
-            self._kin = Go2KinematicsModel.from_entity(entity)
-            self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
             self._last_mirror_pos: Optional[tuple[float, float, float]] = None
             self._last_mirror_rpy: Optional[tuple[float, float, float]] = None
             self._last_mirror_leg_q: Optional[tuple[float, ...]] = None
@@ -120,8 +266,8 @@ class Go2Locomotion:
 
         mode = str(config.mode).strip().lower()
         if mode == "convex_mpc":
-            from engine.go2_mpc.config import Go2MpcConfig
-            from engine.go2_mpc.controller import ConvexMpcGenesisController
+            from engine.robot.go2.mpc.config import Go2MpcConfig
+            from engine.robot.go2.mpc.controller import ConvexMpcGenesisController
 
             mpc_cfg = Go2MpcConfig(
                 gait_hz=float(config.gait_hz),
@@ -158,11 +304,216 @@ class Go2Locomotion:
                 dt=float(dt),
                 config=mpc_cfg,
                 arm_entity=arm_entity,
+                arm_link_names=arm_link_names,
                 metrics=metrics,
                 command_source=str(command_source),
             )
         else:
             self._controller = RaibertTrotController(entity, dt=float(dt), config=config)
+
+    def _read_entity_pos(self) -> np.ndarray:
+        try:
+            return _to_numpy_1d(self._entity.get_pos())[:3].astype(float).copy()
+        except Exception:
+            return np.array([0.0, 0.0, 0.32], dtype=float)
+
+    def _read_entity_quat(self) -> np.ndarray:
+        try:
+            q = _to_numpy_1d(self._entity.get_quat())[:4].astype(float).copy()
+            if float(np.linalg.norm(q)) > 1e-9:
+                return q
+        except Exception:
+            pass
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+
+    def _read_leg_q(self) -> np.ndarray:
+        if len(self._leg_dof_idxs) <= 0:
+            return np.asarray(self._kin.stand_q, dtype=float).reshape(-1).copy()
+        try:
+            q = _to_numpy_1d(self._entity.get_dofs_position(dofs_idx_local=self._leg_dof_idxs)).astype(float)
+            if q.size == len(self._leg_dof_idxs):
+                return q.copy()
+        except Exception:
+            pass
+        return np.asarray(self._kin.stand_q, dtype=float).reshape(-1).copy()
+
+    def _normalized_quat(self, quat_wxyz: np.ndarray) -> np.ndarray:
+        q = np.asarray(quat_wxyz, dtype=float).reshape(4)
+        norm = float(np.linalg.norm(q))
+        if norm <= 1e-9:
+            return np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+        return q / norm
+
+    def _interp_quat(self, q0_wxyz: np.ndarray, q1_wxyz: np.ndarray, alpha: float) -> np.ndarray:
+        q0 = self._normalized_quat(q0_wxyz)
+        q1 = self._normalized_quat(q1_wxyz)
+        if float(np.dot(q0, q1)) < 0.0:
+            q1 = -q1
+        a = float(np.clip(alpha, 0.0, 1.0))
+        return self._normalized_quat((1.0 - a) * q0 + a * q1)
+
+    def _pose_array(self, pose: Dict[str, float]) -> np.ndarray:
+        values: list[float] = []
+        for joint_name in GO2_STAND_Q.keys():
+            try:
+                joint = self._entity.get_joint(str(joint_name))
+                raw_idxs = joint.dofs_idx_local
+            except Exception:
+                raw_idxs = None
+            if raw_idxs is None:
+                continue
+            for _idx in np.asarray(raw_idxs, dtype=int).reshape(-1):
+                values.append(float(pose.get(str(joint_name), GO2_STAND_Q.get(str(joint_name), 0.0))))
+        return np.asarray(values, dtype=float)
+
+    def _set_root_pose(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> None:
+        try:
+            self._entity.set_pos(np.asarray(pos, dtype=float).reshape(3))
+            self._entity.set_quat(np.asarray(quat_wxyz, dtype=float).reshape(4))
+            self._entity.zero_all_dofs_velocity()
+        except Exception:
+            pass
+
+    def _set_leg_position_hold(self, q: np.ndarray, *, kp: float = 90.0, kv: float = 6.0) -> None:
+        if len(self._leg_dof_idxs) <= 0:
+            return
+        q_arr = np.asarray(q, dtype=float).reshape(-1)
+        if q_arr.size != len(self._leg_dof_idxs):
+            return
+        try:
+            self._entity.set_dofs_kp(np.full(len(self._leg_dof_idxs), float(kp)), dofs_idx_local=self._leg_dof_idxs)
+            self._entity.set_dofs_kv(np.full(len(self._leg_dof_idxs), float(kv)), dofs_idx_local=self._leg_dof_idxs)
+            self._entity.set_dofs_position(q_arr, dofs_idx_local=self._leg_dof_idxs)
+            self._entity.control_dofs_position(q_arr, dofs_idx_local=self._leg_dof_idxs)
+        except Exception:
+            pass
+
+    def _stand_down_root_pos(self) -> np.ndarray:
+        pos = np.asarray(self._spawn_pos, dtype=float).reshape(3).copy()
+        pos[2] = max(0.12, float(pos[2]) - 0.16)
+        return pos
+
+    def _hold_stand_down(self) -> None:
+        self._set_root_pose(self._stand_down_root_pos(), self._spawn_quat)
+        self._set_leg_position_hold(self._pose_array(GO2_STAND_DOWN_Q), kp=70.0, kv=5.0)
+
+    def _zero_controller_command(self) -> None:
+        if self._controller is not None and hasattr(self._controller, "set_command"):
+            self._controller.set_command(Go2Command())
+
+    def _reset_controller_for_posture(self) -> None:
+        self._zero_controller_command()
+        if self._controller is not None and hasattr(self._controller, "reset"):
+            self._controller.reset()
+
+    def _begin_posture_transition(
+        self,
+        *,
+        pose: str,
+        target_pos: np.ndarray,
+        target_quat: np.ndarray,
+        target_q: np.ndarray,
+        duration_s: float,
+        kp: float,
+        kv: float,
+        hold_after: str = "",
+    ) -> None:
+        self._posture_hold = ""
+        self._reset_controller_for_posture()
+        self._posture_transition = _Go2PostureTransition(
+            pose=str(pose),
+            start_wall_s=time.perf_counter(),
+            duration_s=max(1e-3, float(duration_s)),
+            start_pos=self._read_entity_pos(),
+            target_pos=np.asarray(target_pos, dtype=float).reshape(3),
+            start_quat=self._read_entity_quat(),
+            target_quat=self._normalized_quat(np.asarray(target_quat, dtype=float).reshape(4)),
+            start_q=self._read_leg_q(),
+            target_q=np.asarray(target_q, dtype=float).reshape(-1),
+            kp=float(kp),
+            kv=float(kv),
+            hold_after=str(hold_after),
+        )
+
+    def _advance_posture_transition(self) -> bool:
+        tr = self._posture_transition
+        if tr is None:
+            return False
+        raw_alpha = (time.perf_counter() - float(tr.start_wall_s)) / max(1e-3, float(tr.duration_s))
+        alpha = float(np.clip(raw_alpha, 0.0, 1.0))
+        smooth = alpha * alpha * (3.0 - 2.0 * alpha)
+        pos = (1.0 - smooth) * np.asarray(tr.start_pos, dtype=float) + smooth * np.asarray(tr.target_pos, dtype=float)
+        quat = self._interp_quat(tr.start_quat, tr.target_quat, smooth)
+        start_q = np.asarray(tr.start_q, dtype=float).reshape(-1)
+        target_q = np.asarray(tr.target_q, dtype=float).reshape(-1)
+        if start_q.size == target_q.size:
+            leg_q = (1.0 - smooth) * start_q + smooth * target_q
+        else:
+            leg_q = target_q
+        self._set_root_pose(pos, quat)
+        self._set_leg_position_hold(leg_q, kp=tr.kp, kv=tr.kv)
+        if alpha >= 1.0:
+            self._posture_transition = None
+            self._posture_hold = str(tr.hold_after)
+        return True
+
+    def apply_sport_pose(self, pose: str) -> bool:
+        if self._mirror:
+            return False
+        key = str(pose).strip().lower().replace("-", "_")
+        if key in ("balance", "balance_stand"):
+            self._begin_posture_transition(
+                pose="balance_stand",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.stand_q, dtype=float),
+                duration_s=0.7,
+                kp=90.0,
+                kv=6.0,
+            )
+            return True
+        if key in ("stand", "stand_up"):
+            self._begin_posture_transition(
+                pose="stand_up",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.stand_q, dtype=float),
+                duration_s=0.7,
+                kp=90.0,
+                kv=6.0,
+            )
+            return True
+        if key in ("recovery_stand", "recover", "get_up", "stand_up_from_fall"):
+            self._begin_posture_transition(
+                pose="recovery_stand",
+                target_pos=self._spawn_pos,
+                target_quat=self._spawn_quat,
+                target_q=np.asarray(self._kin.ready_q, dtype=float),
+                duration_s=0.9,
+                kp=110.0,
+                kv=7.0,
+            )
+            return True
+        if key in ("stand_down", "lie_down", "prone"):
+            self._begin_posture_transition(
+                pose="stand_down",
+                target_pos=self._stand_down_root_pos(),
+                target_quat=self._spawn_quat,
+                target_q=self._pose_array(GO2_STAND_DOWN_Q),
+                duration_s=1.0,
+                kp=70.0,
+                kv=5.0,
+                hold_after="stand_down",
+            )
+            return True
+        return False
+
+    def set_obstacles_avoid_enabled(self, enabled: bool) -> None:
+        self._obstacles_avoid_enabled = bool(enabled)
+
+    @property
+    def obstacles_avoid_enabled(self) -> bool:
+        return bool(self._obstacles_avoid_enabled)
 
     @property
     def mirror_mode(self) -> bool:
@@ -233,6 +584,8 @@ class Go2Locomotion:
         self._arm_q = tuple(float(x) for x in arm_q)
 
     def reset_locomotion(self) -> None:
+        self._posture_hold = ""
+        self._posture_transition = None
         if self._controller is not None and hasattr(self._controller, "reset"):
             self._controller.reset()
         self._arm_q = (0.0, 0.0, 0.0, 0.0)
@@ -242,10 +595,21 @@ class Go2Locomotion:
     def set_planar_velocity(self, vx: float, vy: float, wz: float) -> None:
         if self._mirror or self._controller is None:
             return
+        moving = max(abs(float(vx)), abs(float(vy)), abs(float(wz))) > 1e-6
+        if (self._posture_hold or self._posture_transition is not None) and moving:
+            self.reset_locomotion()
+        if self._posture_transition is not None:
+            self._zero_controller_command()
+            return
         self._controller.set_command(Go2Command(vx=float(vx), vy=float(vy), yaw_rate=float(wz)))
 
     def step(self) -> None:
         if self._mirror:
+            return
+        if self._advance_posture_transition():
+            return
+        if self._posture_hold == "stand_down":
+            self._hold_stand_down()
             return
         if self._controller is not None and hasattr(self._controller, "set_arm_q"):
             self._controller.set_arm_q(self._arm_q)
@@ -278,6 +642,74 @@ def _make_urdf_morph(
             return gs.morphs.URDF(**common, default_armature=0.0)
         except TypeError:
             return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
+
+
+def _prepare_go2_urdf_with_config_colors(
+    source_urdf: str,
+    *,
+    build_dir: str,
+    colors: Dict[str, Tuple[float, float, float, float]],
+) -> str:
+    go2_colors = {str(k).strip(): v for k, v in (colors or {}).items() if str(k).strip().startswith("go2")}
+    if not go2_colors:
+        return source_urdf
+
+    def fmt_rgba(rgba: Tuple[float, float, float, float]) -> str:
+        vals = [float(x) for x in rgba]
+        if len(vals) == 3:
+            vals.append(1.0)
+        return " ".join(f"{x:.9g}" for x in vals[:4])
+
+    default = go2_colors.get("go2")
+    group_color = {
+        "base": go2_colors.get("go2_base", default),
+        "hip": go2_colors.get("go2_hip", default),
+        "thigh": go2_colors.get("go2_thigh", default),
+        "calf": go2_colors.get("go2_calf", default),
+        "foot": go2_colors.get("go2_foot", default),
+    }
+    tree = ET.parse(source_urdf)
+    root = tree.getroot()
+    source_dir = os.path.dirname(os.path.abspath(source_urdf))
+    changed = 0
+    for mesh in root.findall(".//mesh"):
+        filename = str(mesh.attrib.get("filename", "")).strip()
+        if filename and not os.path.isabs(filename):
+            mesh.attrib["filename"] = os.path.abspath(os.path.join(source_dir, filename))
+    for link in root.findall("link"):
+        name = str(link.attrib.get("name", ""))
+        lname = name.lower()
+        rgba = None
+        if name == "base":
+            rgba = group_color["base"]
+        elif "hip" in lname:
+            rgba = group_color["hip"]
+        elif "thigh" in lname:
+            rgba = group_color["thigh"]
+        elif "calf" in lname:
+            rgba = group_color["calf"]
+        elif "foot" in lname:
+            rgba = group_color["foot"]
+        if rgba is None:
+            continue
+        for visual in link.findall("visual"):
+            material = visual.find("material")
+            if material is None:
+                material = ET.SubElement(visual, "material", attrib={"name": f"{name}_mat"})
+            material.attrib["name"] = f"go2_{name}_mat"
+            color = material.find("color")
+            if color is None:
+                color = ET.SubElement(material, "color")
+            color.attrib["rgba"] = fmt_rgba(rgba)
+            changed += 1
+
+    if changed <= 0:
+        return source_urdf
+    os.makedirs(build_dir, exist_ok=True)
+    out = os.path.join(build_dir, "go2_colored.urdf")
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+    print(f"[runtime] GO2 URDF colors applied: {out} visuals={changed}")
+    return out
 
 
 def _set_go2_initial_leg_pose(go2_entity, *, pose_name: str = "ready") -> None:
@@ -330,6 +762,7 @@ class JointLayout:
     fk_root_link: str = "plate"
     fk_joint_chain: List[Dict[str, object]] = field(default_factory=list)
     no_clip_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    arm_link_names: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -447,8 +880,12 @@ class SimScene:
     eye_camera: object = None
     camera_publisher: object = None
     hand_eye_config_path: str = ""
+    sim_target_entity: object = None
+    sim_target_xyz: Optional[np.ndarray] = None
     n_nodes: int = 0
     n_seg: int = 0
+    sim_step_count: int = 0
+    _sim_wall_start_s: float = field(default_factory=time.perf_counter)
     _last_camera_publish_t: float = 0.0
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
@@ -456,7 +893,7 @@ class SimScene:
 
     def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
         """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
-        from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
+        from engine.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
 
         base = go2_ent.get_link("base")
         base_pos = self._to_numpy_1d(base.get_pos())[:3]
@@ -478,7 +915,7 @@ class SimScene:
         ):
             return
         try:
-            from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
+            from engine.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
 
             base = self.go2_entity.get_link("base")
             arm_ent = self.mover.entity
@@ -516,6 +953,25 @@ class SimScene:
         if self.scene is None:
             return
         markers.draw_direction(self.scene, attr_name, pos, direction, color)
+
+    def set_sim_target_position(self, xyz: np.ndarray) -> bool:
+        target = self.sim_target_entity
+        if target is None:
+            return False
+        pos = np.asarray(xyz, dtype=float).reshape(3)
+        prev = self.sim_target_xyz
+        if prev is not None and np.allclose(prev, pos, atol=1e-9):
+            return True
+        try:
+            target.set_pos(pos)
+            zero_vel = getattr(target, "zero_all_dofs_velocity", None)
+            if callable(zero_vel):
+                zero_vel()
+        except Exception as exc:
+            print(f"[runtime] sim target move failed: {exc}")
+            return False
+        self.sim_target_xyz = pos.copy()
+        return True
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         if self.mover is None:
@@ -714,7 +1170,33 @@ class SimScene:
         if self.go2 is not None:
             self.go2.step()
         if self.scene is not None:
+            if int(self.sim_step_count) <= 0:
+                self._sim_wall_start_s = time.perf_counter()
             self.scene.step()
+            self.sim_step_count += 1
+
+    def sim_time_s(self, dt: float) -> float:
+        return float(max(0, int(self.sim_step_count))) * float(dt)
+
+    def sim_wall_elapsed_s(self) -> float:
+        if int(self.sim_step_count) <= 0:
+            return 0.0
+        return max(0.0, float(time.perf_counter() - float(self._sim_wall_start_s)))
+
+    def sim_realtime_factor(self, dt: float) -> float:
+        wall = self.sim_wall_elapsed_s()
+        if wall <= 1e-9:
+            return 0.0
+        return self.sim_time_s(float(dt)) / wall
+
+    def throttle_realtime(self, dt: float, *, realtime_factor: float = 1.0) -> None:
+        if self.scene is None or int(self.sim_step_count) <= 0:
+            return
+        factor = max(1e-6, float(realtime_factor))
+        target_wall = float(self._sim_wall_start_s) + self.sim_time_s(float(dt)) / factor
+        delay_s = target_wall - time.perf_counter()
+        if delay_s > 0.0:
+            time.sleep(delay_s)
 
     def reset_environment(self, *, mapping_cfg: Optional[proto.SimMappingConfig] = None) -> None:
         cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
@@ -725,9 +1207,14 @@ class SimScene:
                 print(f"[sim] scene.reset failed: {exc}")
         if self.go2 is not None:
             self.go2.reset_locomotion()
+        seen_entities: set[int] = set()
         for entity in (self.go2_entity, getattr(self.mover, "entity", None) if self.mover is not None else None):
             if entity is None:
                 continue
+            entity_id = id(entity)
+            if entity_id in seen_entities:
+                continue
+            seen_entities.add(entity_id)
             try:
                 entity.zero_all_dofs_velocity()
             except Exception:
@@ -744,6 +1231,8 @@ class SimScene:
                     float(start_q.theta2_rad),
                 )
             )
+        self.sim_step_count = 0
+        self._sim_wall_start_s = time.perf_counter()
         print(
             "[sim] environment reset | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
             % (
@@ -764,6 +1253,8 @@ class SimScene:
         arm_q: Optional[tuple[float, float, float, float]],
         max_hz: float,
         force: bool = False,
+        rgb_enabled: bool = True,
+        depth_enabled: bool = True,
     ) -> None:
         if self.eye_camera is None or self.camera_publisher is None:
             return
@@ -774,7 +1265,12 @@ class SimScene:
         if not force and (now - float(self._last_camera_publish_t)) < period:
             return
         try:
-            frame = self.eye_camera.capture(arm_q=arm_q, ts=now)
+            frame = self.eye_camera.capture(
+                arm_q=arm_q,
+                ts=now,
+                rgb_enabled=bool(rgb_enabled),
+                depth_enabled=bool(depth_enabled),
+            )
             if self.camera_publisher.publish(frame):
                 self._last_camera_publish_t = now
         except Exception as exc:
@@ -793,7 +1289,7 @@ class SimScene:
         if self.mover is None:
             return None
         try:
-            from engine.sim_camera.pose import camera_axes_from_genesis_link
+            from engine.vision.sim_camera.pose import camera_axes_from_genesis_link
 
             return camera_axes_from_genesis_link(
                 self.mover.entity,
@@ -924,6 +1420,29 @@ class SimMover:
     def get_last_command_full(self) -> np.ndarray:
         return self._q_cmd.copy()
 
+    def current_4dof_q(self) -> proto.SimQ:
+        q = np.asarray(self._q_cmd, dtype=float).reshape(-1)
+
+        def value_at(pos: Optional[int], default: float = 0.0) -> float:
+            if pos is None or int(pos) < 0 or int(pos) >= q.size:
+                return float(default)
+            return float(q[int(pos)])
+
+        linear = value_at(self._linear_pos)
+        roll = value_at(self.idx_roll())
+        bend_values = [value_at(pos) for pos in self._bend_pos if int(pos) < q.size]
+        n_seg = max(0, min(int(self.n_seg), len(bend_values)))
+        seg1_vals = bend_values[:n_seg]
+        seg2_vals = bend_values[n_seg:]
+        theta1 = float(np.mean(seg1_vals)) if seg1_vals else 0.0
+        theta2 = float(np.mean(seg2_vals)) if seg2_vals else 0.0
+        return proto.SimQ(
+            linear_m=float(linear),
+            roll_rad=float(roll),
+            theta1_rad=float(theta1),
+            theta2_rad=float(theta2),
+        )
+
     def _apply_q_direct(self, q_target: np.ndarray) -> None:
         self.entity.set_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
 
@@ -948,7 +1467,7 @@ class SimMover:
         self._claw_right_target = 0.02 if self._claw_closed else 0.0
 
     def target_from_4dof(self, linear_m: float, roll: float, theta1: float, theta2: float) -> np.ndarray:
-        linear = float(np.clip(float(linear_m), -0.230, 0.010))
+        linear = float(np.clip(float(linear_m), -0.230, 0.0))
         rl = float(np.clip(float(roll), self.limit.roll_min_rad(), self.limit.roll_max_rad()))
         t1 = float(np.clip(float(theta1), -self.bend_lim, +self.bend_lim))
         t2 = float(np.clip(float(theta2), -self.bend_lim, +self.bend_lim))
@@ -1056,8 +1575,17 @@ class AssetProcessor:
         self._load_joint_layout(in_json)
         self.app._apply_ideal_rates_if_needed()
         convert_manifest_file(in_json, arm_urdf, cfg=self.app.urdf_export_cfg)
-        if bool(getattr(self.app.cfg, "use_go2", False)):
+        use_go2 = bool(getattr(self.app.cfg, "use_go2", False))
+        runtime_urdf = select_runtime_urdf(use_go2=use_go2, arm_urdf=arm_urdf, robot_urdf=robot_urdf)
+        if use_go2:
             go2_urdf = RuntimePrep._resolve_genesis_go2_urdf()
+            if not go2_urdf:
+                raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
+            go2_urdf = _prepare_go2_urdf_with_config_colors(
+                go2_urdf,
+                build_dir=self.app.cfg.build_dir,
+                colors=self.app.urdf_export_cfg.part_color_rgba_by_name,
+            )
             merge_go2_arm_urdf(
                 go2_urdf_path=go2_urdf,
                 arm_urdf_path=arm_urdf,
@@ -1065,11 +1593,9 @@ class AssetProcessor:
                 mount_xyz=tuple(float(x) for x in self.app.spawn.go2_mount_offset_m),
             )
             print(f"[runtime] combined GO2+arm URDF saved: {robot_urdf}")
-        else:
-            convert_manifest_file(in_json, robot_urdf, cfg=self.app.urdf_export_cfg)
         print(f"[runtime] use_hardware = {str(bool(self.app.cfg.use_hardware)).lower()}")
         print("[runtime] assets prepared in %.2fs" % (time.time() - t0))
-        return arm_urdf
+        return runtime_urdf
 
     def _load_joint_layout(self, json_path: str) -> None:
         with open(json_path, "r", encoding="utf-8") as f:
@@ -1135,6 +1661,11 @@ class AssetProcessor:
             if kind in ("housing", "wedge", "node", "node_end"):
                 controlled_modes.append(mode)
         part_by_name = {str(_pick_manifest_value(p, "name", default="")): p for p in parts}
+        self.app.layout.arm_link_names = [
+            str(_pick_manifest_value(p, "name", default="")).strip()
+            for p in parts
+            if str(_pick_manifest_value(p, "name", default="")).strip()
+        ]
         def _load_tip_offset(part_name: str) -> np.ndarray:
             part = part_by_name.get(part_name)
             if part is None:
@@ -1327,8 +1858,23 @@ class StateSource:
     def go2_leg_q(self) -> Optional[tuple[float, ...]]:
         return None
 
+    def go2_sport_pose(self) -> str:
+        return ""
+
+    def go2_sport_pose_seq(self) -> int:
+        return 0
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return False
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return 0
+
     def sim_reset_seq(self) -> int:
         return 0
+
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        return None
 
     def debug_markers(self) -> list[dict[str, Any]]:
         return []
@@ -1353,6 +1899,11 @@ class HardwareStateCache(StateSource):
         self._last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self._last_go2_base_rpy: Optional[tuple[float, float, float]] = None
         self._last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self._last_go2_sport_pose: str = ""
+        self._last_go2_sport_pose_seq: int = 0
+        self._last_go2_obstacles_avoid_enabled: bool = False
+        self._last_go2_obstacles_avoid_seq: int = 0
+        self._last_sim_target_xyz: Optional[np.ndarray] = None
         self._last_sim_reset_seq: int = 0
         self._last_debug_markers: list[dict[str, Any]] = []
 
@@ -1388,8 +1939,20 @@ class HardwareStateCache(StateSource):
         if go2_leg_q is not None and len(go2_leg_q) == 12:
             self._last_go2_leg_q = tuple(float(v) for v in go2_leg_q)
 
+    def update_go2_sport_pose(self, pose: str, seq: int) -> None:
+        self._last_go2_sport_pose = str(pose).strip().lower()
+        self._last_go2_sport_pose_seq = int(seq)
+
+    def update_go2_obstacles_avoid(self, enabled: bool, seq: int) -> None:
+        self._last_go2_obstacles_avoid_enabled = bool(enabled)
+        self._last_go2_obstacles_avoid_seq = int(seq)
+
     def update_sim_reset_seq(self, seq: int) -> None:
         self._last_sim_reset_seq = int(seq)
+
+    def update_sim_target_xyz(self, xyz: Optional[tuple[float, float, float]]) -> None:
+        if xyz is not None:
+            self._last_sim_target_xyz = np.asarray(xyz, dtype=float).reshape(3)
 
     def update_ik_target(self, ik_target_xyz: Optional[np.ndarray]) -> None:
         self._last_ik_target_xyz = None if ik_target_xyz is None else np.array(ik_target_xyz, dtype=float).reshape(3)
@@ -1453,8 +2016,25 @@ class HardwareStateCache(StateSource):
             return None
         return tuple(float(v) for v in self._last_go2_leg_q)
 
+    def go2_sport_pose(self) -> str:
+        return str(self._last_go2_sport_pose).strip().lower()
+
+    def go2_sport_pose_seq(self) -> int:
+        return int(self._last_go2_sport_pose_seq)
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return bool(self._last_go2_obstacles_avoid_enabled)
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return int(self._last_go2_obstacles_avoid_seq)
+
     def sim_reset_seq(self) -> int:
         return int(self._last_sim_reset_seq)
+
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        if self._last_sim_target_xyz is None:
+            return None
+        return self._last_sim_target_xyz.copy()
 
     def debug_markers(self) -> list[dict[str, Any]]:
         return [dict(marker) for marker in self._last_debug_markers]
@@ -1486,6 +2066,11 @@ class HostStateSubscriber:
         self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
         self.last_go2_leg_q: Optional[tuple[float, ...]] = None
+        self.last_go2_sport_pose: str = ""
+        self.last_go2_sport_pose_seq: int = 0
+        self.last_go2_obstacles_avoid_enabled: bool = False
+        self.last_go2_obstacles_avoid_seq: int = 0
+        self.last_sim_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_sim_reset_seq: int = 0
         self.last_debug_markers: list[dict[str, Any]] = []
 
@@ -1560,9 +2145,33 @@ class HostStateSubscriber:
             leg_raw = msg.get("go2_leg_q", None)
             if isinstance(leg_raw, (list, tuple)) and len(leg_raw) == 12:
                 self.last_go2_leg_q = tuple(float(v) for v in leg_raw)
+            if "go2_sport_pose" in msg:
+                self.last_go2_sport_pose = str(msg.get("go2_sport_pose", "")).strip().lower()
+            if "go2_sport_pose_seq" in msg:
+                try:
+                    self.last_go2_sport_pose_seq = int(msg.get("go2_sport_pose_seq", 0))
+                except (TypeError, ValueError):
+                    pass
+            if "go2_obstacles_avoid_enabled" in msg:
+                self.last_go2_obstacles_avoid_enabled = bool(msg.get("go2_obstacles_avoid_enabled", False))
+            if "go2_obstacles_avoid_seq" in msg:
+                try:
+                    self.last_go2_obstacles_avoid_seq = int(msg.get("go2_obstacles_avoid_seq", 0))
+                except (TypeError, ValueError):
+                    pass
             if "sim_reset_seq" in msg:
                 try:
                     self.last_sim_reset_seq = int(msg.get("sim_reset_seq", 0))
+                except (TypeError, ValueError):
+                    pass
+            sim_target_raw = msg.get("sim_target", None)
+            if isinstance(sim_target_raw, (list, tuple)) and len(sim_target_raw) == 3:
+                try:
+                    self.last_sim_target_xyz = (
+                        float(sim_target_raw[0]),
+                        float(sim_target_raw[1]),
+                        float(sim_target_raw[2]),
+                    )
                 except (TypeError, ValueError):
                     pass
             debug_markers_raw = msg.get("debug_markers", None)
@@ -1591,16 +2200,36 @@ class HostFeedbackPublisher:
         actual_tip_xyz: Optional[np.ndarray],
         actual_tip_dir: Optional[np.ndarray] = None,
         *,
+        arm_q: Optional[proto.SimQ] = None,
         camera_origin: Optional[np.ndarray] = None,
         camera_look: Optional[np.ndarray] = None,
         camera_right: Optional[np.ndarray] = None,
+        sim_time_s: Optional[float] = None,
+        sim_wall_elapsed_s: Optional[float] = None,
+        sim_realtime_factor: Optional[float] = None,
+        sim_step_count: Optional[int] = None,
     ) -> None:
-        if actual_tip_xyz is None and camera_origin is None:
+        if actual_tip_xyz is None and arm_q is None and camera_origin is None and sim_time_s is None:
             return
         msg: dict[str, Any] = {
             "t": "sim_state",
             "ts": time.time(),
         }
+        if sim_time_s is not None:
+            msg["sim_time_s"] = float(sim_time_s)
+        if sim_wall_elapsed_s is not None:
+            msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
+        if sim_realtime_factor is not None:
+            msg["sim_realtime_factor"] = float(sim_realtime_factor)
+        if sim_step_count is not None:
+            msg["sim_step_count"] = int(sim_step_count)
+        if arm_q is not None:
+            msg["sim_q"] = {
+                "linear_m": float(arm_q.linear_m),
+                "roll_rad": float(arm_q.roll_rad),
+                "theta1_rad": float(arm_q.theta1_rad),
+                "theta2_rad": float(arm_q.theta2_rad),
+            }
         if actual_tip_xyz is not None:
             msg["actual_tip"] = [
                 float(actual_tip_xyz[0]),
@@ -1627,9 +2256,17 @@ class HostFeedbackPublisher:
         except Exception:
             pass
 
-    def send_go2_base(self, go2_entity) -> None:
+    def send_go2_base(
+        self,
+        go2_entity,
+        *,
+        sim_time_s: Optional[float] = None,
+        sim_wall_elapsed_s: Optional[float] = None,
+        sim_realtime_factor: Optional[float] = None,
+        sim_step_count: Optional[int] = None,
+    ) -> None:
         try:
-            from engine.go2_mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw, _to_numpy_1d
+            from engine.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
             from scipy.spatial.transform import Rotation as Rot
 
             base = go2_entity.get_link("base")
@@ -1651,6 +2288,14 @@ class HostFeedbackPublisher:
                 "go2_base_ang_vel": [float(ang_body[0]), float(ang_body[1]), float(ang_body[2])],
                 "go2_base_timestamp_s": float(now),
             }
+            if sim_time_s is not None:
+                msg["sim_time_s"] = float(sim_time_s)
+            if sim_wall_elapsed_s is not None:
+                msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
+            if sim_realtime_factor is not None:
+                msg["sim_realtime_factor"] = float(sim_realtime_factor)
+            if sim_step_count is not None:
+                msg["sim_step_count"] = int(sim_step_count)
             self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
         except Exception:
             pass
@@ -1679,6 +2324,12 @@ class HostStateSource(StateSource):
         self._cache.update_go2_vel(self._sub.last_go2_vel)
         self._cache.update_go2_base(self._sub.last_go2_base_pos, self._sub.last_go2_base_rpy)
         self._cache.update_go2_leg_q(self._sub.last_go2_leg_q)
+        self._cache.update_go2_sport_pose(self._sub.last_go2_sport_pose, self._sub.last_go2_sport_pose_seq)
+        self._cache.update_go2_obstacles_avoid(
+            self._sub.last_go2_obstacles_avoid_enabled,
+            self._sub.last_go2_obstacles_avoid_seq,
+        )
+        self._cache.update_sim_target_xyz(self._sub.last_sim_target_xyz)
         self._cache.update_sim_reset_seq(self._sub.last_sim_reset_seq)
         if self._sub.last_q is not None:
             self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
@@ -1714,6 +2365,18 @@ class HostStateSource(StateSource):
     def go2_leg_q(self) -> Optional[tuple[float, ...]]:
         return self._cache.go2_leg_q()
 
+    def go2_sport_pose(self) -> str:
+        return self._cache.go2_sport_pose()
+
+    def go2_sport_pose_seq(self) -> int:
+        return self._cache.go2_sport_pose_seq()
+
+    def go2_obstacles_avoid_enabled(self) -> bool:
+        return self._cache.go2_obstacles_avoid_enabled()
+
+    def go2_obstacles_avoid_seq(self) -> int:
+        return self._cache.go2_obstacles_avoid_seq()
+
     def host_state_age_s(self) -> Optional[float]:
         ts = float(self._sub.last_state_ts)
         if ts <= 0.0:
@@ -1722,6 +2385,9 @@ class HostStateSource(StateSource):
 
     def sim_reset_seq(self) -> int:
         return self._cache.sim_reset_seq()
+
+    def sim_target_xyz(self) -> Optional[np.ndarray]:
+        return self._cache.sim_target_xyz()
 
     def debug_markers(self) -> list[dict[str, Any]]:
         return self._cache.debug_markers()
@@ -1859,7 +2525,7 @@ class RuntimePrep:
                 camera_pos=cam_pos,
                 camera_lookat=cam_lookat,
                 camera_fov=35,
-                max_FPS=60,
+                refresh_rate=60,
             ),
             show_viewer=bool(a.cfg.enable_viewer),
         )
@@ -1869,33 +2535,36 @@ class RuntimePrep:
         else:
             floor_ent = None
 
-        go2_entity = None
         if use_go2:
-            go2_urdf = self._resolve_genesis_go2_urdf()
-            if not go2_urdf:
-                raise RuntimeError("use_go2=true but genesis go2.urdf was not found")
-            go2_entity = a.sim_scene.scene.add_entity(
+            ent = a.sim_scene.scene.add_entity(
                 _make_urdf_morph(
-                    str(go2_urdf),
+                    urdf_path,
                     go2_pos,
                     go2_euler,
                     fixed=False,
                     requires_jac_and_IK=True,
                 )
             )
-            print(f"[runtime] GO2 spawned at {go2_pos} fixed=false from {go2_urdf}")
-
-        arm_fixed = not use_go2
-        ent = a.sim_scene.scene.add_entity(_make_urdf_morph(urdf_path, arm_pos, arm_euler, fixed=arm_fixed))
-        if use_go2:
-            print(f"[runtime] arm mounted at {arm_pos} fixed=false (weld to GO2 base)")
+            go2_entity = ent
+            print(f"[runtime] GO2+arm spawned at {go2_pos} fixed=false from {urdf_path}")
+        else:
+            go2_entity = None
+            ent = a.sim_scene.scene.add_entity(
+                _make_urdf_morph(
+                    urdf_path,
+                    arm_pos,
+                    arm_euler,
+                    fixed=True,
+                )
+            )
+            print(f"[runtime] arm spawned at {arm_pos} fixed=true from {urdf_path}")
 
         if bool(a.spawn.sim_target_enable):
             self._spawn_perception_target()
 
         eye_camera = None
         if bool(a.cfg.sim_camera_enable) and str(a.cfg.hand_eye_config).strip():
-            from engine.sim_camera import Node9EyeInHandCamera
+            from engine.vision.sim_camera import Node9EyeInHandCamera
 
             eye_camera = Node9EyeInHandCamera.create(
                 a.sim_scene.scene,
@@ -1915,12 +2584,7 @@ class RuntimePrep:
         if use_go2 and go2_entity is not None:
             _set_go2_initial_leg_pose(go2_entity, pose_name="ready")
             go2_mirror = bool(a.go2_locomotion_config.mirror_from_host)
-            if not go2_mirror:
-                self._weld_arm_to_go2(arm_ent=ent, go2_ent=go2_entity)
-            else:
-                print("[runtime] GO2 mirror: kinematic base+legs; arm follows via sync")
-            a.sim_scene.record_arm_go2_mount(arm_ent=ent, go2_ent=go2_entity)
-            from engine.go2_mpc.walking_metrics import WalkingMetricsLogger, WalkingMetricsMeta
+            from engine.observability.walking_metrics import WalkingMetricsLogger
 
             metrics = WalkingMetricsLogger.from_env()
             a.sim_scene.walking_metrics = metrics
@@ -1930,10 +2594,11 @@ class RuntimePrep:
                 dt=a.params.dt,
                 config=a.go2_locomotion_config,
                 arm_entity=ent,
+                arm_link_names=set(a.layout.arm_link_names),
                 metrics=metrics,
             )
-            if a.go2_locomotion_config.mirror_from_host:
-                print("[runtime] GO2 mirror_from_host=true: sim follows host go2_base_* (MPC off)")
+            if go2_mirror:
+                print("[runtime] GO2 mirror_from_host=true: merged robot follows host go2_base_* (MPC off)")
 
         n_nodes = self._detect_n_nodes(ent)
         n_seg = int(a.spawn.n_seg) if a.spawn.n_seg is not None else max(1, n_nodes // 2)
@@ -1969,11 +2634,12 @@ class RuntimePrep:
             eye_camera.bind(ent, hand_eye_path=str(a.cfg.hand_eye_config))
             a.sim_scene.eye_camera = eye_camera
             a.sim_scene.hand_eye_config_path = str(a.cfg.hand_eye_config)
-            from engine.sim_camera import SimCameraPublisher
+            from engine.vision.sim_camera import SimCameraPublisher
 
             a.sim_scene.camera_publisher = SimCameraPublisher(
                 str(a.cfg.sim_camera_port),
                 use_jpeg=bool(a.cfg.sim_camera_jpeg),
+                jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
             )
 
     def _spawn_perception_target(self) -> None:
@@ -1983,32 +2649,42 @@ class RuntimePrep:
             return
         pos = tuple(float(x) for x in a.spawn.sim_target_xyz)
         radius = float(a.spawn.sim_target_radius)
+        color = tuple(float(x) for x in a.spawn.sim_target_color_rgba)
+        collision = bool(a.spawn.sim_target_collision)
+        gravity = bool(a.spawn.sim_target_gravity)
+        fixed = not gravity
+        sphere_kwargs: dict[str, Any] = {
+            "radius": max(0.01, radius),
+            "pos": pos,
+            "fixed": bool(fixed),
+            "collision": bool(collision),
+        }
         try:
-            scene.add_entity(
-                gs.morphs.Sphere(
-                    radius=max(0.01, radius),
-                    pos=pos,
-                    fixed=True,
-                ),
-                surface=gs.surfaces.Rough(color=(0.85, 0.15, 0.15, 1.0)),
+            try:
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            except TypeError as exc:
+                if not collision:
+                    print(f"[runtime] sim target collision flag ignored by this Genesis build: {exc}")
+                sphere_kwargs.pop("collision", None)
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            ent = scene.add_entity(
+                sphere,
+                surface=gs.surfaces.Rough(color=color),
             )
-            print(f"[runtime] sim perception target sphere at {pos} r={radius:.3f}")
+            a.sim_scene.sim_target_entity = ent
+            a.sim_scene.sim_target_xyz = np.asarray(pos, dtype=float).reshape(3)
+            print(
+                "[runtime] sim target ball at %s r=%.3f color=%s collision=%s gravity=%s"
+                % (
+                    str(pos),
+                    float(radius),
+                    str(tuple(round(float(v), 3) for v in color)),
+                    str(collision).lower(),
+                    str(gravity).lower(),
+                )
+            )
         except Exception as exc:
             print(f"[runtime] sim target spawn failed: {exc}")
-
-    def _weld_arm_to_go2(self, *, arm_ent, go2_ent) -> None:
-        a = self.app
-        scene = a.sim_scene.scene
-        if scene is None:
-            return
-        try:
-            plate = arm_ent.get_link("plate")
-            base = go2_ent.get_link("base")
-            solver = scene.rigid_solver
-            solver.add_weld_constraint(int(plate.idx), int(base.idx))
-            print(f"[runtime] GO2 weld: plate(idx={plate.idx}) <-> base(idx={base.idx})")
-        except Exception as exc:
-            print(f"[runtime] GO2 weld failed: {exc}")
 
     @staticmethod
     def _resolve_genesis_go2_urdf() -> str:
@@ -2030,6 +2706,8 @@ class SimRuntime:
     def __init__(self, app: "GenesisApp"):
         self.app = app
         self._applied_sim_reset_seq: int = 0
+        self._applied_go2_sport_pose_seq: int = 0
+        self._applied_go2_obstacles_avoid_seq: int = 0
         self._t_mirror_status_log: float = 0.0
 
     def _maybe_log_mirror_status(self, now: float) -> None:
@@ -2099,7 +2777,31 @@ class SimRuntime:
                     ),
                     max_hz=float(a.cfg.sim_camera_max_hz),
                     force=True,
+                    rgb_enabled=bool(a.cfg.sim_camera_rgb),
+                    depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
+
+    def _apply_go2_feature_commands(self) -> bool:
+        a = self.app
+        if a.state_source is None or a.sim_scene.go2 is None:
+            return False
+        posture_applied = False
+        avoid_seq = int(a.state_source.go2_obstacles_avoid_seq())
+        if avoid_seq > int(self._applied_go2_obstacles_avoid_seq):
+            self._applied_go2_obstacles_avoid_seq = avoid_seq
+            enabled = bool(a.state_source.go2_obstacles_avoid_enabled())
+            a.sim_scene.go2.set_obstacles_avoid_enabled(enabled)
+            print(f"[sim_go2] obstacle_avoid enabled={str(enabled).lower()} (state only)")
+
+        pose_seq = int(a.state_source.go2_sport_pose_seq())
+        if pose_seq > int(self._applied_go2_sport_pose_seq):
+            self._applied_go2_sport_pose_seq = pose_seq
+            pose = str(a.state_source.go2_sport_pose()).strip().lower()
+            if pose and not a.sim_scene.go2.mirror_mode:
+                posture_applied = bool(a.sim_scene.go2.apply_sport_pose(pose))
+                result = "applied" if posture_applied else "ignored"
+                print(f"[sim_go2] sport_pose={pose} {result}")
+        return posture_applied
 
     def _cleanup(self) -> None:
         a = self.app
@@ -2116,10 +2818,20 @@ class SimRuntime:
     def run(self) -> None:
         a = self.app
         assert a.sim_scene.scene is not None and a.sim_scene.mover is not None
+        perf = PerfLogger(
+            enabled=bool(getattr(a.cfg, "perf_log_enable", False)),
+            interval_s=float(getattr(a.cfg, "perf_log_interval_s", 2.0)),
+            log_path=str(getattr(a.cfg, "perf_log_path", "")),
+        )
 
         try:
             while True:
+                perf.reset_loop()
+                t_sec = time.perf_counter()
                 self._poll_host_and_update_model()
+                sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
+                if sim_target_xyz is not None:
+                    a.sim_scene.set_sim_target_position(sim_target_xyz)
                 self._maybe_log_mirror_status(time.time())
                 ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
                 ik_target_dir = a.state_source.ik_target_dir() if a.state_source is not None else None
@@ -2127,7 +2839,10 @@ class SimRuntime:
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                perf.section("poll", t_sec)
+                t_sec = time.perf_counter()
                 if a.sim_scene.go2 is not None:
+                    posture_applied = self._apply_go2_feature_commands()
                     go2_mirror = bool(a.sim_scene.go2.mirror_mode)
                     if go2_mirror and a.state_source is not None:
                         base_pos = a.state_source.go2_base_pos()
@@ -2135,7 +2850,7 @@ class SimRuntime:
                         if base_pos is not None and base_rpy is not None:
                             leg_q = a.state_source.go2_leg_q()
                             a.sim_scene.go2.apply_mirror_pose(base_pos, base_rpy, leg_q=leg_q)
-                    else:
+                    elif not posture_applied:
                         go2_vel = a.state_source.go2_vel() if a.state_source is not None else (0.0, 0.0, 0.0)
                         a.sim_scene.go2.set_planar_velocity(
                             float(go2_vel[0]),
@@ -2152,24 +2867,12 @@ class SimRuntime:
                                 float(q_errmodel.theta2_rad),
                             )
                         )
-                    a.sim_scene.sync_arm_to_go2_base()
-                if ik_target is not None and a.spawn.draw_debug_markers:
-                    a.sim_scene.draw_marker(a.markers, "_ik_target_marker", ik_target, (1.0, 0.0, 0.0, 0.9))
-                    if ik_target_dir is not None:
-                        desired_dir = np.asarray(ik_target_dir, dtype=float).reshape(3)
-                        dnorm = float(np.linalg.norm(desired_dir))
-                        if dnorm > 1e-9:
-                            a.sim_scene.draw_marker_direction(
-                                a.markers,
-                                "_ik_target_marker_dir",
-                                ik_target,
-                                desired_dir / dnorm,
-                                (1.0, 0.4, 0.4, 0.9),
-                            )
+                perf.section("go2", t_sec)
                 q_errmodel = a._errmodel_q() if a._has_state_source() else None
                 if q_errmodel is not None:
                     a.sim_scene.apply_sim_q(q_errmodel)
 
+                t_sec = time.perf_counter()
                 sim_tip = a.sim_scene.actual_tip_world(a.layout)
                 sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
                 cam_origin = cam_look = cam_right = None
@@ -2178,22 +2881,41 @@ class SimRuntime:
                     if cam_axes is not None:
                         cam_origin, cam_look, cam_right = cam_axes
                 if a.feedback_pub is not None:
+                    sim_time_s = a.sim_scene.sim_time_s(float(a.params.dt))
+                    sim_wall_elapsed_s = a.sim_scene.sim_wall_elapsed_s()
+                    sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
+                    sim_step_count = int(a.sim_scene.sim_step_count)
+                    arm_feedback_q = (
+                        a.sim_scene.mover.current_4dof_q()
+                        if a.sim_scene.mover is not None
+                        else None
+                    )
                     a.feedback_pub.send_actual_tip(
                         sim_tip,
                         sim_tip_dir,
+                        arm_q=arm_feedback_q,
                         camera_origin=cam_origin,
                         camera_look=cam_look,
                         camera_right=cam_right,
+                        sim_time_s=sim_time_s,
+                        sim_wall_elapsed_s=sim_wall_elapsed_s,
+                        sim_realtime_factor=sim_realtime_factor,
+                        sim_step_count=sim_step_count,
                     )
                     if a.sim_scene.go2_entity is not None and (
                         a.sim_scene.go2 is None or not a.sim_scene.go2.mirror_mode
                     ):
-                        a.feedback_pub.send_go2_base(a.sim_scene.go2_entity)
-                if a.spawn.draw_debug_markers and sim_tip is not None:
-                    a.sim_scene.draw_marker(a.markers, "_sim_tip_marker", sim_tip, (1.0, 1.0, 1.0, 0.95))
-                    if sim_tip_dir is not None:
-                        a.sim_scene.draw_marker_direction(a.markers, "_sim_tip_marker_dir", sim_tip, sim_tip_dir, (1.0, 1.0, 1.0, 0.98))
+                        a.feedback_pub.send_go2_base(
+                            a.sim_scene.go2_entity,
+                            sim_time_s=sim_time_s,
+                            sim_wall_elapsed_s=sim_wall_elapsed_s,
+                            sim_realtime_factor=sim_realtime_factor,
+                            sim_step_count=sim_step_count,
+                        )
+                perf.section("feedback", t_sec)
+                t_sec = time.perf_counter()
                 active_dynamic_keys: set[str] = set()
+                _HOST_VISIBLE_MARKER_NAMES = frozenset({"ready_pose", "ready_pose_dir"})
                 _HOST_CAMERA_MARKER_NAMES = frozenset({"camera_optical", "camera_look", "camera_right"})
                 if a.spawn.draw_debug_markers and cam_origin is not None and cam_look is not None and cam_right is not None:
                     pos_arr = np.asarray(cam_origin, dtype=float).reshape(3)
@@ -2203,27 +2925,7 @@ class SimRuntime:
                         "sim_camera:sphere",
                         pos_arr,
                         [0.1, 0.7, 1.0, 0.95],
-                        0.010,
-                    )
-                    active_dynamic_keys.add("sim_camera:look")
-                    a.markers.draw_dynamic_arrow(
-                        a.sim_scene.scene,
-                        "sim_camera:look",
-                        pos_arr,
-                        np.asarray(cam_look, dtype=float).reshape(3),
-                        [0.1, 0.7, 1.0, 0.95],
                         0.004,
-                        0.09,
-                    )
-                    active_dynamic_keys.add("sim_camera:right")
-                    a.markers.draw_dynamic_arrow(
-                        a.sim_scene.scene,
-                        "sim_camera:right",
-                        pos_arr,
-                        np.asarray(cam_right, dtype=float).reshape(3),
-                        [1.0, 0.8, 0.2, 0.95],
-                        0.004,
-                        0.09,
                     )
                 if a.spawn.draw_debug_markers and a.state_source is not None:
                     for marker in a.state_source.debug_markers():
@@ -2233,7 +2935,11 @@ class SimRuntime:
                         if not isinstance(pos, (list, tuple)) or len(pos) != 3:
                             continue
                         name = str(marker.get("name", "")).strip()
-                        if not name or name in _HOST_CAMERA_MARKER_NAMES:
+                        if (
+                            not name
+                            or name in _HOST_CAMERA_MARKER_NAMES
+                            or name not in _HOST_VISIBLE_MARKER_NAMES
+                        ):
                             continue
                         color_raw = marker.get("color", [0.1, 1.0, 0.1, 0.95])
                         if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
@@ -2242,9 +2948,10 @@ class SimRuntime:
                             rgba = [0.1, 1.0, 0.1, 0.95]
                         radius = float(marker.get("radius", 0.012))
                         pos_arr = np.asarray(pos, dtype=float).reshape(3)
-                        sphere_key = f"{name}:sphere"
-                        active_dynamic_keys.add(sphere_key)
-                        a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
+                        if name != "ready_pose_dir":
+                            sphere_key = f"{name}:sphere"
+                            active_dynamic_keys.add(sphere_key)
+                            a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
                         direction = marker.get("dir", None)
                         if isinstance(direction, (list, tuple)) and len(direction) == 3:
                             arrow_key = f"{name}:dir"
@@ -2260,10 +2967,12 @@ class SimRuntime:
                                 length,
                             )
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
+                perf.section("markers", t_sec)
+                t_sec = time.perf_counter()
                 a.sim_scene.step()
+                perf.section("physics", t_sec)
                 if a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
-                    if a.sim_scene.go2.reapply_last_mirror_pose():
-                        a.sim_scene.sync_arm_to_go2_base()
+                    a.sim_scene.go2.reapply_last_mirror_pose()
                 q_cam = a._errmodel_q() if a._has_state_source() else None
                 arm_q = None
                 if q_cam is not None:
@@ -2273,13 +2982,24 @@ class SimRuntime:
                         float(q_cam.theta1_rad),
                         float(q_cam.theta2_rad),
                     )
+                t_sec = time.perf_counter()
                 a.sim_scene.maybe_publish_camera(
                     arm_q=arm_q,
                     max_hz=float(a.cfg.sim_camera_max_hz),
+                    rgb_enabled=bool(a.cfg.sim_camera_rgb),
+                    depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
+                perf.section("camera", t_sec)
+                if bool(getattr(a.params, "realtime", True)):
+                    a.sim_scene.throttle_realtime(
+                        float(a.params.dt),
+                        realtime_factor=float(getattr(a.params, "realtime_factor", 1.0)),
+                    )
+                perf.report_if_due()
         except KeyboardInterrupt:
             pass
         finally:
+            perf.close()
             self._cleanup()
 
 
@@ -2375,15 +3095,69 @@ def main() -> None:
         default=os.path.join(os.path.dirname(__file__), "config.ini"),
         help="path to ini config file",
     )
+    ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
+    ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
+    ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
+    ap.add_argument("--no-viewer", action="store_true", help="disable Genesis viewer for profiling/headless runs")
+    ap.add_argument("--no-sim-camera", action="store_true", help="disable simulated RGB-D camera")
+    ap.add_argument("--sim-camera-hz", type=float, default=None, help="override simulated camera publish rate")
+    ap.add_argument("--sim-camera-rgb", action=argparse.BooleanOptionalAction, default=None, help="enable/disable simulated camera RGB rendering")
+    ap.add_argument("--sim-camera-depth", action=argparse.BooleanOptionalAction, default=None, help="enable/disable simulated camera depth rendering")
+    ap.add_argument("--sim-camera-jpeg-quality", type=int, default=None, help="override simulated camera JPEG quality")
+    ap.add_argument(
+        "--sim-camera-size",
+        default=None,
+        metavar="WIDTHxHEIGHT",
+        help="override simulated camera resolution, e.g. 424x240",
+    )
+    ap.add_argument("--no-debug-markers", action="store_true", help="disable dynamic debug markers")
     args = ap.parse_args()
 
     bundle = load_app_config_from_ini(args.config)
+    sim_cfg = bundle.sim_config
+    spawn_cfg = bundle.spawn_config
+    if args.perf_log or args.perf_interval is not None or args.perf_log_file is not None:
+        sim_cfg = replace(
+            sim_cfg,
+            perf_log_enable=True if args.perf_log or args.perf_log_file is not None else bool(sim_cfg.perf_log_enable),
+            perf_log_interval_s=(
+                float(args.perf_interval)
+                if args.perf_interval is not None
+                else float(sim_cfg.perf_log_interval_s)
+            ),
+            perf_log_path=str(args.perf_log_file) if args.perf_log_file is not None else str(sim_cfg.perf_log_path),
+        )
+    if args.no_viewer:
+        sim_cfg = replace(sim_cfg, enable_viewer=False)
+    if args.no_sim_camera:
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
+    if args.sim_camera_hz is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_max_hz=max(1.0, float(args.sim_camera_hz)))
+    if args.sim_camera_rgb is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_rgb=bool(args.sim_camera_rgb))
+    if args.sim_camera_depth is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_depth=bool(args.sim_camera_depth))
+    if args.sim_camera_jpeg_quality is not None:
+        sim_cfg = replace(sim_cfg, sim_camera_jpeg_quality=max(1, min(100, int(args.sim_camera_jpeg_quality))))
+    if args.sim_camera_size:
+        try:
+            raw_w, raw_h = str(args.sim_camera_size).lower().split("x", 1)
+            sim_cfg = replace(sim_cfg, sim_camera_width=max(1, int(raw_w)), sim_camera_height=max(1, int(raw_h)))
+        except Exception as exc:
+            raise SystemExit(f"invalid --sim-camera-size {args.sim_camera_size!r}; expected WIDTHxHEIGHT") from exc
+    perception_mode = str(bundle.perception_config.mode).strip().lower()
+    if bool(sim_cfg.sim_camera_auto_disable_unused) and perception_mode not in ("sim", "sim_rendered"):
+        if bool(sim_cfg.sim_camera_enable):
+            print(f"[sim_camera] disabled: perception.mode={perception_mode!r} does not consume sim camera")
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
+    if args.no_debug_markers:
+        spawn_cfg = replace(spawn_cfg, draw_debug_markers=False)
     app = GenesisApp(
         params=bundle.sim_param,
-        cfg=bundle.sim_config,
+        cfg=sim_cfg,
         hardware_cfg=bundle.hardware_config,
         limit=bundle.joint_limit,
-        model=bundle.spawn_config,
+        model=spawn_cfg,
         urdf_export_cfg=bundle.urdf_export_config,
         ik_cfg=bundle.ik_config,
         go2_locomotion_config=bundle.go2_locomotion_config,

@@ -1,0 +1,11 @@
+{
+  "type": "hsv",
+  "target_label": "sim_sphere",
+  "min_area_px": 30,
+  "z_min_m": 0.15,
+  "z_max_m": 2.5,
+  "hsv": {
+    "lower": [0, 80, 80],
+    "upper": [12, 255, 255]
+  }
+}

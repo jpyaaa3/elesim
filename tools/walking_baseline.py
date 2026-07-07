@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.config_loader import load_app_config_from_ini
-from engine.controller import ControlClient, ControlService, PanelState
+from engine.core.config_loader import load_app_config_from_ini
+from engine.behaviors.pick import ControlClient, ControlService, PanelState
 from engine.experiment.run_context import RunContext
-from engine.go2_locomotion.arm_pose_presets import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
+from engine.observability.walking_scenarios import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
 
 
 def _parse_gaze(raw: str) -> str:

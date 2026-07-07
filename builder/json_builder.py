@@ -34,7 +34,7 @@ from builder.robot_defs import (
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "craft")
+DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 DEFAULT_ASSET_ROOT_DIR = os.path.join(PROJECT_ROOT, "assets")
 
 
@@ -130,6 +130,7 @@ def make_default_config(*, use_go2: bool = False) -> RobotBuildConfig:
         PartKind.gripper_base,
         PartKind.gripper_claw_left,
         PartKind.gripper_claw_right,
+        PartKind.camera,
     ):
         connectors[kind] = _load_connector_spec_from_static_frame(kind)
     kwargs = dict(
@@ -141,6 +142,7 @@ def make_default_config(*, use_go2: bool = False) -> RobotBuildConfig:
         gripper_base=PartSpec(connectors=connectors[PartKind.gripper_base]),
         gripper_claw_left=PartSpec(connectors=connectors[PartKind.gripper_claw_left]),
         gripper_claw_right=PartSpec(connectors=connectors[PartKind.gripper_claw_right]),
+        camera=PartSpec(connectors=connectors[PartKind.camera]),
         joint_axis_rules={},
     )
     return RobotBuildConfig(**kwargs)
@@ -216,19 +218,6 @@ class PartPolicySetter:
             PartKind.gripper_claw_right,
         )
 
-    def resolve_runtime_props(self, part_name: str, kind: PartKind) -> RuntimePartProps:
-        name = str(part_name).strip().lower()
-        collision = True
-        mode = self._default_mode(name, kind)
-
-        ov = self._overrides.get(part_name)
-        if ov is not None:
-            if ov.control_mode is not None:
-                mode = ov.control_mode
-            if ov.collision_enabled is not None:
-                collision = ov.collision_enabled
-        return RuntimePartProps(control_mode=mode, collision_enabled=collision)
-
     def _default_mode(self, part_name: str, kind: PartKind) -> ControlMode:
         if self._use_hardware:
             if self._use_go2:
@@ -242,6 +231,19 @@ class PartPolicySetter:
         if self._is_controlled_part(part_name, kind):
             return ControlMode.commanded
         return ControlMode.fixed
+
+    def resolve_runtime_props(self, part_name: str, kind: PartKind) -> RuntimePartProps:
+        name = str(part_name).strip().lower()
+        collision = kind != PartKind.camera
+        mode = self._default_mode(name, kind)
+
+        ov = self._overrides.get(part_name)
+        if ov is not None:
+            if ov.control_mode is not None:
+                mode = ov.control_mode
+            if ov.collision_enabled is not None:
+                collision = ov.collision_enabled
+        return RuntimePartProps(control_mode=mode, collision_enabled=collision)
 
 
 class AssemblyDesigner:
@@ -265,10 +267,12 @@ class AssemblyDesigner:
             robot_graph.add_part(PartInstance("gripper_claw_left", PartKind.gripper_claw_left, self._cfg.gripper_claw_left.connectors))
         if self._cfg.gripper_claw_right is not None:
             robot_graph.add_part(PartInstance("gripper_claw_right", PartKind.gripper_claw_right, self._cfg.gripper_claw_right.connectors))
+        if self._cfg.camera is not None:
+            robot_graph.add_part(PartInstance("camera", PartKind.camera, self._cfg.camera.connectors))
         robot_graph.connect(
             "plate",
             "housing",
-            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-0.230, 0.010)),
+            JointSpec(name="j_plate_housing", type=JointType.prismatic, limit_deg=(-0.230, 0.0)),
         )
         robot_graph.connect("housing", "wedge", JointSpec(name="j_housing_wedge", type=JointType.revolute, axis_rule_key="housing_wedge"))
         robot_graph.connect("wedge", "node0", JointSpec(name="j_wedge_node0", type=JointType.revolute, axis_rule_key="wedge_node"))
@@ -291,6 +295,12 @@ class AssemblyDesigner:
                 "gripper_base",
                 "gripper_claw_right",
                 JointSpec(name="j_gripper_base_claw_right", type=JointType.prismatic, limit_deg=(0.0, 0.02)),
+            )
+        if self._cfg.camera is not None:
+            robot_graph.connect(
+                "gripper_base",
+                "camera",
+                JointSpec(name="j_gripper_base_camera", type=JointType.fixed),
             )
         return robot_graph
 

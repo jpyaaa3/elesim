@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from engine.config_loader import UrdfExportConfig
+from engine.core.config_loader import UrdfExportConfig
 
 
 Vec3 = Tuple[float, float, float]

@@ -27,20 +27,20 @@
 
 ### IK 모듈
 
-- [engine/ik.py](./engine/ik.py)  
+- [engine/robot/arm/ik.py](./engine/robot/arm/ik.py)  
   UI가 직접 호출하는 공개 IK 진입점입니다.
 
-- [engine/iklib](./engine/iklib)  
+- [engine/robot/arm/iklib](./engine/robot/arm/iklib)  
   IK 내부 구현 패키지입니다.
-  - [kinematics.py](./engine/iklib/kinematics.py): FK, grasp pose, Jacobian, 공통 수학
-  - [solver.py](./engine/iklib/solver.py): 위치 중심 IK
-  - [aligner.py](./engine/iklib/aligner.py): 위치가 정해진 뒤 방향을 맞추는 정렬 로직
-  - [tweaker.py](./engine/iklib/tweaker.py): 미세 조정용 로직
+  - [kinematics.py](./engine/robot/arm/iklib/kinematics.py): FK, grasp pose, Jacobian, 공통 수학
+  - [solver.py](./engine/robot/arm/iklib/solver.py): 위치 중심 IK
+  - [aligner.py](./engine/robot/arm/iklib/aligner.py): 위치가 정해진 뒤 방향을 맞추는 정렬 로직
+  - [tweaker.py](./engine/robot/arm/iklib/tweaker.py): 미세 조정용 로직
 
 ### 부가 도구
 
-별도 실험 스크립트는 가능하면 **[engine/ik.py](./engine/ik.py)** 만 공개 API로 사용하고,
-`engine/iklib/*` 는 내부 구현으로 취급하는 편이 좋습니다.
+별도 실험 스크립트는 가능하면 **[engine/robot/arm/ik.py](./engine/robot/arm/ik.py)** 만 공개 API로 사용하고,
+`engine/robot/arm/iklib/*` 는 내부 구현으로 취급하는 편이 좋습니다.
 
 ## 이 시스템으로 할 수 있는 일
 
@@ -84,15 +84,15 @@
 - 현재 기본 UI에는 `Visual Servoing` 패널이 있고, 여기서 카메라 인식, Look, Aim, Ready Pose, Tweak을 시작할 수 있습니다.
 - 인식 경로는 rough 3D 좌표를 절대 정답으로 믿지 않고, 먼저 Look으로 현재 tip에서 물체를 바라보는 기준 시선을 만든 뒤, Aim으로 UV 중심 정렬을 수행하고 그 차이를 임시 등각 처짐으로 해석하는 방식입니다.
 - 외부 앱이 별도로 좌표를 보낼 때는 `tcp://127.0.0.1:5555`로 `source="perception"` 메시지를 보내고, `host.py`가 world 좌표계 디버그 마커로 바꿔 `sim.py`에 중계합니다.
-- e2 계열의 view-aware / 3D visual-servo helper는 [engine/pick_visual_servo.py](./engine/pick_visual_servo.py), [engine/pick_view_pregrasp.py](./engine/pick_view_pregrasp.py)에 실험 모듈로 보관되어 있습니다.
+- e2 계열의 view-aware / 3D visual-servo helper는 [engine/vision/visual_servoing/pick_visual_servo.py](./engine/vision/visual_servoing/pick_visual_servo.py), [engine/vision/visual_servoing/pick_view_pregrasp.py](./engine/vision/visual_servoing/pick_view_pregrasp.py)에 실험 모듈로 보관되어 있습니다.
 
 ## 통합본 기준
 
 현재 트리의 공식 제어 경로는 다음입니다.
 
 - `ctrl.py`의 `Visual Servoing` 패널
-- [engine/controller/perception_capture.py](./engine/controller/perception_capture.py)
-- [engine/controller/object_pick.py](./engine/controller/object_pick.py)
+- [engine/vision/perception/capture.py](./engine/vision/perception/capture.py)
+- [engine/behaviors/pick/actions.py](./engine/behaviors/pick/actions.py)
 - `host.py`를 통한 perception relay / marker relay
 
 즉, 현재 기본 pick 흐름은 **rough 3D Look + e1 계열 aiming + equal-sag corrected Ready Pose 방식**입니다.
@@ -106,7 +106,7 @@
 - 완전한 3D pregrasp 기반 pick runtime
 
 이 저장소에는 `pick_fsm`에서 재사용 가치가 있는 수학 helper 일부만
-[engine/visual_servoing](./engine/visual_servoing) 아래에 남겨 두었습니다.
+[engine/vision/visual_servoing](./engine/vision/visual_servoing) 아래에 남겨 두었습니다.
 즉, 이 저장소는 **모든 과거 브랜치의 런타임을 그대로 공존시키는 형태가 아니라, 사용 중인 경로만 공식화한 통합본**입니다.
 
 ## 설치
@@ -177,7 +177,7 @@ use_hardware = true
 - spawn 위치
 - 디버그 마커 표시 여부
 
-로봇 조립 결과는 [craft](./craft) 아래에 생성되며,
+로봇 조립 결과는 [crafts](./crafts) 아래에 생성되며,
 원본 자산과 정의는 다음 위치에 있습니다.
 
 - [assets](./assets)
@@ -220,19 +220,19 @@ Visual Servoing / Aim 관련해서는 다음처럼 이해하는 편이 정확합
 제어 흐름을 보고 싶다면:
 
 - [ctrl.py](./ctrl.py)
-- [engine/ik.py](./engine/ik.py)
+- [engine/robot/arm/ik.py](./engine/robot/arm/ik.py)
 
 위치 IK 로직을 보고 싶다면:
 
-- [engine/iklib/solver.py](./engine/iklib/solver.py)
+- [engine/robot/arm/iklib/solver.py](./engine/robot/arm/iklib/solver.py)
 
 방향 정렬 로직을 보고 싶다면:
 
-- [engine/iklib/aligner.py](./engine/iklib/aligner.py)
+- [engine/robot/arm/iklib/aligner.py](./engine/robot/arm/iklib/aligner.py)
 
 공통 기구학 계산을 보고 싶다면:
 
-- [engine/iklib/kinematics.py](./engine/iklib/kinematics.py)
+- [engine/robot/arm/iklib/kinematics.py](./engine/robot/arm/iklib/kinematics.py)
 
 시뮬레이터 측 마커, 링크, 체인 적용을 보고 싶다면:
 
@@ -240,8 +240,8 @@ Visual Servoing / Aim 관련해서는 다음처럼 이해하는 편이 정확합
 
 현재 visual-servo / pick helper를 보고 싶다면:
 
-- [engine/visual_servoing](./engine/visual_servoing)
-- [engine/controller/object_pick.py](./engine/controller/object_pick.py)
+- [engine/vision/visual_servoing](./engine/vision/visual_servoing)
+- [engine/behaviors/pick/actions.py](./engine/behaviors/pick/actions.py)
 
 ## 현재 성격
 
