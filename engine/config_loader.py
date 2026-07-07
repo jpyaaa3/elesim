@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 import engine.protocol as proto
 from engine.go2_hardware.config import Go2HardwareConfig
 from engine.go2_locomotion.config import Go2LocomotionConfig
-from engine.gaze_stabilizer.controller import GazeStabilizerConfig
+from engine.gaze_stabilizer.config import GazeStabilizerConfig
 from engine.joint_defs import JointLimit
 
 
@@ -328,6 +328,12 @@ class PickConfig:
 
 
 @dataclass(frozen=True)
+class ExperimentConfig:
+    ownership_enable: bool = False
+    preview_fallback_uv_ff: bool = False
+
+
+@dataclass(frozen=True)
 class AppConfigBundle:
     sim_param: SimParam
     sim_config: SimConfig
@@ -341,6 +347,7 @@ class AppConfigBundle:
     go2_locomotion_config: Go2LocomotionConfig
     go2_hardware_config: Go2HardwareConfig
     gaze_stabilizer_config: GazeStabilizerConfig
+    experiment_config: ExperimentConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -1079,7 +1086,11 @@ def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppCon
     return GazeStabilizerConfig(
         enable_feedback=cp.getboolean("gaze_stabilizer", "gaze_enable_feedback", fallback=g0.enable_feedback),
         enable_base_ff=cp.getboolean("gaze_stabilizer", "gaze_enable_base_ff", fallback=g0.enable_base_ff),
-        uv_gain=cp.getfloat("gaze_stabilizer", "gaze_uv_gain", fallback=g0.uv_gain),
+        uv_gain=cp.getfloat(
+            "gaze_stabilizer",
+            "gaze_uv_gain",
+            fallback=cp.getfloat("gaze_stabilizer", "gaze_k_uv_u", fallback=g0.uv_gain),
+        ),
         base_ff_gain_pitch=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_pitch", fallback=g0.base_ff_gain_pitch),
         base_ff_gain_roll=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_roll", fallback=g0.base_ff_gain_roll),
         base_ff_gain_yaw=cp.getfloat("gaze_stabilizer", "gaze_base_ff_gain_yaw", fallback=g0.base_ff_gain_yaw),
@@ -1110,6 +1121,24 @@ def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppCon
         ),
         fine_err_max=cp.getfloat("gaze_stabilizer", "gaze_fine_err_max", fallback=g0.fine_err_max),
         fine_settle_scale=cp.getfloat("gaze_stabilizer", "gaze_fine_settle_scale", fallback=g0.fine_settle_scale),
+        fov_margin=cp.getfloat("gaze_stabilizer", "gaze_fov_margin", fallback=g0.fov_margin),
+        clamp_go2_vel_on_large_error=cp.getboolean(
+            "gaze_stabilizer",
+            "gaze_clamp_go2_vel_on_large_error",
+            fallback=g0.clamp_go2_vel_on_large_error,
+        ),
+    )
+
+
+def _load_experiment_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> ExperimentConfig:
+    e0 = defaults.experiment_config
+    if not cp.has_section("experiment"):
+        return e0
+    return ExperimentConfig(
+        ownership_enable=cp.getboolean("experiment", "ownership_enable", fallback=e0.ownership_enable),
+        preview_fallback_uv_ff=cp.getboolean(
+            "experiment", "preview_fallback_uv_ff", fallback=e0.preview_fallback_uv_ff
+        ),
     )
 
 
@@ -1127,6 +1156,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         go2_locomotion_config=Go2LocomotionConfig(),
         go2_hardware_config=Go2HardwareConfig(),
         gaze_stabilizer_config=GazeStabilizerConfig(),
+        experiment_config=ExperimentConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -1340,6 +1370,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     go2_locomotion_config_cfg = _load_go2_locomotion_config(cp, defaults)
     go2_hardware_config_cfg = _load_go2_hardware_config(cp, defaults)
     gaze_stabilizer_config_cfg = _load_gaze_stabilizer_config(cp, defaults)
+    experiment_config_cfg = _load_experiment_config(cp, defaults)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -1355,5 +1386,6 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         go2_locomotion_config=go2_locomotion_config_cfg,
         go2_hardware_config=go2_hardware_config_cfg,
         gaze_stabilizer_config=gaze_stabilizer_config_cfg,
+        experiment_config=experiment_config_cfg,
         mapping_config=mapping_config_cfg,
     )

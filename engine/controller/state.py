@@ -37,6 +37,7 @@ class HostState:
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None
     go2_base_timestamp_s: float = 0.0
+    host_state_age_s: float = -1.0
 
 
 @dataclass

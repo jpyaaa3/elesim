@@ -7,10 +7,15 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from engine.controller.control_ownership import ControlOwner, ControlOwnership, ControlOwnershipError
-from engine.gaze_stabilizer.controller import GazeStabilizer, GazeStabilizerConfig
-from engine.go2_mpc.walking_metrics import CameraMetricsLogger
-from engine.protocol import ControlU
+from engine.controller.control_ownership import (
+    ControlOwner,
+    ControlOwnership,
+    ControlOwnershipError,
+    ControlState,
+)
+from engine.gaze_stabilizer.config import GazeStabilizerConfig
+from engine.gaze_stabilizer.controller import GazeStabilizer
+from engine.go2_mpc.walking_metrics import CameraMetricsLogger, _env_run_id
 
 if TYPE_CHECKING:
     from engine.controller.actions import ControlService
@@ -19,16 +24,26 @@ if TYPE_CHECKING:
 class GazeControlService:
     """UV-only / walking gaze stabilizer worker with control ownership."""
 
-    def __init__(self, parent: ControlService, config: GazeStabilizerConfig) -> None:
+    def __init__(
+        self,
+        parent: ControlService,
+        config: GazeStabilizerConfig,
+        *,
+        ownership: Optional[ControlOwnership] = None,
+        ownership_enable: bool = False,
+    ) -> None:
         self._parent = parent
         self._config = config
         self._stabilizer = GazeStabilizer(config)
-        self._ownership = ControlOwnership()
+        self._ownership_enable = bool(ownership_enable)
+        self._ownership = ownership or ControlOwnership()
         self._worker: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._mode = "idle"
+        self._gaze_mode = "off"
         self._camera_logger: Optional[CameraMetricsLogger] = None
         self._run_id = ""
+        self._update_count = 0
 
     @property
     def ownership(self) -> ControlOwnership:
@@ -51,6 +66,7 @@ class GazeControlService:
             self._camera_logger = None
         self._parent.reset_gaze_derivative_state()
         self._parent.state.set_gaze_status(running=False, mode="idle", msg="stopped")
+        self._gaze_mode = "off"
 
     def start_standing_uv_only(self, *, run_id: str = "") -> None:
         cfg = GazeStabilizerConfig(
@@ -61,11 +77,27 @@ class GazeControlService:
             max_du_s1=self._config.max_du_s1,
             max_du_s2=self._config.max_du_s2,
             hz=float(self._config.hz),
+            jacobian_damping=self._config.jacobian_damping,
         )
-        self._start(mode="standing", owner=ControlOwner.GAZE_TRACK, config=cfg, run_id=run_id)
+        self._start(mode="standing", owner=ControlOwner.GAZE_TRACK, config=cfg, run_id=run_id, gaze_mode="uv")
 
-    def start_walking_gaze(self, *, run_id: str = "") -> None:
-        self._start(mode="walking", owner=ControlOwner.WALK_APPROACH, config=self._config, run_id=run_id)
+    def start_walking_gaze(self, *, run_id: str = "", gaze_mode: str = "uv_ff") -> None:
+        mode = str(gaze_mode).strip().lower()
+        if mode == "off":
+            raise ValueError("gaze_mode=off should not start worker")
+        if mode == "uv":
+            cfg = replace(self._config, enable_feedback=True, enable_base_ff=False)
+        elif mode == "uv_ff":
+            cfg = replace(self._config, enable_feedback=True, enable_base_ff=True)
+        else:
+            cfg = self._config
+        self._start(
+            mode="walking",
+            owner=ControlOwner.WALK_APPROACH,
+            config=cfg,
+            run_id=run_id,
+            gaze_mode=mode,
+        )
 
     def start_stop_and_grasp_demo(self) -> None:
         if self._worker is not None:
@@ -86,16 +118,29 @@ class GazeControlService:
         self._worker = threading.Thread(target=_worker, name="gaze-demo4", daemon=True)
         self._worker.start()
 
-    def _start(self, *, mode: str, owner: ControlOwner, config: GazeStabilizerConfig, run_id: str) -> None:
+    def _resolve_run_id(self, run_id: str) -> str:
+        return _env_run_id(run_id)
+
+    def _start(
+        self,
+        *,
+        mode: str,
+        owner: ControlOwner,
+        config: GazeStabilizerConfig,
+        run_id: str,
+        gaze_mode: str,
+    ) -> None:
         if self.is_running:
             return
         if not self._ownership.can_start(owner):
             raise ControlOwnershipError(f"cannot start gaze: owner={self._ownership.owner.value}")
-        self._ownership.acquire(owner)
+        state = ControlState.GAZE_TRACK if owner == ControlOwner.GAZE_TRACK else ControlState.WALK_APPROACH
+        self._ownership.acquire(owner, state=state)
         self._stop.clear()
         self._mode = mode
+        self._gaze_mode = gaze_mode
         self._stabilizer = GazeStabilizer(config)
-        self._run_id = run_id or time.strftime("gaze_%Y%m%d_%H%M%S")
+        self._run_id = self._resolve_run_id(run_id)
         self._camera_logger = CameraMetricsLogger.from_env(run_id=self._run_id)
         self._update_count = 0
         self._parent.reset_gaze_derivative_state()
@@ -119,6 +164,38 @@ class GazeControlService:
 
     def _extract_obs(self, host):
         return self._parent.current_visual_observation(host)
+
+    def _host_timing(self, host) -> tuple[Optional[float], Optional[float]]:
+        if host is None:
+            return None, None
+        sim_ts = float(host.go2_base_timestamp_s) if float(host.go2_base_timestamp_s) > 0.0 else None
+        age = float(host.rx_age_s) if host.connected else None
+        return sim_ts, age
+
+    def _log_camera_sample(
+        self,
+        *,
+        host,
+        target_visible: bool,
+        u_err: Optional[float],
+        v_err: Optional[float],
+        bbox_scale: float = 0.0,
+        tracking_confidence: float = 0.0,
+    ) -> None:
+        if self._camera_logger is None:
+            return
+        sim_ts, age = self._host_timing(host)
+        self._camera_logger.sample(
+            target_visible=target_visible,
+            u_err=u_err,
+            v_err=v_err,
+            bbox_scale=bbox_scale,
+            tracking_confidence=tracking_confidence,
+            wall_time_s=time.time(),
+            sim_time_s=sim_ts,
+            host_go2_base_timestamp_s=sim_ts,
+            host_state_age_s=age,
+        )
 
     def _go2_is_moving(self, host) -> bool:
         if host is None:
@@ -148,6 +225,11 @@ class GazeControlService:
         owner = self._ownership.owner
         try:
             while not self._stop.is_set():
+                if self._ownership_enable:
+                    try:
+                        self._ownership.heartbeat(owner)
+                    except ControlOwnershipError:
+                        break
                 host = self._parent.refresh_host_state() if self._parent.client is not None else None
                 obs = self._extract_obs(host)
                 if obs is None or obs.center_uv is None:
@@ -164,6 +246,7 @@ class GazeControlService:
                             reason = f"host UV stale ({age_s:.1f}s)"
                         else:
                             reason = "host UV filtered (label/confidence mismatch?)"
+                    self._log_camera_sample(host=host, target_visible=False, u_err=None, v_err=None)
                     self._parent.state.set_gaze_status(
                         running=True,
                         mode=str(self._mode),
@@ -176,19 +259,19 @@ class GazeControlService:
 
                 u_err = float(obs.center_uv[0]) - float(self._parent.state.visual_target_uv_u)
                 v_err = float(obs.center_uv[1]) - float(self._parent.state.visual_target_uv_v)
-                if self._camera_logger is not None:
-                    self._camera_logger.sample(
-                        target_visible=True,
-                        u_err=u_err,
-                        v_err=v_err,
-                        bbox_scale=float(obs.scale or 0.0),
-                        tracking_confidence=float(obs.confidence or 0.0),
-                    )
+                self._log_camera_sample(
+                    host=host,
+                    target_visible=True,
+                    u_err=u_err,
+                    v_err=v_err,
+                    bbox_scale=float(obs.scale or 0.0),
+                    tracking_confidence=float(obs.confidence or 0.0),
+                )
 
-                ff_du = self._walking_base_ff_du(host)
+                ff_du = self._walking_base_ff_du(host) if self._mode == "walking" else None
                 mode, current_u, next_u, _, _ = self._parent.apply_gaze_uv_correction(
                     obs,
-                    extra_du=ff_du if np.any(np.abs(ff_du) > 1e-9) else None,
+                    extra_du=ff_du if ff_du is not None and np.any(np.abs(ff_du) > 1e-9) else None,
                     dt_s=period,
                 )
                 roll_du = float(next_u.u_roll - current_u.u_roll)
@@ -201,7 +284,9 @@ class GazeControlService:
                     status_msg = "damping"
                 elif mode == "gain_u_seg":
                     status_msg = "tracking (u→seg)"
-                if mode != "none" and mode != "settling":
+                elif mode == "gaze_stabilizer":
+                    status_msg = "tracking (gaze_stabilizer)"
+                if mode not in ("none", "settling"):
                     self._update_count += 1
                 elif self._go2_is_moving(host):
                     status_msg = "tracking (go2 motion)"

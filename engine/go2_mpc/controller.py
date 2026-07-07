@@ -390,6 +390,8 @@ class ConvexMpcGenesisController:
         pitch = float(Rot.from_quat(quat_xyzw).as_euler("xyz")[1])
         com_body = self._payload.measure_com_body(self._entity) if self._payload is not None else None
         aq = arm_q if arm_q is not None else self._arm_q
+        import time as _time
+
         self._metrics.sample_go2(
             go2_entity=self._entity,
             go2_cmd=go2_cmd,
@@ -400,8 +402,12 @@ class ConvexMpcGenesisController:
             torque_update_flag=torque_update_flag,
             torque_hold_flag=torque_hold_flag,
             fall_flag=detect_fall(float(pos[2]), pitch),
-            time_s=float(self._sim_time),
+            wall_time_s=float(_time.time()),
+            sim_time_s=float(self._sim_time),
+            control_rate_info=self._rate_info,
         )
+        if self._metrics._rate_info is None:
+            self._metrics.set_control_rate_info(self._rate_info)
 
     def step(self) -> None:
         self._sim_time += self._dt
