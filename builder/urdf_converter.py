@@ -108,8 +108,9 @@ class ManifestLoader:
 
 
 class PhysicsLoader:
-    def __init__(self) -> None:
+    def __init__(self, *, mass_scale: float = 1.0) -> None:
         self._cache: Dict[str, Tuple[float, Vec3, Dict[str, float]]] = {}
+        self._mass_scale = max(float(mass_scale), 1e-9)
 
     def load(self, build_dir: str, physics_path: str) -> Tuple[float, Vec3, Dict[str, float]]:
         mass = 0.001
@@ -149,6 +150,11 @@ class PhysicsLoader:
 
         if mass <= 0.0:
             mass = 0.001
+
+        scale = float(self._mass_scale)
+        if abs(scale - 1.0) > 1e-12:
+            mass *= scale
+            inertia = {key: float(val) * scale for key, val in inertia.items()}
 
         result = (mass, com, inertia)
         self._cache[abs_path] = result
@@ -369,9 +375,11 @@ def convert_manifest_file(
     assy_build_json_path: str,
     urdf_out_path: str,
     cfg: UrdfExportConfig = UrdfExportConfig(),
+    *,
+    arm_mass_scale: float = 1.0,
 ) -> None:
     manifest_loader = ManifestLoader()
-    physics_loader = PhysicsLoader()
+    physics_loader = PhysicsLoader(mass_scale=float(arm_mass_scale))
     joint_translator = JointTranslator()
     urdf_writer = URDFWriter(cfg, physics_loader)
 
@@ -389,9 +397,10 @@ def convert_manifest_dict(
     *,
     build_dir: str,
     cfg: UrdfExportConfig = UrdfExportConfig(),
+    arm_mass_scale: float = 1.0,
 ) -> str:
     manifest_loader = ManifestLoader()
-    physics_loader = PhysicsLoader()
+    physics_loader = PhysicsLoader(mass_scale=float(arm_mass_scale))
     joint_translator = JointTranslator()
     urdf_writer = URDFWriter(cfg, physics_loader)
 

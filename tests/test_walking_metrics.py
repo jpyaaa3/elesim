@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.go2_mpc.control_rate import ControlRateInfo
-from engine.go2_mpc.walking_metrics import (
+from engine.robot.go2.mpc.control_rate import ControlRateInfo
+from engine.observability.walking_metrics import (
     CAMERA_CSV_FIELDS,
     WALKING_CSV_FIELDS,
     CameraMetricsLogger,
@@ -69,6 +69,27 @@ class WalkingMetricsTests(unittest.TestCase):
     def test_field_lists_non_empty(self) -> None:
         self.assertIn("wall_time_s", WALKING_CSV_FIELDS)
         self.assertIn("target_lost_event_count", CAMERA_CSV_FIELDS)
+        self.assertIn("preview_used", CAMERA_CSV_FIELDS)
+        self.assertIn("gait_phase", CAMERA_CSV_FIELDS)
+        self.assertIn("preview_term_u", CAMERA_CSV_FIELDS)
+        self.assertIn("go2_gait_phase", WALKING_CSV_FIELDS)
+
+    def test_camera_preview_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cam = CameraMetricsLogger(run_id="cam_prev", log_dir=td)
+            cam.sample(
+                target_visible=True,
+                u_err=0.1,
+                v_err=-0.1,
+                gait_phase=0.25,
+                gait_phase_future=0.35,
+                preview_term_u=0.01,
+                preview_term_v=-0.02,
+            )
+            cam.close()
+            header = Path(td, "cam_prev_camera.csv").read_text(encoding="utf-8").splitlines()[0]
+            self.assertIn("gait_phase", header)
+            self.assertIn("preview_term_u", header)
 
 
 if __name__ == "__main__":

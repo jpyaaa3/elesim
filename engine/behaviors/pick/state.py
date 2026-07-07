@@ -36,9 +36,12 @@ class HostState:
     go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
     go2_base_rpy: Optional[tuple[float, float, float]] = None
     go2_base_pos: Optional[tuple[float, float, float]] = None
+    go2_sim_base_pos: Optional[tuple[float, float, float]] = None
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None
     go2_base_timestamp_s: float = 0.0
+    go2_gait_phase: Optional[float] = None
+    go2_gait_period_s: Optional[float] = None
     host_state_age_s: float = -1.0
     go2_leg_q: Optional[tuple[float, ...]] = None
     go2_leg_dq: Optional[tuple[float, ...]] = None

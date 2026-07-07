@@ -6,9 +6,8 @@ import unittest
 
 import numpy as np
 
-from engine.gaze_stabilizer.config import GazeStabilizerConfig
-from engine.gaze_stabilizer.controller import GazeStabilizer
-from engine.controller.control_ownership import ControlOwner, ControlOwnership, ControlOwnershipError, ControlState
+from engine.behaviors.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig
+from engine.behaviors.pick.control_ownership import ControlOwner, ControlOwnership, ControlOwnershipError, ControlState
 
 
 class GazeStabilizerTests(unittest.TestCase):

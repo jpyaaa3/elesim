@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from engine.protocol import (
+from engine.core.protocol import (
     ControlU,
     DEFAULT_START_CONTROL_U,
+    PERCEPTION_READY_CONTROL_U,
     SimMappingConfig,
     SimQ,
     control_u_to_sim_q,
     default_start_sim_q,
     linear_motor_u_limit,
+    perception_ready_sim_q,
     sim_q_to_control_u,
 )
 
@@ -48,10 +50,21 @@ class LinearMotorMappingTests(unittest.TestCase):
             back = sim_q_to_control_u(q, cfg)
             self.assertAlmostEqual(back.u_linear, u, places=4)
 
+    def test_perception_ready_pose_display_u(self) -> None:
+        cfg = self._cfg()
+        back = sim_q_to_control_u(perception_ready_sim_q(cfg), cfg)
+        self.assertAlmostEqual(back.u_linear, PERCEPTION_READY_CONTROL_U.u_linear, places=4)
+        self.assertAlmostEqual(back.u_roll, PERCEPTION_READY_CONTROL_U.u_roll, places=4)
+        self.assertAlmostEqual(back.u_s1, PERCEPTION_READY_CONTROL_U.u_s1, places=4)
+        self.assertAlmostEqual(back.u_s2, PERCEPTION_READY_CONTROL_U.u_s2, places=4)
+
     def test_no_longer_110_at_forward(self) -> None:
         cfg = self._cfg()
         u = sim_q_to_control_u(SimQ(0.010, 0.0, 0.0, 0.0), cfg)
         self.assertNotAlmostEqual(u.u_linear, 110.0, places=3)
+
+    def test_default_and_perception_ready_match(self) -> None:
+        self.assertEqual(DEFAULT_START_CONTROL_U, PERCEPTION_READY_CONTROL_U)
 
     def test_default_start_pose_display_u(self) -> None:
         cfg = self._cfg()

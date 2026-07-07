@@ -39,6 +39,24 @@ class GazeStabilizerConfig:
     fine_settle_scale: float = 0.35
     fov_margin: float = 0.08
     clamp_go2_vel_on_large_error: bool = False
+    preview_enable: bool = False
+    preview_tau_s: float = 0.08
+    preview_b_pitch: float = 0.05
+    preview_q_u: float = 1.0
+    preview_q_v: float = 1.0
+    preview_r_roll: float = 0.01
+    preview_r_s1: float = 0.01
+    preview_r_s2: float = 0.01
+    preview_max_du_roll: float = 1.0
+    preview_max_du_seg: float = 1.5
+    preview_lowpass_alpha: float = 0.35
+    gait_preview_enable: bool = False
+    gait_period_s: float = 0.0
+    gait_phase_offset: float = 0.0
+    gait_preview_horizon_s: float = 0.08
+    gait_template_path: str = ""
+    gait_template_bins: int = 32
+    gait_preview_scale: float = 1.0
 
 
 __all__ = ["GazeStabilizerConfig", "GazeStabilizer"]

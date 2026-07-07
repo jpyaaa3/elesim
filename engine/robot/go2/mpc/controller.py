@@ -435,6 +435,11 @@ class ConvexMpcGenesisController:
         aq = arm_q if arm_q is not None else self._arm_q
         import time as _time
 
+        gait_period = float(self._gait.gait_period) if hasattr(self, "_gait") else 0.0
+        gait_phase = (
+            (float(self._sim_time) % gait_period) / gait_period if gait_period > 0.0 else 0.0
+        )
+
         self._metrics.sample_go2(
             go2_entity=self._entity,
             go2_cmd=go2_cmd,
@@ -448,6 +453,8 @@ class ConvexMpcGenesisController:
             wall_time_s=float(_time.time()),
             sim_time_s=float(self._sim_time),
             control_rate_info=self._rate_info,
+            go2_gait_phase=float(gait_phase),
+            go2_gait_period_s=float(gait_period) if gait_period > 0.0 else None,
         )
         if self._metrics._rate_info is None:
             self._metrics.set_control_rate_info(self._rate_info)

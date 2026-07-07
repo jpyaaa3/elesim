@@ -20,6 +20,7 @@ class TestHostAllowedSources(unittest.TestCase):
         self.assertIn("lji_step", allowed)
         self.assertIn("servo", allowed)
         self.assertIn("ik", allowed)
+        self.assertIn("experiment", allowed)
 
 
 if __name__ == "__main__":

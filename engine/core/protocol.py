@@ -27,12 +27,15 @@ class SimQ:
 
 
 # Default arm pose at startup / sim reset (control-panel display [u]).
+# Spawn/reset + perception-friendly arm pose (display [u]).
 DEFAULT_START_CONTROL_U = ControlU(
     u_linear=250.0,
     u_roll=180.0,
-    u_s1=0.0,
-    u_s2=180.0,
+    u_s1=85.0,
+    u_s2=45.0,
 )
+
+PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 
 
 @dataclass(frozen=True)
@@ -178,6 +181,10 @@ def default_start_sim_q(cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
     return control_u_to_sim_q(DEFAULT_START_CONTROL_U, cfg)
 
 
+def perception_ready_sim_q(cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
+    return control_u_to_sim_q(PERCEPTION_READY_CONTROL_U, cfg)
+
+
 def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) -> SimQ:
     dirs = tuple(int(v) for v in cfg.command_direction)
     motor_u = ControlU(
@@ -280,6 +287,7 @@ def pack_state(
     go2_vel: Optional[tuple[float, float, float]] = None,
     go2_base_rpy: Optional[tuple[float, float, float]] = None,
     go2_base_pos: Optional[tuple[float, float, float]] = None,
+    go2_sim_base_pos: Optional[tuple[float, float, float]] = None,
     go2_base_lin_vel_body: Optional[tuple[float, float, float]] = None,
     go2_base_ang_vel: Optional[tuple[float, float, float]] = None,
     go2_base_timestamp_s: Optional[float] = None,
@@ -367,6 +375,12 @@ def pack_state(
         out["go2_base_rpy"] = [float(go2_base_rpy[0]), float(go2_base_rpy[1]), float(go2_base_rpy[2])]
     if go2_base_pos is not None:
         out["go2_base_pos"] = [float(go2_base_pos[0]), float(go2_base_pos[1]), float(go2_base_pos[2])]
+    if go2_sim_base_pos is not None:
+        out["go2_sim_base_pos"] = [
+            float(go2_sim_base_pos[0]),
+            float(go2_sim_base_pos[1]),
+            float(go2_sim_base_pos[2]),
+        ]
     if go2_base_lin_vel_body is not None:
         out["go2_base_lin_vel_body"] = [
             float(go2_base_lin_vel_body[0]),

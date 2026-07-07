@@ -16,6 +16,33 @@ from engine.robot.go2.mpc.control_rate import ControlRateInfo
 from engine.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
 
 
+class UvTrackLivenessFilter:
+    """Drop tracker ghost samples where UV/scale stop updating while still 'visible'."""
+
+    def __init__(self, *, frozen_samples: int = 6) -> None:
+        self._frozen_samples = max(2, int(frozen_samples))
+        self._streak = 0
+        self._prev: Optional[tuple[float, float, float]] = None
+
+    def is_live(
+        self,
+        u_err: Optional[float],
+        v_err: Optional[float],
+        bbox_scale: float,
+    ) -> bool:
+        if u_err is None or v_err is None:
+            self._streak = 0
+            self._prev = None
+            return False
+        key = (round(float(u_err), 5), round(float(v_err), 5), round(float(bbox_scale), 8))
+        if key == self._prev:
+            self._streak += 1
+        else:
+            self._streak = 0
+            self._prev = key
+        return self._streak < self._frozen_samples
+
+
 WALKING_CSV_FIELDS = [
     "wall_time_s",
     "time_s",
@@ -68,6 +95,11 @@ WALKING_CSV_FIELDS = [
     "torque_update_count_cum",
     "sim_step_count",
     "fall_flag",
+    "go2_gait_phase",
+    "go2_gait_period_s",
+    "sim_target_in_frame",
+    "sim_target_u_norm",
+    "sim_target_v_norm",
 ]
 
 CAMERA_CSV_FIELDS = [
@@ -85,6 +117,27 @@ CAMERA_CSV_FIELDS = [
     "target_lost_event_count",
     "target_lost_count",
     "time_since_last_seen",
+    "preview_used",
+    "preview_fallback",
+    "preview_fallback_reason",
+    "gait_phase",
+    "gait_phase_future",
+    "gait_template_u_now",
+    "gait_template_v_now",
+    "gait_template_u_future",
+    "gait_template_v_future",
+    "preview_term_u",
+    "preview_term_v",
+    "preview_dt_s",
+    "pitch_rate",
+    "pitch_rate_lead",
+    "pitch_acc_est",
+    "b_pitch",
+    "preview_term_v",
+    "du_roll",
+    "du_s1",
+    "du_s2",
+    "preview_solve_time_ms",
 ]
 
 
@@ -145,7 +198,12 @@ class WalkingMetricsLogger:
         self._tau_lim: Optional[np.ndarray] = None
         self._started_at = time.time()
         self._rate_info: Optional[ControlRateInfo] = None
+        self._sim_target_probe = None
         self._write_meta()
+
+    def set_sim_target_probe(self, probe) -> None:
+        """Callable returning SimTargetProjection | None (sim eye-camera ground truth)."""
+        self._sim_target_probe = probe
 
     @classmethod
     def from_env(cls, *, run_id: Optional[str] = None, meta: Optional[WalkingMetricsMeta] = None) -> Optional[WalkingMetricsLogger]:
@@ -205,6 +263,8 @@ class WalkingMetricsLogger:
         wall_time_s: Optional[float] = None,
         sim_time_s: Optional[float] = None,
         control_rate_info: Optional[ControlRateInfo] = None,
+        go2_gait_phase: Optional[float] = None,
+        go2_gait_period_s: Optional[float] = None,
     ) -> None:
         base = go2_entity.get_link("base")
         pos = _to_numpy_1d(base.get_pos())[:3]
@@ -241,6 +301,19 @@ class WalkingMetricsLogger:
         ctrl_hz_cfg = float(rate.ctrl_hz_config) if rate is not None else 0.0
         ctrl_hz_eff = float(rate.ctrl_hz_effective) if rate is not None else 0.0
         ctrl_decim = float(rate.ctrl_decim) if rate is not None else 0.0
+
+        sim_in_frame = ""
+        sim_u_norm = ""
+        sim_v_norm = ""
+        if self._sim_target_probe is not None:
+            try:
+                proj = self._sim_target_probe()
+                if proj is not None:
+                    sim_in_frame = int(bool(proj.in_frame))
+                    sim_u_norm = float(proj.u_norm)
+                    sim_v_norm = float(proj.v_norm)
+            except Exception:
+                pass
 
         row = {
             "wall_time_s": wall_t,
@@ -294,6 +367,11 @@ class WalkingMetricsLogger:
             "torque_update_count_cum": int(self.counters.torque_update_count),
             "sim_step_count": int(self.counters.sim_step_count),
             "fall_flag": int(bool(fall_flag)),
+            "go2_gait_phase": "" if go2_gait_phase is None else float(go2_gait_phase),
+            "go2_gait_period_s": "" if go2_gait_period_s is None else float(go2_gait_period_s),
+            "sim_target_in_frame": sim_in_frame,
+            "sim_target_u_norm": sim_u_norm,
+            "sim_target_v_norm": sim_v_norm,
         }
         self._walking_writer.writerow(row)
 
@@ -344,6 +422,26 @@ class CameraMetricsLogger:
         sim_time_s: Optional[float] = None,
         host_go2_base_timestamp_s: Optional[float] = None,
         host_state_age_s: Optional[float] = None,
+        preview_used: Optional[int] = None,
+        preview_fallback: Optional[int] = None,
+        preview_fallback_reason: str = "",
+        preview_dt_s: Optional[float] = None,
+        pitch_rate: Optional[float] = None,
+        pitch_rate_lead: Optional[float] = None,
+        pitch_acc_est: Optional[float] = None,
+        b_pitch: Optional[float] = None,
+        du_roll: Optional[float] = None,
+        du_s1: Optional[float] = None,
+        du_s2: Optional[float] = None,
+        preview_solve_time_ms: Optional[float] = None,
+        gait_phase: Optional[float] = None,
+        gait_phase_future: Optional[float] = None,
+        gait_template_u_now: Optional[float] = None,
+        gait_template_v_now: Optional[float] = None,
+        gait_template_u_future: Optional[float] = None,
+        gait_template_v_future: Optional[float] = None,
+        preview_term_u: Optional[float] = None,
+        preview_term_v: Optional[float] = None,
     ) -> None:
         wall_t = float(
             wall_time_s
@@ -384,6 +482,26 @@ class CameraMetricsLogger:
                 "target_lost_event_count": int(self._target_lost_event_count),
                 "target_lost_count": int(self._target_lost_frame_count),
                 "time_since_last_seen": float(since),
+                "preview_used": "" if preview_used is None else int(preview_used),
+                "preview_fallback": "" if preview_fallback is None else int(preview_fallback),
+                "preview_fallback_reason": str(preview_fallback_reason or ""),
+                "gait_phase": "" if gait_phase is None else float(gait_phase),
+                "gait_phase_future": "" if gait_phase_future is None else float(gait_phase_future),
+                "gait_template_u_now": "" if gait_template_u_now is None else float(gait_template_u_now),
+                "gait_template_v_now": "" if gait_template_v_now is None else float(gait_template_v_now),
+                "gait_template_u_future": "" if gait_template_u_future is None else float(gait_template_u_future),
+                "gait_template_v_future": "" if gait_template_v_future is None else float(gait_template_v_future),
+                "preview_term_u": "" if preview_term_u is None else float(preview_term_u),
+                "preview_term_v": "" if preview_term_v is None else float(preview_term_v),
+                "preview_dt_s": "" if preview_dt_s is None else float(preview_dt_s),
+                "pitch_rate": "" if pitch_rate is None else float(pitch_rate),
+                "pitch_rate_lead": "" if pitch_rate_lead is None else float(pitch_rate_lead),
+                "pitch_acc_est": "" if pitch_acc_est is None else float(pitch_acc_est),
+                "b_pitch": "" if b_pitch is None else float(b_pitch),
+                "du_roll": "" if du_roll is None else float(du_roll),
+                "du_s1": "" if du_s1 is None else float(du_s1),
+                "du_s2": "" if du_s2 is None else float(du_s2),
+                "preview_solve_time_ms": "" if preview_solve_time_ms is None else float(preview_solve_time_ms),
             }
         )
 

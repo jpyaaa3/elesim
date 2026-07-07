@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.analyze_walking_metrics import _nearest_merge, evaluate_pitch_trim, summarize_run
+from tools.analyze_walking_metrics import _nearest_merge, effective_visibility_flags, evaluate_pitch_trim, summarize_run, _visibility_lost_counts
 
 
 class AnalyzeWalkingMetricsTests(unittest.TestCase):
@@ -95,6 +95,28 @@ class AnalyzeWalkingMetricsTests(unittest.TestCase):
         ev = evaluate_pitch_trim(before, after)
         self.assertTrue(ev["pitch_trim_pass_30pct"])
         self.assertTrue(ev["overall_pass"])
+
+    def test_effective_visibility_rejects_frozen_tracker(self) -> None:
+        rows = []
+        for i in range(10):
+            rows.append(
+                {
+                    "target_visible": 1,
+                    "u_err": -0.36 if i >= 3 else -0.40 + 0.01 * i,
+                    "v_err": 0.95,
+                    "bbox_scale": 0.001,
+                }
+            )
+        flags = effective_visibility_flags(rows, frozen_samples=3)
+        self.assertEqual(flags[:3], [1, 1, 1])
+        self.assertEqual(flags[3:5], [1, 1])
+        self.assertEqual(flags[5:], [0] * 5)
+
+    def test_visibility_lost_counts(self) -> None:
+        flags = [1, 1, 1, 0, 0, 0]
+        frames, events = _visibility_lost_counts(flags)
+        self.assertEqual(frames, 3)
+        self.assertEqual(events, 1)
 
 
 if __name__ == "__main__":

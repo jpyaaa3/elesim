@@ -15,10 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.config_loader import load_app_config_from_ini
-from engine.controller import ControlClient, ControlService, PanelState
+from engine.core.config_loader import load_app_config_from_ini
+from engine.behaviors.pick import ControlClient, ControlService, PanelState
 from engine.experiment.run_context import RunContext
-from tools.walking_baseline import _apply_preset, _connect_service, _trial_run_id
+from tools.walking_baseline import (
+    _apply_preset,
+    _connect_service,
+    _trial_run_id,
+    _validate_gaze_config,
+)
 
 
 def _run_analyzer(run_ids: list[str], log_dir: str) -> None:
@@ -34,7 +39,6 @@ def demo_standing_gaze(args: argparse.Namespace, service: ControlService) -> Non
     ctx = RunContext.from_cli(run_id=run_id, arm_preset="neutral", go2_motion="standing", gaze_mode="uv")
     ctx.validate_env_run_id(strict=args.strict_run_id)
     ctx.write_meta(args.log_dir)
-    _apply_preset(service, "neutral")
     service.start_gaze_stabilizer_standing(run_id=run_id)
     time.sleep(float(args.duration))
     service.stop_gaze_stabilizer()
@@ -59,7 +63,8 @@ def demo_walking_compare(args: argparse.Namespace, service: ControlService) -> N
         )
         ctx.validate_env_run_id(strict=args.strict_run_id)
         ctx.write_meta(args.log_dir)
-        _apply_preset(service, args.preset)
+        if gaze == "off":
+            _apply_preset(service, args.preset)
         if gaze != "off":
             service.start_gaze_stabilizer_walking(run_id=run_id, gaze_mode=gaze)
         t_end = time.time() + float(args.duration)
@@ -82,7 +87,6 @@ def demo_walking_approach_no_grasp(args: argparse.Namespace, service: ControlSer
     ctx = RunContext.from_cli(run_id=run_id, arm_preset=args.preset, go2_motion="approach", gaze_mode="uv_ff")
     ctx.validate_env_run_id(strict=args.strict_run_id)
     ctx.write_meta(args.log_dir)
-    _apply_preset(service, args.preset)
     service.start_gaze_stabilizer_walking(run_id=run_id, gaze_mode="uv_ff")
     t_end = time.time() + float(args.duration)
     while time.time() < t_end:
@@ -116,10 +120,16 @@ def main() -> None:
     ap.add_argument("--vx", type=float, default=-0.2)
     ap.add_argument("--duration", type=float, default=10.0)
     ap.add_argument("--log-dir", default="logs/walking_baseline")
-    ap.add_argument("--strict-run-id", action="store_true", default=True)
+    ap.add_argument("--gaze", default="", help="optional override for single-mode demos (preview|uv|...)")
     args = ap.parse_args()
 
     bundle = load_app_config_from_ini(args.config)
+    if str(args.gaze).strip().lower() == "preview":
+        _validate_gaze_config(
+            "preview",
+            bundle.gaze_stabilizer_config,
+            gait_hz=float(bundle.go2_locomotion_config.gait_hz),
+        )
     print(
         json.dumps(
             {

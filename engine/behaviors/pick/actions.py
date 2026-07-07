@@ -9295,6 +9295,74 @@ class ControlService:
             )
         return mode, current_u, next_u, u_err, v_err
 
+    def apply_gaze_preview_correction(
+        self,
+        obs: VisualObservation,
+        *,
+        du: np.ndarray,
+        dt_s: Optional[float] = None,
+    ) -> tuple[str, ControlU, ControlU, float, float]:
+        """Apply one preview MPC-lite step (Jacobian solve); linear axis fixed."""
+        tu = float(self.state.visual_target_uv_u)
+        tv = float(self.state.visual_target_uv_v)
+        u_err = float(obs.center_uv[0]) - tu
+        v_err = float(obs.center_uv[1]) - tv
+        current_u = self.current_control_u()
+        g = self._gaze_cfg
+        du_v = np.asarray(du, dtype=float).reshape(3)
+        roll_du = float(du_v[0]) if bool(g.enable_roll) else 0.0
+        next_u = self._clamp_display_u(
+            ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll + roll_du),
+                u_s1=float(current_u.u_s1 + float(du_v[1])),
+                u_s2=float(current_u.u_s2 + float(du_v[2])),
+            )
+        )
+        if not bool(g.enable_roll):
+            next_u = ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(current_u.u_roll),
+                u_s1=float(next_u.u_s1),
+                u_s2=float(next_u.u_s2),
+            )
+        seg_cap = float(g.max_seg_du_per_tick)
+        if seg_cap > 0.0:
+            ds1 = float(np.clip(float(next_u.u_s1 - current_u.u_s1), -seg_cap, seg_cap))
+            ds2 = float(np.clip(float(next_u.u_s2 - current_u.u_s2), -seg_cap, seg_cap))
+            next_u = ControlU(
+                u_linear=float(current_u.u_linear),
+                u_roll=float(next_u.u_roll),
+                u_s1=float(current_u.u_s1 + ds1),
+                u_s2=float(current_u.u_s2 + ds2),
+            )
+        mode = "preview_mpc" if next_u != current_u else "none"
+        settle_s = float(g.cmd_settle_s)
+        err_mag = max(abs(float(u_err)), abs(float(v_err)))
+        if err_mag <= float(g.fine_err_max) and float(g.fine_settle_scale) > 0.0:
+            settle_s *= float(g.fine_settle_scale)
+        if (
+            settle_s > 0.0
+            and mode != "none"
+            and next_u != current_u
+            and self._gaze_last_sent_du_mag > 0.15
+            and (time.time() - float(self._gaze_last_cmd_wall_s)) < settle_s
+        ):
+            return "settling", current_u, current_u, u_err, v_err
+        if mode != "none" and next_u != current_u:
+            partial: dict[str, float] = {
+                "s1": float(next_u.u_s1),
+                "s2": float(next_u.u_s2),
+            }
+            if bool(g.enable_roll):
+                partial["roll"] = float(next_u.u_roll)
+            self.apply_partial_control_u(partial)
+            self._gaze_last_cmd_wall_s = float(time.time())
+            self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
+                float(next_u.u_s2 - current_u.u_s2)
+            )
+        return mode, current_u, next_u, u_err, v_err
+
     def close(self) -> None:
         self.stop_gaze_stabilizer()
         self.stop_object_pick()

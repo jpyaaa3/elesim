@@ -5,8 +5,8 @@ import unittest
 
 import numpy as np
 
-from engine.gaze_stabilizer.preview_model import PreviewGazeModel, PreviewGazeState
-from engine.gaze_stabilizer.preview_mpc import PreviewMpcController, PreviewMpcWeights
+from engine.behaviors.gaze.preview_model import PreviewGazeModel, PreviewGazeState
+from engine.behaviors.gaze.preview_mpc import PreviewMpcController, PreviewMpcWeights
 
 
 class PreviewMpcDimTests(unittest.TestCase):
@@ -20,15 +20,16 @@ class PreviewMpcDimTests(unittest.TestCase):
         self.assertAlmostEqual(nxt.u_err, 0.21, places=6)
         self.assertAlmostEqual(nxt.v_err, -0.03, places=6)
 
-    def test_mpc_solve_not_implemented(self) -> None:
+    def test_mpc_solve_one_step(self) -> None:
         j = np.eye(2, 3, dtype=float)
         b = np.zeros((2, 1), dtype=float)
         model = PreviewGazeModel(jacobian_uv=j, b_base=b)
         w = PreviewMpcWeights(Q=np.eye(2), R=np.eye(3), S=np.eye(1))
         ctrl = PreviewMpcController(model, w)
-        state = PreviewGazeState(u_err=0.0, v_err=0.0, d_hat=np.zeros(1))
-        with self.assertRaises(NotImplementedError):
-            ctrl.solve(state, disturbance_horizon=np.zeros((1, 1)))
+        state = PreviewGazeState(u_err=0.1, v_err=-0.05, d_hat=np.zeros(1))
+        du = ctrl.solve(state, disturbance_horizon=np.array([0.2]))
+        self.assertEqual(du.shape, (3,))
+        self.assertTrue(np.all(np.isfinite(du)))
 
 
 if __name__ == "__main__":

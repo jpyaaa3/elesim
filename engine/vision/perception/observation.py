@@ -36,12 +36,18 @@ def extract_visual_observation(
     target_label: str = "",
     stale_timeout_s: float = 0.75,
     min_confidence: float = 0.0,
+    min_scale: float = 0.0,
+    max_center_abs: float = 1.05,
 ) -> Optional[VisualObservation]:
     if host_state is None:
         return None
     center_uv = host_state.perceived_center_uv
     scale = host_state.perceived_scale
     if center_uv is None or scale is None:
+        return None
+    if float(scale) < float(min_scale):
+        return None
+    if abs(float(center_uv[0])) > float(max_center_abs) or abs(float(center_uv[1])) > float(max_center_abs):
         return None
     if float(host_state.perceived_timestamp_s) <= 0.0:
         return None

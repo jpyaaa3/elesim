@@ -1188,6 +1188,42 @@ def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppCon
             "gaze_clamp_go2_vel_on_large_error",
             fallback=g0.clamp_go2_vel_on_large_error,
         ),
+        preview_enable=cp.getboolean("gaze_stabilizer", "gaze_preview_enable", fallback=g0.preview_enable),
+        preview_tau_s=cp.getfloat("gaze_stabilizer", "gaze_preview_tau_s", fallback=g0.preview_tau_s),
+        preview_b_pitch=cp.getfloat("gaze_stabilizer", "gaze_preview_b_pitch", fallback=g0.preview_b_pitch),
+        preview_q_u=cp.getfloat("gaze_stabilizer", "gaze_preview_q_u", fallback=g0.preview_q_u),
+        preview_q_v=cp.getfloat("gaze_stabilizer", "gaze_preview_q_v", fallback=g0.preview_q_v),
+        preview_r_roll=cp.getfloat("gaze_stabilizer", "gaze_preview_r_roll", fallback=g0.preview_r_roll),
+        preview_r_s1=cp.getfloat("gaze_stabilizer", "gaze_preview_r_s1", fallback=g0.preview_r_s1),
+        preview_r_s2=cp.getfloat("gaze_stabilizer", "gaze_preview_r_s2", fallback=g0.preview_r_s2),
+        preview_max_du_roll=cp.getfloat(
+            "gaze_stabilizer", "gaze_preview_max_du_roll", fallback=g0.preview_max_du_roll
+        ),
+        preview_max_du_seg=cp.getfloat(
+            "gaze_stabilizer",
+            "gaze_preview_max_du_seg",
+            fallback=g0.preview_max_du_seg,
+        ),
+        preview_lowpass_alpha=cp.getfloat(
+            "gaze_stabilizer", "gaze_preview_lowpass_alpha", fallback=g0.preview_lowpass_alpha
+        ),
+        gait_preview_enable=cp.getboolean(
+            "gaze_stabilizer", "gaze_gait_preview_enable", fallback=g0.gait_preview_enable
+        ),
+        gait_period_s=cp.getfloat("gaze_stabilizer", "gaze_gait_period_s", fallback=g0.gait_period_s),
+        gait_phase_offset=cp.getfloat(
+            "gaze_stabilizer", "gaze_gait_phase_offset", fallback=g0.gait_phase_offset
+        ),
+        gait_preview_horizon_s=cp.getfloat(
+            "gaze_stabilizer", "gaze_gait_preview_horizon_s", fallback=g0.gait_preview_horizon_s
+        ),
+        gait_template_path=cp.get("gaze_stabilizer", "gaze_gait_template_path", fallback=g0.gait_template_path),
+        gait_template_bins=cp.getint(
+            "gaze_stabilizer", "gaze_gait_template_bins", fallback=g0.gait_template_bins
+        ),
+        gait_preview_scale=cp.getfloat(
+            "gaze_stabilizer", "gaze_gait_preview_scale", fallback=g0.gait_preview_scale
+        ),
     )
 
 

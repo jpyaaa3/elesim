@@ -21,9 +21,22 @@ from engine.observability.walking_scenarios import BASELINE_SCENARIOS, ArmPosePr
 
 def _parse_gaze(raw: str) -> str:
     mode = str(raw).strip().lower()
-    if mode not in ("off", "uv", "uv_ff"):
-        raise SystemExit(f"unknown --gaze {raw!r} (off|uv|uv_ff)")
+    if mode not in ("off", "uv", "uv_ff", "preview", "pitch_preview"):
+        raise SystemExit(f"unknown --gaze {raw!r} (off|uv|uv_ff|preview|pitch_preview)")
     return mode
+
+
+def _validate_gaze_config(gaze: str, gaze_cfg) -> None:
+    mode = str(gaze).strip().lower()
+    if mode == "preview":
+        if not bool(getattr(gaze_cfg, "gait_preview_enable", False)):
+            raise SystemExit("preview requested but gaze_gait_preview_enable=false in config")
+        path = Path(str(getattr(gaze_cfg, "gait_template_path", "") or "").strip())
+        if not path.is_file():
+            raise SystemExit(f"preview requested but gait template missing: {path}")
+    elif mode == "pitch_preview":
+        if not bool(getattr(gaze_cfg, "preview_enable", False)):
+            raise SystemExit("pitch_preview requested but gaze_preview_enable=false in config")
 
 
 def _trial_run_id(run_prefix: str, preset: str, motion: str, trial: int) -> str:
@@ -147,6 +160,7 @@ def main() -> None:
         return
 
     service = _connect_service(args.config)
+    _validate_gaze_config(args.gaze, service._gaze_cfg)
 
     if args.scenario >= 0:
         preset, motion, vel, turn = BASELINE_SCENARIOS[args.scenario]
