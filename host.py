@@ -276,6 +276,23 @@ class ControlHost:
         self._ids = getattr(hw, "ids", [])
         self._hw_lock = threading.RLock()
         self._stop_event = threading.Event()
+        self._arm_servo_thread_enable = bool(
+            getattr(hardware_cfg, "arm_servo_thread_enable", False) if hardware_cfg is not None else False
+        )
+        self._arm_servo_period = 1.0 / max(
+            1.0,
+            float(getattr(hardware_cfg, "arm_servo_thread_hz", 120.0) if hardware_cfg is not None else 120.0),
+        )
+        self._arm_servo_cond = threading.Condition()
+        self._arm_servo_thread: Optional[threading.Thread] = None
+        self._arm_servo_target_u: Optional[proto.ControlU] = None
+        self._arm_servo_target_axes: Set[str] = set()
+        self._arm_servo_target_seq: int = -1
+        self._arm_servo_target_source: str = ""
+        self._arm_servo_applied_seq: int = -1
+        self._arm_servo_submit_count: int = 0
+        self._arm_servo_apply_count: int = 0
+        self._arm_servo_last_error: str = ""
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
@@ -296,6 +313,7 @@ class ControlHost:
         self._traj_step_count = 0
         self._traj_last_apply_ok: Optional[bool] = None
         self._traj_profile_start_s: Optional[float] = None
+        self._start_arm_servo_thread()
         if not self._has_hw():
             self._set_virtual_neutral_state()
         if bool(getattr(self.perception_config, "autostart", False)):
@@ -1194,6 +1212,7 @@ class ControlHost:
     def _trip_safety_fault(self, reason: str, *, red_dxl_id: Optional[int] = None) -> None:
         self._safety_fault = str(reason)
         print(f"[host] RED zone trip: {self._safety_fault}")
+        self._clear_arm_servo_target()
         self._pending_target_q = None
         self._pending_target_u = None
         self._pending_target_axes = set()
@@ -1406,6 +1425,108 @@ class ControlHost:
             print(f"[host] partial hw apply failed: {exc}")
             return False
 
+    def _start_arm_servo_thread(self) -> None:
+        if not bool(self._arm_servo_thread_enable) or not self._has_hw():
+            return
+        if self._arm_servo_thread is not None and self._arm_servo_thread.is_alive():
+            return
+        self._arm_servo_thread = threading.Thread(
+            target=self._arm_servo_loop,
+            name="arm-servo",
+            daemon=True,
+        )
+        self._arm_servo_thread.start()
+        print(
+            "[host] low-latency arm servo thread started | hz=%.1f"
+            % float(1.0 / max(float(self._arm_servo_period), 1e-6))
+        )
+
+    def _stop_arm_servo_thread(self) -> None:
+        with self._arm_servo_cond:
+            self._arm_servo_target_u = None
+            self._arm_servo_target_axes = set()
+            self._arm_servo_target_seq = -1
+            self._arm_servo_cond.notify_all()
+        worker = self._arm_servo_thread
+        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
+            worker.join(timeout=1.0)
+        self._arm_servo_thread = None
+
+    def _clear_arm_servo_target(self) -> None:
+        with self._arm_servo_cond:
+            self._arm_servo_target_u = None
+            self._arm_servo_target_axes = set()
+            self._arm_servo_target_seq = -1
+            self._arm_servo_target_source = ""
+            self._arm_servo_cond.notify_all()
+
+    def _submit_arm_servo_partial_target(
+        self,
+        u: Optional[proto.ControlU],
+        axes: Set[str],
+        *,
+        seq: int,
+        source: str,
+    ) -> bool:
+        if (
+            not bool(self._arm_servo_thread_enable)
+            or not self._has_hw()
+            or self._arm_servo_thread is None
+            or not self._arm_servo_thread.is_alive()
+            or u is None
+            or not axes
+        ):
+            return False
+        with self._arm_servo_cond:
+            self._arm_servo_target_u = u
+            self._arm_servo_target_axes = set(axes)
+            self._arm_servo_target_seq = int(seq)
+            self._arm_servo_target_source = str(source)
+            self._arm_servo_submit_count += 1
+            self._arm_servo_cond.notify()
+        return True
+
+    def _arm_servo_loop(self) -> None:
+        last_seq = -1
+        next_apply_t = 0.0
+        while not self._stop_event.is_set():
+            with self._arm_servo_cond:
+                if self._arm_servo_target_u is None or self._arm_servo_target_seq == last_seq:
+                    self._arm_servo_cond.wait(timeout=float(self._arm_servo_period))
+                target_u = self._arm_servo_target_u
+                axes = set(self._arm_servo_target_axes)
+                seq = int(self._arm_servo_target_seq)
+            if target_u is None or not axes or seq == last_seq:
+                continue
+            now = time.time()
+            delay = float(next_apply_t - now)
+            if delay > 0.0:
+                time.sleep(min(delay, float(self._arm_servo_period)))
+            with self._arm_servo_cond:
+                target_u = self._arm_servo_target_u
+                axes = set(self._arm_servo_target_axes)
+                seq = int(self._arm_servo_target_seq)
+            if target_u is None or not axes or seq == last_seq:
+                continue
+            if self._safety_fault:
+                with self._arm_servo_cond:
+                    self._arm_servo_last_error = str(self._safety_fault)
+                    self._arm_servo_applied_seq = int(seq)
+                last_seq = int(seq)
+                continue
+            ok = self._apply_partial_u_target(target_u, axes)
+            with self._arm_servo_cond:
+                self._arm_servo_applied_seq = int(seq)
+                if bool(ok):
+                    self._arm_servo_apply_count += 1
+                    self._arm_servo_last_error = ""
+                else:
+                    self._arm_servo_last_error = self._last_target_apply_error or "arm_servo_apply_failed"
+            if bool(ok):
+                self._state_broadcast_requested.set()
+            last_seq = int(seq)
+            next_apply_t = time.time() + float(self._arm_servo_period)
+
     def torque_on(self, *, configure_modes: bool = True, set_profiles: bool = True, go_mid: bool = False) -> None:
         if not self._has_hw():
             raise RuntimeError("no device selected")
@@ -1426,6 +1547,7 @@ class ControlHost:
     def torque_off(self) -> None:
         if not self._has_hw():
             raise RuntimeError("no device selected")
+        self._clear_arm_servo_target()
         with self._hw_lock:
             self._pending_target_q = None
             self._pending_target_seq = -1
@@ -1755,6 +1877,11 @@ class ControlHost:
         return bool(ok)
 
     def close(self) -> None:
+        self._stop_event.set()
+        try:
+            self._stop_arm_servo_thread()
+        except Exception:
+            pass
         try:
             self._close_on_device_control_service()
         except Exception:
@@ -2399,6 +2526,8 @@ class ControlHost:
             seq = int(msg.get("seq", -1))
             q: Optional[proto.SimQ] = None
             partial_u_mode = False
+            partial_target_u: Optional[proto.ControlU] = None
+            partial_target_axes: Set[str] = set()
             if "u" in msg and isinstance(msg.get("u"), dict):
                 raw_u = dict(msg["u"])
                 u_keys = {str(k).strip().lower() for k in raw_u.keys()}
@@ -2406,6 +2535,8 @@ class ControlHost:
                     partial_u_mode = True
                     merged_u = self._merge_partial_target_u({str(k): float(v) for k, v in raw_u.items()})
                     if merged_u is not None:
+                        partial_target_u = merged_u
+                        partial_target_axes = set(self._pending_target_axes)
                         q = proto.control_u_to_sim_q(merged_u, self.cfg)
                 else:
                     q = proto.control_u_to_sim_q(proto.unpack_u(msg["u"]), self.cfg)
@@ -2593,12 +2724,23 @@ class ControlHost:
                     )
                 )
             if not partial_u_mode:
+                self._clear_arm_servo_target()
                 self._pending_target_u = None
                 self._pending_target_axes = set()
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
                 self._schedule_target_motion(q, source=source)
             else:
                 self._cancel_trajectory()
+                if self._submit_arm_servo_partial_target(
+                    partial_target_u,
+                    partial_target_axes,
+                    seq=int(seq),
+                    source=str(source),
+                ):
+                    self._pending_target_q = None
+                    self._pending_target_u = None
+                    self._pending_target_axes = set()
+                    self._pending_target_seq = -1
             if not self._has_hw():
                 self.last_q = q
                 self.last_u = proto.sim_q_to_control_u(q, self.cfg)

@@ -100,6 +100,8 @@ class HardwareConfig:
     host_hw_read_hz: float = 20.0
     host_hw_cmd_hz: float = 30.0
     current_read_hz: float = 20.0
+    arm_servo_thread_enable: bool = False
+    arm_servo_thread_hz: float = 120.0
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -1452,6 +1454,10 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         host_hw_read_hz=cp.getfloat("hardware", "host_hw_read_hz", fallback=hw0.host_hw_read_hz),
         host_hw_cmd_hz=cp.getfloat("hardware", "host_hw_cmd_hz", fallback=hw0.host_hw_cmd_hz),
         current_read_hz=cp.getfloat("hardware", "current_read_hz", fallback=hw0.current_read_hz),
+        arm_servo_thread_enable=cp.getboolean(
+            "hardware", "arm_servo_thread_enable", fallback=hw0.arm_servo_thread_enable
+        ),
+        arm_servo_thread_hz=cp.getfloat("hardware", "arm_servo_thread_hz", fallback=hw0.arm_servo_thread_hz),
         profile_vel_linear=cp.getint("hardware", "profile_vel_linear", fallback=hw0.profile_vel_linear),
         profile_acc_linear=cp.getint("hardware", "profile_acc_linear", fallback=hw0.profile_acc_linear),
         profile_vel_roll=cp.getint("hardware", "profile_vel_roll", fallback=hw0.profile_vel_roll),
