@@ -10,6 +10,7 @@ from imgui.integrations.glfw import GlfwRenderer
 
 from engine.behaviors.pick import ControlService, HostState, PanelState
 from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig
+from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig, gaze_config_to_dict
 from ui.helpers import scaled, set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from ui import file_dialog
@@ -71,6 +72,7 @@ class ControlPanel:
         hardware_cfg: HardwareConfig | None = None,
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
+        gaze_cfg: GazeStabilizerConfig | None = None,
     ):
         self.state = state
         self.service = service
@@ -91,6 +93,7 @@ class ControlPanel:
             else "local"
         )
         pk = pick_cfg or PickConfig()
+        gz = gaze_cfg or getattr(service, "gaze_config", GazeStabilizerConfig())
         self._stop = False
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
@@ -111,6 +114,10 @@ class ControlPanel:
         self._perception_preview_bind = str(getattr(pc, "preview_bind", ""))
         self._perception_preview_endpoint = str(getattr(pc, "preview_endpoint", ""))
         self._perception_preview_jpeg_quality = int(getattr(pc, "preview_jpeg_quality", 75))
+        self._gaze_config_draft = gaze_config_to_dict(gz)
+        self._gaze_config_seen_signature = ""
+        self._gaze_config_last_source = "local"
+        self._gaze_config_pending_until = 0.0
         self.state.visual_target_label = str(pc.target_label).strip()
         self.state.visual_target_scale = float(pk.target_scale)
         self.state.visual_center_tol = float(pk.center_tol)

@@ -15,6 +15,11 @@ import numpy as np
 import zmq
 
 from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig, load_app_config_from_ini
+from engine.behaviors.gaze.stabilizer import (
+    GazeStabilizerConfig,
+    gaze_config_to_dict,
+    patch_gaze_config,
+)
 from engine.robot.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
 from engine.robot.go2.hardware.odom_parser import OdomSample
 from engine.robot.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
@@ -149,7 +154,7 @@ class ControlHost:
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
         self.pick_config = pick_config or PickConfig()
         self.perception_config = perception_config or PerceptionConfig()
-        self.gaze_config = gaze_config
+        self.gaze_config = gaze_config or GazeStabilizerConfig()
         self.ownership_enable = bool(ownership_enable)
         self.show_all_ports = bool(show_all_ports)
         self._go2_bridge = go2_bridge
@@ -923,6 +928,7 @@ class ControlHost:
                 gaze_du_s2=float(gaze_payload.get("gaze_du_s2", 0.0)),
                 gaze_obs_age_s=float(gaze_payload.get("gaze_obs_age_s", -1.0)),
                 gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
+                gaze_config=dict(gaze_payload.get("gaze_config", {})),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -952,6 +958,7 @@ class ControlHost:
         )
 
     def _gaze_state_payload(self) -> Dict[str, Any]:
+        cfg = self._effective_gaze_config()
         service = self._embedded_control_service
         if service is None:
             return {
@@ -965,6 +972,7 @@ class ControlHost:
                 "gaze_du_s2": 0.0,
                 "gaze_obs_age_s": -1.0,
                 "gaze_update_count": 0,
+                "gaze_config": gaze_config_to_dict(cfg),
             }
         st = service.state
         with st._lock:
@@ -979,7 +987,19 @@ class ControlHost:
                 "gaze_du_s2": float(st.gaze_du_s2),
                 "gaze_obs_age_s": float(st.gaze_obs_age_s),
                 "gaze_update_count": int(st.gaze_update_count),
+                "gaze_config": gaze_config_to_dict(cfg),
             }
+
+    def _effective_gaze_config(self) -> GazeStabilizerConfig:
+        service = self._embedded_control_service
+        if service is not None:
+            try:
+                return service.gaze_config
+            except Exception:
+                pass
+        if isinstance(self.gaze_config, GazeStabilizerConfig):
+            return self.gaze_config
+        return GazeStabilizerConfig()
 
     def _new_on_device_panel_state(self):
         from engine.behaviors.pick import PanelState
@@ -1929,6 +1949,45 @@ class ControlHost:
                 ok = False
                 reason = str(exc)
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "ports": self._list_ports(), "reason": reason, "torque_enabled": self.torque_enabled})
+            return
+        if t == "gaze_config_update":
+            ok = True
+            reason = "gaze_config_updated"
+            try:
+                patch = msg.get("config", {})
+                self.gaze_config = patch_gaze_config(self._effective_gaze_config(), patch)
+                service = self._embedded_control_service
+                if service is not None:
+                    service.update_gaze_stabilizer_config(self.gaze_config, send_remote=False)
+                print(
+                    "[gaze] config updated | "
+                    "uv_gain=%.2f center=(%.1f,%.1f) cap=%.1f tick=%.1f settle=%.3f mode=%s"
+                    % (
+                        float(self.gaze_config.uv_gain),
+                        float(self.gaze_config.center_u_gain),
+                        float(self.gaze_config.center_v_gain),
+                        float(self.gaze_config.center_seg_max),
+                        float(self.gaze_config.max_seg_du_per_tick),
+                        float(self.gaze_config.cmd_settle_s),
+                        str(self.gaze_config.walking_gaze_mode),
+                    )
+                )
+            except Exception as exc:
+                ok = False
+                reason = f"gaze_config_update_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                }
+                | self._gaze_state_payload(),
+            )
+            self._broadcast_state_now()
             return
         if t == "gaze_start_standing":
             ok = True

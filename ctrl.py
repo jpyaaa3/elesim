@@ -96,6 +96,7 @@ def main() -> None:
         hardware_cfg=bundle.hardware_config,
         perception_cfg=perception_cfg,
         pick_cfg=pick_cfg,
+        gaze_cfg=bundle.gaze_stabilizer_config,
     )
     try:
         service.refresh_host_state()

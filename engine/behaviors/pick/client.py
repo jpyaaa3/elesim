@@ -93,6 +93,7 @@ class ControlClient:
         self.last_gaze_du_s2: float = 0.0
         self.last_gaze_update_count: int = 0
         self.last_gaze_obs_age_s: float = -1.0
+        self.last_gaze_config: dict[str, Any] = {}
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
@@ -172,6 +173,7 @@ class ControlClient:
             gaze_du_s2=float(self.last_gaze_du_s2),
             gaze_update_count=int(self.last_gaze_update_count),
             gaze_obs_age_s=float(self.last_gaze_obs_age_s),
+            gaze_config=dict(self.last_gaze_config),
             go2_vel=(
                 float(self.last_go2_vel[0]),
                 float(self.last_go2_vel[1]),
@@ -321,6 +323,8 @@ class ControlClient:
                 self.last_gaze_update_count = int(msg.get("gaze_update_count", 0))
             except (TypeError, ValueError):
                 self.last_gaze_update_count = 0
+        if "gaze_config" in msg and isinstance(msg.get("gaze_config"), dict):
+            self.last_gaze_config = dict(msg.get("gaze_config", {}))
 
     def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 12:
@@ -639,6 +643,18 @@ class ControlClient:
         now = time.time()
         self.tx_seq += 1
         self._send({"t": "gaze_stop", "ts": now, "seq": self.tx_seq})
+
+    def send_gaze_config_update(self, config: dict[str, Any]) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "gaze_config_update",
+                "ts": now,
+                "seq": self.tx_seq,
+                "config": dict(config),
+            }
+        )
 
     def send_perception_observation(
         self,

@@ -75,6 +75,24 @@ class GazeControlService:
     def is_running(self) -> bool:
         return self._worker is not None and self._worker.is_alive()
 
+    def update_config(self, config: GazeStabilizerConfig) -> None:
+        self._config = config
+        if self.is_running:
+            self._stabilizer = GazeStabilizer(self._config_for_active_mode())
+
+    def _config_for_active_mode(self) -> GazeStabilizerConfig:
+        if self._mode == "standing":
+            return replace(self._config, enable_feedback=True, enable_base_ff=False)
+        if self._mode == "walking":
+            mode = resolve_walking_gaze_mode(self._config, self._gaze_mode)
+            if mode == "uv":
+                return replace(self._config, enable_feedback=True, enable_base_ff=False)
+            if mode == "uv_ff":
+                return replace(self._config, enable_feedback=True, enable_base_ff=True)
+            if mode == "pitch_preview":
+                return replace(self._config, enable_feedback=True, enable_base_ff=False)
+        return self._config
+
     def stop(self) -> None:
         self._stop.set()
         worker = self._worker
@@ -92,16 +110,7 @@ class GazeControlService:
         self._gaze_mode = "off"
 
     def start_standing_uv_only(self, *, run_id: str = "") -> None:
-        cfg = GazeStabilizerConfig(
-            enable_feedback=True,
-            enable_base_ff=False,
-            uv_gain=self._config.uv_gain,
-            max_du_roll=self._config.max_du_roll,
-            max_du_s1=self._config.max_du_s1,
-            max_du_s2=self._config.max_du_s2,
-            hz=float(self._config.hz),
-            jacobian_damping=self._config.jacobian_damping,
-        )
+        cfg = replace(self._config, enable_feedback=True, enable_base_ff=False)
         self._start(mode="standing", owner=ControlOwner.GAZE_TRACK, config=cfg, run_id=run_id, gaze_mode="uv")
 
     def _status_mode(self) -> str:
@@ -436,10 +445,10 @@ class GazeControlService:
         )
 
     def _worker_loop(self) -> None:
-        period = self._worker_period_s()
         owner = self._ownership.owner
         try:
             while not self._stop.is_set():
+                period = self._worker_period_s()
                 if self._ownership_enable:
                     try:
                         self._ownership.heartbeat(owner)

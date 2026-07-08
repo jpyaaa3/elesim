@@ -16,7 +16,7 @@ from engine.robot.arm import ik as ik_pipeline
 from engine.robot.arm.mounts.go2_mount import Go2ArmMount
 from engine.robot.arm.iklib import kinematics as ik_kin
 from engine.core.config_loader import IkConfig, PerceptionConfig, PickConfig, SimConfig, load_app_config_from_ini
-from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig
+from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig, patch_gaze_config
 from engine.behaviors.gaze.gaze_service import GazeControlService
 from engine.core.protocol import (
     ControlU,
@@ -306,6 +306,33 @@ class ControlService:
         self._gaze_dv_err_rate_filt: float = 0.0
         self._gaze_last_cmd_wall_s: float = 0.0
         self._gaze_last_sent_du_mag: float = 0.0
+
+    @property
+    def gaze_config(self) -> GazeStabilizerConfig:
+        return self._gaze_cfg
+
+    def update_gaze_stabilizer_config(
+        self,
+        patch: dict[str, Any] | GazeStabilizerConfig,
+        *,
+        send_remote: bool = True,
+    ) -> GazeStabilizerConfig:
+        if isinstance(patch, GazeStabilizerConfig):
+            next_cfg = patch
+            outbound_patch = {}
+        else:
+            outbound_patch = dict(patch)
+            next_cfg = patch_gaze_config(self._gaze_cfg, outbound_patch)
+        self._gaze_cfg = next_cfg
+        self._gaze_service.update_config(next_cfg)
+        if (
+            bool(send_remote)
+            and outbound_patch
+            and self._delegate_gaze_to_host()
+            and hasattr(self.client, "send_gaze_config_update")
+        ):
+            self.client.send_gaze_config_update(outbound_patch)
+        return next_cfg
 
     def _gaze_busy(self) -> bool:
         return self._gaze_service.is_running

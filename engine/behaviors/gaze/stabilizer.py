@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, fields, replace
+from typing import Any
 
 import numpy as np
 
@@ -53,7 +55,52 @@ class GazeStabilizerConfig:
     walking_gaze_mode: str = "uv_ff"
 
 
-__all__ = ["GazeStabilizerConfig", "GazeStabilizer", "resolve_walking_gaze_mode"]
+__all__ = [
+    "GazeStabilizerConfig",
+    "GazeStabilizer",
+    "gaze_config_to_dict",
+    "patch_gaze_config",
+    "resolve_walking_gaze_mode",
+]
+
+
+def gaze_config_to_dict(cfg: GazeStabilizerConfig) -> dict[str, Any]:
+    return {field.name: getattr(cfg, field.name) for field in fields(GazeStabilizerConfig)}
+
+
+def _coerce_gaze_config_value(name: str, raw: Any, current: Any) -> Any:
+    if isinstance(current, bool):
+        if isinstance(raw, str):
+            key = raw.strip().lower()
+            if key in ("1", "true", "yes", "on"):
+                return True
+            if key in ("0", "false", "no", "off"):
+                return False
+            raise ValueError(f"invalid boolean for {name}: {raw!r}")
+        return bool(raw)
+    if isinstance(current, (float, int)) and not isinstance(current, bool):
+        value = float(raw)
+        if not math.isfinite(value):
+            raise ValueError(f"invalid finite float for {name}: {raw!r}")
+        return value
+    return str(raw).strip()
+
+
+def patch_gaze_config(cfg: GazeStabilizerConfig, patch: dict[str, Any]) -> GazeStabilizerConfig:
+    if not isinstance(patch, dict):
+        raise ValueError("gaze config patch must be a dict")
+    allowed = {field.name for field in fields(GazeStabilizerConfig)}
+    updates: dict[str, Any] = {}
+    for key, raw in dict(patch).items():
+        name = str(key).strip()
+        if name not in allowed:
+            continue
+        updates[name] = _coerce_gaze_config_value(name, raw, getattr(cfg, name))
+    if not updates:
+        return cfg
+    next_cfg = replace(cfg, **updates)
+    resolve_walking_gaze_mode(next_cfg)
+    return next_cfg
 
 
 def resolve_walking_gaze_mode(cfg: GazeStabilizerConfig, override: str | None = None) -> str:

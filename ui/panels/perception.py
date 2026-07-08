@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 
 import imgui
 
 from engine.core.config_loader import PerceptionConfig
+from engine.behaviors.gaze.stabilizer import gaze_config_to_dict
 from ui.file_dialog import browse_open_file_path
 from ui.helpers import (
     begin_collapsible_section,
@@ -30,10 +32,30 @@ _MODE_BUTTON_W = 76.0
 _DETECTION_EVERY_BUTTON_W = 112.0
 _DETECTION_TRACK_BUTTON_W = 132.0
 _BALL_MOVE_W = 58.0
+_GAZE_MODE_BUTTON_W = 92.0
 _MODEL_CONFIGS = {
     "yolo": "model_presets/visual_servoing/detector.yolo.example.json",
     "hsv": "model_presets/visual_servoing/detector.sim_hsv.json",
 }
+_GAZE_REACTIVE_FIELDS = (
+    ("uv_gain", "UV gain", 0.05, 8.0, "%.2f"),
+    ("center_u_gain", "U gain", 0.0, 80.0, "%.1f"),
+    ("center_v_gain", "V gain", 0.0, 80.0, "%.1f"),
+    ("center_tol", "Tol", 0.0, 0.5, "%.3f"),
+    ("center_seg_max", "Seg cap", 0.0, 20.0, "%.1f"),
+    ("max_seg_du_per_tick", "Tick cap", 0.0, 20.0, "%.1f"),
+    ("cmd_settle_s", "Settle", 0.0, 0.5, "%.3f"),
+    ("center_v_kd", "V kd", 0.0, 30.0, "%.1f"),
+    ("center_d_seg_max", "D cap", 0.0, 20.0, "%.1f"),
+)
+_GAZE_PREVIEW_FIELDS = (
+    ("preview_b_pitch", "B pitch", -1.0, 1.0, "%.3f"),
+    ("preview_tau_s", "Tau", 0.0, 1.0, "%.3f"),
+    ("preview_r_s1", "R s1", 0.0001, 1.0, "%.4f"),
+    ("preview_r_s2", "R s2", 0.0001, 1.0, "%.4f"),
+    ("preview_max_du_seg", "Prev cap", 0.0, 20.0, "%.1f"),
+    ("preview_lowpass_alpha", "LP alpha", 0.0, 1.0, "%.2f"),
+)
 
 
 def _project_root() -> Path:
@@ -82,6 +104,111 @@ def _input_float(
         )
     finally:
         imgui.pop_item_width()
+
+
+def _gaze_config_signature(cfg: dict) -> str:
+    try:
+        return "|".join(f"{str(k)}={repr(cfg[k])}" for k in sorted(cfg.keys()))
+    except Exception:
+        return ""
+
+
+def _sync_gaze_config_draft(panel) -> None:
+    host = getattr(panel, "_host_state", None)
+    host_cfg = getattr(host, "gaze_config", None) if host is not None else None
+    if isinstance(host_cfg, dict) and host_cfg:
+        cfg = dict(host_cfg)
+        source = "Jetson"
+    else:
+        cfg = gaze_config_to_dict(panel.service.gaze_config)
+        source = "local"
+    sig = _gaze_config_signature(cfg)
+    active = bool(getattr(imgui, "is_any_item_active", lambda: False)())
+    pending_until = float(getattr(panel, "_gaze_config_pending_until", 0.0))
+    if source == "Jetson" and time.time() < pending_until:
+        return
+    if sig and sig != str(getattr(panel, "_gaze_config_seen_signature", "")) and not active:
+        panel._gaze_config_draft.update(cfg)
+        panel._gaze_config_seen_signature = sig
+        panel._gaze_config_last_source = source
+
+
+def _apply_gaze_config_patch(panel, patch: dict[str, object]) -> None:
+    if not patch:
+        return
+    try:
+        cfg = panel.service.update_gaze_stabilizer_config(patch)
+        panel._gaze_config_draft.update(dict(patch))
+        panel._gaze_config_seen_signature = _gaze_config_signature(gaze_config_to_dict(cfg))
+        panel._gaze_config_last_source = "local"
+        panel._gaze_config_pending_until = time.time() + 0.5
+    except Exception as exc:
+        print(f"[gaze] config update failed: {exc}")
+
+
+def _draw_gaze_bool(panel, key: str, label: str) -> None:
+    draft = bool(panel._gaze_config_draft.get(key, False))
+    _control_label(panel, label)
+    changed, value = imgui.checkbox(f"##gaze_{key}", draft)
+    if changed:
+        _apply_gaze_config_patch(panel, {key: bool(value)})
+
+
+def _draw_gaze_float(panel, key: str, label: str, lo: float, hi: float, fmt: str) -> None:
+    raw = panel._gaze_config_draft.get(key, 0.0)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = 0.0
+    changed, next_value = _input_float(
+        panel,
+        label,
+        f"gaze_{key}",
+        float(value),
+        step=0.0,
+        step_fast=0.0,
+        format=fmt,
+    )
+    if changed:
+        clipped = max(float(lo), min(float(hi), float(next_value)))
+        _apply_gaze_config_patch(panel, {key: clipped})
+
+
+def _draw_gaze_mode_row(panel) -> None:
+    mode = str(panel._gaze_config_draft.get("walking_gaze_mode", "uv") or "uv").strip().lower()
+    _control_label(panel, "Walk mode")
+    if _mode_button(panel, "UV", "gaze_mode_uv", mode == "uv", width=_GAZE_MODE_BUTTON_W):
+        _apply_gaze_config_patch(panel, {"walking_gaze_mode": "uv"})
+    imgui.same_line()
+    if _mode_button(panel, "UV + FF", "gaze_mode_uvff", mode == "uv_ff", width=_GAZE_MODE_BUTTON_W):
+        _apply_gaze_config_patch(panel, {"walking_gaze_mode": "uv_ff"})
+    imgui.same_line()
+    if _mode_button(
+        panel,
+        "Pitch",
+        "gaze_mode_pitch",
+        mode == "pitch_preview",
+        width=_GAZE_MODE_BUTTON_W,
+    ):
+        _apply_gaze_config_patch(panel, {"walking_gaze_mode": "pitch_preview", "preview_enable": True})
+
+
+def _draw_gaze_tuning_controls(panel) -> None:
+    _sync_gaze_config_draft(panel)
+    source = str(getattr(panel, "_gaze_config_last_source", "local"))
+    imgui.text_disabled(f"Gaze config: {source}")
+    _draw_gaze_mode_row(panel)
+    _draw_gaze_float(panel, "hz", "Rate", 1.0, 60.0, "%.1f")
+    _draw_gaze_bool(panel, "preview_enable", "Preview")
+    _draw_gaze_bool(panel, "enable_base_ff", "Base FF")
+    imgui.separator()
+    imgui.text_disabled("Reactive UV")
+    for key, label, lo, hi, fmt in _GAZE_REACTIVE_FIELDS:
+        _draw_gaze_float(panel, key, label, lo, hi, fmt)
+    imgui.separator()
+    imgui.text_disabled("Pitch preview")
+    for key, label, lo, hi, fmt in _GAZE_PREVIEW_FIELDS:
+        _draw_gaze_float(panel, key, label, lo, hi, fmt)
 
 
 def _checkbox(panel, label: str, identifier: str, value: bool) -> tuple[bool, bool]:
@@ -959,4 +1086,6 @@ def draw_perception_panel(panel) -> None:
     imgui.separator()
     if _begin_section("Tracking", "tracking"):
         _draw_tracking_controls(panel)
+        imgui.separator()
+        _draw_gaze_tuning_controls(panel)
         _end_section()

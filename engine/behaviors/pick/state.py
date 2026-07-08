@@ -74,6 +74,7 @@ class HostState:
     gaze_du_s2: float = 0.0
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
+    gaze_config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
