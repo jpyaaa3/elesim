@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resume v2 suite from Phase 3 (uv_ff) + gait preview + analyze.
+# Resume suite from UV+FF + Body Pitch preview + analyze.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -36,14 +36,14 @@ _run() {
 {
   echo "[resume] started $(date -Iseconds)"
 
-  echo "=== Phase 3/4: UV+FF (10 trials) ==="
+  echo "=== Phase 1/2: UV+FF (10 trials) ==="
   _run --gaze uv_ff --run-prefix exp_gaze_uv_ff --trials 10 \
     --notes "full rerun v2 video-preroll uv_ff"
 
-  echo "=== Phase 4/4: Gait-phase preview (3 trials) ==="
-  _run --gaze preview --trials 3 \
-    --run-id-stem neutral_forward_gait_preview \
-    --notes "full rerun v2 video-preroll gait-phase preview"
+  echo "=== Phase 2/2: Body Pitch preview (3 trials) ==="
+  _run --gaze pitch_preview --trials 3 \
+    --run-id-stem neutral_forward_preview_pos \
+    --notes "full rerun v2 video-preroll pitch-preview"
 
   echo "=== Analyze all runs ==="
   RUNS=()
@@ -53,27 +53,25 @@ _run() {
     RUNS+=(exp_gaze_uv_ff_neutral_forward_${n})
   done
   for n in 001 002 003; do
-    RUNS+=(neutral_forward_gait_preview_${n})
+    RUNS+=(neutral_forward_preview_pos_${n})
   done
   for rid in "${RUNS[@]}"; do
     python tools/analyze_walking_metrics.py "$rid" --log-dir "$LOG_DIR" --merged >/dev/null || true
   done
 
-  echo "=== 5-way compare ==="
+  echo "=== 4-way compare ==="
   python tools/analyze_walking_metrics.py --log-dir "$LOG_DIR" --compare \
     exp_gaze_off_neutral_forward_010 \
     exp_baseline_neutral_forward_010 \
     exp_gaze_uv_ff_neutral_forward_010 \
     neutral_forward_preview_pos_003 \
-    neutral_forward_gait_preview_003 \
     | tee "$LOG_DIR/compare_summary.json"
 
   echo "=== Final figures ==="
   python tools/make_gait_preview_final_figures.py \
     --log-dir "$LOG_DIR" \
-    --template logs/gait_templates/neutral_forward_vx035_template.json \
     --compare "$LOG_DIR/compare_summary.json" \
-    --out results/gait_preview_final
+    --out results/pitch_preview_final
 
   echo "[resume] finished $(date -Iseconds)"
 } 2>&1 | tee -a "$SUITE_LOG"

@@ -38,7 +38,7 @@ _run_batch() {
   _make_config "$b_pitch"
   PYTHONPATH=. python tools/run_walking_baseline_batch.py \
     --config "$TMP_CONFIG" \
-    --gaze preview \
+    --gaze pitch_preview \
     --run-prefix "$prefix" \
     --preset "$PRESET" \
     --motion "$MOTION" \

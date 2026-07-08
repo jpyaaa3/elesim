@@ -9,7 +9,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/base.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/base.dae" />
       </geometry>
       <material name="go2_base_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -69,7 +69,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_FL_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -98,7 +98,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh.dae" />
       </geometry>
       <material name="go2_FL_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -127,7 +127,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf.dae" />
       </geometry>
       <material name="go2_FL_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -184,7 +184,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_FL_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -212,7 +212,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_FR_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -241,7 +241,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh_mirror.dae" />
       </geometry>
       <material name="go2_FR_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -270,7 +270,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf_mirror.dae" />
       </geometry>
       <material name="go2_FR_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -327,7 +327,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_FR_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -355,7 +355,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 3.1415 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_RL_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -384,7 +384,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh.dae" />
       </geometry>
       <material name="go2_RL_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -413,7 +413,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf.dae" />
       </geometry>
       <material name="go2_RL_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -470,7 +470,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_RL_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -498,7 +498,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 3.1415 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_RR_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -527,7 +527,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh_mirror.dae" />
       </geometry>
       <material name="go2_RR_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -556,7 +556,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf_mirror.dae" />
       </geometry>
       <material name="go2_RR_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -613,7 +613,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_RR_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />

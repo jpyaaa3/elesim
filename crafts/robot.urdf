@@ -9,7 +9,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/base.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/base.dae" />
       </geometry>
       <material name="go2_base_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -69,7 +69,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_FL_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -98,7 +98,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh.dae" />
       </geometry>
       <material name="go2_FL_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -127,7 +127,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf.dae" />
       </geometry>
       <material name="go2_FL_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -184,7 +184,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_FL_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -212,7 +212,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_FR_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -241,7 +241,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh_mirror.dae" />
       </geometry>
       <material name="go2_FR_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -270,7 +270,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf_mirror.dae" />
       </geometry>
       <material name="go2_FR_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -327,7 +327,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_FR_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -355,7 +355,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 3.1415 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_RL_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -384,7 +384,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh.dae" />
       </geometry>
       <material name="go2_RL_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -413,7 +413,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf.dae" />
       </geometry>
       <material name="go2_RL_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -470,7 +470,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_RL_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -498,7 +498,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 3.1415 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/hip.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/hip.dae" />
       </geometry>
       <material name="go2_RR_hip_mat">
         <color rgba="0.439215686 0.439215686 0.439215686 1" />
@@ -527,7 +527,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/thigh_mirror.dae" />
       </geometry>
       <material name="go2_RR_thigh_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -556,7 +556,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/calf_mirror.dae" />
       </geometry>
       <material name="go2_RR_calf_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -613,7 +613,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="/home/dev/ws/elesim/assets/go2/dae/foot.dae" />
+        <mesh filename="/Users/hwancheolkang/Workspace/elesim/assets/go2/dae/foot.dae" />
       </geometry>
       <material name="go2_RR_foot_mat">
         <color rgba="0.690196078 0.690196078 0.690196078 1" />
@@ -662,7 +662,7 @@
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <mass value="0.15" />
-      <inertia ixx="0.00750208333" ixy="0" ixz="0" iyy="0.0300020833" iyz="0" izz="0.0375" />
+      <inertia ixx="0.0750208333" ixy="0" ixz="0" iyy="0.300020833" iyz="0" izz="0.375" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -684,7 +684,7 @@
     <inertial>
       <origin xyz="-0.125 0 0.090106019" rpy="0 0 0" />
       <mass value="0.18" />
-      <inertia ixx="0.00122324069" ixy="0" ixz="0" iyy="0.00239337826" iyz="0" izz="0.00195486244" />
+      <inertia ixx="0.0122324069" ixy="0" ixz="0" iyy="0.0239337826" iyz="0" izz="0.0195486244" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -706,7 +706,7 @@
     <inertial>
       <origin xyz="0.0109546951 0 0" rpy="0 0 0" />
       <mass value="0.01" />
-      <inertia ixx="1.13860054e-05" ixy="0" ixz="0" iyy="5.38263296e-06" iyz="0" izz="6.90329423e-06" />
+      <inertia ixx="0.000113860054" ixy="0" ixz="0" iyy="5.38263296e-05" iyz="0" izz="6.90329423e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -728,7 +728,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -750,7 +750,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -772,7 +772,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -794,7 +794,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -816,7 +816,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -838,7 +838,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -860,7 +860,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -882,7 +882,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -904,7 +904,7 @@
     <inertial>
       <origin xyz="0.025 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="9.93559147e-06" ixy="0" ixz="0" iyy="4.83345352e-06" iyz="0" izz="7.80452872e-06" />
+      <inertia ixx="9.93559147e-05" ixy="0" ixz="0" iyy="4.83345352e-05" iyz="0" izz="7.80452872e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -926,7 +926,7 @@
     <inertial>
       <origin xyz="0.0277214464 0 0" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="1.02746922e-05" ixy="0" ixz="-0" iyy="5.51153233e-06" iyz="0" izz="8.14350676e-06" />
+      <inertia ixx="0.000102746922" ixy="0" ixz="-0" iyy="5.51153233e-05" iyz="0" izz="8.14350676e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -948,7 +948,7 @@
     <inertial>
       <origin xyz="0.0071392 0 -0.0093273" rpy="0 0 0" />
       <mass value="0.015" />
-      <inertia ixx="2.668e-05" ixy="0" ixz="4.5e-07" iyy="8e-06" iyz="0" izz="3.024e-05" />
+      <inertia ixx="0.0002668" ixy="0" ixz="4.5e-06" iyy="8e-05" iyz="0" izz="0.0003024" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -970,7 +970,7 @@
     <inertial>
       <origin xyz="0.0104555 -0.0535587 0.0342291" rpy="0 0 0" />
       <mass value="0.005" />
-      <inertia ixx="1.144e-05" ixy="1.7e-07" ixz="-0" iyy="6.52e-06" iyz="0" izz="1.696e-05" />
+      <inertia ixx="0.0001144" ixy="1.7e-06" ixz="-0" iyy="6.52e-05" iyz="0" izz="0.0001696" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -992,7 +992,7 @@
     <inertial>
       <origin xyz="0.0104585 -0.0535588 -0.0342143" rpy="0 0 0" />
       <mass value="0.005" />
-      <inertia ixx="1.144e-05" ixy="1.7e-07" ixz="0" iyy="6.52e-06" iyz="0" izz="1.696e-05" />
+      <inertia ixx="0.0001144" ixy="1.7e-06" ixz="0" iyy="6.52e-05" iyz="0" izz="0.0001696" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -1013,7 +1013,7 @@
   <link name="camera">
     <inertial>
       <origin xyz="0 0 0.012525" rpy="0 0 0" />
-      <mass value="0.05" />
+      <mass value="0.005" />
       <inertia ixx="5.2e-06" ixy="0" ixz="0" iyy="3.64e-05" iyz="0" izz="3.64e-05" />
     </inertial>
     <visual>
@@ -1150,6 +1150,6 @@
   <joint name="j_go2_base_arm_plate" type="fixed">
     <parent link="base" />
     <child link="plate" />
-    <origin xyz="0.315 0 0.08" rpy="0 0 0" />
+    <origin xyz="0.1 0 0.07" rpy="0 0 0" />
   </joint>
 </robot>

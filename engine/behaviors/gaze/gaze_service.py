@@ -14,12 +14,7 @@ from engine.behaviors.pick.control_ownership import (
     ControlOwnershipError,
     ControlState,
 )
-from engine.behaviors.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig
-from engine.behaviors.gaze.gait_phase_preview import (
-    GaitPhasePreviewModel,
-    resolve_gait_period_s,
-    resolve_gait_phase,
-)
+from engine.behaviors.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig, resolve_walking_gaze_mode
 from engine.behaviors.gaze.preview_lite import PitchLeadEstimator, resolve_pitch_rate
 from engine.behaviors.gaze.preview_mpc import solve_preview_du
 from engine.observability.walking_metrics import CameraMetricsLogger, _env_run_id
@@ -46,6 +41,7 @@ class GazeControlService:
         self._ownership_enable = bool(ownership_enable)
         self._ownership = ownership or ControlOwnership()
         self._worker: Optional[threading.Thread] = None
+        self._demo_thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._mode = "idle"
         self._gaze_mode = "off"
@@ -55,9 +51,6 @@ class GazeControlService:
         self._gaze_ticks = 0
         self._preview_used_ticks = 0
         self._preview_fallback_ticks = 0
-        self._gait_model: Optional[GaitPhasePreviewModel] = None
-        self._gait_period_s = 0.0
-        self._gait_wall_t0_s = 0.0
 
     def _target_visible_live(self, u_err: Optional[float], v_err: Optional[float], scale: float) -> bool:
         del scale
@@ -84,8 +77,9 @@ class GazeControlService:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._worker is not None:
-            self._worker.join(timeout=2.0)
+        worker = self._worker
+        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
+            worker.join(timeout=2.0)
         self._worker = None
         owner = self._ownership.owner
         if owner in (ControlOwner.GAZE_TRACK, ControlOwner.WALK_APPROACH):
@@ -110,18 +104,19 @@ class GazeControlService:
         )
         self._start(mode="standing", owner=ControlOwner.GAZE_TRACK, config=cfg, run_id=run_id, gaze_mode="uv")
 
-    def start_walking_gaze(self, *, run_id: str = "", gaze_mode: str = "uv_ff") -> None:
-        mode = str(gaze_mode).strip().lower()
+    def _status_mode(self) -> str:
+        if self._mode == "walking" and self._gaze_mode not in ("off",):
+            return f"walking/{self._gaze_mode}"
+        return str(self._mode)
+
+    def start_walking_gaze(self, *, run_id: str = "", gaze_mode: str | None = None) -> None:
+        mode = resolve_walking_gaze_mode(self._config, gaze_mode)
         if mode == "off":
             raise ValueError("gaze_mode=off should not start worker")
         if mode == "uv":
             cfg = replace(self._config, enable_feedback=True, enable_base_ff=False)
         elif mode == "uv_ff":
             cfg = replace(self._config, enable_feedback=True, enable_base_ff=True)
-        elif mode == "preview":
-            if not bool(self._config.gait_preview_enable):
-                raise ValueError("gaze_mode=preview requires gaze_gait_preview_enable=true")
-            cfg = replace(self._config, enable_feedback=True, enable_base_ff=False)
         elif mode == "pitch_preview":
             if not bool(self._config.preview_enable):
                 raise ValueError("gaze_mode=pitch_preview requires gaze_preview_enable=true")
@@ -137,23 +132,27 @@ class GazeControlService:
         )
 
     def start_stop_and_grasp_demo(self) -> None:
-        if self._worker is not None:
+        if self._demo_thread is not None and self._demo_thread.is_alive():
             return
 
-        def _worker() -> None:
+        def _demo() -> None:
             try:
                 self.start_walking_gaze()
                 time.sleep(3.0)
                 self._parent.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
                 time.sleep(0.5)
                 self.stop()
-                if hasattr(self._parent, "start_look_aim_grasp_e2e"):
+                if hasattr(self._parent, "start_mobile_gaze_lji_pick_e2e"):
+                    self._parent.start_mobile_gaze_lji_pick_e2e()
+                elif hasattr(self._parent, "start_look_aim_grasp_e2e"):
                     self._parent.start_look_aim_grasp_e2e()
             except Exception as exc:
                 print(f"[gaze] stop-and-grasp demo failed: {exc}")
+            finally:
+                self._demo_thread = None
 
-        self._worker = threading.Thread(target=_worker, name="gaze-demo4", daemon=True)
-        self._worker.start()
+        self._demo_thread = threading.Thread(target=_demo, name="gaze-demo4", daemon=True)
+        self._demo_thread.start()
 
     def _resolve_run_id(self, run_id: str) -> str:
         return _env_run_id(run_id)
@@ -189,40 +188,16 @@ class GazeControlService:
         self._gaze_ticks = 0
         self._preview_used_ticks = 0
         self._preview_fallback_ticks = 0
-        self._gait_model = None
-        self._gait_period_s = 0.0
-        self._gait_wall_t0_s = 0.0
         self._pitch_lead = PitchLeadEstimator()
         self._prev_pitch_rad: Optional[float] = None
         if gaze_mode == "pitch_preview":
             if not bool(config.preview_enable):
                 raise ValueError("gaze_mode=pitch_preview requires gaze_preview_enable=true")
-        elif gaze_mode == "preview":
-            tmpl_path = str(config.gait_template_path or "").strip()
-            if not tmpl_path:
-                raise ValueError("gaze_mode=preview requires gaze_gait_template_path")
-            self._gait_model = GaitPhasePreviewModel.load(tmpl_path)
-            meta_period = float(self._gait_model.template.gait_period_s)
-            cfg_period = resolve_gait_period_s(
-                gait_period_s=float(config.gait_period_s),
-                gait_hz=2.5,
-            )
-            if meta_period > 0.0:
-                self._gait_period_s = meta_period
-            elif cfg_period > 0.0:
-                self._gait_period_s = cfg_period
-            else:
-                raise ValueError("invalid gait_period_s for preview")
-            if cfg_period > 0.0 and meta_period > 0.0 and abs(cfg_period - meta_period) > 0.05:
-                print(
-                    f"[gaze] warning: config gait_period_s={cfg_period:.3f} "
-                    f"differs from template {meta_period:.3f}"
-                )
         self._parent.reset_gaze_derivative_state()
         self._parent.state.set_gaze_status(
             running=True,
-            mode=str(mode),
-            msg="started",
+            mode=self._status_mode(),
+            msg=f"started ({gaze_mode})",
             u_err=0.0,
             v_err=0.0,
             du_roll=0.0,
@@ -394,7 +369,7 @@ class GazeControlService:
         self._update_count += 1
         self._parent.state.set_gaze_status(
             running=True,
-            mode=str(self._mode),
+            mode=str(self._status_mode()),
             msg="tracking (preview_mpc)",
             u_err=float(u_err),
             v_err=float(v_err),
@@ -460,75 +435,6 @@ class GazeControlService:
             diag=diag,
         )
 
-    def _try_gait_preview_step(
-        self,
-        host,
-        obs,
-        u_err: float,
-        v_err: float,
-        period: float,
-    ) -> tuple[bool, str, dict[str, float]]:
-        cfg = self._stabilizer.config
-        diag: dict[str, float] = {}
-        if host is None:
-            return False, "missing_host", diag
-        if self._gait_model is None:
-            return False, "template_lookup_fail", diag
-        ts = float(getattr(host, "go2_base_timestamp_s", 0.0) or 0.0)
-        if ts <= 0.0:
-            return False, "missing_ts", diag
-
-        wall_t = time.time()
-        if self._gait_wall_t0_s <= 0.0:
-            self._gait_wall_t0_s = wall_t
-
-        host_phase = getattr(host, "go2_gait_phase", None)
-        period_s = float(self._gait_period_s)
-        if host.go2_gait_period_s is not None and float(host.go2_gait_period_s) > 0.0:
-            period_s = float(host.go2_gait_period_s)
-
-        phase_now, _src = resolve_gait_phase(
-            host_gait_phase=float(host_phase) if host_phase is not None else None,
-            sim_time_s=ts,
-            wall_time_s=wall_t,
-            wall_t0_s=self._gait_wall_t0_s,
-            gait_period_s=period_s,
-            phase_offset=float(cfg.gait_phase_offset),
-        )
-        if phase_now is None:
-            return False, "missing_gait_phase", diag
-
-        delta = self._gait_model.preview_delta(
-            phase_now,
-            scale=float(cfg.gait_preview_scale),
-            horizon_s=float(cfg.gait_preview_horizon_s),
-            period_s=period_s,
-        )
-        diag.update(
-            {
-                "gait_phase": float(delta.phase_now),
-                "gait_phase_future": float(delta.phase_future),
-                "gait_template_u_now": float(delta.d_now[0]),
-                "gait_template_v_now": float(delta.d_now[1]),
-                "gait_template_u_future": float(delta.d_future[0]),
-                "gait_template_v_future": float(delta.d_future[1]),
-                "preview_term_u": float(delta.preview_term[0]),
-                "preview_term_v": float(delta.preview_term[1]),
-            }
-        )
-        if not delta.ok:
-            return False, str(delta.reason or "template_lookup_fail"), diag
-
-        return self._apply_preview_solve(
-            host=host,
-            obs=obs,
-            u_err=u_err,
-            v_err=v_err,
-            period=period,
-            preview_term=np.asarray(delta.preview_term, dtype=float).reshape(2),
-            diag=diag,
-        )
-
     def _worker_loop(self) -> None:
         period = self._worker_period_s()
         owner = self._ownership.owner
@@ -558,7 +464,7 @@ class GazeControlService:
                     self._log_camera_sample(host=host, target_visible=False, u_err=None, v_err=None)
                     self._parent.state.set_gaze_status(
                         running=True,
-                        mode=str(self._mode),
+                        mode=str(self._status_mode()),
                         msg=reason,
                         obs_age_s=age_s,
                     )
@@ -573,15 +479,10 @@ class GazeControlService:
                 preview_diag: dict[str, float] = {}
                 used_preview = False
                 fallback_reason = ""
-                if self._gaze_mode in ("preview", "pitch_preview"):
-                    if self._gaze_mode == "pitch_preview":
-                        used_preview, fallback_reason, preview_diag = self._try_pitch_preview_step(
-                            host, obs, u_err, v_err, period
-                        )
-                    else:
-                        used_preview, fallback_reason, preview_diag = self._try_gait_preview_step(
-                            host, obs, u_err, v_err, period
-                        )
+                if self._gaze_mode == "pitch_preview":
+                    used_preview, fallback_reason, preview_diag = self._try_pitch_preview_step(
+                        host, obs, u_err, v_err, period
+                    )
                     if used_preview:
                         self._preview_used_ticks += 1
                         self._log_camera_sample(
@@ -618,7 +519,7 @@ class GazeControlService:
 
                 ff_du = (
                     self._walking_base_ff_du(host)
-                    if self._mode == "walking" and self._gaze_mode not in ("preview", "pitch_preview")
+                    if self._mode == "walking" and self._gaze_mode != "pitch_preview"
                     else None
                 )
                 mode, current_u, next_u, _, _ = self._parent.apply_gaze_uv_correction(
@@ -642,7 +543,7 @@ class GazeControlService:
                     self._update_count += 1
                 elif self._go2_is_moving(host):
                     status_msg = "tracking (go2 motion)"
-                if self._gaze_mode in ("preview", "pitch_preview") and not used_preview:
+                if self._gaze_mode == "pitch_preview" and not used_preview:
                     status_msg = f"preview fallback ({fallback_reason})"
                 self._log_camera_sample(
                     host=host,
@@ -652,8 +553,8 @@ class GazeControlService:
                     bbox_scale=float(obs.scale or 0.0),
                     tracking_confidence=float(obs.confidence or 0.0),
                     preview_used=0,
-                    preview_fallback=1 if self._gaze_mode in ("preview", "pitch_preview") else 0,
-                    preview_fallback_reason=fallback_reason if self._gaze_mode in ("preview", "pitch_preview") else "",
+                    preview_fallback=1 if self._gaze_mode == "pitch_preview" else 0,
+                    preview_fallback_reason=fallback_reason if self._gaze_mode == "pitch_preview" else "",
                     gait_phase=preview_diag.get("gait_phase"),
                     gait_phase_future=preview_diag.get("gait_phase_future"),
                     gait_template_u_now=preview_diag.get("gait_template_u_now"),
@@ -666,7 +567,7 @@ class GazeControlService:
                 )
                 self._parent.state.set_gaze_status(
                     running=True,
-                    mode=str(self._mode),
+                    mode=str(self._status_mode()),
                     msg=status_msg,
                     u_err=float(u_err),
                     v_err=float(v_err),

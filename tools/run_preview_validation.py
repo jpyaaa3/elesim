@@ -12,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.config_loader import load_app_config_from_ini
+from engine.core.config_loader import load_app_config_from_ini
 from tools import run_walking_baseline_batch as batch
+from tools.walking_baseline import _run_trial, _validate_gaze_config
 
 
 def _run_group(
@@ -42,7 +43,7 @@ def _run_group(
                 if not batch._wait_sim_ready(sim_log, timeout_s=sim_warmup_s):
                     raise SystemExit(f"sim not ready for {run_id}; see {sim_log}")
                 batch._wait_perception(service, config_path, timeout_s=perception_warmup_s)
-                batch._run_trial(
+                _run_trial(
                     service=service,
                     run_id=run_id,
                     preset="neutral",
@@ -51,11 +52,10 @@ def _run_group(
                     vy=0.0,
                     wz=0.0,
                     duration=float(duration),
-                    gaze="preview",
+                    gaze="pitch_preview",
                     log_dir=str(log_dir),
-                    notes=f"preview validation {sign_label}",
+                    notes=f"pitch_preview validation {sign_label}",
                     strict_run_id=True,
-                    preview_enable=True,
                 )
             finally:
                 batch._stop_proc(sim_proc, label="sim")
@@ -81,11 +81,8 @@ def main() -> None:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    batch._validate_gaze_config(
-        "preview",
-        load_app_config_from_ini(args.config).gaze_stabilizer_config,
-        gait_hz=float(load_app_config_from_ini(args.config).go2_locomotion_config.gait_hz),
-    )
+    bundle = load_app_config_from_ini(args.config)
+    _validate_gaze_config("pitch_preview", bundle.gaze_stabilizer_config)
 
     if args.sign in ("pos", "both"):
         _run_group(

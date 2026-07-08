@@ -50,16 +50,19 @@ class GazeStabilizerConfig:
     preview_max_du_roll: float = 1.0
     preview_max_du_seg: float = 1.5
     preview_lowpass_alpha: float = 0.35
-    gait_preview_enable: bool = False
-    gait_period_s: float = 0.0
-    gait_phase_offset: float = 0.0
-    gait_preview_horizon_s: float = 0.08
-    gait_template_path: str = ""
-    gait_template_bins: int = 32
-    gait_preview_scale: float = 1.0
+    walking_gaze_mode: str = "uv_ff"
 
 
-__all__ = ["GazeStabilizerConfig", "GazeStabilizer"]
+__all__ = ["GazeStabilizerConfig", "GazeStabilizer", "resolve_walking_gaze_mode"]
+
+
+def resolve_walking_gaze_mode(cfg: GazeStabilizerConfig, override: str | None = None) -> str:
+    mode = str(override or cfg.walking_gaze_mode or "uv_ff").strip().lower()
+    if mode not in ("uv", "uv_ff", "pitch_preview"):
+        raise ValueError(f"invalid walking gaze mode {mode!r} (uv|uv_ff|pitch_preview)")
+    if mode == "pitch_preview" and not bool(cfg.preview_enable):
+        raise ValueError("walking gaze_mode=pitch_preview requires gaze_preview_enable=true")
+    return mode
 
 
 class GazeStabilizer:

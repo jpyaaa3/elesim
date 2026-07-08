@@ -8,11 +8,17 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from engine.core.config_loader import load_app_config_from_ini
 from engine.vision.perception.detector import HsvDetector, create_detector, load_detector_config
 from engine.vision.perception.pipeline import resolve_detector_cfg, run_mock_frame
 
 
 class TestDetectorConfig(unittest.TestCase):
+    def test_config_ini_resolves_detector_preset_path(self) -> None:
+        bundle = load_app_config_from_ini(str(ROOT / "config.ini"))
+        path = bundle.perception_config.resolved_detector_config_path()
+        self.assertTrue(path.is_file(), msg=str(path))
+
     def test_sim_hsv_preset_uses_target_label(self) -> None:
         cfg = load_detector_config(ROOT / "model_presets" / "visual_servoing" / "detector.sim_hsv.json")
         self.assertEqual(str(cfg["type"]), "hsv")
@@ -56,6 +62,26 @@ class TestDetectorConfig(unittest.TestCase):
         )
         self.assertEqual(str(resolved["type"]), "hsv")
         self.assertEqual(str(resolved["target_label"]), "override")
+
+    def test_hsv_detector_supports_multi_ranges(self) -> None:
+        cfg = {
+            "type": "hsv",
+            "target_label": "sim_sphere",
+            "min_area_px": 10,
+            "hsv": {
+                "ranges": [
+                    {"lower": [0, 80, 80], "upper": [12, 255, 255]},
+                    {"lower": [168, 80, 80], "upper": [179, 255, 255]},
+                ]
+            },
+        }
+        detector = create_detector(cfg)
+        self.assertIsInstance(detector, HsvDetector)
+        color, _depth, _intr, _scale = run_mock_frame(cfg)
+        det = detector.detect(color)
+        self.assertIsNotNone(det)
+        assert det is not None
+        self.assertEqual(str(det.label), "sim_sphere")
 
 
 if __name__ == "__main__":

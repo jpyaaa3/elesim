@@ -15,9 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.config_loader import load_app_config_from_ini
-from engine.controller import ControlClient
-from engine.gaze_stabilizer.gait_phase_preview import resolve_gait_period_s
+from engine.core.config_loader import load_app_config_from_ini
+from engine.behaviors.pick import ControlClient
 from tools.walking_baseline import _connect_service, _run_trial, _trial_run_id, _validate_gaze_config
 
 
@@ -130,32 +129,6 @@ def _wait_perception(service, config_path: str, *, timeout_s: float) -> bool:
     return False
 
 
-def _preview_trial_kwargs(bundle, gaze: str) -> dict:
-    mode = str(gaze).strip().lower()
-    if mode == "preview":
-        gcfg = bundle.gaze_stabilizer_config
-        gait_period_s = resolve_gait_period_s(
-            gait_period_s=float(gcfg.gait_period_s),
-            gait_hz=float(bundle.go2_locomotion_config.gait_hz),
-        )
-        return {
-            "preview_enable": True,
-            "preview_type": "gait_phase",
-            "gait_period_s": float(gait_period_s),
-            "preview_horizon_s": float(gcfg.gait_preview_horizon_s),
-            "gait_template_path": str(gcfg.gait_template_path or ""),
-        }
-    if mode == "pitch_preview":
-        gcfg = bundle.gaze_stabilizer_config
-        return {
-            "preview_enable": True,
-            "preview_type": "pitch_rate",
-            "gait_period_s": 0.0,
-            "preview_horizon_s": float(gcfg.preview_tau_s),
-            "gait_template_path": "",
-        }
-    return {}
-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Batch walking baseline with headless sim + perception")
@@ -183,25 +156,20 @@ def main() -> None:
     ap.add_argument(
         "--run-id-stem",
         default="",
-        help="If set, run ids are {stem}_{trial:03d} (e.g. neutral_forward_gait_preview)",
+        help="If set, run ids are {stem}_{trial:03d} (e.g. neutral_forward_preview_pos)",
     )
     args = ap.parse_args()
 
     config_path = str(args.config)
     bundle = load_app_config_from_ini(config_path)
-    if str(args.gaze).strip().lower() in ("preview", "pitch_preview"):
-        _validate_gaze_config(
-            str(args.gaze),
-            bundle.gaze_stabilizer_config,
-            gait_hz=float(bundle.go2_locomotion_config.gait_hz),
-        )
+    if str(args.gaze).strip().lower() == "pitch_preview":
+        _validate_gaze_config(str(args.gaze), bundle.gaze_stabilizer_config)
     batch_log_dir = Path(args.batch_log_dir)
     batch_log_dir.mkdir(parents=True, exist_ok=True)
     host_proc = _ensure_host(config_path, log_dir=batch_log_dir, restart=bool(args.restart_host))
 
     trials = max(1, int(args.trials))
     trial_start = max(1, int(args.trial_start))
-    preview_kwargs = _preview_trial_kwargs(bundle, str(args.gaze))
 
     try:
         for trial in range(trial_start, trial_start + trials):
@@ -232,17 +200,11 @@ def main() -> None:
                     vx=0.35 if args.motion == "forward" else (-0.35 if args.motion == "backward" else 0.0),
                     vy=0.0,
                     wz=0.5 if args.motion == "turn" else 0.0,
-                    max_duration=float(args.max_duration),
+                    duration=float(args.max_duration),
                     gaze=str(args.gaze),
                     log_dir=args.log_dir,
                     notes=str(args.notes),
                     strict_run_id=True,
-                    config_path=config_path,
-                    stop_at_standoff=float(args.stop_at_standoff) if float(args.stop_at_standoff) > 0.0 else None,
-                    save_eye_video=not bool(args.no_eye_video),
-                    pose_settle_s=float(args.pose_settle_s),
-                    video_preroll_s=float(args.video_preroll_s),
-                    **preview_kwargs,
                 )
             finally:
                 service.close()

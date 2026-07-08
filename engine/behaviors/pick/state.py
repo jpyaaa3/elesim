@@ -99,6 +99,9 @@ class PanelState:
     perception_bbox_wh: tuple[int, int] = (0, 0)
     perception_tracker_backend: str = ""
     perception_last_capture_path: str = ""
+    perception_recording: bool = False
+    perception_record_with_overlay: bool = False
+    perception_last_record_path: str = ""
     perception_center_uv: Optional[tuple[float, float]] = None
     perception_last_update_s: float = 0.0
 
@@ -334,6 +337,16 @@ class PanelState:
     def set_perception_last_capture(self, path: str) -> None:
         with self._lock:
             self.perception_last_capture_path = str(path)
+
+    def set_perception_recording(self, recording: bool, path: str = "") -> None:
+        with self._lock:
+            self.perception_recording = bool(recording)
+            if str(path).strip():
+                self.perception_last_record_path = str(path)
+
+    def set_perception_record_overlay(self, enabled: bool) -> None:
+        with self._lock:
+            self.perception_record_with_overlay = bool(enabled)
 
     def clear_perception_status(self) -> None:
         self.set_perception_status(running=False, failed=False, msg="")

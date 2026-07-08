@@ -21,25 +21,29 @@ from engine.observability.walking_scenarios import BASELINE_SCENARIOS, ArmPosePr
 
 def _parse_gaze(raw: str) -> str:
     mode = str(raw).strip().lower()
-    if mode not in ("off", "uv", "uv_ff", "preview", "pitch_preview"):
-        raise SystemExit(f"unknown --gaze {raw!r} (off|uv|uv_ff|preview|pitch_preview)")
+    if mode not in ("off", "uv", "uv_ff", "pitch_preview"):
+        raise SystemExit(f"unknown --gaze {raw!r} (off|uv|uv_ff|pitch_preview)")
     return mode
 
 
 def _validate_gaze_config(gaze: str, gaze_cfg) -> None:
     mode = str(gaze).strip().lower()
-    if mode == "preview":
-        if not bool(getattr(gaze_cfg, "gait_preview_enable", False)):
-            raise SystemExit("preview requested but gaze_gait_preview_enable=false in config")
-        path = Path(str(getattr(gaze_cfg, "gait_template_path", "") or "").strip())
-        if not path.is_file():
-            raise SystemExit(f"preview requested but gait template missing: {path}")
-    elif mode == "pitch_preview":
+    if mode == "pitch_preview":
         if not bool(getattr(gaze_cfg, "preview_enable", False)):
             raise SystemExit("pitch_preview requested but gaze_preview_enable=false in config")
 
 
-def _trial_run_id(run_prefix: str, preset: str, motion: str, trial: int) -> str:
+def _trial_run_id(
+    run_prefix: str,
+    preset: str,
+    motion: str,
+    trial: int,
+    *,
+    run_id_stem: str = "",
+) -> str:
+    stem = str(run_id_stem).strip()
+    if stem:
+        return f"{stem}_{trial:03d}"
     return f"{run_prefix}_{preset}_{motion}_{trial:03d}"
 
 

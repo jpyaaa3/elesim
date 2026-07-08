@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Re-run the walking/gaze experiment suite (5 conditions × 5 trials, full-trial analysis).
+# Re-run the walking/gaze experiment suite (4 conditions × 5 trials, full-trial analysis).
 # Prerequisite: conda env elesim, GPU sim works on this machine (run from a real terminal).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,27 +51,22 @@ fi
   echo "[suite] started $(date -Iseconds)"
   echo "[suite] log_dir=$LOG_DIR batch_log=$BATCH_LOG notes_tag=$NOTES_TAG trials=5"
 
-  echo "=== Phase 1/5: UV feedback (5 trials) ==="
+  echo "=== Phase 1/4: UV feedback (5 trials) ==="
   _run --gaze uv --run-prefix exp_baseline --trials 5 \
     --notes "full rerun ${NOTES_TAG} standoff0.85 dur30 uv sim-vis"
 
-  echo "=== Phase 2/5: Gaze off (5 trials) ==="
+  echo "=== Phase 2/4: Gaze off (5 trials) ==="
   _run --gaze off --run-prefix exp_gaze_off --trials 5 \
     --notes "full rerun ${NOTES_TAG} standoff0.85 dur30 off sim-vis"
 
-  echo "=== Phase 3/5: UV+FF (5 trials) ==="
+  echo "=== Phase 3/4: UV+FF (5 trials) ==="
   _run --gaze uv_ff --run-prefix exp_gaze_uv_ff --trials 5 \
     --notes "full rerun ${NOTES_TAG} standoff0.85 dur30 uv_ff sim-vis"
 
-  echo "=== Phase 4/5: Pitch-rate preview (5 trials) ==="
+  echo "=== Phase 4/4: Body Pitch preview (5 trials) ==="
   _run --gaze pitch_preview --trials 5 \
     --run-id-stem neutral_forward_preview_pos \
     --notes "full rerun ${NOTES_TAG} standoff0.85 dur30 pitch-preview sim-vis"
-
-  echo "=== Phase 5/5: Gait-phase preview (5 trials) ==="
-  _run --gaze preview --trials 5 \
-    --run-id-stem neutral_forward_gait_preview \
-    --notes "full rerun ${NOTES_TAG} standoff0.85 dur30 gait-phase preview sim-vis"
 
   RUNS=()
   for n in 001 002 003 004 005; do
@@ -79,7 +74,6 @@ fi
     RUNS+=(exp_baseline_neutral_forward_${n})
     RUNS+=(exp_gaze_uv_ff_neutral_forward_${n})
     RUNS+=(neutral_forward_preview_pos_${n})
-    RUNS+=(neutral_forward_gait_preview_${n})
   done
 
   echo "=== Analyze all ${NOTES_TAG} runs (full trial) ==="
@@ -87,23 +81,21 @@ fi
     python tools/analyze_walking_metrics.py "$rid" --log-dir "$LOG_DIR" --merged "${ANALYZE_ARGS[@]}" >/dev/null || true
   done
 
-  echo "=== 5-way compare (trial 005 representative; full trial) ==="
+  echo "=== 4-way compare (trial 005 representative; full trial) ==="
   python tools/analyze_walking_metrics.py --log-dir "$LOG_DIR" "${ANALYZE_ARGS[@]}" --compare \
     exp_gaze_off_neutral_forward_005 \
     exp_baseline_neutral_forward_005 \
     exp_gaze_uv_ff_neutral_forward_005 \
     neutral_forward_preview_pos_005 \
-    neutral_forward_gait_preview_005 \
     | tee "$LOG_DIR/compare_summary.json"
 
-  echo "=== Final figures (5-way mean ± SD, n=5) ==="
+  echo "=== Final figures (4-way mean ± SD, n=5) ==="
   python tools/make_gait_preview_final_figures.py \
     --log-dir "$LOG_DIR" \
-    --template logs/gait_templates/neutral_forward_vx035_template.json \
     --compare "$LOG_DIR/compare_summary.json" \
     --notes-filter "$NOTES_TAG" \
     "${FIG_ARGS[@]}" \
-    --out results/gait_preview_final
+    --out results/pitch_preview_final
 
   echo "[suite] finished $(date -Iseconds)"
 } 2>&1 | tee -a "$SUITE_LOG"

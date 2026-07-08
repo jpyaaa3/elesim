@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 class ObjectPickPhase(str, Enum):
     IDLE = "idle"
+    NAVIGATE = "navigate"
+    HANDOFF = "handoff"
     LOOK = "look"
     READY = "ready"
     GRASP = "grasp"

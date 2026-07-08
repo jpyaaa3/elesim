@@ -6,6 +6,7 @@ from pathlib import Path
 import imgui
 
 from engine.core.config_loader import PerceptionConfig
+from ui.file_dialog import browse_open_file_path
 from ui.helpers import (
     begin_collapsible_section,
     begin_disabled_ui,
@@ -224,11 +225,8 @@ def _draw_tracker_row(panel, *, disabled: bool) -> None:
         panel._perception_tracker_draft = "kcf"
 
 
-def _browse_detector_config_path(initial_path: str) -> str | None:
+def browse_detector_config_path(initial_path: str) -> str | None:
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-
         root_path = _project_root()
         default_dir = root_path / "model_presets" / "visual_servoing"
         initial = str(initial_path or "").strip()
@@ -239,18 +237,14 @@ def _browse_detector_config_path(initial_path: str) -> str | None:
         if not initial_dir.is_dir():
             initial_dir = default_dir if default_dir.is_dir() else root_path
 
-        root = tk.Tk()
-        root.withdraw()
-        root.update_idletasks()
-        selected = filedialog.askopenfilename(
+        selected = browse_open_file_path(
             title="Select detector config JSON",
-            initialdir=str(initial_dir),
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initial_dir=str(initial_dir),
+            extensions=(".json",),
         )
-        root.destroy()
-        selected_path = Path(str(selected or "").strip())
-        if not selected_path:
+        if not selected:
             return None
+        selected_path = Path(selected)
         try:
             return str(selected_path.resolve().relative_to(root_path.resolve()))
         except ValueError:
@@ -277,9 +271,7 @@ def _draw_config_path_row(panel) -> None:
         panel._perception_config_path_draft = str(path_draft).strip()
     imgui.same_line()
     if imgui.button("Browse", browse_w, 0.0):
-        selected = _browse_detector_config_path(panel._perception_config_path_draft)
-        if selected:
-            panel._perception_config_path_draft = str(selected).strip()
+        panel.request_file_browse(kind="perception_detector", initial_path=panel._perception_config_path_draft)
 
 
 def _draw_ball_xyz_row(panel) -> None:
@@ -531,12 +523,10 @@ def _draw_tracking_controls(panel) -> None:
     imgui.same_line()
     if _button(panel, "Stop Tracking##visual_stop_gaze", _TRACK_BUTTON_W):
         panel.service.stop_gaze_stabilizer()
-    if _button(panel, "Stop + Grasp##visual_demo4", _TRACK_DEMO_BUTTON_W):
+    walk_mode = str(getattr(panel.service._gaze_cfg, "walking_gaze_mode", "uv_ff") or "uv_ff")
+    imgui.text_disabled(f"Walk + Track uses gaze_walking_mode={walk_mode}")
+    if _button(panel, "Stop + Pick##visual_demo4", _TRACK_DEMO_BUTTON_W):
         panel.service.start_demo4_stop_and_grasp()
-
-
-def _pick_action_button(panel, label: str, item_id: str, width: float) -> bool:
-    return bool(imgui.button(f"{label}##pick_{item_id}", float(width), scaled(panel, _BUTTON_H)))
 
 
 def _draw_pick_play_button(panel, *, disabled: bool) -> bool:
@@ -622,123 +612,131 @@ def _draw_pick_stop_button(panel, *, disabled: bool) -> bool:
     return (not disabled) and clicked
 
 
-def _pick_progress_done_flags(panel) -> tuple[bool, bool, bool]:
-    phase = str(getattr(panel.state, "pick_phase", "")).strip().lower()
-    msg = str(getattr(panel.state, "pick_status_msg", "")).strip().lower()
-
-    if phase in ("failed", "idle") or "stopped" in msg:
-        return (False, False, False)
-    if "e2e done" in msg or "grasp done" in msg:
-        return (True, True, True)
-    if "aim done" in msg:
-        return (True, True, False)
-    if "look done" in msg:
-        return (True, False, False)
-    if "e2e: grasp" in msg or phase in ("grasp", "grasp_approach", "approach", "extend"):
-        return (True, True, False)
-    if "e2e: aim" in msg or phase in ("acquire", "center"):
-        return (True, False, False)
+def _pick_status_color(panel) -> tuple[float, float, float]:
+    st = panel.state
+    if bool(getattr(st, "pick_failed", False)):
+        return (0.82, 0.18, 0.16)
+    if bool(getattr(st, "pick_running", False)) or bool(panel.service.pick_e2e_running()):
+        return (0.13, 0.48, 0.78)
+    phase = str(getattr(st, "pick_phase", "")).strip().lower()
     if phase == "done":
-        return (True, True, True)
-    return (False, False, False)
+        return (0.13, 0.62, 0.30)
+    return (0.34, 0.36, 0.40)
 
 
-def _draw_pick_progress_bar(panel, *, width: float, height: float, stage_w: float, spacing_x: float) -> None:
-    done = _pick_progress_done_flags(panel)
-    x, y = _xy(imgui.get_cursor_screen_pos())
-    if callable(getattr(imgui, "dummy", None)):
-        imgui.dummy(float(width), float(height))
+def _pick_dashboard_value(label: str, value: str, *, color: tuple[float, float, float] | None = None) -> None:
+    imgui.text(str(label))
+    imgui.same_line()
+    if color is None:
+        imgui.text(str(value))
     else:
-        imgui.invisible_button("##pick_progress_spacer", float(width), float(height))
-    draw_list = imgui.get_window_draw_list() if callable(getattr(imgui, "get_window_draw_list", None)) else None
-    if draw_list is None:
-        return
+        imgui.text_colored(str(value), float(color[0]), float(color[1]), float(color[2]))
 
-    center_y = y + float(height) * 0.5
-    centers = [
-        x + stage_w * 0.5,
-        x + stage_w * 1.5 + spacing_x,
-        x + stage_w * 2.5 + spacing_x * 2.0,
-    ]
-    radius = max(scaled(panel, 4.8), min(float(height) * 0.22, scaled(panel, 7.0)))
-    line_color = _color_u32(0.64, 0.67, 0.72, 1.0)
-    done_color = _color_u32(0.13, 0.62, 0.30, 1.0)
-    pending_fill = _color_u32(0.95, 0.96, 0.98, 1.0)
-    pending_border = _color_u32(0.54, 0.57, 0.62, 1.0)
-    line_thickness = max(scaled(panel, 2.0), 1.5)
 
-    for idx in range(2):
-        color = done_color if done[idx] and done[idx + 1] else line_color
-        _draw_line(
-            draw_list,
-            centers[idx] + radius,
-            center_y,
-            centers[idx + 1] - radius,
-            center_y,
-            color,
-            line_thickness,
-        )
+def _pick_dashboard_object_world(panel) -> tuple[float, float, float] | None:
+    obj = getattr(panel.state, "perception_world_xyz", None)
+    if obj is not None:
+        return tuple(float(v) for v in obj)
+    getter = getattr(panel.service, "_mobile_pick_object_world", None)
+    if callable(getter):
+        try:
+            got = getter()
+            if got is not None:
+                return tuple(float(v) for v in got)
+        except Exception:
+            return None
+    return None
 
-    for idx, center_x in enumerate(centers):
-        if done[idx]:
-            _draw_circle_filled(draw_list, center_x, center_y, radius + scaled(panel, 1.0), done_color)
-            _draw_circle_filled(draw_list, center_x, center_y, radius * 0.72, done_color)
-        else:
-            _draw_circle_filled(draw_list, center_x, center_y, radius + scaled(panel, 1.0), pending_border)
-            _draw_circle_filled(draw_list, center_x, center_y, radius, pending_fill)
+
+def _pick_dashboard_base_pos(host) -> tuple[float, float, float] | None:
+    if host is None:
+        return None
+    sim_pos = getattr(host, "go2_sim_base_pos", None)
+    if sim_pos is not None:
+        return tuple(float(v) for v in sim_pos)
+    pos = getattr(host, "go2_base_pos", None)
+    if pos is not None:
+        return tuple(float(v) for v in pos)
+    return None
+
+
+def _pick_dashboard_distance_text(panel) -> str:
+    host = getattr(panel, "_host_state", None)
+    base = _pick_dashboard_base_pos(host)
+    obj = _pick_dashboard_object_world(panel)
+    if base is None or obj is None:
+        return "-"
+    dist = math.hypot(float(base[0]) - float(obj[0]), float(base[1]) - float(obj[1]))
+    try:
+        pk = panel.service._pick_config_effective()
+        handoff_m = float(pk.mobile_handoff_distance_m)
+        soft_m = handoff_m + max(float(getattr(pk, "mobile_handoff_timeout_slack_m", 0.0)), 0.0)
+    except Exception:
+        handoff_m = 0.0
+        soft_m = 0.0
+    if handoff_m > 1e-6:
+        if soft_m > handoff_m + 1e-6:
+            return "%.2fm / %.2fm (%.2fm)" % (float(dist), float(handoff_m), float(soft_m))
+        return "%.2fm / %.2fm" % (float(dist), float(handoff_m))
+    return "%.2fm" % float(dist)
+
+
+def _pick_dashboard_uv_text(panel) -> str:
+    uv = getattr(panel.state, "perception_center_uv", None)
+    scale = float(getattr(panel.state, "perception_image_scale", 0.0) or 0.0)
+    if uv is None:
+        return "-"
+    return "(%+.2f,%+.2f)  s=%.3f" % (float(uv[0]), float(uv[1]), scale)
+
+
+def _pick_dashboard_go2_text(panel) -> str:
+    host = getattr(panel, "_host_state", None)
+    vel = getattr(host, "go2_vel", None) if host is not None else None
+    if vel is None:
+        return "-"
+    return "vx=%+.2f vy=%+.2f wz=%+.2f" % (float(vel[0]), float(vel[1]), float(vel[2]))
+
+
+def _draw_pick_dashboard(panel) -> None:
+    st = panel.state
+    phase = str(getattr(st, "pick_phase", "idle") or "idle")
+    status = str(getattr(st, "pick_status_msg", "") or "")
+    gaze = "running/%s" % str(getattr(st, "gaze_mode", "")) if bool(getattr(st, "gaze_running", False)) else "idle"
+    tracker = "%s  ok=%d" % (
+        str(getattr(st, "perception_tracker_phase", "")),
+        int(getattr(st, "perception_track_ok_frames", 0)),
+    )
+    width = float(getattr(imgui, "get_content_region_available_width", lambda: 260.0)())
+    col_w = max(scaled(panel, 130.0), (width - scaled(panel, 12.0)) * 0.5)
+    _pick_dashboard_value("Phase", phase, color=_pick_status_color(panel))
+    imgui.same_line(col_w)
+    _pick_dashboard_value("Distance", _pick_dashboard_distance_text(panel))
+    _pick_dashboard_value("Target", _pick_dashboard_uv_text(panel))
+    imgui.same_line(col_w)
+    _pick_dashboard_value("Tracker", tracker)
+    _pick_dashboard_value("Gaze", gaze)
+    imgui.same_line(col_w)
+    _pick_dashboard_value("GO2", _pick_dashboard_go2_text(panel))
+    if status:
+        _pick_dashboard_value("Status", status, color=_pick_status_color(panel))
 
 
 def _draw_pick_actions(panel, cfg: PerceptionConfig, *, pick_running: bool) -> None:
     spacing_x = float(getattr(imgui.get_style().item_spacing, "x", scaled(panel, 8.0)))
-    available = max(1.0, float(imgui.get_content_region_available_width()))
     play_size = scaled(panel, _BUTTON_H)
     stop_size = play_size
-    stage_area_w = max(1.0, available - play_size - stop_size - spacing_x * 2.0)
-    stage_w = max(1.0, (stage_area_w - spacing_x * 2.0) / 3.0)
-    stage_area_w = stage_w * 3.0 + spacing_x * 2.0
-    stage_button_w = max(1.0, stage_w * 0.78)
-    button_pad = max(0.0, (stage_w - stage_button_w) * 0.5)
 
-    start_x = float(getattr(imgui, "get_cursor_pos_x", lambda: 0.0)())
     if _draw_pick_play_button(panel, disabled=pick_running):
         panel.service.update_perception_config(cfg)
-        panel.service.start_look_aim_grasp_e2e()
+        panel.service.start_mobile_gaze_lji_pick_e2e()
     imgui.same_line()
     if _draw_pick_stop_button(panel, disabled=not pick_running):
         panel.service.stop_pick_e2e()
     imgui.same_line()
-    _draw_pick_progress_bar(
-        panel,
-        width=stage_area_w,
-        height=play_size,
-        stage_w=stage_w,
-        spacing_x=spacing_x,
-    )
-
-    set_cursor_x = getattr(imgui, "set_cursor_pos_x", None)
-    row_x = start_x + play_size + stop_size + spacing_x * 2.0
-    if callable(set_cursor_x):
-        set_cursor_x(row_x + button_pad)
-
-    disabled_token = begin_disabled_ui(pick_running)
-    try:
-        if _pick_action_button(panel, "Look", "look", stage_button_w) and not pick_running:
-            panel.service.update_perception_config(cfg)
-            panel.service.start_look()
-        imgui.same_line()
-        if callable(set_cursor_x):
-            set_cursor_x(row_x + stage_w + spacing_x + button_pad)
-        if _pick_action_button(panel, "Aim", "aim", stage_button_w) and not pick_running:
-            panel.service.update_perception_config(cfg)
-            panel.service.start_aim()
-        imgui.same_line()
-        if callable(set_cursor_x):
-            set_cursor_x(row_x + stage_w * 2.0 + spacing_x * 2.0 + button_pad)
-        if _pick_action_button(panel, "Grasp", "grasp", stage_button_w) and not pick_running:
-            panel.service.update_perception_config(cfg)
-            panel.service.start_grasp()
-    finally:
-        end_disabled_ui(disabled_token)
+    imgui.text_disabled("Mobile Pick")
+    if callable(getattr(imgui, "dummy", None)):
+        imgui.dummy(play_size + stop_size + spacing_x, scaled(panel, 2.0))
+    _draw_pick_dashboard(panel)
 
 
 def _begin_section(label: str, item_id: str) -> bool:
@@ -769,7 +767,7 @@ def _local_detector_mode(detector: str) -> str:
 def _draw_ready_pose_dir_editor(panel) -> None:
     changed_look, look_dist = _input_float(
         panel,
-        "Look dist",
+        "View dist",
         "visual_look_distance",
         float(panel.state.visual_look_distance_m),
         step=0.01,
@@ -868,8 +866,19 @@ def draw_perception_panel(panel) -> None:
         _draw_camera_controls(panel, running=running)
         if run_local:
             _control_label(panel, "Debug")
+            changed_rec_overlay, rec_overlay = imgui.checkbox(
+                "Record overlay##perception_record_overlay",
+                bool(panel.state.perception_record_with_overlay),
+            )
+            if changed_rec_overlay:
+                panel.state.set_perception_record_overlay(bool(rec_overlay))
+            imgui.same_line()
             if imgui.button("Save Snapshot"):
                 panel.service.capture_perception_frame()
+            imgui.same_line()
+            rec_label = "Stop Record" if bool(panel.state.perception_recording) else "Start Record"
+            if imgui.button(rec_label):
+                panel.service.toggle_perception_recording()
         _end_section()
 
     imgui.separator()

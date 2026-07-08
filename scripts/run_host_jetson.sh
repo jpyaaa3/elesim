@@ -9,7 +9,9 @@ UNITREE_WS="${UNITREE_ROS2_WS:-$HOME/unitree_ros2}"
 
 if [[ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]]; then
   # shellcheck disable=SC1091
+  set +u
   source "/opt/ros/${ROS_DISTRO}/setup.bash"
+  set -u
 else
   echo "[run_host_jetson] missing /opt/ros/${ROS_DISTRO}/setup.bash" >&2
   exit 1
@@ -17,7 +19,9 @@ fi
 
 if [[ -f "${UNITREE_WS}/install/setup.bash" ]]; then
   # shellcheck disable=SC1091
+  set +u
   source "${UNITREE_WS}/install/setup.bash"
+  set -u
 else
   echo "[run_host_jetson] missing ${UNITREE_WS}/install/setup.bash" >&2
   echo "[run_host_jetson] build unitree_ros2 first, or set UNITREE_ROS2_WS" >&2

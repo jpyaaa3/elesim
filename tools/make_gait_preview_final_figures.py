@@ -26,7 +26,6 @@ CONDITIONS: list[tuple[str, str, str]] = [
     ("off", "No Comp.", "exp_gaze_off_neutral_forward_"),
     ("uv", "Reactive", "exp_baseline_neutral_forward_"),
     ("uv_ff", "Reactive+FF", "exp_gaze_uv_ff_neutral_forward_"),
-    ("gait-phase preview", "Gait Preview", "neutral_forward_gait_preview_"),
     ("pitch-preview", "Body Pitch", "neutral_forward_preview_pos_"),
 ]
 
@@ -397,7 +396,7 @@ def _plot_v_rms_5way(out_dir: Path, table: list[dict[str, Any]]) -> None:
     ymax = max((float(v or 0.0) for v in vals), default=1.0)
     ax.set_ylim(0.0, ymax * 1.15)
     fig.tight_layout()
-    _save_figure(fig, out_dir / "fig_v_rms_5way")
+    _save_figure(fig, out_dir / "fig_v_rms_4way")
     plt.close(fig)
 
 
@@ -410,7 +409,6 @@ def _plot_improvement(out_dir: Path, table: list[dict[str, Any]]) -> None:
         (DISPLAY_BY_KEY["off"], lookup.get("off", {}).get("v_rms")),
         (DISPLAY_BY_KEY["uv"], lookup.get("uv", {}).get("v_rms")),
         (DISPLAY_BY_KEY["uv_ff"], lookup.get("uv_ff", {}).get("v_rms")),
-        (DISPLAY_BY_KEY["gait-phase preview"], lookup.get("gait-phase preview", {}).get("v_rms")),
     ]
     labels = [b[0] for b in baselines]
     vals = [_pct_reduction(b[1], proposed_v) or 0.0 for b in baselines]
@@ -574,25 +572,25 @@ def _plot_representative_v_error(
     series_keys = [
         ("off", DISPLAY_BY_KEY["off"]),
         ("uv", DISPLAY_BY_KEY["uv"]),
-        ("gait-phase preview", DISPLAY_BY_KEY["gait-phase preview"]),
+        ("uv_ff", DISPLAY_BY_KEY["uv_ff"]),
         (PROPOSED_KEY, PROPOSED_LABEL),
     ]
     colors = {
         "off": "#9aa0a6",
         "uv": "#e8710a",
-        "gait-phase preview": "#bdbdbd",
+        "uv_ff": "#bdbdbd",
         PROPOSED_KEY: "#1a73e8",
     }
     linewidths = {
         "off": 1.4,
         "uv": 1.4,
-        "gait-phase preview": 1.2,
+        "uv_ff": 1.2,
         PROPOSED_KEY: 2.0,
     }
     linestyles = {
         "off": "-",
         "uv": "-",
-        "gait-phase preview": "--",
+        "uv_ff": "--",
         PROPOSED_KEY: "-",
     }
 
@@ -678,12 +676,10 @@ def _write_notes(
     proposed_v = _v(PROPOSED_KEY)
     off_v = _v("off")
     uv_v = _v("uv")
-    gait_v = _v("gait-phase preview")
     uvff_v = _v("uv_ff")
 
     imp_off = _pct_reduction(off_v, proposed_v) or 0.0
     imp_uv = _pct_reduction(uv_v, proposed_v) or 0.0
-    imp_gait = _pct_reduction(gait_v, proposed_v) or 0.0
     imp_uvff = _pct_reduction(uvff_v, proposed_v) or 0.0
     proposed_best = _proposed_best_v_rms(log_dir, proposed_run_ids, analysis_window_s=analysis_window_s)
     window_note = (
@@ -695,7 +691,6 @@ def _write_notes(
         "",
         f"- {window_note}",
         "- Body Pitch (IMU pitch-rate lead) is the proposed deployable method for real GO2 hardware.",
-        "- Gait Preview is included only as a sim-only ablation that assumes access to gait phase.",
         (
             f"- Compared with No Comp., v RMS decreased from {off_v:.3f} to {proposed_v:.3f}, "
             f"corresponding to approximately {imp_off:.1f}% reduction."
@@ -714,14 +709,12 @@ def _write_notes(
         f"- Body Pitch v RMS: {proposed_v:.3f}",
         f"- Reactive v RMS: {uv_v:.3f}",
         f"- No Comp. v RMS: {off_v:.3f}",
-        f"- Gait Preview v RMS (ablation): {gait_v:.3f}",
         f"- Reactive+FF v RMS: {uvff_v:.3f}",
         "",
         f"## Relative reductions ({PROPOSED_LABEL})",
         "",
         f"- vs No Comp.: {imp_off:.1f}%",
         f"- vs Reactive: {imp_uv:.1f}%",
-        f"- vs Gait Preview: {imp_gait:.1f}%",
         f"- vs Reactive+FF: {imp_uvff:.1f}%",
         "",
     ]
@@ -794,7 +787,7 @@ def main() -> None:
     print(f"[final] wrote {out_dir / 'final_summary_table.csv'}")
 
     _plot_v_rms_5way(out_dir, table)
-    print(f"[final] wrote fig_v_rms_5way (.png/.pdf)")
+    print(f"[final] wrote fig_v_rms_4way (.png/.pdf)")
 
     _plot_improvement(out_dir, table)
     print(f"[final] wrote fig_v_rms_improvement (.png/.pdf)")

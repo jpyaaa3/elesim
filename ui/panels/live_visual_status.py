@@ -819,6 +819,12 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     _line("Camera XYZ [m]", _fmt_xyz(st.perception_camera_xyz, signed=True))
     _line("World XYZ [m]", _fmt_xyz(st.perception_world_xyz, signed=True))
     _line("Last capture", st.perception_last_capture_path)
+    _line(
+        "Recording",
+        ("ON  " if bool(st.perception_recording) else "OFF ")
+        + ("[overlay] " if bool(st.perception_record_with_overlay) else "[raw] ")
+        + (str(st.perception_last_record_path) if str(st.perception_last_record_path).strip() else "-"),
+    )
     _line("Perception msg", st.perception_status_msg)
 
     if host is None or not bool(getattr(host, "connected", False)):

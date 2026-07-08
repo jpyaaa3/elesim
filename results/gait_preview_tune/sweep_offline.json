@@ -1,0 +1,122 @@
+{
+  "run_ids": [
+    "neutral_forward_gait_preview_001",
+    "neutral_forward_gait_preview_002",
+    "neutral_forward_gait_preview_003",
+    "neutral_forward_gait_preview_004",
+    "neutral_forward_gait_preview_005"
+  ],
+  "n_combos_scored": 324,
+  "baseline_default": {
+    "phase_offset": 0.0,
+    "horizon_s": 0.08,
+    "scale": 1.0,
+    "tag": "offp000_hz080_sc100",
+    "proxy_v_rms": 0.14021200155688407,
+    "proxy_gain": -0.040657405305956955,
+    "align_corr": 0.025709633924778364,
+    "n_frames": 960
+  },
+  "top": [
+    {
+      "phase_offset": -0.2,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "tag": "offm020_hz140_sc060",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.12983864794579075,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.2,
+      "horizon_s": 0.14,
+      "scale": 1.2,
+      "tag": "offm020_hz140_sc120",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.06491932397289538,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.15,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "tag": "offm015_hz140_sc060",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.12983864794579075,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.15,
+      "horizon_s": 0.14,
+      "scale": 1.2,
+      "tag": "offm015_hz140_sc120",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.06491932397289538,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.1,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "tag": "offm010_hz140_sc060",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.12983864794579075,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.1,
+      "horizon_s": 0.14,
+      "scale": 1.2,
+      "tag": "offm010_hz140_sc120",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.06491932397289538,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.05,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "tag": "offm005_hz140_sc060",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.12983864794579075,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": -0.05,
+      "horizon_s": 0.14,
+      "scale": 1.2,
+      "tag": "offm005_hz140_sc120",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.06491932397289538,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": 0.0,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "tag": "offp000_hz140_sc060",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.12983864794579075,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    },
+    {
+      "phase_offset": 0.0,
+      "horizon_s": 0.14,
+      "scale": 1.2,
+      "tag": "offp000_hz140_sc120",
+      "proxy_v_rms": 0.14012696084017104,
+      "proxy_gain": -0.06491932397289538,
+      "align_corr": 0.04984019720489218,
+      "n_frames": 960
+    }
+  ]
+}

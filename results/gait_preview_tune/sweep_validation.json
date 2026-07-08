@@ -1,0 +1,33 @@
+{
+  "offline_note": "324 combos on v8 gait-preview logs; proxy_v_rms nearly flat (0.1401 vs 0.1402).",
+  "v8_baseline_mean_v_rms": 0.1376,
+  "live_validation_single_trial": [
+    {
+      "tag": "offp000_hz080_sc100",
+      "label": "current default",
+      "phase_offset": 0.0,
+      "horizon_s": 0.08,
+      "scale": 1.0,
+      "v_rms": 0.1549,
+      "run_id": "neutral_forward_gait_tune_offp000_hz080_sc100_001"
+    },
+    {
+      "tag": "offp000_hz140_sc060",
+      "label": "offline proxy best",
+      "phase_offset": 0.0,
+      "horizon_s": 0.14,
+      "scale": 0.6,
+      "v_rms": 0.1634,
+      "run_id": "neutral_forward_gait_tune_offp000_hz140_sc060_001"
+    },
+    {
+      "tag": "offp000_hz140_sc160",
+      "label": "long horizon + high scale",
+      "phase_offset": 0.0,
+      "horizon_s": 0.14,
+      "scale": 1.6,
+      "v_rms": 0.1556,
+      "run_id": "neutral_forward_gait_tune_offp000_hz140_sc160_001"
+    }
+  ]
+}

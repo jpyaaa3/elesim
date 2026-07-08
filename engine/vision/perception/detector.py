@@ -33,8 +33,19 @@ def _bbox_from_mask(mask: np.ndarray) -> tuple[int, int, int, int] | None:
 class HsvDetector:
     def __init__(self, cfg: dict[str, Any]) -> None:
         hsv = cfg.get("hsv", {}) or {}
-        self._lower = np.array(hsv.get("lower", [0, 80, 80]), dtype=np.uint8)
-        self._upper = np.array(hsv.get("upper", [20, 255, 255]), dtype=np.uint8)
+        ranges_raw = hsv.get("ranges", None)
+        self._ranges: list[tuple[np.ndarray, np.ndarray]] = []
+        if isinstance(ranges_raw, list) and len(ranges_raw) > 0:
+            for item in ranges_raw:
+                if not isinstance(item, dict):
+                    continue
+                lower = np.array(item.get("lower", [0, 80, 80]), dtype=np.uint8)
+                upper = np.array(item.get("upper", [20, 255, 255]), dtype=np.uint8)
+                self._ranges.append((lower, upper))
+        if not self._ranges:
+            lower = np.array(hsv.get("lower", [0, 80, 80]), dtype=np.uint8)
+            upper = np.array(hsv.get("upper", [20, 255, 255]), dtype=np.uint8)
+            self._ranges.append((lower, upper))
         self._label = str(cfg.get("target_label", "object"))
         self._min_area = int(cfg.get("min_area_px", 200))
 
@@ -45,7 +56,9 @@ class HsvDetector:
         if img.ndim != 3 or img.shape[2] != 3:
             return None
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, self._lower, self._upper)
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        for lower, upper in self._ranges:
+            mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lower, upper))
         kernel = np.ones((5, 5), dtype=np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)

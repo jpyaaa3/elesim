@@ -3,7 +3,7 @@
     "mass": "kg",
     "length": "m"
   },
-  "mass": 1.5,
+  "mass": 0.15,
   "com": [
     0.0,
     0.0,

@@ -12,6 +12,7 @@ from engine.behaviors.pick import ControlService, HostState, PanelState
 from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig
 from ui.helpers import scaled, set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
+from ui import file_dialog
 
 from .panels import (
     draw_control_4dof_panel,
@@ -141,6 +142,30 @@ class ControlPanel:
         self._ui_resolution_base_h = _INITIAL_WINDOW_H
         self._ui_style_base_scalars: dict[str, float] = {}
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
+        self._pending_file_browse: Optional[tuple[str, str]] = None
+
+    def request_file_browse(self, *, kind: str, initial_path: str) -> None:
+        self._pending_file_browse = (str(kind), str(initial_path))
+
+    def _process_pending_file_browse(self) -> None:
+        pending = self._pending_file_browse
+        if pending is None:
+            return
+        self._pending_file_browse = None
+        kind, initial_path = pending
+        if kind == "sag":
+            from ui.panels.sag import browse_sag_model_path
+
+            selected = browse_sag_model_path(initial_path)
+            if selected:
+                self._sag_model_path_draft = str(selected)
+            return
+        if kind == "perception_detector":
+            from ui.panels.perception import browse_detector_config_path
+
+            selected = browse_detector_config_path(initial_path)
+            if selected:
+                self._perception_config_path_draft = str(selected)
 
     def _install_ui_font(self) -> None:
         io = imgui.get_io()
@@ -527,6 +552,7 @@ class ControlPanel:
             glfw.terminate()
             raise SystemExit("Failed to create GLFW window.")
         self._glfw_window = window
+        file_dialog.set_glfw_window(window)
         self._ui_resolution_base_w = int(win_w)
         self._ui_resolution_base_h = int(win_h)
         self._lock_os_window_size()
@@ -543,6 +569,7 @@ class ControlPanel:
                 self._host_state = self.service.refresh_host_state()
                 self.sync_offset_drafts()
                 glfw.poll_events()
+                self._process_pending_file_browse()
                 impl.process_inputs()
                 self._sync_ui_resolution_scale_to_window()
 

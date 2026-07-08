@@ -78,8 +78,8 @@ class RunContext:
         gait_template_path: str = "",
     ) -> RunContext:
         requested = str(self.requested_gaze_mode or self.gaze_mode)
-        if requested == "preview":
-            actual = "preview" if float(preview_used_ratio) >= 0.5 else "uv"
+        if requested == "pitch_preview":
+            actual = "pitch_preview" if float(preview_used_ratio) >= 0.5 else "uv"
         else:
             actual = requested
         return RunContext(

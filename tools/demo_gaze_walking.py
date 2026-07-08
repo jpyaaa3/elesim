@@ -120,16 +120,12 @@ def main() -> None:
     ap.add_argument("--vx", type=float, default=-0.2)
     ap.add_argument("--duration", type=float, default=10.0)
     ap.add_argument("--log-dir", default="logs/walking_baseline")
-    ap.add_argument("--gaze", default="", help="optional override for single-mode demos (preview|uv|...)")
+    ap.add_argument("--gaze", default="", help="optional override for single-mode demos (pitch_preview|uv|...)")
     args = ap.parse_args()
 
     bundle = load_app_config_from_ini(args.config)
-    if str(args.gaze).strip().lower() == "preview":
-        _validate_gaze_config(
-            "preview",
-            bundle.gaze_stabilizer_config,
-            gait_hz=float(bundle.go2_locomotion_config.gait_hz),
-        )
+    if str(args.gaze).strip().lower() == "pitch_preview":
+        _validate_gaze_config("pitch_preview", bundle.gaze_stabilizer_config)
     print(
         json.dumps(
             {

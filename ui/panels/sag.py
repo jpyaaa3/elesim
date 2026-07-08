@@ -3,31 +3,28 @@ from __future__ import annotations
 import imgui
 
 from ui.helpers import panel_header
+from ui.file_dialog import browse_open_file_path
 
 
-def _browse_sag_model_path(initial_path: str) -> str | None:
+def sag_browse_initial_dir(initial_path: str) -> str:
+    import os
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    default_assets_dir = os.path.join(project_root, "assets")
+    initial = str(initial_path or "").strip()
+    initial_dir = os.path.dirname(initial) if initial else default_assets_dir
+    if not os.path.isdir(initial_dir):
+        initial_dir = default_assets_dir if os.path.isdir(default_assets_dir) else os.getcwd()
+    return initial_dir
+
+
+def browse_sag_model_path(initial_path: str) -> str | None:
     try:
-        import os
-        import tkinter as tk
-        from tkinter import filedialog
-
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        default_assets_dir = os.path.join(project_root, "assets")
-        root = tk.Tk()
-        root.withdraw()
-        root.update_idletasks()
-        initial = str(initial_path or "").strip()
-        initial_dir = os.path.dirname(initial) if initial else default_assets_dir
-        if not os.path.isdir(initial_dir):
-            initial_dir = default_assets_dir if os.path.isdir(default_assets_dir) else os.getcwd()
-        selected = filedialog.askopenfilename(
+        return browse_open_file_path(
             title="Select sag model JSON",
-            initialdir=initial_dir,
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initial_dir=sag_browse_initial_dir(initial_path),
+            extensions=(".json",),
         )
-        root.destroy()
-        selected = str(selected or "").strip()
-        return selected or None
     except Exception:
         return None
 
@@ -42,9 +39,7 @@ def draw_sag_panel(panel) -> None:
         if changed:
             panel._sag_model_path_draft = str(sag_path)
         if imgui.button("Browse"):
-            selected = _browse_sag_model_path(panel._sag_model_path_draft)
-            if selected:
-                panel._sag_model_path_draft = str(selected)
+            panel.request_file_browse(kind="sag", initial_path=panel._sag_model_path_draft)
         imgui.same_line()
         if imgui.button("Load Model"):
             try:
