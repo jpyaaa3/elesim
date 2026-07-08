@@ -906,6 +906,32 @@ class ControlService:
             min_confidence=min_conf,
         )
 
+    def _grasp_lji_wait_visual_observation(
+        self,
+        host_state: Optional[HostState],
+        *,
+        wait_s: float = 0.25,
+    ) -> tuple[Optional[VisualObservation], Optional[HostState]]:
+        """LJI is sensitive to transient stale observations; poll briefly before reacquire."""
+        obs = self.current_visual_observation(host_state)
+        if obs is not None:
+            return obs, host_state
+        cap = self._perception_capture
+        if cap is not None:
+            cap.request_refresh()
+        deadline = time.time() + float(max(wait_s, 0.0))
+        while time.time() < deadline and not self._pick_stop_event.is_set():
+            time.sleep(0.02)
+            if self.client is not None:
+                try:
+                    host_state = self.client.refresh_state()
+                except Exception:
+                    pass
+            obs = self.current_visual_observation(host_state)
+            if obs is not None:
+                return obs, host_state
+        return None, host_state
+
     def _visual_target_uv(self) -> tuple[float, float]:
         return (float(self.state.visual_target_uv_u), float(self.state.visual_target_uv_v))
 
@@ -7808,7 +7834,10 @@ class ControlService:
                     )
                     break
 
-                obs = self.current_visual_observation(host_state)
+                obs, host_state = self._grasp_lji_wait_visual_observation(
+                    host_state,
+                    wait_s=0.25,
+                )
                 object_lost = obs is None
                 s_lji_now = self._grasp_lji_build_features_3d(obs, remain_m=float(remain))
                 if s_lji_now is not None:
@@ -7982,7 +8011,10 @@ class ControlService:
                             angle_tol_rad=lji_settle_angle_tol,
                         )
                         settle_ok = host_state is not None
-                    obs_after = self.current_visual_observation(host_state)
+                    obs_after, host_state = self._grasp_lji_wait_visual_observation(
+                        host_state,
+                        wait_s=0.20,
+                    )
                     if obs_after is not None and not self._grasp_lji_visual_tracking_lost(
                         self._grasp_lji_build_features_3d(
                             obs_after, remain_m=float(remain_after)
@@ -8171,7 +8203,10 @@ class ControlService:
                 elif q_cmd is not None:
                     settle_ok = True
 
-                obs_after = self.current_visual_observation(host_state)
+                obs_after, host_state = self._grasp_lji_wait_visual_observation(
+                    host_state,
+                    wait_s=0.20,
+                )
                 tip_after = self._pick_current_tip_world(host_state=host_state)
                 remain_after = (
                     self._grasp_axial_distance(
