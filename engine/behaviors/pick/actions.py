@@ -7691,8 +7691,14 @@ class ControlService:
         close_tol_m = float(max(pk.grasp_close_tol_m, float(self._ik_cfg.tol), 0.003))
         lji_settle_dwell_s = float(max(pk.lij_settle_dwell_s, 0.0))
         lji_motion_settle_timeout_s = float(max(pk.lij_settle_timeout_s, 0.0))
-        lji_settle_angle_tol = max(0.006, float(pk.lij_max_dq_angle) * 0.55)
-        lji_settle_linear_tol = max(5e-4, float(pk.lij_max_dq_linear) * 0.45)
+        lji_settle_angle_tol = max(
+            7.5e-4,
+            min(0.0015, float(pk.lij_max_dq_angle) * 0.25),
+        )
+        lji_settle_linear_tol = max(
+            2.0e-4,
+            min(6.0e-4, float(pk.lij_max_dq_linear) * 0.25),
+        )
         lji_pipelined = bool(pk.lij_pipelined_motion)
         lji_step_period_s = float(max(pk.lij_step_period_s, 0.0))
         success = False
@@ -7719,12 +7725,14 @@ class ControlService:
             prev_mode = mode
             print(
                 "[Grasp] LJI3D start | close_tol=%.1fmm blind_at_remain=%.0fmm "
-                "gain_z=%.2f z_bend=%.2f"
+                "gain_z=%.2f z_bend=%.2f settle_tol=(%.4fm,%.4frad)"
                 % (
                     close_tol_m * 1000.0,
                     float(pk.blind_micro_start_m) * 1000.0,
                     float(pk.lij_gain_z),
                     float(pk.lij_z_bend_gain),
+                    float(lji_settle_linear_tol),
+                    float(lji_settle_angle_tol),
                 )
             )
             self._grasp_lji_log_start()
