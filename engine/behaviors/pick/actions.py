@@ -1010,7 +1010,32 @@ class ControlService:
     def _pick_busy(self) -> bool:
         return self._pick_worker is not None
 
+    def _retire_finished_visual_workers(self) -> None:
+        if self._ik_worker is not None and not self._ik_worker.is_alive():
+            self._ik_worker = None
+        if self._pick_worker is not None and not self._pick_worker.is_alive():
+            self._pick_worker = None
+        if self._pick_e2e_worker is not None and not self._pick_e2e_worker.is_alive():
+            self._pick_e2e_worker = None
+        if self._ik_worker is None and self._pick_worker is None and bool(self.state.ik_running):
+            self.state.clear_ik_status()
+
+    def _join_visual_worker_briefly(self, attr: str, *, timeout_s: float = 0.35) -> bool:
+        worker = getattr(self, attr, None)
+        if worker is None:
+            return False
+        if not worker.is_alive():
+            setattr(self, attr, None)
+            return False
+        if threading.current_thread() is not worker:
+            worker.join(timeout=float(max(timeout_s, 0.0)))
+        if not worker.is_alive():
+            setattr(self, attr, None)
+            return False
+        return True
+
     def pick_e2e_running(self) -> bool:
+        self._retire_finished_visual_workers()
         worker = self._pick_e2e_worker
         return worker is not None and worker.is_alive()
 
@@ -1512,21 +1537,29 @@ class ControlService:
                 msg="no host client",
             )
             return
-        if (
-            self.pick_e2e_running()
-            or self._pick_worker is not None
-            or self.state.ik_running
-            or self._ik_worker is not None
-        ):
+        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        self.stop_gaze_stabilizer()
+        self._pick_e2e_cancel.set()
+        self._pick_stop_event.set()
+        self._retire_finished_visual_workers()
+        busy_reasons: list[str] = []
+        if self._join_visual_worker_briefly("_pick_e2e_worker"):
+            busy_reasons.append("mobile pipeline stopping")
+        if self._join_visual_worker_briefly("_pick_worker"):
+            busy_reasons.append("pick worker stopping")
+        if self._join_visual_worker_briefly("_ik_worker"):
+            busy_reasons.append("ik worker running")
+        self._retire_finished_visual_workers()
+        if bool(self.state.ik_running):
+            busy_reasons.append("ik state running")
+        if busy_reasons:
             self.state.set_pick_status(
                 running=False,
                 failed=True,
                 phase=ObjectPickPhase.FAILED.value,
-                msg="arm busy",
+                msg="arm busy: " + ", ".join(busy_reasons),
             )
             return
-        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
-        self.stop_gaze_stabilizer()
         self._pick_e2e_cancel.clear()
         self._pick_stop_event.clear()
         self._reset_pick_last_seen_uv()
