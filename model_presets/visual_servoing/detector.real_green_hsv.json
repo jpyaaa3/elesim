@@ -1,0 +1,13 @@
+{
+  "type": "hsv",
+  "target_label": "sports ball",
+  "min_area_px": 120,
+  "z_min_m": 0.15,
+  "z_max_m": 2.5,
+  "hsv": {
+    "note": "OpenCV HSV scale. Center ~= H 64 deg -> 32, S 64% -> 163, V 68% -> 173.",
+    "ranges": [
+      { "lower": [22, 90, 80], "upper": [44, 255, 255] }
+    ]
+  }
+}

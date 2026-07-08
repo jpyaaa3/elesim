@@ -36,6 +36,7 @@ _GAZE_MODE_BUTTON_W = 92.0
 _MODEL_CONFIGS = {
     "yolo": "model_presets/visual_servoing/detector.yolo.example.json",
     "hsv": "model_presets/visual_servoing/detector.sim_hsv.json",
+    "green_hsv": "model_presets/visual_servoing/detector.real_green_hsv.json",
 }
 _GAZE_REACTIVE_FIELDS = (
     ("uv_gain", "UV gain", 0.05, 8.0, "%.2f"),
@@ -291,6 +292,8 @@ def _detector_model_from_draft(panel) -> str:
     if detector in ("yolo", "hsv"):
         return detector
     path = str(getattr(panel, "_perception_config_path_draft", "")).strip().lower()
+    if "real_green" in path or "green_hsv" in path:
+        return "green_hsv"
     if "yolo" in path:
         return "yolo"
     if "hsv" in path:
@@ -315,6 +318,9 @@ def _draw_model_row(panel) -> None:
     imgui.same_line()
     if _mode_button(panel, "HSV", "model_hsv", model == "hsv"):
         _set_detector_model(panel, "hsv")
+    imgui.same_line()
+    if _mode_button(panel, "Green", "model_green_hsv", model == "green_hsv"):
+        _set_detector_model(panel, "green_hsv")
 
 
 def _draw_detection_row(panel) -> int:
