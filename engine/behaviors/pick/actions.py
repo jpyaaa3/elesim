@@ -2160,7 +2160,7 @@ class ControlService:
             float(q_new.theta2_rad),
         )
 
-    def apply_partial_control_u(self, partial_u: dict[str, float]) -> None:
+    def apply_partial_control_u(self, partial_u: dict[str, float], *, source: str = "slider") -> None:
         current_u = self.current_control_u()
         merged = {
             "linear": float(current_u.u_linear),
@@ -2182,7 +2182,7 @@ class ControlService:
                 str(k).strip().lower(): float(v) + float(offsets[str(k).strip().lower()])
                 for k, v in partial_u.items()
             }
-            self.client.send_partial_control_u(adjusted, source="slider")
+            self.client.send_partial_control_u(adjusted, source=str(source))
 
     def set_display_offset(self, axis: str, value: float) -> None:
         self.state.set_u_offset(axis, float(value))
@@ -10033,7 +10033,7 @@ class ControlService:
             }
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
-            self.apply_partial_control_u(partial)
+            self.apply_partial_control_u(partial, source="gaze")
             self._set_gaze_command_ref(next_u)
             self._gaze_last_cmd_wall_s = float(time.time())
             self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
@@ -10102,7 +10102,7 @@ class ControlService:
             }
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
-            self.apply_partial_control_u(partial)
+            self.apply_partial_control_u(partial, source="gaze")
             self._set_gaze_command_ref(next_u)
             self._gaze_last_cmd_wall_s = float(time.time())
             self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(

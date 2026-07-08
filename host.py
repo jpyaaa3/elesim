@@ -293,6 +293,24 @@ class ControlHost:
         self._arm_servo_submit_count: int = 0
         self._arm_servo_apply_count: int = 0
         self._arm_servo_last_error: str = ""
+        self._arm_servo_target_meta: dict[str, Any] = {}
+        self._arm_latency_log_enable = (
+            os.environ.get("ELESIM_ARM_LATENCY", "").strip().lower() in ("1", "true", "yes", "on")
+            or bool(getattr(hardware_cfg, "arm_latency_log_enable", False) if hardware_cfg is not None else False)
+        )
+        self._arm_latency_log_interval_s = max(
+            0.1,
+            float(
+                getattr(hardware_cfg, "arm_latency_log_interval_s", 1.0)
+                if hardware_cfg is not None
+                else 1.0
+            ),
+        )
+        self._arm_latency_last_log_t: float = 0.0
+        self._arm_latency_counts: dict[str, int] = {}
+        self._arm_latency_sums: dict[str, float] = {}
+        self._arm_latency_max: dict[str, float] = {}
+        self._arm_latency_last_follow: dict[str, Any] = {}
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
@@ -629,6 +647,7 @@ class ControlHost:
             "sim",
             "target",
             "perception",
+            "gaze",
             "lji",
             "lji_step",
             "servo",
@@ -1157,6 +1176,111 @@ class ControlHost:
         except Exception:
             pass
 
+    def _arm_latency_count(self, name: str, n: int = 1) -> None:
+        if not bool(self._arm_latency_log_enable):
+            return
+        key = str(name)
+        self._arm_latency_counts[key] = int(self._arm_latency_counts.get(key, 0)) + int(n)
+
+    def _arm_latency_sample_ms(self, name: str, value_ms: float) -> None:
+        if not bool(self._arm_latency_log_enable):
+            return
+        value = float(value_ms)
+        if not np.isfinite(value):
+            return
+        key = str(name)
+        count_key = f"{key}.n"
+        self._arm_latency_counts[count_key] = int(self._arm_latency_counts.get(count_key, 0)) + 1
+        self._arm_latency_sums[key] = float(self._arm_latency_sums.get(key, 0.0)) + value
+        self._arm_latency_max[key] = max(float(self._arm_latency_max.get(key, value)), value)
+
+    def _control_u_value(self, u: proto.ControlU, axis: str) -> float:
+        key = str(axis).strip().lower()
+        if key == "linear":
+            return float(u.u_linear)
+        if key == "roll":
+            return float(u.u_roll)
+        if key == "s1":
+            return float(u.u_s1)
+        if key == "s2":
+            return float(u.u_s2)
+        return 0.0
+
+    def _control_u_err_max(self, target_u: proto.ControlU, actual_u: proto.ControlU, axes: Set[str]) -> float:
+        vals = [
+            abs(self._control_u_value(target_u, axis) - self._control_u_value(actual_u, axis))
+            for axis in set(axes)
+            if str(axis).strip().lower() in ("linear", "roll", "s1", "s2")
+        ]
+        return float(max(vals) if vals else 0.0)
+
+    def _arm_latency_maybe_log(self, *, now_s: Optional[float] = None) -> None:
+        if not bool(self._arm_latency_log_enable):
+            return
+        now = time.time() if now_s is None else float(now_s)
+        if (now - float(self._arm_latency_last_log_t)) < float(self._arm_latency_log_interval_s):
+            return
+        self._arm_latency_last_log_t = now
+
+        def _avg_max(name: str) -> str:
+            n = int(self._arm_latency_counts.get(f"{name}.n", 0))
+            if n <= 0:
+                return "-"
+            avg = float(self._arm_latency_sums.get(name, 0.0)) / float(n)
+            mx = float(self._arm_latency_max.get(name, 0.0))
+            return f"{avg:.1f}/{mx:.1f}"
+
+        follow = dict(self._arm_latency_last_follow or {})
+        err_now = follow.get("last_err_u", None)
+        err_s = "-" if err_now is None else f"{float(err_now):.2f}u"
+        print(
+            "[arm_latency] "
+            f"recv={int(self._arm_latency_counts.get('recv', 0))} "
+            f"submit={int(self._arm_latency_counts.get('submit', 0))} "
+            f"apply={int(self._arm_latency_counts.get('apply', 0))} "
+            f"replace={int(self._arm_latency_counts.get('replace', 0))} "
+            f"client->host(avg/max)={_avg_max('client_to_host_ms')}ms "
+            f"client->write(avg/max)={_avg_max('client_to_write_ms')}ms "
+            f"obs_age(avg/max)={_avg_max('obs_age_ms')}ms "
+            f"recv->write(avg/max)={_avg_max('recv_to_write_ms')}ms "
+            f"sync_write(avg/max)={_avg_max('sync_write_ms')}ms "
+            f"follow50(avg/max)={_avg_max('follow50_ms')}ms "
+            f"follow90(avg/max)={_avg_max('follow90_ms')}ms "
+            f"err={err_s} "
+            f"source={str(follow.get('source', self._arm_servo_target_source) or '-')} "
+            f"seq={int(follow.get('seq', self._arm_servo_applied_seq))} "
+            f"last_error={self._arm_servo_last_error or '-'}"
+        )
+        self._arm_latency_counts.clear()
+        self._arm_latency_sums.clear()
+        self._arm_latency_max.clear()
+
+    def _arm_latency_observe_follow(self, now_s: Optional[float] = None) -> None:
+        if not bool(self._arm_latency_log_enable) or self.last_u is None:
+            return
+        follow = self._arm_latency_last_follow
+        if not follow:
+            self._arm_latency_maybe_log(now_s=now_s)
+            return
+        target_u = follow.get("target_u")
+        axes_raw = follow.get("axes", set())
+        if not isinstance(target_u, proto.ControlU):
+            self._arm_latency_maybe_log(now_s=now_s)
+            return
+        axes = set(axes_raw) if isinstance(axes_raw, (set, list, tuple)) else set()
+        now = time.time() if now_s is None else float(now_s)
+        err = self._control_u_err_max(target_u, self.last_u, axes)
+        follow["last_err_u"] = float(err)
+        initial = float(max(float(follow.get("initial_err_u", 0.0)), 1e-6))
+        apply_s = float(follow.get("apply_s", now))
+        if not bool(follow.get("hit50", False)) and err <= initial * 0.5:
+            follow["hit50"] = True
+            self._arm_latency_sample_ms("follow50_ms", (now - apply_s) * 1000.0)
+        if not bool(follow.get("hit90", False)) and err <= max(initial * 0.1, 0.75):
+            follow["hit90"] = True
+            self._arm_latency_sample_ms("follow90_ms", (now - apply_s) * 1000.0)
+        self._arm_latency_maybe_log(now_s=now)
+
     def _read_hw_state(self, *, read_currents: bool = True) -> None:
         if not self._has_hw():
             return
@@ -1195,6 +1319,7 @@ class ControlHost:
         if self._target_u_state is None:
             self._target_u_state = self.last_u
         self.last_state_ts = time.time()
+        self._arm_latency_observe_follow(now_s=float(self.last_state_ts))
 
     def _motor_name_by_id(self, dxl_id: int) -> str:
         if not self._has_hw():
@@ -1458,6 +1583,7 @@ class ControlHost:
             self._arm_servo_target_axes = set()
             self._arm_servo_target_seq = -1
             self._arm_servo_target_source = ""
+            self._arm_servo_target_meta = {}
             self._arm_servo_cond.notify_all()
 
     def _submit_arm_servo_partial_target(
@@ -1467,6 +1593,9 @@ class ControlHost:
         *,
         seq: int,
         source: str,
+        host_recv_s: float,
+        client_ts_s: float,
+        perceived_ts_s: float,
     ) -> bool:
         if (
             not bool(self._arm_servo_thread_enable)
@@ -1478,11 +1607,20 @@ class ControlHost:
         ):
             return False
         with self._arm_servo_cond:
+            if self._arm_servo_target_u is not None and self._arm_servo_target_seq != self._arm_servo_applied_seq:
+                self._arm_latency_count("replace")
             self._arm_servo_target_u = u
             self._arm_servo_target_axes = set(axes)
             self._arm_servo_target_seq = int(seq)
             self._arm_servo_target_source = str(source)
+            self._arm_servo_target_meta = {
+                "host_recv_s": float(host_recv_s),
+                "client_ts_s": float(client_ts_s),
+                "perceived_ts_s": float(perceived_ts_s),
+                "source": str(source),
+            }
             self._arm_servo_submit_count += 1
+            self._arm_latency_count("submit")
             self._arm_servo_cond.notify()
         return True
 
@@ -1496,6 +1634,7 @@ class ControlHost:
                 target_u = self._arm_servo_target_u
                 axes = set(self._arm_servo_target_axes)
                 seq = int(self._arm_servo_target_seq)
+                meta = dict(self._arm_servo_target_meta)
             if target_u is None or not axes or seq == last_seq:
                 continue
             now = time.time()
@@ -1506,6 +1645,7 @@ class ControlHost:
                 target_u = self._arm_servo_target_u
                 axes = set(self._arm_servo_target_axes)
                 seq = int(self._arm_servo_target_seq)
+                meta = dict(self._arm_servo_target_meta)
             if target_u is None or not axes or seq == last_seq:
                 continue
             if self._safety_fault:
@@ -1514,7 +1654,21 @@ class ControlHost:
                     self._arm_servo_applied_seq = int(seq)
                 last_seq = int(seq)
                 continue
+            actual_before = self.last_u
+            apply_start = time.time()
             ok = self._apply_partial_u_target(target_u, axes)
+            apply_end = time.time()
+            self._arm_latency_count("apply")
+            host_recv_s = float(meta.get("host_recv_s", 0.0))
+            client_ts_s = float(meta.get("client_ts_s", 0.0))
+            perceived_ts_s = float(meta.get("perceived_ts_s", 0.0))
+            if host_recv_s > 0.0:
+                self._arm_latency_sample_ms("recv_to_write_ms", (apply_start - host_recv_s) * 1000.0)
+            if client_ts_s > 0.0:
+                self._arm_latency_sample_ms("client_to_write_ms", (apply_end - client_ts_s) * 1000.0)
+            if perceived_ts_s > 0.0:
+                self._arm_latency_sample_ms("obs_age_ms", (apply_start - perceived_ts_s) * 1000.0)
+            self._arm_latency_sample_ms("sync_write_ms", (apply_end - apply_start) * 1000.0)
             with self._arm_servo_cond:
                 self._arm_servo_applied_seq = int(seq)
                 if bool(ok):
@@ -1523,7 +1677,23 @@ class ControlHost:
                 else:
                     self._arm_servo_last_error = self._last_target_apply_error or "arm_servo_apply_failed"
             if bool(ok):
+                if isinstance(actual_before, proto.ControlU):
+                    initial_err = self._control_u_err_max(target_u, actual_before, axes)
+                else:
+                    initial_err = 0.0
+                self._arm_latency_last_follow = {
+                    "seq": int(seq),
+                    "source": str(meta.get("source", self._arm_servo_target_source)),
+                    "target_u": target_u,
+                    "axes": set(axes),
+                    "apply_s": float(apply_end),
+                    "initial_err_u": float(initial_err),
+                    "last_err_u": float(initial_err),
+                    "hit50": False,
+                    "hit90": False,
+                }
                 self._state_broadcast_requested.set()
+                self._arm_latency_maybe_log(now_s=float(apply_end))
             last_seq = int(seq)
             next_apply_t = time.time() + float(self._arm_servo_period)
 
@@ -2332,6 +2502,12 @@ class ControlHost:
             self._broadcast_state_now()
             return
         if t == "target":
+            target_recv_s = float(proto.now_s())
+            client_ts_s = 0.0
+            try:
+                client_ts_s = float(msg.get("ts", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                client_ts_s = 0.0
             source = str(msg.get("source", "sim"))
             if not self._is_allowed_source(source):
                 self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": False, "reason": "source_reject", "device": self.device, "torque_enabled": self.torque_enabled})
@@ -2533,6 +2709,13 @@ class ControlHost:
                 u_keys = {str(k).strip().lower() for k in raw_u.keys()}
                 if u_keys.issubset({"linear", "roll", "s1", "s2"}) and u_keys:
                     partial_u_mode = True
+                    if bool(self._arm_latency_log_enable):
+                        self._arm_latency_count("recv")
+                        if client_ts_s > 0.0:
+                            self._arm_latency_sample_ms(
+                                "client_to_host_ms",
+                                (target_recv_s - client_ts_s) * 1000.0,
+                            )
                     merged_u = self._merge_partial_target_u({str(k): float(v) for k, v in raw_u.items()})
                     if merged_u is not None:
                         partial_target_u = merged_u
@@ -2703,7 +2886,7 @@ class ControlHost:
             )
             now_log = time.time()
             log_target = True
-            if bool(partial_u_mode) and str(source).strip().lower() == "slider":
+            if bool(partial_u_mode) and str(source).strip().lower() in ("slider", "gaze", "servo"):
                 log_target = (
                     log_key != self._last_target_log_key
                     or (now_log - float(self._last_target_log_t)) >= 1.0
@@ -2736,6 +2919,9 @@ class ControlHost:
                     partial_target_axes,
                     seq=int(seq),
                     source=str(source),
+                    host_recv_s=float(target_recv_s),
+                    client_ts_s=float(client_ts_s),
+                    perceived_ts_s=float(self.last_perceived_timestamp_s),
                 ):
                     self._pending_target_q = None
                     self._pending_target_u = None
