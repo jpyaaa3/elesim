@@ -178,6 +178,17 @@ class PerceptionCapture:
         self._cached_overlay: Optional[np.ndarray] = None
         self._cached_depth: Optional[np.ndarray] = None
         self._cached_frame_idx: int = -1
+        self._record_lock = threading.Lock()
+        self._record_active: bool = False
+        self._record_path: Optional[Path] = None
+        self._record_writer: Any = None
+        self._record_thread: Optional[threading.Thread] = None
+        self._record_stop_event = threading.Event()
+        self._record_fps: float = 20.0
+        self._record_frame_count: int = 0
+        self._record_unique_count: int = 0
+        self._record_include_overlay: bool = False
+        self._record_last_bgr: Optional[np.ndarray] = None
         self._snapshot = PerceptionSnapshot(
             running=False,
             failed=False,
@@ -217,6 +228,164 @@ class PerceptionCapture:
             )
             self._cached_depth = None if depth_raw is None else np.asarray(depth_raw).copy()
             self._cached_frame_idx = int(frame_idx)
+        self._record_frame_if_needed(color_bgr, overlay_bgr=overlay_bgr)
+
+    def is_recording(self) -> bool:
+        with self._record_lock:
+            return bool(self._record_active)
+
+    def recording_path(self) -> str:
+        with self._record_lock:
+            return "" if self._record_path is None else str(self._record_path.resolve())
+
+    def start_recording(
+        self,
+        out_dir: Path,
+        *,
+        fps: float = 20.0,
+        include_overlay: bool = False,
+    ) -> tuple[bool, str]:
+        initial_frame = self._initial_record_frame(include_overlay=bool(include_overlay))
+        with self._record_lock:
+            if self._record_active:
+                return False, "recording already active"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            tag = time.strftime("%Y%m%d_%H%M%S")
+            self._record_path = out_dir / f"{tag}_record.mp4"
+            self._record_fps = float(max(1.0, fps))
+            self._record_frame_count = 0
+            self._record_unique_count = 0
+            self._record_include_overlay = bool(include_overlay)
+            self._record_writer = None
+            self._record_last_bgr = initial_frame
+            self._record_stop_event.clear()
+            self._record_active = True
+            self._record_thread = threading.Thread(
+                target=self._record_wall_clock_loop,
+                name="perception-recorder",
+                daemon=True,
+            )
+            self._record_thread.start()
+            return True, str(self._record_path.resolve())
+
+    def stop_recording(self) -> tuple[bool, str, int]:
+        with self._record_lock:
+            if not self._record_active:
+                return False, "", 0
+            self._record_active = False
+            self._record_stop_event.set()
+            thread = self._record_thread
+            path = self._record_path
+        if thread is not None:
+            thread.join(timeout=5.0)
+        with self._record_lock:
+            frame_count = int(self._record_frame_count)
+            self._record_path = None
+            self._record_frame_count = 0
+            self._record_unique_count = 0
+            self._record_include_overlay = False
+            self._record_last_bgr = None
+            self._record_thread = None if thread is None or not thread.is_alive() else thread
+        return True, ("" if path is None else str(path.resolve())), frame_count
+
+    def _initial_record_frame(self, *, include_overlay: bool) -> Optional[np.ndarray]:
+        with self._frame_lock:
+            frame = self._cached_color
+            if bool(include_overlay) and self._cached_overlay is not None:
+                frame = self._cached_overlay
+            if frame is None:
+                return None
+            return np.ascontiguousarray(frame, dtype=np.uint8).copy()
+
+    def _record_frame_if_needed(
+        self,
+        color_bgr: np.ndarray,
+        *,
+        overlay_bgr: Optional[np.ndarray] = None,
+    ) -> None:
+        with self._record_lock:
+            if not self._record_active:
+                return
+            if self._record_path is None:
+                return
+            frame_bgr = color_bgr
+            if self._record_include_overlay and overlay_bgr is not None:
+                frame_bgr = overlay_bgr
+            self._record_last_bgr = np.ascontiguousarray(frame_bgr, dtype=np.uint8).copy()
+            self._record_unique_count += 1
+
+    def _record_wall_clock_loop(self) -> None:
+        try:
+            import cv2
+        except Exception:
+            with self._record_lock:
+                self._record_active = False
+                self._record_path = None
+            return
+
+        writer = None
+        writer_size: Optional[tuple[int, int]] = None
+        period = 1.0 / max(float(self._record_fps), 1.0)
+        max_writes_per_tick = max(1, int(float(self._record_fps) * 2.0))
+        next_write_t = time.monotonic()
+        try:
+            while not self._record_stop_event.is_set():
+                with self._record_lock:
+                    active = bool(self._record_active)
+                    path = self._record_path
+                    fps = float(self._record_fps)
+                    frame = None if self._record_last_bgr is None else self._record_last_bgr.copy()
+                if not active or path is None:
+                    break
+                if frame is None:
+                    time.sleep(0.01)
+                    next_write_t = time.monotonic()
+                    continue
+                if writer is None:
+                    h, w = int(frame.shape[0]), int(frame.shape[1])
+                    if h <= 0 or w <= 0:
+                        time.sleep(0.01)
+                        continue
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    writer = cv2.VideoWriter(str(path), fourcc, fps, (w, h))
+                    if not writer.isOpened():
+                        with self._record_lock:
+                            self._record_active = False
+                            self._record_path = None
+                        break
+                    writer_size = (w, h)
+
+                now = time.monotonic()
+                writes_this_tick = 0
+                while now >= next_write_t and writes_this_tick < max_writes_per_tick:
+                    out_frame = frame
+                    if writer_size is not None and (
+                        int(out_frame.shape[1]) != int(writer_size[0])
+                        or int(out_frame.shape[0]) != int(writer_size[1])
+                    ):
+                        out_frame = cv2.resize(out_frame, writer_size, interpolation=cv2.INTER_LINEAR)
+                    try:
+                        writer.write(np.ascontiguousarray(out_frame, dtype=np.uint8))
+                    except Exception:
+                        pass
+                    with self._record_lock:
+                        self._record_frame_count += 1
+                    next_write_t += period
+                    writes_this_tick += 1
+                if writes_this_tick >= max_writes_per_tick:
+                    next_write_t = time.monotonic() + period
+                sleep_s = max(0.0, min(0.02, next_write_t - time.monotonic()))
+                if sleep_s > 0.0:
+                    time.sleep(sleep_s)
+        finally:
+            if writer is not None:
+                try:
+                    writer.release()
+                except Exception:
+                    pass
+            with self._record_lock:
+                if self._record_writer is writer:
+                    self._record_writer = None
 
     def _publish_preview_frame(self, image_bgr: np.ndarray, *, frame_idx: int, status: str) -> None:
         cb = self._preview_publish_fn
@@ -322,7 +491,7 @@ class PerceptionCapture:
         self._thread = threading.Thread(target=self._run, name="perception-capture", daemon=True)
         self._thread.start()
 
-    def stop(self, *, timeout_s: float = 5.0) -> bool:
+    def stop(self, *, timeout_s: float = 5.0, stop_recording: bool = True) -> bool:
         self._stop_event.set()
         thread = self._thread
         if thread is not None:
@@ -332,6 +501,8 @@ class PerceptionCapture:
                 return False
         self._thread = None
         self._refresh_event.clear()
+        if bool(stop_recording):
+            self.stop_recording()
         self._set_snapshot(running=False, status_msg="stopped")
         return True
 

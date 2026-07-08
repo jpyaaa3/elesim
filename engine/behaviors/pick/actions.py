@@ -15,7 +15,7 @@ import numpy as np
 from engine.robot.arm import ik as ik_pipeline
 from engine.robot.arm.mounts.go2_mount import Go2ArmMount
 from engine.robot.arm.iklib import kinematics as ik_kin
-from engine.core.config_loader import IkConfig, PerceptionConfig, PickConfig
+from engine.core.config_loader import IkConfig, PerceptionConfig, PickConfig, SimConfig, load_app_config_from_ini
 from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig
 from engine.behaviors.gaze.gaze_service import GazeControlService
 from engine.core.protocol import (
@@ -29,6 +29,7 @@ from engine.core.protocol import (
     linear_motor_u_limit,
     sim_q_to_control_u,
 )
+from engine.experiment.walking_trial import host_horizontal_object_distance_m, standoff_base_pos
 from engine.robot.arm.sag_model import load_sag_model_json
 from engine.vision.visual_servoing.equal_sag_probe import (
     EqualSagEstimate,
@@ -160,6 +161,8 @@ class ControlService:
         self._go2_arm_mount = go2_arm_mount
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_capture_epoch: int = 0
+        self._side_camera_recorder: Optional[Any] = None
+        self._side_camera_record_path: Optional[Path] = None
         self._remote_preview_stop = threading.Event()
         self._remote_preview_thread: Optional[threading.Thread] = None
         self._last_pick_profile: Optional[PickPhaseProfile] = None
@@ -941,7 +944,343 @@ class ControlService:
 
     def stop_pick_e2e(self) -> None:
         self._pick_e2e_cancel.set()
+        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        self.stop_gaze_stabilizer()
         self.stop_object_pick()
+
+    def _mobile_pick_object_world(self) -> Optional[tuple[float, float, float]]:
+        obj = self._pick_latest_object_world() or self._pick_frozen_world()
+        if obj is None:
+            return None
+        return tuple(float(v) for v in obj)
+
+    def _mobile_pick_handoff_distance_m(
+        self,
+        host_state: Optional[HostState],
+        object_world: Optional[tuple[float, float, float]],
+    ) -> Optional[float]:
+        if host_state is None or object_world is None:
+            return None
+        try:
+            return host_horizontal_object_distance_m(host_state, object_world)
+        except Exception:
+            return None
+
+    def _mobile_pick_handoff_ready(
+        self,
+        host_state: Optional[HostState],
+        object_world: Optional[tuple[float, float, float]],
+        *,
+        handoff_distance_m: float,
+    ) -> tuple[bool, Optional[float]]:
+        dist = self._mobile_pick_handoff_distance_m(host_state, object_world)
+        if dist is None:
+            return False, None
+        return bool(float(dist) <= float(handoff_distance_m)), float(dist)
+
+    def _mobile_pick_timeout_handoff_ready(
+        self,
+        host_state: Optional[HostState],
+        object_world: Optional[tuple[float, float, float]],
+        *,
+        handoff_distance_m: float,
+        timeout_slack_m: float,
+    ) -> tuple[bool, Optional[float]]:
+        dist = self._mobile_pick_handoff_distance_m(host_state, object_world)
+        if dist is None:
+            return False, None
+        soft_limit_m = float(handoff_distance_m) + max(float(timeout_slack_m), 0.0)
+        return bool(float(dist) <= soft_limit_m), float(dist)
+
+    def _mobile_pick_base_velocity_toward_object(
+        self,
+        host_state: Optional[HostState],
+        object_world: Optional[tuple[float, float, float]],
+        *,
+        speed_mps: float,
+    ) -> tuple[float, float, float]:
+        speed = float(max(speed_mps, 0.0))
+        if speed <= 1e-6:
+            return 0.0, 0.0, 0.0
+        if host_state is None or object_world is None:
+            return speed, 0.0, 0.0
+        base_pos = standoff_base_pos(host_state)
+        if base_pos is None:
+            return speed, 0.0, 0.0
+        dx = float(object_world[0]) - float(base_pos[0])
+        dy = float(object_world[1]) - float(base_pos[1])
+        dist = float(math.hypot(dx, dy))
+        if dist <= 1e-6:
+            return 0.0, 0.0, 0.0
+        yaw = 0.0
+        if host_state.go2_base_rpy is not None:
+            try:
+                yaw = float(host_state.go2_base_rpy[2])
+            except (TypeError, ValueError, IndexError):
+                yaw = 0.0
+        c = math.cos(yaw)
+        s = math.sin(yaw)
+        x_body = c * dx + s * dy
+        y_body = -s * dx + c * dy
+        scale = speed / max(dist, 1e-6)
+        return float(x_body * scale), float(y_body * scale), 0.0
+
+    def _mobile_pick_wait_for_object(
+        self,
+        *,
+        timeout_s: float,
+    ) -> tuple[Optional[HostState], Optional[tuple[float, float, float]]]:
+        deadline = time.time() + float(max(timeout_s, 0.1))
+        host_state: Optional[HostState] = None
+        while time.time() < deadline:
+            if self._pick_e2e_cancel.is_set() or self._pick_stop_event.is_set():
+                return host_state, None
+            host_state = self.client.refresh_state() if self.client is not None else None
+            obs = self.current_visual_observation(host_state)
+            obj = self._mobile_pick_object_world()
+            if obs is not None and obj is not None:
+                return host_state, obj
+            time.sleep(0.05)
+        return host_state, self._mobile_pick_object_world()
+
+    def _mobile_pick_latch_handoff(
+        self,
+        *,
+        host_state: Optional[HostState],
+        object_world: tuple[float, float, float],
+    ) -> None:
+        obj = tuple(float(v) for v in object_world)
+        self._reset_pick_last_seen_uv()
+        self._reset_pick_uv_jacobian()
+        self._reset_pick_search_state()
+        self._reset_pick_drift_accounting()
+        self._reset_pick_resolved_ready_state()
+        self._reset_pick_equal_sag_result_state()
+        self._reset_pick_look_state()
+        self._reset_grasp_guided_state()
+        self._pick_frozen_world_xyz = obj
+        self._pick_initial_object_world_xyz = obj
+        self._pick_centered_object_world_xyz = obj
+
+        tip = self._pick_current_tip_world(host_state=host_state)
+        direction = self._pick_ready_direction(
+            object_world=obj,
+            tip_world=tip,
+            prefer_current_tip=True,
+        )
+        if direction is not None:
+            self._pick_resolved_ready_dir_world = tuple(float(v) for v in direction)
+        if tip is not None:
+            tip_tuple = tuple(float(v) for v in tip)
+            self._pick_resolved_ready_pose_world_xyz = tip_tuple
+            self._pick_look_tip_world_xyz = tip_tuple
+
+    def start_mobile_gaze_lji_pick_e2e(self) -> None:
+        """Walk with gaze until handoff distance, then run LJI grasp."""
+        if self.pick_e2e_running() or self._pick_busy() or self.state.ik_running or self._ik_worker is not None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="busy",
+            )
+            return
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+
+        self._pick_e2e_cancel.clear()
+        self._pick_stop_event.clear()
+        timeout_s = float(self._pick_e2e_phase_timeout_s)
+
+        def _worker() -> None:
+            success = False
+            try:
+                pk = self._pick_config_effective()
+                handoff_m = float(max(pk.mobile_handoff_distance_m, pk.grasp_standoff_m))
+                handoff_timeout_slack_m = float(max(pk.mobile_handoff_timeout_slack_m, 0.0))
+                soft_handoff_m = handoff_m + handoff_timeout_slack_m
+                approach_v = float(max(pk.mobile_approach_vx_mps, 0.0))
+                approach_timeout_s = float(max(pk.mobile_approach_timeout_s, 0.1))
+                settle_s = float(max(pk.mobile_stop_settle_s, 0.0))
+                gaze_mode = str(pk.mobile_gaze_mode or "uv_ff").strip().lower()
+                print(
+                    "[MobilePick] start | gaze=%s handoff=%.0fmm soft=%.0fmm approach_v=%.2fm/s"
+                    % (gaze_mode, handoff_m * 1000.0, soft_handoff_m * 1000.0, approach_v)
+                )
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.ACQUIRE.value,
+                    msg="mobile pick: acquiring target",
+                )
+
+                if self._perception_capture is None or not self._perception_capture.is_running():
+                    self.start_perception_capture(config=self._perception_cfg)
+
+                host_state, object_world = self._mobile_pick_wait_for_object(
+                    timeout_s=min(approach_timeout_s, 5.0),
+                )
+                if object_world is None:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="mobile pick: no target observation",
+                    )
+                    return
+
+                self.start_gaze_stabilizer_walking(gaze_mode=gaze_mode)
+                deadline = time.time() + approach_timeout_s
+                last_dist: Optional[float] = None
+                handoff_reason = "threshold"
+                while time.time() < deadline:
+                    if self._pick_e2e_cancel.is_set() or self._pick_stop_event.is_set():
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=False,
+                            phase=ObjectPickPhase.IDLE.value,
+                            msg="mobile pick stopped",
+                        )
+                        return
+                    host_state = self.client.refresh_state() if self.client is not None else host_state
+                    object_world = self._mobile_pick_object_world() or object_world
+                    ready, dist = self._mobile_pick_handoff_ready(
+                        host_state,
+                        object_world,
+                        handoff_distance_m=handoff_m,
+                    )
+                    if dist is not None:
+                        last_dist = float(dist)
+                    if ready:
+                        break
+                    vx, vy, wz = self._mobile_pick_base_velocity_toward_object(
+                        host_state,
+                        object_world,
+                        speed_mps=approach_v,
+                    )
+                    self.send_go2_velocity(vx=vx, vy=vy, wz=wz)
+                    dist_txt = "n/a" if last_dist is None else "%.0fmm" % (last_dist * 1000.0)
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=ObjectPickPhase.NAVIGATE.value,
+                        msg="mobile gaze approach | dist=%s handoff=%.0fmm soft=%.0fmm"
+                        % (dist_txt, handoff_m * 1000.0, soft_handoff_m * 1000.0),
+                    )
+                    time.sleep(0.10)
+                else:
+                    self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+                    self.stop_gaze_stabilizer()
+                    host_state = self.client.refresh_state() if self.client is not None else host_state
+                    object_world = self._mobile_pick_object_world() or object_world
+                    soft_ready, dist = self._mobile_pick_timeout_handoff_ready(
+                        host_state,
+                        object_world,
+                        handoff_distance_m=handoff_m,
+                        timeout_slack_m=handoff_timeout_slack_m,
+                    )
+                    if dist is not None:
+                        last_dist = float(dist)
+                    dist_txt = "n/a" if last_dist is None else "%.0fmm" % (last_dist * 1000.0)
+                    if soft_ready:
+                        handoff_reason = "timeout-soft"
+                    else:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="mobile pick: handoff timeout | dist=%s handoff=%.0fmm soft=%.0fmm"
+                            % (dist_txt, handoff_m * 1000.0, soft_handoff_m * 1000.0),
+                        )
+                        return
+
+                    print(
+                        "[MobilePick] timeout soft handoff | dist=%s <= %.0fmm"
+                        % (dist_txt, soft_handoff_m * 1000.0)
+                    )
+                    self.state.set_pick_status(
+                        running=True,
+                        failed=False,
+                        phase=ObjectPickPhase.HANDOFF.value,
+                        msg="mobile soft handoff -> LJI | dist=%s handoff=%.0fmm soft=%.0fmm"
+                        % (dist_txt, handoff_m * 1000.0, soft_handoff_m * 1000.0),
+                    )
+
+                self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+                self.stop_gaze_stabilizer()
+                if settle_s > 1e-6:
+                    time.sleep(settle_s)
+                host_state = self.client.refresh_state() if self.client is not None else host_state
+                object_world = self._mobile_pick_object_world() or object_world
+                self._mobile_pick_latch_handoff(
+                    host_state=host_state,
+                    object_world=object_world,
+                )
+                dist_txt = "n/a" if last_dist is None else "%.0fmm" % (last_dist * 1000.0)
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.HANDOFF.value,
+                    msg="mobile %s handoff -> LJI | dist=%s"
+                    % ("soft" if handoff_reason == "timeout-soft" else "threshold", dist_txt),
+                )
+                print("[MobilePick] %s handoff | dist=%s -> LJI grasp" % (handoff_reason, dist_txt))
+
+                self.start_grasp()
+                if self.state.pick_failed:
+                    return
+                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="mobile_lji_grasp"):
+                    if not self.state.pick_failed:
+                        self.state.set_pick_status(
+                            running=False,
+                            failed=True,
+                            phase=ObjectPickPhase.FAILED.value,
+                            msg="mobile pick: LJI grasp timeout",
+                        )
+                    return
+                if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
+                    return
+                self.state.set_pick_status(
+                    running=False,
+                    failed=False,
+                    phase=ObjectPickPhase.DONE.value,
+                    msg="mobile pick done | gaze -> LJI grasp",
+                )
+                success = True
+                print("[MobilePick] done | gaze -> LJI grasp")
+            except Exception as exc:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=f"mobile pick failed: {exc}",
+                )
+                print(f"[MobilePick] failed: {exc}")
+            finally:
+                self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+                self.stop_gaze_stabilizer()
+                cancelled = bool(self._pick_e2e_cancel.is_set() or self._pick_stop_event.is_set())
+                if not success and not self.state.pick_failed and not cancelled:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg="mobile pick failed",
+                    )
+                self._pick_e2e_worker = None
+
+        self._pick_e2e_worker = threading.Thread(
+            target=_worker,
+            name="mobile-pick-e2e",
+            daemon=True,
+        )
+        self._pick_e2e_worker.start()
 
     def start_look_aim_grasp_e2e(self) -> None:
         """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
@@ -3771,9 +4110,11 @@ class ControlService:
     def _latch_pick_frozen_world(self) -> None:
         self._pick_frozen_world_xyz = self._pick_frozen_world()
 
-    def _retire_perception_capture(self, cap: PerceptionCapture) -> None:
+    def _retire_perception_capture(self, cap: PerceptionCapture, *, stop_recording: bool = True) -> None:
         if self._perception_capture is not cap:
             return
+        if bool(stop_recording):
+            self._stop_side_camera_recording()
         self._perception_capture = None
         self._perception_capture_epoch += 1
 
@@ -4826,9 +5167,13 @@ class ControlService:
             except Exception:
                 q_now = None
             return True, q_now, host_state
-        if self._perception_capture is not None and self._perception_capture.is_running():
-            self.stop_perception_capture()
-            print("[Grasp] perception stopped | LJI blind one-shot extend")
+        pk = self._pick_config_effective()
+        if bool(pk.grasp_blind_uv_only):
+            self._grasp_uv_only_mode = True
+            print("[Grasp] LJI blind one-shot extend | uv-only perception kept")
+        elif self._perception_capture is not None and self._perception_capture.is_running():
+            self.stop_perception_capture(stop_recording=not bool(self.state.perception_recording))
+            print("[Grasp] perception stopped | LJI blind one-shot extend | recording kept=%s" % str(bool(self.state.perception_recording)).lower())
         look_v = self._grasp_look_at_dir(tip, use_obj)
         handoff_look = (float(look_v[0]), float(look_v[1]), float(look_v[2]))
         self._grasp_handoff_look_dir = handoff_look
@@ -6570,8 +6915,8 @@ class ControlService:
                         label="handoff | uv center",
                     )
             else:
-                self.stop_perception_capture()
-                print("[Grasp] perception stopped | blind one-shot extend")
+                self.stop_perception_capture(stop_recording=not bool(self.state.perception_recording))
+                print("[Grasp] perception stopped | blind one-shot extend | recording kept=%s" % str(bool(self.state.perception_recording)).lower())
 
             if handoff_look is not None and host_state is not None:
                 _, host_state = self._grasp_align_to_approach_dir(
@@ -6680,7 +7025,7 @@ class ControlService:
                 and self._perception_capture is not None
                 and self._perception_capture.is_running()
             ):
-                self.stop_perception_capture()
+                self.stop_perception_capture(stop_recording=not bool(self.state.perception_recording))
             if not success and not self.state.pick_failed and not cancelled:
                 self.state.set_pick_status(
                     running=False,
@@ -7316,7 +7661,7 @@ class ControlService:
                 and self._perception_capture is not None
                 and self._perception_capture.is_running()
             ):
-                self.stop_perception_capture()
+                self.stop_perception_capture(stop_recording=not bool(self.state.perception_recording))
             if not success and not self.state.pick_failed and not cancelled:
                 self.state.set_pick_status(
                     running=False,
@@ -8983,11 +9328,15 @@ class ControlService:
         self.state.set_perception_status(running=True, failed=False, msg="starting")
         cap.start()
 
-    def stop_perception_capture(self) -> None:
+    def stop_perception_capture(self, *, stop_recording: bool = True) -> None:
         if not self._perception_run_local:
             self._stop_remote_preview()
+            if bool(stop_recording):
+                self._stop_side_camera_recording()
             if self.client is not None and hasattr(self.client, "send_perception_stop"):
                 self.client.send_perception_stop()
+            if bool(stop_recording):
+                self.state.set_perception_recording(False)
             self.state.set_perception_status(
                 running=False,
                 failed=False,
@@ -8996,15 +9345,26 @@ class ControlService:
             return
         cap = self._perception_capture
         if cap is None:
+            if bool(stop_recording):
+                self._stop_side_camera_recording()
+                self.state.set_perception_recording(False)
             self.state.set_perception_status(running=False, failed=False, msg="stopped")
             return
-        stopped = cap.stop()
+        stopped = cap.stop(stop_recording=bool(stop_recording))
         if not stopped:
-            self._retire_perception_capture(cap)
+            if bool(stop_recording):
+                self._retire_perception_capture(cap, stop_recording=True)
+                self.state.set_perception_recording(False)
             self.state.set_perception_status(running=False, failed=True, msg="stop pending")
             return
-        self._retire_perception_capture(cap)
-        self.state.set_perception_status(running=False, failed=False, msg="stopped")
+        if bool(stop_recording):
+            self._retire_perception_capture(cap, stop_recording=True)
+            self.state.set_perception_recording(False)
+        self.state.set_perception_status(
+            running=False,
+            failed=False,
+            msg="stopped" if bool(stop_recording) else "stopped (recording kept)",
+        )
 
     def refresh_perception_capture(self) -> None:
         if not self._perception_run_local:
@@ -9024,6 +9384,115 @@ class ControlService:
             self.state.set_perception_status(running=True, failed=False, msg="refresh requested (YOLO)")
         else:
             self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
+
+    def _side_camera_config(self) -> Optional[SimConfig]:
+        cfg_path = self._config_path or str(Path(__file__).resolve().parents[3] / "config.ini")
+        try:
+            cfg = load_app_config_from_ini(str(cfg_path)).sim_config
+        except Exception as exc:
+            print(f"[perception] side camera config load failed: {exc}")
+            return None
+        endpoint = str(getattr(cfg, "sim_side_camera_port", "")).strip()
+        if not bool(getattr(cfg, "sim_side_camera_enable", False)) or not endpoint:
+            return None
+        return cfg
+
+    @staticmethod
+    def _side_record_path_for(record_path: str | Path) -> Path:
+        p = Path(record_path)
+        stem = p.stem
+        if stem.endswith("_record"):
+            stem = stem[: -len("_record")]
+        return p.with_name(f"{stem}_side.mp4")
+
+    @staticmethod
+    def _side_snapshot_stem_for(capture_path: str | Path) -> str:
+        stem = Path(capture_path).stem
+        for suffix in ("_depth_vis", "_color", "_overlay", "_depth", "_meta"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        return f"{stem}_side"
+
+    def _start_side_camera_recording(self, record_path: str | Path) -> Optional[Path]:
+        if self._side_camera_recorder is not None:
+            self._stop_side_camera_recording()
+        cfg = self._side_camera_config()
+        if cfg is None:
+            return None
+        try:
+            from engine.vision.sim_camera.recording import SimCameraVideoRecorder
+        except Exception as exc:
+            print(f"[perception] side recorder import failed: {exc}")
+            return None
+        out_path = self._side_record_path_for(record_path)
+        rec = SimCameraVideoRecorder(
+            str(cfg.sim_side_camera_port),
+            out_path=out_path,
+            fps=float(getattr(cfg, "sim_side_camera_record_fps", 30.0)),
+            use_jpeg=bool(cfg.sim_side_camera_jpeg),
+        )
+        if not rec.start():
+            print(f"[perception] side recording skipped: {rec.last_error}")
+            return None
+        self._side_camera_recorder = rec
+        self._side_camera_record_path = out_path
+        print(f"[perception] side recording started: {out_path.resolve()}")
+        return out_path
+
+    def _stop_side_camera_recording(self) -> Optional[tuple[bool, str, int, int, str]]:
+        rec = self._side_camera_recorder
+        if rec is None:
+            return None
+        self._side_camera_recorder = None
+        self._side_camera_record_path = None
+        ok, path_s, frame_count, unique_count, err = rec.stop()
+        if ok:
+            print(
+                "[perception] side recording saved (%df/%du): %s"
+                % (int(frame_count), int(unique_count), path_s)
+            )
+        else:
+            print(f"[perception] side recording stop failed: {err or path_s}")
+        return bool(ok), str(path_s), int(frame_count), int(unique_count), str(err or "")
+
+    def _capture_side_camera_snapshot(self, paired_path: str | Path) -> Optional[Path]:
+        cfg = self._side_camera_config()
+        if cfg is None:
+            return None
+        try:
+            from engine.vision.sim_camera.recording import (
+                capture_sim_camera_snapshot,
+                save_sim_camera_snapshot,
+            )
+        except Exception as exc:
+            print(f"[perception] side snapshot import failed: {exc}")
+            return None
+        try:
+            frame = capture_sim_camera_snapshot(
+                str(cfg.sim_side_camera_port),
+                use_jpeg=bool(cfg.sim_side_camera_jpeg),
+                timeout_s=1.5,
+            )
+            if frame is None:
+                print("[perception] side snapshot skipped: no side camera frame")
+                return None
+            paired = Path(paired_path)
+            stem = self._side_snapshot_stem_for(paired)
+            side_path = save_sim_camera_snapshot(
+                frame=frame,
+                out_dir=paired.parent,
+                stem=stem,
+                meta={
+                    "paired_capture": str(paired.resolve()),
+                    "endpoint": str(cfg.sim_side_camera_port),
+                },
+            )
+            print(f"[perception] side snapshot saved {side_path.resolve()}")
+            return side_path
+        except Exception as exc:
+            print(f"[perception] side snapshot failed: {exc}")
+            return None
 
     def capture_perception_frame(self) -> bool:
         """Save latest perception frame (or one-shot sim grab) under logs/perception_capture/."""
@@ -9054,14 +9523,95 @@ class ControlService:
             print(f"[perception] {msg}")
             return False
         path_s = str(path.resolve())
+        side_path = self._capture_side_camera_snapshot(path)
+        side_s = "" if side_path is None else str(side_path.resolve())
         self.state.set_perception_last_capture(path_s)
+        msg = f"saved {path_s}" if not side_s else f"saved {path_s} + side {side_s}"
         self.state.set_perception_status(
             running=bool(self.state.perception_running),
             failed=False,
-            msg=f"saved {path_s}",
+            msg=msg,
         )
-        print(f"[perception] saved {path_s}")
+        print(f"[perception] {msg}")
         return True
+
+    def start_perception_recording(self) -> bool:
+        """Start recording local perception frames to MP4 under logs/perception_capture/."""
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg="remote: recording only on local perception",
+            )
+            return False
+        cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
+            return False
+        use_overlay = bool(self.state.perception_record_with_overlay)
+        ok, path_s = cap.start_recording(
+            default_perception_capture_dir(),
+            fps=float(self._perception_cfg.publish_hz),
+            include_overlay=use_overlay,
+        )
+        if not ok:
+            self.state.set_perception_status(running=True, failed=True, msg="recording already active")
+            return False
+        self.state.set_perception_recording(True, path_s)
+        overlay_tag = "overlay" if use_overlay else "raw"
+        side_path = self._start_side_camera_recording(path_s)
+        side_msg = "" if side_path is None else f" + side {side_path.resolve()}"
+        self.state.set_perception_status(
+            running=True,
+            failed=False,
+            msg=f"recording started ({overlay_tag}): {path_s}{side_msg}",
+        )
+        print(f"[perception] recording started ({overlay_tag}): {path_s}{side_msg}")
+        return True
+
+    def stop_perception_recording(self) -> bool:
+        if not self._perception_run_local:
+            self.state.set_perception_status(
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg="remote: recording only on local perception",
+            )
+            return False
+        cap = self._perception_capture
+        if cap is None:
+            self.state.set_perception_recording(False)
+            self.state.set_perception_status(running=False, failed=True, msg="perception is not running")
+            return False
+        ok, path_s, frame_count = cap.stop_recording()
+        if not ok:
+            self._stop_side_camera_recording()
+            self.state.set_perception_status(
+                running=bool(self.state.perception_running),
+                failed=True,
+                msg="recording is not active",
+            )
+            return False
+        side_result = self._stop_side_camera_recording()
+        side_msg = ""
+        if side_result is not None:
+            side_ok, side_path_s, side_frames, side_unique, side_err = side_result
+            if side_ok:
+                side_msg = " | side %df/%du: %s" % (side_frames, side_unique, side_path_s)
+            else:
+                side_msg = f" | side failed: {side_err or side_path_s}"
+        self.state.set_perception_recording(False, path_s)
+        self.state.set_perception_status(
+            running=bool(self.state.perception_running),
+            failed=False,
+            msg=f"recording saved ({frame_count}f): {path_s}{side_msg}",
+        )
+        print(f"[perception] recording saved ({frame_count}f): {path_s}{side_msg}")
+        return True
+
+    def toggle_perception_recording(self) -> bool:
+        if bool(self.state.perception_recording):
+            return self.stop_perception_recording()
+        return self.start_perception_recording()
 
     def _capture_sim_perception_frame_once(self, out_dir: Path) -> Optional[Path]:
         if str(self._perception_cfg.mode).strip().lower() != "sim":
@@ -9382,14 +9932,17 @@ class ControlService:
             self.state.set_gaze_status(running=False, mode="idle", msg=f"start failed: {exc}")
             print(f"[gaze] start standing failed: {exc}")
 
-    def start_gaze_stabilizer_walking(self, *, run_id: str = "", gaze_mode: str = "uv_ff") -> None:
+    def start_gaze_stabilizer_walking(self, *, run_id: str = "", gaze_mode: str | None = None) -> None:
         if self._visual_busy() and not self._gaze_busy():
             self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
             print("[gaze] rejected: visual pipeline busy")
             return
         try:
-            self._gaze_service.start_walking_gaze(run_id=run_id, gaze_mode=gaze_mode)
-            self.state.set_gaze_status(running=True, mode="walking", msg="started")
+            from engine.behaviors.gaze.stabilizer import resolve_walking_gaze_mode
+
+            mode = resolve_walking_gaze_mode(self._gaze_cfg, gaze_mode)
+            self._gaze_service.start_walking_gaze(run_id=run_id, gaze_mode=mode)
+            self.state.set_gaze_status(running=True, mode=f"walking/{mode}", msg="started")
         except Exception as exc:
             self.state.set_gaze_status(running=False, mode="idle", msg=f"start failed: {exc}")
             print(f"[gaze] start walking failed: {exc}")

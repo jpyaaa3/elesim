@@ -15,7 +15,7 @@ from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig
 from engine.robot.arm.joint_defs import JointLimit
 
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 
 
@@ -73,6 +73,17 @@ class SimConfig:
     sim_camera_width: int = 640
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
+    sim_side_camera_enable: bool = True
+    sim_side_camera_port: str = "tcp://127.0.0.1:5569"
+    sim_side_camera_jpeg: bool = True
+    sim_side_camera_jpeg_quality: int = 85
+    sim_side_camera_max_hz: float = 20.0
+    sim_side_camera_record_fps: float = 30.0
+    sim_side_camera_width: int = 960
+    sim_side_camera_height: int = 540
+    sim_side_camera_fov_deg: float = 55.0
+    sim_side_camera_pos: Tuple[float, float, float] = (0.45, -1.8, 0.55)
+    sim_side_camera_lookat: Tuple[float, float, float] = (0.45, 0.0, 0.25)
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0
     perf_log_path: str = ""
@@ -349,6 +360,14 @@ class PickConfig:
     ik_align_mode: str = "lite"
     ik_align_skip_under_deg: float = 10.0
     ik_align_rounds: int = 4
+
+    # Mobile manipulation handoff: walk with gaze until close enough, then LJI grasp.
+    mobile_handoff_distance_m: float = 0.30
+    mobile_handoff_timeout_slack_m: float = 0.05
+    mobile_approach_vx_mps: float = 0.18
+    mobile_approach_timeout_s: float = 300.0
+    mobile_stop_settle_s: float = 0.40
+    mobile_gaze_mode: str = "pitch_preview"
 
 
 @dataclass(frozen=True)
@@ -956,6 +975,22 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
             "pick", "ik_align_skip_under_deg", fallback=pk0.ik_align_skip_under_deg
         ),
         ik_align_rounds=cp.getint("pick", "ik_align_rounds", fallback=pk0.ik_align_rounds),
+        mobile_handoff_distance_m=cp.getfloat(
+            "pick", "mobile_handoff_distance_m", fallback=pk0.mobile_handoff_distance_m
+        ),
+        mobile_handoff_timeout_slack_m=cp.getfloat(
+            "pick", "mobile_handoff_timeout_slack_m", fallback=pk0.mobile_handoff_timeout_slack_m
+        ),
+        mobile_approach_vx_mps=cp.getfloat(
+            "pick", "mobile_approach_vx_mps", fallback=pk0.mobile_approach_vx_mps
+        ),
+        mobile_approach_timeout_s=cp.getfloat(
+            "pick", "mobile_approach_timeout_s", fallback=pk0.mobile_approach_timeout_s
+        ),
+        mobile_stop_settle_s=cp.getfloat(
+            "pick", "mobile_stop_settle_s", fallback=pk0.mobile_stop_settle_s
+        ),
+        mobile_gaze_mode=cp.get("pick", "mobile_gaze_mode", fallback=pk0.mobile_gaze_mode).strip().lower(),
     )
 
 
@@ -1207,23 +1242,7 @@ def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppCon
         preview_lowpass_alpha=cp.getfloat(
             "gaze_stabilizer", "gaze_preview_lowpass_alpha", fallback=g0.preview_lowpass_alpha
         ),
-        gait_preview_enable=cp.getboolean(
-            "gaze_stabilizer", "gaze_gait_preview_enable", fallback=g0.gait_preview_enable
-        ),
-        gait_period_s=cp.getfloat("gaze_stabilizer", "gaze_gait_period_s", fallback=g0.gait_period_s),
-        gait_phase_offset=cp.getfloat(
-            "gaze_stabilizer", "gaze_gait_phase_offset", fallback=g0.gait_phase_offset
-        ),
-        gait_preview_horizon_s=cp.getfloat(
-            "gaze_stabilizer", "gaze_gait_preview_horizon_s", fallback=g0.gait_preview_horizon_s
-        ),
-        gait_template_path=cp.get("gaze_stabilizer", "gaze_gait_template_path", fallback=g0.gait_template_path),
-        gait_template_bins=cp.getint(
-            "gaze_stabilizer", "gaze_gait_template_bins", fallback=g0.gait_template_bins
-        ),
-        gait_preview_scale=cp.getfloat(
-            "gaze_stabilizer", "gaze_gait_preview_scale", fallback=g0.gait_preview_scale
-        ),
+        walking_gaze_mode=cp.get("gaze_stabilizer", "gaze_walking_mode", fallback=g0.walking_gaze_mode),
     )
 
 
@@ -1336,6 +1355,59 @@ def _load_sim_config(cp: configparser.ConfigParser, defaults: AppConfigBundle, *
         sim_camera_width=cp.getint("runtime", "sim_camera_width", fallback=sc0.sim_camera_width),
         sim_camera_height=cp.getint("runtime", "sim_camera_height", fallback=sc0.sim_camera_height),
         sim_camera_fov_deg=cp.getfloat("runtime", "sim_camera_fov_deg", fallback=sc0.sim_camera_fov_deg),
+        sim_side_camera_enable=cp.getboolean(
+            "runtime",
+            "sim_side_camera_enable",
+            fallback=sc0.sim_side_camera_enable,
+        ),
+        sim_side_camera_port=cp.get(
+            "runtime",
+            "sim_side_camera_port",
+            fallback=sc0.sim_side_camera_port,
+        ),
+        sim_side_camera_jpeg=cp.getboolean(
+            "runtime",
+            "sim_side_camera_jpeg",
+            fallback=sc0.sim_side_camera_jpeg,
+        ),
+        sim_side_camera_jpeg_quality=cp.getint(
+            "runtime",
+            "sim_side_camera_jpeg_quality",
+            fallback=sc0.sim_side_camera_jpeg_quality,
+        ),
+        sim_side_camera_max_hz=cp.getfloat(
+            "runtime",
+            "sim_side_camera_max_hz",
+            fallback=sc0.sim_side_camera_max_hz,
+        ),
+        sim_side_camera_record_fps=cp.getfloat(
+            "runtime",
+            "sim_side_camera_record_fps",
+            fallback=sc0.sim_side_camera_record_fps,
+        ),
+        sim_side_camera_width=cp.getint(
+            "runtime",
+            "sim_side_camera_width",
+            fallback=sc0.sim_side_camera_width,
+        ),
+        sim_side_camera_height=cp.getint(
+            "runtime",
+            "sim_side_camera_height",
+            fallback=sc0.sim_side_camera_height,
+        ),
+        sim_side_camera_fov_deg=cp.getfloat(
+            "runtime",
+            "sim_side_camera_fov_deg",
+            fallback=sc0.sim_side_camera_fov_deg,
+        ),
+        sim_side_camera_pos=_parse_vec3(
+            cp.get("runtime", "sim_side_camera_pos", fallback=""),
+            sc0.sim_side_camera_pos,
+        ),
+        sim_side_camera_lookat=_parse_vec3(
+            cp.get("runtime", "sim_side_camera_lookat", fallback=""),
+            sc0.sim_side_camera_lookat,
+        ),
         perf_log_enable=cp.getboolean("runtime", "perf_log_enable", fallback=sc0.perf_log_enable),
         perf_log_interval_s=cp.getfloat("runtime", "perf_log_interval_s", fallback=sc0.perf_log_interval_s),
         perf_log_path=cp.get("runtime", "perf_log_path", fallback=sc0.perf_log_path),

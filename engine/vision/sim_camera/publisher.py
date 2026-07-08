@@ -18,10 +18,12 @@ class SimCameraPublisher:
         *,
         use_jpeg: bool = True,
         jpeg_quality: int = 85,
+        send_depth: bool = True,
     ) -> None:
         self.endpoint = str(endpoint)
         self.use_jpeg = bool(use_jpeg)
         self.jpeg_quality = int(jpeg_quality)
+        self.send_depth = bool(send_depth)
         self._ctx = zmq.Context.instance()
         self._sock = self._ctx.socket(zmq.PUB)
         self._sock.setsockopt(zmq.LINGER, 0)
@@ -29,14 +31,16 @@ class SimCameraPublisher:
         self._sock.bind(self.endpoint)
         self.published = 0
         self.dropped = 0
-        print(f"[sim_camera] publisher bound {self.endpoint} jpeg={self.use_jpeg}")
+        print(f"[sim_camera] publisher bound {self.endpoint} jpeg={self.use_jpeg} depth={self.send_depth}")
 
     def publish(self, frame: SimCameraFrame) -> bool:
         meta = json.dumps(frame.to_meta_dict()).encode("utf-8")
         color_bytes = self._encode_color(frame)
-        depth_bytes = frame.depth_raw.tobytes()
+        parts = [meta, color_bytes]
+        if self.send_depth:
+            parts.append(frame.depth_raw.tobytes())
         try:
-            self._sock.send_multipart([meta, color_bytes, depth_bytes], flags=zmq.NOBLOCK)
+            self._sock.send_multipart(parts, flags=zmq.NOBLOCK)
             self.published += 1
             return True
         except zmq.Again:

@@ -879,6 +879,8 @@ class SimScene:
     walking_metrics: object = None
     eye_camera: object = None
     camera_publisher: object = None
+    side_camera: object = None
+    side_camera_publisher: object = None
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
@@ -887,6 +889,7 @@ class SimScene:
     sim_step_count: int = 0
     _sim_wall_start_s: float = field(default_factory=time.perf_counter)
     _last_camera_publish_t: float = 0.0
+    _last_side_camera_publish_t: float = 0.0
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
@@ -1275,6 +1278,27 @@ class SimScene:
                 self._last_camera_publish_t = now
         except Exception as exc:
             print(f"[sim_camera] capture/publish failed: {exc}")
+
+    def maybe_publish_side_camera(
+        self,
+        *,
+        max_hz: float,
+        force: bool = False,
+    ) -> None:
+        if self.side_camera is None or self.side_camera_publisher is None:
+            return
+        import time
+
+        period = 1.0 / max(1.0, float(max_hz))
+        now = time.time()
+        if not force and (now - float(self._last_side_camera_publish_t)) < period:
+            return
+        try:
+            frame = self.side_camera.capture(ts=now, rgb_enabled=True, depth_enabled=False)
+            if self.side_camera_publisher.publish(frame):
+                self._last_side_camera_publish_t = now
+        except Exception as exc:
+            print(f"[sim_camera] side capture/publish failed: {exc}")
 
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         if self.eye_camera is not None:
@@ -2572,6 +2596,18 @@ class RuntimePrep:
                 fov_deg=float(a.cfg.sim_camera_fov_deg),
             )
 
+        side_camera = None
+        if bool(getattr(a.cfg, "sim_side_camera_enable", False)):
+            from engine.vision.sim_camera import FixedWorldCamera
+
+            side_camera = FixedWorldCamera.create(
+                a.sim_scene.scene,
+                res=(int(a.cfg.sim_side_camera_width), int(a.cfg.sim_side_camera_height)),
+                fov_deg=float(a.cfg.sim_side_camera_fov_deg),
+                pos=tuple(float(x) for x in a.cfg.sim_side_camera_pos),
+                lookat=tuple(float(x) for x in a.cfg.sim_side_camera_lookat),
+            )
+
         t_build = time.time()
         a.sim_scene.scene.build()
         if floor_ent is not None:
@@ -2640,6 +2676,26 @@ class RuntimePrep:
                 str(a.cfg.sim_camera_port),
                 use_jpeg=bool(a.cfg.sim_camera_jpeg),
                 jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
+            )
+
+        if side_camera is not None:
+            a.sim_scene.side_camera = side_camera
+            from engine.vision.sim_camera import SimCameraPublisher
+
+            a.sim_scene.side_camera_publisher = SimCameraPublisher(
+                str(a.cfg.sim_side_camera_port),
+                use_jpeg=bool(a.cfg.sim_side_camera_jpeg),
+                jpeg_quality=int(a.cfg.sim_side_camera_jpeg_quality),
+                send_depth=False,
+            )
+            print(
+                "[sim_camera] side view | res=%dx%d pos=%s lookat=%s"
+                % (
+                    int(a.cfg.sim_side_camera_width),
+                    int(a.cfg.sim_side_camera_height),
+                    tuple(float(x) for x in a.cfg.sim_side_camera_pos),
+                    tuple(float(x) for x in a.cfg.sim_side_camera_lookat),
+                )
             )
 
     def _spawn_perception_target(self) -> None:
@@ -2780,6 +2836,10 @@ class SimRuntime:
                     rgb_enabled=bool(a.cfg.sim_camera_rgb),
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
+                a.sim_scene.maybe_publish_side_camera(
+                    max_hz=float(a.cfg.sim_side_camera_max_hz),
+                    force=True,
+                )
 
     def _apply_go2_feature_commands(self) -> bool:
         a = self.app
@@ -2808,6 +2868,11 @@ class SimRuntime:
         if a.sim_scene.camera_publisher is not None:
             try:
                 a.sim_scene.camera_publisher.close()
+            except Exception:
+                pass
+        if a.sim_scene.side_camera_publisher is not None:
+            try:
+                a.sim_scene.side_camera_publisher.close()
             except Exception:
                 pass
         if a.state_source is not None:
@@ -2989,6 +3054,7 @@ class SimRuntime:
                     rgb_enabled=bool(a.cfg.sim_camera_rgb),
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
+                a.sim_scene.maybe_publish_side_camera(max_hz=float(a.cfg.sim_side_camera_max_hz))
                 perf.section("camera", t_sec)
                 if bool(getattr(a.params, "realtime", True)):
                     a.sim_scene.throttle_realtime(
@@ -3130,7 +3196,7 @@ def main() -> None:
     if args.no_viewer:
         sim_cfg = replace(sim_cfg, enable_viewer=False)
     if args.no_sim_camera:
-        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False, sim_side_camera_enable=False)
     if args.sim_camera_hz is not None:
         sim_cfg = replace(sim_cfg, sim_camera_max_hz=max(1.0, float(args.sim_camera_hz)))
     if args.sim_camera_rgb is not None:

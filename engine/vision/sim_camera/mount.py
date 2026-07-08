@@ -192,3 +192,166 @@ class Node9EyeInHandCamera:
             camera_world_look=cam_look,
             camera_world_right=cam_right,
         )
+
+
+@dataclass
+class FixedWorldCamera:
+    """Genesis camera held at a fixed world pose for side-view recordings."""
+
+    camera: Any
+    intrinsics: SimCameraIntrinsics
+    pos: tuple[float, float, float]
+    lookat: tuple[float, float, float]
+    depth_scale: float = 0.001
+    _seq: int = 0
+    _pose_warned: bool = False
+
+    @classmethod
+    def create(
+        cls,
+        scene,
+        *,
+        res: tuple[int, int] = (960, 540),
+        fov_deg: float = 55.0,
+        pos: tuple[float, float, float] = (0.45, -1.8, 0.55),
+        lookat: tuple[float, float, float] = (0.45, 0.0, 0.25),
+    ) -> "FixedWorldCamera":
+        """Register camera before ``scene.build()``."""
+        w, h = int(res[0]), int(res[1])
+        pos_t = tuple(float(x) for x in pos)
+        lookat_t = tuple(float(x) for x in lookat)
+        try:
+            camera = scene.add_camera(
+                res=(w, h),
+                pos=pos_t,
+                lookat=lookat_t,
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        except TypeError:
+            camera = scene.add_camera(
+                res=(w, h),
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        intr = intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg)
+        return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t)
+
+    def _apply_pose(self) -> None:
+        if not hasattr(self.camera, "set_pose"):
+            return
+        try:
+            self.camera.set_pose(pos=self.pos, lookat=self.lookat)
+            return
+        except TypeError:
+            try:
+                self.camera.set_pose(self.pos, self.lookat)
+                return
+            except Exception as exc:
+                if not self._pose_warned:
+                    self._pose_warned = True
+                    print(f"[sim_camera] fixed camera pose update failed: {exc}")
+        except Exception as exc:
+            if not self._pose_warned:
+                self._pose_warned = True
+                print(f"[sim_camera] fixed camera pose update failed: {exc}")
+
+    def _camera_pose_world(self) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+        origin = np.asarray(self.pos, dtype=float).reshape(3)
+        target = np.asarray(self.lookat, dtype=float).reshape(3)
+        look = target - origin
+        look_norm = float(np.linalg.norm(look))
+        if look_norm <= 1e-9:
+            look = np.array([0.0, 1.0, 0.0], dtype=float)
+        else:
+            look = look / look_norm * 0.08
+        up = np.array([0.0, 0.0, 1.0], dtype=float)
+        right = np.cross(look, up)
+        right_norm = float(np.linalg.norm(right))
+        if right_norm <= 1e-9:
+            right = np.array([0.08, 0.0, 0.0], dtype=float)
+        else:
+            right = right / right_norm * 0.08
+        return (
+            tuple(float(x) for x in origin),
+            tuple(float(x) for x in look),
+            tuple(float(x) for x in right),
+        )
+
+    def capture(
+        self,
+        *,
+        ts: Optional[float] = None,
+        rgb_enabled: bool = True,
+        depth_enabled: bool = False,
+    ) -> SimCameraFrame:
+        import time
+
+        target_w = int(self.intrinsics.width)
+        target_h = int(self.intrinsics.height)
+        self._apply_pose()
+        rgb = depth = None
+        if bool(rgb_enabled) or bool(depth_enabled):
+            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+
+        if bool(rgb_enabled) and rgb is not None:
+            if hasattr(rgb, "cpu"):
+                rgb = rgb.cpu().numpy()
+            rgb_np = np.asarray(rgb)
+            if rgb_np.dtype != np.uint8:
+                rgb_f = rgb_np.astype(np.float32, copy=False)
+                if float(np.nanmax(rgb_f)) <= 1.0:
+                    rgb_np = np.clip(rgb_f * 255.0, 0.0, 255.0).astype(np.uint8)
+                else:
+                    rgb_np = np.clip(rgb_f, 0.0, 255.0).astype(np.uint8)
+            if rgb_np.ndim == 3 and rgb_np.shape[-1] >= 3:
+                color_bgr = np.ascontiguousarray(rgb_np[..., :3][:, :, ::-1], dtype=np.uint8)
+            else:
+                color_bgr = np.ascontiguousarray(rgb_np, dtype=np.uint8)
+        else:
+            color_bgr = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+
+        if bool(depth_enabled) and depth is not None:
+            if hasattr(depth, "cpu"):
+                depth = depth.cpu().numpy()
+            depth_np = np.asarray(depth, dtype=float)
+            if depth_np.ndim == 3:
+                depth_np = depth_np[..., 0]
+            depth_m = np.nan_to_num(depth_np, nan=0.0, posinf=0.0, neginf=0.0)
+            depth_mm = np.clip(depth_m * 1000.0, 0.0, 65535.0).astype(np.uint16)
+        else:
+            depth_mm = np.zeros((target_h, target_w), dtype=np.uint16)
+
+        if color_bgr.shape[0] != target_h or color_bgr.shape[1] != target_w:
+            import cv2
+
+            color_bgr = cv2.resize(
+                color_bgr,
+                (target_w, target_h),
+                interpolation=cv2.INTER_LINEAR,
+            )
+        if depth_mm.shape[0] != target_h or depth_mm.shape[1] != target_w:
+            import cv2
+
+            depth_mm = cv2.resize(
+                depth_mm,
+                (target_w, target_h),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
+        self._seq += 1
+        cam_origin, cam_look, cam_right = self._camera_pose_world()
+        return SimCameraFrame(
+            color_bgr=color_bgr,
+            depth_raw=depth_mm,
+            depth_scale=float(self.depth_scale),
+            intrinsics=self.intrinsics,
+            seq=int(self._seq),
+            ts=float(time.time() if ts is None else ts),
+            arm_q=None,
+            camera_world_origin=cam_origin,
+            camera_world_look=cam_look,
+            camera_world_right=cam_right,
+        )

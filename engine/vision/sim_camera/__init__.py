@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 _EXPORTS = {
+    "FixedWorldCamera": "mount",
     "Node9EyeInHandCamera": "mount",
     "SimCameraFrame": "types",
     "SimCameraIntrinsics": "types",
     "SimCameraPublisher": "publisher",
     "SimCameraSubscriber": "subscriber",
+    "SimCameraVideoRecorder": "recording",
+    "capture_sim_camera_snapshot": "recording",
     "hand_eye_to_genesis_attach_T": "mount",
     "intrinsics_from_fov": "mount",
     "load_hand_eye_offset_T": "mount",
+    "save_sim_camera_snapshot": "recording",
 }
 
 __all__ = sorted(_EXPORTS)
