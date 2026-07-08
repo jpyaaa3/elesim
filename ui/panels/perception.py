@@ -33,6 +33,7 @@ _DETECTION_EVERY_BUTTON_W = 112.0
 _DETECTION_TRACK_BUTTON_W = 132.0
 _BALL_MOVE_W = 58.0
 _GAZE_MODE_BUTTON_W = 92.0
+_PICK_ACTION_W = 108.0
 _MODEL_CONFIGS = {
     "yolo": "model_presets/visual_servoing/detector.yolo.example.json",
     "hsv": "model_presets/visual_servoing/detector.sim_hsv.json",
@@ -866,21 +867,28 @@ def _draw_pick_dashboard(panel) -> None:
         _pick_dashboard_value("Status", status, color=_pick_status_color(panel))
 
 
-def _draw_pick_actions(panel, cfg: PerceptionConfig, *, pick_running: bool) -> None:
-    spacing_x = float(getattr(imgui.get_style().item_spacing, "x", scaled(panel, 8.0)))
-    play_size = scaled(panel, _BUTTON_H)
-    stop_size = play_size
+def _pick_action_button(panel, label: str, width: float, *, disabled: bool) -> bool:
+    if bool(disabled):
+        begin_disabled_ui()
+    try:
+        clicked = _button(panel, label, width)
+    finally:
+        if bool(disabled):
+            end_disabled_ui()
+    return (not bool(disabled)) and bool(clicked)
 
-    if _draw_pick_play_button(panel, disabled=pick_running):
+
+def _draw_pick_actions(panel, cfg: PerceptionConfig, *, pick_running: bool) -> None:
+    if _pick_action_button(panel, "Walk + Grasp##pick_mobile", _PICK_ACTION_W, disabled=pick_running):
         panel.service.update_perception_config(cfg)
         panel.service.start_mobile_gaze_lji_pick_e2e()
     imgui.same_line()
+    if _pick_action_button(panel, "LJI Grasp##pick_lji_only", _PICK_ACTION_W, disabled=pick_running):
+        panel.service.update_perception_config(cfg)
+        panel.service.start_lji_grasp_only()
+    imgui.same_line()
     if _draw_pick_stop_button(panel, disabled=not pick_running):
         panel.service.stop_pick_e2e()
-    imgui.same_line()
-    imgui.text_disabled("Mobile Pick")
-    if callable(getattr(imgui, "dummy", None)):
-        imgui.dummy(play_size + stop_size + spacing_x, scaled(panel, 2.0))
     _draw_pick_dashboard(panel)
 
 

@@ -3196,18 +3196,41 @@ class ControlHost:
             self._reply(ident, ack)
             self._broadcast_state_now()
             return
-        if t == "mobile_pick_stop":
+        if t == "lji_grasp_start":
             ok = True
-            reason = "on_device_mobile_pick_stop"
+            reason = "on_device_lji_grasp_start"
+            try:
+                service = self._ensure_on_device_control_service()
+                service.start_grasp()
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_lji_grasp_start_failed:{exc}"
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._pick_state_payload())
+            ack.update(self._gaze_state_payload())
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "mobile_pick_stop" or t == "pick_stop":
+            ok = True
+            reason = "on_device_pick_stop"
             try:
                 service = self._embedded_control_service
                 if service is not None:
                     service.stop_pick_e2e()
                 else:
-                    reason = "on_device_mobile_pick_not_running"
+                    reason = "on_device_pick_not_running"
             except Exception as exc:
                 ok = False
-                reason = f"on_device_mobile_pick_stop_failed:{exc}"
+                reason = f"on_device_pick_stop_failed:{exc}"
             ack = {
                 "t": "ack",
                 "ts": proto.now_s(),

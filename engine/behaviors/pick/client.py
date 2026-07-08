@@ -688,10 +688,18 @@ class ControlClient:
         self.tx_seq += 1
         self._send({"t": "mobile_pick_start", "ts": now, "seq": self.tx_seq})
 
-    def send_mobile_pick_stop(self) -> None:
+    def send_lji_grasp_start(self) -> None:
         now = time.time()
         self.tx_seq += 1
-        self._send({"t": "mobile_pick_stop", "ts": now, "seq": self.tx_seq})
+        self._send({"t": "lji_grasp_start", "ts": now, "seq": self.tx_seq})
+
+    def send_pick_stop(self) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send({"t": "pick_stop", "ts": now, "seq": self.tx_seq})
+
+    def send_mobile_pick_stop(self) -> None:
+        self.send_pick_stop()
 
     def send_perception_observation(
         self,

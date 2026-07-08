@@ -1038,29 +1038,35 @@ class ControlService:
         return False
 
     def stop_pick_e2e(self) -> None:
-        if self._delegate_pick_to_host() and hasattr(self.client, "send_mobile_pick_stop"):
+        if self._delegate_pick_to_host() and (
+            hasattr(self.client, "send_pick_stop")
+            or hasattr(self.client, "send_mobile_pick_stop")
+        ):
             self._pick_e2e_cancel.set()
             try:
-                self.client.send_mobile_pick_stop()
+                if hasattr(self.client, "send_pick_stop"):
+                    self.client.send_pick_stop()
+                else:
+                    self.client.send_mobile_pick_stop()
                 self.state.set_pick_status(
                     running=False,
                     failed=False,
                     phase=ObjectPickPhase.IDLE.value,
-                    msg="on-device mobile pick stop requested",
+                    msg="on-device pick stop requested",
                 )
                 host_state = self.client.refresh_state()
                 self._sync_remote_pick_from_host(host_state)
                 self._sync_remote_gaze_from_host(host_state)
                 self._sync_remote_perception_from_host(host_state)
-                print("[MobilePick] on-device stop requested")
+                print("[Pick] on-device stop requested")
             except Exception as exc:
                 self.state.set_pick_status(
                     running=False,
                     failed=True,
                     phase=ObjectPickPhase.FAILED.value,
-                    msg=f"on-device mobile pick stop failed: {exc}",
+                    msg=f"on-device pick stop failed: {exc}",
                 )
-                print(f"[MobilePick] on-device stop failed: {exc}")
+                print(f"[Pick] on-device stop failed: {exc}")
             return
         self._pick_e2e_cancel.set()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
@@ -1455,6 +1461,58 @@ class ControlService:
             daemon=True,
         )
         self._pick_e2e_worker.start()
+
+    def start_lji_grasp_only(self) -> None:
+        """Run arm-only LJI grasp without starting mobile gaze or locomotion."""
+        if self._delegate_pick_to_host() and hasattr(self.client, "send_lji_grasp_start"):
+            if (
+                self.state.pick_running
+                or self.pick_e2e_running()
+                or self._pick_busy()
+                or self.state.ik_running
+                or self._ik_worker is not None
+            ):
+                self.state.set_pick_status(
+                    running=bool(self.state.pick_running),
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="busy",
+                )
+                return
+            self._pick_e2e_cancel.clear()
+            self._pick_stop_event.clear()
+            try:
+                self.client.send_lji_grasp_start()
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.GRASP.value,
+                    msg="on-device LJI grasp start requested",
+                )
+                host_state = self.client.refresh_state()
+                self._sync_remote_pick_from_host(host_state)
+                self._sync_remote_gaze_from_host(host_state)
+                self._sync_remote_perception_from_host(host_state)
+                print("[Pick] on-device LJI grasp start requested")
+            except Exception as exc:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=f"on-device LJI grasp start failed: {exc}",
+                )
+                print(f"[Pick] on-device LJI grasp start failed: {exc}")
+            return
+
+        if self.client is None:
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="no host client",
+            )
+            return
+        self.start_grasp()
 
     def start_look_aim_grasp_e2e(self) -> None:
         """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
