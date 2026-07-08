@@ -295,6 +295,7 @@ class ControlHost:
         self._arm_servo_submit_count: int = 0
         self._arm_servo_apply_count: int = 0
         self._arm_servo_last_error: str = ""
+        self._arm_servo_start_skip_logged: bool = False
         self._arm_servo_target_meta: dict[str, Any] = {}
         self._arm_latency_log_enable = (
             os.environ.get("ELESIM_ARM_LATENCY", "").strip().lower() in ("1", "true", "yes", "on")
@@ -1226,6 +1227,7 @@ class ControlHost:
                 "ts",
                 "recv",
                 "submit",
+                "submit_reject",
                 "apply",
                 "replace",
                 "client_to_host_avg_ms",
@@ -1328,6 +1330,7 @@ class ControlHost:
             "ts": float(now),
             "recv": int(self._arm_latency_counts.get("recv", 0)),
             "submit": int(self._arm_latency_counts.get("submit", 0)),
+            "submit_reject": int(self._arm_latency_counts.get("submit_reject", 0)),
             "apply": int(self._arm_latency_counts.get("apply", 0)),
             "replace": int(self._arm_latency_counts.get("replace", 0)),
             "err_u": "" if err_now is None else float(err_now),
@@ -1344,6 +1347,7 @@ class ControlHost:
             "[arm_latency] "
             f"recv={int(self._arm_latency_counts.get('recv', 0))} "
             f"submit={int(self._arm_latency_counts.get('submit', 0))} "
+            f"reject={int(self._arm_latency_counts.get('submit_reject', 0))} "
             f"apply={int(self._arm_latency_counts.get('apply', 0))} "
             f"replace={int(self._arm_latency_counts.get('replace', 0))} "
             f"client->host(avg/max)={_avg_max('client_to_host_ms')}ms "
@@ -1660,6 +1664,15 @@ class ControlHost:
 
     def _start_arm_servo_thread(self) -> None:
         if not bool(self._arm_servo_thread_enable) or not self._has_hw():
+            reason = "disabled" if not bool(self._arm_servo_thread_enable) else "no_hw"
+            self._arm_servo_last_error = f"arm_servo_not_started:{reason}"
+            if bool(self._arm_latency_log_enable) and not bool(self._arm_servo_start_skip_logged):
+                print(
+                    "[host] low-latency arm servo thread skipped | "
+                    f"reason={reason} enable={bool(self._arm_servo_thread_enable)} hw={self._has_hw()} "
+                    f"device={self.device or '-'}"
+                )
+                self._arm_servo_start_skip_logged = True
             return
         if self._arm_servo_thread is not None and self._arm_servo_thread.is_alive():
             return
@@ -1673,6 +1686,7 @@ class ControlHost:
             "[host] low-latency arm servo thread started | hz=%.1f"
             % float(1.0 / max(float(self._arm_servo_period), 1e-6))
         )
+        self._arm_servo_last_error = ""
 
     def _stop_arm_servo_thread(self) -> None:
         with self._arm_servo_cond:
@@ -1706,13 +1720,27 @@ class ControlHost:
         perceived_ts_s: float,
     ) -> bool:
         if (
-            not bool(self._arm_servo_thread_enable)
-            or not self._has_hw()
-            or self._arm_servo_thread is None
-            or not self._arm_servo_thread.is_alive()
-            or u is None
-            or not axes
+            bool(self._arm_servo_thread_enable)
+            and self._has_hw()
+            and (self._arm_servo_thread is None or not self._arm_servo_thread.is_alive())
         ):
+            self._start_arm_servo_thread()
+        reject_reason = ""
+        if not bool(self._arm_servo_thread_enable):
+            reject_reason = "disabled"
+        elif not self._has_hw():
+            reject_reason = "no_hw"
+        elif self._arm_servo_thread is None:
+            reject_reason = "thread_none"
+        elif not self._arm_servo_thread.is_alive():
+            reject_reason = "thread_dead"
+        elif u is None:
+            reject_reason = "no_target_u"
+        elif not axes:
+            reject_reason = "no_axes"
+        if reject_reason:
+            self._arm_servo_last_error = f"arm_servo_submit_reject:{reject_reason}"
+            self._arm_latency_count("submit_reject")
             return False
         with self._arm_servo_cond:
             if self._arm_servo_target_u is not None and self._arm_servo_target_seq != self._arm_servo_applied_seq:
