@@ -179,6 +179,7 @@ class ControlHost:
                 preview_bind,
                 jpeg_quality=int(getattr(self.perception_config, "preview_jpeg_quality", 75)),
             )
+            self._preview_publisher.start()
         self.last_sag_model: dict[str, Any] = {}
         self.last_claw_closed: bool = False
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
