@@ -242,6 +242,16 @@ class ControlClient:
             self.last_perception_source = str(msg.get("perception_source", ""))
         if "perception_preview_endpoint" in msg:
             self.last_perception_preview_endpoint = str(msg.get("perception_preview_endpoint", ""))
+        object_world_raw = msg.get("object_world", None)
+        if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
+            try:
+                self.last_object_world_xyz = (
+                    float(object_world_raw[0]),
+                    float(object_world_raw[1]),
+                    float(object_world_raw[2]),
+                )
+            except (TypeError, ValueError):
+                pass
 
     def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 12:

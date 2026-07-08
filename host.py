@@ -1223,13 +1223,31 @@ class ControlHost:
             self._red_torque_off_ids = set()
 
     def _perception_state_payload(self) -> Dict[str, Any]:
-        return {
+        payload: Dict[str, Any] = {
             "perception_running": bool(self.perception_running),
             "perception_failed": bool(self.perception_failed),
             "perception_status": str(self.perception_status),
             "perception_source": str(self.perception_source),
             "perception_preview_endpoint": str(getattr(self.perception_config, "preview_bind", "")),
         }
+        if self.last_perceived_center_uv is not None:
+            payload["perceived_center_uv"] = [
+                float(self.last_perceived_center_uv[0]),
+                float(self.last_perceived_center_uv[1]),
+            ]
+        if self.last_perceived_scale is not None:
+            payload["perceived_scale"] = float(self.last_perceived_scale)
+        if float(self.last_perceived_timestamp_s) > 0.0:
+            payload["perceived_timestamp_s"] = float(self.last_perceived_timestamp_s)
+        payload["perceived_object_label"] = str(self.last_perceived_object_label)
+        payload["perceived_object_confidence"] = float(self.last_perceived_object_confidence)
+        if self.last_perceived_object_camera_xyz is not None:
+            p_cam = self.last_perceived_object_camera_xyz
+            payload["perceived_object_camera"] = [float(p_cam[0]), float(p_cam[1]), float(p_cam[2])]
+        if self.last_perceived_object_world_xyz is not None:
+            p_w = self.last_perceived_object_world_xyz
+            payload["object_world"] = [float(p_w[0]), float(p_w[1]), float(p_w[2])]
+        return payload
 
     def _remote_perception_config(self, raw: Any = None) -> PerceptionConfig:
         cfg = self.perception_config
@@ -1271,7 +1289,17 @@ class ControlHost:
         publisher = self._preview_publisher
         if publisher is None:
             return
-        publisher.publish(image_bgr, meta=meta)
+        was_empty = int(getattr(publisher, "published", 0)) <= 0
+        try:
+            publisher.publish(image_bgr, meta=meta)
+            if was_empty:
+                try:
+                    h, w = image_bgr.shape[:2]
+                    print(f"[preview_stream] first frame queued {int(w)}x{int(h)} meta={dict(meta or {})}")
+                except Exception:
+                    print("[preview_stream] first frame queued")
+        except Exception as exc:
+            print(f"[preview_stream] publish failed: {exc}")
 
     def _publish_perception_observation_from_worker(
         self,
@@ -1602,14 +1630,27 @@ class ControlHost:
             reason = "perception_start"
             try:
                 cfg = self._remote_perception_config(msg.get("config", None))
+                print(
+                    "[perception] start requested | mode=%s detector=%s provider=%s preview=%s yolo_device=%s"
+                    % (
+                        str(getattr(cfg, "mode", "")),
+                        str(getattr(cfg, "detector", "")),
+                        str(getattr(cfg, "provider", "")),
+                        str(getattr(cfg, "preview_bind", "")),
+                        str(getattr(cfg, "yolo_device", "")),
+                    )
+                )
                 ok = self.start_perception_worker(config=cfg)
             except Exception as exc:
                 ok = False
                 reason = f"perception_start_failed:{exc}"
+                print(f"[perception] start failed: {exc}")
                 with self._perception_lock:
                     self.perception_running = False
                     self.perception_failed = True
                     self.perception_status = str(reason)
+            else:
+                print(f"[perception] start ack | ok={bool(ok)} reason={reason}")
             ack = {
                 "t": "ack",
                 "ts": proto.now_s(),

@@ -20,7 +20,9 @@ def _load_yolo_class() -> Any:
     try:
         from ultralytics import YOLO
     except ImportError as exc:
-        raise YoloUnavailableError("ultralytics is not installed") from exc
+        raise YoloUnavailableError(
+            f"failed to import ultralytics.YOLO: {type(exc).__name__}: {exc}"
+        ) from exc
     return YOLO
 
 

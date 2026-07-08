@@ -1120,18 +1120,33 @@ class ControlService:
                     msg="mobile pick: acquiring target",
                 )
 
-                if self._perception_capture is None or not self._perception_capture.is_running():
+                perception_running = bool(self.state.perception_running)
+                if not self._perception_run_local and self.client is not None:
+                    host_preview = self.client.refresh_state()
+                    self._sync_remote_perception_from_host(host_preview)
+                    perception_running = bool(getattr(host_preview, "perception_running", False))
+                if self._perception_run_local:
+                    perception_running = (
+                        self._perception_capture is not None
+                        and self._perception_capture.is_running()
+                    )
+                if not perception_running:
                     self.start_perception_capture(config=self._perception_cfg)
 
                 host_state, object_world = self._mobile_pick_wait_for_object(
                     timeout_s=min(approach_timeout_s, 5.0),
                 )
                 if object_world is None:
+                    obs = self.current_visual_observation(host_state)
+                    detail = "uv=%s world=%s" % (
+                        "ok" if obs is not None else "missing",
+                        "ok" if self._mobile_pick_object_world() is not None else "missing",
+                    )
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
                         phase=ObjectPickPhase.FAILED.value,
-                        msg="mobile pick: no target observation",
+                        msg=f"mobile pick: no target observation | {detail}",
                     )
                     return
 
@@ -9222,8 +9237,10 @@ class ControlService:
 
     def _start_remote_preview(self) -> None:
         if not bool(getattr(self._perception_cfg, "show_preview", True)):
+            print("[perception] remote preview disabled by config")
             return
         if self._remote_preview_thread is not None and self._remote_preview_thread.is_alive():
+            print("[perception] remote preview already running")
             return
         endpoint = self._remote_preview_endpoint()
         if not endpoint:
@@ -9233,6 +9250,7 @@ class ControlService:
                 msg="remote preview endpoint missing",
             )
             return
+        print(f"[perception] remote preview connecting: {endpoint}")
         self._remote_preview_stop.clear()
 
         def _worker() -> None:
@@ -9247,11 +9265,23 @@ class ControlService:
                 )
                 return
             sub = PreviewFrameSubscriber(endpoint)
+            got_first = False
+            last_wait_log_s = 0.0
             try:
                 while not self._remote_preview_stop.is_set():
                     frame = sub.recv_latest(timeout_ms=250)
                     if frame is None:
+                        now = time.time()
+                        if now - last_wait_log_s >= 3.0:
+                            print(f"[perception] remote preview waiting for frames: {endpoint}")
+                            last_wait_log_s = now
                         continue
+                    if not got_first:
+                        got_first = True
+                        print(
+                            "[perception] remote preview first frame: %dx%d"
+                            % (int(frame.image_bgr.shape[1]), int(frame.image_bgr.shape[0]))
+                        )
                     key = show_preview("elesim_remote_perception", frame.image_bgr)
                     if key in (ord("q"), 27):
                         break
