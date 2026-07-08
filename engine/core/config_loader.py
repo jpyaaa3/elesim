@@ -96,6 +96,9 @@ class HardwareConfig:
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
+    host_hw_read_hz: float = 20.0
+    host_hw_cmd_hz: float = 30.0
+    current_read_hz: float = 20.0
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -1438,6 +1441,9 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=hw0.linear_u_limit_deg),
         current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=hw0.current_yellow_ma),
         current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=hw0.current_limit_ma),
+        host_hw_read_hz=cp.getfloat("hardware", "host_hw_read_hz", fallback=hw0.host_hw_read_hz),
+        host_hw_cmd_hz=cp.getfloat("hardware", "host_hw_cmd_hz", fallback=hw0.host_hw_cmd_hz),
+        current_read_hz=cp.getfloat("hardware", "current_read_hz", fallback=hw0.current_read_hz),
         profile_vel_linear=cp.getint("hardware", "profile_vel_linear", fallback=hw0.profile_vel_linear),
         profile_acc_linear=cp.getint("hardware", "profile_acc_linear", fallback=hw0.profile_acc_linear),
         profile_vel_roll=cp.getint("hardware", "profile_vel_roll", fallback=hw0.profile_vel_roll),

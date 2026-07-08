@@ -257,7 +257,10 @@ class ControlHost:
         self._state_period = 1.0 / max(0.1, float(state_hz))
         self._read_period = 1.0 / max(0.1, float(hw_read_hz))
         self._cmd_period = 1.0 / max(0.1, float(hw_cmd_hz))
+        current_read_hz = float(getattr(self.hardware_cfg, "current_read_hz", hw_read_hz) or hw_read_hz)
+        self._current_read_period = 1.0 / max(0.1, current_read_hz)
         self._t_read = 0.0
+        self._t_current_read = 0.0
         self._t_state = 0.0
         self._t_cmd = 0.0
         self._state_broadcast_requested = threading.Event()
@@ -1133,7 +1136,7 @@ class ControlHost:
         except Exception:
             pass
 
-    def _read_hw_state(self) -> None:
+    def _read_hw_state(self, *, read_currents: bool = True) -> None:
         if not self._has_hw():
             return
         try:
@@ -1142,16 +1145,17 @@ class ControlHost:
         except Exception:
             return
         currents_by_id: Dict[int, int] = dict(self._last_motor_current_by_id)
-        for dxl_id in self._ids:
-            try:
-                with self._hw_lock:
-                    currents_by_id[int(dxl_id)] = int(self.hw.get_present_current(int(dxl_id)))
-            except Exception:
-                continue
+        if bool(read_currents):
+            for dxl_id in self._ids:
+                try:
+                    with self._hw_lock:
+                        currents_by_id[int(dxl_id)] = int(self.hw.get_present_current(int(dxl_id)))
+                except Exception:
+                    continue
+            self._last_motor_current_by_id = dict(currents_by_id)
+            self._last_claw_current = int(currents_by_id.get(int(self.hw.cfg.id_claw), self._last_claw_current))
+            self._check_current_limit()
         self._last_hw_pos_by_id = dict(ticks_by_id)
-        self._last_motor_current_by_id = dict(currents_by_id)
-        self._last_claw_current = int(currents_by_id.get(int(self.hw.cfg.id_claw), self._last_claw_current))
-        self._check_current_limit()
         if not self._ids or len(self._ids) < 4:
             return
         motor_deg_vals = []
@@ -2646,7 +2650,10 @@ class ControlHost:
                     self._handle_sim_feedback(msg)
             if (now - self._t_read) >= self._read_period:
                 self._t_read = now
-                self._read_hw_state()
+                read_currents = (now - self._t_current_read) >= self._current_read_period
+                if read_currents:
+                    self._t_current_read = now
+                self._read_hw_state(read_currents=read_currents)
                 self._update_claw_hw()
             if self._pending_target_q is not None and (now - self._t_cmd) >= self._cmd_period:
                 self._t_cmd = now
@@ -2817,6 +2824,8 @@ def run_host(
                 angular_scale_rad=float(bundle.sim_config.traj_angular_scale_rad),
             ),
             traj_lji_enable=bool(bundle.sim_config.traj_lji_enable),
+            hw_read_hz=float(getattr(bundle.hardware_config, "host_hw_read_hz", 20.0)),
+            hw_cmd_hz=float(getattr(bundle.hardware_config, "host_hw_cmd_hz", 30.0)),
             go2_bridge=go2_bridge,
         )
         print(f"[host] comm with ctrl by {bind_addr}")
