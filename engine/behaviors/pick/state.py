@@ -72,6 +72,7 @@ class HostState:
     gaze_du_roll: float = 0.0
     gaze_du_s1: float = 0.0
     gaze_du_s2: float = 0.0
+    gaze_tick_count: int = 0
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
     gaze_config: dict[str, Any] = field(default_factory=dict)
@@ -130,6 +131,7 @@ class PanelState:
     gaze_du_roll: float = 0.0
     gaze_du_s1: float = 0.0
     gaze_du_s2: float = 0.0
+    gaze_tick_count: int = 0
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
 
@@ -333,6 +335,7 @@ class PanelState:
         du_s1: Optional[float] = None,
         du_s2: Optional[float] = None,
         obs_age_s: Optional[float] = None,
+        tick_count: Optional[int] = None,
         update_count: Optional[int] = None,
     ) -> None:
         with self._lock:
@@ -353,6 +356,8 @@ class PanelState:
                 self.gaze_du_s2 = float(du_s2)
             if obs_age_s is not None:
                 self.gaze_obs_age_s = float(obs_age_s)
+            if tick_count is not None:
+                self.gaze_tick_count = int(tick_count)
             if update_count is not None:
                 self.gaze_update_count = int(update_count)
 

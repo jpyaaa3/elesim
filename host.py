@@ -930,6 +930,7 @@ class ControlHost:
                 gaze_du_s1=float(gaze_payload.get("gaze_du_s1", 0.0)),
                 gaze_du_s2=float(gaze_payload.get("gaze_du_s2", 0.0)),
                 gaze_obs_age_s=float(gaze_payload.get("gaze_obs_age_s", -1.0)),
+                gaze_tick_count=int(gaze_payload.get("gaze_tick_count", 0)),
                 gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
                 gaze_config=dict(gaze_payload.get("gaze_config", {})),
                 sag_model=self.last_sag_model,
@@ -974,6 +975,7 @@ class ControlHost:
                 "gaze_du_s1": 0.0,
                 "gaze_du_s2": 0.0,
                 "gaze_obs_age_s": -1.0,
+                "gaze_tick_count": 0,
                 "gaze_update_count": 0,
                 "gaze_config": gaze_config_to_dict(cfg),
             }
@@ -989,6 +991,7 @@ class ControlHost:
                 "gaze_du_s1": float(st.gaze_du_s1),
                 "gaze_du_s2": float(st.gaze_du_s2),
                 "gaze_obs_age_s": float(st.gaze_obs_age_s),
+                "gaze_tick_count": int(st.gaze_tick_count),
                 "gaze_update_count": int(st.gaze_update_count),
                 "gaze_config": gaze_config_to_dict(cfg),
             }

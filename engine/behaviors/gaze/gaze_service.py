@@ -48,6 +48,7 @@ class GazeControlService:
         self._camera_logger: Optional[CameraMetricsLogger] = None
         self._run_id = ""
         self._update_count = 0
+        self._loop_count = 0
         self._gaze_ticks = 0
         self._preview_used_ticks = 0
         self._preview_fallback_ticks = 0
@@ -194,6 +195,7 @@ class GazeControlService:
         )
         self._camera_logger = None if unified else CameraMetricsLogger.from_env(run_id=self._run_id)
         self._update_count = 0
+        self._loop_count = 0
         self._gaze_ticks = 0
         self._preview_used_ticks = 0
         self._preview_fallback_ticks = 0
@@ -213,6 +215,7 @@ class GazeControlService:
             du_s1=0.0,
             du_s2=0.0,
             obs_age_s=-1.0,
+            tick_count=0,
             update_count=0,
         )
         self._worker = threading.Thread(target=self._worker_loop, name=f"gaze-{mode}", daemon=True)
@@ -386,6 +389,7 @@ class GazeControlService:
             du_s1=s1_du,
             du_s2=s2_du,
             obs_age_s=float(obs.age_s),
+            tick_count=int(self._loop_count),
             update_count=int(self._update_count),
         )
         return True, "", diag
@@ -449,6 +453,7 @@ class GazeControlService:
         try:
             while not self._stop.is_set():
                 period = self._worker_period_s()
+                self._loop_count += 1
                 if self._ownership_enable:
                     try:
                         self._ownership.heartbeat(owner)
@@ -476,6 +481,7 @@ class GazeControlService:
                         mode=str(self._status_mode()),
                         msg=reason,
                         obs_age_s=age_s,
+                        tick_count=int(self._loop_count),
                     )
                     self._parent.reset_gaze_derivative_state()
                     time.sleep(period)
@@ -584,6 +590,7 @@ class GazeControlService:
                     du_s1=s1_du,
                     du_s2=s2_du,
                     obs_age_s=float(obs.age_s),
+                    tick_count=int(self._loop_count),
                     update_count=int(self._update_count),
                 )
                 time.sleep(period)

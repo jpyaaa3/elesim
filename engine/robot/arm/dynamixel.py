@@ -290,7 +290,8 @@ def load_hardware(
     hardware_cfg: "HardwareConfig | None" = None,
 ) -> Tuple[Any, Dict[int, int]]:
     """Return (hardware_driver, direction_by_id)."""
-    hw = Dynamixel3dofDriver(DxlConfig(device_name=device))
+    baudrate = int(getattr(hardware_cfg, "baudrate", 57600)) if hardware_cfg is not None else 57600
+    hw = Dynamixel3dofDriver(DxlConfig(device_name=device, baudrate=max(1, baudrate)))
     if hardware_cfg is not None:
         motor_dir = tuple(int(v) for v in getattr(hardware_cfg, "motor_direction"))
         raw = {

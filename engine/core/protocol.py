@@ -291,6 +291,7 @@ def pack_state(
     gaze_du_s1: Optional[float] = None,
     gaze_du_s2: Optional[float] = None,
     gaze_obs_age_s: Optional[float] = None,
+    gaze_tick_count: Optional[int] = None,
     gaze_update_count: Optional[int] = None,
     gaze_config: Optional[dict[str, Any]] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
@@ -407,6 +408,8 @@ def pack_state(
         out["gaze_du_s2"] = float(gaze_du_s2)
     if gaze_obs_age_s is not None:
         out["gaze_obs_age_s"] = float(gaze_obs_age_s)
+    if gaze_tick_count is not None:
+        out["gaze_tick_count"] = int(gaze_tick_count)
     if gaze_update_count is not None:
         out["gaze_update_count"] = int(gaze_update_count)
     if gaze_config is not None:

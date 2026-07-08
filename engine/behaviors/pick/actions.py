@@ -823,6 +823,7 @@ class ControlService:
             du_s1=float(getattr(host_state, "gaze_du_s1", 0.0)),
             du_s2=float(getattr(host_state, "gaze_du_s2", 0.0)),
             obs_age_s=float(getattr(host_state, "gaze_obs_age_s", -1.0)),
+            tick_count=int(getattr(host_state, "gaze_tick_count", 0)),
             update_count=int(getattr(host_state, "gaze_update_count", 0)),
         )
 

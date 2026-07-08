@@ -91,6 +91,7 @@ class ControlClient:
         self.last_gaze_du_roll: float = 0.0
         self.last_gaze_du_s1: float = 0.0
         self.last_gaze_du_s2: float = 0.0
+        self.last_gaze_tick_count: int = 0
         self.last_gaze_update_count: int = 0
         self.last_gaze_obs_age_s: float = -1.0
         self.last_gaze_config: dict[str, Any] = {}
@@ -171,6 +172,7 @@ class ControlClient:
             gaze_du_roll=float(self.last_gaze_du_roll),
             gaze_du_s1=float(self.last_gaze_du_s1),
             gaze_du_s2=float(self.last_gaze_du_s2),
+            gaze_tick_count=int(self.last_gaze_tick_count),
             gaze_update_count=int(self.last_gaze_update_count),
             gaze_obs_age_s=float(self.last_gaze_obs_age_s),
             gaze_config=dict(self.last_gaze_config),
@@ -323,6 +325,11 @@ class ControlClient:
                 self.last_gaze_update_count = int(msg.get("gaze_update_count", 0))
             except (TypeError, ValueError):
                 self.last_gaze_update_count = 0
+        if "gaze_tick_count" in msg:
+            try:
+                self.last_gaze_tick_count = int(msg.get("gaze_tick_count", 0))
+            except (TypeError, ValueError):
+                self.last_gaze_tick_count = 0
         if "gaze_config" in msg and isinstance(msg.get("gaze_config"), dict):
             self.last_gaze_config = dict(msg.get("gaze_config", {}))
 

@@ -93,6 +93,7 @@ class SimConfig:
 class HardwareConfig:
     command_direction: Tuple[int, int, int, int] = (1, -1, 1, -1)
     motor_direction: Tuple[int, int, int, int] = (1, -1, 1, -1)
+    baudrate: int = 57600
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
@@ -1438,6 +1439,7 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
     return HardwareConfig(
         command_direction=_parse_direction4(cp.get("hardware", "command_direction"), key="hardware.command_direction"),
         motor_direction=_parse_direction4(cp.get("hardware", "motor_direction"), key="hardware.motor_direction"),
+        baudrate=cp.getint("hardware", "baudrate", fallback=hw0.baudrate),
         linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=hw0.linear_u_limit_deg),
         current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=hw0.current_yellow_ma),
         current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=hw0.current_limit_ma),
