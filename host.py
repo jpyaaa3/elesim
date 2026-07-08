@@ -204,6 +204,9 @@ class ControlHost:
         self.perception_record_with_overlay: bool = False
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_lock = threading.RLock()
+        self._perception_log_interval_s = 1.0
+        self._last_perception_log_t = 0.0
+        self._last_perception_log_key = ""
         self._preview_publisher: Optional[PreviewFramePublisher] = None
         preview_bind = str(getattr(self.perception_config, "preview_bind", "")).strip()
         if preview_bind:
@@ -726,11 +729,19 @@ class ControlHost:
         p_cam = np.asarray(object_camera_xyz, dtype=float).reshape(3)
         p_w = np.asarray(object_world, dtype=float).reshape(3)
         label_txt = str(object_label).strip()
-        print(
-            f"[Perception] label={label_txt or '-'} "
-            f"camera=[{p_cam[0]:+.4f}, {p_cam[1]:+.4f}, {p_cam[2]:+.4f}] m "
-            f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m ({world_tag})"
-        )
+        log_key = f"{label_txt}:{world_tag}"
+        now = time.time()
+        if (
+            log_key != self._last_perception_log_key
+            or (now - float(self._last_perception_log_t)) >= float(self._perception_log_interval_s)
+        ):
+            self._last_perception_log_key = log_key
+            self._last_perception_log_t = now
+            print(
+                f"[Perception] label={label_txt or '-'} "
+                f"camera=[{p_cam[0]:+.4f}, {p_cam[1]:+.4f}, {p_cam[2]:+.4f}] m "
+                f"world=[{p_w[0]:+.4f}, {p_w[1]:+.4f}, {p_w[2]:+.4f}] m ({world_tag})"
+            )
         label_suffix = f":{label_txt}" if label_txt else ""
         self._set_debug_marker(
             name=f"perceived_object{label_suffix}",
