@@ -117,14 +117,34 @@ def measure_detection(
     depth_scale: float,
     detector_cfg: dict[str, Any],
 ) -> Optional[np.ndarray]:
+    mask = getattr(det, "mask", None)
+    if mask is None:
+        try:
+            x0, y0, x1, y1 = [int(v) for v in det.bbox_xyxy]
+            depth_shape = getattr(depth_raw, "shape", None)
+            if depth_shape is None or len(depth_shape) < 2:
+                return None
+            h, w = int(depth_shape[0]), int(depth_shape[1])
+            x0 = max(0, min(w, x0))
+            x1 = max(0, min(w, x1))
+            y0 = max(0, min(h, y0))
+            y1 = max(0, min(h, y1))
+            if x1 <= x0 or y1 <= y0:
+                return None
+            mask = np.zeros((h, w), dtype=np.uint8)
+            mask[y0:y1, x0:x1] = 255
+        except Exception:
+            return None
+    if depth_raw is None:
+        return None
     try:
         return estimate_object_position_camera(
-            det.mask,
+            mask,
             depth_raw,
             intrinsics,
             depth_scale,
             z_min_m=float(detector_cfg.get("z_min_m", 0.15)),
             z_max_m=float(detector_cfg.get("z_max_m", 2.5)),
         )
-    except RuntimeError:
+    except (AttributeError, RuntimeError, TypeError, ValueError):
         return None

@@ -153,6 +153,8 @@ class ControlHost:
         self.last_u: Optional[proto.ControlU] = None
         self.last_q: Optional[proto.SimQ] = None
         self.last_state_ts: float = 0.0
+        self._last_target_log_t: float = 0.0
+        self._last_target_log_key: str = ""
         self.last_sim_u: Optional[proto.ControlU] = None
         self.last_sim_q: Optional[proto.SimQ] = None
         self.last_sim_state_ts: float = 0.0
@@ -2213,18 +2215,36 @@ class ControlHost:
             self._pending_target_q = q
             self._pending_target_seq = seq
             self._last_target_apply_error = ""
-            print(
-                "[host] target received | seq=%d source=%s partial_u=%s q=(%.4f, %.4f, %.4f, %.4f)"
-                % (
-                    int(seq),
-                    str(source),
-                    str(bool(partial_u_mode)).lower(),
-                    float(q.linear_m),
-                    float(q.roll_rad),
-                    float(q.theta1_rad),
-                    float(q.theta2_rad),
-                )
+            log_key = "%s:%s:%.4f:%.4f:%.4f:%.4f" % (
+                str(source),
+                str(bool(partial_u_mode)).lower(),
+                float(q.linear_m),
+                float(q.roll_rad),
+                float(q.theta1_rad),
+                float(q.theta2_rad),
             )
+            now_log = time.time()
+            log_target = True
+            if bool(partial_u_mode) and str(source).strip().lower() == "slider":
+                log_target = (
+                    log_key != self._last_target_log_key
+                    or (now_log - float(self._last_target_log_t)) >= 1.0
+                )
+            if log_target:
+                self._last_target_log_key = log_key
+                self._last_target_log_t = now_log
+                print(
+                    "[host] target received | seq=%d source=%s partial_u=%s q=(%.4f, %.4f, %.4f, %.4f)"
+                    % (
+                        int(seq),
+                        str(source),
+                        str(bool(partial_u_mode)).lower(),
+                        float(q.linear_m),
+                        float(q.roll_rad),
+                        float(q.theta1_rad),
+                        float(q.theta2_rad),
+                    )
+                )
             if not partial_u_mode:
                 self._pending_target_u = None
                 self._pending_target_axes = set()

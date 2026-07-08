@@ -112,12 +112,21 @@ def _extract_seg_mask(result: Any, index: int, h: int, w: int, *, mask_threshold
     if data is None or len(data) <= index:
         return None
     raw = data[index]
+    if raw is None:
+        return None
     try:
         arr = raw.cpu().numpy()
     except AttributeError:
         arr = np.asarray(raw)
+    if arr is None:
+        return None
+    arr = np.asarray(arr)
+    if arr.size <= 0:
+        return None
     if arr.ndim == 3:
         arr = arr[0]
+    if arr.ndim != 2:
+        return None
     arr = cv2.resize(arr.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
     thr = float(max(0.0, min(1.0, mask_threshold)))
     return ((arr > thr).astype(np.uint8)) * 255
