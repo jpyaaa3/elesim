@@ -283,6 +283,10 @@ def pack_state(
     perception_status: Optional[str] = None,
     perception_source: Optional[str] = None,
     perception_preview_endpoint: Optional[str] = None,
+    perception_recording: Optional[bool] = None,
+    perception_record_with_overlay: Optional[bool] = None,
+    perception_last_record_path: Optional[str] = None,
+    perception_last_capture_path: Optional[str] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
     go2_vel: Optional[tuple[float, float, float]] = None,
     go2_base_rpy: Optional[tuple[float, float, float]] = None,
@@ -369,6 +373,14 @@ def pack_state(
         out["perception_source"] = str(perception_source)
     if perception_preview_endpoint is not None:
         out["perception_preview_endpoint"] = str(perception_preview_endpoint)
+    if perception_recording is not None:
+        out["perception_recording"] = bool(perception_recording)
+    if perception_record_with_overlay is not None:
+        out["perception_record_with_overlay"] = bool(perception_record_with_overlay)
+    if perception_last_record_path is not None:
+        out["perception_last_record_path"] = str(perception_last_record_path)
+    if perception_last_capture_path is not None:
+        out["perception_last_capture_path"] = str(perception_last_capture_path)
     if go2_vel is not None:
         out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
     if go2_base_rpy is not None:

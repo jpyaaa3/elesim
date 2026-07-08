@@ -59,6 +59,10 @@ class HostState:
     perception_status: str = ""
     perception_source: str = ""
     perception_preview_endpoint: str = ""
+    perception_recording: bool = False
+    perception_record_with_overlay: bool = False
+    perception_last_record_path: str = ""
+    perception_last_capture_path: str = ""
 
 
 @dataclass

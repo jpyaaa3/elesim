@@ -78,6 +78,10 @@ class ControlClient:
         self.last_perception_status: str = ""
         self.last_perception_source: str = ""
         self.last_perception_preview_endpoint: str = ""
+        self.last_perception_recording: bool = False
+        self.last_perception_record_with_overlay: bool = False
+        self.last_perception_last_record_path: str = ""
+        self.last_perception_last_capture_path: str = ""
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
@@ -142,6 +146,10 @@ class ControlClient:
             perception_status=str(self.last_perception_status),
             perception_source=str(self.last_perception_source),
             perception_preview_endpoint=str(self.last_perception_preview_endpoint),
+            perception_recording=bool(self.last_perception_recording),
+            perception_record_with_overlay=bool(self.last_perception_record_with_overlay),
+            perception_last_record_path=str(self.last_perception_last_record_path),
+            perception_last_capture_path=str(self.last_perception_last_capture_path),
             go2_vel=(
                 float(self.last_go2_vel[0]),
                 float(self.last_go2_vel[1]),
@@ -242,6 +250,14 @@ class ControlClient:
             self.last_perception_source = str(msg.get("perception_source", ""))
         if "perception_preview_endpoint" in msg:
             self.last_perception_preview_endpoint = str(msg.get("perception_preview_endpoint", ""))
+        if "perception_recording" in msg:
+            self.last_perception_recording = bool(msg.get("perception_recording", False))
+        if "perception_record_with_overlay" in msg:
+            self.last_perception_record_with_overlay = bool(msg.get("perception_record_with_overlay", False))
+        if "perception_last_record_path" in msg:
+            self.last_perception_last_record_path = str(msg.get("perception_last_record_path", ""))
+        if "perception_last_capture_path" in msg:
+            self.last_perception_last_capture_path = str(msg.get("perception_last_capture_path", ""))
         object_world_raw = msg.get("object_world", None)
         if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
             try:
@@ -516,6 +532,28 @@ class ControlClient:
 
     def send_perception_refresh(self) -> None:
         self._send({"t": "perception_refresh", "ts": time.time()})
+
+    def send_perception_capture(self, *, include_overlay: bool = True) -> None:
+        self._send(
+            {
+                "t": "perception_capture",
+                "ts": time.time(),
+                "include_overlay": bool(include_overlay),
+            }
+        )
+
+    def send_perception_record_start(self, *, include_overlay: bool = False, fps: float = 0.0) -> None:
+        self._send(
+            {
+                "t": "perception_record_start",
+                "ts": time.time(),
+                "include_overlay": bool(include_overlay),
+                "fps": float(fps),
+            }
+        )
+
+    def send_perception_record_stop(self) -> None:
+        self._send({"t": "perception_record_stop", "ts": time.time()})
 
     def send_perception_observation(
         self,

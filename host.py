@@ -25,7 +25,11 @@ from engine.core.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.core.protocol as proto
 from engine.vision.perception_bridge.hand_eye import camera_axes_world, camera_point_to_world, load_hand_eye_transform
-from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
+from engine.vision.perception.capture import (
+    PerceptionCapture,
+    PerceptionSnapshot,
+    default_perception_capture_dir,
+)
 from engine.vision.perception.preview_stream import PreviewFramePublisher
 from engine.vision.sim_camera.pose import camera_point_to_world_from_axes
 
@@ -170,6 +174,9 @@ class ControlHost:
         self.perception_failed: bool = False
         self.perception_status: str = "stopped"
         self.perception_source: str = "host"
+        self.perception_last_capture_path: str = ""
+        self.perception_last_record_path: str = ""
+        self.perception_record_with_overlay: bool = False
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_lock = threading.RLock()
         self._preview_publisher: Optional[PreviewFramePublisher] = None
@@ -826,6 +833,7 @@ class ControlHost:
 
     def _broadcast_state_now(self) -> None:
         now = proto.now_s()
+        perception_payload = self._perception_state_payload()
         self._broadcast(
             proto.pack_state(
                 u=self.last_u,
@@ -848,6 +856,10 @@ class ControlHost:
                 perception_status=str(self.perception_status),
                 perception_source=str(self.perception_source),
                 perception_preview_endpoint=str(getattr(self.perception_config, "preview_bind", "")),
+                perception_recording=bool(perception_payload.get("perception_recording", False)),
+                perception_record_with_overlay=bool(perception_payload.get("perception_record_with_overlay", False)),
+                perception_last_record_path=str(perception_payload.get("perception_last_record_path", "")),
+                perception_last_capture_path=str(perception_payload.get("perception_last_capture_path", "")),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -1223,13 +1235,26 @@ class ControlHost:
             self._red_torque_off_ids = set()
 
     def _perception_state_payload(self) -> Dict[str, Any]:
+        with self._perception_lock:
+            cap = self._perception_capture
+            recording = bool(cap.is_recording()) if cap is not None else False
+            active_record_path = cap.recording_path() if recording and cap is not None else ""
+            last_record_path = active_record_path or str(self.perception_last_record_path)
+            last_capture_path = str(self.perception_last_capture_path)
+            record_with_overlay = bool(self.perception_record_with_overlay)
         payload: Dict[str, Any] = {
             "perception_running": bool(self.perception_running),
             "perception_failed": bool(self.perception_failed),
             "perception_status": str(self.perception_status),
             "perception_source": str(self.perception_source),
             "perception_preview_endpoint": str(getattr(self.perception_config, "preview_bind", "")),
+            "perception_recording": bool(recording),
+            "perception_record_with_overlay": bool(record_with_overlay),
         }
+        if last_record_path:
+            payload["perception_last_record_path"] = str(last_record_path)
+        if last_capture_path:
+            payload["perception_last_capture_path"] = str(last_capture_path)
         if self.last_perceived_center_uv is not None:
             payload["perceived_center_uv"] = [
                 float(self.last_perceived_center_uv[0]),
@@ -1284,6 +1309,76 @@ class ControlHost:
             self.perception_running = bool(snap.running)
             self.perception_failed = bool(snap.failed)
             self.perception_status = str(snap.status_msg)
+
+    def capture_perception_worker_frame(self, *, include_overlay: bool = True) -> tuple[bool, str, str]:
+        with self._perception_lock:
+            cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            return False, "", "perception_not_running"
+        path = cap.save_cached_frames(
+            default_perception_capture_dir(),
+            extra_meta={
+                "mode": str(getattr(self.perception_config, "mode", "camera")),
+                "source": "host",
+                "include_overlay_requested": bool(include_overlay),
+            },
+        )
+        if path is None:
+            with self._perception_lock:
+                self.perception_failed = True
+                self.perception_status = "capture failed: no cached frame"
+            return False, "", "perception_no_cached_frame"
+        path_s = str(path.resolve())
+        with self._perception_lock:
+            self.perception_last_capture_path = path_s
+            self.perception_failed = False
+            self.perception_status = f"snapshot saved: {path_s}"
+        print(f"[perception] snapshot saved: {path_s}")
+        return True, path_s, "perception_capture"
+
+    def start_perception_worker_recording(
+        self,
+        *,
+        include_overlay: bool = False,
+        fps: Optional[float] = None,
+    ) -> tuple[bool, str, str]:
+        with self._perception_lock:
+            cap = self._perception_capture
+        if cap is None or not cap.is_running():
+            return False, "", "perception_not_running"
+        record_fps = float(fps) if fps is not None and float(fps) > 0.0 else float(getattr(self.perception_config, "publish_hz", 20.0))
+        ok, path_s = cap.start_recording(
+            default_perception_capture_dir(),
+            fps=record_fps,
+            include_overlay=bool(include_overlay),
+        )
+        if not ok:
+            return False, str(path_s), "perception_recording_active"
+        with self._perception_lock:
+            self.perception_last_record_path = str(path_s)
+            self.perception_record_with_overlay = bool(include_overlay)
+            self.perception_failed = False
+            self.perception_status = f"recording started: {path_s}"
+        print(
+            "[perception] recording started on host (%s): %s"
+            % ("overlay" if include_overlay else "raw", str(path_s))
+        )
+        return True, str(path_s), "perception_record_start"
+
+    def stop_perception_worker_recording(self) -> tuple[bool, str, int, str]:
+        with self._perception_lock:
+            cap = self._perception_capture
+        if cap is None:
+            return False, "", 0, "perception_not_running"
+        ok, path_s, frame_count = cap.stop_recording()
+        if not ok:
+            return False, str(path_s), int(frame_count), "perception_recording_inactive"
+        with self._perception_lock:
+            self.perception_last_record_path = str(path_s)
+            self.perception_failed = False
+            self.perception_status = f"recording saved ({int(frame_count)}f): {path_s}"
+        print(f"[perception] recording saved on host ({int(frame_count)}f): {path_s}")
+        return True, str(path_s), int(frame_count), "perception_record_stop"
 
     def _publish_preview_frame(self, image_bgr: Any, *, meta: Optional[dict[str, Any]] = None) -> None:
         publisher = self._preview_publisher
@@ -1397,8 +1492,11 @@ class ControlHost:
                 self.perception_failed = False
                 self.perception_status = "stopped"
             return True
+        active_record_path = cap.recording_path() if cap.is_recording() else ""
         stopped = cap.stop(timeout_s=float(timeout_s))
         with self._perception_lock:
+            if active_record_path:
+                self.perception_last_record_path = str(active_record_path)
             if stopped:
                 self._perception_capture = None
                 self.perception_running = False
@@ -1694,6 +1792,64 @@ class ControlHost:
                 "reason": "perception_refresh" if ok else "perception_not_running",
                 "device": self.device,
                 "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "perception_capture":
+            ok, path_s, reason = self.capture_perception_worker_frame(
+                include_overlay=bool(msg.get("include_overlay", True))
+            )
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+                "perception_last_capture_path": str(path_s),
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "perception_record_start":
+            fps: Optional[float] = None
+            try:
+                fps_raw = float(msg.get("fps", 0.0))
+                if fps_raw > 0.0:
+                    fps = fps_raw
+            except (TypeError, ValueError):
+                fps = None
+            ok, path_s, reason = self.start_perception_worker_recording(
+                include_overlay=bool(msg.get("include_overlay", False)),
+                fps=fps,
+            )
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+                "perception_last_record_path": str(path_s),
+            }
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "perception_record_stop":
+            ok, path_s, frame_count, reason = self.stop_perception_worker_recording()
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+                "perception_last_record_path": str(path_s),
+                "perception_record_frame_count": int(frame_count),
             }
             ack.update(self._perception_state_payload())
             self._reply(ident, ack)

@@ -864,21 +864,20 @@ def draw_perception_panel(panel) -> None:
 
         running = bool(panel.state.perception_running)
         _draw_camera_controls(panel, running=running)
-        if run_local:
-            _control_label(panel, "Debug")
-            changed_rec_overlay, rec_overlay = imgui.checkbox(
-                "Record overlay##perception_record_overlay",
-                bool(panel.state.perception_record_with_overlay),
-            )
-            if changed_rec_overlay:
-                panel.state.set_perception_record_overlay(bool(rec_overlay))
-            imgui.same_line()
-            if imgui.button("Save Snapshot"):
-                panel.service.capture_perception_frame()
-            imgui.same_line()
-            rec_label = "Stop Record" if bool(panel.state.perception_recording) else "Start Record"
-            if imgui.button(rec_label):
-                panel.service.toggle_perception_recording()
+        _control_label(panel, "Debug")
+        changed_rec_overlay, rec_overlay = imgui.checkbox(
+            "Record overlay##perception_record_overlay",
+            bool(panel.state.perception_record_with_overlay),
+        )
+        if changed_rec_overlay:
+            panel.state.set_perception_record_overlay(bool(rec_overlay))
+        imgui.same_line()
+        if imgui.button("Save Snapshot"):
+            panel.service.capture_perception_frame()
+        imgui.same_line()
+        rec_label = "Stop Record" if bool(panel.state.perception_recording) else "Start Record"
+        if imgui.button(rec_label):
+            panel.service.toggle_perception_recording()
         _end_section()
 
     imgui.separator()
