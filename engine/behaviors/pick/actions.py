@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import math
 import os
 import threading
@@ -245,6 +246,11 @@ class ControlService:
         self._grasp_lji_last_transition: str = "-"
         self._grasp_lji_sat_streak = 0
         self._grasp_lji_remain_hist: list[float] = []
+        self._grasp_lji_log_file: Optional[Any] = None
+        self._grasp_lji_log_writer: Optional[csv.DictWriter] = None
+        self._grasp_lji_log_path: str = ""
+        self._grasp_lji_log_start_t: float = 0.0
+        self._grasp_lji_log_seq: int = 0
         self._pick_search_origin_u: Optional[ControlU] = None
         self._pick_search_step_index = 0
         self._pick_search_max_steps = 48
@@ -5418,9 +5424,182 @@ class ControlService:
         self._grasp_lji_pending_sample = None
         return reason
 
+    @staticmethod
+    def _grasp_lji_log_float(value: Any) -> float:
+        try:
+            out = float(value)
+        except Exception:
+            return float("nan")
+        return out if math.isfinite(out) else float("nan")
+
+    @staticmethod
+    def _grasp_lji_log_vec4(value: Optional[np.ndarray]) -> tuple[float, float, float, float]:
+        if value is None:
+            nan = float("nan")
+            return nan, nan, nan, nan
+        try:
+            arr = np.asarray(value, dtype=float).reshape(4)
+        except Exception:
+            nan = float("nan")
+            return nan, nan, nan, nan
+        return tuple(float(v) for v in arr)
+
+    def _grasp_lji_log_enabled(self) -> bool:
+        raw = os.environ.get("ELESIM_LJI_LOG", "1").strip().lower()
+        return raw not in {"0", "false", "no", "off"}
+
+    def _grasp_lji_log_start(self) -> None:
+        if not self._grasp_lji_log_enabled():
+            return
+        self._grasp_lji_log_close()
+        raw_path = os.environ.get("ELESIM_LJI_LOG_PATH", "").strip()
+        base = Path(raw_path) if raw_path else Path("engine/logs/lji_grasp")
+        if not base.is_absolute():
+            base = Path.cwd() / base
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            path = base / ("%s_lji_grasp.csv" % time.strftime("%Y%m%d_%H%M%S"))
+            fh = open(path, "a", newline="", encoding="utf-8")
+            fields = [
+                "unix_s",
+                "t_rel_s",
+                "seq",
+                "step_idx",
+                "mode",
+                "controller",
+                "transition",
+                "object_lost",
+                "remain_m",
+                "remain_mm",
+                "close_tol_m",
+                "u_err",
+                "v_err",
+                "z_err",
+                "depth_valid",
+                "depth_valid_ratio",
+                "j_rank",
+                "j_cond",
+                "j_available",
+                "dq_cmd_0",
+                "dq_cmd_1",
+                "dq_cmd_2",
+                "dq_cmd_3",
+                "dq_meas_0",
+                "dq_meas_1",
+                "dq_meas_2",
+                "dq_meas_3",
+                "q_cmd_0",
+                "q_cmd_1",
+                "q_cmd_2",
+                "q_cmd_3",
+                "sample_reason",
+                "ik_status",
+            ]
+            writer = csv.DictWriter(fh, fieldnames=fields)
+            writer.writeheader()
+            fh.flush()
+            self._grasp_lji_log_file = fh
+            self._grasp_lji_log_writer = writer
+            self._grasp_lji_log_path = str(path)
+            self._grasp_lji_log_start_t = time.time()
+            self._grasp_lji_log_seq = 0
+            print(f"[Grasp-Ctrl] csv={self._grasp_lji_log_path}")
+        except Exception as exc:
+            self._grasp_lji_log_file = None
+            self._grasp_lji_log_writer = None
+            self._grasp_lji_log_path = ""
+            print(f"[Grasp-Ctrl] csv open failed: {exc}")
+
+    def _grasp_lji_log_close(self) -> None:
+        fh = self._grasp_lji_log_file
+        if fh is not None:
+            try:
+                fh.flush()
+                fh.close()
+            except Exception:
+                pass
+        self._grasp_lji_log_file = None
+        self._grasp_lji_log_writer = None
+
+    def _grasp_lji_log_write_control_step(
+        self,
+        *,
+        step_idx: int,
+        mode: GraspApproachMode,
+        s_lji: Optional[np.ndarray],
+        depth_valid: bool,
+        depth_valid_ratio: float,
+        j_rank: int,
+        j_cond: float,
+        j_available: bool,
+        dq_cmd: np.ndarray,
+        dq_meas: Optional[np.ndarray],
+        q_cmd: np.ndarray,
+        controller: str,
+        transition: str,
+        object_lost: int,
+        remain_m: float,
+        close_tol_m: float,
+        ik_status: str,
+        sample_reason: str,
+    ) -> None:
+        writer = self._grasp_lji_log_writer
+        fh = self._grasp_lji_log_file
+        if writer is None or fh is None:
+            return
+        u_err = float(s_lji[0]) if s_lji is not None else float("nan")
+        v_err = float(s_lji[1]) if s_lji is not None else float("nan")
+        z_err = float(s_lji[2]) if s_lji is not None else float("nan")
+        dq0, dq1, dq2, dq3 = self._grasp_lji_log_vec4(dq_cmd)
+        dm0, dm1, dm2, dm3 = self._grasp_lji_log_vec4(dq_meas)
+        q0, q1, q2, q3 = self._grasp_lji_log_vec4(q_cmd)
+        now = time.time()
+        self._grasp_lji_log_seq += 1
+        row = {
+            "unix_s": now,
+            "t_rel_s": now - float(self._grasp_lji_log_start_t or now),
+            "seq": int(self._grasp_lji_log_seq),
+            "step_idx": int(step_idx),
+            "mode": str(mode.value),
+            "controller": str(controller),
+            "transition": str(transition),
+            "object_lost": int(object_lost),
+            "remain_m": self._grasp_lji_log_float(remain_m),
+            "remain_mm": self._grasp_lji_log_float(remain_m) * 1000.0,
+            "close_tol_m": self._grasp_lji_log_float(close_tol_m),
+            "u_err": self._grasp_lji_log_float(u_err),
+            "v_err": self._grasp_lji_log_float(v_err),
+            "z_err": self._grasp_lji_log_float(z_err),
+            "depth_valid": int(bool(depth_valid)),
+            "depth_valid_ratio": self._grasp_lji_log_float(depth_valid_ratio),
+            "j_rank": int(j_rank),
+            "j_cond": self._grasp_lji_log_float(j_cond),
+            "j_available": int(bool(j_available)),
+            "dq_cmd_0": dq0,
+            "dq_cmd_1": dq1,
+            "dq_cmd_2": dq2,
+            "dq_cmd_3": dq3,
+            "dq_meas_0": dm0,
+            "dq_meas_1": dm1,
+            "dq_meas_2": dm2,
+            "dq_meas_3": dm3,
+            "q_cmd_0": q0,
+            "q_cmd_1": q1,
+            "q_cmd_2": q2,
+            "q_cmd_3": q3,
+            "sample_reason": str(sample_reason),
+            "ik_status": str(ik_status),
+        }
+        try:
+            writer.writerow(row)
+            fh.flush()
+        except Exception as exc:
+            print(f"[Grasp-Ctrl] csv write failed: {exc}")
+
     def _grasp_lji_log_control_step(
         self,
         *,
+        step_idx: int = 0,
         mode: GraspApproachMode,
         s_lji: Optional[np.ndarray],
         depth_valid: bool,
@@ -5476,6 +5655,26 @@ class ControlService:
                 float(close_tol_m) * 1000.0,
                 str(ik_status),
             )
+        )
+        self._grasp_lji_log_write_control_step(
+            step_idx=int(step_idx),
+            mode=mode,
+            s_lji=s_lji,
+            depth_valid=bool(depth_valid),
+            depth_valid_ratio=float(depth_valid_ratio),
+            j_rank=int(j_rank),
+            j_cond=float(j_cond),
+            j_available=bool(j_available),
+            dq_cmd=np.asarray(dq_cmd, dtype=float).reshape(4),
+            dq_meas=dq_meas,
+            q_cmd=np.asarray(q_cmd, dtype=float).reshape(4),
+            controller=controller,
+            transition=transition,
+            object_lost=int(object_lost),
+            remain_m=float(remain_m),
+            close_tol_m=float(close_tol_m),
+            ik_status=ik_status,
+            sample_reason=sample_reason,
         )
 
     def _grasp_lji_blind_finish_if_needed(
@@ -7433,6 +7632,7 @@ class ControlService:
                     float(pk.lij_z_bend_gain),
                 )
             )
+            self._grasp_lji_log_start()
 
             wp_idx = 0
             while wp_idx < max_waypoints:
@@ -7691,6 +7891,7 @@ class ControlService:
                             q_before, dtype=float
                         )
                     self._grasp_lji_log_control_step(
+                        step_idx=int(wp_idx),
                         mode=mode,
                         s_lji=s_lji,
                         depth_valid=depth_valid,
@@ -7879,6 +8080,7 @@ class ControlService:
                         return
 
                 self._grasp_lji_log_control_step(
+                    step_idx=int(wp_idx),
                     mode=mode,
                     s_lji=s_lji,
                     depth_valid=depth_valid,
@@ -8000,6 +8202,7 @@ class ControlService:
                 claw_label="grasp lji pre-contact",
             )
         finally:
+            self._grasp_lji_log_close()
             self._grasp_uv_only_mode = False
             cancelled = bool(self._pick_stop_event.is_set() or self._pick_e2e_cancel.is_set())
             if (
