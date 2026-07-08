@@ -286,6 +286,7 @@ class ControlHost:
             float(getattr(hardware_cfg, "arm_servo_thread_hz", 120.0) if hardware_cfg is not None else 120.0),
         )
         self._arm_servo_cond = threading.Condition()
+        self._arm_servo_stop = threading.Event()
         self._arm_servo_thread: Optional[threading.Thread] = None
         self._arm_servo_target_u: Optional[proto.ControlU] = None
         self._arm_servo_target_axes: Set[str] = set()
@@ -530,54 +531,73 @@ class ControlHost:
         new_device = str(device).strip()
         if not new_device:
             raise ValueError("empty device")
+        start_servo = False
+        old_hw_to_close = None
         with self._hw_lock:
             if new_device == str(self.device).strip() and self.hw is not None:
-                return
-            old_hw = self.hw
-            old_direction = dict(self.direction_by_id)
-            old_ids = list(self._ids)
-            old_device = str(self.device)
-            self._pending_target_q = None
-            self._pending_target_u = None
-            self._pending_target_axes = set()
-            self._pending_target_seq = -1
-            self._cancel_trajectory()
-            self._target_u_state = None
-            self.last_u = None
-            self.last_q = None
-            self.last_state_ts = 0.0
-            self.last_sim_u = None
-            self.last_sim_q = None
-            self.last_sim_state_ts = 0.0
-            self.torque_enabled = False
-            self.last_ik_target_xyz = None
-            self.last_ik_target_dir = None
-            self.last_actual_tip_xyz = None
-            self.last_actual_tip_dir = None
-            self.last_perceived_object_label = ""
-            self.last_perceived_object_confidence = 0.0
-            self.last_perceived_object_camera_xyz = None
-            self.last_perceived_center_uv = None
-            self.last_perceived_scale = None
-            self.last_perceived_timestamp_s = 0.0
-            self.perception_hz = 0.0
-            self._perception_rate_last_t = 0.0
-            self._perception_rate_last_frame_idx = -1
-            self.last_sag_model = {}
-            self.last_claw_closed = False
-            self._clear_go2_vel()
-            self._last_hw_pos_by_id = {}
-            self._last_claw_current = 0
-            self._claw_close_stalled = False
-            self._last_motor_current_by_id = {}
-            self._safety_fault = ""
-            self._yellow_zone_ids = set()
-            self._red_torque_off_ids = set()
-            if old_hw is not None:
-                try:
-                    old_hw.close()
-                except Exception:
-                    pass
+                start_servo = True
+            else:
+                start_servo = False
+            if start_servo:
+                pass
+            else:
+                self._clear_arm_servo_target()
+                old_hw = self.hw
+                old_direction = dict(self.direction_by_id)
+                old_ids = list(self._ids)
+                old_device = str(self.device)
+                self._pending_target_q = None
+                self._pending_target_u = None
+                self._pending_target_axes = set()
+                self._pending_target_seq = -1
+                self._cancel_trajectory()
+                self._target_u_state = None
+                self.last_u = None
+                self.last_q = None
+                self.last_state_ts = 0.0
+                self.last_sim_u = None
+                self.last_sim_q = None
+                self.last_sim_state_ts = 0.0
+                self.torque_enabled = False
+                self.last_ik_target_xyz = None
+                self.last_ik_target_dir = None
+                self.last_actual_tip_xyz = None
+                self.last_actual_tip_dir = None
+                self.last_perceived_object_label = ""
+                self.last_perceived_object_confidence = 0.0
+                self.last_perceived_object_camera_xyz = None
+                self.last_perceived_center_uv = None
+                self.last_perceived_scale = None
+                self.last_perceived_timestamp_s = 0.0
+                self.perception_hz = 0.0
+                self._perception_rate_last_t = 0.0
+                self._perception_rate_last_frame_idx = -1
+                self.last_sag_model = {}
+                self.last_claw_closed = False
+                self._clear_go2_vel()
+                self._last_hw_pos_by_id = {}
+                self._last_claw_current = 0
+                self._claw_close_stalled = False
+                self._last_motor_current_by_id = {}
+                self._safety_fault = ""
+                self._yellow_zone_ids = set()
+                self._red_torque_off_ids = set()
+                if old_hw is not None:
+                    old_hw_to_close = old_hw
+                    self.hw = None
+                    self.direction_by_id = {}
+                    self._ids = []
+                    self.device = ""
+        if start_servo:
+            self._start_arm_servo_thread()
+            return
+        if old_hw_to_close is not None:
+            self._stop_arm_servo_thread()
+            try:
+                old_hw_to_close.close()
+            except Exception:
+                pass
+        with self._hw_lock:
             try:
                 new_hw, new_direction = load_hardware(new_device, hardware_cfg=self.hardware_cfg)
                 new_hw.open()
@@ -596,8 +616,13 @@ class ControlHost:
             self.direction_by_id = new_direction
             self._ids = list(getattr(new_hw, "ids", []))
             self.device = new_device
+            self._arm_servo_start_skip_logged = False
+            start_servo = True
+        if start_servo:
+            self._start_arm_servo_thread()
 
     def clear_device(self) -> None:
+        self._stop_arm_servo_thread()
         with self._hw_lock:
             old_hw = self.hw
             self._pending_target_q = None
@@ -1676,6 +1701,7 @@ class ControlHost:
             return
         if self._arm_servo_thread is not None and self._arm_servo_thread.is_alive():
             return
+        self._arm_servo_stop.clear()
         self._arm_servo_thread = threading.Thread(
             target=self._arm_servo_loop,
             name="arm-servo",
@@ -1689,6 +1715,7 @@ class ControlHost:
         self._arm_servo_last_error = ""
 
     def _stop_arm_servo_thread(self) -> None:
+        self._arm_servo_stop.set()
         with self._arm_servo_cond:
             self._arm_servo_target_u = None
             self._arm_servo_target_axes = set()
@@ -1763,7 +1790,7 @@ class ControlHost:
     def _arm_servo_loop(self) -> None:
         last_seq = -1
         next_apply_t = 0.0
-        while not self._stop_event.is_set():
+        while not self._stop_event.is_set() and not self._arm_servo_stop.is_set():
             with self._arm_servo_cond:
                 if self._arm_servo_target_u is None or self._arm_servo_target_seq == last_seq:
                     self._arm_servo_cond.wait(timeout=float(self._arm_servo_period))
