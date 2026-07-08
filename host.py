@@ -112,7 +112,7 @@ def _local_client_endpoint(bind_addr: str) -> str:
 
 
 class _DirectEmbeddedControlClient:
-    """In-process client used by on-device gaze to avoid loopback ZMQ latency."""
+    """In-process client used by embedded robot control to avoid loopback ZMQ latency."""
 
     def __init__(self, host: "ControlHost", cfg: proto.SimMappingConfig) -> None:
         self._host = host
@@ -122,6 +122,8 @@ class _DirectEmbeddedControlClient:
         self.last_reply_ok = True
         self.last_reply_reason = ""
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
+        self._t_last_tx = 0.0
+        self._send_period = 0.0
 
     def close(self) -> None:
         self.is_connected = False
@@ -188,6 +190,195 @@ class _DirectEmbeddedControlClient:
         )
         self.last_reply_ok = bool(ok)
         self.last_reply_reason = str(reason)
+
+    def _submit_target_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        force: bool = False,
+    ) -> None:
+        now = time.time()
+        if (not bool(force)) and self._send_period > 0.0 and (now - self._t_last_tx) < self._send_period:
+            return
+        self._t_last_tx = now
+        self.tx_seq += 1
+        msg = {"t": "target", "ts": float(now), "seq": int(self.tx_seq)}
+        msg.update(dict(payload))
+        ok, reason = self._host._handle_direct_target_msg(msg)
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = str(reason)
+        self.last_object_world_xyz = self._host.last_perceived_object_world_xyz
+
+    def maybe_send_target_q(self, q: proto.SimQ, *, source: str = "sim", force: bool = False) -> None:
+        self._maybe_send_target_q(
+            q,
+            source=source,
+            target_xyz=None,
+            target_dir=None,
+            sag_model=None,
+            claw_closed=None,
+            force=force,
+        )
+
+    def _maybe_send_target_q(
+        self,
+        q: proto.SimQ,
+        *,
+        source: str,
+        target_xyz: Optional[tuple[float, float, float]],
+        target_dir: Optional[tuple[float, float, float]],
+        sag_model: Optional[dict[str, Any]],
+        claw_closed: Optional[bool],
+        force: bool = False,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "source": str(source),
+            "q": {
+                "linear_m": float(q.linear_m),
+                "roll_rad": float(q.roll_rad),
+                "theta1_rad": float(q.theta1_rad),
+                "theta2_rad": float(q.theta2_rad),
+            },
+        }
+        if target_xyz is not None:
+            payload["target"] = [float(target_xyz[0]), float(target_xyz[1]), float(target_xyz[2])]
+        if target_dir is not None:
+            payload["target_dir"] = [float(target_dir[0]), float(target_dir[1]), float(target_dir[2])]
+        if sag_model is not None:
+            payload["sag_model"] = dict(sag_model)
+        if claw_closed is not None:
+            payload["claw_closed"] = bool(claw_closed)
+        self._submit_target_payload(payload, force=force)
+
+    def send_target_q(self, q: proto.SimQ, *, source: str = "ui", force: bool = False) -> None:
+        self.maybe_send_target_q(q, source=source, force=force)
+
+    def send_target_values(
+        self,
+        *,
+        linear_m: float,
+        roll_rad: float,
+        theta1_rad: float,
+        theta2_rad: float,
+        source: str = "ui",
+        target_xyz: Optional[tuple[float, float, float]] = None,
+        target_dir: Optional[tuple[float, float, float]] = None,
+        sag_model: Optional[dict[str, Any]] = None,
+        claw_closed: Optional[bool] = None,
+        force: bool = False,
+    ) -> None:
+        self._maybe_send_target_q(
+            proto.SimQ(
+                linear_m=float(linear_m),
+                roll_rad=float(roll_rad),
+                theta1_rad=float(theta1_rad),
+                theta2_rad=float(theta2_rad),
+            ),
+            source=source,
+            target_xyz=target_xyz,
+            target_dir=target_dir,
+            sag_model=sag_model,
+            claw_closed=claw_closed,
+            force=force,
+        )
+
+    def send_target_meta(
+        self,
+        *,
+        target_xyz: tuple[float, float, float],
+        target_dir: tuple[float, float, float],
+        source: str = "target",
+    ) -> None:
+        self._submit_target_payload(
+            {
+                "source": str(source),
+                "target": [float(target_xyz[0]), float(target_xyz[1]), float(target_xyz[2])],
+                "target_dir": [float(target_dir[0]), float(target_dir[1]), float(target_dir[2])],
+            },
+            force=True,
+        )
+
+    def send_ready_pose_meta(
+        self,
+        *,
+        target_dir: tuple[float, float, float],
+        standoff_m: float,
+        source: str = "target",
+    ) -> None:
+        self._submit_target_payload(
+            {
+                "source": str(source),
+                "ready_pose_dir": [float(target_dir[0]), float(target_dir[1]), float(target_dir[2])],
+                "ready_pose_standoff_m": float(standoff_m),
+            },
+            force=True,
+        )
+
+    def send_sag_model_meta(self, sag_model: dict[str, Any], *, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "sag_model": dict(sag_model)},
+            force=True,
+        )
+
+    def send_claw_command(self, *, claw_closed: bool, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "claw_closed": bool(claw_closed)},
+            force=True,
+        )
+
+    def send_go2_velocity(self, *, vx: float, vy: float, wz: float, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "go2_vel": [float(vx), float(vy), float(wz)]},
+            force=True,
+        )
+
+    def send_go2_sport_pose(self, *, pose: str, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "go2_sport_pose": str(pose).strip().lower()},
+            force=True,
+        )
+
+    def send_go2_obstacles_avoid(self, *, enabled: bool, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "go2_obstacles_avoid_enable": bool(enabled)},
+            force=True,
+        )
+
+    def send_sim_target_xyz(self, *, xyz: tuple[float, float, float], source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "sim_target": [float(xyz[0]), float(xyz[1]), float(xyz[2])]},
+            force=True,
+        )
+
+    def send_debug_markers(self, markers: list[dict[str, Any]], *, source: str = "target") -> None:
+        self._submit_target_payload(
+            {"source": str(source), "debug_markers": [dict(marker) for marker in markers]},
+            force=True,
+        )
+
+    def send_perception_start(self, *, config: Optional[Any] = None) -> None:
+        del config
+        try:
+            ok = self._host.start_perception_worker(config=self._host._remote_perception_config())
+            reason = "perception_start" if ok else "perception_start_failed"
+        except Exception as exc:
+            ok = False
+            reason = f"perception_start_failed:{exc}"
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = str(reason)
+        self._host._state_broadcast_requested.set()
+
+    def send_perception_stop(self) -> None:
+        ok = self._host.stop_perception_worker()
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = "perception_stop" if ok else "perception_stop_pending"
+        self._host._state_broadcast_requested.set()
+
+    def send_perception_refresh(self) -> None:
+        ok = self._host.refresh_perception_worker()
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = "perception_refresh" if ok else "perception_not_running"
+        self._host._state_broadcast_requested.set()
 
 
 class ControlHost:
@@ -1043,6 +1234,7 @@ class ControlHost:
         now = proto.now_s()
         perception_payload = self._perception_state_payload()
         gaze_payload = self._gaze_state_payload()
+        pick_payload = self._pick_state_payload()
         self._broadcast(
             proto.pack_state(
                 u=self.last_u,
@@ -1082,6 +1274,10 @@ class ControlHost:
                 gaze_tick_count=int(gaze_payload.get("gaze_tick_count", 0)),
                 gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
                 gaze_config=dict(gaze_payload.get("gaze_config", {})),
+                pick_running=bool(pick_payload.get("pick_running", False)),
+                pick_failed=bool(pick_payload.get("pick_failed", False)),
+                pick_phase=str(pick_payload.get("pick_phase", "idle")),
+                pick_status_msg=str(pick_payload.get("pick_status_msg", "")),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -1120,6 +1316,7 @@ class ControlHost:
         now = proto.now_s()
         perception_payload = self._perception_state_payload()
         gaze_payload = self._gaze_state_payload()
+        pick_payload = self._pick_state_payload()
         return HostState(
             connected=True,
             tx_seq=int(tx_seq),
@@ -1189,6 +1386,10 @@ class ControlHost:
             gaze_tick_count=int(gaze_payload.get("gaze_tick_count", 0)),
             gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
             gaze_config=dict(gaze_payload.get("gaze_config", {})),
+            pick_running=bool(pick_payload.get("pick_running", False)),
+            pick_failed=bool(pick_payload.get("pick_failed", False)),
+            pick_phase=str(pick_payload.get("pick_phase", "idle")),
+            pick_status_msg=str(pick_payload.get("pick_status_msg", "")),
         )
 
     def _gaze_state_payload(self) -> Dict[str, Any]:
@@ -1225,6 +1426,32 @@ class ControlHost:
                 "gaze_update_count": int(st.gaze_update_count),
                 "gaze_config": gaze_config_to_dict(cfg),
             }
+
+    def _pick_state_payload(self) -> Dict[str, Any]:
+        service = self._embedded_control_service
+        if service is None:
+            return {
+                "pick_running": False,
+                "pick_failed": False,
+                "pick_phase": "idle",
+                "pick_status_msg": "",
+            }
+        st = service.state
+        with st._lock:
+            running = bool(st.pick_running)
+            failed = bool(st.pick_failed)
+            phase = str(st.pick_phase or "idle")
+            msg = str(st.pick_status_msg or "")
+        try:
+            running = bool(running or service.pick_e2e_running())
+        except Exception:
+            pass
+        return {
+            "pick_running": bool(running),
+            "pick_failed": bool(failed),
+            "pick_phase": str(phase),
+            "pick_status_msg": str(msg),
+        }
 
     def _effective_gaze_config(self) -> GazeStabilizerConfig:
         service = self._embedded_control_service
@@ -1294,7 +1521,7 @@ class ControlHost:
         )
         self._embedded_control_client = client
         self._embedded_control_service = service
-        print("[host] on-device gaze controller ready via direct host path")
+        print("[host] on-device robot control service ready via direct host path")
         self._broadcast_state_now()
         return service
 
@@ -1929,6 +2156,170 @@ class ControlHost:
             self.last_state_ts = time.time()
         self._state_broadcast_requested.set()
         return bool(submitted), reason
+
+    def _handle_direct_target_msg(self, msg: dict[str, Any]) -> tuple[bool, str]:
+        source = str(msg.get("source", "target"))
+        if not self._is_allowed_source(source):
+            return False, "source_reject"
+        if self._safety_fault:
+            return False, str(self._safety_fault)
+        raw_sim_target = msg.get("sim_target", None)
+        if raw_sim_target is not None:
+            if not (isinstance(raw_sim_target, (list, tuple)) and len(raw_sim_target) == 3):
+                return False, "bad_sim_target"
+            try:
+                self.last_sim_target_xyz = (
+                    float(raw_sim_target[0]),
+                    float(raw_sim_target[1]),
+                    float(raw_sim_target[2]),
+                )
+            except (TypeError, ValueError):
+                return False, "bad_sim_target"
+            self._state_broadcast_requested.set()
+            return True, "sim_target"
+        raw_debug_markers = msg.get("debug_markers", None)
+        if isinstance(raw_debug_markers, list):
+            ok, reason = self._update_external_debug_markers(raw_debug_markers)
+            self._state_broadcast_requested.set()
+            return bool(ok), str(reason)
+        if "u" in msg and isinstance(msg.get("u"), dict):
+            client_ts_s = 0.0
+            try:
+                client_ts_s = float(msg.get("ts", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                client_ts_s = 0.0
+            return self._submit_direct_partial_control_u(
+                dict(msg.get("u", {})),
+                source=source,
+                seq=int(msg.get("seq", -1)),
+                client_ts_s=float(client_ts_s),
+            )
+        target_raw = msg.get("target", None)
+        if isinstance(target_raw, (list, tuple)) and len(target_raw) == 3:
+            self.last_ik_target_xyz = (
+                float(target_raw[0]),
+                float(target_raw[1]),
+                float(target_raw[2]),
+            )
+        target_dir_raw = msg.get("target_dir", None)
+        if isinstance(target_dir_raw, (list, tuple)) and len(target_dir_raw) == 3:
+            self.last_ik_target_dir = (
+                float(target_dir_raw[0]),
+                float(target_dir_raw[1]),
+                float(target_dir_raw[2]),
+            )
+        ready_pose_dir_raw = msg.get("ready_pose_dir", None)
+        if isinstance(ready_pose_dir_raw, (list, tuple)) and len(ready_pose_dir_raw) == 3:
+            self.last_ready_pose_dir = (
+                float(ready_pose_dir_raw[0]),
+                float(ready_pose_dir_raw[1]),
+                float(ready_pose_dir_raw[2]),
+            )
+        ready_pose_standoff_raw = msg.get("ready_pose_standoff_m", None)
+        if ready_pose_standoff_raw is not None:
+            try:
+                self.last_ready_pose_standoff_m = max(0.0, float(ready_pose_standoff_raw))
+            except (TypeError, ValueError):
+                pass
+        if ready_pose_dir_raw is not None or ready_pose_standoff_raw is not None:
+            if self.last_perceived_object_world_xyz is not None:
+                standoff = float(self.last_ready_pose_standoff_m)
+                if standoff <= float(self.pick_config.grasp_standoff_m) + 1e-6:
+                    self._set_grasp_target_markers(
+                        self.last_perceived_object_world_xyz,
+                        standoff_m=float(self.pick_config.grasp_standoff_m),
+                        ttl_ms=30000,
+                    )
+                else:
+                    self._set_ready_pose_markers(
+                        self.last_perceived_object_world_xyz,
+                        ttl_ms=30000,
+                    )
+        sag_raw = msg.get("sag_model", None)
+        if isinstance(sag_raw, dict):
+            self.last_sag_model = dict(sag_raw)
+        if "claw_closed" in msg:
+            self.last_claw_closed = bool(msg.get("claw_closed", False))
+        if "go2_vel" in msg:
+            try:
+                self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
+                self._last_go2_vel_ts = proto.now_s()
+            except Exception:
+                return False, "bad_go2_vel"
+            if self._go2_bridge is not None:
+                vx, vy, wz = self.last_go2_vel
+                self._go2_bridge.set_velocity(vx, vy, wz)
+        if "go2_sport_pose" in msg:
+            try:
+                pose = normalize_go2_sport_pose(proto.unpack_go2_sport_pose(msg.get("go2_sport_pose")))
+            except Exception:
+                return False, "bad_go2_sport_pose"
+            if sport_pose_api_id(pose) is None:
+                return False, f"unknown GO2 sport pose: {pose}"
+            if self._go2_bridge is not None:
+                try:
+                    self._go2_bridge.call_sport_pose(pose)
+                except ValueError as exc:
+                    return False, str(exc)
+            self._clear_go2_vel()
+            self.last_go2_sport_pose = str(pose)
+            self.last_go2_sport_pose_seq += 1
+        if "go2_obstacles_avoid_enable" in msg:
+            try:
+                enabled = proto.unpack_go2_obstacles_avoid_enable(msg.get("go2_obstacles_avoid_enable"))
+            except Exception:
+                return False, "bad_go2_obstacles_avoid_enable"
+            if self._go2_bridge is not None:
+                self._go2_bridge.set_obstacles_avoid(enabled)
+            self.last_go2_obstacles_avoid_enabled = bool(enabled)
+            self.last_go2_obstacles_avoid_seq += 1
+
+        q: Optional[proto.SimQ] = None
+        if "q" in msg:
+            q = proto.unpack_q(msg["q"])
+        elif "u" in msg and isinstance(msg.get("u"), dict):
+            q = proto.control_u_to_sim_q(proto.unpack_u(msg["u"]), self.cfg)
+        if q is None:
+            if (
+                target_raw is None
+                and target_dir_raw is None
+                and ready_pose_dir_raw is None
+                and ready_pose_standoff_raw is None
+                and sag_raw is None
+                and "claw_closed" not in msg
+                and "go2_vel" not in msg
+                and "go2_sport_pose" not in msg
+                and "go2_obstacles_avoid_enable" not in msg
+            ):
+                return False, "bad_target"
+            self._state_broadcast_requested.set()
+            return True, ""
+
+        seq = int(msg.get("seq", -1))
+        self._clear_arm_servo_target()
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
+        self._pending_target_q = q
+        self._pending_target_seq = int(seq)
+        self._last_target_apply_error = ""
+        self._schedule_target_motion(q, source=source)
+        if str(source).strip().lower() == "lji_step" and self._has_hw():
+            applied_hw, complete = self._apply_sim_q_target(q)
+            if applied_hw:
+                self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
+                if bool(complete):
+                    self._pending_target_q = None
+            self._state_broadcast_requested.set()
+            return bool(applied_hw), self._last_target_apply_error or "direct_lji_step"
+        if not self._has_hw():
+            self.last_q = q
+            self.last_u = proto.sim_q_to_control_u(q, self.cfg)
+            self.last_state_ts = time.time()
+            self._pending_target_q = None
+            self._cancel_trajectory()
+        self._state_broadcast_requested.set()
+        return True, self._last_target_apply_error or ""
 
     def _start_arm_servo_thread(self) -> None:
         if not bool(self._arm_servo_thread_enable) or not self._has_hw():
@@ -2780,6 +3171,55 @@ class ControlHost:
                 }
                 | self._gaze_state_payload(),
             )
+            self._broadcast_state_now()
+            return
+        if t == "mobile_pick_start":
+            ok = True
+            reason = "on_device_mobile_pick_start"
+            try:
+                service = self._ensure_on_device_control_service()
+                service.start_mobile_gaze_lji_pick_e2e()
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_mobile_pick_start_failed:{exc}"
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._pick_state_payload())
+            ack.update(self._gaze_state_payload())
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
+            self._broadcast_state_now()
+            return
+        if t == "mobile_pick_stop":
+            ok = True
+            reason = "on_device_mobile_pick_stop"
+            try:
+                service = self._embedded_control_service
+                if service is not None:
+                    service.stop_pick_e2e()
+                else:
+                    reason = "on_device_mobile_pick_not_running"
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_mobile_pick_stop_failed:{exc}"
+            ack = {
+                "t": "ack",
+                "ts": proto.now_s(),
+                "ok": bool(ok),
+                "reason": str(reason),
+                "device": self.device,
+                "torque_enabled": self.torque_enabled,
+            }
+            ack.update(self._pick_state_payload())
+            ack.update(self._gaze_state_payload())
+            ack.update(self._perception_state_payload())
+            self._reply(ident, ack)
             self._broadcast_state_now()
             return
         if t == "perception_start":

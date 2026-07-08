@@ -294,6 +294,10 @@ def pack_state(
     gaze_tick_count: Optional[int] = None,
     gaze_update_count: Optional[int] = None,
     gaze_config: Optional[dict[str, Any]] = None,
+    pick_running: Optional[bool] = None,
+    pick_failed: Optional[bool] = None,
+    pick_phase: Optional[str] = None,
+    pick_status_msg: Optional[str] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
     go2_vel: Optional[tuple[float, float, float]] = None,
     go2_base_rpy: Optional[tuple[float, float, float]] = None,
@@ -414,6 +418,14 @@ def pack_state(
         out["gaze_update_count"] = int(gaze_update_count)
     if gaze_config is not None:
         out["gaze_config"] = dict(gaze_config)
+    if pick_running is not None:
+        out["pick_running"] = bool(pick_running)
+    if pick_failed is not None:
+        out["pick_failed"] = bool(pick_failed)
+    if pick_phase is not None:
+        out["pick_phase"] = str(pick_phase)
+    if pick_status_msg is not None:
+        out["pick_status_msg"] = str(pick_status_msg)
     if go2_vel is not None:
         out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
     if go2_base_rpy is not None:

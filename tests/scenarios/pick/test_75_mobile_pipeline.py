@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists())
 if str(ROOT) not in sys.path:
@@ -13,6 +14,7 @@ if str(ROOT) not in sys.path:
 sys.modules.setdefault("zmq", types.ModuleType("zmq"))
 
 from engine.behaviors.pick import ControlService, PanelState
+from engine.core.config_loader import PerceptionConfig
 from engine.behaviors.pick.state import HostState
 from engine.core.protocol import SimQ
 
@@ -52,6 +54,47 @@ def _host(
 
 
 class MobilePickPipelineTests(unittest.TestCase):
+    def test_mobile_pick_delegates_to_remote_host(self) -> None:
+        client = MagicMock()
+        host = _host()
+        host.pick_running = True
+        host.pick_failed = False
+        host.pick_phase = "acquire"
+        host.pick_status_msg = "remote running"
+        client.refresh_state.return_value = host
+        svc = ControlService(
+            PanelState(),
+            client=client,
+            perception_cfg=PerceptionConfig(run_local=False, provider="host", mode="camera"),
+        )
+
+        svc.start_mobile_gaze_lji_pick_e2e()
+
+        client.send_mobile_pick_start.assert_called_once()
+        self.assertIsNone(svc._pick_e2e_worker)
+        self.assertTrue(svc.state.pick_running)
+        self.assertEqual(svc.state.pick_status_msg, "remote running")
+
+    def test_mobile_pick_stop_delegates_to_remote_host(self) -> None:
+        client = MagicMock()
+        host = _host()
+        host.pick_running = False
+        host.pick_failed = False
+        host.pick_phase = "idle"
+        host.pick_status_msg = "remote stopped"
+        client.refresh_state.return_value = host
+        svc = ControlService(
+            PanelState(),
+            client=client,
+            perception_cfg=PerceptionConfig(run_local=False, provider="host", mode="camera"),
+        )
+
+        svc.stop_pick_e2e()
+
+        client.send_mobile_pick_stop.assert_called_once()
+        self.assertFalse(svc.state.pick_running)
+        self.assertEqual(svc.state.pick_status_msg, "remote stopped")
+
     def test_handoff_distance_uses_sim_base_pose(self) -> None:
         svc = ControlService(PanelState(), client=None)
         host = _host(base_pos=(0.0, 0.0, 0.3), sim_base_pos=(0.7, 0.0, 0.3))

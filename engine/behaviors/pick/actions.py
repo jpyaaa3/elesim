@@ -345,6 +345,13 @@ class ControlService:
             and self.client is not None
         )
 
+    def _delegate_pick_to_host(self) -> bool:
+        return (
+            bool(self._remote_gaze_delegate)
+            and not bool(self._perception_run_local)
+            and self.client is not None
+        )
+
     def _wait_until_q_settled(
         self,
         target_q: np.ndarray,
@@ -828,6 +835,19 @@ class ControlService:
             update_count=int(getattr(host_state, "gaze_update_count", 0)),
         )
 
+    def _sync_remote_pick_from_host(self, host_state: HostState) -> None:
+        if not self._delegate_pick_to_host():
+            return
+        self.state.set_pick_status(
+            running=bool(getattr(host_state, "pick_running", False)),
+            failed=bool(getattr(host_state, "pick_failed", False)),
+            phase=str(
+                getattr(host_state, "pick_phase", ObjectPickPhase.IDLE.value)
+                or ObjectPickPhase.IDLE.value
+            ),
+            msg=str(getattr(host_state, "pick_status_msg", "") or ""),
+        )
+
     def refresh_host_state(self) -> Optional[HostState]:
         if self.client is None:
             return None
@@ -841,6 +861,7 @@ class ControlService:
             )
         self._sync_remote_perception_from_host(host_state)
         self._sync_remote_gaze_from_host(host_state)
+        self._sync_remote_pick_from_host(host_state)
         return host_state
 
     def has_client(self) -> bool:
@@ -1017,6 +1038,30 @@ class ControlService:
         return False
 
     def stop_pick_e2e(self) -> None:
+        if self._delegate_pick_to_host() and hasattr(self.client, "send_mobile_pick_stop"):
+            self._pick_e2e_cancel.set()
+            try:
+                self.client.send_mobile_pick_stop()
+                self.state.set_pick_status(
+                    running=False,
+                    failed=False,
+                    phase=ObjectPickPhase.IDLE.value,
+                    msg="on-device mobile pick stop requested",
+                )
+                host_state = self.client.refresh_state()
+                self._sync_remote_pick_from_host(host_state)
+                self._sync_remote_gaze_from_host(host_state)
+                self._sync_remote_perception_from_host(host_state)
+                print("[MobilePick] on-device stop requested")
+            except Exception as exc:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=f"on-device mobile pick stop failed: {exc}",
+                )
+                print(f"[MobilePick] on-device stop failed: {exc}")
+            return
         self._pick_e2e_cancel.set()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
         self.stop_gaze_stabilizer()
@@ -1151,6 +1196,46 @@ class ControlService:
 
     def start_mobile_gaze_lji_pick_e2e(self) -> None:
         """Walk with gaze until handoff distance, then run LJI grasp."""
+        if self._delegate_pick_to_host() and hasattr(self.client, "send_mobile_pick_start"):
+            if (
+                self.state.pick_running
+                or self.pick_e2e_running()
+                or self._pick_busy()
+                or self.state.ik_running
+                or self._ik_worker is not None
+            ):
+                self.state.set_pick_status(
+                    running=bool(self.state.pick_running),
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg="busy",
+                )
+                return
+            self._pick_e2e_cancel.clear()
+            self._pick_stop_event.clear()
+            try:
+                self.client.send_mobile_pick_start()
+                self.state.set_pick_status(
+                    running=True,
+                    failed=False,
+                    phase=ObjectPickPhase.ACQUIRE.value,
+                    msg="on-device mobile pick start requested",
+                )
+                host_state = self.client.refresh_state()
+                self._sync_remote_pick_from_host(host_state)
+                self._sync_remote_gaze_from_host(host_state)
+                self._sync_remote_perception_from_host(host_state)
+                print("[MobilePick] on-device start requested")
+            except Exception as exc:
+                self.state.set_pick_status(
+                    running=False,
+                    failed=True,
+                    phase=ObjectPickPhase.FAILED.value,
+                    msg=f"on-device mobile pick start failed: {exc}",
+                )
+                print(f"[MobilePick] on-device start failed: {exc}")
+            return
+
         if self.pick_e2e_running() or self._pick_busy() or self.state.ik_running or self._ik_worker is not None:
             self.state.set_pick_status(
                 running=False,

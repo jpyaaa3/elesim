@@ -76,6 +76,10 @@ class HostState:
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
     gaze_config: dict[str, Any] = field(default_factory=dict)
+    pick_running: bool = False
+    pick_failed: bool = False
+    pick_phase: str = "idle"
+    pick_status_msg: str = ""
 
 
 @dataclass

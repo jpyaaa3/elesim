@@ -95,6 +95,10 @@ class ControlClient:
         self.last_gaze_update_count: int = 0
         self.last_gaze_obs_age_s: float = -1.0
         self.last_gaze_config: dict[str, Any] = {}
+        self.last_pick_running: bool = False
+        self.last_pick_failed: bool = False
+        self.last_pick_phase: str = "idle"
+        self.last_pick_status_msg: str = ""
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
@@ -176,6 +180,10 @@ class ControlClient:
             gaze_update_count=int(self.last_gaze_update_count),
             gaze_obs_age_s=float(self.last_gaze_obs_age_s),
             gaze_config=dict(self.last_gaze_config),
+            pick_running=bool(self.last_pick_running),
+            pick_failed=bool(self.last_pick_failed),
+            pick_phase=str(self.last_pick_phase),
+            pick_status_msg=str(self.last_pick_status_msg),
             go2_vel=(
                 float(self.last_go2_vel[0]),
                 float(self.last_go2_vel[1]),
@@ -333,6 +341,16 @@ class ControlClient:
         if "gaze_config" in msg and isinstance(msg.get("gaze_config"), dict):
             self.last_gaze_config = dict(msg.get("gaze_config", {}))
 
+    def _update_pick_fields(self, msg: dict[str, Any]) -> None:
+        if "pick_running" in msg:
+            self.last_pick_running = bool(msg.get("pick_running", False))
+        if "pick_failed" in msg:
+            self.last_pick_failed = bool(msg.get("pick_failed", False))
+        if "pick_phase" in msg:
+            self.last_pick_phase = str(msg.get("pick_phase", "idle") or "idle")
+        if "pick_status_msg" in msg:
+            self.last_pick_status_msg = str(msg.get("pick_status_msg", "") or "")
+
     def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 12:
             return None
@@ -427,6 +445,7 @@ class ControlClient:
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             self._update_gaze_fields(msg)
+            self._update_pick_fields(msg)
             object_world_raw = msg.get("object_world", None)
             if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
                 self.last_object_world_xyz = (
@@ -525,6 +544,7 @@ class ControlClient:
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             self._update_gaze_fields(msg)
+            self._update_pick_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (
@@ -662,6 +682,16 @@ class ControlClient:
                 "config": dict(config),
             }
         )
+
+    def send_mobile_pick_start(self) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send({"t": "mobile_pick_start", "ts": now, "seq": self.tx_seq})
+
+    def send_mobile_pick_stop(self) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send({"t": "mobile_pick_stop", "ts": now, "seq": self.tx_seq})
 
     def send_perception_observation(
         self,
