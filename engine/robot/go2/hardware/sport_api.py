@@ -43,7 +43,7 @@ def normalize_stand_on_start(value: str) -> str:
     raw = str(value).strip().lower()
     if raw in ("none", "balance", "stand_up"):
         return raw
-    return "balance"
+    return "none"
 
 
 def normalize_shutdown_mode(value: str) -> str:

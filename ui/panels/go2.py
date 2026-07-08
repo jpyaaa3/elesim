@@ -418,19 +418,25 @@ def _draw_posture(panel, width: float) -> None:
     btn_w = max(86.0, min(130.0, ((float(width) / scale) - 16.0) / 3.0))
     host = getattr(panel, "_host_state", None)
     last_pose = str(getattr(host, "go2_sport_pose", "") if host is not None else "").strip().lower()
-    sit_stand_label = "Stand" if last_pose == "stand_down" else "Sit"
-    sit_stand_pose = "stand_up" if last_pose == "stand_down" else "stand_down"
-    if _button(panel, "Balance##go2_balance", btn_w):
+    standing_poses = {"stand_up", "balance_stand", "recovery_stand", "static_walk", "trot_run", "economic_gait"}
+    is_standing = last_pose in standing_poses
+    sit_stand_label = "Sit" if is_standing else "Stand"
+    sit_stand_pose = "stand_down" if is_standing else "stand_up"
+    if is_standing and _button(panel, "Balance##go2_balance", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="balance_stand")
+    elif not is_standing:
+        imgui.text_disabled("Balance")
     imgui.same_line()
     if _button(panel, f"{sit_stand_label}##go2_sit_stand", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose=sit_stand_pose)
     imgui.same_line()
-    if _button(panel, "Recover##go2_recovery", btn_w):
+    if is_standing and _button(panel, "Recover##go2_recovery", btn_w):
         _stop_go2(panel)
         panel.service.send_go2_sport_pose(pose="recovery_stand")
+    elif not is_standing:
+        imgui.text_disabled("Recover")
 
 
 def draw_go2_panel(panel) -> None:

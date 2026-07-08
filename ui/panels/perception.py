@@ -868,13 +868,11 @@ def _draw_pick_dashboard(panel) -> None:
 
 
 def _pick_action_button(panel, label: str, width: float, *, disabled: bool) -> bool:
-    if bool(disabled):
-        begin_disabled_ui()
+    disabled_token = begin_disabled_ui(bool(disabled))
     try:
         clicked = _button(panel, label, width)
     finally:
-        if bool(disabled):
-            end_disabled_ui()
+        end_disabled_ui(disabled_token)
     return (not bool(disabled)) and bool(clicked)
 
 

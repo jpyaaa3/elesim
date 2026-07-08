@@ -511,6 +511,7 @@ class ControlHost:
         self.last_go2_base_timestamp_s: float = 0.0
         self.last_go2_sport_pose: str = ""
         self.last_go2_sport_pose_seq: int = 0
+        self._go2_motion_armed: bool = False
         self.last_go2_obstacles_avoid_enabled: bool = False
         self.last_go2_obstacles_avoid_seq: int = 0
         self._sim_camera_origin: Optional[tuple[float, float, float]] = None
@@ -645,6 +646,37 @@ class ControlHost:
         if self._go2_bridge is not None:
             self._go2_bridge.set_velocity(0.0, 0.0, 0.0)
         return (0.0, 0.0, 0.0)
+
+    @staticmethod
+    def _go2_vel_nonzero(vel: tuple[float, float, float]) -> bool:
+        return any(abs(float(v)) > 1e-6 for v in vel)
+
+    def _go2_requires_user_stand(self) -> bool:
+        return self._go2_bridge is not None
+
+    def _go2_motion_lock_reason(self, vel: tuple[float, float, float]) -> str:
+        if (
+            self._go2_requires_user_stand()
+            and self._go2_vel_nonzero(vel)
+            and not bool(self._go2_motion_armed)
+        ):
+            return "go2 motion locked: press Stand first"
+        return ""
+
+    def _authorize_go2_sport_pose(self, pose: str) -> tuple[bool, str]:
+        normalized = normalize_go2_sport_pose(pose)
+        if normalized in ("stand_up", "stand_down"):
+            return True, ""
+        if self._go2_requires_user_stand() and not bool(self._go2_motion_armed):
+            return False, "go2 posture locked: press Stand first"
+        return True, ""
+
+    def _note_go2_sport_pose(self, pose: str) -> None:
+        normalized = normalize_go2_sport_pose(pose)
+        if normalized == "stand_up":
+            self._go2_motion_armed = True
+        elif normalized == "stand_down":
+            self._go2_motion_armed = False
 
     def _reset_simulation_state(self) -> None:
         """Virtual/sim mode: reset host-side command state and bump sim reset counter."""
@@ -2242,10 +2274,17 @@ class ControlHost:
             self.last_claw_closed = bool(msg.get("claw_closed", False))
         if "go2_vel" in msg:
             try:
-                self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
-                self._last_go2_vel_ts = proto.now_s()
+                next_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
             except Exception:
                 return False, "bad_go2_vel"
+            lock_reason = self._go2_motion_lock_reason(next_vel)
+            if lock_reason:
+                self._clear_go2_vel()
+                if self._go2_bridge is not None:
+                    self._go2_bridge.set_velocity(0.0, 0.0, 0.0)
+                return False, lock_reason
+            self.last_go2_vel = next_vel
+            self._last_go2_vel_ts = proto.now_s()
             if self._go2_bridge is not None:
                 vx, vy, wz = self.last_go2_vel
                 self._go2_bridge.set_velocity(vx, vy, wz)
@@ -2256,12 +2295,16 @@ class ControlHost:
                 return False, "bad_go2_sport_pose"
             if sport_pose_api_id(pose) is None:
                 return False, f"unknown GO2 sport pose: {pose}"
+            ok_pose, pose_reason = self._authorize_go2_sport_pose(pose)
+            if not ok_pose:
+                return False, pose_reason
             if self._go2_bridge is not None:
                 try:
                     self._go2_bridge.call_sport_pose(pose)
                 except ValueError as exc:
                     return False, str(exc)
             self._clear_go2_vel()
+            self._note_go2_sport_pose(pose)
             self.last_go2_sport_pose = str(pose)
             self.last_go2_sport_pose_seq += 1
         if "go2_obstacles_avoid_enable" in msg:
@@ -3127,13 +3170,17 @@ class ControlHost:
             mode = str(msg.get("gaze_mode", "")).strip()
             reason = "on_device_gaze_walking"
             try:
-                service = self._ensure_on_device_control_service()
-                service.start_gaze_stabilizer_walking(
-                    run_id=str(msg.get("run_id", "")),
-                    gaze_mode=mode or None,
-                )
-                ok = bool(service.state.gaze_running)
-                reason = str(service.state.gaze_status_msg or reason)
+                if self._go2_requires_user_stand() and not bool(self._go2_motion_armed):
+                    ok = False
+                    reason = "go2 walking gaze locked: press Stand first"
+                else:
+                    service = self._ensure_on_device_control_service()
+                    service.start_gaze_stabilizer_walking(
+                        run_id=str(msg.get("run_id", "")),
+                        gaze_mode=mode or None,
+                    )
+                    ok = bool(service.state.gaze_running)
+                    reason = str(service.state.gaze_status_msg or reason)
             except Exception as exc:
                 ok = False
                 reason = f"on_device_gaze_start_failed:{exc}"
@@ -3177,8 +3224,12 @@ class ControlHost:
             ok = True
             reason = "on_device_mobile_pick_start"
             try:
-                service = self._ensure_on_device_control_service()
-                service.start_mobile_gaze_lji_pick_e2e()
+                if self._go2_requires_user_stand() and not bool(self._go2_motion_armed):
+                    ok = False
+                    reason = "go2 mobile pick locked: press Stand first"
+                else:
+                    service = self._ensure_on_device_control_service()
+                    service.start_mobile_gaze_lji_pick_e2e()
             except Exception as exc:
                 ok = False
                 reason = f"on_device_mobile_pick_start_failed:{exc}"
@@ -3201,7 +3252,9 @@ class ControlHost:
             reason = "on_device_lji_grasp_start"
             try:
                 service = self._ensure_on_device_control_service()
-                service.start_grasp()
+                service.start_lji_grasp_only()
+                ok = not bool(service.state.pick_failed)
+                reason = str(service.state.pick_status_msg or reason)
             except Exception as exc:
                 ok = False
                 reason = f"on_device_lji_grasp_start_failed:{exc}"
@@ -3645,8 +3698,7 @@ class ControlHost:
                 self.last_claw_closed = bool(msg.get("claw_closed", False))
             if "go2_vel" in msg:
                 try:
-                    self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
-                    self._last_go2_vel_ts = proto.now_s()
+                    next_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
                 except Exception:
                     self._reply(
                         ident,
@@ -3660,6 +3712,26 @@ class ControlHost:
                         },
                     )
                     return
+                lock_reason = self._go2_motion_lock_reason(next_vel)
+                if lock_reason:
+                    self._clear_go2_vel()
+                    if self._go2_bridge is not None:
+                        self._go2_bridge.set_velocity(0.0, 0.0, 0.0)
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": lock_reason,
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    self._broadcast_state_now()
+                    return
+                self.last_go2_vel = next_vel
+                self._last_go2_vel_ts = proto.now_s()
                 if self._go2_bridge is not None:
                     vx, vy, wz = self.last_go2_vel
                     self._go2_bridge.set_velocity(vx, vy, wz)
@@ -3692,6 +3764,20 @@ class ControlHost:
                         },
                     )
                     return
+                ok_pose, pose_reason = self._authorize_go2_sport_pose(pose)
+                if not ok_pose:
+                    self._reply(
+                        ident,
+                        {
+                            "t": "ack",
+                            "ts": proto.now_s(),
+                            "ok": False,
+                            "reason": pose_reason,
+                            "device": self.device,
+                            "torque_enabled": self.torque_enabled,
+                        },
+                    )
+                    return
                 if self._go2_bridge is not None:
                     try:
                         self._go2_bridge.call_sport_pose(pose)
@@ -3709,6 +3795,7 @@ class ControlHost:
                         )
                         return
                 self._clear_go2_vel()
+                self._note_go2_sport_pose(pose)
                 self.last_go2_sport_pose = str(pose)
                 self.last_go2_sport_pose_seq += 1
             if "go2_obstacles_avoid_enable" in msg:

@@ -35,9 +35,9 @@ class Go2HardwareConfig:
     vel_heading_hold_kd: float = 0.15
     vel_heading_hold_max_wz: float = 0.5
     vel_heading_hold_integral_max: float = 0.35
-    stand_on_start: str = "balance"
+    stand_on_start: str = "none"
     # Gait mode applied after stand_on_start: none | static_walk | trot_run | economic_gait
-    gait_on_start: str = "static_walk"
+    gait_on_start: str = "none"
     shutdown_mode: str = "damp"
     world_frame_offset_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     world_frame_yaw_deg: float = 0.0

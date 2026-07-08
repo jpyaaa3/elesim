@@ -1512,7 +1512,30 @@ class ControlService:
                 msg="no host client",
             )
             return
-        self.start_grasp()
+        if (
+            self.pick_e2e_running()
+            or self._pick_worker is not None
+            or self.state.ik_running
+            or self._ik_worker is not None
+        ):
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="arm busy",
+            )
+            return
+        self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+        self.stop_gaze_stabilizer()
+        self._pick_e2e_cancel.clear()
+        self._pick_stop_event.clear()
+        self._reset_pick_last_seen_uv()
+        self._reset_pick_uv_jacobian()
+        self._reset_pick_search_state()
+        self._reset_pick_drift_accounting()
+        self._reset_pick_equal_sag_result_state()
+        self._reset_grasp_guided_state()
+        self._start_grasp_to_object(internal=True)
 
     def start_look_aim_grasp_e2e(self) -> None:
         """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
