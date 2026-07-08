@@ -38,7 +38,7 @@ class LinearMotorMappingTests(unittest.TestCase):
 
     def test_mapping_uses_360_scale_not_250(self) -> None:
         cfg = self._cfg()
-        from engine.protocol import sim_q_to_motor_deg
+        from engine.core.protocol import sim_q_to_motor_deg
 
         motor = sim_q_to_motor_deg(SimQ(-0.230, 0.0, 0.0, 0.0), cfg)
         self.assertAlmostEqual(motor.u_linear, 360.0, places=6)

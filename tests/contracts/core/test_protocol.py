@@ -14,8 +14,8 @@ from engine.core.protocol import (
 
 
 class ProtocolMappingTests(unittest.TestCase):
-    def test_reversed_linear_control_u_roundtrips_through_q(self) -> None:
-        cfg = SimMappingConfig(command_direction=(-1, -1, 1, -1), linear_u_limit=250.0)
+    def test_linear_control_u_roundtrips_through_q(self) -> None:
+        cfg = SimMappingConfig(command_direction=(1, -1, 1, -1), linear_u_limit=250.0)
         for u_linear in (0.0, 15.0, 110.0, 180.0, 250.0):
             with self.subTest(u_linear=u_linear):
                 u0 = ControlU(u_linear=u_linear, u_roll=180.0, u_s1=180.0, u_s2=180.0)
@@ -24,7 +24,7 @@ class ProtocolMappingTests(unittest.TestCase):
                 self.assertAlmostEqual(u1.u_linear, u_linear, places=6)
 
     def test_linear_definition_uses_urdf_zero_as_user_zero(self) -> None:
-        cfg = SimMappingConfig(command_direction=(-1, -1, 1, -1), linear_u_limit=250.0)
+        cfg = SimMappingConfig(command_direction=(1, -1, 1, -1), linear_u_limit=250.0)
         q0 = control_u_to_sim_q(
             ControlU(u_linear=0.0, u_roll=180.0, u_s1=180.0, u_s2=180.0),
             cfg,

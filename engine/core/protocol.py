@@ -198,13 +198,7 @@ def control_u_to_sim_q(u: ControlU, cfg: SimMappingConfig = SimMappingConfig()) 
 
 def sim_q_to_control_u(q: SimQ, cfg: SimMappingConfig = SimMappingConfig()) -> ControlU:
     dirs = tuple(int(v) for v in cfg.command_direction)
-    motor_linear = _map_axis_to_u(
-        q.linear_m,
-        cfg.linear_q_min_m,
-        cfg.linear_q_max_m,
-        cfg.linear_u_min,
-        cfg.linear_u_max,
-    )
+    motor_linear = _map_linear_q_to_u(q.linear_m, cfg)
     motor_u = ControlU(
         u_linear=float(motor_linear),
         u_roll=_map_axis_to_u(q.roll_rad, cfg.roll_q_min_rad, cfg.roll_q_max_rad, cfg.roll_u_min, cfg.roll_u_max),
