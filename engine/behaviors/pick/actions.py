@@ -7944,19 +7944,12 @@ class ControlService:
                             recovered = True
                             moved = True
                     if not recovered:
-                        dq_back = self._grasp_lji_compute_axial_retract_dq(
-                            pk=pk,
-                            approach_dir=dir_u,
-                            object_world=tuple(float(v) for v in live_object),
-                            sag_model=dict(sag_model),
-                            host_state=host_state,
+                        # Reacquire must stay low-latency: avoid solving a fresh IK
+                        # waypoint while visual tracking is already missing.
+                        dq_back = self._grasp_lji_retract_dq_to_last_good_q(
                             q_before=q_before,
+                            pk=pk,
                         )
-                        if dq_back is None:
-                            dq_back = self._grasp_lji_retract_dq_to_last_good_q(
-                                q_before=q_before,
-                                pk=pk,
-                            )
                         if dq_back is not None:
                             dq_cmd_arr = np.asarray(dq_back, dtype=float).reshape(4)
                             q_cmd, host_state = self._grasp_apply_q_delta(
