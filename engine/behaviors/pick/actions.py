@@ -776,6 +776,22 @@ class ControlService:
             msg="remote: stopped",
         )
 
+    def _sync_remote_gaze_from_host(self, host_state: HostState) -> None:
+        if not self._delegate_gaze_to_host():
+            return
+        self.state.set_gaze_status(
+            running=bool(getattr(host_state, "gaze_running", False)),
+            mode=str(getattr(host_state, "gaze_mode", "") or "idle"),
+            msg=str(getattr(host_state, "gaze_status_msg", "") or ""),
+            u_err=float(getattr(host_state, "gaze_u_err", 0.0)),
+            v_err=float(getattr(host_state, "gaze_v_err", 0.0)),
+            du_roll=float(getattr(host_state, "gaze_du_roll", 0.0)),
+            du_s1=float(getattr(host_state, "gaze_du_s1", 0.0)),
+            du_s2=float(getattr(host_state, "gaze_du_s2", 0.0)),
+            obs_age_s=float(getattr(host_state, "gaze_obs_age_s", -1.0)),
+            update_count=int(getattr(host_state, "gaze_update_count", 0)),
+        )
+
     def refresh_host_state(self) -> Optional[HostState]:
         if self.client is None:
             return None
@@ -788,6 +804,7 @@ class ControlService:
                 float(host_state.q.theta2_rad),
             )
         self._sync_remote_perception_from_host(host_state)
+        self._sync_remote_gaze_from_host(host_state)
         return host_state
 
     def has_client(self) -> bool:

@@ -281,6 +281,16 @@ def pack_state(
     perception_record_with_overlay: Optional[bool] = None,
     perception_last_record_path: Optional[str] = None,
     perception_last_capture_path: Optional[str] = None,
+    gaze_running: Optional[bool] = None,
+    gaze_mode: Optional[str] = None,
+    gaze_status_msg: Optional[str] = None,
+    gaze_u_err: Optional[float] = None,
+    gaze_v_err: Optional[float] = None,
+    gaze_du_roll: Optional[float] = None,
+    gaze_du_s1: Optional[float] = None,
+    gaze_du_s2: Optional[float] = None,
+    gaze_obs_age_s: Optional[float] = None,
+    gaze_update_count: Optional[int] = None,
     debug_markers: Optional[list[dict[str, Any]]] = None,
     go2_vel: Optional[tuple[float, float, float]] = None,
     go2_base_rpy: Optional[tuple[float, float, float]] = None,
@@ -375,6 +385,26 @@ def pack_state(
         out["perception_last_record_path"] = str(perception_last_record_path)
     if perception_last_capture_path is not None:
         out["perception_last_capture_path"] = str(perception_last_capture_path)
+    if gaze_running is not None:
+        out["gaze_running"] = bool(gaze_running)
+    if gaze_mode is not None:
+        out["gaze_mode"] = str(gaze_mode)
+    if gaze_status_msg is not None:
+        out["gaze_status_msg"] = str(gaze_status_msg)
+    if gaze_u_err is not None:
+        out["gaze_u_err"] = float(gaze_u_err)
+    if gaze_v_err is not None:
+        out["gaze_v_err"] = float(gaze_v_err)
+    if gaze_du_roll is not None:
+        out["gaze_du_roll"] = float(gaze_du_roll)
+    if gaze_du_s1 is not None:
+        out["gaze_du_s1"] = float(gaze_du_s1)
+    if gaze_du_s2 is not None:
+        out["gaze_du_s2"] = float(gaze_du_s2)
+    if gaze_obs_age_s is not None:
+        out["gaze_obs_age_s"] = float(gaze_obs_age_s)
+    if gaze_update_count is not None:
+        out["gaze_update_count"] = int(gaze_update_count)
     if go2_vel is not None:
         out["go2_vel"] = [float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2])]
     if go2_base_rpy is not None:

@@ -82,6 +82,16 @@ class ControlClient:
         self.last_perception_record_with_overlay: bool = False
         self.last_perception_last_record_path: str = ""
         self.last_perception_last_capture_path: str = ""
+        self.last_gaze_running: bool = False
+        self.last_gaze_mode: str = "idle"
+        self.last_gaze_status_msg: str = ""
+        self.last_gaze_u_err: float = 0.0
+        self.last_gaze_v_err: float = 0.0
+        self.last_gaze_du_roll: float = 0.0
+        self.last_gaze_du_s1: float = 0.0
+        self.last_gaze_du_s2: float = 0.0
+        self.last_gaze_update_count: int = 0
+        self.last_gaze_obs_age_s: float = -1.0
         self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
         self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
@@ -150,6 +160,16 @@ class ControlClient:
             perception_record_with_overlay=bool(self.last_perception_record_with_overlay),
             perception_last_record_path=str(self.last_perception_last_record_path),
             perception_last_capture_path=str(self.last_perception_last_capture_path),
+            gaze_running=bool(self.last_gaze_running),
+            gaze_mode=str(self.last_gaze_mode),
+            gaze_status_msg=str(self.last_gaze_status_msg),
+            gaze_u_err=float(self.last_gaze_u_err),
+            gaze_v_err=float(self.last_gaze_v_err),
+            gaze_du_roll=float(self.last_gaze_du_roll),
+            gaze_du_s1=float(self.last_gaze_du_s1),
+            gaze_du_s2=float(self.last_gaze_du_s2),
+            gaze_update_count=int(self.last_gaze_update_count),
+            gaze_obs_age_s=float(self.last_gaze_obs_age_s),
             go2_vel=(
                 float(self.last_go2_vel[0]),
                 float(self.last_go2_vel[1]),
@@ -269,6 +289,32 @@ class ControlClient:
             except (TypeError, ValueError):
                 pass
 
+    def _update_gaze_fields(self, msg: dict[str, Any]) -> None:
+        if "gaze_running" in msg:
+            self.last_gaze_running = bool(msg.get("gaze_running", False))
+        if "gaze_mode" in msg:
+            self.last_gaze_mode = str(msg.get("gaze_mode", "idle"))
+        if "gaze_status_msg" in msg:
+            self.last_gaze_status_msg = str(msg.get("gaze_status_msg", ""))
+        for key, attr, default in (
+            ("gaze_u_err", "last_gaze_u_err", 0.0),
+            ("gaze_v_err", "last_gaze_v_err", 0.0),
+            ("gaze_du_roll", "last_gaze_du_roll", 0.0),
+            ("gaze_du_s1", "last_gaze_du_s1", 0.0),
+            ("gaze_du_s2", "last_gaze_du_s2", 0.0),
+            ("gaze_obs_age_s", "last_gaze_obs_age_s", -1.0),
+        ):
+            if key in msg:
+                try:
+                    setattr(self, attr, float(msg.get(key, default)))
+                except (TypeError, ValueError):
+                    setattr(self, attr, float(default))
+        if "gaze_update_count" in msg:
+            try:
+                self.last_gaze_update_count = int(msg.get("gaze_update_count", 0))
+            except (TypeError, ValueError):
+                self.last_gaze_update_count = 0
+
     def _tuple12(self, raw: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(raw, (list, tuple)) or len(raw) != 12:
             return None
@@ -362,6 +408,7 @@ class ControlClient:
             self._update_go2_motor_fields(msg)
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
+            self._update_gaze_fields(msg)
             object_world_raw = msg.get("object_world", None)
             if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
                 self.last_object_world_xyz = (
@@ -459,6 +506,7 @@ class ControlClient:
                     pass
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
+            self._update_gaze_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
                 self.last_actual_tip_xyz = (

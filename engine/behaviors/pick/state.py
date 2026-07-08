@@ -63,6 +63,16 @@ class HostState:
     perception_record_with_overlay: bool = False
     perception_last_record_path: str = ""
     perception_last_capture_path: str = ""
+    gaze_running: bool = False
+    gaze_mode: str = "idle"
+    gaze_status_msg: str = ""
+    gaze_u_err: float = 0.0
+    gaze_v_err: float = 0.0
+    gaze_du_roll: float = 0.0
+    gaze_du_s1: float = 0.0
+    gaze_du_s2: float = 0.0
+    gaze_update_count: int = 0
+    gaze_obs_age_s: float = -1.0
 
 
 @dataclass

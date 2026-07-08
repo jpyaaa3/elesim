@@ -859,6 +859,7 @@ class ControlHost:
     def _broadcast_state_now(self) -> None:
         now = proto.now_s()
         perception_payload = self._perception_state_payload()
+        gaze_payload = self._gaze_state_payload()
         self._broadcast(
             proto.pack_state(
                 u=self.last_u,
@@ -885,6 +886,16 @@ class ControlHost:
                 perception_record_with_overlay=bool(perception_payload.get("perception_record_with_overlay", False)),
                 perception_last_record_path=str(perception_payload.get("perception_last_record_path", "")),
                 perception_last_capture_path=str(perception_payload.get("perception_last_capture_path", "")),
+                gaze_running=bool(gaze_payload.get("gaze_running", False)),
+                gaze_mode=str(gaze_payload.get("gaze_mode", "idle")),
+                gaze_status_msg=str(gaze_payload.get("gaze_status_msg", "")),
+                gaze_u_err=float(gaze_payload.get("gaze_u_err", 0.0)),
+                gaze_v_err=float(gaze_payload.get("gaze_v_err", 0.0)),
+                gaze_du_roll=float(gaze_payload.get("gaze_du_roll", 0.0)),
+                gaze_du_s1=float(gaze_payload.get("gaze_du_s1", 0.0)),
+                gaze_du_s2=float(gaze_payload.get("gaze_du_s2", 0.0)),
+                gaze_obs_age_s=float(gaze_payload.get("gaze_obs_age_s", -1.0)),
+                gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -912,6 +923,36 @@ class ControlHost:
                 debug_markers=self._active_debug_markers(),
             )
         )
+
+    def _gaze_state_payload(self) -> Dict[str, Any]:
+        service = self._embedded_control_service
+        if service is None:
+            return {
+                "gaze_running": False,
+                "gaze_mode": "idle",
+                "gaze_status_msg": "",
+                "gaze_u_err": 0.0,
+                "gaze_v_err": 0.0,
+                "gaze_du_roll": 0.0,
+                "gaze_du_s1": 0.0,
+                "gaze_du_s2": 0.0,
+                "gaze_obs_age_s": -1.0,
+                "gaze_update_count": 0,
+            }
+        st = service.state
+        with st._lock:
+            return {
+                "gaze_running": bool(st.gaze_running),
+                "gaze_mode": str(st.gaze_mode),
+                "gaze_status_msg": str(st.gaze_status_msg),
+                "gaze_u_err": float(st.gaze_u_err),
+                "gaze_v_err": float(st.gaze_v_err),
+                "gaze_du_roll": float(st.gaze_du_roll),
+                "gaze_du_s1": float(st.gaze_du_s1),
+                "gaze_du_s2": float(st.gaze_du_s2),
+                "gaze_obs_age_s": float(st.gaze_obs_age_s),
+                "gaze_update_count": int(st.gaze_update_count),
+            }
 
     def _new_on_device_panel_state(self):
         from engine.behaviors.pick import PanelState
@@ -1851,7 +1892,8 @@ class ControlHost:
                     "reason": str(reason),
                     "device": self.device,
                     "torque_enabled": self.torque_enabled,
-                },
+                }
+                | self._gaze_state_payload(),
             )
             self._broadcast_state_now()
             return
@@ -1879,7 +1921,8 @@ class ControlHost:
                     "reason": str(reason),
                     "device": self.device,
                     "torque_enabled": self.torque_enabled,
-                },
+                }
+                | self._gaze_state_payload(),
             )
             self._broadcast_state_now()
             return
@@ -1900,7 +1943,8 @@ class ControlHost:
                     "reason": str(reason),
                     "device": self.device,
                     "torque_enabled": self.torque_enabled,
-                },
+                }
+                | self._gaze_state_payload(),
             )
             self._broadcast_state_now()
             return
