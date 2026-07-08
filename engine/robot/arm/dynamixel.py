@@ -303,4 +303,24 @@ def load_hardware(
             hw.direction[k] = -1 if int(v) < 0 else 1
         linear_max = float(getattr(hardware_cfg, "linear_u_limit_deg", 250.0))
         hw.constraints_deg[hw.cfg.id_linear] = JointConstraintDeg(0.0, linear_max)
+        hw.profiles[hw.cfg.id_linear] = JointProfile(
+            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_linear", 240))),
+            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_linear", 10))),
+        )
+        hw.profiles[hw.cfg.id_roll] = JointProfile(
+            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_roll", 240))),
+            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_roll", 10))),
+        )
+        hw.profiles[hw.cfg.id_seg1] = JointProfile(
+            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_seg1", 60))),
+            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_seg1", 6))),
+        )
+        hw.profiles[hw.cfg.id_seg2] = JointProfile(
+            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_seg2", 60))),
+            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_seg2", 6))),
+        )
+        hw.profiles[hw.cfg.id_claw] = JointProfile(
+            profile_vel=max(1, int(getattr(hardware_cfg, "profile_vel_claw", 80))),
+            profile_acc=max(1, int(getattr(hardware_cfg, "profile_acc_claw", 5))),
+        )
     return hw, dict(hw.direction)

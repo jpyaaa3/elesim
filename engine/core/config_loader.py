@@ -96,6 +96,16 @@ class HardwareConfig:
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
+    profile_vel_linear: int = 240
+    profile_acc_linear: int = 10
+    profile_vel_roll: int = 240
+    profile_acc_roll: int = 10
+    profile_vel_seg1: int = 60
+    profile_acc_seg1: int = 6
+    profile_vel_seg2: int = 60
+    profile_acc_seg2: int = 6
+    profile_vel_claw: int = 80
+    profile_acc_claw: int = 5
 
 
 @dataclass(frozen=True)
@@ -1421,12 +1431,23 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         raise ValueError("missing required hardware.command_direction")
     if not cp.has_option("hardware", "motor_direction"):
         raise ValueError("missing required hardware.motor_direction")
+    hw0 = HardwareConfig()
     return HardwareConfig(
         command_direction=_parse_direction4(cp.get("hardware", "command_direction"), key="hardware.command_direction"),
         motor_direction=_parse_direction4(cp.get("hardware", "motor_direction"), key="hardware.motor_direction"),
-        linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=HardwareConfig().linear_u_limit_deg),
-        current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=HardwareConfig().current_yellow_ma),
-        current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=HardwareConfig().current_limit_ma),
+        linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=hw0.linear_u_limit_deg),
+        current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=hw0.current_yellow_ma),
+        current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=hw0.current_limit_ma),
+        profile_vel_linear=cp.getint("hardware", "profile_vel_linear", fallback=hw0.profile_vel_linear),
+        profile_acc_linear=cp.getint("hardware", "profile_acc_linear", fallback=hw0.profile_acc_linear),
+        profile_vel_roll=cp.getint("hardware", "profile_vel_roll", fallback=hw0.profile_vel_roll),
+        profile_acc_roll=cp.getint("hardware", "profile_acc_roll", fallback=hw0.profile_acc_roll),
+        profile_vel_seg1=cp.getint("hardware", "profile_vel_seg1", fallback=hw0.profile_vel_seg1),
+        profile_acc_seg1=cp.getint("hardware", "profile_acc_seg1", fallback=hw0.profile_acc_seg1),
+        profile_vel_seg2=cp.getint("hardware", "profile_vel_seg2", fallback=hw0.profile_vel_seg2),
+        profile_acc_seg2=cp.getint("hardware", "profile_acc_seg2", fallback=hw0.profile_acc_seg2),
+        profile_vel_claw=cp.getint("hardware", "profile_vel_claw", fallback=hw0.profile_vel_claw),
+        profile_acc_claw=cp.getint("hardware", "profile_acc_claw", fallback=hw0.profile_acc_claw),
     )
 
 

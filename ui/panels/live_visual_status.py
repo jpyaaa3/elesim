@@ -755,6 +755,18 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     st = panel.state
     now = time.time()
     run_local = bool(getattr(panel, "_perception_run_local", True))
+    gaze_count = int(getattr(st, "gaze_update_count", 0))
+    last_gaze_count = int(getattr(panel, "_gaze_rate_last_count", gaze_count))
+    last_gaze_t = float(getattr(panel, "_gaze_rate_last_t", now))
+    gaze_rate_hz = float(getattr(panel, "_gaze_rate_hz", 0.0))
+    dt_gaze = now - last_gaze_t
+    if dt_gaze >= 0.5:
+        dc_gaze = max(0, gaze_count - last_gaze_count)
+        inst_gaze_hz = float(dc_gaze) / max(1e-6, float(dt_gaze))
+        gaze_rate_hz = inst_gaze_hz if gaze_rate_hz <= 0.0 else (0.65 * gaze_rate_hz + 0.35 * inst_gaze_hz)
+        panel._gaze_rate_hz = float(gaze_rate_hz)
+        panel._gaze_rate_last_count = int(gaze_count)
+        panel._gaze_rate_last_t = float(now)
 
     if show_separators:
         imgui.separator()
@@ -868,9 +880,10 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     gaze_tag = "RUNNING" if bool(st.gaze_running) else "OFF"
     _line(
         "Gaze",
-        "[%s]  mode=%s  updates=%d  u_err=%+.3f  v_err=%+.3f"
+        "[%s]  %.1f Hz  mode=%s  updates=%d  u_err=%+.3f  v_err=%+.3f"
         % (
             gaze_tag,
+            float(gaze_rate_hz if bool(st.gaze_running) else 0.0),
             str(st.gaze_mode) or "idle",
             int(st.gaze_update_count),
             float(st.gaze_u_err),

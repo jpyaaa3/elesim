@@ -255,6 +255,9 @@ class ControlHost:
         self._t_read = 0.0
         self._t_state = 0.0
         self._t_cmd = 0.0
+        self._state_broadcast_requested = threading.Event()
+        self._event_state_min_period = 1.0 / 30.0
+        self._t_event_state = 0.0
 
         self._pending_target_q: Optional[proto.SimQ] = None
         self._pending_target_u: Optional[proto.ControlU] = None
@@ -1644,6 +1647,7 @@ class ControlHost:
                     result_world = (float(arr[0]), float(arr[1]), float(arr[2]))
             else:
                 result_world = self.last_perceived_object_world_xyz
+            self._state_broadcast_requested.set()
             return result_world
 
     def start_perception_worker(self, *, config: Optional[PerceptionConfig] = None) -> bool:
@@ -2595,6 +2599,7 @@ class ControlHost:
                         self._pending_target_axes = set()
                         self._pending_target_q = None
                         self._cancel_trajectory()
+                        self._state_broadcast_requested.set()
                 else:
                     if self._trajectory_lji.active:
                         step = self._trajectory_lji.step(now_s=now)
@@ -2642,6 +2647,7 @@ class ControlHost:
                                 self._pending_target_q = None
                         elif complete:
                             self._pending_target_q = None
+                        self._state_broadcast_requested.set()
                     else:
                         if self._last_target_apply_error:
                             self._broadcast(
@@ -2654,6 +2660,14 @@ class ControlHost:
                                     "torque_enabled": self.torque_enabled,
                                 }
                             )
+            now_event = time.time()
+            if (
+                self._state_broadcast_requested.is_set()
+                and (now_event - self._t_event_state) >= self._event_state_min_period
+            ):
+                self._state_broadcast_requested.clear()
+                self._t_event_state = now_event
+                self._broadcast_state_now()
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
                 if self._go2_bridge is not None:
