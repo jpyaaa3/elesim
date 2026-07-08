@@ -5620,6 +5620,44 @@ class ControlService:
         except Exception as exc:
             print(f"[Grasp-Ctrl] csv write failed: {exc}")
 
+    def _grasp_lji_log_event(
+        self,
+        *,
+        step_idx: int,
+        mode: GraspApproachMode,
+        note: str,
+        remain_m: Optional[float] = None,
+        close_tol_m: Optional[float] = None,
+        object_lost: int = 0,
+        transition: str = "-",
+        step_elapsed_s: Optional[float] = None,
+    ) -> None:
+        nan4 = np.full(4, float("nan"), dtype=float)
+        remain = float(remain_m) if remain_m is not None else float("nan")
+        self._grasp_lji_log_write_control_step(
+            step_idx=int(step_idx),
+            mode=mode,
+            s_lji=None,
+            depth_valid=False,
+            depth_valid_ratio=float("nan"),
+            j_rank=0,
+            j_cond=float("nan"),
+            j_available=False,
+            dq_cmd=nan4,
+            dq_meas=None,
+            q_cmd=nan4,
+            controller="event",
+            transition=str(transition),
+            object_lost=int(object_lost),
+            remain_m=remain,
+            close_tol_m=float(close_tol_m) if close_tol_m is not None else float("nan"),
+            remain_before_m=remain,
+            step_elapsed_s=step_elapsed_s,
+            ik_status="-",
+            sample_reason="event",
+            note=str(note),
+        )
+
     def _grasp_lji_log_control_step(
         self,
         *,
@@ -7664,10 +7702,23 @@ class ControlService:
                 )
             )
             self._grasp_lji_log_start()
+            self._grasp_lji_log_event(
+                step_idx=0,
+                mode=mode,
+                note="start",
+                close_tol_m=close_tol_m,
+            )
 
             wp_idx = 0
             while wp_idx < max_waypoints:
+                step_t0 = time.time()
                 if self._pick_stop_event.is_set():
+                    self._grasp_lji_log_event(
+                        step_idx=int(wp_idx),
+                        mode=mode,
+                        note="stop_event",
+                        close_tol_m=close_tol_m,
+                    )
                     self.state.set_pick_status(
                         running=False,
                         failed=False,
@@ -7678,6 +7729,13 @@ class ControlService:
 
                 tip = self._pick_current_tip_world(host_state=host_state)
                 if tip is None:
+                    self._grasp_lji_log_event(
+                        step_idx=int(wp_idx),
+                        mode=mode,
+                        note="tip_fk_unavailable",
+                        close_tol_m=close_tol_m,
+                        step_elapsed_s=time.time() - float(step_t0),
+                    )
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
@@ -7695,6 +7753,13 @@ class ControlService:
                     live_object = self._grasp_filtered_object_world() or object_world
                     dir_live = self._grasp_filtered_approach_dir()
                     if dir_live is None:
+                        self._grasp_lji_log_event(
+                            step_idx=int(wp_idx),
+                            mode=mode,
+                            note="filtered_tracking_unavailable",
+                            close_tol_m=close_tol_m,
+                            step_elapsed_s=time.time() - float(step_t0),
+                        )
                         self.state.set_pick_status(
                             running=False,
                             failed=True,
@@ -7729,6 +7794,14 @@ class ControlService:
                 depth_reliable = bool(depth_valid and depth_stable)
 
                 if float(remain) <= close_tol_m + 1e-4:
+                    self._grasp_lji_log_event(
+                        step_idx=int(wp_idx),
+                        mode=mode,
+                        note="precontact_break",
+                        remain_m=float(remain),
+                        close_tol_m=close_tol_m,
+                        step_elapsed_s=time.time() - float(step_t0),
+                    )
                     print(
                         "[Grasp] LJI | precontact | remain=%.1fmm <= close_tol %.1fmm"
                         % (float(remain) * 1000.0, close_tol_m * 1000.0)
@@ -7761,6 +7834,15 @@ class ControlService:
                     >= int(pk.lij_reacquire_max_steps)
                     and not self._grasp_lji_should_blind_finish(float(remain), pk)
                 ):
+                    self._grasp_lji_log_event(
+                        step_idx=int(wp_idx),
+                        mode=mode,
+                        note="tracking_lost_after_reacquire",
+                        remain_m=float(remain),
+                        close_tol_m=close_tol_m,
+                        object_lost=int(self._grasp_lji_object_lost_count),
+                        step_elapsed_s=time.time() - float(step_t0),
+                    )
                     self.state.set_pick_status(
                         running=False,
                         failed=True,
@@ -7775,6 +7857,15 @@ class ControlService:
 
                 transition = "-"
                 if self._grasp_lji_should_blind_finish(float(remain), pk):
+                    self._grasp_lji_log_event(
+                        step_idx=int(wp_idx),
+                        mode=mode,
+                        note="blind_finish_break",
+                        remain_m=float(remain),
+                        close_tol_m=close_tol_m,
+                        object_lost=int(self._grasp_lji_object_lost_count),
+                        step_elapsed_s=time.time() - float(step_t0),
+                    )
                     print(
                         "[Grasp] LJI | blind finish | remain=%.1fmm <= %.1fmm"
                         % (
