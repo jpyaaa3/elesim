@@ -1222,6 +1222,12 @@ def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppCon
         max_seg_du_per_tick=cp.getfloat(
             "gaze_stabilizer", "gaze_max_seg_du_per_tick", fallback=g0.max_seg_du_per_tick
         ),
+        command_ref_enable=cp.getboolean(
+            "gaze_stabilizer", "gaze_command_ref_enable", fallback=g0.command_ref_enable
+        ),
+        command_ref_max_lead=cp.getfloat(
+            "gaze_stabilizer", "gaze_command_ref_max_lead", fallback=g0.command_ref_max_lead
+        ),
         cmd_settle_s=cp.getfloat("gaze_stabilizer", "gaze_cmd_settle_s", fallback=g0.cmd_settle_s),
         center_u_seg_s2_scale=cp.getfloat(
             "gaze_stabilizer", "gaze_center_u_seg_s2_scale", fallback=g0.center_u_seg_s2_scale

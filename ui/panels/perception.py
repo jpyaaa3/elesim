@@ -44,6 +44,7 @@ _GAZE_REACTIVE_FIELDS = (
     ("center_tol", "Tol", 0.0, 0.5, "%.3f"),
     ("center_seg_max", "Seg cap", 0.0, 20.0, "%.1f"),
     ("max_seg_du_per_tick", "Tick cap", 0.0, 20.0, "%.1f"),
+    ("command_ref_max_lead", "Lead cap", 0.0, 120.0, "%.1f"),
     ("cmd_settle_s", "Settle", 0.0, 0.5, "%.3f"),
     ("center_v_kd", "V kd", 0.0, 30.0, "%.1f"),
     ("center_d_seg_max", "D cap", 0.0, 20.0, "%.1f"),
@@ -201,6 +202,7 @@ def _draw_gaze_tuning_controls(panel) -> None:
     _draw_gaze_float(panel, "hz", "Rate", 1.0, 60.0, "%.1f")
     _draw_gaze_bool(panel, "preview_enable", "Preview")
     _draw_gaze_bool(panel, "enable_base_ff", "Base FF")
+    _draw_gaze_bool(panel, "command_ref_enable", "Cmd ref")
     imgui.separator()
     imgui.text_disabled("Reactive UV")
     for key, label, lo, hi, fmt in _GAZE_REACTIVE_FIELDS:

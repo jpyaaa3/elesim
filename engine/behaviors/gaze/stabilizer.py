@@ -53,6 +53,8 @@ class GazeStabilizerConfig:
     preview_max_du_seg: float = 1.5
     preview_lowpass_alpha: float = 0.35
     walking_gaze_mode: str = "uv_ff"
+    command_ref_enable: bool = False
+    command_ref_max_lead: float = 40.0
 
 
 __all__ = [

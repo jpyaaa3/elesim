@@ -306,6 +306,7 @@ class ControlService:
         self._gaze_dv_err_rate_filt: float = 0.0
         self._gaze_last_cmd_wall_s: float = 0.0
         self._gaze_last_sent_du_mag: float = 0.0
+        self._gaze_command_ref_u: Optional[ControlU] = None
 
     @property
     def gaze_config(self) -> GazeStabilizerConfig:
@@ -4300,6 +4301,42 @@ class ControlService:
         self._gaze_dv_err_rate_filt = 0.0
         self._gaze_last_cmd_wall_s = 0.0
         self._gaze_last_sent_du_mag = 0.0
+        self._gaze_command_ref_u = None
+
+    def _gaze_control_current_u(self) -> ControlU:
+        actual_u = self.current_control_u()
+        g = self._gaze_cfg
+        if not bool(getattr(g, "command_ref_enable", False)):
+            self._gaze_command_ref_u = actual_u
+            return actual_u
+
+        ref_u = self._gaze_command_ref_u
+        if ref_u is None:
+            self._gaze_command_ref_u = actual_u
+            return actual_u
+
+        lead = float(max(0.0, float(getattr(g, "command_ref_max_lead", 0.0))))
+        if lead <= 0.0:
+            self._gaze_command_ref_u = actual_u
+            return actual_u
+
+        roll_ref = float(ref_u.u_roll) if bool(g.enable_roll) else float(actual_u.u_roll)
+        bounded = self._clamp_display_u(
+            ControlU(
+                u_linear=float(actual_u.u_linear),
+                u_roll=float(np.clip(roll_ref, float(actual_u.u_roll - lead), float(actual_u.u_roll + lead))),
+                u_s1=float(np.clip(ref_u.u_s1, float(actual_u.u_s1 - lead), float(actual_u.u_s1 + lead))),
+                u_s2=float(np.clip(ref_u.u_s2, float(actual_u.u_s2 - lead), float(actual_u.u_s2 + lead))),
+            )
+        )
+        self._gaze_command_ref_u = bounded
+        return bounded
+
+    def _set_gaze_command_ref(self, display_u: ControlU) -> None:
+        if bool(getattr(self._gaze_cfg, "command_ref_enable", False)):
+            self._gaze_command_ref_u = self._clamp_display_u(display_u)
+        else:
+            self._gaze_command_ref_u = None
 
     def _gaze_derivative_seg_du(
         self,
@@ -9898,7 +9935,7 @@ class ControlService:
         tv = float(self.state.visual_target_uv_v)
         u_err = float(obs.center_uv[0]) - tu
         v_err = float(obs.center_uv[1]) - tv
-        current_u = self.current_control_u()
+        current_u = self._gaze_control_current_u()
         g = self._gaze_cfg
         period = float(dt_s) if dt_s is not None else (1.0 / max(1.0, float(g.hz)))
         next_u, mode, _, _ = self._apply_pick_center_step(
@@ -9997,6 +10034,7 @@ class ControlService:
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
             self.apply_partial_control_u(partial)
+            self._set_gaze_command_ref(next_u)
             self._gaze_last_cmd_wall_s = float(time.time())
             self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
                 float(next_u.u_s2 - current_u.u_s2)
@@ -10015,7 +10053,7 @@ class ControlService:
         tv = float(self.state.visual_target_uv_v)
         u_err = float(obs.center_uv[0]) - tu
         v_err = float(obs.center_uv[1]) - tv
-        current_u = self.current_control_u()
+        current_u = self._gaze_control_current_u()
         g = self._gaze_cfg
         du_v = np.asarray(du, dtype=float).reshape(3)
         roll_du = float(du_v[0]) if bool(g.enable_roll) else 0.0
@@ -10065,6 +10103,7 @@ class ControlService:
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
             self.apply_partial_control_u(partial)
+            self._set_gaze_command_ref(next_u)
             self._gaze_last_cmd_wall_s = float(time.time())
             self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
                 float(next_u.u_s2 - current_u.u_s2)
