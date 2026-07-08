@@ -593,7 +593,17 @@ class PerceptionCapture:
                 target_label_cli=str(cfg.target_label),
                 yolo_device_cli=(str(cfg.yolo_device) if cfg.yolo_device else None),
             )
+            self._set_snapshot(
+                running=True,
+                failed=False,
+                status_msg=f"loading detector ({str(detector_cfg.get('type', '')) or 'config'})",
+            )
             detector = create_detector(detector_cfg)
+            self._set_snapshot(
+                running=True,
+                failed=False,
+                status_msg=f"detector ready ({str(detector_cfg.get('type', '')) or 'config'})",
+            )
         except (RealSenseUnavailableError, YoloUnavailableError) as exc:
             self._set_snapshot(running=False, failed=True, status_msg=str(exc))
             print(f"[perception] start failed: {exc}")

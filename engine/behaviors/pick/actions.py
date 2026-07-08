@@ -141,6 +141,7 @@ class ControlService:
         hand_eye_parent_frame: str = "node9",
         go2_arm_mount: Optional[Go2ArmMount] = None,
         use_hardware: bool = True,
+        remote_gaze_delegate: bool = True,
     ) -> None:
         self.state = state
         self.client = client
@@ -151,6 +152,7 @@ class ControlService:
         self._config_path = None if config_path is None else str(config_path)
         self._perception_cfg = perception_cfg or PerceptionConfig()
         self._perception_run_local = self._perception_config_runs_locally(self._perception_cfg)
+        self._remote_gaze_delegate = bool(remote_gaze_delegate)
         self._pick_cfg = pick_cfg or PickConfig()
         self._hand_eye_transform = (
             None
@@ -304,6 +306,13 @@ class ControlService:
 
     def _gaze_busy(self) -> bool:
         return self._gaze_service.is_running
+
+    def _delegate_gaze_to_host(self) -> bool:
+        return (
+            bool(self._remote_gaze_delegate)
+            and not bool(self._perception_run_local)
+            and self.client is not None
+        )
 
     def _wait_until_q_settled(
         self,
@@ -9996,6 +10005,14 @@ class ControlService:
             self.client.close()
 
     def start_gaze_stabilizer_standing(self, *, run_id: str = "") -> None:
+        if self._delegate_gaze_to_host():
+            if hasattr(self.client, "send_gaze_start_standing"):
+                self.client.send_gaze_start_standing(run_id=run_id)
+                self.state.set_gaze_status(running=True, mode="standing/on-device", msg="start requested")
+                print("[gaze] on-device standing start requested")
+            else:
+                self.state.set_gaze_status(running=False, mode="idle", msg="remote host lacks gaze_start_standing")
+            return
         if self._visual_busy() and not self._gaze_busy():
             self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
             print("[gaze] rejected: visual pipeline busy")
@@ -10008,14 +10025,22 @@ class ControlService:
             print(f"[gaze] start standing failed: {exc}")
 
     def start_gaze_stabilizer_walking(self, *, run_id: str = "", gaze_mode: str | None = None) -> None:
+        from engine.behaviors.gaze.stabilizer import resolve_walking_gaze_mode
+
+        mode = resolve_walking_gaze_mode(self._gaze_cfg, gaze_mode)
+        if self._delegate_gaze_to_host():
+            if hasattr(self.client, "send_gaze_start_walking"):
+                self.client.send_gaze_start_walking(run_id=run_id, gaze_mode=mode)
+                self.state.set_gaze_status(running=True, mode=f"walking/{mode}/on-device", msg="start requested")
+                print(f"[gaze] on-device walking start requested | mode={mode}")
+            else:
+                self.state.set_gaze_status(running=False, mode="idle", msg="remote host lacks gaze_start_walking")
+            return
         if self._visual_busy() and not self._gaze_busy():
             self.state.set_gaze_status(running=False, mode="idle", msg="rejected: visual pipeline busy")
             print("[gaze] rejected: visual pipeline busy")
             return
         try:
-            from engine.behaviors.gaze.stabilizer import resolve_walking_gaze_mode
-
-            mode = resolve_walking_gaze_mode(self._gaze_cfg, gaze_mode)
             self._gaze_service.start_walking_gaze(run_id=run_id, gaze_mode=mode)
             self.state.set_gaze_status(running=True, mode=f"walking/{mode}", msg="started")
         except Exception as exc:
@@ -10023,6 +10048,12 @@ class ControlService:
             print(f"[gaze] start walking failed: {exc}")
 
     def stop_gaze_stabilizer(self) -> None:
+        if self._delegate_gaze_to_host():
+            if hasattr(self.client, "send_gaze_stop"):
+                self.client.send_gaze_stop()
+                self.state.set_gaze_status(running=False, mode="idle", msg="on-device stop requested")
+                print("[gaze] on-device stop requested")
+                return
         self._gaze_service.stop()
 
     def start_demo4_stop_and_grasp(self) -> None:

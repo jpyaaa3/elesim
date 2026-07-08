@@ -91,6 +91,18 @@ def _terminate_host_processes(*, timeout_s: float = 2.0, force: bool = True) -> 
                     pass
 
 
+def _local_client_endpoint(bind_addr: str) -> str:
+    """Return a loopback endpoint for a TCP bind address."""
+    addr = str(bind_addr).strip()
+    if not addr.startswith("tcp://"):
+        return addr
+    rest = addr[len("tcp://") :]
+    if ":" not in rest:
+        return addr
+    _host, port = rest.rsplit(":", 1)
+    return f"tcp://127.0.0.1:{port}"
+
+
 class ControlHost:
     """ROUTER-side host that receives controller requests and drives hardware."""
 
@@ -104,11 +116,15 @@ class ControlHost:
         direction_by_id: Dict[int, int],
         device: str,
         hardware_cfg: Optional[HardwareConfig],
+        config_path: str = "",
+        ik_config: Optional[Any] = None,
         ik_context: Optional[dict[str, Any]] = None,
         hand_eye_transform: Optional[Any] = None,
         hand_eye_parent_frame: str = "node9",
         pick_config: Optional[PickConfig] = None,
         perception_config: Optional[PerceptionConfig] = None,
+        gaze_config: Optional[Any] = None,
+        ownership_enable: bool = False,
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
         trajectory_cfg: Optional[QuinticTimingConfig] = None,
@@ -126,13 +142,20 @@ class ControlHost:
         self.direction_by_id = direction_by_id
         self.device = str(device)
         self.hardware_cfg = hardware_cfg
+        self.config_path = str(config_path)
+        self.ik_config = ik_config
         self.ik_context = dict(ik_context or {})
         self.hand_eye_transform = None if hand_eye_transform is None else np.asarray(hand_eye_transform, dtype=float).reshape(4, 4)
         self.hand_eye_parent_frame = str(hand_eye_parent_frame)
         self.pick_config = pick_config or PickConfig()
         self.perception_config = perception_config or PerceptionConfig()
+        self.gaze_config = gaze_config
+        self.ownership_enable = bool(ownership_enable)
         self.show_all_ports = bool(show_all_ports)
         self._go2_bridge = go2_bridge
+        self._embedded_ctrl_endpoint = _local_client_endpoint(bind_addr)
+        self._embedded_control_client: Optional[Any] = None
+        self._embedded_control_service: Optional[Any] = None
 
         self.ctx = zmq.Context.instance()
         self.sock = self.ctx.socket(zmq.ROUTER)
@@ -890,6 +913,85 @@ class ControlHost:
             )
         )
 
+    def _new_on_device_panel_state(self):
+        from engine.behaviors.pick import PanelState
+
+        state = PanelState()
+        pk = self.pick_config
+        pc = self.perception_config
+        state.visual_target_label = str(getattr(pc, "target_label", "")).strip()
+        state.visual_target_scale = float(getattr(pk, "target_scale", state.visual_target_scale))
+        state.visual_center_tol = float(getattr(pk, "center_tol", state.visual_center_tol))
+        state.visual_target_uv_u = float(getattr(pk, "target_uv_u", state.visual_target_uv_u))
+        state.visual_target_uv_v = float(getattr(pk, "target_uv_v", state.visual_target_uv_v))
+        state.visual_scale_tol = float(getattr(pk, "scale_tol", state.visual_scale_tol))
+        state.visual_ready_distance_m = float(
+            getattr(pk, "ready_pose_standoff_m", state.visual_ready_distance_m)
+        )
+        state.visual_look_distance_m = float(
+            getattr(pk, "look_pose_standoff_m", state.visual_look_distance_m)
+        )
+        if self.last_q is not None:
+            state.set_q(
+                float(self.last_q.linear_m),
+                float(self.last_q.roll_rad),
+                float(self.last_q.theta1_rad),
+                float(self.last_q.theta2_rad),
+            )
+        return state
+
+    def _ensure_on_device_control_service(self):
+        if self._embedded_control_service is not None:
+            return self._embedded_control_service
+        from engine.behaviors.pick import ControlClient, ControlService
+
+        perception_cfg = replace(
+            self.perception_config,
+            run_local=False,
+            provider="host",
+            show_preview=False,
+        )
+        client = ControlClient(endpoint=self._embedded_ctrl_endpoint, cfg=self.cfg)
+        service = ControlService(
+            self._new_on_device_panel_state(),
+            client=client,
+            mapping_cfg=self.cfg,
+            ik_cfg=self.ik_config,
+            ik_context=self.ik_context,
+            config_path=self.config_path or None,
+            perception_cfg=perception_cfg,
+            pick_cfg=self.pick_config,
+            gaze_cfg=self.gaze_config,
+            ownership_enable=bool(self.ownership_enable),
+            hand_eye_transform=self.hand_eye_transform,
+            hand_eye_parent_frame=self.hand_eye_parent_frame,
+            use_hardware=self._has_hw(),
+            remote_gaze_delegate=False,
+        )
+        self._embedded_control_client = client
+        self._embedded_control_service = service
+        print(f"[host] on-device gaze controller ready via {self._embedded_ctrl_endpoint}")
+        return service
+
+    def _stop_on_device_gaze(self) -> None:
+        service = self._embedded_control_service
+        if service is not None:
+            try:
+                service.stop_gaze_stabilizer()
+            except Exception as exc:
+                print(f"[host] on-device gaze stop failed: {exc}")
+
+    def _close_on_device_control_service(self) -> None:
+        self._stop_on_device_gaze()
+        client = self._embedded_control_client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        self._embedded_control_client = None
+        self._embedded_control_service = None
+
     def _update_external_debug_markers(self, raw_markers: list[dict[str, Any]]) -> tuple[bool, str]:
         updated = 0
         for raw in list(raw_markers):
@@ -1528,6 +1630,10 @@ class ControlHost:
 
     def close(self) -> None:
         try:
+            self._close_on_device_control_service()
+        except Exception:
+            pass
+        try:
             self.stop_perception_worker(timeout_s=2.0)
         except Exception:
             pass
@@ -1724,6 +1830,79 @@ class ControlHost:
                 ok = False
                 reason = str(exc)
             self._reply(ident, {"t": "ack", "ts": proto.now_s(), "ok": ok, "device": self.device, "ports": self._list_ports(), "reason": reason, "torque_enabled": self.torque_enabled})
+            return
+        if t == "gaze_start_standing":
+            ok = True
+            reason = "on_device_gaze_standing"
+            try:
+                service = self._ensure_on_device_control_service()
+                service.start_gaze_stabilizer_standing(run_id=str(msg.get("run_id", "")))
+                ok = bool(service.state.gaze_running)
+                reason = str(service.state.gaze_status_msg or reason)
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_gaze_start_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            self._broadcast_state_now()
+            return
+        if t == "gaze_start_walking":
+            ok = True
+            mode = str(msg.get("gaze_mode", "")).strip()
+            reason = "on_device_gaze_walking"
+            try:
+                service = self._ensure_on_device_control_service()
+                service.start_gaze_stabilizer_walking(
+                    run_id=str(msg.get("run_id", "")),
+                    gaze_mode=mode or None,
+                )
+                ok = bool(service.state.gaze_running)
+                reason = str(service.state.gaze_status_msg or reason)
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_gaze_start_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            self._broadcast_state_now()
+            return
+        if t == "gaze_stop":
+            ok = True
+            reason = "on_device_gaze_stop"
+            try:
+                self._stop_on_device_gaze()
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_gaze_stop_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            self._broadcast_state_now()
             return
         if t == "perception_start":
             ok = True
@@ -2487,11 +2666,15 @@ def run_host(
             direction_by_id=direction,
             device=device,
             hardware_cfg=hw_cfg,
+            config_path=str(config_path),
+            ik_config=bundle.ik_config,
             ik_context=ik_context,
             hand_eye_transform=hand_eye_transform,
             hand_eye_parent_frame=hand_eye_parent_frame,
             pick_config=bundle.pick_config,
             perception_config=bundle.perception_config,
+            gaze_config=bundle.gaze_stabilizer_config,
+            ownership_enable=bool(getattr(bundle.experiment_config, "ownership_enable", False)),
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,
             trajectory_cfg=QuinticTimingConfig(

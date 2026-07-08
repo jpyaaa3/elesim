@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,10 @@ from engine.vision.perception.detector import DetectionResult
 
 class YoloUnavailableError(RuntimeError):
     """Raised when ultralytics is unavailable or the model cannot be loaded."""
+
+
+_YOLO_MODEL_CACHE: dict[tuple[str, str], Any] = {}
+_YOLO_MODEL_CACHE_LOCK = threading.Lock()
 
 
 def _load_yolo_class() -> Any:
@@ -97,6 +102,25 @@ def _format_model_load_error(model_path: Path, exc: Exception) -> str:
     return "\n".join(lines)
 
 
+def _cached_yolo_model(model_file: Path, device: str | int) -> tuple[Any, bool]:
+    key = (str(Path(model_file).resolve()), str(device))
+    with _YOLO_MODEL_CACHE_LOCK:
+        cached = _YOLO_MODEL_CACHE.get(key)
+        if cached is not None:
+            return cached, True
+    yolo_class = _load_yolo_class()
+    try:
+        model = yolo_class(str(model_file))
+    except Exception as exc:
+        raise YoloUnavailableError(_format_model_load_error(model_file, exc)) from exc
+    with _YOLO_MODEL_CACHE_LOCK:
+        existing = _YOLO_MODEL_CACHE.get(key)
+        if existing is not None:
+            return existing, True
+        _YOLO_MODEL_CACHE[key] = model
+    return model, False
+
+
 def _bbox_mask(h: int, w: int, bbox_xyxy: tuple[int, int, int, int]) -> np.ndarray:
     x0, y0, x1, y1 = bbox_xyxy
     mask = np.zeros((h, w), dtype=np.uint8)
@@ -146,14 +170,11 @@ class YoloDetector:
         self._min_area = int(cfg.get("min_area_px", 100))
         self._mask_threshold = float(cfg.get("mask_threshold", 0.5))
         self._imgsz = int(cfg.get("imgsz", 640))
-        yolo_class = _load_yolo_class()
         self._device = resolve_yolo_device(cfg.get("device", cfg.get("gpu", 0)))
-        try:
-            self._model = yolo_class(str(model_file))
-        except Exception as exc:
-            raise YoloUnavailableError(_format_model_load_error(model_file, exc)) from exc
+        self._model, cache_hit = _cached_yolo_model(model_file, self._device)
         self._class_names = self._read_class_names()
-        print(f"[YOLO] model={model_file} device={self._device}")
+        cache_tag = "cached" if cache_hit else "loaded"
+        print(f"[YOLO] {cache_tag} model={model_file} device={self._device}")
 
     def _read_class_names(self) -> list[str]:
         names = getattr(self._model, "names", None) or {}

@@ -555,6 +555,36 @@ class ControlClient:
     def send_perception_record_stop(self) -> None:
         self._send({"t": "perception_record_stop", "ts": time.time()})
 
+    def send_gaze_start_standing(self, *, run_id: str = "") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "gaze_start_standing",
+                "ts": now,
+                "seq": self.tx_seq,
+                "run_id": str(run_id),
+            }
+        )
+
+    def send_gaze_start_walking(self, *, run_id: str = "", gaze_mode: str = "") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "gaze_start_walking",
+                "ts": now,
+                "seq": self.tx_seq,
+                "run_id": str(run_id),
+                "gaze_mode": str(gaze_mode),
+            }
+        )
+
+    def send_gaze_stop(self) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send({"t": "gaze_stop", "ts": now, "seq": self.tx_seq})
+
     def send_perception_observation(
         self,
         *,
