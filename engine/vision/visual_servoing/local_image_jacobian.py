@@ -351,24 +351,25 @@ def joint_saturated(
     min_cmd: float = 1e-4,
     min_motion_frac: float = 0.10,
 ) -> bool:
-    """True when a commanded axis barely moved or moved opposite (limit / stall)."""
+    """True when a command produced essentially no measured joint motion.
+
+    LJI estimates from measured ``delta_q``.  A multi-axis command can still be
+    useful when only part of the arm moves, so do not reject a sample just
+    because one commanded axis under-tracked or moved differently than expected.
+    """
     before = np.asarray(q_before, dtype=float).reshape(NUM_Q)
     cmd = np.asarray(q_cmd, dtype=float).reshape(NUM_Q)
     after = np.asarray(q_after, dtype=float).reshape(NUM_Q)
     meas = after - before
-    for i in range(NUM_Q):
-        cmd_i = float(cmd[i])
-        if abs(cmd_i) < float(min_cmd):
-            continue
-        if float(meas[i]) * cmd_i < 0.0:
-            return True
-        frac = float(min_motion_frac)
-        # Small seg steps (lij_max_dq_theta1) often move <10%; do not treat as limit stall.
-        if i >= 2 and abs(cmd_i) < 0.004:
-            frac = min(frac, 0.02)
-        if abs(float(meas[i])) < abs(cmd_i) * frac:
-            return True
-    return False
+    active = np.abs(cmd) >= float(min_cmd)
+    if not bool(np.any(active)):
+        return False
+    cmd_norm = float(np.linalg.norm(cmd[active]))
+    meas_norm = float(np.linalg.norm(meas[active]))
+    if cmd_norm <= 1e-9:
+        return False
+    frac = min(float(min_motion_frac), 0.05)
+    return meas_norm < cmd_norm * frac
 
 
 @dataclass(frozen=True)
@@ -527,4 +528,3 @@ def compose_dq_align_and_approach(
         max_dq_angle=float(max_dq_angle),
     )
     return dq, dq_align, dq_approach
-

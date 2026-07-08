@@ -2173,6 +2173,9 @@ class ControlService:
         force: bool = False,
         sag_model_override: Optional[dict[str, Any]] = None,
         host_times: Optional[dict[str, float]] = None,
+        linear_tol_m: Optional[float] = None,
+        angle_tol_rad: Optional[float] = None,
+        consecutive: Optional[int] = None,
     ) -> Optional[HostState]:
         q_cmd = np.array(
             [
@@ -2190,7 +2193,18 @@ class ControlService:
             sag_model_override=sag_model_override,
         )
         t_after_send = perf_counter()
-        host_state, _settled = self._wait_until_q_settled(q_cmd, timeout_s=float(timeout_s))
+        wait_kwargs: dict[str, Any] = {}
+        if linear_tol_m is not None:
+            wait_kwargs["linear_tol_m"] = float(linear_tol_m)
+        if angle_tol_rad is not None:
+            wait_kwargs["angle_tol_rad"] = float(angle_tol_rad)
+        if consecutive is not None:
+            wait_kwargs["consecutive"] = int(consecutive)
+        host_state, _settled = self._wait_until_q_settled(
+            q_cmd,
+            timeout_s=float(timeout_s),
+            **wait_kwargs,
+        )
         if host_times is not None:
             host_times["host_apply_s"] = float(t_after_send - t_send)
             host_times["settle_s"] = float(perf_counter() - t_after_send)
@@ -5365,6 +5379,8 @@ class ControlService:
         timeout_s: float = 2.0,
         wait_settle: bool = True,
         step_period_s: float = 0.0,
+        linear_tol_m: Optional[float] = None,
+        angle_tol_rad: Optional[float] = None,
     ) -> tuple[np.ndarray, Optional[HostState]]:
         q0 = self._q_array_from_state(host_state)
         dq_arr = np.asarray(dq, dtype=float).reshape(4)
@@ -5382,6 +5398,8 @@ class ControlService:
                 source=motion_source,
                 force=True,
                 sag_model_override=dict(sag_model),
+                linear_tol_m=linear_tol_m,
+                angle_tol_rad=angle_tol_rad,
             )
         else:
             self.send_current_target(
@@ -7699,6 +7717,7 @@ class ControlService:
             2.0e-4,
             min(6.0e-4, float(pk.lij_max_dq_linear) * 0.25),
         )
+        lji_apply_timeout_s = max(float(lji_motion_settle_timeout_s), 0.05)
         lji_pipelined = bool(pk.lij_pipelined_motion)
         lji_step_period_s = float(max(pk.lij_step_period_s, 0.0))
         success = False
@@ -7993,9 +8012,11 @@ class ControlService:
                                 dq_cmd_arr,
                                 host_state=host_state,
                                 sag_model=dict(sag_model),
-                                timeout_s=motion_apply_timeout_s,
+                                timeout_s=lji_apply_timeout_s,
                                 wait_settle=not lji_pipelined,
                                 step_period_s=lji_step_period_s,
+                                linear_tol_m=lji_settle_linear_tol,
+                                angle_tol_rad=lji_settle_angle_tol,
                             )
                             moved = True
                         if self._pick_apply_lost_follow_step(
@@ -8188,9 +8209,11 @@ class ControlService:
                         dq_cmd_arr,
                         host_state=host_state,
                         sag_model=dict(sag_model),
-                        timeout_s=motion_apply_timeout_s,
+                        timeout_s=lji_apply_timeout_s,
                         wait_settle=not lji_pipelined,
                         step_period_s=lji_step_period_s,
+                        linear_tol_m=lji_settle_linear_tol,
+                        angle_tol_rad=lji_settle_angle_tol,
                     )
                     if float(pk.lij_dq_smooth_alpha) > 1e-6:
                         self._grasp_lji_last_dq_cmd = np.asarray(
