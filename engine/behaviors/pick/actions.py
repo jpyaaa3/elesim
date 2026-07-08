@@ -306,7 +306,6 @@ class ControlService:
         self._gaze_dv_err_rate_filt: float = 0.0
         self._gaze_last_cmd_wall_s: float = 0.0
         self._gaze_last_sent_du_mag: float = 0.0
-        self._gaze_cmd_u: Optional[ControlU] = None
 
     def _gaze_busy(self) -> bool:
         return self._gaze_service.is_running
@@ -4273,19 +4272,6 @@ class ControlService:
         self._gaze_dv_err_rate_filt = 0.0
         self._gaze_last_cmd_wall_s = 0.0
         self._gaze_last_sent_du_mag = 0.0
-        self._gaze_cmd_u = None
-
-    def _current_gaze_control_u(self) -> ControlU:
-        if self._gaze_cmd_u is None:
-            self._gaze_cmd_u = self.current_control_u()
-        return self._clamp_display_u(self._gaze_cmd_u)
-
-    def _mark_gaze_command_sent(self, current_u: ControlU, next_u: ControlU) -> None:
-        self._gaze_cmd_u = self._clamp_display_u(next_u)
-        self._gaze_last_cmd_wall_s = float(time.time())
-        self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
-            float(next_u.u_s2 - current_u.u_s2)
-        )
 
     def _gaze_derivative_seg_du(
         self,
@@ -9884,7 +9870,7 @@ class ControlService:
         tv = float(self.state.visual_target_uv_v)
         u_err = float(obs.center_uv[0]) - tu
         v_err = float(obs.center_uv[1]) - tv
-        current_u = self._current_gaze_control_u()
+        current_u = self.current_control_u()
         g = self._gaze_cfg
         period = float(dt_s) if dt_s is not None else (1.0 / max(1.0, float(g.hz)))
         next_u, mode, _, _ = self._apply_pick_center_step(
@@ -9983,7 +9969,10 @@ class ControlService:
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
             self.apply_partial_control_u(partial)
-            self._mark_gaze_command_sent(current_u, next_u)
+            self._gaze_last_cmd_wall_s = float(time.time())
+            self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
+                float(next_u.u_s2 - current_u.u_s2)
+            )
         return mode, current_u, next_u, u_err, v_err
 
     def apply_gaze_preview_correction(
@@ -9998,7 +9987,7 @@ class ControlService:
         tv = float(self.state.visual_target_uv_v)
         u_err = float(obs.center_uv[0]) - tu
         v_err = float(obs.center_uv[1]) - tv
-        current_u = self._current_gaze_control_u()
+        current_u = self.current_control_u()
         g = self._gaze_cfg
         du_v = np.asarray(du, dtype=float).reshape(3)
         roll_du = float(du_v[0]) if bool(g.enable_roll) else 0.0
@@ -10048,7 +10037,10 @@ class ControlService:
             if bool(g.enable_roll):
                 partial["roll"] = float(next_u.u_roll)
             self.apply_partial_control_u(partial)
-            self._mark_gaze_command_sent(current_u, next_u)
+            self._gaze_last_cmd_wall_s = float(time.time())
+            self._gaze_last_sent_du_mag = abs(float(next_u.u_s1 - current_u.u_s1)) + abs(
+                float(next_u.u_s2 - current_u.u_s2)
+            )
         return mode, current_u, next_u, u_err, v_err
 
     def close(self) -> None:
