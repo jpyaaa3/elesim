@@ -1012,6 +1012,7 @@ class ControlHost:
         self._embedded_control_client = client
         self._embedded_control_service = service
         print(f"[host] on-device gaze controller ready via {self._embedded_ctrl_endpoint}")
+        self._broadcast_state_now()
         return service
 
     def _stop_on_device_gaze(self) -> None:
@@ -2602,61 +2603,13 @@ class ControlHost:
                             )
             if (now - self._t_state) >= self._state_period:
                 self._t_state = now
-                go2_vel = self._effective_go2_vel(now)
                 if self._go2_bridge is not None:
                     self._go2_bridge.tick_cmd(now)
                     sample = self._go2_bridge.latest_state()
                     if sample is not None:
                         self._apply_go2_base_from_odom(sample)
                     self._go2_bridge.maybe_log_status(now)
-                self._broadcast(
-                    proto.pack_state(
-                        u=self.last_u,
-                        q=self.last_q,
-                        sim_q=self.last_sim_q,
-                        ts=self.last_state_ts or now,
-                        torque_enabled=self.torque_enabled,
-                        ik_target_xyz=self.last_ik_target_xyz,
-                        ik_target_dir=self.last_ik_target_dir,
-                        actual_tip_xyz=self.last_actual_tip_xyz,
-                        actual_tip_dir=self.last_actual_tip_dir,
-                        perceived_object_label=(self.last_perceived_object_label or None),
-                        perceived_object_confidence=self.last_perceived_object_confidence,
-                        perceived_object_camera=self.last_perceived_object_camera_xyz,
-                        perceived_center_uv=self.last_perceived_center_uv,
-                        perceived_scale=self.last_perceived_scale,
-                        perceived_timestamp_s=(self.last_perceived_timestamp_s or None),
-                        perception_running=bool(self.perception_running),
-                        perception_failed=bool(self.perception_failed),
-                        perception_status=str(self.perception_status),
-                        perception_source=str(self.perception_source),
-                        perception_preview_endpoint=str(getattr(self.perception_config, "preview_bind", "")),
-                        sag_model=self.last_sag_model,
-                        claw_closed=self.last_claw_closed,
-                        go2_vel=go2_vel,
-                        go2_base_rpy=self.last_go2_base_rpy,
-                        go2_base_pos=self.last_go2_base_pos,
-                        go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
-                        go2_base_ang_vel=self.last_go2_base_ang_vel,
-                        go2_base_timestamp_s=(self.last_go2_base_timestamp_s or None),
-                        go2_leg_q=self.last_go2_leg_q,
-                        go2_leg_dq=self.last_go2_leg_dq,
-                        go2_leg_torque_nm=self.last_go2_leg_torque_nm,
-                        go2_sport_pose=(self.last_go2_sport_pose or None),
-                        go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
-                        go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
-                        go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
-                        sim_reset_seq=int(self._sim_reset_seq),
-                        sim_time_s=self.last_sim_time_s,
-                        sim_wall_elapsed_s=self.last_sim_wall_elapsed_s,
-                        sim_realtime_factor=self.last_sim_realtime_factor,
-                        sim_step_count=self.last_sim_step_count,
-                        claw_current=self._last_claw_current,
-                        motor_currents_ma={self._motor_name_by_id(int(k)): int(v) for k, v in self._last_motor_current_by_id.items()},
-                        safety_fault=(self._safety_fault or None),
-                        debug_markers=self._active_debug_markers(),
-                    )
-                )
+                self._broadcast_state_now()
 
 
 def run_host(
