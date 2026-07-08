@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import signal
 import threading
 import time
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 import numpy as np
@@ -311,6 +313,10 @@ class ControlHost:
         self._arm_latency_sums: dict[str, float] = {}
         self._arm_latency_max: dict[str, float] = {}
         self._arm_latency_last_follow: dict[str, Any] = {}
+        self._arm_latency_csv_path: str = ""
+        self._arm_latency_csv_file: Optional[Any] = None
+        self._arm_latency_csv_writer: Optional[csv.DictWriter] = None
+        self._init_arm_latency_csv()
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
@@ -1194,6 +1200,84 @@ class ControlHost:
         self._arm_latency_sums[key] = float(self._arm_latency_sums.get(key, 0.0)) + value
         self._arm_latency_max[key] = max(float(self._arm_latency_max.get(key, value)), value)
 
+    def _init_arm_latency_csv(self) -> None:
+        if not bool(self._arm_latency_log_enable):
+            return
+        raw_path = str(
+            os.environ.get(
+                "ELESIM_ARM_LATENCY_LOG",
+                getattr(self.hardware_cfg, "arm_latency_log_path", "") if self.hardware_cfg is not None else "",
+            )
+            or ""
+        ).strip()
+        if not raw_path:
+            raw_path = "engine/logs/arm_latency"
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if path.suffix.lower() != ".csv":
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            path = path / f"{stamp}_arm_latency.csv"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            file_exists = path.exists() and path.stat().st_size > 0
+            self._arm_latency_csv_file = open(path, "a", newline="", encoding="utf-8")
+            fields = [
+                "ts",
+                "recv",
+                "submit",
+                "apply",
+                "replace",
+                "client_to_host_avg_ms",
+                "client_to_host_max_ms",
+                "client_to_write_avg_ms",
+                "client_to_write_max_ms",
+                "obs_age_avg_ms",
+                "obs_age_max_ms",
+                "recv_to_write_avg_ms",
+                "recv_to_write_max_ms",
+                "sync_write_avg_ms",
+                "sync_write_max_ms",
+                "follow50_avg_ms",
+                "follow50_max_ms",
+                "follow90_avg_ms",
+                "follow90_max_ms",
+                "err_u",
+                "source",
+                "seq",
+                "last_error",
+            ]
+            self._arm_latency_csv_writer = csv.DictWriter(self._arm_latency_csv_file, fieldnames=fields)
+            if not file_exists:
+                self._arm_latency_csv_writer.writeheader()
+                self._arm_latency_csv_file.flush()
+            self._arm_latency_csv_path = str(path)
+            print(f"[arm_latency] csv={self._arm_latency_csv_path}")
+        except Exception as exc:
+            self._arm_latency_csv_path = ""
+            self._arm_latency_csv_file = None
+            self._arm_latency_csv_writer = None
+            print(f"[arm_latency] csv open failed: {exc}")
+
+    def _arm_latency_avg_max_values(self, name: str) -> tuple[Optional[float], Optional[float]]:
+        n = int(self._arm_latency_counts.get(f"{name}.n", 0))
+        if n <= 0:
+            return None, None
+        avg = float(self._arm_latency_sums.get(name, 0.0)) / float(n)
+        mx = float(self._arm_latency_max.get(name, 0.0))
+        return avg, mx
+
+    def _arm_latency_write_csv_row(self, row: dict[str, Any]) -> None:
+        writer = self._arm_latency_csv_writer
+        fh = self._arm_latency_csv_file
+        if writer is None or fh is None:
+            return
+        try:
+            writer.writerow(row)
+            fh.flush()
+        except Exception as exc:
+            print(f"[arm_latency] csv write failed: {exc}")
+
     def _control_u_value(self, u: proto.ControlU, axis: str) -> float:
         key = str(axis).strip().lower()
         if key == "linear":
@@ -1223,16 +1307,39 @@ class ControlHost:
         self._arm_latency_last_log_t = now
 
         def _avg_max(name: str) -> str:
-            n = int(self._arm_latency_counts.get(f"{name}.n", 0))
-            if n <= 0:
+            avg, mx = self._arm_latency_avg_max_values(name)
+            if avg is None or mx is None:
                 return "-"
-            avg = float(self._arm_latency_sums.get(name, 0.0)) / float(n)
-            mx = float(self._arm_latency_max.get(name, 0.0))
             return f"{avg:.1f}/{mx:.1f}"
 
         follow = dict(self._arm_latency_last_follow or {})
         err_now = follow.get("last_err_u", None)
         err_s = "-" if err_now is None else f"{float(err_now):.2f}u"
+        names = [
+            "client_to_host_ms",
+            "client_to_write_ms",
+            "obs_age_ms",
+            "recv_to_write_ms",
+            "sync_write_ms",
+            "follow50_ms",
+            "follow90_ms",
+        ]
+        row: dict[str, Any] = {
+            "ts": float(now),
+            "recv": int(self._arm_latency_counts.get("recv", 0)),
+            "submit": int(self._arm_latency_counts.get("submit", 0)),
+            "apply": int(self._arm_latency_counts.get("apply", 0)),
+            "replace": int(self._arm_latency_counts.get("replace", 0)),
+            "err_u": "" if err_now is None else float(err_now),
+            "source": str(follow.get("source", self._arm_servo_target_source) or ""),
+            "seq": int(follow.get("seq", self._arm_servo_applied_seq)),
+            "last_error": str(self._arm_servo_last_error or ""),
+        }
+        for name in names:
+            avg, mx = self._arm_latency_avg_max_values(name)
+            prefix = name.removesuffix("_ms")
+            row[f"{prefix}_avg_ms"] = "" if avg is None else float(avg)
+            row[f"{prefix}_max_ms"] = "" if mx is None else float(mx)
         print(
             "[arm_latency] "
             f"recv={int(self._arm_latency_counts.get('recv', 0))} "
@@ -1251,6 +1358,7 @@ class ControlHost:
             f"seq={int(follow.get('seq', self._arm_servo_applied_seq))} "
             f"last_error={self._arm_servo_last_error or '-'}"
         )
+        self._arm_latency_write_csv_row(row)
         self._arm_latency_counts.clear()
         self._arm_latency_sums.clear()
         self._arm_latency_max.clear()
@@ -2070,6 +2178,13 @@ class ControlHost:
                 self._go2_bridge.stop()
             except Exception:
                 pass
+        if self._arm_latency_csv_file is not None:
+            try:
+                self._arm_latency_csv_file.close()
+            except Exception:
+                pass
+            self._arm_latency_csv_file = None
+            self._arm_latency_csv_writer = None
         try:
             self.poller.unregister(self.sock)
         except Exception:

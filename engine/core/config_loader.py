@@ -104,6 +104,7 @@ class HardwareConfig:
     arm_servo_thread_hz: float = 120.0
     arm_latency_log_enable: bool = False
     arm_latency_log_interval_s: float = 1.0
+    arm_latency_log_path: str = ""
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -1466,6 +1467,7 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         arm_latency_log_interval_s=cp.getfloat(
             "hardware", "arm_latency_log_interval_s", fallback=hw0.arm_latency_log_interval_s
         ),
+        arm_latency_log_path=cp.get("hardware", "arm_latency_log_path", fallback=hw0.arm_latency_log_path),
         profile_vel_linear=cp.getint("hardware", "profile_vel_linear", fallback=hw0.profile_vel_linear),
         profile_acc_linear=cp.getint("hardware", "profile_acc_linear", fallback=hw0.profile_acc_linear),
         profile_vel_roll=cp.getint("hardware", "profile_vel_roll", fallback=hw0.profile_vel_roll),
