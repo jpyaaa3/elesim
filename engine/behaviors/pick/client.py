@@ -82,6 +82,7 @@ class ControlClient:
         self.last_perception_record_with_overlay: bool = False
         self.last_perception_last_record_path: str = ""
         self.last_perception_last_capture_path: str = ""
+        self.last_perception_hz: float = 0.0
         self.last_gaze_running: bool = False
         self.last_gaze_mode: str = "idle"
         self.last_gaze_status_msg: str = ""
@@ -160,6 +161,7 @@ class ControlClient:
             perception_record_with_overlay=bool(self.last_perception_record_with_overlay),
             perception_last_record_path=str(self.last_perception_last_record_path),
             perception_last_capture_path=str(self.last_perception_last_capture_path),
+            perception_hz=float(self.last_perception_hz),
             gaze_running=bool(self.last_gaze_running),
             gaze_mode=str(self.last_gaze_mode),
             gaze_status_msg=str(self.last_gaze_status_msg),
@@ -278,6 +280,11 @@ class ControlClient:
             self.last_perception_last_record_path = str(msg.get("perception_last_record_path", ""))
         if "perception_last_capture_path" in msg:
             self.last_perception_last_capture_path = str(msg.get("perception_last_capture_path", ""))
+        if "perception_hz" in msg:
+            try:
+                self.last_perception_hz = max(0.0, float(msg.get("perception_hz", 0.0)))
+            except (TypeError, ValueError):
+                self.last_perception_hz = 0.0
         object_world_raw = msg.get("object_world", None)
         if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
             try:

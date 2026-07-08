@@ -794,9 +794,10 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
 
     _line(
         "Perception",
-        "[%s]  frame=%d  center_uv=%s  det=%s  conf=%.2f"
+        "[%s]  %.1f Hz  frame=%d  center_uv=%s  det=%s  conf=%.2f"
         % (
             perc_tag,
+            float(getattr(st, "perception_hz", 0.0)),
             int(st.perception_frame_idx),
             _fmt_uv(st.perception_center_uv),
             str(st.perception_label) or "(none)",
@@ -828,7 +829,7 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
     _line("Perception msg", st.perception_status_msg)
 
     if host is None or not bool(getattr(host, "connected", False)):
-        relay_text = "[OFF]  uv=-  scale=-  label=-  age=-"
+        relay_text = "[OFF]  hz=-  uv=-  scale=-  label=-  age=-"
     else:
         host_age = -1.0
         if float(host.perceived_timestamp_s) > 0.0:
@@ -854,8 +855,9 @@ def draw_live_visual_status(panel, *, show_separators: bool = True, show_title: 
             host_tag = f"{host_tag} (local ok {local_age:.1f}s)"
         scale_str = "-" if host.perceived_scale is None else f"{float(host.perceived_scale):.3f}"
         age_str = "-" if host_age < 0.0 else "%.2fs" % float(host_age)
-        relay_text = "[%s]  uv=%s  scale=%s  label=%s  age=%s" % (
+        relay_text = "[%s]  %.1f Hz  uv=%s  scale=%s  label=%s  age=%s" % (
             host_tag,
+            float(getattr(host, "perception_hz", 0.0)),
             _fmt_uv(host.perceived_center_uv),
             scale_str,
             str(host.perceived_object_label) or "(none)",

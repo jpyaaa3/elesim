@@ -195,6 +195,9 @@ class ControlHost:
         self.last_perceived_center_uv: Optional[tuple[float, float]] = None
         self.last_perceived_scale: Optional[float] = None
         self.last_perceived_timestamp_s: float = 0.0
+        self.perception_hz: float = 0.0
+        self._perception_rate_last_t: float = 0.0
+        self._perception_rate_last_frame_idx: int = -1
         self.perception_running: bool = False
         self.perception_failed: bool = False
         self.perception_status: str = "stopped"
@@ -343,6 +346,9 @@ class ControlHost:
         self.last_perceived_center_uv = None
         self.last_perceived_scale = None
         self.last_perceived_timestamp_s = 0.0
+        self.perception_hz = 0.0
+        self._perception_rate_last_t = 0.0
+        self._perception_rate_last_frame_idx = -1
         self.last_actual_tip_xyz = None
         self.last_actual_tip_dir = None
         self.last_sim_u = None
@@ -500,6 +506,9 @@ class ControlHost:
             self.last_perceived_center_uv = None
             self.last_perceived_scale = None
             self.last_perceived_timestamp_s = 0.0
+            self.perception_hz = 0.0
+            self._perception_rate_last_t = 0.0
+            self._perception_rate_last_frame_idx = -1
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._clear_go2_vel()
@@ -560,6 +569,9 @@ class ControlHost:
             self.last_perceived_center_uv = None
             self.last_perceived_scale = None
             self.last_perceived_timestamp_s = 0.0
+            self.perception_hz = 0.0
+            self._perception_rate_last_t = 0.0
+            self._perception_rate_last_frame_idx = -1
             self.last_sag_model = {}
             self.last_claw_closed = False
             self._clear_go2_vel()
@@ -897,6 +909,7 @@ class ControlHost:
                 perception_record_with_overlay=bool(perception_payload.get("perception_record_with_overlay", False)),
                 perception_last_record_path=str(perception_payload.get("perception_last_record_path", "")),
                 perception_last_capture_path=str(perception_payload.get("perception_last_capture_path", "")),
+                perception_hz=float(perception_payload.get("perception_hz", 0.0)),
                 gaze_running=bool(gaze_payload.get("gaze_running", False)),
                 gaze_mode=str(gaze_payload.get("gaze_mode", "idle")),
                 gaze_status_msg=str(gaze_payload.get("gaze_status_msg", "")),
@@ -1407,6 +1420,7 @@ class ControlHost:
             "perception_preview_endpoint": str(getattr(self.perception_config, "preview_bind", "")),
             "perception_recording": bool(recording),
             "perception_record_with_overlay": bool(record_with_overlay),
+            "perception_hz": float(self.perception_hz),
         }
         if last_record_path:
             payload["perception_last_record_path"] = str(last_record_path)
@@ -1466,6 +1480,24 @@ class ControlHost:
             self.perception_running = bool(snap.running)
             self.perception_failed = bool(snap.failed)
             self.perception_status = str(snap.status_msg)
+            frame_idx = int(snap.frame_idx)
+            now = time.monotonic()
+            if not bool(snap.running) or bool(snap.failed):
+                self.perception_hz = 0.0
+                self._perception_rate_last_t = 0.0
+                self._perception_rate_last_frame_idx = -1
+            elif self._perception_rate_last_frame_idx < 0 or frame_idx <= self._perception_rate_last_frame_idx:
+                self.perception_hz = 0.0
+                self._perception_rate_last_t = now
+                self._perception_rate_last_frame_idx = frame_idx
+            else:
+                dt = max(1e-6, now - float(self._perception_rate_last_t))
+                frames = max(1, frame_idx - int(self._perception_rate_last_frame_idx))
+                inst_hz = float(frames) / dt
+                prev = float(self.perception_hz)
+                self.perception_hz = inst_hz if prev <= 0.0 else (0.75 * prev + 0.25 * inst_hz)
+                self._perception_rate_last_t = now
+                self._perception_rate_last_frame_idx = frame_idx
 
     def capture_perception_worker_frame(self, *, include_overlay: bool = True) -> tuple[bool, str, str]:
         with self._perception_lock:
@@ -1630,6 +1662,9 @@ class ControlHost:
             self.perception_failed = False
             self.perception_status = "starting"
             self.perception_source = "host"
+            self.perception_hz = 0.0
+            self._perception_rate_last_t = 0.0
+            self._perception_rate_last_frame_idx = -1
             cap = PerceptionCapture(
                 cfg,
                 publish_fn=self._publish_perception_observation_from_worker,
@@ -1648,6 +1683,9 @@ class ControlHost:
                 self.perception_running = False
                 self.perception_failed = False
                 self.perception_status = "stopped"
+                self.perception_hz = 0.0
+                self._perception_rate_last_t = 0.0
+                self._perception_rate_last_frame_idx = -1
             return True
         active_record_path = cap.recording_path() if cap.is_recording() else ""
         stopped = cap.stop(timeout_s=float(timeout_s))
@@ -1659,10 +1697,14 @@ class ControlHost:
                 self.perception_running = False
                 self.perception_failed = False
                 self.perception_status = "stopped"
+                self.perception_hz = 0.0
+                self._perception_rate_last_t = 0.0
+                self._perception_rate_last_frame_idx = -1
             else:
                 self.perception_running = False
                 self.perception_failed = True
                 self.perception_status = "stop pending"
+                self.perception_hz = 0.0
         return bool(stopped)
 
     def refresh_perception_worker(self) -> bool:

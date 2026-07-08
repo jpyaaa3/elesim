@@ -63,6 +63,7 @@ class HostState:
     perception_record_with_overlay: bool = False
     perception_last_record_path: str = ""
     perception_last_capture_path: str = ""
+    perception_hz: float = 0.0
     gaze_running: bool = False
     gaze_mode: str = "idle"
     gaze_status_msg: str = ""
@@ -118,6 +119,7 @@ class PanelState:
     perception_last_record_path: str = ""
     perception_center_uv: Optional[tuple[float, float]] = None
     perception_last_update_s: float = 0.0
+    perception_hz: float = 0.0
 
     gaze_running: bool = False
     gaze_mode: str = "idle"
@@ -286,6 +288,7 @@ class PanelState:
         bbox_wh: Optional[tuple[int, int]] = None,
         tracker_backend: str = "",
         center_uv: Optional[tuple[float, float]] = None,
+        perception_hz: Optional[float] = None,
     ) -> None:
         with self._lock:
             self.perception_running = bool(running)
@@ -310,6 +313,10 @@ class PanelState:
                 self.perception_tracker_backend = str(tracker_backend)
             if center_uv is not None:
                 self.perception_center_uv = (float(center_uv[0]), float(center_uv[1]))
+            if perception_hz is not None:
+                self.perception_hz = max(0.0, float(perception_hz))
+            elif not bool(running):
+                self.perception_hz = 0.0
             if bool(running) and int(frame_idx) > 0:
                 self.perception_last_update_s = float(time.time())
 

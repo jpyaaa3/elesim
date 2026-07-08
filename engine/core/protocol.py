@@ -281,6 +281,7 @@ def pack_state(
     perception_record_with_overlay: Optional[bool] = None,
     perception_last_record_path: Optional[str] = None,
     perception_last_capture_path: Optional[str] = None,
+    perception_hz: Optional[float] = None,
     gaze_running: Optional[bool] = None,
     gaze_mode: Optional[str] = None,
     gaze_status_msg: Optional[str] = None,
@@ -385,6 +386,8 @@ def pack_state(
         out["perception_last_record_path"] = str(perception_last_record_path)
     if perception_last_capture_path is not None:
         out["perception_last_capture_path"] = str(perception_last_capture_path)
+    if perception_hz is not None:
+        out["perception_hz"] = float(perception_hz)
     if gaze_running is not None:
         out["gaze_running"] = bool(gaze_running)
     if gaze_mode is not None:

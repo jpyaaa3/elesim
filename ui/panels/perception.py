@@ -225,6 +225,16 @@ def _draw_tracker_row(panel, *, disabled: bool) -> None:
         panel._perception_tracker_draft = "kcf"
 
 
+def _draw_actual_rate_row(panel, *, run_local: bool) -> None:
+    hz = float(getattr(panel.state, "perception_hz", 0.0))
+    host = getattr(panel, "_host_state", None)
+    if not bool(run_local) and host is not None:
+        hz = float(getattr(host, "perception_hz", hz))
+    source = "local" if bool(run_local) else "Jetson"
+    _control_label(panel, "Actual")
+    imgui.text(f"{hz:.1f} Hz  {source}")
+
+
 def browse_detector_config_path(initial_path: str) -> str | None:
     try:
         root_path = _project_root()
@@ -857,6 +867,7 @@ def draw_perception_panel(panel) -> None:
         )
         if changed_hz:
             panel._perception_publish_hz_draft = max(0.1, float(publish_hz))
+        _draw_actual_rate_row(panel, run_local=run_local)
 
         _draw_model_row(panel)
         pipeline_idx = _draw_detection_row(panel)

@@ -163,6 +163,9 @@ class ControlService:
         self._go2_arm_mount = go2_arm_mount
         self._perception_capture: Optional[PerceptionCapture] = None
         self._perception_capture_epoch: int = 0
+        self._perception_rate_last_t: float = 0.0
+        self._perception_rate_last_frame_idx: int = -1
+        self._perception_hz: float = 0.0
         self._side_camera_recorder: Optional[Any] = None
         self._side_camera_record_path: Optional[Path] = None
         self._remote_preview_stop = threading.Event()
@@ -739,6 +742,7 @@ class ControlService:
         ts = float(host_state.perceived_timestamp_s)
         center_uv = host_state.perceived_center_uv
         scale = host_state.perceived_scale
+        perception_hz = float(getattr(host_state, "perception_hz", 0.0))
         fresh = (
             center_uv is not None
             and scale is not None
@@ -756,6 +760,7 @@ class ControlService:
                 camera_xyz=host_state.perceived_object_camera_xyz,
                 image_scale=float(scale),
                 center_uv=(float(center_uv[0]), float(center_uv[1])),
+                perception_hz=perception_hz,
             )
             with self.state._lock:
                 self.state.perception_last_update_s = float(ts)
@@ -768,12 +773,14 @@ class ControlService:
                 running=worker_running,
                 failed=worker_failed,
                 msg=worker_msg or "remote: waiting for detection",
+                perception_hz=perception_hz,
             )
             return
         self.state.set_perception_status(
             running=False,
             failed=False,
             msg="remote: stopped",
+            perception_hz=0.0,
         )
 
     def _sync_remote_gaze_from_host(self, host_state: HostState) -> None:
@@ -4170,6 +4177,9 @@ class ControlService:
             self._stop_side_camera_recording()
         self._perception_capture = None
         self._perception_capture_epoch += 1
+        self._perception_rate_last_t = 0.0
+        self._perception_rate_last_frame_idx = -1
+        self._perception_hz = 0.0
 
     def _on_perception_snapshot(
         self,
@@ -4179,6 +4189,24 @@ class ControlService:
     ) -> None:
         if int(capture_epoch) > 0 and int(capture_epoch) != int(self._perception_capture_epoch):
             return
+        frame_idx = int(snap.frame_idx)
+        now = time.monotonic()
+        if not bool(snap.running) or bool(snap.failed):
+            self._perception_hz = 0.0
+            self._perception_rate_last_t = 0.0
+            self._perception_rate_last_frame_idx = -1
+        elif self._perception_rate_last_frame_idx < 0 or frame_idx <= self._perception_rate_last_frame_idx:
+            self._perception_hz = 0.0
+            self._perception_rate_last_t = now
+            self._perception_rate_last_frame_idx = frame_idx
+        else:
+            dt = max(1e-6, now - float(self._perception_rate_last_t))
+            frames = max(1, frame_idx - int(self._perception_rate_last_frame_idx))
+            inst_hz = float(frames) / dt
+            prev = float(self._perception_hz)
+            self._perception_hz = inst_hz if prev <= 0.0 else (0.75 * prev + 0.25 * inst_hz)
+            self._perception_rate_last_t = now
+            self._perception_rate_last_frame_idx = frame_idx
         world_xyz = snap.p_world
         if bool(self.state.pick_running):
             world_xyz = self._pick_frozen_world()
@@ -4186,7 +4214,7 @@ class ControlService:
             running=bool(snap.running),
             failed=bool(snap.failed),
             msg=str(snap.status_msg),
-            frame_idx=int(snap.frame_idx),
+            frame_idx=frame_idx,
             label=str(snap.label),
             confidence=float(snap.confidence),
             camera_xyz=snap.p_camera,
@@ -4197,6 +4225,7 @@ class ControlService:
             bbox_wh=tuple(snap.bbox_wh),
             tracker_backend=str(snap.tracker_backend),
             center_uv=snap.center_uv,
+            perception_hz=float(self._perception_hz),
         )
 
     def _pick_config_effective(self) -> PickConfig:
