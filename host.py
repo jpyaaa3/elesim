@@ -22,6 +22,7 @@ from engine.behaviors.gaze.stabilizer import (
     gaze_config_to_dict,
     patch_gaze_config,
 )
+from engine.behaviors.pick.state import HostState
 from engine.robot.go2.hardware import UnitreeRos2Bridge, create_go2_bridge_if_enabled
 from engine.robot.go2.hardware.odom_parser import OdomSample
 from engine.robot.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
@@ -108,6 +109,85 @@ def _local_client_endpoint(bind_addr: str) -> str:
         return addr
     _host, port = rest.rsplit(":", 1)
     return f"tcp://127.0.0.1:{port}"
+
+
+class _DirectEmbeddedControlClient:
+    """In-process client used by on-device gaze to avoid loopback ZMQ latency."""
+
+    def __init__(self, host: "ControlHost", cfg: proto.SimMappingConfig) -> None:
+        self._host = host
+        self.cfg = cfg
+        self.tx_seq = 0
+        self.is_connected = True
+        self.last_reply_ok = True
+        self.last_reply_reason = ""
+        self.last_object_world_xyz: Optional[tuple[float, float, float]] = None
+
+    def close(self) -> None:
+        self.is_connected = False
+
+    def rx_age_s(self) -> float:
+        return 0.0
+
+    def get_state(self) -> HostState:
+        state = self._host._host_state_snapshot(
+            tx_seq=int(self.tx_seq),
+            reply_ok=bool(self.last_reply_ok),
+            reply_reason=str(self.last_reply_reason),
+        )
+        self.last_object_world_xyz = self._host.last_perceived_object_world_xyz
+        return state
+
+    def refresh_state(self) -> HostState:
+        return self.get_state()
+
+    def q_to_control_u(
+        self,
+        *,
+        linear_m: float,
+        roll_rad: float,
+        theta1_rad: float,
+        theta2_rad: float,
+    ) -> proto.ControlU:
+        return proto.sim_q_to_control_u(
+            proto.SimQ(
+                linear_m=float(linear_m),
+                roll_rad=float(roll_rad),
+                theta1_rad=float(theta1_rad),
+                theta2_rad=float(theta2_rad),
+            ),
+            self.cfg,
+        )
+
+    def control_u_to_q(
+        self,
+        *,
+        u_linear: float,
+        u_roll: float,
+        u_s1: float,
+        u_s2: float,
+    ) -> proto.SimQ:
+        return proto.control_u_to_sim_q(
+            proto.ControlU(
+                u_linear=float(u_linear),
+                u_roll=float(u_roll),
+                u_s1=float(u_s1),
+                u_s2=float(u_s2),
+            ),
+            self.cfg,
+        )
+
+    def send_partial_control_u(self, partial_u: dict[str, float], *, source: str = "gaze") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        ok, reason = self._host._submit_direct_partial_control_u(
+            partial_u,
+            source=str(source),
+            seq=int(self.tx_seq),
+            client_ts_s=float(now),
+        )
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = str(reason)
 
 
 class ControlHost:
@@ -1030,6 +1110,87 @@ class ControlHost:
             )
         )
 
+    def _host_state_snapshot(
+        self,
+        *,
+        tx_seq: int = 0,
+        reply_ok: bool = True,
+        reply_reason: str = "",
+    ) -> HostState:
+        now = proto.now_s()
+        perception_payload = self._perception_state_payload()
+        gaze_payload = self._gaze_state_payload()
+        return HostState(
+            connected=True,
+            tx_seq=int(tx_seq),
+            rx_age_s=0.0,
+            device=str(self.device),
+            ports=(),
+            torque_enabled=bool(self.torque_enabled),
+            claw_current=int(self._last_claw_current),
+            motor_currents_ma={
+                self._motor_name_by_id(int(k)): int(v)
+                for k, v in self._last_motor_current_by_id.items()
+            },
+            safety_fault=str(self._safety_fault or ""),
+            actual_tip_xyz=self.last_actual_tip_xyz,
+            actual_tip_dir=self.last_actual_tip_dir,
+            perceived_object_label=str(self.last_perceived_object_label or ""),
+            perceived_object_confidence=float(self.last_perceived_object_confidence),
+            perceived_object_camera_xyz=self.last_perceived_object_camera_xyz,
+            perceived_center_uv=self.last_perceived_center_uv,
+            perceived_scale=self.last_perceived_scale,
+            perceived_timestamp_s=float(self.last_perceived_timestamp_s or 0.0),
+            reply_ok=bool(reply_ok),
+            reply_reason=str(reply_reason),
+            q=self.last_q,
+            u=self.last_u,
+            sim_q=self.last_sim_q,
+            sim_u=self.last_sim_u,
+            go2_vel=self._effective_go2_vel(now),
+            go2_base_rpy=self.last_go2_base_rpy,
+            go2_base_pos=self.last_go2_base_pos,
+            go2_base_lin_vel_body=self.last_go2_base_lin_vel_body,
+            go2_base_ang_vel=self.last_go2_base_ang_vel,
+            go2_base_timestamp_s=float(self.last_go2_base_timestamp_s or 0.0),
+            host_state_age_s=0.0,
+            go2_leg_q=self.last_go2_leg_q,
+            go2_leg_dq=self.last_go2_leg_dq,
+            go2_leg_torque_nm=self.last_go2_leg_torque_nm,
+            go2_sport_pose=str(self.last_go2_sport_pose or ""),
+            go2_sport_pose_seq=int(self.last_go2_sport_pose_seq),
+            go2_obstacles_avoid_enabled=bool(self.last_go2_obstacles_avoid_enabled),
+            go2_obstacles_avoid_seq=int(self.last_go2_obstacles_avoid_seq),
+            sim_time_s=float(self.last_sim_time_s),
+            sim_wall_elapsed_s=float(self.last_sim_wall_elapsed_s),
+            sim_realtime_factor=float(self.last_sim_realtime_factor),
+            sim_step_count=int(self.last_sim_step_count),
+            perception_running=bool(self.perception_running),
+            perception_failed=bool(self.perception_failed),
+            perception_status=str(self.perception_status),
+            perception_source=str(self.perception_source),
+            perception_preview_endpoint=str(getattr(self.perception_config, "preview_bind", "")),
+            perception_recording=bool(perception_payload.get("perception_recording", False)),
+            perception_record_with_overlay=bool(
+                perception_payload.get("perception_record_with_overlay", False)
+            ),
+            perception_last_record_path=str(perception_payload.get("perception_last_record_path", "")),
+            perception_last_capture_path=str(perception_payload.get("perception_last_capture_path", "")),
+            perception_hz=float(perception_payload.get("perception_hz", 0.0)),
+            gaze_running=bool(gaze_payload.get("gaze_running", False)),
+            gaze_mode=str(gaze_payload.get("gaze_mode", "idle")),
+            gaze_status_msg=str(gaze_payload.get("gaze_status_msg", "")),
+            gaze_u_err=float(gaze_payload.get("gaze_u_err", 0.0)),
+            gaze_v_err=float(gaze_payload.get("gaze_v_err", 0.0)),
+            gaze_du_roll=float(gaze_payload.get("gaze_du_roll", 0.0)),
+            gaze_du_s1=float(gaze_payload.get("gaze_du_s1", 0.0)),
+            gaze_du_s2=float(gaze_payload.get("gaze_du_s2", 0.0)),
+            gaze_obs_age_s=float(gaze_payload.get("gaze_obs_age_s", -1.0)),
+            gaze_tick_count=int(gaze_payload.get("gaze_tick_count", 0)),
+            gaze_update_count=int(gaze_payload.get("gaze_update_count", 0)),
+            gaze_config=dict(gaze_payload.get("gaze_config", {})),
+        )
+
     def _gaze_state_payload(self) -> Dict[str, Any]:
         cfg = self._effective_gaze_config()
         service = self._embedded_control_service
@@ -1106,7 +1267,7 @@ class ControlHost:
     def _ensure_on_device_control_service(self):
         if self._embedded_control_service is not None:
             return self._embedded_control_service
-        from engine.behaviors.pick import ControlClient, ControlService
+        from engine.behaviors.pick import ControlService
 
         perception_cfg = replace(
             self.perception_config,
@@ -1114,7 +1275,7 @@ class ControlHost:
             provider="host",
             show_preview=False,
         )
-        client = ControlClient(endpoint=self._embedded_ctrl_endpoint, cfg=self.cfg)
+        client = _DirectEmbeddedControlClient(self, self.cfg)
         service = ControlService(
             self._new_on_device_panel_state(),
             client=client,
@@ -1133,7 +1294,7 @@ class ControlHost:
         )
         self._embedded_control_client = client
         self._embedded_control_service = service
-        print(f"[host] on-device gaze controller ready via {self._embedded_ctrl_endpoint}")
+        print("[host] on-device gaze controller ready via direct host path")
         self._broadcast_state_now()
         return service
 
@@ -1686,6 +1847,88 @@ class ControlHost:
             self._last_target_apply_error = f"hw_apply_failed: {exc}"
             print(f"[host] partial hw apply failed: {exc}")
             return False
+
+    def _submit_direct_partial_control_u(
+        self,
+        partial_u: dict[str, float],
+        *,
+        source: str,
+        seq: int,
+        client_ts_s: float,
+    ) -> tuple[bool, str]:
+        target_recv_s = float(proto.now_s())
+        source_s = str(source)
+        if not self._is_allowed_source(source_s):
+            return False, "source_reject"
+        try:
+            raw_u = {str(k).strip().lower(): float(v) for k, v in dict(partial_u).items()}
+        except (TypeError, ValueError):
+            return False, "bad_partial_u"
+        u_keys = set(raw_u.keys())
+        if not u_keys or not u_keys.issubset({"linear", "roll", "s1", "s2"}):
+            return False, "bad_partial_u"
+        if bool(self._arm_latency_log_enable):
+            self._arm_latency_count("recv")
+            if float(client_ts_s) > 0.0:
+                self._arm_latency_sample_ms(
+                    "client_to_host_ms",
+                    (target_recv_s - float(client_ts_s)) * 1000.0,
+                )
+        merged_u = self._merge_partial_target_u(raw_u)
+        if merged_u is None:
+            return False, "empty_partial_u"
+        partial_target_axes = set(self._pending_target_axes)
+        q = proto.control_u_to_sim_q(merged_u, self.cfg)
+        self._last_target_apply_error = ""
+        log_key = "%s:true:%.4f:%.4f:%.4f:%.4f" % (
+            source_s,
+            float(q.linear_m),
+            float(q.roll_rad),
+            float(q.theta1_rad),
+            float(q.theta2_rad),
+        )
+        now_log = time.time()
+        if (
+            log_key != self._last_target_log_key
+            or (now_log - float(self._last_target_log_t)) >= 1.0
+        ):
+            self._last_target_log_key = log_key
+            self._last_target_log_t = now_log
+            print(
+                "[host] direct target | seq=%d source=%s partial_u=true q=(%.4f, %.4f, %.4f, %.4f)"
+                % (
+                    int(seq),
+                    source_s,
+                    float(q.linear_m),
+                    float(q.roll_rad),
+                    float(q.theta1_rad),
+                    float(q.theta2_rad),
+                )
+            )
+        self._cancel_trajectory()
+        submitted = self._submit_arm_servo_partial_target(
+            merged_u,
+            partial_target_axes,
+            seq=int(seq),
+            source=source_s,
+            host_recv_s=float(target_recv_s),
+            client_ts_s=float(client_ts_s),
+            perceived_ts_s=float(self.last_perceived_timestamp_s),
+        )
+        self._pending_target_q = None
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        self._pending_target_seq = -1
+        if bool(submitted):
+            reason = "direct_partial_submitted"
+        else:
+            reason = self._arm_servo_last_error or "direct_partial_submit_failed"
+        if not self._has_hw():
+            self.last_q = q
+            self.last_u = merged_u
+            self.last_state_ts = time.time()
+        self._state_broadcast_requested.set()
+        return bool(submitted), reason
 
     def _start_arm_servo_thread(self) -> None:
         if not bool(self._arm_servo_thread_enable) or not self._has_hw():
