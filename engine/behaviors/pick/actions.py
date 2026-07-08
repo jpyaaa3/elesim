@@ -5469,8 +5469,12 @@ class ControlService:
                 "controller",
                 "transition",
                 "object_lost",
+                "step_elapsed_s",
+                "remain_before_m",
+                "remain_before_mm",
                 "remain_m",
                 "remain_mm",
+                "remain_delta_mm",
                 "close_tol_m",
                 "u_err",
                 "v_err",
@@ -5494,6 +5498,7 @@ class ControlService:
                 "q_cmd_3",
                 "sample_reason",
                 "ik_status",
+                "note",
             ]
             writer = csv.DictWriter(fh, fieldnames=fields)
             writer.writeheader()
@@ -5540,8 +5545,11 @@ class ControlService:
         object_lost: int,
         remain_m: float,
         close_tol_m: float,
+        remain_before_m: Optional[float] = None,
+        step_elapsed_s: Optional[float] = None,
         ik_status: str,
         sample_reason: str,
+        note: str = "",
     ) -> None:
         writer = self._grasp_lji_log_writer
         fh = self._grasp_lji_log_file
@@ -5555,6 +5563,17 @@ class ControlService:
         q0, q1, q2, q3 = self._grasp_lji_log_vec4(q_cmd)
         now = time.time()
         self._grasp_lji_log_seq += 1
+        remain_after = self._grasp_lji_log_float(remain_m)
+        remain_before = (
+            self._grasp_lji_log_float(remain_before_m)
+            if remain_before_m is not None
+            else float("nan")
+        )
+        remain_delta_mm = (
+            (remain_after - remain_before) * 1000.0
+            if math.isfinite(remain_after) and math.isfinite(remain_before)
+            else float("nan")
+        )
         row = {
             "unix_s": now,
             "t_rel_s": now - float(self._grasp_lji_log_start_t or now),
@@ -5564,8 +5583,12 @@ class ControlService:
             "controller": str(controller),
             "transition": str(transition),
             "object_lost": int(object_lost),
-            "remain_m": self._grasp_lji_log_float(remain_m),
-            "remain_mm": self._grasp_lji_log_float(remain_m) * 1000.0,
+            "step_elapsed_s": self._grasp_lji_log_float(step_elapsed_s),
+            "remain_before_m": remain_before,
+            "remain_before_mm": remain_before * 1000.0 if math.isfinite(remain_before) else float("nan"),
+            "remain_m": remain_after,
+            "remain_mm": remain_after * 1000.0 if math.isfinite(remain_after) else float("nan"),
+            "remain_delta_mm": remain_delta_mm,
             "close_tol_m": self._grasp_lji_log_float(close_tol_m),
             "u_err": self._grasp_lji_log_float(u_err),
             "v_err": self._grasp_lji_log_float(v_err),
@@ -5589,6 +5612,7 @@ class ControlService:
             "q_cmd_3": q3,
             "sample_reason": str(sample_reason),
             "ik_status": str(ik_status),
+            "note": str(note),
         }
         try:
             writer.writerow(row)
@@ -5615,8 +5639,11 @@ class ControlService:
         object_lost: int,
         remain_m: float,
         close_tol_m: float,
+        remain_before_m: Optional[float] = None,
+        step_elapsed_s: Optional[float] = None,
         ik_status: str,
         sample_reason: str,
+        note: str = "",
     ) -> None:
         u_err = float(s_lji[0]) if s_lji is not None else float("nan")
         v_err = float(s_lji[1]) if s_lji is not None else float("nan")
@@ -5672,9 +5699,12 @@ class ControlService:
             transition=transition,
             object_lost=int(object_lost),
             remain_m=float(remain_m),
+            remain_before_m=remain_before_m,
+            step_elapsed_s=step_elapsed_s,
             close_tol_m=float(close_tol_m),
             ik_status=ik_status,
             sample_reason=sample_reason,
+            note=note,
         )
 
     def _grasp_lji_blind_finish_if_needed(
@@ -7179,6 +7209,7 @@ class ControlService:
 
             wp_idx = 0
             while wp_idx < max_waypoints:
+                step_t0 = time.time()
                 if self._pick_stop_event.is_set():
                     self.state.set_pick_status(
                         running=False,
@@ -7906,9 +7937,12 @@ class ControlService:
                         transition=transition,
                         object_lost=int(self._grasp_lji_object_lost_count),
                         remain_m=float(remain_after),
+                        remain_before_m=float(remain),
+                        step_elapsed_s=time.time() - float(step_t0),
                         close_tol_m=close_tol_m,
                         ik_status="-",
                         sample_reason="n/a",
+                        note="reacquire",
                     )
                     self.state.set_pick_status(
                         running=True,
@@ -7950,6 +7984,31 @@ class ControlService:
                         if float(pk.lij_dq_smooth_alpha) > 1e-6:
                             self._grasp_lji_last_dq_cmd = probe.copy()
                     else:
+                        self._grasp_lji_log_control_step(
+                            step_idx=int(wp_idx),
+                            mode=mode,
+                            s_lji=None,
+                            depth_valid=depth_valid,
+                            depth_valid_ratio=depth_valid_ratio,
+                            j_rank=0,
+                            j_cond=float("inf"),
+                            j_available=False,
+                            dq_cmd=np.zeros(4, dtype=float),
+                            dq_meas=None,
+                            q_cmd=self._q_array_from_state(host_state),
+                            controller="no_observation",
+                            transition=transition,
+                            object_lost=int(self._grasp_lji_object_lost_count),
+                            remain_m=float(remain),
+                            remain_before_m=float(remain),
+                            step_elapsed_s=time.time() - float(step_t0),
+                            close_tol_m=close_tol_m,
+                            ik_status="-",
+                            sample_reason="no_observation",
+                            note="s_lji_none",
+                        )
+                        if lji_step_period_s > 1e-6:
+                            time.sleep(min(float(lji_step_period_s), 0.10))
                         continue
                 else:
                     (
@@ -8095,9 +8154,12 @@ class ControlService:
                     transition=transition,
                     object_lost=int(self._grasp_lji_object_lost_count),
                     remain_m=float(remain_after),
+                    remain_before_m=float(remain),
+                    step_elapsed_s=time.time() - float(step_t0),
                     close_tol_m=close_tol_m,
                     ik_status=ik_status,
                     sample_reason=str(sample_reason.value),
+                    note="lji_step",
                 )
                 self.state.set_pick_status(
                     running=True,
