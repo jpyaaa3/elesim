@@ -5391,7 +5391,7 @@ class ControlService:
             float(q_cmd[2]),
             float(q_cmd[3]),
         )
-        motion_source = "lji" if bool(wait_settle) else "lji_step"
+        motion_source = "lji_step"
         if bool(wait_settle):
             host_after = self._send_state_q_and_wait(
                 timeout_s=float(timeout_s),
@@ -7703,8 +7703,6 @@ class ControlService:
         """LJI loop until remain <= blind_micro_start_m; then one-shot blind axial."""
         pk = self._pick_config_effective()
         max_waypoints = max(1, int(pk.grasp_max_waypoints))
-        waypoint_settle_timeout_s = float(max(pk.grasp_waypoint_settle_timeout_s, 0.0))
-        motion_apply_timeout_s = self._grasp_motion_apply_timeout_s(pk)
         standoff_m = float(max(pk.grasp_standoff_m, 0.0))
         close_tol_m = float(max(pk.grasp_close_tol_m, float(self._ik_cfg.tol), 0.003))
         lji_settle_dwell_s = float(max(pk.lij_settle_dwell_s, 0.0))
@@ -8122,9 +8120,11 @@ class ControlService:
                             probe,
                             host_state=host_state,
                             sag_model=dict(sag_model),
-                            timeout_s=motion_apply_timeout_s,
+                            timeout_s=lji_apply_timeout_s,
                             wait_settle=not lji_pipelined,
                             step_period_s=lji_step_period_s,
+                            linear_tol_m=lji_settle_linear_tol,
+                            angle_tol_rad=lji_settle_angle_tol,
                         )
                         if float(pk.lij_dq_smooth_alpha) > 1e-6:
                             self._grasp_lji_last_dq_cmd = probe.copy()

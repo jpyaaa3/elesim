@@ -727,12 +727,10 @@ class ControlHost:
 
     def _use_trajectory_for_source(self, source: str) -> bool:
         src = str(source).strip().lower()
-        # Pipelined LJI steps must apply immediately; quintic + 30ms period
-        # restarts before finish and kills small v/seg corrections.
-        if src == "lji_step":
+        # LJI steps must apply immediately; wrapping small visual-servo
+        # corrections in a trajectory starves the camera feedback loop.
+        if src in {"lji", "lji_step"}:
             return False
-        if src == "lji":
-            return bool(self._traj_lji_enable) and bool(self._trajectory_lji.cfg.enable)
         if not bool(self._trajectory.cfg.enable):
             return False
         # Visual servo / aim: immediate partial u; IK: long quintic.
@@ -2347,7 +2345,7 @@ class ControlHost:
         self._pending_target_seq = int(seq)
         self._last_target_apply_error = ""
         self._schedule_target_motion(q, source=source)
-        if str(source).strip().lower() == "lji_step" and self._has_hw():
+        if str(source).strip().lower() in {"lji", "lji_step"} and self._has_hw():
             applied_hw, complete = self._apply_sim_q_target(q)
             if applied_hw:
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
@@ -3875,6 +3873,26 @@ class ControlHost:
                 self._pending_target_axes = set()
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
                 self._schedule_target_motion(q, source=source)
+                if str(source).strip().lower() in {"lji", "lji_step"} and self._has_hw():
+                    applied_hw, complete = self._apply_sim_q_target(q)
+                    if applied_hw:
+                        self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
+                        if bool(complete):
+                            self._pending_target_q = None
+                    else:
+                        self._reply(
+                            ident,
+                            {
+                                "t": "ack",
+                                "ts": proto.now_s(),
+                                "ok": False,
+                                "reason": self._last_target_apply_error or "direct_lji_step_failed",
+                                "device": self.device,
+                                "torque_enabled": self.torque_enabled,
+                            },
+                        )
+                        self._state_broadcast_requested.set()
+                        return
             else:
                 self._cancel_trajectory()
                 if self._submit_arm_servo_partial_target(
