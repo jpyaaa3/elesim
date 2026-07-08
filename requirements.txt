@@ -1,5 +1,5 @@
 # Core (host / ctrl / engine)
-numpy>=2.0
+numpy>=1.23,<2
 scipy>=1.11
 pyzmq>=27.0
 
