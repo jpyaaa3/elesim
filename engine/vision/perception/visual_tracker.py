@@ -29,15 +29,21 @@ class BboxTracker:
         try:
             import cv2
 
+            legacy = getattr(cv2, "legacy", None)
             if self.backend_name == "csrt" and hasattr(cv2, "TrackerCSRT_create"):
                 self._tracker = cv2.TrackerCSRT_create()
+            elif self.backend_name == "csrt" and legacy is not None and hasattr(legacy, "TrackerCSRT_create"):
+                self._tracker = legacy.TrackerCSRT_create()
             elif hasattr(cv2, "TrackerKCF_create"):
                 self._tracker = cv2.TrackerKCF_create()
+                self.backend_name = "kcf"
+            elif legacy is not None and hasattr(legacy, "TrackerKCF_create"):
+                self._tracker = legacy.TrackerKCF_create()
                 self.backend_name = "kcf"
             else:
                 self._tracker = None
             if self._tracker is None:
-                self.last_init_error = "opencv tracker unavailable"
+                self.last_init_error = "opencv tracker unavailable; install opencv-contrib-python"
                 return False
             x0, y0, x1, y1 = [int(v) for v in bbox]
             ok = bool(self._tracker.init(frame, (x0, y0, max(1, x1 - x0), max(1, y1 - y0))))

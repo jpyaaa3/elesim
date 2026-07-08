@@ -15,7 +15,8 @@ dynamixel-sdk>=4.0
 genesis-world>=0.4.7
 
 # Perception (camera, hand-eye, visual tracking)
-opencv-python>=4.8
+# CSRT/KCF trackers used by Once+Tracker live in OpenCV contrib.
+opencv-contrib-python>=4.8,<4.12
 pyrealsense2>=2.54
 
 # YOLO detector (optional; camera mode with --detector yolo)
