@@ -46,8 +46,12 @@ class BboxTracker:
                 self.last_init_error = "opencv tracker unavailable; install opencv-contrib-python"
                 return False
             x0, y0, x1, y1 = [int(v) for v in bbox]
-            ok = bool(self._tracker.init(frame, (x0, y0, max(1, x1 - x0), max(1, y1 - y0))))
+            result = self._tracker.init(frame, (x0, y0, max(1, x1 - x0), max(1, y1 - y0)))
+            # Some OpenCV Python builds return None on successful tracker init.
+            ok = True if result is None else bool(result)
             self.initialized = ok
+            if not ok:
+                self.last_init_error = "opencv tracker init returned false"
             return ok
         except Exception as exc:
             self.last_init_error = str(exc)

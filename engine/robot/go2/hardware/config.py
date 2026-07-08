@@ -46,7 +46,7 @@ class Go2HardwareConfig:
     obstacles_avoid_request_topic: str = "/api/obstacles_avoid/request"
     obstacles_avoid_api_id: int = 1001
     # Periodic ROS2 link diagnostics on Jetson (0 = disabled).
-    status_log_interval_s: float = 2.0
+    status_log_interval_s: float = 0.0
 
     def is_active(self, *, use_go2: bool) -> bool:
         return bool(self.enabled) and bool(use_go2) and str(self.backend).strip().lower() == "unitree_ros2"
