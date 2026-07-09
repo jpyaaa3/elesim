@@ -4960,7 +4960,7 @@ class ControlService:
         else:
             max_lin = float(pk.lij_max_dq_linear)
         max_lin *= scale
-        max_ang = float(pk.lij_max_dq_angle) * scale
+        max_ang = float(pk.lij_max_dq_roll) * scale
         max_t1 = float(pk.lij_max_dq_theta1) * scale
         max_t2 = float(pk.lij_max_dq_angle) * scale
         return max_lin, max_ang, max_t1, max_t2, scale
@@ -5157,7 +5157,7 @@ class ControlService:
             cap_scale = float(np.clip(pk.lij_uv_priority_cap_scale, 0.1, 2.0))
             linear_scale = float(np.clip(pk.lij_uv_priority_z_scale, 0.0, 1.0))
             max_lin *= linear_scale
-            max_ang = max(float(max_ang), float(pk.lij_max_dq_angle) * cap_scale)
+            max_ang = max(float(max_ang), float(pk.lij_max_dq_roll) * cap_scale)
             max_t1 = max(float(max_t1), float(pk.lij_max_dq_theta1) * cap_scale)
             max_t2 = max(float(max_t2), float(pk.lij_max_dq_angle) * cap_scale)
         gain_z_scale = scale

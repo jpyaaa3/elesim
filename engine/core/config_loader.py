@@ -327,6 +327,7 @@ class PickConfig:
     lij_z_bend_gain: float = 0.2
     lij_seg1_jacobian_scale: float = 0.30
     lij_seg2_jacobian_scale: float = 1.0
+    lij_max_dq_roll: float = 0.006
     lij_max_dq_theta1: float = 0.004
     lij_stall_steps: int = 0
     lij_stall_remain_eps_m: float = 0.005
@@ -816,6 +817,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         lij_seg2_jacobian_scale=cp.getfloat(
             "pick", "lij_seg2_jacobian_scale", fallback=pk0.lij_seg2_jacobian_scale
+        ),
+        lij_max_dq_roll=cp.getfloat(
+            "pick", "lij_max_dq_roll", fallback=pk0.lij_max_dq_roll
         ),
         lij_max_dq_theta1=cp.getfloat(
             "pick", "lij_max_dq_theta1", fallback=pk0.lij_max_dq_theta1
