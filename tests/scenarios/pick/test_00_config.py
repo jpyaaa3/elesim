@@ -9,7 +9,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import PickConfig
+from engine.core.config_loader import PickConfig, load_app_config_from_ini
 
 
 class TestPickConfigEffectivePattern(unittest.TestCase):
@@ -46,6 +46,17 @@ class TestPickConfigEffectivePattern(unittest.TestCase):
             grasp_online_sag_max_step_deg=float(loaded.grasp_online_sag_max_step_deg),
         )
         self.assertAlmostEqual(rebuilt.sag_drift_max_dir_error_deg, 12.0)
+
+
+class TestHardwareOffsetConfig(unittest.TestCase):
+    def test_real_profiles_preload_roll_offset(self) -> None:
+        base = load_app_config_from_ini(str(ROOT / "config.ini"))
+        jetson = load_app_config_from_ini(str(ROOT / "config.jetson.ini"))
+        pc = load_app_config_from_ini(str(ROOT / "config.pc.ini"))
+
+        self.assertAlmostEqual(base.hardware_config.u_offset_roll, 0.0)
+        self.assertAlmostEqual(jetson.hardware_config.u_offset_roll, -9.0)
+        self.assertAlmostEqual(pc.hardware_config.u_offset_roll, -9.0)
 
 
 if __name__ == "__main__":

@@ -234,6 +234,21 @@ class PanelState:
                 raise ValueError(f"unknown offset axis: {axis}")
             self.offset_revision += 1
 
+    def set_u_offsets(
+        self,
+        *,
+        linear: float,
+        roll: float,
+        s1: float,
+        s2: float,
+    ) -> None:
+        with self._lock:
+            self.u_offset_linear = float(linear)
+            self.u_offset_roll = float(roll)
+            self.u_offset_s1 = float(s1)
+            self.u_offset_s2 = float(s2)
+            self.offset_revision += 1
+
     def set_target(self, x: float, y: float, z: float) -> None:
         with self._lock:
             self.target_x = float(x)

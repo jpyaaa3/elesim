@@ -39,6 +39,12 @@ def main() -> None:
         sag_model_path="",
         raw_sag_model=None,
     )
+    state.set_u_offsets(
+        linear=float(bundle.hardware_config.u_offset_linear),
+        roll=float(bundle.hardware_config.u_offset_roll),
+        s1=float(bundle.hardware_config.u_offset_s1),
+        s2=float(bundle.hardware_config.u_offset_s2),
+    )
     spawn_q = default_start_sim_q(bundle.mapping_config)
     state.set_q(
         float(spawn_q.linear_m),

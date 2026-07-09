@@ -1566,6 +1566,14 @@ class ControlHost:
         from engine.behaviors.pick import PanelState
 
         state = PanelState()
+        hw = self.hardware_cfg
+        if hw is not None:
+            state.set_u_offsets(
+                linear=float(getattr(hw, "u_offset_linear", 0.0)),
+                roll=float(getattr(hw, "u_offset_roll", 0.0)),
+                s1=float(getattr(hw, "u_offset_s1", 0.0)),
+                s2=float(getattr(hw, "u_offset_s2", 0.0)),
+            )
         pk = self.pick_config
         pc = self.perception_config
         state.visual_target_label = str(getattr(pc, "target_label", "")).strip()

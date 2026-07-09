@@ -93,6 +93,10 @@ class SimConfig:
 class HardwareConfig:
     command_direction: Tuple[int, int, int, int] = (1, -1, 1, -1)
     motor_direction: Tuple[int, int, int, int] = (1, -1, 1, -1)
+    u_offset_linear: float = 0.0
+    u_offset_roll: float = 0.0
+    u_offset_s1: float = 0.0
+    u_offset_s2: float = 0.0
     baudrate: int = 57600
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
@@ -1478,6 +1482,10 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
     return HardwareConfig(
         command_direction=_parse_direction4(cp.get("hardware", "command_direction"), key="hardware.command_direction"),
         motor_direction=_parse_direction4(cp.get("hardware", "motor_direction"), key="hardware.motor_direction"),
+        u_offset_linear=cp.getfloat("hardware", "u_offset_linear", fallback=hw0.u_offset_linear),
+        u_offset_roll=cp.getfloat("hardware", "u_offset_roll", fallback=hw0.u_offset_roll),
+        u_offset_s1=cp.getfloat("hardware", "u_offset_s1", fallback=hw0.u_offset_s1),
+        u_offset_s2=cp.getfloat("hardware", "u_offset_s2", fallback=hw0.u_offset_s2),
         baudrate=cp.getint("hardware", "baudrate", fallback=hw0.baudrate),
         linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=hw0.linear_u_limit_deg),
         current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=hw0.current_yellow_ma),
