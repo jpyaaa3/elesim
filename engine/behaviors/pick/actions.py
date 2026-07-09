@@ -5557,6 +5557,7 @@ class ControlService:
         self._grasp_lji_reacquire_aim_tried = False
         self._grasp_lji_reacquire_prev_remain = float(remain_m)
         self._pick_lost_follow_count = 0
+        self._grasp_lji_bad_motion_streak = 0
         est = self._grasp_lji_estimator_3d
         if est is not None:
             est.clear()
@@ -5567,6 +5568,7 @@ class ControlService:
         self._grasp_lji_reacquire_aim_tried = False
         self._grasp_lji_reacquire_prev_remain = None
         self._grasp_lji_v_err_hist = []
+        self._grasp_lji_bad_motion_streak = 0
 
     def _grasp_lji_retract_dq_to_last_good_q(
         self,
@@ -8614,6 +8616,15 @@ class ControlService:
                 object_lost = bool(obs is None or remain_outlier)
                 lost_reason = str(remain_outlier) if remain_outlier else ("no_observation" if object_lost else "")
                 obs_outlier = "" if remain_outlier else self._grasp_lji_observation_outlier(obs, host_state, pk=pk)
+                force_reacquire_reason = str(self._grasp_lji_force_reacquire_reason or "")
+                if force_reacquire_reason:
+                    object_lost = True
+                    lost_reason = force_reacquire_reason
+                    obs = None
+                    self._grasp_lji_force_reacquire_reason = ""
+                    est_f = self._grasp_lji_estimator_3d
+                    if est_f is not None:
+                        est_f.clear()
                 if obs_outlier:
                     object_lost = True
                     lost_reason = str(obs_outlier)
@@ -9065,6 +9076,28 @@ class ControlService:
                         est = self._grasp_lji_estimator_3d
                         if est is not None and self._grasp_lji_sat_streak >= 3:
                             est.clear()
+                    bad_motion_reason = self._grasp_lji_update_bad_motion_watch(
+                        pk=pk,
+                        sample_reason=sample_reason,
+                    )
+                    if bad_motion_reason:
+                        est_b = self._grasp_lji_estimator_3d
+                        if est_b is not None:
+                            est_b.clear()
+                        self._grasp_lji_last_dq_cmd = None
+                        self._grasp_lji_command_q = None
+                        self._grasp_lji_force_reacquire_reason = bad_motion_reason
+                        stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
+                        if callable(stop_lji_velocity):
+                            try:
+                                stop_lji_velocity(reason="lji_%s" % bad_motion_reason)
+                            except Exception:
+                                pass
+                        transition = "%s|reacquire" % bad_motion_reason
+                        print(
+                            "[Grasp] LJI bad motion | reason=%s sample=%s -> reacquire"
+                            % (bad_motion_reason, str(sample_reason.value))
+                        )
                     if stall_msg is not None:
                         print("[Grasp] %s" % stall_msg)
                         self.state.set_pick_status(
