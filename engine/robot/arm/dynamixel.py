@@ -177,6 +177,9 @@ class Dynamixel3dofDriver:
     def arm_ids(self) -> List[int]:
         return [self.cfg.id_linear, self.cfg.id_roll, self.cfg.id_seg1, self.cfg.id_seg2]
 
+    def lji_velocity_ids(self) -> List[int]:
+        return [self.cfg.id_roll, self.cfg.id_seg1, self.cfg.id_seg2]
+
     def _write1(self, dxl_id: int, addr: int, value: int) -> None:
         comm, err = self.packet.write1ByteTxRx(self.port, dxl_id, addr, value)
         if comm != 0:
@@ -246,6 +249,11 @@ class Dynamixel3dofDriver:
 
     def set_velocity_mode_for_arm(self) -> None:
         self.set_operating_mode_ids(self.arm_ids(), OP_MODE_VELOCITY, torque_on=True)
+
+    def set_lji_hybrid_mode_for_arm(self) -> None:
+        self.set_operating_mode_ids([self.cfg.id_linear], OP_MODE_POSITION, torque_on=True)
+        self.set_profiles([self.cfg.id_linear])
+        self.set_operating_mode_ids(self.lji_velocity_ids(), OP_MODE_VELOCITY, torque_on=True)
 
     def set_position_mode_for_arm(self) -> None:
         self.set_operating_mode_ids(self.arm_ids(), OP_MODE_POSITION, torque_on=True)
@@ -332,6 +340,9 @@ class Dynamixel3dofDriver:
 
     def stop_arm_velocity(self) -> None:
         self.command_velocity_deg_s({int(dxl_id): 0.0 for dxl_id in self.arm_ids()})
+
+    def stop_lji_velocity(self) -> None:
+        self.command_velocity_deg_s({int(dxl_id): 0.0 for dxl_id in self.lji_velocity_ids()})
 
     def hold_current_arm_position(self) -> None:
         ticks_by_id = self.get_present_positions()

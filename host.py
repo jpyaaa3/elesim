@@ -2340,16 +2340,18 @@ class ControlHost:
         self._cancel_trajectory()
         try:
             with self._hw_lock:
-                self.hw.set_velocity_mode_for_arm()
+                if hasattr(self.hw, "set_lji_hybrid_mode_for_arm"):
+                    self.hw.set_lji_hybrid_mode_for_arm()
+                else:
+                    self.hw.set_velocity_mode_for_arm()
             self._lji_velocity_active = True
             self._lji_velocity_last_cmd_s = 0.0
             self._lji_velocity_stop_at_s = 0.0
             self._lji_velocity_last_goals_deg_s = {}
             print(
-                "[host] LJI velocity mode active | max_deg_s=(linear %.1f, roll %.1f, s1 %.1f, s2 %.1f) "
-                "accel=%.1f hold=%.2f..%.2fs deadman=%.2fs"
+                "[host] LJI hybrid mode active | linear=position roll/s1/s2=velocity "
+                "max_deg_s=(roll %.1f, s1 %.1f, s2 %.1f) accel=%.1f hold=%.2f..%.2fs deadman=%.2fs"
                 % (
-                    float(self._lji_velocity_axis_max_deg_s["linear"]),
                     float(self._lji_velocity_axis_max_deg_s["roll"]),
                     float(self._lji_velocity_axis_max_deg_s["s1"]),
                     float(self._lji_velocity_axis_max_deg_s["s2"]),
@@ -2387,7 +2389,10 @@ class ControlHost:
                         and abs(float(self._lji_velocity_stop_at_s) - float(expected_stop_at_s)) > 1e-6
                     ):
                         return
-                    self.hw.stop_arm_velocity()
+                    if hasattr(self.hw, "stop_lji_velocity"):
+                        self.hw.stop_lji_velocity()
+                    else:
+                        self.hw.stop_arm_velocity()
             did_stop = True
             if str(reason) != "pulse_done":
                 print(f"[host] LJI velocity motion stopped | reason={reason}")
@@ -2405,7 +2410,10 @@ class ControlHost:
         try:
             if self._has_hw():
                 with self._hw_lock:
-                    self.hw.stop_arm_velocity()
+                    if hasattr(self.hw, "stop_lji_velocity"):
+                        self.hw.stop_lji_velocity()
+                    else:
+                        self.hw.stop_arm_velocity()
                     self.hw.set_position_mode_for_arm()
                     self.hw.hold_current_arm_position()
             print(f"[host] LJI velocity mode stopped | reason={reason}")
@@ -2511,9 +2519,13 @@ class ControlHost:
             now_s=float(apply_start),
             nominal_dt_s=float(hold_s),
         )
+        linear_id = int(self.hw.cfg.id_linear)
+        linear_target_motor_u = float(proto.sim_q_to_motor_deg(q_target, self.cfg).u_linear)
+        goals_deg_s.pop(linear_id, None)
         try:
             self._lji_velocity_stop_at_s = 0.0
             with self._hw_lock:
+                self.hw.command_partial_deg({linear_id: linear_target_motor_u})
                 self.hw.command_velocity_deg_s(goals_deg_s)
             apply_end = time.time()
             self._lji_velocity_last_goals_deg_s = dict(goals_deg_s)
@@ -2536,7 +2548,7 @@ class ControlHost:
             if int(seq) <= 10 or int(seq) % 10 == 1:
                 print(
                     "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs interval=%.3fs hold=%.3fs scale=%.2f "
-                    "raw_deg_s=(%.1f, %.1f, %.1f, %.1f) cmd_deg_s=(%.1f, %.1f, %.1f, %.1f)"
+                    "linear_pos=%.1f raw_deg_s=(%.1f, %.1f, %.1f, %.1f) cmd_deg_s=(pos, %.1f, %.1f, %.1f)"
                     % (
                         int(seq),
                         str(source),
@@ -2544,11 +2556,11 @@ class ControlHost:
                         float(command_interval_s),
                         float(hold_s),
                         float(pulse_scale),
+                        float(linear_target_motor_u),
                         float(motor_v.u_linear),
                         float(motor_v.u_roll),
                         float(motor_v.u_s1),
                         float(motor_v.u_s2),
-                        float(goals_deg_s[int(self.hw.cfg.id_linear)]),
                         float(goals_deg_s[int(self.hw.cfg.id_roll)]),
                         float(goals_deg_s[int(self.hw.cfg.id_seg1)]),
                         float(goals_deg_s[int(self.hw.cfg.id_seg2)]),
