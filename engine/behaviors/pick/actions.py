@@ -4893,20 +4893,16 @@ class ControlService:
         u_d, v_d, _, _ = self._visual_uv_errors(obs)
         return np.array([float(u_d), float(v_d), float(remain_m)], dtype=float)
 
-    def _grasp_lji_observation_outlier(
+    def _grasp_lji_camera_outlier_reason(
         self,
-        obs: Optional[VisualObservation],
-        host_state: Optional[HostState],
+        raw_camera_xyz: Any,
         *,
         pk: PickConfig,
     ) -> str:
-        if obs is None or host_state is None:
-            return ""
-        raw = getattr(host_state, "perceived_object_camera_xyz", None)
-        if raw is None:
+        if raw_camera_xyz is None:
             return ""
         try:
-            p_cam = np.asarray(raw, dtype=float).reshape(3)
+            p_cam = np.asarray(raw_camera_xyz, dtype=float).reshape(3)
         except (TypeError, ValueError):
             return "camera_invalid"
         if not bool(np.all(np.isfinite(p_cam))):
@@ -4924,6 +4920,34 @@ class ControlService:
             if float(np.linalg.norm(p_cam - prev)) > jump_m:
                 return "camera_jump"
         return ""
+
+    def _grasp_lji_remain_outlier_reason(
+        self,
+        remain_m: float,
+        *,
+        pk: PickConfig,
+    ) -> str:
+        jump_m = float(max(getattr(pk, "lij_obs_remain_jump_m", 0.0), 0.0))
+        if jump_m <= 1e-6:
+            return ""
+        last = self._grasp_lji_last_reliable_depth
+        if last is None:
+            return ""
+        if abs(float(remain_m) - float(last)) > jump_m:
+            return "remain_jump"
+        return ""
+
+    def _grasp_lji_observation_outlier(
+        self,
+        obs: Optional[VisualObservation],
+        host_state: Optional[HostState],
+        *,
+        pk: PickConfig,
+    ) -> str:
+        if obs is None or host_state is None:
+            return ""
+        raw = getattr(host_state, "perceived_object_camera_xyz", None)
+        return self._grasp_lji_camera_outlier_reason(raw, pk=pk)
 
     @staticmethod
     def _grasp_lji_gain_scale(
@@ -6580,6 +6604,10 @@ class ControlService:
                 snap is not None
                 and bool(snap.depth_valid)
                 and snap.p_world is not None
+                and not self._grasp_lji_camera_outlier_reason(
+                    getattr(snap, "p_camera", None),
+                    pk=pk,
+                )
             ):
                 live = tuple(float(v) for v in snap.p_world)
                 obj_f = tuple(
@@ -8445,6 +8473,26 @@ class ControlService:
                     standoff_m=standoff_m,
                 )
                 remain = self._grasp_axial_distance(tip, nominal_live, dir_u)
+                remain_outlier = self._grasp_lji_remain_outlier_reason(
+                    float(remain),
+                    pk=pk,
+                )
+                if remain_outlier and self._grasp_lji_last_reliable_object_world is not None:
+                    live_object = tuple(float(v) for v in self._grasp_lji_last_reliable_object_world)
+                    if self._grasp_lji_last_reliable_approach_dir is not None:
+                        dir_u = self._unit_vec3(self._grasp_lji_last_reliable_approach_dir)
+                    nominal_live = self._pick_grasp_trajectory_end_position(
+                        live_object,
+                        dir_u,
+                        standoff_m=standoff_m,
+                    )
+                    remain = self._grasp_axial_distance(tip, nominal_live, dir_u)
+                    self._grasp_object_world_filtered = live_object
+                    self._grasp_approach_dir_filtered = (
+                        float(dir_u[0]),
+                        float(dir_u[1]),
+                        float(dir_u[2]),
+                    )
                 depth_valid, _ = self._grasp_lji_depth_snapshot(
                     remain_m=float(remain),
                     tip_world=tip,
@@ -8482,12 +8530,17 @@ class ControlService:
                     host_state,
                     wait_s=lji_obs_wait_s,
                 )
-                object_lost = obs is None
-                lost_reason = "no_observation" if object_lost else ""
-                obs_outlier = self._grasp_lji_observation_outlier(obs, host_state, pk=pk)
+                object_lost = bool(obs is None or remain_outlier)
+                lost_reason = str(remain_outlier) if remain_outlier else ("no_observation" if object_lost else "")
+                obs_outlier = "" if remain_outlier else self._grasp_lji_observation_outlier(obs, host_state, pk=pk)
                 if obs_outlier:
                     object_lost = True
                     lost_reason = str(obs_outlier)
+                    obs = None
+                    est_o = self._grasp_lji_estimator_3d
+                    if est_o is not None:
+                        est_o.clear()
+                elif remain_outlier:
                     obs = None
                     est_o = self._grasp_lji_estimator_3d
                     if est_o is not None:

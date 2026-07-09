@@ -382,6 +382,7 @@ class PickConfig:
     lij_reacquire_v_err_m: float = 0.45
     lij_obs_max_camera_z_m: float = 0.0
     lij_obs_camera_jump_m: float = 0.0
+    lij_obs_remain_jump_m: float = 0.0
 
     # Look phase: move to a feasible view pregrasp pose (tip looks at object).
     look_pose_standoff_m: float = 0.20
@@ -985,6 +986,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         lij_obs_camera_jump_m=cp.getfloat(
             "pick", "lij_obs_camera_jump_m", fallback=pk0.lij_obs_camera_jump_m
+        ),
+        lij_obs_remain_jump_m=cp.getfloat(
+            "pick", "lij_obs_remain_jump_m", fallback=pk0.lij_obs_remain_jump_m
         ),
         look_pose_standoff_m=cp.getfloat(
             "pick", "look_pose_standoff_m", fallback=pk0.look_pose_standoff_m
