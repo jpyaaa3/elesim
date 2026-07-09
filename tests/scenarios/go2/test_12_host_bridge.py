@@ -133,6 +133,32 @@ class TestHostGo2Bridge(unittest.TestCase):
         self.assertTrue(server._trajectory_lji.active)
         server._apply_sim_q_target.assert_not_called()
 
+    def test_direct_embedded_lji_uses_arm_servo_thread_without_hw_read(self) -> None:
+        server = self._make_arm_host(
+            traj_lji_enable=True,
+            traj_lji_cfg=host_mod.QuinticTimingConfig(enable=True, duration_s=0.12),
+        )
+        server._submit_direct_partial_control_u = MagicMock(return_value=(True, "ok"))  # type: ignore[method-assign]
+        server._schedule_target_motion = MagicMock()  # type: ignore[method-assign]
+        server._read_hw_state = MagicMock()  # type: ignore[method-assign]
+        client = host_mod._DirectEmbeddedControlClient(server, server.cfg)
+
+        client.apply_lji_q_direct(
+            proto.SimQ(
+                linear_m=0.01,
+                roll_rad=0.02,
+                theta1_rad=0.03,
+                theta2_rad=-0.04,
+            ),
+            source="lji_step",
+        )
+
+        server._schedule_target_motion.assert_not_called()
+        server._read_hw_state.assert_not_called()
+        server._submit_direct_partial_control_u.assert_called_once()
+        partial_u = server._submit_direct_partial_control_u.call_args.args[0]
+        self.assertEqual(set(partial_u.keys()), {"linear", "roll", "s1", "s2"})
+
     def test_lji_target_falls_back_to_direct_apply_when_trajectory_disabled(self) -> None:
         server = self._make_arm_host(
             traj_lji_enable=False,

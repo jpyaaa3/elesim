@@ -8435,6 +8435,7 @@ class ControlService:
                             step_period_s=lji_step_period_s,
                             linear_tol_m=lji_settle_linear_tol,
                             angle_tol_rad=lji_settle_angle_tol,
+                            motion_wait_frac=0.0 if bool(lji_host_native) else 0.15,
                         )
                         if float(pk.lij_dq_smooth_alpha) > 1e-6:
                             self._grasp_lji_last_dq_cmd = probe.copy()
@@ -8554,6 +8555,13 @@ class ControlService:
                     settle_ok = host_state is not None
                 elif q_cmd is not None:
                     settle_ok = True
+
+                if bool(lji_host_native) and lji_step_period_s > 1e-6:
+                    tick_remaining_s = float(lji_step_period_s) - (
+                        time.time() - float(step_t0)
+                    )
+                    if tick_remaining_s > 1e-4:
+                        time.sleep(min(float(tick_remaining_s), 0.08))
 
                 obs_after, host_state = self._grasp_lji_wait_visual_observation(
                     host_state,

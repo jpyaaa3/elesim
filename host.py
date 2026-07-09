@@ -190,32 +190,36 @@ class _DirectEmbeddedControlClient:
             host._cancel_trajectory()
             ok = False
             reason = str(host._safety_fault)
+        elif host._has_hw():
+            target_u = proto.sim_q_to_control_u(q, host.cfg)
+            ok, reason = host._submit_direct_partial_control_u(
+                {
+                    "linear": float(target_u.u_linear),
+                    "roll": float(target_u.u_roll),
+                    "s1": float(target_u.u_s1),
+                    "s2": float(target_u.u_s2),
+                },
+                source=source,
+                seq=int(self.tx_seq),
+                client_ts_s=float(time.time()),
+            )
+            if bool(ok):
+                reason = "host_native_lji_servo_thread"
         else:
             host._schedule_target_motion(q, source=source)
-            if host._has_hw() and host._use_trajectory_for_source(source):
-                ok = True
-                reason = "host_native_lji_trajectory"
-            elif host._has_hw():
-                ok, complete = host._apply_sim_q_target(q)
-                if ok:
-                    host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
-                    if bool(complete):
-                        host._pending_target_q = None
-                reason = host._last_target_apply_error or "host_native_lji_direct"
-            else:
-                host.last_q = q
-                host.last_u = proto.sim_q_to_control_u(q, host.cfg)
-                host.last_state_ts = time.time()
-                host._pending_target_q = None
-                host._cancel_trajectory()
-                ok = True
-                reason = "host_native_lji_sim"
+            host.last_q = q
+            host.last_u = proto.sim_q_to_control_u(q, host.cfg)
+            host.last_state_ts = time.time()
+            host._pending_target_q = None
+            host._cancel_trajectory()
+            ok = True
+            reason = "host_native_lji_sim"
 
         self.last_reply_ok = bool(ok)
         self.last_reply_reason = str(reason)
         self.last_object_world_xyz = host.last_perceived_object_world_xyz
         host._state_broadcast_requested.set()
-        return self.refresh_lji_state()
+        return self.get_state()
 
     def q_to_control_u(
         self,
