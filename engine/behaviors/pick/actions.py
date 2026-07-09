@@ -249,6 +249,8 @@ class ControlService:
         self._grasp_lji_v_err_hist: list[float] = []
         self._grasp_lji_last_transition: str = "-"
         self._grasp_lji_sat_streak = 0
+        self._grasp_lji_bad_motion_streak = 0
+        self._grasp_lji_force_reacquire_reason = ""
         self._grasp_lji_remain_hist: list[float] = []
         self._grasp_lji_log_file: Optional[Any] = None
         self._grasp_lji_log_writer: Optional[csv.DictWriter] = None
@@ -4813,6 +4815,8 @@ class ControlService:
         self._grasp_lji_v_err_hist = []
         self._grasp_lji_last_transition = "-"
         self._grasp_lji_sat_streak = 0
+        self._grasp_lji_bad_motion_streak = 0
+        self._grasp_lji_force_reacquire_reason = ""
         self._grasp_lji_remain_hist: list[float] = []
 
     def _grasp_lji_sag_model(self) -> dict[str, Any]:
@@ -4873,6 +4877,9 @@ class ControlService:
         self._grasp_lji_reacquire_prev_remain = None
         self._grasp_lji_v_err_hist = []
         self._grasp_lji_last_transition = "-"
+        self._grasp_lji_sat_streak = 0
+        self._grasp_lji_bad_motion_streak = 0
+        self._grasp_lji_force_reacquire_reason = ""
 
     @staticmethod
     def _grasp_lji_q_delta4(raw: Sequence[float]) -> tuple[float, float, float, float]:
@@ -5400,6 +5407,34 @@ class ControlService:
             "grasp lji | stall at remain=%.0fmm (%s saturated, no progress)"
             % (float(remain_m) * 1000.0, lim_txt)
         )
+
+    def _grasp_lji_update_bad_motion_watch(
+        self,
+        *,
+        pk: PickConfig,
+        sample_reason: SampleRejectReason,
+    ) -> Optional[str]:
+        threshold = int(max(getattr(pk, "lij_bad_motion_reacquire_steps", 0), 0))
+        if threshold <= 0:
+            self._grasp_lji_bad_motion_streak = 0
+            return None
+        bad_reasons = {
+            SampleRejectReason.JOINT_SATURATED,
+            SampleRejectReason.MOTION_MISMATCH,
+        }
+        if sample_reason in bad_reasons:
+            self._grasp_lji_bad_motion_streak += 1
+        elif sample_reason == SampleRejectReason.ACCEPTED:
+            self._grasp_lji_bad_motion_streak = 0
+        else:
+            self._grasp_lji_bad_motion_streak = max(
+                0,
+                int(self._grasp_lji_bad_motion_streak) - 1,
+            )
+        if int(self._grasp_lji_bad_motion_streak) < threshold:
+            return None
+        self._grasp_lji_bad_motion_streak = 0
+        return "bad_motion"
 
     def _grasp_lji_depth_snapshot(
         self,
