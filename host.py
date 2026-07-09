@@ -184,25 +184,32 @@ class _DirectEmbeddedControlClient:
         host._pending_target_q = q
         host._pending_target_seq = int(self.tx_seq)
         host._last_target_apply_error = ""
-        host._cancel_trajectory()
 
         if host._safety_fault:
+            host._pending_target_q = None
+            host._cancel_trajectory()
             ok = False
             reason = str(host._safety_fault)
-        elif host._has_hw():
-            ok, complete = host._apply_sim_q_target(q)
-            if ok:
-                host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
-                if bool(complete):
-                    host._pending_target_q = None
-            reason = host._last_target_apply_error or "host_native_lji_direct"
         else:
-            host.last_q = q
-            host.last_u = proto.sim_q_to_control_u(q, host.cfg)
-            host.last_state_ts = time.time()
-            host._pending_target_q = None
-            ok = True
-            reason = "host_native_lji_sim"
+            host._schedule_target_motion(q, source=source)
+            if host._has_hw() and host._use_trajectory_for_source(source):
+                ok = True
+                reason = "host_native_lji_trajectory"
+            elif host._has_hw():
+                ok, complete = host._apply_sim_q_target(q)
+                if ok:
+                    host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
+                    if bool(complete):
+                        host._pending_target_q = None
+                reason = host._last_target_apply_error or "host_native_lji_direct"
+            else:
+                host.last_q = q
+                host.last_u = proto.sim_q_to_control_u(q, host.cfg)
+                host.last_state_ts = time.time()
+                host._pending_target_q = None
+                host._cancel_trajectory()
+                ok = True
+                reason = "host_native_lji_sim"
 
         self.last_reply_ok = bool(ok)
         self.last_reply_reason = str(reason)
@@ -794,10 +801,8 @@ class ControlHost:
 
     def _use_trajectory_for_source(self, source: str) -> bool:
         src = str(source).strip().lower()
-        # LJI steps must apply immediately; wrapping small visual-servo
-        # corrections in a trajectory starves the camera feedback loop.
         if src in {"lji", "lji_step"}:
-            return False
+            return bool(self._traj_lji_enable and self._trajectory_lji.cfg.enable)
         if not bool(self._trajectory.cfg.enable):
             return False
         # Visual servo / aim: immediate partial u; IK: long quintic.
@@ -826,7 +831,7 @@ class ControlHost:
         self._start_trajectory(q, source=source)
 
     def _active_trajectory_runner(self, source: str) -> QuinticTrajectoryRunner:
-        if str(source).strip().lower() == "lji":
+        if str(source).strip().lower() in {"lji", "lji_step"}:
             return self._trajectory_lji
         return self._trajectory
 
@@ -853,7 +858,7 @@ class ControlHost:
             return
         runner = self._active_trajectory_runner(source)
         runner.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
-        if src != "lji":
+        if src not in {"lji", "lji_step"}:
             self._trajectory_lji.cancel()
         else:
             self._trajectory.cancel()
@@ -2428,7 +2433,11 @@ class ControlHost:
         self._pending_target_seq = int(seq)
         self._last_target_apply_error = ""
         self._schedule_target_motion(q, source=source)
-        if str(source).strip().lower() in {"lji", "lji_step"} and self._has_hw():
+        if (
+            str(source).strip().lower() in {"lji", "lji_step"}
+            and self._has_hw()
+            and not self._use_trajectory_for_source(source)
+        ):
             applied_hw, complete = self._apply_sim_q_target(q)
             if applied_hw:
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
@@ -3956,7 +3965,11 @@ class ControlHost:
                 self._pending_target_axes = set()
                 self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)
                 self._schedule_target_motion(q, source=source)
-                if str(source).strip().lower() in {"lji", "lji_step"} and self._has_hw():
+                if (
+                    str(source).strip().lower() in {"lji", "lji_step"}
+                    and self._has_hw()
+                    and not self._use_trajectory_for_source(source)
+                ):
                     applied_hw, complete = self._apply_sim_q_target(q)
                     if applied_hw:
                         self._target_u_state = proto.sim_q_to_control_u(q, self.cfg)

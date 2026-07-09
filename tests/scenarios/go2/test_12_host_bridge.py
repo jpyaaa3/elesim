@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import host as host_mod
@@ -21,6 +22,31 @@ class TestHostGo2Bridge(unittest.TestCase):
             hardware_cfg=None,
             go2_bridge=bridge,
         )
+        self.addCleanup(server.close)
+        return server
+
+    def _make_arm_host(
+        self,
+        *,
+        traj_lji_enable: bool = True,
+        traj_lji_cfg: host_mod.QuinticTimingConfig | None = None,
+    ) -> host_mod.ControlHost:
+        hw = MagicMock()
+        hw.ids = [1, 2, 3, 4]
+        hw.cfg = SimpleNamespace(id_linear=1, id_roll=2, id_seg1=3, id_seg2=4, id_claw=5)
+        hw.direction = {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+        server = host_mod.ControlHost(
+            bind_addr="tcp://127.0.0.1:0",
+            sim_pub_addr="tcp://127.0.0.1:0",
+            sim_feedback_addr="tcp://127.0.0.1:0",
+            hw=hw,
+            direction_by_id={},
+            device="/dev/fake",
+            hardware_cfg=None,
+            trajectory_lji_cfg=traj_lji_cfg,
+            traj_lji_enable=traj_lji_enable,
+        )
+        server.last_q = proto.SimQ(0.0, 0.0, 0.0, 0.0)
         self.addCleanup(server.close)
         return server
 
@@ -54,6 +80,58 @@ class TestHostGo2Bridge(unittest.TestCase):
             },
         )
         server._go2_bridge.set_velocity.assert_called_once_with(0.2, 0.1, -0.3)
+
+    def test_lji_target_uses_lji_trajectory_when_enabled(self) -> None:
+        server = self._make_arm_host(
+            traj_lji_enable=True,
+            traj_lji_cfg=host_mod.QuinticTimingConfig(enable=True, duration_s=0.12),
+        )
+        server._apply_sim_q_target = MagicMock(return_value=(True, False))  # type: ignore[method-assign]
+
+        server._handle_msg(
+            b"client-lji",
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 10,
+                "source": "lji_step",
+                "q": {
+                    "linear_m": 0.0,
+                    "roll_rad": 0.1,
+                    "theta1_rad": 0.0,
+                    "theta2_rad": 0.0,
+                },
+            },
+        )
+
+        self.assertTrue(server._trajectory_lji.active)
+        server._apply_sim_q_target.assert_not_called()
+
+    def test_lji_target_falls_back_to_direct_apply_when_trajectory_disabled(self) -> None:
+        server = self._make_arm_host(
+            traj_lji_enable=False,
+            traj_lji_cfg=host_mod.QuinticTimingConfig(enable=False),
+        )
+        server._apply_sim_q_target = MagicMock(return_value=(True, False))  # type: ignore[method-assign]
+
+        server._handle_msg(
+            b"client-lji",
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 11,
+                "source": "lji_step",
+                "q": {
+                    "linear_m": 0.0,
+                    "roll_rad": 0.1,
+                    "theta1_rad": 0.0,
+                    "theta2_rad": 0.0,
+                },
+            },
+        )
+
+        self.assertFalse(server._trajectory_lji.active)
+        server._apply_sim_q_target.assert_called_once()
 
     def test_go2_sport_pose_forwards_to_bridge(self) -> None:
         server = self._make_host(with_bridge=True)

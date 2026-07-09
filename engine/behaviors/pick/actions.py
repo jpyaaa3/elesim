@@ -7883,7 +7883,7 @@ class ControlService:
                 )
             )
             if bool(self._use_hardware) and not bool(pk.lij_pipelined_motion):
-                print("[Grasp] LJI3D hardware mode | forcing pipelined direct steps")
+                print("[Grasp] LJI3D hardware mode | forcing pipelined motion steps")
             self._grasp_lji_log_start()
             self._grasp_lji_log_event(
                 step_idx=0,
