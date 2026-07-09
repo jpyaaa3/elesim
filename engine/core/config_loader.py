@@ -98,6 +98,7 @@ class HardwareConfig:
     u_offset_s1: float = 0.0
     u_offset_s2: float = 0.0
     baudrate: int = 57600
+    linear_u_max_deg: float = 250.0
     linear_u_limit_deg: float = 250.0
     current_yellow_ma: int = 1800
     current_limit_ma: int = 2500
@@ -1501,6 +1502,7 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         u_offset_s1=cp.getfloat("hardware", "u_offset_s1", fallback=hw0.u_offset_s1),
         u_offset_s2=cp.getfloat("hardware", "u_offset_s2", fallback=hw0.u_offset_s2),
         baudrate=cp.getint("hardware", "baudrate", fallback=hw0.baudrate),
+        linear_u_max_deg=cp.getfloat("hardware", "linear_u_max_deg", fallback=hw0.linear_u_max_deg),
         linear_u_limit_deg=cp.getfloat("hardware", "linear_u_limit_deg", fallback=hw0.linear_u_limit_deg),
         current_yellow_ma=cp.getint("hardware", "current_yellow_ma", fallback=hw0.current_yellow_ma),
         current_limit_ma=cp.getint("hardware", "current_limit_ma", fallback=hw0.current_limit_ma),
@@ -1664,6 +1666,7 @@ def _load_ik_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) ->
 
 def _build_mapping_config(joint_limit: JointLimit, hardware_config: HardwareConfig) -> proto.SimMappingConfig:
     return proto.SimMappingConfig(
+        linear_u_max=float(hardware_config.linear_u_max_deg),
         linear_u_limit=float(hardware_config.linear_u_limit_deg),
         linear_q_min_m=-0.230,
         linear_q_max_m=0.0,

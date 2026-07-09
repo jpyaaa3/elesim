@@ -41,8 +41,9 @@ PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U
 @dataclass(frozen=True)
 class SimMappingConfig:
     linear_u_min: float = 0.0
-    linear_u_max: float = 360.0
-    # Hardware travel cap in motor [u] units; mapping scale stays linear_u_max.
+    # Linear actuator usable travel in motor/display [u] units.
+    # The motor can rotate farther, but values beyond this collide with hardware.
+    linear_u_max: float = 250.0
     linear_u_limit: float = 250.0
     roll_u_min: float = 0.0
     roll_u_max: float = 360.0
@@ -70,17 +71,17 @@ def linear_motor_u_limit(cfg: SimMappingConfig) -> float:
 
 
 def _linear_q_forward_m(cfg: SimMappingConfig) -> float:
-    """Fully extended (앞) — motor u=0 on the 0..linear_u_max scale."""
+    """Fully extended (앞) — motor u=0."""
     return float(cfg.linear_q_max_m)
 
 
 def _linear_q_backward_m(cfg: SimMappingConfig) -> float:
-    """Fully retracted (뒤) — motor u=linear_u_max on the 0..linear_u_max scale."""
+    """Fully retracted (뒤) — motor u=linear_u_max."""
     return float(cfg.linear_q_min_m)
 
 
 def _map_linear_q_to_u(q_m: float, cfg: SimMappingConfig) -> float:
-    """Map prismatic q to motor [u] on full 0..linear_u_max travel (not panel cap)."""
+    """Map prismatic q to motor [u] over the usable linear travel."""
     q_fwd = _linear_q_forward_m(cfg)
     q_bwd = _linear_q_backward_m(cfg)
     u_lo = float(cfg.linear_u_min)
@@ -109,7 +110,7 @@ def _map_linear_u_to_q(u_linear: float, cfg: SimMappingConfig) -> float:
 
 
 def _motor_u_from_display_linear(display_u: float, cfg: SimMappingConfig) -> float:
-    """Panel/command u (0..linear_u_limit) -> motor u on 0..linear_u_max scale."""
+    """Panel/command u -> motor u over the usable linear travel."""
     u_lo = float(cfg.linear_u_min)
     u_hi = float(cfg.linear_u_max)
     direction = int(cfg.command_direction[0])
@@ -122,7 +123,7 @@ def _motor_u_from_display_linear(display_u: float, cfg: SimMappingConfig) -> flo
 
 
 def _display_u_from_motor_linear(motor_u: float, cfg: SimMappingConfig) -> float:
-    """Motor u on 0..linear_u_max -> panel display (clamped to linear_u_limit)."""
+    """Motor u -> panel display over the usable linear travel."""
     u_lo = float(cfg.linear_u_min)
     u_hi = float(cfg.linear_u_max)
     direction = int(cfg.command_direction[0])

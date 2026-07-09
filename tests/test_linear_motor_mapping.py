@@ -20,7 +20,7 @@ class LinearMotorMappingTests(unittest.TestCase):
     def _cfg(self) -> SimMappingConfig:
         return SimMappingConfig(
             command_direction=(1, -1, 1, -1),
-            linear_u_max=360.0,
+            linear_u_max=250.0,
             linear_u_limit=250.0,
             linear_q_min_m=-0.230,
             linear_q_max_m=0.010,
@@ -36,12 +36,12 @@ class LinearMotorMappingTests(unittest.TestCase):
         u = sim_q_to_control_u(SimQ(-0.230, 0.0, 0.0, 0.0), cfg)
         self.assertAlmostEqual(u.u_linear, linear_motor_u_limit(cfg), places=6)
 
-    def test_mapping_uses_360_scale_not_250(self) -> None:
+    def test_mapping_uses_usable_250_scale(self) -> None:
         cfg = self._cfg()
         from engine.core.protocol import sim_q_to_motor_deg
 
         motor = sim_q_to_motor_deg(SimQ(-0.230, 0.0, 0.0, 0.0), cfg)
-        self.assertAlmostEqual(motor.u_linear, 360.0, places=6)
+        self.assertAlmostEqual(motor.u_linear, 250.0, places=6)
 
     def test_panel_round_trip(self) -> None:
         cfg = self._cfg()
