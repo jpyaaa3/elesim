@@ -110,6 +110,26 @@ class TestJacobianPatch(unittest.TestCase):
         eff1, eff2 = display_v_seg_coupling(j[1, :], (-1, -1, 1, -1))
         self.assertLess(eff1 * eff2, 0.0)
 
+    def test_patch_can_blend_measured_v_row(self) -> None:
+        seed = default_j_lji_seed(
+            center_u_gain=0.1,
+            center_v_gain=0.1,
+            command_direction=(-1, -1, 1, -1),
+        )
+        measured = seed.copy()
+        measured[1, :] = np.array([0.0, -10.0, -20.0, -30.0], dtype=float)
+        z_row = np.array([-0.8, 0.0, -0.1, 0.15], dtype=float)
+        j = patch_lji_jacobian_for_control(
+            measured,
+            z_row=z_row,
+            seed_j=seed,
+            command_direction=(-1, -1, 1, -1),
+            measured_v_row_blend=0.5,
+            measured_v_row_norm_max=100.0,
+        )
+        self.assertFalse(np.allclose(j[1, :], seed[1, :]))
+        np.testing.assert_allclose(j[1, :], 0.5 * seed[1, :] + 0.5 * measured[1, :])
+
 
 class TestFkZRow(unittest.TestCase):
     def test_z_row_couples_all_q_axes(self) -> None:

@@ -333,6 +333,12 @@ class PickConfig:
     lij_probing_epsilon_linear: float = 0.001
     lij_probing_epsilon_angle: float = 0.01
     lij_uv_align_tol: float = 0.04
+    lij_uv_priority_err: float = 0.35
+    lij_uv_priority_z_scale: float = 0.15
+    lij_uv_priority_cap_scale: float = 1.0
+    lij_approach_bias_uv_gate: float = 0.25
+    lij_measured_v_row_blend: float = 0.0
+    lij_measured_v_row_norm_max: float = 120.0
     lij_approach_bias_gain: float = 0.3
     lij_approach_seed_mode: str = "config"
     lij_approach_seed_q_delta: Tuple[float, float, float, float] = (0.0, 0.0, 0.01, 0.01)
@@ -864,6 +870,24 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         lij_uv_align_tol=cp.getfloat(
             "pick", "lij_uv_align_tol", fallback=pk0.lij_uv_align_tol
+        ),
+        lij_uv_priority_err=cp.getfloat(
+            "pick", "lij_uv_priority_err", fallback=pk0.lij_uv_priority_err
+        ),
+        lij_uv_priority_z_scale=cp.getfloat(
+            "pick", "lij_uv_priority_z_scale", fallback=pk0.lij_uv_priority_z_scale
+        ),
+        lij_uv_priority_cap_scale=cp.getfloat(
+            "pick", "lij_uv_priority_cap_scale", fallback=pk0.lij_uv_priority_cap_scale
+        ),
+        lij_approach_bias_uv_gate=cp.getfloat(
+            "pick", "lij_approach_bias_uv_gate", fallback=pk0.lij_approach_bias_uv_gate
+        ),
+        lij_measured_v_row_blend=cp.getfloat(
+            "pick", "lij_measured_v_row_blend", fallback=pk0.lij_measured_v_row_blend
+        ),
+        lij_measured_v_row_norm_max=cp.getfloat(
+            "pick", "lij_measured_v_row_norm_max", fallback=pk0.lij_measured_v_row_norm_max
         ),
         lij_approach_bias_gain=cp.getfloat(
             "pick", "lij_approach_bias_gain", fallback=pk0.lij_approach_bias_gain

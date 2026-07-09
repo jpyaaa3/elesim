@@ -15,7 +15,7 @@ from engine.core.config_loader import IkConfig, PickConfig
 from engine.behaviors.pick.actions import ControlService
 from engine.vision.perception.capture import PerceptionSnapshot
 from engine.behaviors.pick.state import HostState, PanelState
-from engine.core.protocol import SimQ
+from engine.core.protocol import SimMappingConfig, SimQ
 from engine.vision.visual_servoing.equal_sag_probe import EqualSagEstimate
 from engine.vision.visual_servoing.grasp_trajectory import GraspWaypoint
 
@@ -604,6 +604,47 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             pk=pk,
         )
         self.assertAlmostEqual(float(q_before[2] + got[2]), seg1_max)
+
+    def test_lji_large_uv_error_prioritizes_centering_over_approach(self) -> None:
+        svc = ControlService(PanelState())
+        svc._mapping_cfg = SimMappingConfig(command_direction=(1, -1, 1, -1))
+        pk = PickConfig(
+            center_u_gain=12.0,
+            center_v_gain=12.0,
+            lij_gain_v=0.8,
+            lij_gain_z=0.8,
+            lij_max_dq_theta1=0.02,
+            lij_max_dq_angle=0.02,
+            lij_uv_priority_err=0.30,
+            lij_uv_priority_z_scale=0.0,
+            lij_uv_priority_cap_scale=1.0,
+            lij_approach_bias_gain=1.0,
+            lij_approach_bias_uv_gate=0.25,
+        )
+        svc._grasp_init_lji_controller(pk)
+        servo = svc._grasp_lji_servo_3d
+        assert servo is not None
+        with patch.object(svc, "_pick_reach_model") as mock_model:
+            mock_model.return_value.position_jacobian.return_value = np.array(
+                [
+                    [0.0, 0.0, 0.5, 0.5],
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 0.0],
+                ],
+                dtype=float,
+            )
+            dq, *_rest = svc._grasp_lji_compute_step_dq(
+                servo,
+                np.array([0.0, -0.80, 0.12], dtype=float),
+                q=np.zeros(4, dtype=float),
+                approach_dir=np.array([1.0, 0.0, 0.0], dtype=float),
+                sag_model={},
+                remain_m=0.12,
+                pk=pk,
+                close_tol_m=0.003,
+            )
+        self.assertLess(float(dq[2]), 0.0)
+        self.assertLess(float(dq[3]), 0.0)
 
     def test_lji_worker_does_not_update_online_sag(self) -> None:
         svc = ControlService(PanelState())

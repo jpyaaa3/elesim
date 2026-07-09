@@ -4849,6 +4849,8 @@ class ControlService:
             condition_max=float(pk.lij_condition_max),
             min_rank=3,
             command_direction=tuple(int(v) for v in self.control_mapping().command_direction),
+            measured_v_row_blend=float(pk.lij_measured_v_row_blend),
+            measured_v_row_norm_max=float(pk.lij_measured_v_row_norm_max),
         )
         self._grasp_approach_mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
         self._grasp_depth_history.clear()
@@ -4947,6 +4949,17 @@ class ControlService:
         max_lin, max_ang, max_t1, max_t2, scale = self._grasp_lji_step_limits(
             remain_m, pk, close_tol_m=close_tol_m
         )
+        uv_err_mag = float(np.linalg.norm(np.asarray(s_lji, dtype=float).reshape(3)[:2]))
+        uv_priority_err = float(max(pk.lij_uv_priority_err, 0.0))
+        uv_priority = uv_priority_err > 1e-9 and uv_err_mag >= uv_priority_err
+        if uv_priority:
+            cap_scale = float(np.clip(pk.lij_uv_priority_cap_scale, 0.1, 2.0))
+            max_ang = max(float(max_ang), float(pk.lij_max_dq_angle) * cap_scale)
+            max_t1 = max(float(max_t1), float(pk.lij_max_dq_theta1) * cap_scale)
+            max_t2 = max(float(max_t2), float(pk.lij_max_dq_angle) * cap_scale)
+        gain_z_scale = scale
+        if uv_priority:
+            gain_z_scale *= float(np.clip(pk.lij_uv_priority_z_scale, 0.0, 1.0))
         z_row = self._grasp_lji_fk_z_row(
             q,
             approach_dir,
@@ -4961,10 +4974,15 @@ class ControlService:
             max_dq_theta2=max_t2,
             gain_u=float(pk.lij_gain_u) * scale,
             gain_v=float(pk.lij_gain_v) * scale,
-            gain_z=float(pk.lij_gain_z) * scale,
+            gain_z=float(pk.lij_gain_z) * gain_z_scale,
         )
         bias_gain = float(max(0.0, pk.lij_approach_bias_gain)) * scale
-        if bias_gain > 1e-9 and float(remain_m) > float(close_tol_m) + 1e-4:
+        bias_gate = float(max(pk.lij_approach_bias_uv_gate, 0.0))
+        if (
+            bias_gain > 1e-9
+            and float(remain_m) > float(close_tol_m) + 1e-4
+            and (bias_gate <= 1e-9 or uv_err_mag <= bias_gate)
+        ):
             seed = np.asarray(self._grasp_lji_q_delta4(pk.lij_approach_seed_q_delta), dtype=float)
             if float(np.linalg.norm(seed)) > 1e-9:
                 j_uv = np.asarray(j[0:2, :], dtype=float).reshape(2, 4)

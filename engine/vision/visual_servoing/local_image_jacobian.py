@@ -85,17 +85,29 @@ def patch_lji_jacobian_for_control(
     z_row: Sequence[float],
     seed_j: np.ndarray,
     command_direction: Sequence[int],
+    measured_v_row_blend: float = 0.0,
+    measured_v_row_norm_max: float = 120.0,
 ) -> np.ndarray:
     """
     Control-time Jacobian:
       - z row from FK (∂remain/∂q)
-      - full v row from seed (online ∂v/∂roll is too noisy under pipelined motion)
+      - full v row from seed, optionally blended with online measured row
       - u-row seg columns from seed; roll/linear may come from online estimate
     """
     j = np.asarray(j_lji, dtype=float).reshape(NUM_FEATURES, NUM_Q).copy()
     seed = np.asarray(seed_j, dtype=float).reshape(NUM_FEATURES, NUM_Q)
+    measured = j.copy()
     j[2, :] = np.asarray(z_row, dtype=float).reshape(NUM_Q)
-    j[1, :] = seed[1, :]
+    blend = float(np.clip(measured_v_row_blend, 0.0, 1.0))
+    if blend > 1e-9 and np.all(np.isfinite(measured[1, :])):
+        v_row = measured[1, :].copy()
+        norm = float(np.linalg.norm(v_row))
+        max_norm = float(max(measured_v_row_norm_max, 1e-6))
+        if norm > max_norm:
+            v_row *= max_norm / norm
+        j[1, :] = (1.0 - blend) * seed[1, :] + blend * v_row
+    else:
+        j[1, :] = seed[1, :]
     j[0, 2:4] = seed[0, 2:4]
     return j
 
@@ -394,6 +406,8 @@ class LocalImageJacobianServo3D:
         condition_max: float = 100.0,
         min_rank: int = 3,
         command_direction: Sequence[int] = (-1, -1, 1, -1),
+        measured_v_row_blend: float = 0.0,
+        measured_v_row_norm_max: float = 120.0,
     ) -> None:
         self.estimator = estimator
         self.gains = gains
@@ -401,6 +415,8 @@ class LocalImageJacobianServo3D:
         self.condition_max = float(condition_max)
         self.min_rank = int(min_rank)
         self.command_direction = tuple(int(v) for v in command_direction)
+        self.measured_v_row_blend = float(np.clip(measured_v_row_blend, 0.0, 1.0))
+        self.measured_v_row_norm_max = float(max(measured_v_row_norm_max, 1e-6))
 
     def j_available(self) -> bool:
         return self.estimator.is_usable(
@@ -435,6 +451,8 @@ class LocalImageJacobianServo3D:
                 z_row=z_row,
                 seed_j=seed_j,
                 command_direction=self.command_direction,
+                measured_v_row_blend=float(self.measured_v_row_blend),
+                measured_v_row_norm_max=float(self.measured_v_row_norm_max),
             )
             rank = int(np.linalg.matrix_rank(j))
             cond = float(np.linalg.cond(j)) if rank > 0 else float("inf")
