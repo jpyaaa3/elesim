@@ -29,6 +29,7 @@ class SampleRejectReason(str, Enum):
     OBJECT_LOST = "object_lost"
     SETTLE_TIMEOUT = "settle_timeout"
     JOINT_SATURATED = "joint_saturated"
+    MOTION_MISMATCH = "motion_mismatch"
 
 
 def damped_pseudoinverse_mn(jacobian: np.ndarray, damping: float) -> np.ndarray:

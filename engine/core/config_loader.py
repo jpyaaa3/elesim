@@ -364,6 +364,9 @@ class PickConfig:
     lij_approach_seed_q_delta: Tuple[float, float, float, float] = (0.0, 0.0, 0.01, 0.01)
     lij_approach_seed_travel_m: float = 0.003
     lij_sample_min_dq_norm: float = 0.0005
+    lij_sample_cmd_meas_cos_min: float = -1.0
+    lij_sample_meas_cmd_ratio_min: float = 0.0
+    lij_sample_meas_cmd_ratio_max: float = 0.0
     blind_micro_start_m: float = 0.04
     grasp_close_tol_m: float = 0.003
     lij_depth_invalid_frames: int = 3
@@ -930,6 +933,21 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         lij_sample_min_dq_norm=cp.getfloat(
             "pick", "lij_sample_min_dq_norm", fallback=pk0.lij_sample_min_dq_norm
+        ),
+        lij_sample_cmd_meas_cos_min=cp.getfloat(
+            "pick",
+            "lij_sample_cmd_meas_cos_min",
+            fallback=pk0.lij_sample_cmd_meas_cos_min,
+        ),
+        lij_sample_meas_cmd_ratio_min=cp.getfloat(
+            "pick",
+            "lij_sample_meas_cmd_ratio_min",
+            fallback=pk0.lij_sample_meas_cmd_ratio_min,
+        ),
+        lij_sample_meas_cmd_ratio_max=cp.getfloat(
+            "pick",
+            "lij_sample_meas_cmd_ratio_max",
+            fallback=pk0.lij_sample_meas_cmd_ratio_max,
         ),
         blind_micro_start_m=cp.getfloat(
             "pick", "blind_micro_start_m", fallback=pk0.blind_micro_start_m

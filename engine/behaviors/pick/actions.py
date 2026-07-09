@@ -5889,6 +5889,35 @@ class ControlService:
             )
         return q_cmd, host_after
 
+    @staticmethod
+    def _grasp_lji_motion_mismatch_reason(
+        *,
+        dq_cmd: np.ndarray,
+        delta_q: np.ndarray,
+        pk: PickConfig,
+    ) -> str:
+        cmd = np.asarray(dq_cmd, dtype=float).reshape(4)[1:4]
+        meas = np.asarray(delta_q, dtype=float).reshape(4)[1:4]
+        cmd_norm = float(np.linalg.norm(cmd))
+        meas_norm = float(np.linalg.norm(meas))
+        if cmd_norm <= max(float(pk.lij_sample_min_dq_norm), 1e-7):
+            return ""
+        if meas_norm <= 1e-9:
+            return ""
+        ratio = meas_norm / max(cmd_norm, 1e-9)
+        ratio_min = float(max(getattr(pk, "lij_sample_meas_cmd_ratio_min", 0.0), 0.0))
+        ratio_max = float(max(getattr(pk, "lij_sample_meas_cmd_ratio_max", 0.0), 0.0))
+        if ratio_min > 1e-6 and ratio < ratio_min:
+            return "motion_mismatch"
+        if ratio_max > 1e-6 and ratio > ratio_max:
+            return "motion_mismatch"
+        cos_min = float(getattr(pk, "lij_sample_cmd_meas_cos_min", -1.0))
+        if cos_min > -1.0:
+            cos = float(np.dot(cmd, meas) / max(cmd_norm * meas_norm, 1e-9))
+            if cos < cos_min:
+                return "motion_mismatch"
+        return ""
+
     def _grasp_lji_record_measured_sample(
         self,
         *,
@@ -5923,6 +5952,15 @@ class ControlService:
             joint_saturated=bool(saturated),
         )
         if ok:
+            mismatch_reason = self._grasp_lji_motion_mismatch_reason(
+                dq_cmd=dq_cmd,
+                delta_q=delta_q,
+                pk=pk,
+            )
+            if mismatch_reason:
+                est.clear()
+                self._grasp_lji_pending_sample = None
+                return SampleRejectReason.MOTION_MISMATCH
             est.push(delta_q, delta_s)
         self._grasp_lji_pending_sample = None
         return reason
