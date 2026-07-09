@@ -116,7 +116,7 @@ class HardwareConfig:
     lji_velocity_max_s1_deg_s: float = 60.0
     lji_velocity_max_s2_deg_s: float = 60.0
     lji_velocity_accel_limit_deg_s2: float = 350.0
-    lji_velocity_deadman_s: float = 0.45
+    lji_velocity_deadman_s: float = 1.20
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240

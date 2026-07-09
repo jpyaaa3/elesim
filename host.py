@@ -738,7 +738,7 @@ class ControlHost:
         )
         self._lji_velocity_deadman_s = max(
             0.05,
-            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.45) if hardware_cfg is not None else 0.45),
+            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 1.20) if hardware_cfg is not None else 1.20),
         )
         self._lji_velocity_active = False
         self._lji_velocity_last_cmd_s = 0.0
@@ -2347,13 +2347,14 @@ class ControlHost:
         raw_by_axis: dict[str, float],
         *,
         now_s: float,
+        nominal_dt_s: float = 0.0,
     ) -> dict[int, float]:
         axis_ids = self._arm_axis_ids()
         dt = 0.0
         if float(self._lji_velocity_last_cmd_s) > 0.0:
             dt = max(0.0, float(now_s) - float(self._lji_velocity_last_cmd_s))
         if dt <= 1e-6:
-            dt = float(self._arm_servo_period)
+            dt = max(float(nominal_dt_s), float(self._arm_servo_period))
         max_delta = float(self._lji_velocity_accel_limit_deg_s2) * max(dt, 1e-3)
         goals: dict[int, float] = {}
         for axis in ("linear", "roll", "s1", "s2"):
@@ -2400,6 +2401,7 @@ class ControlHost:
                 "s2": float(motor_v.u_s2),
             },
             now_s=float(apply_start),
+            nominal_dt_s=float(velocity_dt_s),
         )
         try:
             with self._hw_lock:

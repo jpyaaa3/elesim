@@ -5538,7 +5538,13 @@ class ControlService:
                 source=motion_source,
             )
             if host_after is None or bool(host_after.reply_ok):
-                self._grasp_lji_command_q = q_cmd.copy()
+                if (
+                    host_after is not None
+                    and str(getattr(host_after, "reply_reason", "")) == "host_native_lji_velocity"
+                ):
+                    self._grasp_lji_command_q = None
+                else:
+                    self._grasp_lji_command_q = q_cmd.copy()
             if float(motion_wait_frac) > 1e-6:
                 wait_s = float(max(step_period_s, 0.04))
                 host_after = self._grasp_lji_wait_motion_fraction(
