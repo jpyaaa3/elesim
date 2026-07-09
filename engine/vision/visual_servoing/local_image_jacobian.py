@@ -317,6 +317,28 @@ class ImageJacobianEstimator3D:
             return j_meas, rank, cond
         return self._seed_estimate()
 
+    def measured_estimate(
+        self,
+        *,
+        min_samples: Optional[int] = None,
+        condition_max: Optional[float] = None,
+        min_rank: Optional[int] = None,
+    ) -> Optional[Tuple[np.ndarray, int, float]]:
+        """Return the online measured estimate only; never falls back to seed."""
+        need = max(1, int(self.min_measured_samples if min_samples is None else min_samples))
+        if self.sample_count() < need:
+            return None
+        q_stack = np.stack([s.delta_q for s in self._samples], axis=0)
+        s_stack = np.stack([s.delta_s for s in self._samples], axis=0)
+        j_meas, rank, cond = estimate_j_img_from_stacks(q_stack, s_stack)
+        rank_min = int(self.min_rank if min_rank is None else min_rank)
+        cond_max = float(self.condition_max if condition_max is None else condition_max)
+        if int(rank) < rank_min:
+            return None
+        if np.isfinite(cond_max) and (not np.isfinite(cond) or float(cond) > cond_max):
+            return None
+        return j_meas, int(rank), float(cond)
+
     def is_usable(
         self,
         *,

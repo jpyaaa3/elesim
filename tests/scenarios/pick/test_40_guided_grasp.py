@@ -886,6 +886,72 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             )
         self.assertIn("blind_finish", calls)
 
+    def test_lji_blind_finish_prefers_learned_axial_jacobian(self) -> None:
+        svc = ControlService(PanelState(), client=MagicMock())
+        pk = PickConfig(
+            grasp_guided_enabled=True,
+            local_img_jacobian_enabled=True,
+            grasp_standoff_m=0.02,
+            grasp_close_tol_m=0.003,
+            blind_micro_start_m=0.08,
+            lij_min_samples=1,
+            lij_command_horizon=1.0,
+            lij_dq_smooth_alpha=0.0,
+        )
+        svc._pick_cfg = pk
+        svc._grasp_init_lji_controller(pk)
+        assert svc._grasp_lji_estimator_3d is not None
+        svc._grasp_lji_estimator_3d.push(
+            [-0.01, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -0.02],
+        )
+        host0 = self._host_state(q=SimQ(0.0, 0.0, 0.0, 0.0))
+        apply_calls: list[np.ndarray] = []
+
+        def _apply(dq, *, host_state, **_kwargs):
+            dq_arr = np.asarray(dq, dtype=float).reshape(4)
+            apply_calls.append(dq_arr.copy())
+            q0 = svc._q_array_from_state(host_state)
+            q1 = q0 + dq_arr
+            return q1, self._host_state(
+                q=SimQ(
+                    linear_m=float(q1[0]),
+                    roll_rad=float(q1[1]),
+                    theta1_rad=float(q1[2]),
+                    theta2_rad=float(q1[3]),
+                )
+            )
+
+        with patch.object(
+            svc,
+            "_pick_current_tip_world",
+            side_effect=[
+                (0.25, 0.0, 0.90),
+                (0.25, 0.0, 0.90),
+                (0.308, 0.0, 0.90),
+            ],
+        ), patch.object(
+            svc, "_grasp_apply_q_delta", side_effect=_apply
+        ), patch.object(
+            svc, "_grasp_blind_final_approach"
+        ) as mock_ik_blind:
+            ok, q_cmd, host_after = svc._grasp_lji_blind_finish_if_needed(
+                object_world=(0.33, 0.0, 0.90),
+                approach_dir=np.array([1.0, 0.0, 0.0]),
+                nominal_world=(0.31, 0.0, 0.90),
+                host_state=host0,
+                sag_model={},
+                standoff_m=0.02,
+                close_tol_m=0.003,
+            )
+
+        self.assertTrue(ok)
+        self.assertIsNotNone(q_cmd)
+        self.assertIsNotNone(host_after)
+        self.assertGreater(len(apply_calls), 0)
+        self.assertLess(float(apply_calls[0][0]), 0.0)
+        mock_ik_blind.assert_not_called()
+
     def test_lji_gain_scale_drops_near_contact(self) -> None:
         svc = ControlService(PanelState())
         pk = PickConfig(

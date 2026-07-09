@@ -5964,6 +5964,19 @@ class ControlService:
             "[Grasp] LJI blind finish | remain=%.1fmm > close_tol %.1fmm"
             % (float(remain) * 1000.0, float(close_tol_m) * 1000.0)
         )
+        jac_ok, q_jac, host_state, _target_jac = self._grasp_lji_blind_finish_with_jacobian(
+            object_world=use_obj,
+            approach_dir=dir_u,
+            nominal_world=tuple(float(v) for v in nominal),
+            host_state=host_state,
+            sag_model=dict(sag_model),
+            standoff_m=float(standoff_m),
+            close_tol_m=float(close_tol_m),
+            initial_remain_m=float(remain),
+        )
+        if jac_ok:
+            return True, q_jac, host_state
+        print("[Grasp] LJI blind finish | learned axial step unavailable; fallback IK")
         blind_ok, q_cmd, host_state, _target = self._grasp_blind_final_approach(
             object_world=use_obj,
             look_dir=handoff_look,
@@ -5974,6 +5987,165 @@ class ControlService:
             nominal_world=tuple(float(v) for v in nominal),
         )
         return bool(blind_ok), q_cmd, host_state
+
+    def _grasp_lji_learned_z_row(
+        self,
+        *,
+        pk: PickConfig,
+    ) -> Optional[np.ndarray]:
+        est = self._grasp_lji_estimator_3d
+        if est is None:
+            return None
+        min_samples = max(1, min(int(pk.lij_min_samples), 2))
+        measured = est.measured_estimate(
+            min_samples=min_samples,
+            condition_max=float("inf"),
+            min_rank=1,
+        )
+        if measured is None:
+            return None
+        j_meas, _rank, _cond = measured
+        row = np.asarray(j_meas, dtype=float).reshape(3, 4)[2, :].copy()
+        if not np.all(np.isfinite(row)):
+            return None
+        if float(np.linalg.norm(row)) <= 1e-9:
+            return None
+        return row
+
+    def _grasp_lji_blind_finish_with_jacobian(
+        self,
+        *,
+        object_world: tuple[float, float, float],
+        approach_dir: np.ndarray,
+        nominal_world: tuple[float, float, float],
+        host_state: Optional[HostState],
+        sag_model: dict[str, Any],
+        standoff_m: float,
+        close_tol_m: float,
+        initial_remain_m: float,
+    ) -> tuple[bool, Optional[np.ndarray], Optional[HostState], tuple[float, float, float]]:
+        """Final blind axial motion from the learned LJI z row; IK is fallback."""
+        servo = self._grasp_lji_servo_3d
+        if servo is None or self.client is None:
+            return False, None, host_state, tuple(float(v) for v in nominal_world)
+        pk = self._pick_config_effective()
+        z_row = self._grasp_lji_learned_z_row(pk=pk)
+        if z_row is None:
+            return False, None, host_state, tuple(float(v) for v in nominal_world)
+
+        obj_tuple = tuple(float(v) for v in object_world)
+        nominal_arr = np.asarray(nominal_world, dtype=float).reshape(3)
+        axis = self._unit_vec3(approach_dir)
+        target_world = tuple(float(v) for v in nominal_arr)
+        q_cmd: Optional[np.ndarray] = None
+        max_steps = int(
+            np.clip(
+                math.ceil(
+                    max(float(initial_remain_m), float(pk.blind_micro_start_m), 0.01)
+                    / max(float(pk.lij_far_linear_cap_m), float(pk.lij_max_dq_linear), 1e-3)
+                )
+                + 2,
+                2,
+                16,
+            )
+        )
+        step_period_s = float(max(pk.lij_step_period_s, 0.04))
+        for step_idx in range(max_steps):
+            tip = self._pick_current_tip_world(host_state=host_state)
+            if tip is None:
+                return False, q_cmd, host_state, target_world
+            remain = self._grasp_axial_distance(tip, nominal_arr, axis)
+            if float(remain) <= float(close_tol_m) + 1e-4:
+                try:
+                    q_now = self._q_array_from_state(host_state)
+                except Exception:
+                    q_now = q_cmd
+                target_world = self._grasp_precontact_from_tip(
+                    tip,
+                    obj_tuple,
+                    float(standoff_m),
+                )
+                print(
+                    "[Grasp] LJI blind finish | learned axial done step=%d remain=%.1fmm"
+                    % (int(step_idx), float(remain) * 1000.0)
+                )
+                return True, q_now, host_state, target_world
+
+            q_before = self._q_array_from_state(host_state)
+            z_err = float(max(0.0, float(remain) - float(close_tol_m)))
+            max_lin, max_ang, max_t1, max_t2, scale = self._grasp_lji_step_limits(
+                float(remain),
+                pk,
+                close_tol_m=float(close_tol_m),
+            )
+            s_axial = np.array([0.0, 0.0, z_err], dtype=float)
+            dq_cmd, _dq_raw, _j, rank, cond, _avail = servo.compute_dq(
+                s_axial,
+                z_row=z_row,
+                max_dq_linear=max_lin,
+                max_dq_angle=max_ang,
+                max_dq_theta1=max_t1,
+                max_dq_theta2=max_t2,
+                gain_u=0.0,
+                gain_v=0.0,
+                gain_z=float(pk.lij_gain_z) * float(scale),
+            )
+            dq_cmd = self._grasp_lji_guard_dq_at_limits(
+                q_before,
+                dq_cmd,
+                pk=pk,
+            )
+            if float(np.linalg.norm(dq_cmd)) <= 1e-7:
+                return False, q_cmd, host_state, target_world
+            dq_apply = self._grasp_lji_apply_command_horizon(
+                dq_cmd,
+                q_before=q_before,
+                pk=pk,
+            )
+            z_pred = float(np.dot(z_row.reshape(4), np.asarray(dq_apply, dtype=float).reshape(4)))
+            if z_pred >= -1e-7:
+                print(
+                    "[Grasp] LJI blind finish | learned z row predicts no approach dz=%.5f"
+                    % float(z_pred)
+                )
+                return False, q_cmd, host_state, target_world
+            q_cmd, host_state = self._grasp_apply_q_delta(
+                dq_apply,
+                host_state=host_state,
+                sag_model=dict(sag_model),
+                timeout_s=max(0.12, step_period_s * 2.0),
+                wait_settle=False,
+                step_period_s=step_period_s,
+                motion_wait_frac=0.25,
+            )
+            print(
+                "[Grasp] LJI blind finish | learned axial step=%d/%d remain=%.1fmm dz_pred=%.1fmm rank=%d cond=%.1f"
+                % (
+                    int(step_idx + 1),
+                    int(max_steps),
+                    float(remain) * 1000.0,
+                    float(-z_pred) * 1000.0,
+                    int(rank),
+                    float(cond),
+                )
+            )
+
+        tip_final = self._pick_current_tip_world(host_state=host_state)
+        if tip_final is None:
+            return False, q_cmd, host_state, target_world
+        remain_final = self._grasp_axial_distance(tip_final, nominal_arr, axis)
+        if float(remain_final) <= max(float(close_tol_m) * 3.0, 0.012) + 1e-4:
+            target_world = self._grasp_precontact_from_tip(
+                tip_final,
+                obj_tuple,
+                float(standoff_m),
+            )
+            print(
+                "[Grasp] LJI blind finish | learned axial accepted remain=%.1fmm"
+                % (float(remain_final) * 1000.0)
+            )
+            return True, q_cmd, host_state, target_world
+        return False, q_cmd, host_state, target_world
 
     def _grasp_lji_try_reacquire(
         self,
