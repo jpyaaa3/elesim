@@ -4942,6 +4942,88 @@ class ControlService:
         j_pos = model.position_jacobian(q)
         return z_jacobian_row_from_position_jacobian(j_pos, approach_dir)
 
+    def _grasp_lji_blocked_axes_for_limits(
+        self,
+        q: np.ndarray,
+        dq: np.ndarray,
+        *,
+        pk: PickConfig,
+    ) -> tuple[np.ndarray, tuple[str, ...]]:
+        flags = self._grasp_lji_joint_limit_flags(
+            q,
+            margin_m=float(pk.lij_joint_limit_margin_m),
+            margin_rad=float(pk.lij_joint_limit_margin_rad),
+            cfg=self._mapping_cfg,
+        )
+        d = np.asarray(dq, dtype=float).reshape(4)
+        blocked = np.zeros(4, dtype=bool)
+        names: list[str] = []
+
+        def _mark(idx: int, name: str) -> None:
+            blocked[int(idx)] = True
+            names.append(str(name))
+
+        if flags["linear_max"] and float(d[0]) > 0.0:
+            _mark(0, "linear_max")
+        if flags["linear_min"] and float(d[0]) < 0.0:
+            _mark(0, "linear_min")
+        if flags["roll_max"] and float(d[1]) > 0.0:
+            _mark(1, "roll_max")
+        if flags["roll_min"] and float(d[1]) < 0.0:
+            _mark(1, "roll_min")
+        if flags["theta1_max"] and float(d[2]) > 0.0:
+            _mark(2, "theta1_max")
+        if flags["theta1_min"] and float(d[2]) < 0.0:
+            _mark(2, "theta1_min")
+        if flags["theta2_max"] and float(d[3]) > 0.0:
+            _mark(3, "theta2_max")
+        if flags["theta2_min"] and float(d[3]) < 0.0:
+            _mark(3, "theta2_min")
+        return blocked, tuple(names)
+
+    @staticmethod
+    def _grasp_lji_solve_with_axis_mask(
+        j: np.ndarray,
+        s_lji: np.ndarray,
+        *,
+        free_mask: np.ndarray,
+        damping: float,
+        gain_u: float,
+        gain_v: float,
+        gain_z: float,
+        max_lin: float,
+        max_ang: float,
+        max_t1: float,
+        max_t2: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        free = np.asarray(free_mask, dtype=bool).reshape(4)
+        if int(np.count_nonzero(free)) <= 0:
+            return np.zeros(4, dtype=float), np.zeros(4, dtype=float)
+        jj = np.asarray(j, dtype=float).reshape(3, 4)[:, free]
+        s = np.asarray(s_lji, dtype=float).reshape(3)
+        j_stack = np.vstack(
+            [
+                float(gain_z) * jj[2:3, :],
+                float(gain_u) * jj[0:1, :],
+                float(gain_v) * jj[1:2, :],
+            ]
+        )
+        s_stack = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+        lam = float(max(damping, 1e-9))
+        jj_t = j_stack @ j_stack.T
+        pinv = j_stack.T @ np.linalg.inv(jj_t + (lam * lam) * np.eye(3, dtype=float))
+        dq_free_raw = (-pinv @ s_stack.reshape(3, 1)).reshape(-1)
+        dq_raw = np.zeros(4, dtype=float)
+        dq_raw[free] = dq_free_raw
+        dq = clip_dq(
+            dq_raw,
+            max_dq_linear=max_lin,
+            max_dq_angle=max_ang,
+            max_dq_theta1=max_t1,
+            max_dq_theta2=max_t2,
+        )
+        return dq, dq_raw
+
     def _grasp_lji_compute_step_dq(
         self,
         servo: LocalImageJacobianServo3D,
@@ -4984,6 +5066,52 @@ class ControlService:
             gain_v=float(pk.lij_gain_v) * scale,
             gain_z=float(pk.lij_gain_z) * gain_z_scale,
         )
+        controller = "local_img_jacobian"
+        blocked_axes, blocked_names = self._grasp_lji_blocked_axes_for_limits(
+            q,
+            dq,
+            pk=pk,
+        )
+        if bool(np.any(blocked_axes)) and bool(self._host_native_lji_runtime()):
+            free_mask = np.logical_not(blocked_axes)
+            dq_reduced, dq_raw_reduced = self._grasp_lji_solve_with_axis_mask(
+                j,
+                np.asarray(s_lji, dtype=float).reshape(3),
+                free_mask=free_mask,
+                damping=float(pk.lij_damping),
+                gain_u=float(pk.lij_gain_u) * scale,
+                gain_v=float(pk.lij_gain_v) * scale,
+                gain_z=float(pk.lij_gain_z) * gain_z_scale,
+                max_lin=max_lin,
+                max_ang=max_ang,
+                max_t1=max_t1,
+                max_t2=max_t2,
+            )
+            dq_reduced = self._grasp_lji_guard_dq_at_limits(
+                q,
+                dq_reduced,
+                pk=pk,
+            )
+            dq_guarded = self._grasp_lji_guard_dq_at_limits(q, dq, pk=pk)
+            if float(np.linalg.norm(dq_reduced)) > float(np.linalg.norm(dq_guarded)) + 1e-9:
+                dq = dq_reduced
+                dq_raw = dq_raw_reduced
+                controller = "local_img_jacobian_active_limits"
+                if int(self._grasp_waypoint_idx) <= 3 or int(self._grasp_waypoint_idx) % 10 == 0:
+                    print(
+                        "[Grasp] LJI active-limit solve | blocked=%s free=%s"
+                        % (
+                            ",".join(blocked_names),
+                            ",".join(
+                                name
+                                for name, is_free in zip(
+                                    ("linear", "roll", "theta1", "theta2"),
+                                    free_mask,
+                                )
+                                if bool(is_free)
+                            ),
+                        )
+                    )
         bias_gain = float(max(0.0, pk.lij_approach_bias_gain)) * scale
         bias_gate = float(max(pk.lij_approach_bias_uv_gate, 0.0))
         if (
@@ -5007,7 +5135,7 @@ class ControlService:
                         max_dq_theta2=max_t2,
                     )
                     dq_raw = np.asarray(dq_raw, dtype=float).reshape(4) + dq_bias
-        return dq, dq_raw, j, int(rank), float(cond), bool(avail), "local_img_jacobian"
+        return dq, dq_raw, j, int(rank), float(cond), bool(avail), controller
 
     @staticmethod
     def _grasp_lji_joint_limit_flags(

@@ -115,6 +115,10 @@ class HardwareConfig:
     lji_velocity_max_roll_deg_s: float = 70.0
     lji_velocity_max_s1_deg_s: float = 60.0
     lji_velocity_max_s2_deg_s: float = 60.0
+    lji_velocity_min_linear_deg_s: float = 0.0
+    lji_velocity_min_roll_deg_s: float = 0.0
+    lji_velocity_min_s1_deg_s: float = 0.0
+    lji_velocity_min_s2_deg_s: float = 0.0
     lji_velocity_accel_limit_deg_s2: float = 350.0
     lji_velocity_hold_s: float = 0.20
     lji_velocity_hold_max_s: float = 1.20
@@ -1531,6 +1535,18 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         ),
         lji_velocity_max_s2_deg_s=cp.getfloat(
             "hardware", "lji_velocity_max_s2_deg_s", fallback=hw0.lji_velocity_max_s2_deg_s
+        ),
+        lji_velocity_min_linear_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_min_linear_deg_s", fallback=hw0.lji_velocity_min_linear_deg_s
+        ),
+        lji_velocity_min_roll_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_min_roll_deg_s", fallback=hw0.lji_velocity_min_roll_deg_s
+        ),
+        lji_velocity_min_s1_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_min_s1_deg_s", fallback=hw0.lji_velocity_min_s1_deg_s
+        ),
+        lji_velocity_min_s2_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_min_s2_deg_s", fallback=hw0.lji_velocity_min_s2_deg_s
         ),
         lji_velocity_accel_limit_deg_s2=cp.getfloat(
             "hardware", "lji_velocity_accel_limit_deg_s2", fallback=hw0.lji_velocity_accel_limit_deg_s2

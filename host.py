@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import signal
 import threading
@@ -725,6 +726,40 @@ class ControlHost:
                     getattr(hardware_cfg, "lji_velocity_max_s2_deg_s", self._lji_velocity_max_deg_s)
                     if hardware_cfg is not None
                     else min(self._lji_velocity_max_deg_s, 60.0)
+                ),
+            ),
+        }
+        self._lji_velocity_axis_min_deg_s = {
+            "linear": max(
+                0.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_min_linear_deg_s", 0.0)
+                    if hardware_cfg is not None
+                    else 0.0
+                ),
+            ),
+            "roll": max(
+                0.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_min_roll_deg_s", 0.0)
+                    if hardware_cfg is not None
+                    else 0.0
+                ),
+            ),
+            "s1": max(
+                0.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_min_s1_deg_s", 0.0)
+                    if hardware_cfg is not None
+                    else 0.0
+                ),
+            ),
+            "s2": max(
+                0.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_min_s2_deg_s", 0.0)
+                    if hardware_cfg is not None
+                    else 0.0
                 ),
             ),
         }
@@ -2416,6 +2451,9 @@ class ControlHost:
             dxl_id = int(axis_ids[axis])
             cap = min(float(self._lji_velocity_max_deg_s), float(self._lji_velocity_axis_max_deg_s[axis]))
             raw = float(np.clip(float(raw_by_axis.get(axis, 0.0)), -cap, cap))
+            floor = min(cap, float(self._lji_velocity_axis_min_deg_s.get(axis, 0.0)))
+            if floor > 1e-9 and abs(raw) > 1e-9 and abs(raw) < floor:
+                raw = math.copysign(floor, raw)
             prev = float(self._lji_velocity_last_goals_deg_s.get(dxl_id, 0.0))
             limited = float(np.clip(raw, prev - max_delta, prev + max_delta))
             goals[dxl_id] = limited
