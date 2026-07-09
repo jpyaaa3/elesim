@@ -5155,6 +5155,8 @@ class ControlService:
         uv_priority = uv_priority_err > 1e-9 and uv_err_mag >= uv_priority_err
         if uv_priority:
             cap_scale = float(np.clip(pk.lij_uv_priority_cap_scale, 0.1, 2.0))
+            linear_scale = float(np.clip(pk.lij_uv_priority_z_scale, 0.0, 1.0))
+            max_lin *= linear_scale
             max_ang = max(float(max_ang), float(pk.lij_max_dq_angle) * cap_scale)
             max_t1 = max(float(max_t1), float(pk.lij_max_dq_theta1) * cap_scale)
             max_t2 = max(float(max_t2), float(pk.lij_max_dq_angle) * cap_scale)
