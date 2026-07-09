@@ -692,7 +692,7 @@ class ControlHost:
         )
         self._lji_velocity_max_deg_s = max(
             1.0,
-            float(getattr(hardware_cfg, "lji_velocity_max_deg_s", 50.0) if hardware_cfg is not None else 50.0),
+            float(getattr(hardware_cfg, "lji_velocity_max_deg_s", 70.0) if hardware_cfg is not None else 70.0),
         )
         self._lji_velocity_axis_max_deg_s = {
             "linear": max(
@@ -700,7 +700,7 @@ class ControlHost:
                 float(
                     getattr(hardware_cfg, "lji_velocity_max_linear_deg_s", self._lji_velocity_max_deg_s)
                     if hardware_cfg is not None
-                    else min(self._lji_velocity_max_deg_s, 20.0)
+                    else min(self._lji_velocity_max_deg_s, 30.0)
                 ),
             ),
             "roll": max(
@@ -716,7 +716,7 @@ class ControlHost:
                 float(
                     getattr(hardware_cfg, "lji_velocity_max_s1_deg_s", self._lji_velocity_max_deg_s)
                     if hardware_cfg is not None
-                    else min(self._lji_velocity_max_deg_s, 45.0)
+                    else min(self._lji_velocity_max_deg_s, 60.0)
                 ),
             ),
             "s2": max(
@@ -724,21 +724,21 @@ class ControlHost:
                 float(
                     getattr(hardware_cfg, "lji_velocity_max_s2_deg_s", self._lji_velocity_max_deg_s)
                     if hardware_cfg is not None
-                    else min(self._lji_velocity_max_deg_s, 45.0)
+                    else min(self._lji_velocity_max_deg_s, 60.0)
                 ),
             ),
         }
         self._lji_velocity_accel_limit_deg_s2 = max(
             1.0,
             float(
-                getattr(hardware_cfg, "lji_velocity_accel_limit_deg_s2", 150.0)
+                getattr(hardware_cfg, "lji_velocity_accel_limit_deg_s2", 350.0)
                 if hardware_cfg is not None
-                else 150.0
+                else 350.0
             ),
         )
         self._lji_velocity_deadman_s = max(
             0.05,
-            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.12) if hardware_cfg is not None else 0.12),
+            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.45) if hardware_cfg is not None else 0.45),
         )
         self._lji_velocity_active = False
         self._lji_velocity_last_cmd_s = 0.0
@@ -2338,8 +2338,9 @@ class ControlHost:
             return
         if float(self._lji_velocity_last_cmd_s) <= 0.0:
             return
-        if (float(now_s) - float(self._lji_velocity_last_cmd_s)) > float(self._lji_velocity_deadman_s):
-            self._stop_lji_velocity_mode(reason="deadman")
+        elapsed = float(now_s) - float(self._lji_velocity_last_cmd_s)
+        if elapsed > float(self._lji_velocity_deadman_s):
+            self._stop_lji_velocity_mode(reason="deadman %.3fs" % float(elapsed))
 
     def _clip_lji_velocity_goals(
         self,
@@ -2420,13 +2421,18 @@ class ControlHost:
             self._last_target_apply_error = ""
             self._lji_velocity_last_cmd_s = float(apply_end)
             self._state_broadcast_requested.set()
-            if int(seq) % 25 == 1:
+            if int(seq) <= 10 or int(seq) % 10 == 1:
                 print(
-                    "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs v_deg_s=(%.1f, %.1f, %.1f, %.1f)"
+                    "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs "
+                    "raw_deg_s=(%.1f, %.1f, %.1f, %.1f) cmd_deg_s=(%.1f, %.1f, %.1f, %.1f)"
                     % (
                         int(seq),
                         str(source),
                         float(velocity_dt_s),
+                        float(motor_v.u_linear),
+                        float(motor_v.u_roll),
+                        float(motor_v.u_s1),
+                        float(motor_v.u_s2),
                         float(goals_deg_s[int(self.hw.cfg.id_linear)]),
                         float(goals_deg_s[int(self.hw.cfg.id_roll)]),
                         float(goals_deg_s[int(self.hw.cfg.id_seg1)]),
