@@ -266,6 +266,8 @@ def pack_state(
     claw_closed: Optional[bool] = None,
     claw_current: Optional[int] = None,
     motor_currents_ma: Optional[dict[str, int]] = None,
+    motor_positions_raw: Optional[dict[str, int]] = None,
+    motor_positions_deg: Optional[dict[str, float]] = None,
     safety_fault: Optional[str] = None,
     perceived_object_label: Optional[str] = None,
     perceived_object_confidence: Optional[float] = None,
@@ -357,6 +359,10 @@ def pack_state(
         out["claw_current"] = int(claw_current)
     if motor_currents_ma is not None:
         out["motor_currents_ma"] = {str(k): int(v) for k, v in motor_currents_ma.items()}
+    if motor_positions_raw is not None:
+        out["motor_positions_raw"] = {str(k): int(v) for k, v in motor_positions_raw.items()}
+    if motor_positions_deg is not None:
+        out["motor_positions_deg"] = {str(k): float(v) for k, v in motor_positions_deg.items()}
     if safety_fault is not None:
         out["safety_fault"] = str(safety_fault)
     if perceived_object_label is not None:

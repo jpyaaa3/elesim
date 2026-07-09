@@ -16,6 +16,8 @@ class _EmptyHardwareState:
     reply_reason = ""
     safety_fault = ""
     motor_currents_ma = {}
+    motor_positions_raw = {}
+    motor_positions_deg = {}
 
 
 _CONTROL_LABEL_W = 96.0
@@ -43,6 +45,25 @@ def _warn_button(panel, label: str) -> bool:
     finally:
         if pushed:
             imgui.pop_style_color(3)
+
+
+def _draw_motor_position_rows(panel, state) -> None:
+    raw = getattr(state, "motor_positions_raw", {}) or {}
+    deg = getattr(state, "motor_positions_deg", {}) or {}
+    if not raw and not deg:
+        return
+    imgui.separator()
+    _control_label(panel, "Motor Pos")
+    imgui.text("raw / deg")
+    for name in ("linear", "roll", "seg1", "seg2", "claw"):
+        if name not in raw and name not in deg:
+            continue
+        raw_text = str(raw.get(name, "-"))
+        try:
+            deg_text = f"{float(deg.get(name, 0.0)):.1f}"
+        except (TypeError, ValueError):
+            deg_text = "-"
+        imgui.text(f"{name:<6} {raw_text:>6} / {deg_text:>7}")
 
 
 def draw_hardware_panel(panel) -> None:
@@ -109,3 +130,5 @@ def draw_hardware_panel(panel) -> None:
         if _warn_button(panel, "hardware_torque_abort"):
             panel.state.set_torque_lock_bypass(False)
             panel.service.torque_off()
+
+        _draw_motor_position_rows(panel, state)

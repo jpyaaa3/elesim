@@ -64,6 +64,8 @@ class ControlClient:
         self.torque_enabled: bool = False
         self.last_claw_current: int = 0
         self.last_motor_currents_ma: dict[str, int] = {}
+        self.last_motor_positions_raw: dict[str, int] = {}
+        self.last_motor_positions_deg: dict[str, float] = {}
         self.last_safety_fault: str = ""
         self.last_actual_tip_xyz: Optional[tuple[float, float, float]] = None
         self.last_actual_tip_dir: Optional[tuple[float, float, float]] = None
@@ -149,6 +151,8 @@ class ControlClient:
             torque_enabled=bool(self.torque_enabled),
             claw_current=int(self.last_claw_current),
             motor_currents_ma=dict(self.last_motor_currents_ma),
+            motor_positions_raw=dict(self.last_motor_positions_raw),
+            motor_positions_deg=dict(self.last_motor_positions_deg),
             safety_fault=str(self.last_safety_fault),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
@@ -439,6 +443,14 @@ class ControlClient:
                 self.last_claw_current = int(msg.get("claw_current", 0))
             if "motor_currents_ma" in msg and isinstance(msg.get("motor_currents_ma"), dict):
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
+            if "motor_positions_raw" in msg and isinstance(msg.get("motor_positions_raw"), dict):
+                self.last_motor_positions_raw = {
+                    str(k): int(v) for k, v in dict(msg.get("motor_positions_raw", {})).items()
+                }
+            if "motor_positions_deg" in msg and isinstance(msg.get("motor_positions_deg"), dict):
+                self.last_motor_positions_deg = {
+                    str(k): float(v) for k, v in dict(msg.get("motor_positions_deg", {})).items()
+                }
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
             self._update_go2_motor_fields(msg)
@@ -497,6 +509,14 @@ class ControlClient:
                 self.last_claw_current = int(msg.get("claw_current", 0))
             if "motor_currents_ma" in msg and isinstance(msg.get("motor_currents_ma"), dict):
                 self.last_motor_currents_ma = {str(k): int(v) for k, v in dict(msg.get("motor_currents_ma", {})).items()}
+            if "motor_positions_raw" in msg and isinstance(msg.get("motor_positions_raw"), dict):
+                self.last_motor_positions_raw = {
+                    str(k): int(v) for k, v in dict(msg.get("motor_positions_raw", {})).items()
+                }
+            if "motor_positions_deg" in msg and isinstance(msg.get("motor_positions_deg"), dict):
+                self.last_motor_positions_deg = {
+                    str(k): float(v) for k, v in dict(msg.get("motor_positions_deg", {})).items()
+                }
             if "safety_fault" in msg:
                 self.last_safety_fault = str(msg.get("safety_fault", ""))
             self._update_go2_motor_fields(msg)

@@ -237,6 +237,7 @@ class ControlService:
         self._grasp_lji_last_reliable_object_world: Optional[tuple[float, float, float]] = None
         self._grasp_lji_last_reliable_approach_dir: Optional[tuple[float, float, float]] = None
         self._grasp_lji_last_reliable_depth: Optional[float] = None
+        self._grasp_lji_last_reliable_camera_xyz: Optional[tuple[float, float, float]] = None
         self._grasp_lji_last_good_q: Optional[np.ndarray] = None
         self._grasp_lji_pending_sample: Optional[dict[str, Any]] = None
         self._grasp_lji_last_dq_cmd: Optional[np.ndarray] = None
@@ -4800,6 +4801,7 @@ class ControlService:
         self._grasp_lji_last_reliable_object_world = None
         self._grasp_lji_last_reliable_approach_dir = None
         self._grasp_lji_last_reliable_depth = None
+        self._grasp_lji_last_reliable_camera_xyz = None
         self._grasp_lji_last_good_q = None
         self._grasp_lji_pending_sample = None
         self._grasp_lji_last_dq_cmd = None
@@ -4890,6 +4892,38 @@ class ControlService:
         # Observation error (obs - target), same convention as solve_uv_control_delta.
         u_d, v_d, _, _ = self._visual_uv_errors(obs)
         return np.array([float(u_d), float(v_d), float(remain_m)], dtype=float)
+
+    def _grasp_lji_observation_outlier(
+        self,
+        obs: Optional[VisualObservation],
+        host_state: Optional[HostState],
+        *,
+        pk: PickConfig,
+    ) -> str:
+        if obs is None or host_state is None:
+            return ""
+        raw = getattr(host_state, "perceived_object_camera_xyz", None)
+        if raw is None:
+            return ""
+        try:
+            p_cam = np.asarray(raw, dtype=float).reshape(3)
+        except (TypeError, ValueError):
+            return "camera_invalid"
+        if not bool(np.all(np.isfinite(p_cam))):
+            return "camera_invalid"
+        z_m = float(p_cam[2])
+        if z_m <= 0.0:
+            return "camera_invalid"
+        max_z = float(max(getattr(pk, "lij_obs_max_camera_z_m", 0.0), 0.0))
+        if max_z > 1e-6 and z_m > max_z:
+            return "camera_z_outlier"
+        last = self._grasp_lji_last_reliable_camera_xyz
+        jump_m = float(max(getattr(pk, "lij_obs_camera_jump_m", 0.0), 0.0))
+        if last is not None and jump_m > 1e-6:
+            prev = np.asarray(last, dtype=float).reshape(3)
+            if float(np.linalg.norm(p_cam - prev)) > jump_m:
+                return "camera_jump"
+        return ""
 
     @staticmethod
     def _grasp_lji_gain_scale(
@@ -5024,6 +5058,83 @@ class ControlService:
         )
         return dq, dq_raw
 
+    @staticmethod
+    def _grasp_lji_weighted_system(
+        j: np.ndarray,
+        s_lji: np.ndarray,
+        *,
+        gain_u: float,
+        gain_v: float,
+        gain_z: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        jj = np.asarray(j, dtype=float).reshape(3, 4)
+        s = np.asarray(s_lji, dtype=float).reshape(3)
+        a = np.vstack(
+            [
+                float(gain_z) * jj[2:3, :],
+                float(gain_u) * jj[0:1, :],
+                float(gain_v) * jj[1:2, :],
+            ]
+        )
+        b = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+        return a, b
+
+    @staticmethod
+    def _grasp_lji_box_objective(
+        a: np.ndarray,
+        b: np.ndarray,
+        dq: np.ndarray,
+        *,
+        damping: float,
+    ) -> float:
+        x = np.asarray(dq, dtype=float).reshape(4)
+        r = np.asarray(a, dtype=float).reshape(3, 4) @ x + np.asarray(b, dtype=float).reshape(3)
+        lam = float(max(damping, 1e-9))
+        return float(np.dot(r, r) + lam * lam * np.dot(x, x))
+
+    @staticmethod
+    def _grasp_lji_solve_box_constrained(
+        j: np.ndarray,
+        s_lji: np.ndarray,
+        *,
+        lower: np.ndarray,
+        upper: np.ndarray,
+        damping: float,
+        gain_u: float,
+        gain_v: float,
+        gain_z: float,
+        initial: Optional[np.ndarray] = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        a, b = ControlService._grasp_lji_weighted_system(
+            j,
+            s_lji,
+            gain_u=gain_u,
+            gain_v=gain_v,
+            gain_z=gain_z,
+        )
+        lo = np.asarray(lower, dtype=float).reshape(4)
+        hi = np.asarray(upper, dtype=float).reshape(4)
+        if initial is None:
+            x = np.zeros(4, dtype=float)
+        else:
+            x = np.asarray(initial, dtype=float).reshape(4)
+        x = np.minimum(np.maximum(x, lo), hi)
+        lam = float(max(damping, 1e-9))
+        h = a.T @ a + (lam * lam) * np.eye(4, dtype=float)
+        g = a.T @ b
+        try:
+            lip = float(np.linalg.eigvalsh(h).max())
+        except Exception:
+            lip = float(np.linalg.norm(h, ord=2))
+        step = 1.0 / max(lip, 1e-9)
+        for _ in range(80):
+            x_next = np.minimum(np.maximum(x - step * (h @ x + g), lo), hi)
+            if float(np.linalg.norm(x_next - x)) <= 1e-10:
+                x = x_next
+                break
+            x = x_next
+        return x.copy(), a, b
+
     def _grasp_lji_compute_step_dq(
         self,
         servo: LocalImageJacobianServo3D,
@@ -5067,49 +5178,73 @@ class ControlService:
             gain_z=float(pk.lij_gain_z) * gain_z_scale,
         )
         controller = "local_img_jacobian"
-        blocked_axes, blocked_names = self._grasp_lji_blocked_axes_for_limits(
+        limit_flags = self._grasp_lji_joint_limit_flags(
             q,
-            dq,
-            pk=pk,
+            margin_m=float(pk.lij_joint_limit_margin_m),
+            margin_rad=float(pk.lij_joint_limit_margin_rad),
+            cfg=self._mapping_cfg,
         )
-        if bool(np.any(blocked_axes)) and bool(self._host_native_lji_runtime()):
-            free_mask = np.logical_not(blocked_axes)
-            dq_reduced, dq_raw_reduced = self._grasp_lji_solve_with_axis_mask(
+        active_limit_names = tuple(name for name, active in limit_flags.items() if bool(active))
+        if active_limit_names and bool(self._host_native_lji_runtime()):
+            lower = np.array([-max_lin, -max_ang, -max_t1, -max_t2], dtype=float)
+            upper = np.array([+max_lin, +max_ang, +max_t1, +max_t2], dtype=float)
+            if bool(limit_flags.get("linear_min", False)):
+                lower[0] = max(float(lower[0]), 0.0)
+            if bool(limit_flags.get("linear_max", False)):
+                upper[0] = min(float(upper[0]), 0.0)
+            if bool(limit_flags.get("roll_min", False)):
+                lower[1] = max(float(lower[1]), 0.0)
+            if bool(limit_flags.get("roll_max", False)):
+                upper[1] = min(float(upper[1]), 0.0)
+            if bool(limit_flags.get("theta1_min", False)):
+                lower[2] = max(float(lower[2]), 0.0)
+            if bool(limit_flags.get("theta1_max", False)):
+                upper[2] = min(float(upper[2]), 0.0)
+            if bool(limit_flags.get("theta2_min", False)):
+                lower[3] = max(float(lower[3]), 0.0)
+            if bool(limit_flags.get("theta2_max", False)):
+                upper[3] = min(float(upper[3]), 0.0)
+            dq_guarded = self._grasp_lji_guard_dq_at_limits(q, dq, pk=pk)
+            dq_box, a_box, b_box = self._grasp_lji_solve_box_constrained(
                 j,
                 np.asarray(s_lji, dtype=float).reshape(3),
-                free_mask=free_mask,
+                lower=lower,
+                upper=upper,
                 damping=float(pk.lij_damping),
                 gain_u=float(pk.lij_gain_u) * scale,
                 gain_v=float(pk.lij_gain_v) * scale,
                 gain_z=float(pk.lij_gain_z) * gain_z_scale,
-                max_lin=max_lin,
-                max_ang=max_ang,
-                max_t1=max_t1,
-                max_t2=max_t2,
+                initial=dq_guarded,
             )
-            dq_reduced = self._grasp_lji_guard_dq_at_limits(
-                q,
-                dq_reduced,
-                pk=pk,
+            obj_guarded = self._grasp_lji_box_objective(
+                a_box,
+                b_box,
+                dq_guarded,
+                damping=float(pk.lij_damping),
             )
-            dq_guarded = self._grasp_lji_guard_dq_at_limits(q, dq, pk=pk)
-            if float(np.linalg.norm(dq_reduced)) > float(np.linalg.norm(dq_guarded)) + 1e-9:
-                dq = dq_reduced
-                dq_raw = dq_raw_reduced
-                controller = "local_img_jacobian_active_limits"
+            obj_box = self._grasp_lji_box_objective(
+                a_box,
+                b_box,
+                dq_box,
+                damping=float(pk.lij_damping),
+            )
+            if obj_box < obj_guarded - 1e-10:
+                dq = dq_box
+                dq_raw = dq_box.copy()
+                controller = "local_img_jacobian_bounded_limits"
                 if int(self._grasp_waypoint_idx) <= 3 or int(self._grasp_waypoint_idx) % 10 == 0:
                     print(
-                        "[Grasp] LJI active-limit solve | blocked=%s free=%s"
+                        "[Grasp] LJI bounded-limit solve | active=%s bounds=[%+.4f,%+.4f,%+.4f,%+.4f]/[%+.4f,%+.4f,%+.4f,%+.4f]"
                         % (
-                            ",".join(blocked_names),
-                            ",".join(
-                                name
-                                for name, is_free in zip(
-                                    ("linear", "roll", "theta1", "theta2"),
-                                    free_mask,
-                                )
-                                if bool(is_free)
-                            ),
+                            ",".join(active_limit_names),
+                            float(lower[0]),
+                            float(lower[1]),
+                            float(lower[2]),
+                            float(lower[3]),
+                            float(upper[0]),
+                            float(upper[1]),
+                            float(upper[2]),
+                            float(upper[3]),
                         )
                     )
         bias_gain = float(max(0.0, pk.lij_approach_bias_gain)) * scale
@@ -5451,6 +5586,18 @@ class ControlService:
             float(dir_u[2]),
         )
         self._grasp_lji_last_reliable_depth = float(remain_m)
+        raw_cam = getattr(host_state, "perceived_object_camera_xyz", None)
+        if raw_cam is not None:
+            try:
+                p_cam = np.asarray(raw_cam, dtype=float).reshape(3)
+                if bool(np.all(np.isfinite(p_cam))):
+                    self._grasp_lji_last_reliable_camera_xyz = (
+                        float(p_cam[0]),
+                        float(p_cam[1]),
+                        float(p_cam[2]),
+                    )
+            except (TypeError, ValueError):
+                pass
         q = self._q_array_from_state(host_state)
         self._grasp_lji_last_good_q = q.copy()
 
@@ -8334,6 +8481,15 @@ class ControlService:
                     wait_s=lji_obs_wait_s,
                 )
                 object_lost = obs is None
+                lost_reason = "no_observation" if object_lost else ""
+                obs_outlier = self._grasp_lji_observation_outlier(obs, host_state, pk=pk)
+                if obs_outlier:
+                    object_lost = True
+                    lost_reason = str(obs_outlier)
+                    obs = None
+                    est_o = self._grasp_lji_estimator_3d
+                    if est_o is not None:
+                        est_o.clear()
                 s_lji_now = self._grasp_lji_build_features_3d(obs, remain_m=float(remain))
                 if s_lji_now is not None:
                     self._grasp_lji_v_err_hist.append(abs(float(s_lji_now[1])))
@@ -8405,7 +8561,7 @@ class ControlService:
                     pk=pk,
                 ):
                     if mode != GraspApproachMode.REACQUIRE:
-                        transition = "object_lost|reacquire"
+                        transition = "%s|reacquire" % (str(lost_reason or "object_lost"))
                     self._grasp_lji_begin_reacquire(
                         prev_mode=mode,
                         remain_m=float(remain),
@@ -8510,24 +8666,28 @@ class ControlService:
                         host_state,
                         wait_s=lji_obs_wait_s,
                     )
-                    if obs_after is not None and not self._grasp_lji_visual_tracking_lost(
-                        self._grasp_lji_build_features_3d(
-                            obs_after, remain_m=float(remain_after)
-                        ),
-                        pk=pk,
+                    obs_after_outlier = self._grasp_lji_observation_outlier(obs_after, host_state, pk=pk)
+                    s_after_reacquire = self._grasp_lji_build_features_3d(
+                        obs_after, remain_m=float(remain_after)
+                    )
+                    if (
+                        obs_after is not None
+                        and not obs_after_outlier
+                        and not self._grasp_lji_visual_tracking_lost(s_after_reacquire, pk=pk)
                     ):
                         self._grasp_lji_object_lost_count = 0
                         self._grasp_lji_end_reacquire()
                         self._record_pick_last_seen_uv(obs_after)
+                    elif obs_after_outlier:
+                        obs_after = None
+                        s_after_reacquire = None
                     tip_after = self._pick_current_tip_world(host_state=host_state)
                     if tip_after is not None:
                         remain_after = float(
                             self._grasp_axial_distance(tip_after, nominal_live, dir_u)
                         )
                     self._grasp_lji_reacquire_prev_remain = float(remain_after)
-                    s_lji = self._grasp_lji_build_features_3d(
-                        obs_after, remain_m=float(remain_after)
-                    )
+                    s_lji = s_after_reacquire
                     if moved and q_cmd is not None:
                         dq_meas = np.asarray(q_cmd, dtype=float) - np.asarray(
                             q_before, dtype=float

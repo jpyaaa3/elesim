@@ -80,6 +80,8 @@ class HostState:
     pick_failed: bool = False
     pick_phase: str = "idle"
     pick_status_msg: str = ""
+    motor_positions_raw: dict[str, int] = field(default_factory=dict)
+    motor_positions_deg: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass

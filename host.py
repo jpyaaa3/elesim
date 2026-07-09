@@ -29,7 +29,7 @@ from engine.robot.go2.hardware.odom_parser import OdomSample
 from engine.robot.go2.hardware.sport_api import normalize_go2_sport_pose, sport_pose_api_id
 from engine.observability.pick_timing import enabled as pick_profile_enabled
 from engine.robot.arm.iklib.solver import load_solver_context
-from engine.robot.arm.dynamixel import load_hardware, tick_to_deg_0_360
+from engine.robot.arm.dynamixel import load_hardware, tick_to_deg_0_360, tick_to_deg_unbounded
 from engine.core.trajectory import QuinticTimingConfig, QuinticTrajectoryRunner
 from engine.vision.visual_servoing.ready_pose import compute_ready_pose_target
 import engine.core.protocol as proto
@@ -185,8 +185,9 @@ class _DirectEmbeddedControlClient:
         host._pending_target_u = None
         host._pending_target_axes = set()
         host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
-        host._pending_target_q = q
-        host._pending_target_seq = int(self.tx_seq)
+        velocity_lji = qdot is not None and bool(host._lji_velocity_mode_enable)
+        host._pending_target_q = None if velocity_lji else q
+        host._pending_target_seq = -1 if velocity_lji else int(self.tx_seq)
         host._last_target_apply_error = ""
 
         if host._safety_fault:
@@ -195,7 +196,7 @@ class _DirectEmbeddedControlClient:
             ok = False
             reason = str(host._safety_fault)
         elif host._has_hw():
-            if qdot is not None and bool(host._lji_velocity_mode_enable):
+            if velocity_lji:
                 ok, reason = host._apply_lji_velocity_qdot(
                     q_target=q,
                     q_ref=qdot_ref if qdot_ref is not None else q,
@@ -557,6 +558,9 @@ class ControlHost:
         self.last_sim_q: Optional[proto.SimQ] = None
         self.last_sim_state_ts: float = 0.0
         self.torque_enabled: bool = False
+        self._last_motor_position_raw_by_id: Dict[int, int] = {}
+        self._last_motor_position_raw_by_name: Dict[str, int] = {}
+        self._last_motor_position_deg_by_name: Dict[str, float] = {}
         self.last_ik_target_xyz: Optional[tuple[float, float, float]] = None
         self.last_ik_target_dir: Optional[tuple[float, float, float]] = None
         self.last_ready_pose_dir: tuple[float, float, float] = (1.0, 0.0, 0.0)
@@ -1481,6 +1485,8 @@ class ControlHost:
                 ik_target_dir=self.last_ik_target_dir,
                 actual_tip_xyz=self.last_actual_tip_xyz,
                 actual_tip_dir=self.last_actual_tip_dir,
+                motor_positions_raw=dict(self._last_motor_position_raw_by_name),
+                motor_positions_deg=dict(self._last_motor_position_deg_by_name),
                 perceived_object_label=(self.last_perceived_object_label or None),
                 perceived_object_confidence=self.last_perceived_object_confidence,
                 perceived_object_camera=self.last_perceived_object_camera_xyz,
@@ -1564,6 +1570,8 @@ class ControlHost:
                 self._motor_name_by_id(int(k)): int(v)
                 for k, v in self._last_motor_current_by_id.items()
             },
+            motor_positions_raw=dict(self._last_motor_position_raw_by_name),
+            motor_positions_deg=dict(self._last_motor_position_deg_by_name),
             safety_fault=str(self._safety_fault or ""),
             actual_tip_xyz=self.last_actual_tip_xyz,
             actual_tip_dir=self.last_actual_tip_dir,
@@ -2076,6 +2084,20 @@ class ControlHost:
             self._last_claw_current = int(currents_by_id.get(int(self.hw.cfg.id_claw), self._last_claw_current))
             self._check_current_limit()
         self._last_hw_pos_by_id = dict(ticks_by_id)
+        self._last_motor_position_raw_by_id = {int(k): int(v) for k, v in ticks_by_id.items()}
+        self._last_motor_position_raw_by_name = {
+            self._motor_name_by_id(int(k)): int(v)
+            for k, v in self._last_motor_position_raw_by_id.items()
+        }
+        self._last_motor_position_deg_by_name = {
+            self._motor_name_by_id(int(dxl_id)): float(
+                tick_to_deg_unbounded(
+                    int(ticks_by_id.get(int(dxl_id), 0)),
+                    int(self.direction_by_id.get(int(dxl_id), +1)),
+                )
+            )
+            for dxl_id in self._ids
+        }
         if not self._ids or len(self._ids) < 4:
             return
         motor_deg_vals = []

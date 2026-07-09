@@ -84,6 +84,13 @@ def tick_to_deg_0_360(tick: int, direction: int = +1) -> float:
     return float(tick) * (360.0 / float(TICK_MAX))
 
 
+def tick_to_deg_unbounded(tick: int, direction: int = +1) -> float:
+    tick_signed = signed32(int(tick))
+    if int(direction) < 0:
+        tick_signed = TICK_MAX - tick_signed
+    return float(tick_signed) * (360.0 / float(TICK_MAX))
+
+
 @dataclass(frozen=True)
 class JointProfile:
     profile_vel: int
