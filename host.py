@@ -740,6 +740,14 @@ class ControlHost:
             0.02,
             float(getattr(hardware_cfg, "lji_velocity_hold_s", 0.20) if hardware_cfg is not None else 0.20),
         )
+        self._lji_velocity_hold_max_s = max(
+            float(self._lji_velocity_hold_s),
+            float(
+                getattr(hardware_cfg, "lji_velocity_hold_max_s", 1.20)
+                if hardware_cfg is not None
+                else 1.20
+            ),
+        )
         self._lji_velocity_deadman_s = max(
             0.05,
             float(getattr(hardware_cfg, "lji_velocity_deadman_s", 3.00) if hardware_cfg is not None else 3.00),
@@ -2304,7 +2312,7 @@ class ControlHost:
             self._lji_velocity_last_goals_deg_s = {}
             print(
                 "[host] LJI velocity mode active | max_deg_s=(linear %.1f, roll %.1f, s1 %.1f, s2 %.1f) "
-                "accel=%.1f hold=%.2fs deadman=%.2fs"
+                "accel=%.1f hold=%.2f..%.2fs deadman=%.2fs"
                 % (
                     float(self._lji_velocity_axis_max_deg_s["linear"]),
                     float(self._lji_velocity_axis_max_deg_s["roll"]),
@@ -2312,6 +2320,7 @@ class ControlHost:
                     float(self._lji_velocity_axis_max_deg_s["s2"]),
                     float(self._lji_velocity_accel_limit_deg_s2),
                     float(self._lji_velocity_hold_s),
+                    float(self._lji_velocity_hold_max_s),
                     float(self._lji_velocity_deadman_s),
                 )
             )
@@ -2438,10 +2447,22 @@ class ControlHost:
         if self._safety_fault:
             return False, str(self._safety_fault)
         velocity_dt = max(float(velocity_dt_s), 1e-3)
-        hold_s = max(float(self._lji_velocity_hold_s), velocity_dt)
+        apply_start = time.time()
+        command_interval_s = 0.0
+        if float(self._lji_velocity_last_cmd_s) > 0.0:
+            command_interval_s = max(
+                0.0,
+                float(apply_start) - float(self._lji_velocity_last_cmd_s),
+            )
+        adaptive_hold_s = float(self._lji_velocity_hold_s)
+        if command_interval_s > 1e-3:
+            adaptive_hold_s = max(
+                adaptive_hold_s,
+                min(float(self._lji_velocity_hold_max_s), 1.10 * float(command_interval_s)),
+            )
+        hold_s = max(float(adaptive_hold_s), velocity_dt)
         pulse_scale = float(np.clip(velocity_dt / hold_s, 0.01, 1.0))
         motor_v = self._sim_qdot_to_motor_deg_s(q_ref=q_ref, qdot=qdot)
-        apply_start = time.time()
         goals_deg_s = self._clip_lji_velocity_goals(
             {
                 "linear": float(motor_v.u_linear) * pulse_scale,
@@ -2476,12 +2497,13 @@ class ControlHost:
             self._state_broadcast_requested.set()
             if int(seq) <= 10 or int(seq) % 10 == 1:
                 print(
-                    "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs hold=%.3fs scale=%.2f "
+                    "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs interval=%.3fs hold=%.3fs scale=%.2f "
                     "raw_deg_s=(%.1f, %.1f, %.1f, %.1f) cmd_deg_s=(%.1f, %.1f, %.1f, %.1f)"
                     % (
                         int(seq),
                         str(source),
                         float(velocity_dt),
+                        float(command_interval_s),
                         float(hold_s),
                         float(pulse_scale),
                         float(motor_v.u_linear),
