@@ -77,6 +77,47 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             )
         self.assertIsNotNone(out)
 
+    def test_host_native_lji_accumulates_command_q_not_stale_measured_q(self) -> None:
+        stale = self._host_state(
+            q=SimQ(linear_m=0.0, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0),
+        )
+
+        class _Client:
+            host_native_control = True
+
+            def __init__(self, state: HostState) -> None:
+                self.state = state
+                self.commands: list[SimQ] = []
+
+            def has_hardware(self) -> bool:
+                return True
+
+            def apply_lji_q_direct(self, q: SimQ, **_kwargs) -> HostState:
+                self.commands.append(q)
+                return self.state
+
+        client = _Client(stale)
+        svc = ControlService(PanelState(), client=client, use_hardware=True)
+        dq = np.array([0.0, 0.01, 0.0, 0.0], dtype=float)
+
+        svc._grasp_apply_q_delta(
+            dq,
+            host_state=stale,
+            sag_model={},
+            wait_settle=False,
+            motion_wait_frac=0.0,
+        )
+        svc._grasp_apply_q_delta(
+            dq,
+            host_state=stale,
+            sag_model={},
+            wait_settle=False,
+            motion_wait_frac=0.0,
+        )
+
+        self.assertAlmostEqual(client.commands[0].roll_rad, 0.01)
+        self.assertAlmostEqual(client.commands[1].roll_rad, 0.02)
+
     def test_nominal_endpoint_shifts_with_object(self) -> None:
         e0 = ControlService._compute_grasp_nominal_endpoint(
             (0.30, 0.0, 0.90),

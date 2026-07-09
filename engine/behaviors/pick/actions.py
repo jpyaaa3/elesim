@@ -240,6 +240,7 @@ class ControlService:
         self._grasp_lji_last_good_q: Optional[np.ndarray] = None
         self._grasp_lji_pending_sample: Optional[dict[str, Any]] = None
         self._grasp_lji_last_dq_cmd: Optional[np.ndarray] = None
+        self._grasp_lji_command_q: Optional[np.ndarray] = None
         self._grasp_lji_reacquire_anchor_dq: Optional[np.ndarray] = None
         self._grasp_lji_reacquire_steps = 0
         self._grasp_lji_reacquire_aim_tried = False
@@ -2148,6 +2149,11 @@ class ControlService:
             and bool(getattr(self.client, "host_native_control", False))
             and hasattr(self.client, "apply_lji_q_direct")
         )
+
+    def _grasp_lji_command_base_q(self, host_state: Optional[HostState]) -> np.ndarray:
+        if self._host_native_lji_runtime() and self._grasp_lji_command_q is not None:
+            return np.asarray(self._grasp_lji_command_q, dtype=float).reshape(4).copy()
+        return self._q_array_from_state(host_state)
 
     def _refresh_lji_state(self) -> Optional[HostState]:
         if self.client is None:
@@ -4797,6 +4803,7 @@ class ControlService:
         self._grasp_lji_last_good_q = None
         self._grasp_lji_pending_sample = None
         self._grasp_lji_last_dq_cmd = None
+        self._grasp_lji_command_q = None
         self._grasp_lji_reacquire_anchor_dq = None
         self._grasp_lji_reacquire_steps = 0
         self._grasp_lji_reacquire_aim_tried = False
@@ -4857,6 +4864,7 @@ class ControlService:
         self._grasp_lji_object_lost_count = 0
         self._grasp_lji_pending_sample = None
         self._grasp_lji_last_dq_cmd = None
+        self._grasp_lji_command_q = None
         self._grasp_lji_reacquire_anchor_dq = None
         self._grasp_lji_reacquire_steps = 0
         self._grasp_lji_reacquire_aim_tried = False
@@ -5481,7 +5489,7 @@ class ControlService:
         angle_tol_rad: Optional[float] = None,
         motion_wait_frac: float = 0.15,
     ) -> tuple[np.ndarray, Optional[HostState]]:
-        q0 = self._q_array_from_state(host_state)
+        q0 = self._grasp_lji_command_base_q(host_state)
         dq_arr = np.asarray(dq, dtype=float).reshape(4)
         q_cmd = self._clamp_q(q0 + dq_arr)
         self.state.set_q(
@@ -5514,6 +5522,8 @@ class ControlService:
                 claw_closed=bool(self.state.claw_closed),
                 source=motion_source,
             )
+            if host_after is None or bool(host_after.reply_ok):
+                self._grasp_lji_command_q = q_cmd.copy()
             if float(motion_wait_frac) > 1e-6:
                 wait_s = float(max(step_period_s, 0.04))
                 host_after = self._grasp_lji_wait_motion_fraction(
@@ -6072,7 +6082,7 @@ class ControlService:
                 )
                 return True, q_now, host_state, target_world
 
-            q_before = self._q_array_from_state(host_state)
+            q_before = self._grasp_lji_command_base_q(host_state)
             z_err = float(max(0.0, float(remain) - float(close_tol_m)))
             max_lin, max_ang, max_t1, max_t2, scale = self._grasp_lji_step_limits(
                 float(remain),
@@ -8040,6 +8050,7 @@ class ControlService:
                 self._maybe_start_local_perception()
 
             host_state = self._refresh_lji_state()
+            self._grasp_lji_command_q = self._q_array_from_state(host_state).copy()
             q_cmd: Optional[np.ndarray] = None
             sag_model = self._grasp_lji_sag_model()
             mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
@@ -8416,13 +8427,14 @@ class ControlService:
                         eps_l = float(pk.lij_probing_epsilon_linear)
                         eps_a = float(pk.lij_probing_epsilon_angle)
                         probe = np.array([eps_l, eps_a, eps_a, eps_a], dtype=float)
-                        q_before = self._q_array_from_state(host_state)
+                        q_measured_before = self._q_array_from_state(host_state)
+                        q_before = self._grasp_lji_command_base_q(host_state)
                         dq_apply_arr = probe.copy()
                         if float(pk.lij_dq_smooth_alpha) > 1e-6:
                             probe = self._grasp_lji_smooth_dq(probe, pk=pk)
                             dq_apply_arr = probe.copy()
                         self._grasp_lji_pending_sample = {
-                            "q_before": q_before.copy(),
+                            "q_before": q_measured_before.copy(),
                             "s_before": np.zeros(3, dtype=float),
                             "dq_cmd": dq_apply_arr.copy(),
                         }
@@ -8467,6 +8479,7 @@ class ControlService:
                             time.sleep(min(float(lji_step_period_s), 0.10))
                         continue
                 else:
+                    q_before = self._grasp_lji_command_base_q(host_state)
                     (
                         dq_cmd_arr,
                         _dq_raw,
@@ -8478,7 +8491,7 @@ class ControlService:
                     ) = self._grasp_lji_compute_step_dq(
                         servo,
                         np.asarray(s_lji, dtype=float).reshape(3),
-                        q=self._q_array_from_state(host_state),
+                        q=q_before,
                         approach_dir=dir_u,
                         sag_model=dict(sag_model),
                         remain_m=float(remain),
@@ -8503,7 +8516,7 @@ class ControlService:
                                 float(j_cond),
                             )
                         )
-                    q_before = self._q_array_from_state(host_state)
+                    q_measured_before = self._q_array_from_state(host_state)
                     dq_cmd_arr = self._grasp_lji_guard_dq_at_limits(
                         q_before,
                         dq_cmd_arr,
@@ -8518,7 +8531,7 @@ class ControlService:
                     )
                     command_horizon = self._grasp_lji_command_horizon(pk)
                     self._grasp_lji_pending_sample = {
-                        "q_before": q_before.copy(),
+                        "q_before": q_measured_before.copy(),
                         "s_before": s_lji.copy(),
                         "dq_cmd": dq_apply_arr.copy(),
                     }
