@@ -61,8 +61,10 @@ from engine.vision.visual_servoing.local_image_jacobian import (
     LocalImageJacobianServoGains,
     SampleRejectReason,
     check_sample_quality,
+    clip_dq,
     default_j_lji_seed,
     joint_saturated,
+    null_space_projector_mn,
     z_jacobian_row_from_position_jacobian,
 )
 from engine.vision.visual_servoing.uv_jacobian import (
@@ -4961,6 +4963,24 @@ class ControlService:
             gain_v=float(pk.lij_gain_v) * scale,
             gain_z=float(pk.lij_gain_z) * scale,
         )
+        bias_gain = float(max(0.0, pk.lij_approach_bias_gain)) * scale
+        if bias_gain > 1e-9 and float(remain_m) > float(close_tol_m) + 1e-4:
+            seed = np.asarray(self._grasp_lji_q_delta4(pk.lij_approach_seed_q_delta), dtype=float)
+            if float(np.linalg.norm(seed)) > 1e-9:
+                j_uv = np.asarray(j[0:2, :], dtype=float).reshape(2, 4)
+                n_uv = null_space_projector_mn(j_uv, damping=float(pk.lij_damping))
+                dq_bias = bias_gain * (n_uv @ seed.reshape(4))
+                # Only keep the posture/approach bias if FK predicts less axial remain.
+                z_effect = float(np.dot(np.asarray(z_row, dtype=float).reshape(4), dq_bias))
+                if z_effect < -1e-9:
+                    dq = clip_dq(
+                        np.asarray(dq, dtype=float).reshape(4) + dq_bias,
+                        max_dq_linear=max_lin,
+                        max_dq_angle=max_ang,
+                        max_dq_theta1=max_t1,
+                        max_dq_theta2=max_t2,
+                    )
+                    dq_raw = np.asarray(dq_raw, dtype=float).reshape(4) + dq_bias
         return dq, dq_raw, j, int(rank), float(cond), bool(avail), "local_img_jacobian"
 
     @staticmethod

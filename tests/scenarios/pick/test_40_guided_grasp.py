@@ -523,6 +523,65 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertNotEqual(float(dq[2]), 0.0)
         self.assertNotEqual(float(dq[3]), 0.0)
 
+    def test_lji_centered_uv_uses_null_space_approach_bias(self) -> None:
+        svc = ControlService(PanelState())
+        s = np.array([0.0, 0.0, 0.35], dtype=float)
+        q = np.array([0.0, 0.0, -0.1, 0.1], dtype=float)
+        approach = np.array([1.0, 0.0, 0.0], dtype=float)
+        position_j = np.array(
+            [
+                [1.0, 0.0, 0.02, 0.02],
+                [0.0, 0.2, 0.3, 0.4],
+                [0.0, 0.1, -0.2, 0.3],
+            ],
+            dtype=float,
+        )
+
+        def compute(pk: PickConfig) -> tuple[np.ndarray, np.ndarray]:
+            svc._grasp_init_lji_controller(pk)
+            servo = svc._grasp_lji_servo_3d
+            assert servo is not None
+            with patch.object(svc, "_pick_reach_model") as mock_model:
+                mock_model.return_value.position_jacobian.return_value = position_j
+                dq, _, _, _, _, avail, _ = svc._grasp_lji_compute_step_dq(
+                    servo,
+                    s,
+                    q=q,
+                    approach_dir=approach,
+                    sag_model={},
+                    remain_m=0.35,
+                    pk=pk,
+                    close_tol_m=0.003,
+                )
+            self.assertTrue(avail)
+            z_row = -position_j[0, :]
+            return dq, z_row
+
+        base_pk = PickConfig(
+            lij_uv_handoff_m=0.10,
+            lij_far_linear_cap_m=0.01,
+            lij_far_z_gain=0.2,
+            lij_max_dq_theta1=0.02,
+            lij_max_dq_angle=0.02,
+            lij_approach_bias_gain=0.0,
+            lij_approach_seed_q_delta=(0.0, 0.0, 0.02, 0.02),
+        )
+        bias_pk = PickConfig(
+            lij_uv_handoff_m=0.10,
+            lij_far_linear_cap_m=0.01,
+            lij_far_z_gain=0.2,
+            lij_max_dq_theta1=0.02,
+            lij_max_dq_angle=0.02,
+            lij_approach_bias_gain=1.0,
+            lij_approach_seed_q_delta=(0.0, 0.0, 0.02, 0.02),
+        )
+        dq_base, z_row = compute(base_pk)
+        dq_bias, _ = compute(bias_pk)
+        base_seg = float(np.linalg.norm(dq_base[2:4]))
+        bias_seg = float(np.linalg.norm(dq_bias[2:4]))
+        self.assertGreater(bias_seg, base_seg + 1e-4)
+        self.assertLess(float(np.dot(z_row, dq_bias)), 0.0)
+
     def test_lji_worker_does_not_update_online_sag(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
