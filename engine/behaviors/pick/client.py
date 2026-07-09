@@ -691,6 +691,18 @@ class ControlClient:
         self.tx_seq += 1
         self._send({"t": "gaze_stop", "ts": now, "seq": self.tx_seq})
 
+    def stop_lji_velocity_control(self, *, reason: str = "client_stop") -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "lji_velocity_stop",
+                "ts": now,
+                "seq": self.tx_seq,
+                "reason": str(reason),
+            }
+        )
+
     def send_gaze_config_update(self, config: dict[str, Any]) -> None:
         now = time.time()
         self.tx_seq += 1

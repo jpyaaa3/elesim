@@ -3823,6 +3823,27 @@ class ControlHost:
             )
             self._broadcast_state_now()
             return
+        if t == "lji_velocity_stop":
+            ok = True
+            reason = str(msg.get("reason", "client_stop") or "client_stop")
+            try:
+                self._stop_lji_velocity_mode(reason=reason)
+            except Exception as exc:
+                ok = False
+                reason = f"lji_velocity_stop_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                },
+            )
+            self._broadcast_state_now()
+            return
         if t == "mobile_pick_start":
             ok = True
             reason = "on_device_mobile_pick_start"

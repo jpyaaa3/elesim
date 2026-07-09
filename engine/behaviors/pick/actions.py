@@ -5959,6 +5959,14 @@ class ControlService:
             )
             if mismatch_reason:
                 est.clear()
+                self._grasp_lji_last_dq_cmd = None
+                self._grasp_lji_command_q = None
+                stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
+                if callable(stop_lji_velocity):
+                    try:
+                        stop_lji_velocity(reason="lji_motion_mismatch")
+                    except Exception:
+                        pass
                 self._grasp_lji_pending_sample = None
                 return SampleRejectReason.MOTION_MISMATCH
             est.push(delta_q, delta_s)
