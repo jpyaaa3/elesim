@@ -88,12 +88,14 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             def __init__(self, state: HostState) -> None:
                 self.state = state
                 self.commands: list[SimQ] = []
+                self.kwargs: list[dict] = []
 
             def has_hardware(self) -> bool:
                 return True
 
             def apply_lji_q_direct(self, q: SimQ, **_kwargs) -> HostState:
                 self.commands.append(q)
+                self.kwargs.append(dict(_kwargs))
                 return self.state
 
         client = _Client(stale)
@@ -105,6 +107,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             host_state=stale,
             sag_model={},
             wait_settle=False,
+            step_period_s=0.10,
             motion_wait_frac=0.0,
         )
         svc._grasp_apply_q_delta(
@@ -112,11 +115,15 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             host_state=stale,
             sag_model={},
             wait_settle=False,
+            step_period_s=0.10,
             motion_wait_frac=0.0,
         )
 
         self.assertAlmostEqual(client.commands[0].roll_rad, 0.01)
         self.assertAlmostEqual(client.commands[1].roll_rad, 0.02)
+        self.assertIn("qdot", client.kwargs[0])
+        self.assertAlmostEqual(client.kwargs[0]["qdot"].roll_rad, 0.10)
+        self.assertAlmostEqual(client.kwargs[0]["velocity_dt_s"], 0.10)
 
     def test_nominal_endpoint_shifts_with_object(self) -> None:
         e0 = ControlService._compute_grasp_nominal_endpoint(

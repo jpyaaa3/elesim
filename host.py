@@ -160,6 +160,9 @@ class _DirectEmbeddedControlClient:
         self,
         q: proto.SimQ,
         *,
+        qdot: Optional[proto.SimQ] = None,
+        qdot_ref: Optional[proto.SimQ] = None,
+        velocity_dt_s: float = 0.0,
         sag_model: Optional[dict[str, Any]] = None,
         target_xyz: Optional[tuple[float, float, float]] = None,
         target_dir: Optional[tuple[float, float, float]] = None,
@@ -191,20 +194,32 @@ class _DirectEmbeddedControlClient:
             ok = False
             reason = str(host._safety_fault)
         elif host._has_hw():
-            target_u = proto.sim_q_to_control_u(q, host.cfg)
-            ok, reason = host._submit_direct_partial_control_u(
-                {
-                    "linear": float(target_u.u_linear),
-                    "roll": float(target_u.u_roll),
-                    "s1": float(target_u.u_s1),
-                    "s2": float(target_u.u_s2),
-                },
-                source=source,
-                seq=int(self.tx_seq),
-                client_ts_s=float(time.time()),
-            )
-            if bool(ok):
-                reason = "host_native_lji_servo_thread"
+            if qdot is not None and bool(host._lji_velocity_mode_enable):
+                ok, reason = host._apply_lji_velocity_qdot(
+                    q_target=q,
+                    q_ref=qdot_ref if qdot_ref is not None else q,
+                    qdot=qdot,
+                    seq=int(self.tx_seq),
+                    source=source,
+                    client_ts_s=float(time.time()),
+                    perceived_ts_s=float(host.last_perceived_timestamp_s),
+                    velocity_dt_s=float(velocity_dt_s),
+                )
+            else:
+                target_u = proto.sim_q_to_control_u(q, host.cfg)
+                ok, reason = host._submit_direct_partial_control_u(
+                    {
+                        "linear": float(target_u.u_linear),
+                        "roll": float(target_u.u_roll),
+                        "s1": float(target_u.u_s1),
+                        "s2": float(target_u.u_s2),
+                    },
+                    source=source,
+                    seq=int(self.tx_seq),
+                    client_ts_s=float(time.time()),
+                )
+                if bool(ok):
+                    reason = "host_native_lji_servo_thread"
         else:
             host._schedule_target_motion(q, source=source)
             host.last_q = q
@@ -220,6 +235,9 @@ class _DirectEmbeddedControlClient:
         self.last_object_world_xyz = host.last_perceived_object_world_xyz
         host._state_broadcast_requested.set()
         return self.get_state()
+
+    def stop_lji_velocity_control(self, *, reason: str = "client_stop") -> None:
+        self._host._stop_lji_velocity_mode(reason=reason)
 
     def q_to_control_u(
         self,
@@ -669,6 +687,19 @@ class ControlHost:
         self._arm_latency_csv_file: Optional[Any] = None
         self._arm_latency_csv_writer: Optional[csv.DictWriter] = None
         self._init_arm_latency_csv()
+        self._lji_velocity_mode_enable = bool(
+            getattr(hardware_cfg, "lji_velocity_mode_enable", False) if hardware_cfg is not None else False
+        )
+        self._lji_velocity_max_deg_s = max(
+            1.0,
+            float(getattr(hardware_cfg, "lji_velocity_max_deg_s", 180.0) if hardware_cfg is not None else 180.0),
+        )
+        self._lji_velocity_deadman_s = max(
+            0.05,
+            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.35) if hardware_cfg is not None else 0.35),
+        )
+        self._lji_velocity_active = False
+        self._lji_velocity_last_cmd_s = 0.0
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
@@ -922,6 +953,7 @@ class ControlHost:
             if start_servo:
                 pass
             else:
+                self._stop_lji_velocity_mode(reason="set_device")
                 self._clear_arm_servo_target()
                 old_hw = self.hw
                 old_direction = dict(self.direction_by_id)
@@ -1004,6 +1036,7 @@ class ControlHost:
 
     def clear_device(self) -> None:
         self._stop_arm_servo_thread()
+        self._stop_lji_velocity_mode(reason="clear_device")
         with self._hw_lock:
             old_hw = self.hw
             self._pending_target_q = None
@@ -1997,6 +2030,13 @@ class ControlHost:
         try:
             if self._has_hw():
                 with self._hw_lock:
+                    if bool(self._lji_velocity_active):
+                        try:
+                            self.hw.stop_arm_velocity()
+                        except Exception:
+                            pass
+                        self._lji_velocity_active = False
+                        self._lji_velocity_last_cmd_s = 0.0
                     if red_dxl_id is None:
                         self.hw.torque_off_all()
                         self.torque_enabled = False
@@ -2097,6 +2137,239 @@ class ControlHost:
             bool(complete),
         )
 
+    def _arm_axis_ids(self) -> dict[str, int]:
+        if not self._has_hw():
+            return {}
+        cfg = self.hw.cfg
+        return {
+            "linear": int(cfg.id_linear),
+            "roll": int(cfg.id_roll),
+            "s1": int(cfg.id_seg1),
+            "s2": int(cfg.id_seg2),
+        }
+
+    @staticmethod
+    def _sim_q_array(q: proto.SimQ) -> np.ndarray:
+        return np.array(
+            [
+                float(q.linear_m),
+                float(q.roll_rad),
+                float(q.theta1_rad),
+                float(q.theta2_rad),
+            ],
+            dtype=float,
+        )
+
+    @staticmethod
+    def _sim_q_from_array(values: np.ndarray) -> proto.SimQ:
+        arr = np.asarray(values, dtype=float).reshape(4)
+        return proto.SimQ(
+            linear_m=float(arr[0]),
+            roll_rad=float(arr[1]),
+            theta1_rad=float(arr[2]),
+            theta2_rad=float(arr[3]),
+        )
+
+    def _qdot_limited_for_velocity_mode(
+        self,
+        *,
+        q_ref: proto.SimQ,
+        qdot: proto.SimQ,
+    ) -> np.ndarray:
+        q = self._sim_q_array(q_ref)
+        v = self._sim_q_array(qdot)
+        linear_min_m, linear_max_m = proto.linear_effective_q_bounds(self.cfg)
+        lo = np.array(
+            [
+                float(linear_min_m),
+                float(self.cfg.roll_q_min_rad),
+                float(self.cfg.seg1_q_min_rad),
+                float(self.cfg.seg2_q_min_rad),
+            ],
+            dtype=float,
+        )
+        hi = np.array(
+            [
+                float(linear_max_m),
+                float(self.cfg.roll_q_max_rad),
+                float(self.cfg.seg1_q_max_rad),
+                float(self.cfg.seg2_q_max_rad),
+            ],
+            dtype=float,
+        )
+        margin = np.array([0.0015, 0.01, 0.01, 0.01], dtype=float)
+        for idx in range(4):
+            if q[idx] <= lo[idx] + margin[idx] and v[idx] < 0.0:
+                v[idx] = 0.0
+            elif q[idx] >= hi[idx] - margin[idx] and v[idx] > 0.0:
+                v[idx] = 0.0
+        if self._has_hw():
+            axis_ids = self._arm_axis_ids()
+            for idx, axis in enumerate(("linear", "roll", "s1", "s2")):
+                v[idx] *= float(self._yellow_scale_for_id(int(axis_ids.get(axis, -1))))
+        return v
+
+    def _sim_qdot_to_motor_deg_s(
+        self,
+        *,
+        q_ref: proto.SimQ,
+        qdot: proto.SimQ,
+    ) -> proto.ControlU:
+        v = self._qdot_limited_for_velocity_mode(q_ref=q_ref, qdot=qdot)
+        if float(np.linalg.norm(v)) <= 1e-12:
+            return proto.ControlU(0.0, 0.0, 0.0, 0.0)
+        q0 = self._sim_q_array(q_ref)
+        eps = 0.02
+        q1 = self._sim_q_from_array(q0 + v * eps)
+        u0 = proto.sim_q_to_motor_deg(q_ref, self.cfg)
+        u1 = proto.sim_q_to_motor_deg(q1, self.cfg)
+        return proto.ControlU(
+            u_linear=(float(u1.u_linear) - float(u0.u_linear)) / eps,
+            u_roll=(float(u1.u_roll) - float(u0.u_roll)) / eps,
+            u_s1=(float(u1.u_s1) - float(u0.u_s1)) / eps,
+            u_s2=(float(u1.u_s2) - float(u0.u_s2)) / eps,
+        )
+
+    def _ensure_lji_velocity_mode(self) -> tuple[bool, str]:
+        if not bool(self._lji_velocity_mode_enable):
+            return False, "lji_velocity_disabled"
+        if not self._has_hw():
+            return False, "no_hw"
+        if self._safety_fault:
+            return False, str(self._safety_fault)
+        if bool(self._lji_velocity_active):
+            return True, "lji_velocity_active"
+        self._clear_arm_servo_target()
+        self._pending_target_u = None
+        self._pending_target_axes = set()
+        self._pending_target_q = None
+        self._pending_target_seq = -1
+        self._cancel_trajectory()
+        try:
+            with self._hw_lock:
+                self.hw.set_velocity_mode_for_arm()
+            self._lji_velocity_active = True
+            self._lji_velocity_last_cmd_s = 0.0
+            print(
+                "[host] LJI velocity mode active | max_deg_s=%.1f deadman=%.2fs"
+                % (float(self._lji_velocity_max_deg_s), float(self._lji_velocity_deadman_s))
+            )
+            return True, "lji_velocity_active"
+        except Exception as exc:
+            self._last_target_apply_error = f"lji_velocity_mode_failed: {exc}"
+            print(f"[host] LJI velocity mode failed: {exc}")
+            return False, self._last_target_apply_error
+
+    def _stop_lji_velocity_mode(self, *, reason: str = "stop") -> None:
+        if not bool(self._lji_velocity_active):
+            return
+        try:
+            if self._has_hw():
+                with self._hw_lock:
+                    self.hw.stop_arm_velocity()
+                    self.hw.set_position_mode_for_arm()
+                    self.hw.hold_current_arm_position()
+            print(f"[host] LJI velocity mode stopped | reason={reason}")
+        except Exception as exc:
+            print(f"[host] LJI velocity mode stop failed | reason={reason} err={exc}")
+        finally:
+            self._lji_velocity_active = False
+            self._lji_velocity_last_cmd_s = 0.0
+            if self.last_u is not None:
+                self._target_u_state = self.last_u
+            self._state_broadcast_requested.set()
+
+    def _tick_lji_velocity_deadman(self, now_s: float) -> None:
+        if not bool(self._lji_velocity_active):
+            return
+        if float(self._lji_velocity_last_cmd_s) <= 0.0:
+            return
+        if (float(now_s) - float(self._lji_velocity_last_cmd_s)) > float(self._lji_velocity_deadman_s):
+            self._stop_lji_velocity_mode(reason="deadman")
+
+    def _apply_lji_velocity_qdot(
+        self,
+        *,
+        q_target: proto.SimQ,
+        q_ref: proto.SimQ,
+        qdot: proto.SimQ,
+        seq: int,
+        source: str,
+        client_ts_s: float,
+        perceived_ts_s: float,
+        velocity_dt_s: float = 0.0,
+    ) -> tuple[bool, str]:
+        target_recv_s = float(proto.now_s())
+        if bool(self._arm_latency_log_enable):
+            self._arm_latency_count("recv")
+            if float(client_ts_s) > 0.0:
+                self._arm_latency_sample_ms(
+                    "client_to_host_ms",
+                    (target_recv_s - float(client_ts_s)) * 1000.0,
+                )
+        ok_mode, reason = self._ensure_lji_velocity_mode()
+        if not bool(ok_mode):
+            return False, reason
+        if self._safety_fault:
+            return False, str(self._safety_fault)
+        motor_v = self._sim_qdot_to_motor_deg_s(q_ref=q_ref, qdot=qdot)
+        max_v = float(self._lji_velocity_max_deg_s)
+        goals_deg_s = {
+            axis_id: float(np.clip(raw_v, -max_v, max_v))
+            for axis_id, raw_v in zip(
+                (
+                    int(self.hw.cfg.id_linear),
+                    int(self.hw.cfg.id_roll),
+                    int(self.hw.cfg.id_seg1),
+                    int(self.hw.cfg.id_seg2),
+                ),
+                (
+                    float(motor_v.u_linear),
+                    float(motor_v.u_roll),
+                    float(motor_v.u_s1),
+                    float(motor_v.u_s2),
+                ),
+            )
+        }
+        apply_start = time.time()
+        try:
+            with self._hw_lock:
+                self.hw.command_velocity_deg_s(goals_deg_s)
+            apply_end = time.time()
+            if bool(self._arm_latency_log_enable):
+                self._arm_latency_count("apply")
+                self._arm_latency_sample_ms("sync_write_ms", (apply_end - apply_start) * 1000.0)
+                if float(client_ts_s) > 0.0:
+                    self._arm_latency_sample_ms("client_to_write_ms", (apply_end - float(client_ts_s)) * 1000.0)
+                if float(perceived_ts_s) > 0.0:
+                    self._arm_latency_sample_ms("obs_age_ms", (apply_start - float(perceived_ts_s)) * 1000.0)
+            self._target_u_state = proto.sim_q_to_control_u(q_target, self.cfg)
+            self._pending_target_q = None
+            self._pending_target_u = None
+            self._pending_target_axes = set()
+            self._pending_target_seq = -1
+            self._last_target_apply_error = ""
+            self._lji_velocity_last_cmd_s = float(apply_end)
+            self._state_broadcast_requested.set()
+            if int(seq) % 25 == 1:
+                print(
+                    "[host] LJI velocity cmd | seq=%d source=%s dt=%.3fs v_deg_s=(%.1f, %.1f, %.1f, %.1f)"
+                    % (
+                        int(seq),
+                        str(source),
+                        float(velocity_dt_s),
+                        float(goals_deg_s[int(self.hw.cfg.id_linear)]),
+                        float(goals_deg_s[int(self.hw.cfg.id_roll)]),
+                        float(goals_deg_s[int(self.hw.cfg.id_seg1)]),
+                        float(goals_deg_s[int(self.hw.cfg.id_seg2)]),
+                    )
+                )
+            return True, "host_native_lji_velocity"
+        except Exception as exc:
+            self._last_target_apply_error = f"lji_velocity_apply_failed: {exc}"
+            print(f"[host] LJI velocity apply failed: {exc}")
+            return False, self._last_target_apply_error
+
     def _update_claw_hw(self) -> None:
         if (not self._has_hw()) or self._safety_fault:
             return
@@ -2126,6 +2399,7 @@ class ControlHost:
             return False, False
         if not self._has_hw():
             return False, False
+        self._stop_lji_velocity_mode(reason="position_target")
         q_limited, complete = self._limit_target_q(q)
         motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
         try:
@@ -2179,6 +2453,7 @@ class ControlHost:
             self.last_q = proto.control_u_to_sim_q(u, self.cfg)
             self.last_state_ts = time.time()
             return True
+        self._stop_lji_velocity_mode(reason="partial_target")
         q = proto.control_u_to_sim_q(u, self.cfg)
         q_limited, complete = self._limit_target_q(q)
         motor_deg = proto.sim_q_to_motor_deg(q_limited, self.cfg)
@@ -2638,6 +2913,7 @@ class ControlHost:
     def torque_on(self, *, configure_modes: bool = True, set_profiles: bool = True, go_mid: bool = False) -> None:
         if not self._has_hw():
             raise RuntimeError("no device selected")
+        self._stop_lji_velocity_mode(reason="torque_on")
         with self._hw_lock:
             if self.torque_enabled and not self._safety_fault and not self._red_torque_off_ids:
                 return
@@ -2656,6 +2932,7 @@ class ControlHost:
         if not self._has_hw():
             raise RuntimeError("no device selected")
         self._clear_arm_servo_target()
+        self._stop_lji_velocity_mode(reason="torque_off")
         with self._hw_lock:
             self._pending_target_q = None
             self._pending_target_seq = -1
@@ -2986,6 +3263,10 @@ class ControlHost:
 
     def close(self) -> None:
         self._stop_event.set()
+        try:
+            self._stop_lji_velocity_mode(reason="host_close")
+        except Exception:
+            pass
         try:
             self._stop_arm_servo_thread()
         except Exception:
@@ -4064,6 +4345,7 @@ class ControlHost:
                     except Exception:
                         continue
                     self._handle_sim_feedback(msg)
+            self._tick_lji_velocity_deadman(now)
             if (now - self._t_read) >= self._read_period:
                 self._t_read = now
                 read_currents = (now - self._t_current_read) >= self._current_read_period

@@ -5501,6 +5501,8 @@ class ControlService:
         motion_source = "lji_step"
         if self._host_native_lji_runtime():
             apply_direct = getattr(self.client, "apply_lji_q_direct")
+            velocity_dt_s = float(max(step_period_s, 0.02))
+            qdot_arr = np.asarray(q_cmd - q0, dtype=float).reshape(4) / velocity_dt_s
             host_after = apply_direct(
                 SimQ(
                     linear_m=float(q_cmd[0]),
@@ -5508,6 +5510,19 @@ class ControlService:
                     theta1_rad=float(q_cmd[2]),
                     theta2_rad=float(q_cmd[3]),
                 ),
+                qdot=SimQ(
+                    linear_m=float(qdot_arr[0]),
+                    roll_rad=float(qdot_arr[1]),
+                    theta1_rad=float(qdot_arr[2]),
+                    theta2_rad=float(qdot_arr[3]),
+                ),
+                qdot_ref=SimQ(
+                    linear_m=float(q0[0]),
+                    roll_rad=float(q0[1]),
+                    theta1_rad=float(q0[2]),
+                    theta2_rad=float(q0[3]),
+                ),
+                velocity_dt_s=velocity_dt_s,
                 sag_model=dict(sag_model),
                 target_xyz=(
                     float(self.state.target_x),
@@ -8756,6 +8771,12 @@ class ControlService:
                 claw_label="grasp lji pre-contact",
             )
         finally:
+            stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
+            if callable(stop_lji_velocity):
+                try:
+                    stop_lji_velocity(reason="grasp_lji_done")
+                except Exception:
+                    pass
             self._grasp_lji_log_close()
             self._grasp_uv_only_mode = False
             cancelled = bool(self._pick_stop_event.is_set() or self._pick_e2e_cancel.is_set())

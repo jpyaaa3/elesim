@@ -23,6 +23,7 @@ except Exception:  # pragma: no cover - optional on dev machines
 
 ADDR_TORQUE_ENABLE = 64
 ADDR_OPERATING_MODE = 11
+ADDR_GOAL_VELOCITY = 104
 ADDR_PROFILE_ACCEL = 108
 ADDR_PROFILE_VEL = 112
 ADDR_GOAL_POSITION = 116
@@ -31,9 +32,11 @@ ADDR_PRESENT_POSITION = 132
 LEN_2 = 2
 LEN_4 = 4
 TORQUE_ON, TORQUE_OFF = 1, 0
+OP_MODE_VELOCITY = 1
 OP_MODE_POSITION = 3
 TICK_MAX = 4095
 DXL_PROFILE_VEL_UNIT_RPM = 0.229
+DXL_VELOCITY_UNIT_DEG_S = DXL_PROFILE_VEL_UNIT_RPM * 6.0
 
 
 def signed32(x: int) -> int:
@@ -67,6 +70,10 @@ def deg_to_tick_0_360(deg: float) -> int:
     deg = clamp_float(deg, 0.0, 360.0)
     tick = int(round(deg * (TICK_MAX / 360.0)))
     return clamp_int(tick, 0, TICK_MAX)
+
+
+def deg_s_to_velocity_raw(deg_s: float) -> int:
+    return int(round(float(deg_s) / float(DXL_VELOCITY_UNIT_DEG_S)))
 
 
 def tick_to_deg_0_360(tick: int, direction: int = +1) -> float:
@@ -163,8 +170,12 @@ class Dynamixel3dofDriver:
 
         self.port = PortHandler(cfg.device_name)
         self.packet = PacketHandler(cfg.protocol_version)
+        self.sync_write_vel = GroupSyncWrite(self.port, self.packet, ADDR_GOAL_VELOCITY, LEN_4)
         self.sync_write_pos = GroupSyncWrite(self.port, self.packet, ADDR_GOAL_POSITION, LEN_4)
         self.sync_read_pos = GroupSyncRead(self.port, self.packet, ADDR_PRESENT_POSITION, LEN_4)
+
+    def arm_ids(self) -> List[int]:
+        return [self.cfg.id_linear, self.cfg.id_roll, self.cfg.id_seg1, self.cfg.id_seg2]
 
     def _write1(self, dxl_id: int, addr: int, value: int) -> None:
         comm, err = self.packet.write1ByteTxRx(self.port, dxl_id, addr, value)
@@ -223,8 +234,27 @@ class Dynamixel3dofDriver:
         for dxl_id in self.ids:
             self._write1(dxl_id, ADDR_OPERATING_MODE, OP_MODE_POSITION)
 
-    def set_profiles(self) -> None:
-        for dxl_id, prof in self.profiles.items():
+    def set_operating_mode_ids(self, ids: List[int], mode: int, *, torque_on: bool = True) -> None:
+        clean_ids = [int(dxl_id) for dxl_id in ids]
+        for dxl_id in clean_ids:
+            self.torque_off_id(dxl_id)
+        for dxl_id in clean_ids:
+            self._write1(dxl_id, ADDR_OPERATING_MODE, int(mode))
+        if bool(torque_on):
+            for dxl_id in clean_ids:
+                self.torque_on_id(dxl_id)
+
+    def set_velocity_mode_for_arm(self) -> None:
+        self.set_operating_mode_ids(self.arm_ids(), OP_MODE_VELOCITY, torque_on=True)
+
+    def set_position_mode_for_arm(self) -> None:
+        self.set_operating_mode_ids(self.arm_ids(), OP_MODE_POSITION, torque_on=True)
+        self.set_profiles(self.arm_ids())
+
+    def set_profiles(self, ids: Optional[List[int]] = None) -> None:
+        use_ids = list(self.profiles.keys()) if ids is None else [int(dxl_id) for dxl_id in ids]
+        for dxl_id in use_ids:
+            prof = self.profiles[int(dxl_id)]
             self._write4(dxl_id, ADDR_PROFILE_VEL, prof.profile_vel)
             self._write4(dxl_id, ADDR_PROFILE_ACCEL, prof.profile_acc)
 
@@ -238,6 +268,12 @@ class Dynamixel3dofDriver:
         if self.direction.get(dxl_id, +1) == -1:
             tick = TICK_MAX - tick
         return clamp_int(tick, 0, TICK_MAX)
+
+    def deg_s_to_goal_velocity_raw(self, dxl_id: int, deg_s: float) -> int:
+        v = float(deg_s)
+        if self.direction.get(int(dxl_id), +1) == -1:
+            v = -v
+        return deg_s_to_velocity_raw(v)
 
     def get_present_positions(self) -> Dict[int, int]:
         comm = self.sync_read_pos.txRxPacket()
@@ -263,6 +299,15 @@ class Dynamixel3dofDriver:
         if comm != 0:
             raise RuntimeError(f"sync_write comm fail: {self.packet.getTxRxResult(comm)}")
 
+    def sync_set_goal_velocities(self, goals_raw: Dict[int, int]) -> None:
+        self.sync_write_vel.clearParam()
+        for dxl_id, raw in goals_raw.items():
+            if not self.sync_write_vel.addParam(int(dxl_id), int_to_le4(int(raw))):
+                raise RuntimeError(f"sync_write velocity addParam failed: ID={dxl_id}")
+        comm = self.sync_write_vel.txPacket()
+        if comm != 0:
+            raise RuntimeError(f"sync_write velocity comm fail: {self.packet.getTxRxResult(comm)}")
+
     def command_4dof_deg(self, linear_deg: float, roll_deg: float, seg1_deg: float, seg2_deg: float) -> None:
         goals = {
             self.cfg.id_linear: self.deg_to_goal_tick(self.cfg.id_linear, linear_deg),
@@ -276,6 +321,26 @@ class Dynamixel3dofDriver:
         goals = {int(dxl_id): self.deg_to_goal_tick(int(dxl_id), float(deg)) for dxl_id, deg in goals_deg.items()}
         if goals:
             self.sync_set_goal_positions(goals)
+
+    def command_velocity_deg_s(self, goals_deg_s: Dict[int, float]) -> None:
+        goals = {
+            int(dxl_id): self.deg_s_to_goal_velocity_raw(int(dxl_id), float(deg_s))
+            for dxl_id, deg_s in goals_deg_s.items()
+        }
+        if goals:
+            self.sync_set_goal_velocities(goals)
+
+    def stop_arm_velocity(self) -> None:
+        self.command_velocity_deg_s({int(dxl_id): 0.0 for dxl_id in self.arm_ids()})
+
+    def hold_current_arm_position(self) -> None:
+        ticks_by_id = self.get_present_positions()
+        goals_deg: Dict[int, float] = {}
+        for dxl_id in self.arm_ids():
+            tick = int(ticks_by_id.get(int(dxl_id), 0))
+            direction = int(self.direction.get(int(dxl_id), +1))
+            goals_deg[int(dxl_id)] = tick_to_deg_0_360(tick, direction)
+        self.command_partial_deg(goals_deg)
 
     def command_claw_deg(self, claw_deg: float) -> None:
         self._write4(self.cfg.id_claw, ADDR_GOAL_POSITION, self.deg_to_goal_tick(self.cfg.id_claw, claw_deg))

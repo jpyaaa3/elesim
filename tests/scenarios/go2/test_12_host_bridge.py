@@ -159,6 +159,27 @@ class TestHostGo2Bridge(unittest.TestCase):
         partial_u = server._submit_direct_partial_control_u.call_args.args[0]
         self.assertEqual(set(partial_u.keys()), {"linear", "roll", "s1", "s2"})
 
+    def test_direct_embedded_lji_qdot_uses_velocity_mode(self) -> None:
+        server = self._make_arm_host(
+            traj_lji_enable=True,
+            traj_lji_cfg=host_mod.QuinticTimingConfig(enable=True, duration_s=0.12),
+        )
+        server._lji_velocity_mode_enable = True
+        server._submit_direct_partial_control_u = MagicMock(return_value=(True, "ok"))  # type: ignore[method-assign]
+        server._apply_lji_velocity_qdot = MagicMock(return_value=(True, "velocity_ok"))  # type: ignore[method-assign]
+        client = host_mod._DirectEmbeddedControlClient(server, server.cfg)
+        q = proto.SimQ(linear_m=0.01, roll_rad=0.02, theta1_rad=0.03, theta2_rad=-0.04)
+        qdot = proto.SimQ(linear_m=0.10, roll_rad=0.20, theta1_rad=0.30, theta2_rad=-0.40)
+
+        client.apply_lji_q_direct(q, qdot=qdot, qdot_ref=q, velocity_dt_s=0.04, source="lji_step")
+
+        server._submit_direct_partial_control_u.assert_not_called()
+        server._apply_lji_velocity_qdot.assert_called_once()
+        kwargs = server._apply_lji_velocity_qdot.call_args.kwargs
+        self.assertIs(kwargs["q_target"], q)
+        self.assertIs(kwargs["qdot"], qdot)
+        self.assertEqual(client.last_reply_reason, "velocity_ok")
+
     def test_lji_target_falls_back_to_direct_apply_when_trajectory_disabled(self) -> None:
         server = self._make_arm_host(
             traj_lji_enable=False,

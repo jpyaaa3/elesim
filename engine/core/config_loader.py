@@ -109,6 +109,9 @@ class HardwareConfig:
     arm_latency_log_enable: bool = False
     arm_latency_log_interval_s: float = 1.0
     arm_latency_log_path: str = ""
+    lji_velocity_mode_enable: bool = False
+    lji_velocity_max_deg_s: float = 180.0
+    lji_velocity_deadman_s: float = 0.35
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -1504,6 +1507,15 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
             "hardware", "arm_latency_log_interval_s", fallback=hw0.arm_latency_log_interval_s
         ),
         arm_latency_log_path=cp.get("hardware", "arm_latency_log_path", fallback=hw0.arm_latency_log_path),
+        lji_velocity_mode_enable=cp.getboolean(
+            "hardware", "lji_velocity_mode_enable", fallback=hw0.lji_velocity_mode_enable
+        ),
+        lji_velocity_max_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_max_deg_s", fallback=hw0.lji_velocity_max_deg_s
+        ),
+        lji_velocity_deadman_s=cp.getfloat(
+            "hardware", "lji_velocity_deadman_s", fallback=hw0.lji_velocity_deadman_s
+        ),
         profile_vel_linear=cp.getint("hardware", "profile_vel_linear", fallback=hw0.profile_vel_linear),
         profile_acc_linear=cp.getint("hardware", "profile_acc_linear", fallback=hw0.profile_acc_linear),
         profile_vel_roll=cp.getint("hardware", "profile_vel_roll", fallback=hw0.profile_vel_roll),
