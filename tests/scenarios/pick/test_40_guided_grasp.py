@@ -303,7 +303,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
             call_order.append("sag")
             return 0.0, 0.0
 
-        def _stop():
+        def _stop(*_args, **_kwargs):
             call_order.append("stop")
 
         svc.stop_perception_capture = _stop  # type: ignore[method-assign]

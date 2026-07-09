@@ -46,7 +46,8 @@ class TestPerceptionStartStop(unittest.TestCase):
 
         stop_done = threading.Event()
 
-        def _slow_stop(*, timeout_s: float = 5.0) -> bool:
+        def _slow_stop(*, timeout_s: float = 5.0, stop_recording: bool = True) -> bool:
+            del stop_recording
             stop_done.wait(timeout=1.0)
             old._running = False
             return True

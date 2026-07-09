@@ -4,6 +4,7 @@ import math
 import sys
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -56,11 +57,13 @@ def _host(
 class MobilePickPipelineTests(unittest.TestCase):
     def test_mobile_pick_delegates_to_remote_host(self) -> None:
         client = MagicMock()
-        host = _host()
-        host.pick_running = True
-        host.pick_failed = False
-        host.pick_phase = "acquire"
-        host.pick_status_msg = "remote running"
+        host = replace(
+            _host(),
+            pick_running=True,
+            pick_failed=False,
+            pick_phase="acquire",
+            pick_status_msg="remote running",
+        )
         client.refresh_state.return_value = host
         svc = ControlService(
             PanelState(),
@@ -77,11 +80,13 @@ class MobilePickPipelineTests(unittest.TestCase):
 
     def test_mobile_pick_stop_delegates_to_remote_host(self) -> None:
         client = MagicMock()
-        host = _host()
-        host.pick_running = False
-        host.pick_failed = False
-        host.pick_phase = "idle"
-        host.pick_status_msg = "remote stopped"
+        host = replace(
+            _host(),
+            pick_running=False,
+            pick_failed=False,
+            pick_phase="idle",
+            pick_status_msg="remote stopped",
+        )
         client.refresh_state.return_value = host
         svc = ControlService(
             PanelState(),

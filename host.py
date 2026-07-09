@@ -117,6 +117,7 @@ class _DirectEmbeddedControlClient:
     def __init__(self, host: "ControlHost", cfg: proto.SimMappingConfig) -> None:
         self._host = host
         self.cfg = cfg
+        self.host_native_control = True
         self.tx_seq = 0
         self.is_connected = True
         self.last_reply_ok = True
@@ -142,6 +143,72 @@ class _DirectEmbeddedControlClient:
 
     def refresh_state(self) -> HostState:
         return self.get_state()
+
+    def has_hardware(self) -> bool:
+        return bool(self._host._has_hw())
+
+    def refresh_lji_state(self) -> HostState:
+        if self._host._has_hw():
+            try:
+                self._host._read_hw_state(read_currents=False)
+            except Exception as exc:
+                self.last_reply_ok = False
+                self.last_reply_reason = f"lji_hw_read_failed:{exc}"
+        return self.get_state()
+
+    def apply_lji_q_direct(
+        self,
+        q: proto.SimQ,
+        *,
+        sag_model: Optional[dict[str, Any]] = None,
+        target_xyz: Optional[tuple[float, float, float]] = None,
+        target_dir: Optional[tuple[float, float, float]] = None,
+        claw_closed: Optional[bool] = None,
+        source: str = "lji_step",
+    ) -> HostState:
+        self.tx_seq += 1
+        host = self._host
+        if target_xyz is not None:
+            host.last_ik_target_xyz = tuple(float(v) for v in target_xyz)
+        if target_dir is not None:
+            host.last_ik_target_dir = tuple(float(v) for v in target_dir)
+        if isinstance(sag_model, dict):
+            host.last_sag_model = dict(sag_model)
+        if claw_closed is not None:
+            host.last_claw_closed = bool(claw_closed)
+
+        host._clear_arm_servo_target()
+        host._pending_target_u = None
+        host._pending_target_axes = set()
+        host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
+        host._pending_target_q = q
+        host._pending_target_seq = int(self.tx_seq)
+        host._last_target_apply_error = ""
+        host._cancel_trajectory()
+
+        if host._safety_fault:
+            ok = False
+            reason = str(host._safety_fault)
+        elif host._has_hw():
+            ok, complete = host._apply_sim_q_target(q)
+            if ok:
+                host._target_u_state = proto.sim_q_to_control_u(q, host.cfg)
+                if bool(complete):
+                    host._pending_target_q = None
+            reason = host._last_target_apply_error or "host_native_lji_direct"
+        else:
+            host.last_q = q
+            host.last_u = proto.sim_q_to_control_u(q, host.cfg)
+            host.last_state_ts = time.time()
+            host._pending_target_q = None
+            ok = True
+            reason = "host_native_lji_sim"
+
+        self.last_reply_ok = bool(ok)
+        self.last_reply_reason = str(reason)
+        self.last_object_world_xyz = host.last_perceived_object_world_xyz
+        host._state_broadcast_requested.set()
+        return self.refresh_lji_state()
 
     def q_to_control_u(
         self,
@@ -984,6 +1051,7 @@ class ControlHost:
             "lji",
             "lji_step",
             "servo",
+            "experiment",
         )
 
     def _active_debug_markers(self) -> list[dict[str, Any]]:
@@ -1523,7 +1591,14 @@ class ControlHost:
 
     def _ensure_on_device_control_service(self):
         if self._embedded_control_service is not None:
-            return self._embedded_control_service
+            client = self._embedded_control_client
+            service_hw = bool(getattr(self._embedded_control_service, "_use_hardware", False))
+            if (
+                service_hw == bool(self._has_hw())
+                and bool(getattr(client, "host_native_control", False))
+            ):
+                return self._embedded_control_service
+            self._close_on_device_control_service()
         from engine.behaviors.pick import ControlService
 
         perception_cfg = replace(
@@ -1551,7 +1626,7 @@ class ControlHost:
         )
         self._embedded_control_client = client
         self._embedded_control_service = service
-        print("[host] on-device robot control service ready via direct host path")
+        print("[host] on-device robot control service ready | host-native LJI direct path")
         self._broadcast_state_now()
         return service
 

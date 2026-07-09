@@ -24,8 +24,24 @@ class TestHostGo2Bridge(unittest.TestCase):
         self.addCleanup(server.close)
         return server
 
+    @staticmethod
+    def _arm_stand(server: host_mod.ControlHost) -> None:
+        server._handle_msg(
+            b"client-stand",
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 0,
+                "source": "target",
+                "go2_sport_pose": "stand",
+            },
+        )
+        if server._go2_bridge is not None:
+            server._go2_bridge.reset_mock()
+
     def test_go2_vel_forwards_to_bridge(self) -> None:
         server = self._make_host(with_bridge=True)
+        self._arm_stand(server)
         ident = b"client-1"
         server._handle_msg(
             ident,
@@ -41,6 +57,7 @@ class TestHostGo2Bridge(unittest.TestCase):
 
     def test_go2_sport_pose_forwards_to_bridge(self) -> None:
         server = self._make_host(with_bridge=True)
+        self._arm_stand(server)
         ident = b"client-1"
         server._handle_msg(
             ident,
@@ -55,7 +72,7 @@ class TestHostGo2Bridge(unittest.TestCase):
         server._go2_bridge.call_sport_pose.assert_called_once_with("balance_stand")
         self.assertEqual(server.last_go2_vel, (0.0, 0.0, 0.0))
         self.assertEqual(server.last_go2_sport_pose, "balance_stand")
-        self.assertEqual(server.last_go2_sport_pose_seq, 1)
+        self.assertEqual(server.last_go2_sport_pose_seq, 2)
 
     def test_go2_sport_pose_records_for_sim_without_bridge(self) -> None:
         server = self._make_host(with_bridge=False)

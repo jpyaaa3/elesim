@@ -1101,10 +1101,10 @@ class ControlService:
         ):
             self._pick_e2e_cancel.set()
             try:
-                if hasattr(self.client, "send_pick_stop"):
-                    self.client.send_pick_stop()
-                else:
+                if hasattr(self.client, "send_mobile_pick_stop"):
                     self.client.send_mobile_pick_stop()
+                else:
+                    self.client.send_pick_stop()
                 self.state.set_pick_status(
                     running=False,
                     failed=False,
@@ -1559,6 +1559,16 @@ class ControlService:
                     msg=f"on-device LJI grasp start failed: {exc}",
                 )
                 print(f"[Pick] on-device LJI grasp start failed: {exc}")
+            return
+
+        if self._use_hardware and not self._host_native_lji_runtime():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="LJI grasp must run on-device host-native in hardware mode",
+            )
+            print("[Pick] blocked hardware LJI grasp outside host-native runtime")
             return
 
         if self.client is None:
@@ -2125,6 +2135,25 @@ class ControlService:
                 dtype=float,
             )
         return self._q_array_from_state(src)
+
+    def _host_native_lji_runtime(self) -> bool:
+        hw_check = getattr(self.client, "has_hardware", None) if self.client is not None else None
+        client_has_hw = True if not callable(hw_check) else bool(hw_check())
+        return bool(
+            self._use_hardware
+            and self.client is not None
+            and client_has_hw
+            and bool(getattr(self.client, "host_native_control", False))
+            and hasattr(self.client, "apply_lji_q_direct")
+        )
+
+    def _refresh_lji_state(self) -> Optional[HostState]:
+        if self.client is None:
+            return None
+        refresh = getattr(self.client, "refresh_lji_state", None)
+        if callable(refresh):
+            return refresh()
+        return self.client.refresh_state()
 
     def _clamp_q(self, q: np.ndarray) -> np.ndarray:
         arr = np.asarray(q, dtype=float).reshape(4).copy()
@@ -3684,6 +3713,15 @@ class ControlService:
             )
             return False
         pk = self._pick_config_effective()
+        if bool(pk.local_img_jacobian_enabled) and self._use_hardware and not self._host_native_lji_runtime():
+            self.state.set_pick_status(
+                running=False,
+                failed=True,
+                phase=ObjectPickPhase.FAILED.value,
+                msg="hardware grasp requires host-native LJI runtime",
+            )
+            print("[Grasp] blocked hardware LJI grasp outside host-native runtime")
+            return False
         if bool(pk.grasp_guided_enabled):
             return self._start_grasp_guided_approach(internal=internal)
         direction = np.asarray(dir_tuple, dtype=float).reshape(3)
@@ -5350,14 +5388,14 @@ class ControlService:
         dq = np.asarray(dq_cmd, dtype=float).reshape(4)
         cmd_norm = float(np.linalg.norm(dq))
         if cmd_norm <= 1e-6:
-            return self.client.refresh_state()
+            return self._refresh_lji_state()
         deadline = time.time() + float(max(timeout_s, 0.04))
         poll_s = 0.015 if not bool(self._use_hardware) else 0.03
         frac = float(np.clip(min_frac, 0.10, 0.90))
         last_state: Optional[HostState] = None
         while time.time() < deadline:
             time.sleep(poll_s)
-            last_state = self.client.refresh_state()
+            last_state = self._refresh_lji_state()
             if last_state is None:
                 continue
             q_now = self._q_array_for_motion_feedback(last_state)
@@ -5392,7 +5430,37 @@ class ControlService:
             float(q_cmd[3]),
         )
         motion_source = "lji_step"
-        if bool(wait_settle):
+        if self._host_native_lji_runtime():
+            apply_direct = getattr(self.client, "apply_lji_q_direct")
+            host_after = apply_direct(
+                SimQ(
+                    linear_m=float(q_cmd[0]),
+                    roll_rad=float(q_cmd[1]),
+                    theta1_rad=float(q_cmd[2]),
+                    theta2_rad=float(q_cmd[3]),
+                ),
+                sag_model=dict(sag_model),
+                target_xyz=(
+                    float(self.state.target_x),
+                    float(self.state.target_y),
+                    float(self.state.target_z),
+                ),
+                target_dir=(
+                    float(self.state.target_vx),
+                    float(self.state.target_vy),
+                    float(self.state.target_vz),
+                ),
+                claw_closed=bool(self.state.claw_closed),
+                source=motion_source,
+            )
+            wait_s = float(max(step_period_s, 0.04))
+            host_after = self._grasp_lji_wait_motion_fraction(
+                q_before=q0,
+                dq_cmd=dq_arr,
+                timeout_s=wait_s,
+                min_frac=0.15,
+            ) or host_after
+        elif bool(wait_settle):
             host_after = self._send_state_q_and_wait(
                 timeout_s=float(timeout_s),
                 source=motion_source,
@@ -5438,9 +5506,6 @@ class ControlService:
         pending = self._grasp_lji_pending_sample
         est = self._grasp_lji_estimator_3d
         if pending is None or est is None:
-            return SampleRejectReason.DQ_TOO_SMALL
-        if bool(pipelined):
-            self._grasp_lji_pending_sample = None
             return SampleRejectReason.DQ_TOO_SMALL
         q_before = np.asarray(pending["q_before"], dtype=float).reshape(4)
         s_before = np.asarray(pending["s_before"], dtype=float).reshape(3)
@@ -7716,7 +7781,8 @@ class ControlService:
             min(6.0e-4, float(pk.lij_max_dq_linear) * 0.25),
         )
         lji_apply_timeout_s = max(float(lji_motion_settle_timeout_s), 0.05)
-        lji_pipelined = bool(pk.lij_pipelined_motion)
+        lji_host_native = self._host_native_lji_runtime()
+        lji_pipelined = bool(pk.lij_pipelined_motion or self._use_hardware or lji_host_native)
         lji_step_period_s = float(max(pk.lij_step_period_s, 0.0))
         success = False
         traj_start = self._grasp_traj_start
@@ -7734,7 +7800,7 @@ class ControlService:
             if self._perception_capture is None or not self._perception_capture.is_running():
                 self._maybe_start_local_perception()
 
-            host_state = self.client.refresh_state() if self.client is not None else None
+            host_state = self._refresh_lji_state()
             q_cmd: Optional[np.ndarray] = None
             sag_model = self._grasp_lji_sag_model()
             mode = GraspApproachMode.LOCAL_IMG_JACOBIAN
@@ -7742,7 +7808,8 @@ class ControlService:
             prev_mode = mode
             print(
                 "[Grasp] LJI3D start | close_tol=%.1fmm blind_at_remain=%.0fmm "
-                "gain_z=%.2f z_bend=%.2f settle_tol=(%.4fm,%.4frad)"
+                "gain_z=%.2f z_bend=%.2f settle_tol=(%.4fm,%.4frad) "
+                "pipelined=%s runtime=%s"
                 % (
                     close_tol_m * 1000.0,
                     float(pk.blind_micro_start_m) * 1000.0,
@@ -7750,8 +7817,12 @@ class ControlService:
                     float(pk.lij_z_bend_gain),
                     float(lji_settle_linear_tol),
                     float(lji_settle_angle_tol),
+                    str(bool(lji_pipelined)).lower(),
+                    "host_native" if bool(lji_host_native) else "client",
                 )
             )
+            if bool(self._use_hardware) and not bool(pk.lij_pipelined_motion):
+                print("[Grasp] LJI3D hardware mode | forcing pipelined direct steps")
             self._grasp_lji_log_start()
             self._grasp_lji_log_event(
                 step_idx=0,
@@ -8021,11 +8092,7 @@ class ControlService:
                             reason="grasp_lji_fov",
                             allow_refresh=False,
                         ):
-                            host_state = (
-                                self.client.refresh_state()
-                                if self.client is not None
-                                else host_state
-                            )
+                            host_state = self._refresh_lji_state() or host_state
                             moved = True
                     if moved and q_cmd is not None:
                         host_state = self._grasp_lji_refresh_after_step(
@@ -8320,7 +8387,7 @@ class ControlService:
                 )
 
             if q_cmd is None:
-                host_state = self.client.refresh_state() if self.client is not None else None
+                host_state = self._refresh_lji_state()
                 q_cmd = self._q_array_from_state(host_state)
 
             tip_pre_blind = self._pick_current_tip_world(host_state=host_state)
