@@ -692,14 +692,57 @@ class ControlHost:
         )
         self._lji_velocity_max_deg_s = max(
             1.0,
-            float(getattr(hardware_cfg, "lji_velocity_max_deg_s", 180.0) if hardware_cfg is not None else 180.0),
+            float(getattr(hardware_cfg, "lji_velocity_max_deg_s", 50.0) if hardware_cfg is not None else 50.0),
+        )
+        self._lji_velocity_axis_max_deg_s = {
+            "linear": max(
+                1.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_max_linear_deg_s", self._lji_velocity_max_deg_s)
+                    if hardware_cfg is not None
+                    else min(self._lji_velocity_max_deg_s, 20.0)
+                ),
+            ),
+            "roll": max(
+                1.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_max_roll_deg_s", self._lji_velocity_max_deg_s)
+                    if hardware_cfg is not None
+                    else self._lji_velocity_max_deg_s
+                ),
+            ),
+            "s1": max(
+                1.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_max_s1_deg_s", self._lji_velocity_max_deg_s)
+                    if hardware_cfg is not None
+                    else min(self._lji_velocity_max_deg_s, 45.0)
+                ),
+            ),
+            "s2": max(
+                1.0,
+                float(
+                    getattr(hardware_cfg, "lji_velocity_max_s2_deg_s", self._lji_velocity_max_deg_s)
+                    if hardware_cfg is not None
+                    else min(self._lji_velocity_max_deg_s, 45.0)
+                ),
+            ),
+        }
+        self._lji_velocity_accel_limit_deg_s2 = max(
+            1.0,
+            float(
+                getattr(hardware_cfg, "lji_velocity_accel_limit_deg_s2", 150.0)
+                if hardware_cfg is not None
+                else 150.0
+            ),
         )
         self._lji_velocity_deadman_s = max(
             0.05,
-            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.35) if hardware_cfg is not None else 0.35),
+            float(getattr(hardware_cfg, "lji_velocity_deadman_s", 0.12) if hardware_cfg is not None else 0.12),
         )
         self._lji_velocity_active = False
         self._lji_velocity_last_cmd_s = 0.0
+        self._lji_velocity_last_goals_deg_s: dict[int, float] = {}
         self._claw_open_deg = 340.0
         self._claw_close_deg = 230.0
         self._claw_stop_current = -200
@@ -2037,6 +2080,7 @@ class ControlHost:
                             pass
                         self._lji_velocity_active = False
                         self._lji_velocity_last_cmd_s = 0.0
+                        self._lji_velocity_last_goals_deg_s = {}
                     if red_dxl_id is None:
                         self.hw.torque_off_all()
                         self.torque_enabled = False
@@ -2250,9 +2294,18 @@ class ControlHost:
                 self.hw.set_velocity_mode_for_arm()
             self._lji_velocity_active = True
             self._lji_velocity_last_cmd_s = 0.0
+            self._lji_velocity_last_goals_deg_s = {}
             print(
-                "[host] LJI velocity mode active | max_deg_s=%.1f deadman=%.2fs"
-                % (float(self._lji_velocity_max_deg_s), float(self._lji_velocity_deadman_s))
+                "[host] LJI velocity mode active | max_deg_s=(linear %.1f, roll %.1f, s1 %.1f, s2 %.1f) "
+                "accel=%.1f deadman=%.2fs"
+                % (
+                    float(self._lji_velocity_axis_max_deg_s["linear"]),
+                    float(self._lji_velocity_axis_max_deg_s["roll"]),
+                    float(self._lji_velocity_axis_max_deg_s["s1"]),
+                    float(self._lji_velocity_axis_max_deg_s["s2"]),
+                    float(self._lji_velocity_accel_limit_deg_s2),
+                    float(self._lji_velocity_deadman_s),
+                )
             )
             return True, "lji_velocity_active"
         except Exception as exc:
@@ -2275,6 +2328,7 @@ class ControlHost:
         finally:
             self._lji_velocity_active = False
             self._lji_velocity_last_cmd_s = 0.0
+            self._lji_velocity_last_goals_deg_s = {}
             if self.last_u is not None:
                 self._target_u_state = self.last_u
             self._state_broadcast_requested.set()
@@ -2286,6 +2340,29 @@ class ControlHost:
             return
         if (float(now_s) - float(self._lji_velocity_last_cmd_s)) > float(self._lji_velocity_deadman_s):
             self._stop_lji_velocity_mode(reason="deadman")
+
+    def _clip_lji_velocity_goals(
+        self,
+        raw_by_axis: dict[str, float],
+        *,
+        now_s: float,
+    ) -> dict[int, float]:
+        axis_ids = self._arm_axis_ids()
+        dt = 0.0
+        if float(self._lji_velocity_last_cmd_s) > 0.0:
+            dt = max(0.0, float(now_s) - float(self._lji_velocity_last_cmd_s))
+        if dt <= 1e-6:
+            dt = float(self._arm_servo_period)
+        max_delta = float(self._lji_velocity_accel_limit_deg_s2) * max(dt, 1e-3)
+        goals: dict[int, float] = {}
+        for axis in ("linear", "roll", "s1", "s2"):
+            dxl_id = int(axis_ids[axis])
+            cap = min(float(self._lji_velocity_max_deg_s), float(self._lji_velocity_axis_max_deg_s[axis]))
+            raw = float(np.clip(float(raw_by_axis.get(axis, 0.0)), -cap, cap))
+            prev = float(self._lji_velocity_last_goals_deg_s.get(dxl_id, 0.0))
+            limited = float(np.clip(raw, prev - max_delta, prev + max_delta))
+            goals[dxl_id] = limited
+        return goals
 
     def _apply_lji_velocity_qdot(
         self,
@@ -2313,29 +2390,21 @@ class ControlHost:
         if self._safety_fault:
             return False, str(self._safety_fault)
         motor_v = self._sim_qdot_to_motor_deg_s(q_ref=q_ref, qdot=qdot)
-        max_v = float(self._lji_velocity_max_deg_s)
-        goals_deg_s = {
-            axis_id: float(np.clip(raw_v, -max_v, max_v))
-            for axis_id, raw_v in zip(
-                (
-                    int(self.hw.cfg.id_linear),
-                    int(self.hw.cfg.id_roll),
-                    int(self.hw.cfg.id_seg1),
-                    int(self.hw.cfg.id_seg2),
-                ),
-                (
-                    float(motor_v.u_linear),
-                    float(motor_v.u_roll),
-                    float(motor_v.u_s1),
-                    float(motor_v.u_s2),
-                ),
-            )
-        }
         apply_start = time.time()
+        goals_deg_s = self._clip_lji_velocity_goals(
+            {
+                "linear": float(motor_v.u_linear),
+                "roll": float(motor_v.u_roll),
+                "s1": float(motor_v.u_s1),
+                "s2": float(motor_v.u_s2),
+            },
+            now_s=float(apply_start),
+        )
         try:
             with self._hw_lock:
                 self.hw.command_velocity_deg_s(goals_deg_s)
             apply_end = time.time()
+            self._lji_velocity_last_goals_deg_s = dict(goals_deg_s)
             if bool(self._arm_latency_log_enable):
                 self._arm_latency_count("apply")
                 self._arm_latency_sample_ms("sync_write_ms", (apply_end - apply_start) * 1000.0)

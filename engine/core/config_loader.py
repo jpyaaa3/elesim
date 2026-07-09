@@ -110,8 +110,13 @@ class HardwareConfig:
     arm_latency_log_interval_s: float = 1.0
     arm_latency_log_path: str = ""
     lji_velocity_mode_enable: bool = False
-    lji_velocity_max_deg_s: float = 180.0
-    lji_velocity_deadman_s: float = 0.35
+    lji_velocity_max_deg_s: float = 50.0
+    lji_velocity_max_linear_deg_s: float = 20.0
+    lji_velocity_max_roll_deg_s: float = 50.0
+    lji_velocity_max_s1_deg_s: float = 45.0
+    lji_velocity_max_s2_deg_s: float = 45.0
+    lji_velocity_accel_limit_deg_s2: float = 150.0
+    lji_velocity_deadman_s: float = 0.12
     profile_vel_linear: int = 240
     profile_acc_linear: int = 10
     profile_vel_roll: int = 240
@@ -1512,6 +1517,21 @@ def _load_hardware_config(cp: configparser.ConfigParser) -> HardwareConfig:
         ),
         lji_velocity_max_deg_s=cp.getfloat(
             "hardware", "lji_velocity_max_deg_s", fallback=hw0.lji_velocity_max_deg_s
+        ),
+        lji_velocity_max_linear_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_max_linear_deg_s", fallback=hw0.lji_velocity_max_linear_deg_s
+        ),
+        lji_velocity_max_roll_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_max_roll_deg_s", fallback=hw0.lji_velocity_max_roll_deg_s
+        ),
+        lji_velocity_max_s1_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_max_s1_deg_s", fallback=hw0.lji_velocity_max_s1_deg_s
+        ),
+        lji_velocity_max_s2_deg_s=cp.getfloat(
+            "hardware", "lji_velocity_max_s2_deg_s", fallback=hw0.lji_velocity_max_s2_deg_s
+        ),
+        lji_velocity_accel_limit_deg_s2=cp.getfloat(
+            "hardware", "lji_velocity_accel_limit_deg_s2", fallback=hw0.lji_velocity_accel_limit_deg_s2
         ),
         lji_velocity_deadman_s=cp.getfloat(
             "hardware", "lji_velocity_deadman_s", fallback=hw0.lji_velocity_deadman_s
