@@ -30,6 +30,25 @@ def _bbox_from_mask(mask: np.ndarray) -> tuple[int, int, int, int] | None:
     return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
 
 
+def _largest_component_mask(mask: np.ndarray, *, min_area_px: int) -> np.ndarray | None:
+    src = np.asarray(mask, dtype=np.uint8)
+    n_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(src, 8)
+    if n_labels <= 1:
+        return None
+    best_label = -1
+    best_area = 0
+    for label in range(1, n_labels):
+        area = int(stats[label, cv2.CC_STAT_AREA])
+        if area > best_area:
+            best_label = int(label)
+            best_area = area
+    if best_label < 0 or best_area < int(min_area_px):
+        return None
+    out = np.zeros(src.shape[:2], dtype=np.uint8)
+    out[labels == best_label] = 255
+    return out
+
+
 class HsvDetector:
     def __init__(self, cfg: dict[str, Any]) -> None:
         hsv = cfg.get("hsv", {}) or {}
@@ -48,6 +67,8 @@ class HsvDetector:
             self._ranges.append((lower, upper))
         self._label = str(cfg.get("target_label", "object"))
         self._min_area = int(cfg.get("min_area_px", 200))
+        self._keep_largest_component = bool(cfg.get("keep_largest_component", False))
+        self._morph_kernel_px = int(cfg.get("morph_kernel_px", 5))
 
     def detect(self, color_bgr: np.ndarray) -> DetectionResult | None:
         if color_bgr is None or color_bgr.size == 0:
@@ -59,9 +80,17 @@ class HsvDetector:
         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
         for lower, upper in self._ranges:
             mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lower, upper))
-        kernel = np.ones((5, 5), dtype=np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        k = int(max(0, self._morph_kernel_px))
+        if k > 1:
+            if k % 2 == 0:
+                k += 1
+            kernel = np.ones((k, k), dtype=np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        if self._keep_largest_component:
+            mask = _largest_component_mask(mask, min_area_px=self._min_area)
+            if mask is None:
+                return None
         if int(np.count_nonzero(mask)) < self._min_area:
             return None
         bbox = _bbox_from_mask(mask)

@@ -5392,6 +5392,28 @@ class ControlService:
         blended = alpha * np.asarray(prev, dtype=float).reshape(4) + (1.0 - alpha) * raw
         return blended.reshape(4)
 
+    @staticmethod
+    def _grasp_lji_command_horizon(pk: PickConfig) -> float:
+        raw = float(getattr(pk, "lij_command_horizon", 1.0))
+        if not math.isfinite(raw):
+            return 1.0
+        return float(np.clip(raw, 1.0, 8.0))
+
+    def _grasp_lji_apply_command_horizon(
+        self,
+        dq: np.ndarray,
+        *,
+        q_before: np.ndarray,
+        pk: PickConfig,
+    ) -> np.ndarray:
+        horizon = self._grasp_lji_command_horizon(pk)
+        dq_arr = np.asarray(dq, dtype=float).reshape(4)
+        if horizon <= 1.0001:
+            return dq_arr.copy()
+        q0 = np.asarray(q_before, dtype=float).reshape(4)
+        q_target = self._clamp_q(q0 + horizon * dq_arr)
+        return np.asarray(q_target, dtype=float).reshape(4) - q0
+
     def _grasp_lji_wait_motion_fraction(
         self,
         *,
@@ -5411,7 +5433,7 @@ class ControlService:
             return self._refresh_lji_state()
         deadline = time.time() + float(max(timeout_s, 0.04))
         poll_s = 0.015 if not bool(self._use_hardware) else 0.03
-        frac = float(np.clip(min_frac, 0.10, 0.90))
+        frac = float(np.clip(min_frac, 0.02, 0.90))
         last_state: Optional[HostState] = None
         while time.time() < deadline:
             time.sleep(poll_s)
@@ -5439,6 +5461,7 @@ class ControlService:
         step_period_s: float = 0.0,
         linear_tol_m: Optional[float] = None,
         angle_tol_rad: Optional[float] = None,
+        motion_wait_frac: float = 0.15,
     ) -> tuple[np.ndarray, Optional[HostState]]:
         q0 = self._q_array_from_state(host_state)
         dq_arr = np.asarray(dq, dtype=float).reshape(4)
@@ -5478,7 +5501,7 @@ class ControlService:
                 q_before=q0,
                 dq_cmd=dq_arr,
                 timeout_s=wait_s,
-                min_frac=0.15,
+                min_frac=float(motion_wait_frac),
             ) or host_after
         elif bool(wait_settle):
             host_after = self._send_state_q_and_wait(
@@ -8053,6 +8076,7 @@ class ControlService:
                 controller_tag = "local_img_jacobian"
                 ik_status = "-"
                 dq_cmd_arr = np.zeros(4, dtype=float)
+                dq_apply_arr = np.zeros(4, dtype=float)
                 j_rank = 0
                 j_cond = float("inf")
                 j_available = False
@@ -8097,8 +8121,9 @@ class ControlService:
                         )
                         if dq_back is not None:
                             dq_cmd_arr = np.asarray(dq_back, dtype=float).reshape(4)
+                            dq_apply_arr = dq_cmd_arr.copy()
                             q_cmd, host_state = self._grasp_apply_q_delta(
-                                dq_cmd_arr,
+                                dq_apply_arr,
                                 host_state=host_state,
                                 sag_model=dict(sag_model),
                                 timeout_s=lji_apply_timeout_s,
@@ -8160,7 +8185,7 @@ class ControlService:
                         j_rank=0,
                         j_cond=float("inf"),
                         j_available=False,
-                        dq_cmd=dq_cmd_arr,
+                        dq_cmd=dq_apply_arr,
                         dq_meas=dq_meas,
                         q_cmd=q_cmd if q_cmd is not None else q_before,
                         controller=controller_tag,
@@ -8196,15 +8221,17 @@ class ControlService:
                         eps_a = float(pk.lij_probing_epsilon_angle)
                         probe = np.array([eps_l, eps_a, eps_a, eps_a], dtype=float)
                         q_before = self._q_array_from_state(host_state)
+                        dq_apply_arr = probe.copy()
+                        if float(pk.lij_dq_smooth_alpha) > 1e-6:
+                            probe = self._grasp_lji_smooth_dq(probe, pk=pk)
+                            dq_apply_arr = probe.copy()
                         self._grasp_lji_pending_sample = {
                             "q_before": q_before.copy(),
                             "s_before": np.zeros(3, dtype=float),
-                            "dq_cmd": probe.copy(),
+                            "dq_cmd": dq_apply_arr.copy(),
                         }
-                        if float(pk.lij_dq_smooth_alpha) > 1e-6:
-                            probe = self._grasp_lji_smooth_dq(probe, pk=pk)
                         q_cmd, host_state = self._grasp_apply_q_delta(
-                            probe,
+                            dq_apply_arr,
                             host_state=host_state,
                             sag_model=dict(sag_model),
                             timeout_s=lji_apply_timeout_s,
@@ -8287,13 +8314,19 @@ class ControlService:
                     )
                     if float(pk.lij_dq_smooth_alpha) > 1e-6:
                         dq_cmd_arr = self._grasp_lji_smooth_dq(dq_cmd_arr, pk=pk)
+                    dq_apply_arr = self._grasp_lji_apply_command_horizon(
+                        dq_cmd_arr,
+                        q_before=q_before,
+                        pk=pk,
+                    )
+                    command_horizon = self._grasp_lji_command_horizon(pk)
                     self._grasp_lji_pending_sample = {
                         "q_before": q_before.copy(),
                         "s_before": s_lji.copy(),
-                        "dq_cmd": dq_cmd_arr.copy(),
+                        "dq_cmd": dq_apply_arr.copy(),
                     }
                     q_cmd, host_state = self._grasp_apply_q_delta(
-                        dq_cmd_arr,
+                        dq_apply_arr,
                         host_state=host_state,
                         sag_model=dict(sag_model),
                         timeout_s=lji_apply_timeout_s,
@@ -8301,6 +8334,7 @@ class ControlService:
                         step_period_s=lji_step_period_s,
                         linear_tol_m=lji_settle_linear_tol,
                         angle_tol_rad=lji_settle_angle_tol,
+                        motion_wait_frac=max(0.03, 0.15 / float(command_horizon)),
                     )
                     if float(pk.lij_dq_smooth_alpha) > 1e-6:
                         self._grasp_lji_last_dq_cmd = np.asarray(
@@ -8384,7 +8418,7 @@ class ControlService:
                     j_rank=int(j_rank),
                     j_cond=float(j_cond),
                     j_available=bool(j_available),
-                    dq_cmd=dq_cmd_arr,
+                    dq_cmd=dq_apply_arr,
                     dq_meas=dq_meas,
                     q_cmd=q_cmd if q_cmd is not None else self._q_array_from_state(host_state),
                     controller=controller_tag,

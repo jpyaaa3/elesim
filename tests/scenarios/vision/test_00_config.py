@@ -4,6 +4,9 @@ import sys
 import unittest
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists())
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -32,6 +35,27 @@ class TestDetectorConfig(unittest.TestCase):
         self.assertIsNotNone(det)
         assert det is not None
         self.assertEqual(str(det.label), "sim_sphere")
+
+    def test_real_green_hsv_preset_accepts_shadow_green_largest_blob(self) -> None:
+        cfg = load_detector_config(
+            ROOT / "model_presets" / "visual_servoing" / "detector.real_green_hsv.json"
+        )
+        detector = create_detector(cfg)
+        self.assertIsInstance(detector, HsvDetector)
+
+        hsv = np.zeros((120, 160, 3), dtype=np.uint8)
+        hsv[42:78, 50:70] = (32, 180, 130)  # bright green face
+        hsv[42:78, 70:96] = (32, 170, 60)  # shadowed green face
+        hsv[8:16, 8:16] = (32, 180, 60)  # separate background-like green hit
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+        det = detector.detect(bgr)
+        self.assertIsNotNone(det)
+        assert det is not None
+        self.assertGreater(int(det.mask[60, 84]), 0)
+        x0, _y0, x1, _y1 = det.bbox_xyxy
+        self.assertGreaterEqual(x0, 45)
+        self.assertLessEqual(x1, 100)
 
     def test_yolo_example_has_no_mock_fallback_fields(self) -> None:
         cfg = load_detector_config(ROOT / "model_presets" / "visual_servoing" / "detector.yolo.example.json")

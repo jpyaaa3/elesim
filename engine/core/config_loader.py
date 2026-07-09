@@ -327,6 +327,7 @@ class PickConfig:
     lij_dq_smooth_alpha: float = 0.35
     lij_pipelined_motion: bool = False
     lij_step_period_s: float = 0.10
+    lij_command_horizon: float = 1.0
     lij_condition_max: float = 100.0
     lij_probing_enabled: bool = False
     lij_probing_epsilon_linear: float = 0.001
@@ -845,6 +846,9 @@ def _load_pick_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) 
         ),
         lij_step_period_s=cp.getfloat(
             "pick", "lij_step_period_s", fallback=pk0.lij_step_period_s
+        ),
+        lij_command_horizon=cp.getfloat(
+            "pick", "lij_command_horizon", fallback=pk0.lij_command_horizon
         ),
         lij_condition_max=cp.getfloat(
             "pick", "lij_condition_max", fallback=pk0.lij_condition_max

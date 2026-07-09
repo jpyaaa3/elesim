@@ -582,6 +582,29 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertGreater(bias_seg, base_seg + 1e-4)
         self.assertLess(float(np.dot(z_row, dq_bias)), 0.0)
 
+    def test_lji_command_horizon_leads_target_without_changing_controller_step(self) -> None:
+        svc = ControlService(PanelState())
+        pk = PickConfig(lij_command_horizon=3.0)
+        dq = np.array([0.0, 0.002, 0.003, -0.004], dtype=float)
+        got = svc._grasp_lji_apply_command_horizon(
+            dq,
+            q_before=np.zeros(4, dtype=float),
+            pk=pk,
+        )
+        np.testing.assert_allclose(got, 3.0 * dq)
+
+    def test_lji_command_horizon_clamps_to_joint_limits(self) -> None:
+        svc = ControlService(PanelState())
+        pk = PickConfig(lij_command_horizon=8.0)
+        seg1_max = float(svc.control_mapping().seg1_q_max_rad)
+        q_before = np.array([0.0, 0.0, seg1_max - 0.002, 0.0], dtype=float)
+        got = svc._grasp_lji_apply_command_horizon(
+            np.array([0.0, 0.0, 0.004, 0.0], dtype=float),
+            q_before=q_before,
+            pk=pk,
+        )
+        self.assertAlmostEqual(float(q_before[2] + got[2]), seg1_max)
+
     def test_lji_worker_does_not_update_online_sag(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
