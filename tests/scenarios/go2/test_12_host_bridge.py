@@ -107,6 +107,32 @@ class TestHostGo2Bridge(unittest.TestCase):
         self.assertTrue(server._trajectory_lji.active)
         server._apply_sim_q_target.assert_not_called()
 
+    def test_lji_step_keeps_small_visual_servo_delta(self) -> None:
+        server = self._make_arm_host(
+            traj_lji_enable=True,
+            traj_lji_cfg=host_mod.QuinticTimingConfig(enable=True, duration_s=0.12),
+        )
+        server._apply_sim_q_target = MagicMock(return_value=(True, False))  # type: ignore[method-assign]
+
+        server._handle_msg(
+            b"client-lji",
+            {
+                "t": "target",
+                "ts": 1.0,
+                "seq": 12,
+                "source": "lji_step",
+                "q": {
+                    "linear_m": 0.0,
+                    "roll_rad": 0.002,
+                    "theta1_rad": 0.0,
+                    "theta2_rad": 0.0,
+                },
+            },
+        )
+
+        self.assertTrue(server._trajectory_lji.active)
+        server._apply_sim_q_target.assert_not_called()
+
     def test_lji_target_falls_back_to_direct_apply_when_trajectory_disabled(self) -> None:
         server = self._make_arm_host(
             traj_lji_enable=False,

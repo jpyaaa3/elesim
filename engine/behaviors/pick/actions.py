@@ -5514,13 +5514,14 @@ class ControlService:
                 claw_closed=bool(self.state.claw_closed),
                 source=motion_source,
             )
-            wait_s = float(max(step_period_s, 0.04))
-            host_after = self._grasp_lji_wait_motion_fraction(
-                q_before=q0,
-                dq_cmd=dq_arr,
-                timeout_s=wait_s,
-                min_frac=float(motion_wait_frac),
-            ) or host_after
+            if float(motion_wait_frac) > 1e-6:
+                wait_s = float(max(step_period_s, 0.04))
+                host_after = self._grasp_lji_wait_motion_fraction(
+                    q_before=q0,
+                    dq_cmd=dq_arr,
+                    timeout_s=wait_s,
+                    min_frac=float(motion_wait_frac),
+                ) or host_after
         elif bool(wait_settle):
             host_after = self._send_state_q_and_wait(
                 timeout_s=float(timeout_s),
@@ -6116,7 +6117,7 @@ class ControlService:
                 timeout_s=max(0.12, step_period_s * 2.0),
                 wait_settle=False,
                 step_period_s=step_period_s,
-                motion_wait_frac=0.25,
+                motion_wait_frac=0.0 if self._host_native_lji_runtime() else 0.25,
             )
             print(
                 "[Grasp] LJI blind finish | learned axial step=%d/%d remain=%.1fmm dz_pred=%.1fmm rank=%d cond=%.1f"
@@ -8017,6 +8018,11 @@ class ControlService:
         lji_host_native = self._host_native_lji_runtime()
         lji_pipelined = bool(pk.lij_pipelined_motion or self._use_hardware or lji_host_native)
         lji_step_period_s = float(max(pk.lij_step_period_s, 0.0))
+        lji_obs_wait_s = (
+            min(0.08, max(lji_step_period_s, 0.04))
+            if bool(lji_pipelined)
+            else 0.25
+        )
         success = False
         traj_start = self._grasp_traj_start
         look_anchor = self._grasp_look_anchor
@@ -8165,7 +8171,7 @@ class ControlService:
 
                 obs, host_state = self._grasp_lji_wait_visual_observation(
                     host_state,
-                    wait_s=0.25,
+                    wait_s=lji_obs_wait_s,
                 )
                 object_lost = obs is None
                 s_lji_now = self._grasp_lji_build_features_3d(obs, remain_m=float(remain))
@@ -8342,7 +8348,7 @@ class ControlService:
                         settle_ok = host_state is not None
                     obs_after, host_state = self._grasp_lji_wait_visual_observation(
                         host_state,
-                        wait_s=0.20,
+                        wait_s=lji_obs_wait_s,
                     )
                     if obs_after is not None and not self._grasp_lji_visual_tracking_lost(
                         self._grasp_lji_build_features_3d(
@@ -8524,7 +8530,11 @@ class ControlService:
                         step_period_s=lji_step_period_s,
                         linear_tol_m=lji_settle_linear_tol,
                         angle_tol_rad=lji_settle_angle_tol,
-                        motion_wait_frac=max(0.03, 0.15 / float(command_horizon)),
+                        motion_wait_frac=(
+                            0.0
+                            if bool(lji_host_native)
+                            else max(0.03, 0.15 / float(command_horizon))
+                        ),
                     )
                     if float(pk.lij_dq_smooth_alpha) > 1e-6:
                         self._grasp_lji_last_dq_cmd = np.asarray(
@@ -8547,7 +8557,7 @@ class ControlService:
 
                 obs_after, host_state = self._grasp_lji_wait_visual_observation(
                     host_state,
-                    wait_s=0.20,
+                    wait_s=lji_obs_wait_s,
                 )
                 tip_after = self._pick_current_tip_world(host_state=host_state)
                 remain_after = (

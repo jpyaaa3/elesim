@@ -836,11 +836,16 @@ class ControlHost:
         return self._trajectory
 
     def _start_trajectory(self, q_goal: proto.SimQ, *, source: str = "ik") -> None:
-        q_start = self.last_q
+        src = str(source).strip().lower()
+        runner = self._active_trajectory_runner(source)
+        now = time.time()
+        if runner.active:
+            q_start = runner.step(now_s=now).q_cmd
+        else:
+            q_start = self.last_q
         if q_start is None:
             q_start = q_goal
-        src = str(source).strip().lower()
-        skip_delta = 0.0015 if src == "lji" else 0.015
+        skip_delta = 0.0015 if src in {"lji", "lji_step"} else 0.015
         if self._joint_delta_max(q_start, q_goal) < float(skip_delta):
             self._cancel_trajectory()
             print(
@@ -856,8 +861,7 @@ class ControlHost:
             if pick_profile_enabled():
                 print("[Profile] traj skip | source=%s dt=0.0ms" % str(source))
             return
-        runner = self._active_trajectory_runner(source)
-        runner.start(q_start=q_start, q_goal=q_goal, now_s=time.time())
+        runner.start(q_start=q_start, q_goal=q_goal, now_s=now)
         if src not in {"lji", "lji_step"}:
             self._trajectory_lji.cancel()
         else:
