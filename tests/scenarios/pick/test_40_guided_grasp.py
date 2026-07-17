@@ -11,10 +11,10 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import IkConfig, PickConfig
-from engine.behaviors.pick.actions import ControlService
+from engine.config import IkConfig, PickConfig
+from engine.pick.actions import ControlService
 from engine.vision.perception.capture import PerceptionSnapshot
-from engine.behaviors.pick.state import HostState, PanelState
+from engine.pick.state import HostState, PanelState
 from engine.core.protocol import SimMappingConfig, SimQ
 from engine.vision.visual_servoing.equal_sag_probe import EqualSagEstimate
 from engine.vision.visual_servoing.grasp_trajectory import GraspWaypoint
@@ -64,11 +64,13 @@ class TestGraspGuidedHelpers(unittest.TestCase):
     def test_lji_motion_fraction_wait_uses_sim_q(self) -> None:
         svc = ControlService(PanelState(), use_hardware=False)
         svc.client = MagicMock()
-        svc.client.refresh_state.return_value = self._host_state(
+        state = self._host_state(
             q=SimQ(linear_m=0.10, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0),
             sim_q=SimQ(linear_m=0.004, roll_rad=0.0, theta1_rad=0.0, theta2_rad=0.0),
         )
-        with patch("engine.behaviors.pick.actions.time.sleep"):
+        svc.client.refresh_state.return_value = state
+        svc.client.refresh_lji_state.return_value = state
+        with patch("engine.pick.actions.time.sleep"):
             out = svc._grasp_lji_wait_motion_fraction(
                 q_before=np.zeros(4),
                 dq_cmd=np.array([0.01, 0.0, 0.0, 0.0]),
@@ -139,7 +141,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertAlmostEqual(e1[0] - e0[0], 0.02, places=4)
 
     def test_grasp_filtered_object_ema(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         svc._pick_cfg = PickConfig(
             grasp_object_filter_alpha=0.5,
             grasp_approach_filter_alpha=0.0,
@@ -215,7 +217,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertAlmostEqual(travel, 0.0, places=4)
 
     def test_visual_recover_disabled_in_mock_mode(self) -> None:
-        from engine.core.config_loader import PerceptionConfig
+        from engine.config import PerceptionConfig
 
         svc = ControlService(PanelState())
         svc._pick_cfg = PickConfig(grasp_skip_aim_recover_in_mock=True)
@@ -225,7 +227,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertFalse(svc._grasp_visual_recover_supported())
 
     def test_visual_recover_disabled_in_sim(self) -> None:
-        from engine.core.config_loader import PerceptionConfig
+        from engine.config import PerceptionConfig
 
         svc = ControlService(PanelState())
         svc._pick_cfg = PickConfig(grasp_skip_aim_recover_in_mock=True)
@@ -248,7 +250,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         q = np.array([0.1, 0.0, 0.2, 0.1], dtype=float)
         with patch.object(
             svc, "_wait_until_q_settled", return_value=(MagicMock(), True)
-        ) as mock_q, patch("engine.behaviors.pick.actions.time.sleep") as mock_sleep:
+        ) as mock_q, patch("engine.pick.actions.time.sleep") as mock_sleep:
             out = svc._grasp_wait_waypoint_settle(
                 q_cmd=q,
                 host_state=None,
@@ -261,7 +263,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         mock_sleep.assert_called()
 
     def test_start_grasp_guided_when_enabled(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         svc.client = MagicMock()
         svc._pick_cfg = PickConfig(grasp_guided_enabled=True)
         svc._pick_look_object_world_xyz = (0.33, 0.01, 0.92)
@@ -766,6 +768,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
     def test_lji_worker_skips_legacy_axial_ik(self) -> None:
         svc = ControlService(PanelState())
         svc.client = MagicMock()
+        svc.client.refresh_lji_state.return_value = None
         svc._ik_cfg = IkConfig(tol=0.001)
         svc._pick_cfg = PickConfig(
             grasp_guided_enabled=True,
@@ -1191,6 +1194,7 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         )
         svc._pick_cfg = pk
         svc.client = MagicMock()
+        svc.client.refresh_lji_state.return_value = None
         svc._ik_cfg = IkConfig(tol=0.001)
         svc._grasp_traj_start = (0.10, 0.0, 0.90)
         svc._grasp_look_anchor = (0.03, 0.0, 0.90)

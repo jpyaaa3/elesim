@@ -6,6 +6,7 @@ from .pick_timing import (
     install_fk_counter,
     uninstall_fk_counter,
 )
+from .tracing import configure_tracing, shutdown_tracing, span, traced
 
 __all__ = [
     "PickPhaseProfile",
@@ -14,4 +15,8 @@ __all__ = [
     "format_report",
     "install_fk_counter",
     "uninstall_fk_counter",
+    "configure_tracing",
+    "shutdown_tracing",
+    "span",
+    "traced",
 ]

@@ -14,9 +14,9 @@ if str(ROOT) not in sys.path:
 
 sys.modules.setdefault("zmq", types.ModuleType("zmq"))
 
-from engine.behaviors.pick import ControlService, PanelState
-from engine.core.config_loader import PerceptionConfig
-from engine.behaviors.pick.state import HostState
+from engine.pick import ControlService, PanelState
+from engine.config import PerceptionConfig
+from engine.pick.state import HostState
 from engine.core.protocol import SimQ
 
 

@@ -8,8 +8,8 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-import builder.json_builder as assembly_builder
-from engine.core.config_loader import AppConfigBundle, load_app_config_from_ini
+import builders.json_builder as assembly_builder
+from engine.config import AppConfigBundle, load_app_config
 from engine.core.protocol import linear_effective_q_bounds
 from .kinematics import Q4, Q_BENT, Q_NEUTRAL, Vec3, _ReachModel, _pick_manifest_value
 
@@ -48,7 +48,7 @@ def _load_frame_to_offset(build_dir: str, part: dict[str, Any], *, part_name: st
 
 
 def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, Any]]:
-    bundle = load_app_config_from_ini(config_path)
+    bundle = load_app_config(config_path)
     build_dir = str(bundle.sim_config.build_dir)
     manifest_path = os.path.join(build_dir, str(bundle.sim_config.assy_build_json))
     if bool(bundle.sim_config.rebuild_assembly) or (not os.path.isfile(manifest_path)):
@@ -57,6 +57,7 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
             build_dir,
             use_hardware=bool(bundle.sim_config.use_hardware),
             use_go2=bool(bundle.sim_config.use_go2),
+            output_name=str(bundle.sim_config.assy_build_json),
         )
     with open(manifest_path, "r", encoding="utf-8") as f:
         build = json.load(f)

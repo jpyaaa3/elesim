@@ -10,10 +10,10 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import PerceptionConfig
-from engine.behaviors.pick.actions import ControlService
+from engine.config import PerceptionConfig
+from engine.pick.actions import ControlService
 from engine.vision.perception.capture import PerceptionCapture, PerceptionSnapshot
-from engine.behaviors.pick.state import PanelState
+from engine.pick.state import PanelState
 
 
 class _FakeCapture:
@@ -104,7 +104,7 @@ class TestPerceptionStartStop(unittest.TestCase):
         self.assertTrue(bool(svc.state.perception_running))
         self.assertEqual(str(svc.state.perception_status_msg), "live")
 
-    @patch("engine.behaviors.pick.actions.PerceptionCapture", autospec=True)
+    @patch("engine.pick.perception.PerceptionCapture", autospec=True)
     def test_start_replaces_stuck_running_capture(self, cap_cls: MagicMock) -> None:
         svc = self._service()
         stuck = _FakeCapture(running=True)

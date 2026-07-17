@@ -1,0 +1,1 @@
+"""Desktop control composition root."""

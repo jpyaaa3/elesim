@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import imgui
 
 from ui.helpers import panel_header
@@ -7,15 +9,16 @@ from ui.file_dialog import browse_open_file_path
 
 
 def sag_browse_initial_dir(initial_path: str) -> str:
-    import os
-
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    default_assets_dir = os.path.join(project_root, "assets")
+    project_root = Path(__file__).resolve().parents[2]
+    default_dir = project_root / "configs" / "sag"
     initial = str(initial_path or "").strip()
-    initial_dir = os.path.dirname(initial) if initial else default_assets_dir
-    if not os.path.isdir(initial_dir):
-        initial_dir = default_assets_dir if os.path.isdir(default_assets_dir) else os.getcwd()
-    return initial_dir
+    initial_path_obj = Path(initial).expanduser() if initial else default_dir
+    if not initial_path_obj.is_absolute():
+        initial_path_obj = project_root / initial_path_obj
+    initial_dir = initial_path_obj.parent if initial_path_obj.suffix else initial_path_obj
+    if not initial_dir.is_dir():
+        initial_dir = default_dir if default_dir.is_dir() else project_root
+    return str(initial_dir)
 
 
 def browse_sag_model_path(initial_path: str) -> str | None:

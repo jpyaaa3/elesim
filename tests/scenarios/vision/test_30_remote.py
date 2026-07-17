@@ -4,9 +4,9 @@ import time
 import unittest
 from unittest.mock import MagicMock
 
-from engine.core.config_loader import PerceptionConfig, load_app_config_from_ini
-from engine.behaviors.pick.actions import ControlService
-from engine.behaviors.pick.state import HostState, PanelState
+from engine.config import PerceptionConfig, load_app_config
+from engine.pick.actions import ControlService
+from engine.pick.state import HostState, PanelState
 from engine.core.protocol import SimQ
 
 
@@ -84,14 +84,14 @@ class TestPerceptionRemote(unittest.TestCase):
 
 class TestPerceptionWorkerConfig(unittest.TestCase):
     def test_jetson_ini_loads_camera_mode(self) -> None:
-        bundle = load_app_config_from_ini("config.jetson.ini")
+        bundle = load_app_config("configs/config.jetson.yaml")
         pc = bundle.perception_config
         self.assertTrue(pc.run_local)
         self.assertEqual(str(pc.mode).strip().lower(), "camera")
         self.assertFalse(pc.show_preview)
 
     def test_pc_ini_loads_remote(self) -> None:
-        bundle = load_app_config_from_ini("config.pc.ini")
+        bundle = load_app_config("configs/config.pc.yaml")
         pc = bundle.perception_config
         self.assertFalse(pc.run_local)
 

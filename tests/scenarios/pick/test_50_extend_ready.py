@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from engine.core.config_loader import PickConfig
+from engine.config import PickConfig
 from engine.vision.pick.core import pick_ready_for_extend
 from engine.vision.perception.observation import VisualObservation
 

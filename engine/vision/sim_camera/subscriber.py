@@ -5,6 +5,7 @@ from typing import Optional
 
 import numpy as np
 import zmq
+from engine.observability.tracing import sampled_traced
 
 from engine.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
@@ -35,6 +36,7 @@ class SimCameraSubscriber:
             pass
         self._connected = False
 
+    @sampled_traced("camera.sim.receive", sample_key="camera.sim.receive", every=60, kind="consumer")
     def recv_latest(self, *, timeout_ms: int = 500) -> Optional[SimCameraFrame]:
         if not self._connected:
             self.connect()

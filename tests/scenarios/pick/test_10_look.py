@@ -15,8 +15,8 @@ if str(ROOT) not in sys.path:
 from dataclasses import dataclass
 from typing import Optional
 
-from engine.behaviors.pick.actions import ControlService
-from engine.behaviors.pick.state import PanelState
+from engine.pick.actions import ControlService
+from engine.pick.state import PanelState
 from engine.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
 
 

@@ -10,6 +10,7 @@ old failure mode needs to stay pinned.
   sim-camera contracts.
 - `scenarios/go2/`: ROS/env -> lowstate/bridge -> mirror -> locomotion ->
   payload/MPC contracts.
+- `scenarios/gaze/`: stabilizer -> preview -> baseline -> walking trial.
 - `contracts/`: subsystem checks that do not form a time-ordered debug story.
 - `regressions/`: fixtures derived from real or synthetic failure logs.
 
@@ -19,10 +20,11 @@ Useful commands:
 python3 -m pytest tests
 python3 -m pytest tests/scenarios/pick
 python3 -m pytest tests/scenarios/pick/test_43_lji.py
+python3 -m pytest tests/scenarios/gaze
 python3 -m pytest tests/contracts/vision/test_lji_invariants.py
 python3 -m pytest tests/regressions
 python3 -m pytest tests/contracts
-python3 tools/test_gui.py
+python3 tools/quality/test_gui.py
 ```
 
 The GUI `안정` and `전체` groups currently run the full test tree. Use the

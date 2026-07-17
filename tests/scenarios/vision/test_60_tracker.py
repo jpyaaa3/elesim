@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from engine.core.config_loader import PerceptionConfig
+from engine.config import PerceptionConfig
 from engine.vision.perception.capture import PerceptionCapture
 
 

@@ -37,4 +37,4 @@ fi
 export UNITREE_ROS2_WS="${UNITREE_WS}"
 export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
-python3 host.py --config config.jetson.ini "$@"
+python3 host.py --config configs/config.jetson.yaml "$@"

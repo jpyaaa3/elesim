@@ -4,6 +4,7 @@ import json
 from typing import Optional
 
 import zmq
+from engine.observability.tracing import sampled_traced
 
 from engine.core import protocol
 from engine.vision.sim_camera.types import SimCameraFrame
@@ -33,6 +34,7 @@ class SimCameraPublisher:
         self.dropped = 0
         print(f"[sim_camera] publisher bound {self.endpoint} jpeg={self.use_jpeg} depth={self.send_depth}")
 
+    @sampled_traced("camera.sim.publish", sample_key="camera.sim.publish", every=60, kind="producer")
     def publish(self, frame: SimCameraFrame) -> bool:
         meta = json.dumps(frame.to_meta_dict()).encode("utf-8")
         color_bytes = self._encode_color(frame)

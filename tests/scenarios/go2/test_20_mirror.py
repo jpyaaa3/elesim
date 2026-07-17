@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from engine.core.config_loader import load_app_config_from_ini
+from engine.config import load_app_config
 from engine.robot.go2.locomotion.config import Go2LocomotionConfig
 import engine.core.protocol as proto
 
@@ -13,15 +13,15 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 
 class Go2SimMirrorConfigTests(unittest.TestCase):
     def test_pc_config_enables_mirror(self) -> None:
-        bundle = load_app_config_from_ini(str(ROOT / "config.pc.ini"))
+        bundle = load_app_config(str(ROOT / "configs/config.pc.yaml"))
         self.assertTrue(bundle.go2_locomotion_config.mirror_from_host)
 
     def test_local_config_disables_mirror(self) -> None:
-        bundle = load_app_config_from_ini(str(ROOT / "config.ini"))
+        bundle = load_app_config(str(ROOT / "configs/config.yaml"))
         self.assertFalse(bundle.go2_locomotion_config.mirror_from_host)
 
     def test_local_config_loads_sim_target_ball_spawn_options(self) -> None:
-        bundle = load_app_config_from_ini(str(ROOT / "config.ini"))
+        bundle = load_app_config(str(ROOT / "configs/config.yaml"))
         spawn = bundle.spawn_config
         self.assertTrue(spawn.sim_target_enable)
         self.assertEqual(spawn.sim_target_xyz, (0.8, 0.0, 0.2))

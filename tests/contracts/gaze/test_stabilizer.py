@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from engine.behaviors.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig
+from engine.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig
 from engine.vision.visual_servoing.uv_jacobian import default_uv_jacobian, solve_uv_control_delta
 
 

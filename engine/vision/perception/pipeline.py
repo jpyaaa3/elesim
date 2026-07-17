@@ -6,6 +6,7 @@ import time
 from typing import Any, Optional
 
 import numpy as np
+from engine.observability.tracing import sampled_traced
 
 from engine.vision.perception.depth_pose import CameraIntrinsics, estimate_object_position_camera
 from engine.vision.perception.detector import DetectionResult, ObjectDetector
@@ -109,6 +110,7 @@ def run_mock_frame(detector_cfg: dict) -> tuple[np.ndarray, np.ndarray, CameraIn
     return color, depth_raw, intrinsics, depth_scale
 
 
+@sampled_traced("perception.detect", sample_key="perception.detect", every=60)
 def measure_detection(
     det: DetectionResult,
     *,

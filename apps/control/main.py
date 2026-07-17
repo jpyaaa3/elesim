@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+from engine.vision.perception_bridge.hand_eye import load_hand_eye_transform
+from engine.robot.arm import ik as ik_pipeline
+from engine.robot.arm.mounts.go2_mount import Go2ArmMount
+from engine.pick import ControlClient, ControlService, PanelState
+from engine.core.protocol import default_start_sim_q
+from engine.observability.tracing import configure_tracing, shutdown_tracing, span
+from ui.control_panel import ControlPanel
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _run() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--config",
+        default=str(_REPO_ROOT / "configs/config.yaml"),
+        help="path to YAML config file",
+    )
+    args = ap.parse_args()
+
+    bundle, ik_context = ik_pipeline.load_solver_context(args.config)
+    hand_eye_transform = None
+    hand_eye_parent_frame = "node9"
+    hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
+    if hand_eye_path:
+        try:
+            hand_eye_transform, hand_eye_meta = load_hand_eye_transform(hand_eye_path)
+            hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
+        except Exception as exc:
+            print(f"[ctrl] hand-eye config unavailable: {exc}")
+            hand_eye_transform = None
+    link = ControlClient(str(bundle.sim_config.host_ctrl_port), cfg=bundle.mapping_config)
+    state = PanelState(
+        sag_model_path="",
+        raw_sag_model=None,
+    )
+    state.set_u_offsets(
+        linear=float(bundle.hardware_config.u_offset_linear),
+        roll=float(bundle.hardware_config.u_offset_roll),
+        s1=float(bundle.hardware_config.u_offset_s1),
+        s2=float(bundle.hardware_config.u_offset_s2),
+    )
+    spawn_q = default_start_sim_q(bundle.mapping_config)
+    state.set_q(
+        float(spawn_q.linear_m),
+        float(spawn_q.roll_rad),
+        float(spawn_q.theta1_rad),
+        float(spawn_q.theta2_rad),
+    )
+    perception_cfg = bundle.perception_config
+    pick_cfg = bundle.pick_config
+    state.visual_target_label = str(perception_cfg.target_label).strip()
+    state.visual_target_scale = float(pick_cfg.target_scale)
+    state.visual_center_tol = float(pick_cfg.center_tol)
+    state.visual_target_uv_u = float(pick_cfg.target_uv_u)
+    state.visual_target_uv_v = float(pick_cfg.target_uv_v)
+    state.visual_scale_tol = float(pick_cfg.scale_tol)
+    state.visual_ready_distance_m = float(pick_cfg.ready_pose_standoff_m)
+    state.visual_look_distance_m = float(pick_cfg.look_pose_standoff_m)
+    try:
+        state.set_mock_object_world_xyz(*tuple(float(v) for v in bundle.spawn_config.sim_target_xyz))
+    except Exception:
+        pass
+
+    go2_arm_mount = Go2ArmMount.from_context(
+        use_go2=bool(bundle.sim_config.use_go2),
+        spawn_xyz=bundle.spawn_config.spawn_xyz,
+        go2_spawn_height=float(bundle.spawn_config.go2_spawn_height),
+        go2_spawn_euler_deg=bundle.spawn_config.go2_spawn_euler_deg,
+        mount_offset_body_m=bundle.spawn_config.go2_mount_offset_m,
+        ik_context=ik_context,
+    )
+
+    service = ControlService(
+        state,
+        client=link,
+        mapping_cfg=bundle.mapping_config,
+        ik_cfg=bundle.ik_config,
+        ik_context=ik_context,
+        config_path=args.config,
+        perception_cfg=perception_cfg,
+        pick_cfg=pick_cfg,
+        gaze_cfg=bundle.gaze_stabilizer_config,
+        hand_eye_transform=hand_eye_transform,
+        hand_eye_parent_frame=hand_eye_parent_frame,
+        go2_arm_mount=go2_arm_mount,
+        use_hardware=bool(bundle.sim_config.use_hardware),
+    )
+    gui = ControlPanel(
+        state,
+        service,
+        use_hardware=bool(bundle.sim_config.use_hardware),
+        use_go2=bool(bundle.sim_config.use_go2),
+        go2_teleop_vx_mps=float(getattr(bundle.spawn_config, "go2_teleop_vx_mps", 0.35)),
+        go2_teleop_vy_mps=float(getattr(bundle.spawn_config, "go2_teleop_vy_mps", 0.25)),
+        go2_teleop_wz_radps=float(getattr(bundle.spawn_config, "go2_teleop_wz_radps", 0.80)),
+        hardware_cfg=bundle.hardware_config,
+        perception_cfg=perception_cfg,
+        pick_cfg=pick_cfg,
+        gaze_cfg=bundle.gaze_stabilizer_config,
+    )
+    try:
+        service.refresh_host_state()
+        service.send_current_target_meta(source="target")
+        gui.run()
+    finally:
+        service.close()
+
+
+def main() -> None:
+    configure_tracing("elesim-control")
+    try:
+        with span("control.process.run"):
+            _run()
+    finally:
+        shutdown_tracing()
+
+
+if __name__ == "__main__":
+    main()

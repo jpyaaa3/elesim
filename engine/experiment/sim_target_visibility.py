@@ -7,7 +7,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
-from engine.sim_camera.mount import intrinsics_from_fov
+from engine.vision.sim_camera.mount import intrinsics_from_fov
 
 
 @dataclass(frozen=True)

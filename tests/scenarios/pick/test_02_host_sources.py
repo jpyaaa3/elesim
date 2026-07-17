@@ -5,7 +5,12 @@ from pathlib import Path
 
 class TestHostAllowedSources(unittest.TestCase):
     def test_lji_and_servo_listed_in_host_allowlist(self) -> None:
-        host_py = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists()) / "host.py"
+        root = next(
+            p
+            for p in Path(__file__).resolve().parents
+            if (p / "apps" / "host" / "main.py").exists()
+        )
+        host_py = root / "apps" / "host" / "main.py"
         tree = ast.parse(host_py.read_text(encoding="utf-8"))
         allowed: set[str] = set()
         for node in ast.walk(tree):

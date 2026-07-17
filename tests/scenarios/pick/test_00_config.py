@@ -9,11 +9,11 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import PickConfig, load_app_config_from_ini
+from engine.config import PickConfig, load_app_config
 
 
 class TestPickConfigEffectivePattern(unittest.TestCase):
-    """Regression: runtime replace must preserve config.ini fields not overridden by UI."""
+    """Regression: runtime replace must preserve configs/config.yaml fields not overridden by UI."""
 
     def test_replace_preserves_sag_drift_knobs(self) -> None:
         loaded = PickConfig(
@@ -50,9 +50,9 @@ class TestPickConfigEffectivePattern(unittest.TestCase):
 
 class TestHardwareOffsetConfig(unittest.TestCase):
     def test_real_profiles_preload_roll_offset(self) -> None:
-        base = load_app_config_from_ini(str(ROOT / "config.ini"))
-        jetson = load_app_config_from_ini(str(ROOT / "config.jetson.ini"))
-        pc = load_app_config_from_ini(str(ROOT / "config.pc.ini"))
+        base = load_app_config(str(ROOT / "configs/config.yaml"))
+        jetson = load_app_config(str(ROOT / "configs/config.jetson.yaml"))
+        pc = load_app_config(str(ROOT / "configs/config.pc.yaml"))
 
         self.assertAlmostEqual(base.hardware_config.u_offset_roll, 0.0)
         self.assertAlmostEqual(jetson.hardware_config.u_offset_roll, -9.0)

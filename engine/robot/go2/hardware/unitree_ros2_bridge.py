@@ -30,6 +30,7 @@ from engine.robot.go2.hardware.vel_feedback import (
     linear_motion_active,
     yaw_command_active,
 )
+from engine.observability.tracing import sampled_traced, traced
 
 
 def _ros_topic(name: str) -> str:
@@ -186,6 +187,7 @@ class UnitreeRos2Bridge:
             self._we_inited_rclpy = False
         print("[go2_bridge] stopped")
 
+    @sampled_traced("go2.set_velocity", sample_key="go2.set_velocity", every=10, kind="producer")
     def set_velocity(self, vx: float, vy: float, wz: float) -> None:
         with self._lock:
             self._target_vel = (float(vx), float(vy), float(wz))
@@ -202,6 +204,7 @@ class UnitreeRos2Bridge:
         self._publish_move(cmd_vx, cmd_vy, cmd_wz)
         self._t_last_cmd = time.time()
 
+    @traced("go2.call_sport_pose", kind="producer")
     def call_sport_pose(self, pose: str) -> None:
         api_id = sport_pose_api_id(pose)
         if api_id is None:
@@ -214,6 +217,7 @@ class UnitreeRos2Bridge:
         self._t_last_cmd = time.time()
         print("[go2_bridge] sport_pose=%s api_id=%d" % (str(pose).strip().lower(), int(api_id)))
 
+    @traced("go2.set_obstacles_avoid", kind="producer")
     def set_obstacles_avoid(self, enabled: bool) -> None:
         parameter = build_obstacles_avoid_parameter(enable=bool(enabled))
         self._publish_obstacles_avoid_api(int(self._obstacles_avoid_api_id), parameter)
@@ -494,6 +498,12 @@ class UnitreeRos2Bridge:
             )
         return sample
 
+    @sampled_traced(
+        "go2.sportmodestate.receive",
+        sample_key="go2.sportmodestate.receive",
+        every=50,
+        kind="consumer",
+    )
     def _on_sportmodestate(self, msg: Any) -> None:
         now = time.time()
         try:
@@ -510,6 +520,7 @@ class UnitreeRos2Bridge:
             self._t_last_pose_rx = now
             self._latest = self._attach_leg_state(sample)
 
+    @sampled_traced("go2.lowstate.receive", sample_key="go2.lowstate.receive", every=50, kind="consumer")
     def _on_lowstate(self, msg: Any) -> None:
         now = time.time()
         try:

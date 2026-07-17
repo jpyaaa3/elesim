@@ -9,6 +9,10 @@
 - **UI / 시뮬레이터 / 실제 모터 사이를 중계하는 host 프로세스**
 - **위치 IK와 방향 정렬을 다루는 소형 IK 모듈**
 
+현재 구조와 기능별 수정 시작점은 [Architecture Guide](./docs/architecture.md)를
+기준으로 한다. 루트 실행 파일은 호환용 launcher이며, 새 런타임 wiring은
+`apps/`, 재사용 가능한 동작은 `engine/`에 둔다.
+
 목표는 완성형 제품 코드보다는,  
 로봇 기구학, 처짐 모델, 그리퍼 동작, 하드웨어 디버깅 로직을 빠르게 실험하고 조정할 수 있는 개발 환경을 제공하는 것입니다.
 
@@ -68,7 +72,7 @@
 2. `sim.py`
 3. `ctrl.py`
 
-프로세스 간 통신은 [config.ini](./config.ini)에 정의된 **로컬 ZeroMQ endpoint**를 통해 이뤄집니다.
+프로세스 간 통신은 [configs/config.yaml](./configs/config.yaml)에 정의된 **로컬 ZeroMQ endpoint**를 통해 이뤄집니다.
 
 흐름은 다음과 같습니다.
 
@@ -148,25 +152,32 @@ python3 sim.py
 python3 ctrl.py
 ```
 
-시뮬레이터만 쓸 경우에는 [config.ini](./config.ini)에서:
+시뮬레이터만 쓸 경우에는 [configs/config.yaml](./configs/config.yaml)에서:
 
-```ini
-use_hardware = false
+```yaml
+simulation:
+  runtime:
+    use_hardware: false
 ```
 
 로 두면 됩니다.
 
 실제 하드웨어를 함께 쓸 경우에는:
 
-```ini
-use_hardware = true
+```yaml
+simulation:
+  runtime:
+    use_hardware: true
 ```
 
 로 바꾸고, 대상 시리얼 장치가 연결되어 있어야 합니다.
 
 ## 설정 파일
 
-프로젝트 전체 설정은 [config.ini](./config.ini)에 있습니다.
+프로젝트 전체 설정은 [configs/config.yaml](./configs/config.yaml)에 있습니다.
+PC와 Jetson 전용 차이는 각각 [configs/config.pc.yaml](./configs/config.pc.yaml),
+[configs/config.jetson.yaml](./configs/config.jetson.yaml)에 있으며 기본 설정을 `extends`합니다.
+구조, 상속 규칙, 검증 방식은 [설정 가이드](./docs/configuration.md)를 참고하십시오.
 
 주요 설정 예시는 다음과 같습니다.
 
@@ -181,7 +192,7 @@ use_hardware = true
 원본 자산과 정의는 다음 위치에 있습니다.
 
 - [assets](./assets)
-- [builder](./builder)
+- [builders](./builders)
 
 ## 일반적인 사용 흐름
 

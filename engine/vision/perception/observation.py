@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from engine.behaviors.pick.state import HostState
+from engine.pick.state import HostState
 
 
 @dataclass

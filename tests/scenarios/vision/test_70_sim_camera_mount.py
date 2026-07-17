@@ -39,7 +39,7 @@ class _FakeLink:
 
 class TestSimCameraMount(unittest.TestCase):
     def test_hand_eye_optical_axes_in_node9(self) -> None:
-        cfg = ROOT / "model_presets" / "visual_servoing" / "hand_eye.camera.json"
+        cfg = ROOT / "configs" / "calibration" / "hand_eye.camera.json"
         T = load_hand_eye_offset_T(cfg)
         R = T[:3, :3]
         np.testing.assert_allclose(R[:, 2], [1.0, 0.0, 0.0], atol=1e-6)
@@ -47,7 +47,7 @@ class TestSimCameraMount(unittest.TestCase):
         np.testing.assert_allclose(R[:, 1], [0.0, 0.0, -1.0], atol=1e-6)
 
     def test_genesis_camera_object_matches_link_attach(self) -> None:
-        cfg = ROOT / "model_presets" / "visual_servoing" / "hand_eye.camera.json"
+        cfg = ROOT / "configs" / "calibration" / "hand_eye.camera.json"
         link = _FakeLink([0.2, 0.0, 0.5], [1.0, 0.0, 0.0, 0.0])
         T_link = _link_world_transform(link)
         T_attach = hand_eye_to_genesis_attach_T(cfg)

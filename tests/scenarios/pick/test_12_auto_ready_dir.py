@@ -11,8 +11,8 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.behaviors.pick.actions import ControlService
-from engine.behaviors.pick.state import PanelState
+from engine.pick.actions import ControlService
+from engine.pick.state import PanelState
 
 
 class TestPickAutoReadyDir(unittest.TestCase):

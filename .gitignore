@@ -1,6 +1,13 @@
 __pycache__/
 *.py[cod]
 
+# Local agent/editor state.
+.cursor/
+.agents/
+.codex/
+.pytest_cache/
+*.swp
+
 .venv/
 venv/
 env/
@@ -31,6 +38,7 @@ elesim_wip_save.txt
 
 # Local helper scripts.
 u
+j
 
 # Local backups of heavy GO2 source meshes.
 assets/go2_original_*/

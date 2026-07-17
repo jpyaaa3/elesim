@@ -8,9 +8,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import engine.core.protocol as proto
+from engine.observability.tracing import sampled_traced, traced
 
 if TYPE_CHECKING:
-    from engine.core.config_loader import HardwareConfig
+    from engine.config import HardwareConfig
 
 try:
     from dynamixel_sdk import GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler
@@ -209,6 +210,7 @@ class Dynamixel3dofDriver:
             raise RuntimeError(f"[ID {dxl_id}] read2 dxl error: {self.packet.getRxPacketError(err)}")
         return int(value)
 
+    @traced("arm.dynamixel.open", kind="client")
     def open(self) -> None:
         if not self.port.openPort():
             raise RuntimeError(f"Failed to open port: {self.cfg.device_name}")
@@ -225,10 +227,12 @@ class Dynamixel3dofDriver:
         except Exception:
             pass
 
+    @traced("arm.dynamixel.torque_off_all", kind="client")
     def torque_off_all(self) -> None:
         for dxl_id in self.ids:
             self._write1(dxl_id, ADDR_TORQUE_ENABLE, TORQUE_OFF)
 
+    @traced("arm.dynamixel.torque_on_all", kind="client")
     def torque_on_all(self) -> None:
         for dxl_id in self.ids:
             self._write1(dxl_id, ADDR_TORQUE_ENABLE, TORQUE_ON)
@@ -239,6 +243,7 @@ class Dynamixel3dofDriver:
     def torque_on_id(self, dxl_id: int) -> None:
         self._write1(int(dxl_id), ADDR_TORQUE_ENABLE, TORQUE_ON)
 
+    @traced("arm.dynamixel.set_operating_modes", kind="client")
     def set_operating_modes(self) -> None:
         self.torque_off_all()
         for dxl_id in self.ids:
@@ -290,6 +295,12 @@ class Dynamixel3dofDriver:
             v = -v
         return deg_s_to_velocity_raw(v)
 
+    @sampled_traced(
+        "arm.dynamixel.read_positions",
+        sample_key="dynamixel.read_positions",
+        every=20,
+        kind="client",
+    )
     def get_present_positions(self) -> Dict[int, int]:
         comm = self.sync_read_pos.txRxPacket()
         if comm != 0:
@@ -305,6 +316,12 @@ class Dynamixel3dofDriver:
     def get_present_current(self, dxl_id: int) -> int:
         return signed16(self._read2(dxl_id, ADDR_PRESENT_CURRENT))
 
+    @sampled_traced(
+        "arm.dynamixel.write_positions",
+        sample_key="dynamixel.write_positions",
+        every=10,
+        kind="client",
+    )
     def sync_set_goal_positions(self, goals_tick: Dict[int, int]) -> None:
         self.sync_write_pos.clearParam()
         for dxl_id, tick in goals_tick.items():
@@ -314,6 +331,12 @@ class Dynamixel3dofDriver:
         if comm != 0:
             raise RuntimeError(f"sync_write comm fail: {self.packet.getTxRxResult(comm)}")
 
+    @sampled_traced(
+        "arm.dynamixel.write_velocities",
+        sample_key="dynamixel.write_velocities",
+        every=10,
+        kind="client",
+    )
     def sync_set_goal_velocities(self, goals_raw: Dict[int, int]) -> None:
         self.sync_write_vel.clearParam()
         for dxl_id, raw in goals_raw.items():

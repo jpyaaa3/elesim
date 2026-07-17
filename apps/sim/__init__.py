@@ -1,0 +1,1 @@
+"""Genesis simulator composition root."""

@@ -11,19 +11,19 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import load_app_config_from_ini
+from engine.config import load_app_config
 from engine.vision.perception.detector import HsvDetector, create_detector, load_detector_config
 from engine.vision.perception.pipeline import resolve_detector_cfg, run_mock_frame
 
 
 class TestDetectorConfig(unittest.TestCase):
-    def test_config_ini_resolves_detector_preset_path(self) -> None:
-        bundle = load_app_config_from_ini(str(ROOT / "config.ini"))
+    def test_config_yaml_resolves_detector_preset_path(self) -> None:
+        bundle = load_app_config(str(ROOT / "configs/config.yaml"))
         path = bundle.perception_config.resolved_detector_config_path()
         self.assertTrue(path.is_file(), msg=str(path))
 
     def test_sim_hsv_preset_uses_target_label(self) -> None:
-        cfg = load_detector_config(ROOT / "model_presets" / "visual_servoing" / "detector.sim_hsv.json")
+        cfg = load_detector_config(ROOT / "configs" / "perception" / "detector.sim_hsv.json")
         self.assertEqual(str(cfg["type"]), "hsv")
         self.assertEqual(str(cfg["target_label"]), "sim_sphere")
         self.assertNotIn("label", cfg)
@@ -38,7 +38,7 @@ class TestDetectorConfig(unittest.TestCase):
 
     def test_real_green_hsv_preset_accepts_shadow_green_largest_blob(self) -> None:
         cfg = load_detector_config(
-            ROOT / "model_presets" / "visual_servoing" / "detector.real_green_hsv.json"
+            ROOT / "configs" / "perception" / "detector.real_green_hsv.json"
         )
         detector = create_detector(cfg)
         self.assertIsInstance(detector, HsvDetector)
@@ -58,7 +58,7 @@ class TestDetectorConfig(unittest.TestCase):
         self.assertLessEqual(x1, 100)
 
     def test_yolo_example_has_no_mock_fallback_fields(self) -> None:
-        cfg = load_detector_config(ROOT / "model_presets" / "visual_servoing" / "detector.yolo.example.json")
+        cfg = load_detector_config(ROOT / "configs" / "perception" / "detector.yolo.example.json")
         self.assertEqual(str(cfg["type"]), "yolo")
         self.assertNotIn("mock_fallback_type", cfg)
         self.assertNotIn("center_fraction", cfg)

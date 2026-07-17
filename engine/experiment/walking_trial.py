@@ -80,7 +80,7 @@ class TrialEyeCameraVideoRecorder:
 
     def _ensure_subscriber(self):
         if self._subscriber is None:
-            from engine.sim_camera.subscriber import SimCameraSubscriber
+            from engine.vision.sim_camera.subscriber import SimCameraSubscriber
 
             self._subscriber = SimCameraSubscriber(self._endpoint, use_jpeg=self._use_jpeg)
             self._subscriber.connect()

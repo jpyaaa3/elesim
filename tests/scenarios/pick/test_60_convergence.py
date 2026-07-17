@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from engine.core.config_loader import PickConfig
+from engine.config import PickConfig
 from engine.vision.pick.core import evaluate_pick_convergence
 from engine.vision.perception.observation import VisualObservation
 

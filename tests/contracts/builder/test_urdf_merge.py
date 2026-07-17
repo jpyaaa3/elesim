@@ -5,7 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from builder.go2_arm_merger import merge_go2_arm_urdf
+from builders.go2_arm_merger import merge_go2_arm_urdf
 
 
 def _write(path: Path, text: str) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from engine.behaviors.pick.control_ownership import (
+from engine.pick.control_ownership import (
     ControlOwner,
     ControlOwnership,
     ControlOwnershipError,

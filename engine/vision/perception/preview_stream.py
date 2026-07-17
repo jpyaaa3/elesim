@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import numpy as np
 import zmq
+from engine.observability.tracing import sampled_traced
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ class PreviewFramePublisher:
             except Exception:
                 pass
 
+    @sampled_traced("camera.preview.publish", sample_key="camera.preview.publish", every=60, kind="producer")
     def _send_frame(self, sock: Any, frame: PreviewFrame) -> None:
         try:
             import cv2
@@ -142,6 +144,7 @@ class PreviewFrameSubscriber:
             pass
         self._connected = False
 
+    @sampled_traced("camera.preview.receive", sample_key="camera.preview.receive", every=60, kind="consumer")
     def recv_latest(self, *, timeout_ms: int = 250) -> Optional[PreviewFrame]:
         if not self.endpoint:
             return None

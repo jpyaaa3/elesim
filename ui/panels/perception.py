@@ -6,8 +6,8 @@ from pathlib import Path
 
 import imgui
 
-from engine.core.config_loader import PerceptionConfig
-from engine.behaviors.gaze.stabilizer import gaze_config_to_dict
+from engine.config import PerceptionConfig
+from engine.gaze.stabilizer import gaze_config_to_dict
 from ui.file_dialog import browse_open_file_path
 from ui.helpers import (
     begin_collapsible_section,
@@ -35,9 +35,9 @@ _BALL_MOVE_W = 58.0
 _GAZE_MODE_BUTTON_W = 92.0
 _PICK_ACTION_W = 108.0
 _MODEL_CONFIGS = {
-    "yolo": "model_presets/visual_servoing/detector.yolo.example.json",
-    "hsv": "model_presets/visual_servoing/detector.sim_hsv.json",
-    "green_hsv": "model_presets/visual_servoing/detector.real_green_hsv.json",
+    "yolo": "configs/perception/detector.yolo.example.json",
+    "hsv": "configs/perception/detector.sim_hsv.json",
+    "green_hsv": "configs/perception/detector.real_green_hsv.json",
 }
 _GAZE_REACTIVE_FIELDS = (
     ("uv_gain", "UV gain", 0.05, 8.0, "%.2f"),
@@ -374,7 +374,7 @@ def _draw_actual_rate_row(panel, *, run_local: bool) -> None:
 def browse_detector_config_path(initial_path: str) -> str | None:
     try:
         root_path = _project_root()
-        default_dir = root_path / "model_presets" / "visual_servoing"
+        default_dir = root_path / "configs" / "perception"
         initial = str(initial_path or "").strip()
         initial_path_obj = Path(initial).expanduser() if initial else default_dir
         if not initial_path_obj.is_absolute():

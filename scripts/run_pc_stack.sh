@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-CONFIG="${1:-config.pc.ini}"
+CONFIG="${1:-configs/config.pc.yaml}"
 
 pids=()
 

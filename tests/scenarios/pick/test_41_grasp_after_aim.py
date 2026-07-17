@@ -11,16 +11,16 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exist
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engine.core.config_loader import PickConfig
-from engine.behaviors.pick.actions import ControlService
+from engine.config import PickConfig
+from engine.pick.actions import ControlService
 from engine.vision.pick.core import ObjectPickPhase
-from engine.behaviors.pick.state import HostState, PanelState
+from engine.pick.state import HostState, PanelState
 from engine.core.protocol import SimQ
 
 
 class TestGraspAfterAim(unittest.TestCase):
     def test_start_grasp_rejects_without_any_object(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         svc.client = MagicMock()
         svc.client.last_object_world_xyz = None
         ok = svc._start_grasp_to_object(internal=True)
@@ -29,7 +29,7 @@ class TestGraspAfterAim(unittest.TestCase):
         self.assertIn("grasp missing object", svc.state.pick_status_msg)
 
     def test_start_grasp_works_after_look_only(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         svc.client = MagicMock()
         svc._pick_cfg = PickConfig(grasp_standoff_m=0.05, grasp_guided_enabled=False)
         svc._pick_look_object_world_xyz = (0.33, 0.01, 0.92)
@@ -45,7 +45,7 @@ class TestGraspAfterAim(unittest.TestCase):
         self.assertTrue(kwargs["close_gripper_after"])
 
     def test_start_grasp_calls_direct_ik_with_standoff_and_close_claw(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         svc.client = MagicMock()
         svc._pick_cfg = PickConfig(grasp_standoff_m=0.05, grasp_guided_enabled=False)
         svc._pick_centered_object_world_xyz = (0.33, 0.01, 0.92)
@@ -64,7 +64,7 @@ class TestGraspAfterAim(unittest.TestCase):
         self.assertTrue(kwargs["close_gripper_after"])
 
     def test_start_grasp_public_delegates(self) -> None:
-        svc = ControlService(PanelState())
+        svc = ControlService(PanelState(), use_hardware=False)
         with patch.object(svc, "_start_grasp_to_object", return_value=True) as mock_grasp:
             svc.start_grasp()
         mock_grasp.assert_called_once_with()

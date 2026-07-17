@@ -8,9 +8,9 @@ import glfw
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
-from engine.behaviors.pick import ControlService, HostState, PanelState
-from engine.core.config_loader import HardwareConfig, PerceptionConfig, PickConfig
-from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig, gaze_config_to_dict
+from engine.pick import ControlService, HostState, PanelState
+from engine.config import HardwareConfig, PerceptionConfig, PickConfig
+from engine.gaze.stabilizer import GazeStabilizerConfig, gaze_config_to_dict
 from ui.helpers import scaled, set_panel_header_font
 from ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from ui import file_dialog
