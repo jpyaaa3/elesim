@@ -55,7 +55,7 @@ Normal simulator startup uses `model/bundles/default`. Rebuild it only while
 editing geometry:
 
 ```bash
-PYTHONPATH=tooling/model_builder/src \
+PYTHONPATH=packages/protocol/src:deployments/controller/src:tooling/model_builder/src \
   python3 -m elesim_model_builder.cli
 ```
 
