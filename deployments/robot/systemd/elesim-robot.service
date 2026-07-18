@@ -1,0 +1,15 @@
+[Unit]
+Description=Elesim robot hardware endpoint
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=elesim
+WorkingDirectory=/opt/elesim-robot
+ExecStart=/opt/elesim-robot/venv/bin/elesim-robot --config /etc/elesim/robot.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

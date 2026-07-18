@@ -8,7 +8,7 @@ from engine.robot.go2.locomotion.config import Go2LocomotionConfig
 import engine.core.protocol as proto
 
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists())
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
 
 
 class Go2SimMirrorConfigTests(unittest.TestCase):

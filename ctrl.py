@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility launcher for the desktop control application."""
+"""Elesim desktop control application."""
 
 from apps.control.main import main
 

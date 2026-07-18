@@ -5,6 +5,7 @@ loader implementation stays in :mod:`engine.config.loader`.
 """
 
 from engine.config.loader import load_app_config, load_app_config_from_ini
+from engine.config.distributed import RuntimeRoleConfig, load_runtime_role_config
 from engine.config.schema import (
     AppConfigBundle,
     ExperimentConfig,
@@ -37,4 +38,6 @@ __all__ = [
     "Go2LocomotionConfig",
     "load_app_config",
     "load_app_config_from_ini",
+    "RuntimeRoleConfig",
+    "load_runtime_role_config",
 ]

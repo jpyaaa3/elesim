@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from elesim_ui.config import load_config
+from elesim_ui.control_panel import ControlPanel
+from elesim_ui.operator import OperatorClient, RemoteControlService, RemotePanelState
+from elesim_ui.webrtc_session import UiWebRtcSession
+
+
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Elesim desktop operator UI")
+    parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
+    parser.add_argument("--server", default="")
+    parser.add_argument("--controller-id", default="")
+    parser.add_argument("--sim-id", default="")
+    parser.add_argument("--no-webrtc", action="store_true")
+    args = parser.parse_args()
+    config = load_config(args.config)
+    server = str(args.server).strip() or config.server_endpoint
+    controller_id = str(args.controller_id).strip() or config.controller_id
+    sim_id = str(args.sim_id).strip() or config.simulator_id
+
+    client = OperatorClient(
+        server,
+        ui_id=config.endpoint_id,
+        controller_id=controller_id,
+    )
+    state = RemotePanelState(client)
+    service = RemoteControlService(client, state)
+    video = None
+    if not args.no_webrtc:
+        try:
+            video = UiWebRtcSession(server, ui_id=config.endpoint_id, sim_id=sim_id)
+            video.start()
+        except Exception as exc:
+            print(f"[ui] WebRTC unavailable: {exc}")
+
+    def select_endpoint(endpoint_id: str, endpoint_role: str) -> None:
+        service.select_endpoint(endpoint_id)
+        if video is not None and endpoint_role == "simulator":
+            video.switch_target(endpoint_id)
+
+    panel = ControlPanel(
+        state,
+        service,
+        use_hardware=config.use_hardware,
+        use_go2=config.use_go2,
+        go2_teleop_vx_mps=config.go2_vx,
+        go2_teleop_vy_mps=config.go2_vy,
+        go2_teleop_wz_radps=config.go2_wz,
+        hardware_cfg=config.hardware,
+        perception_cfg=config.perception,
+        pick_cfg=config.pick,
+        gaze_cfg=config.gaze,
+        video_source=None if video is None else video.frame,
+        camera_input=lambda command, values: service.send_sim_camera_input(command, values),
+        endpoint_select=select_endpoint,
+    )
+    try:
+        service.refresh_host_state()
+        panel.run()
+    finally:
+        if video is not None:
+            video.close()
+        service.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,7 @@
+schema_version: 1
+runtime:
+  role: server
+  endpoint_id: server
+  server_endpoint: tcp://127.0.0.1:5558
+  bind_endpoint: tcp://0.0.0.0:5558
+

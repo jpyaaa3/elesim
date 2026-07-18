@@ -2,32 +2,32 @@
 
 Read `docs/architecture.md` before changing a cross-cutting behavior.
 
-## Canonical Entry Points
+## Deployable Packages
 
-- `python3 ctrl.py`
-- `python3 host.py`
-- `python3 sim.py`
-- `python3 perception_worker.py`
+- `deployments/ui`
+- `deployments/controller`
+- `deployments/router`
+- `deployments/robot`
+- `deployments/simulator`
 
-These are compatibility launchers. Implement process behavior in `apps/` and
-reusable functionality in `engine/`.
+Each package is independently installable. Implement process behavior inside
+the owning deployment and share only protocol contracts through
+`packages/protocol`.
 
 ## Rules
 
-- Follow behavior ownership: Pick, Gaze, Vision, Arm, GO2, Simulation.
-- Import application configuration only from `engine.config`.
-- Import protocol types only from `engine.core.protocol`.
-- Do not recreate legacy re-export modules or duplicate a perception pipeline.
-- Keep UI dependent on public service APIs, never on workflow implementation
-  modules.
-- Treat `crafts/` as generated output. Preserve unrelated local changes.
+- A deployment must not import a sibling deployment.
+- UI uses operator protocol APIs, never workflow implementation modules.
+- Robot owns physical I/O and local safety only.
+- Controller owns Pick, Gaze, Vision and IK computation.
+- Simulator consumes `model/bundles/default`; it does not rebuild models unless
+  `ELESIM_SIM_DEV_REBUILD=1` is explicitly set.
+- Protocol changes require a versioned contract and integration test update.
+- Do not add root compatibility launchers or legacy re-export modules.
+- Preserve unrelated local changes and experiment evidence.
 
 ## Verification
 
-```bash
-python3 -m pytest tests
-python3 tools/quality/test_gui.py
-```
-
-In the provided development container, use the repository's Docker Compose
-service when local scientific dependencies are unavailable.
+Run the per-package matrix in `docs/architecture.md`, then run
+`integration/smoke_topology.py`. Build isolated contexts with
+`python3 tooling/release/build.py`.

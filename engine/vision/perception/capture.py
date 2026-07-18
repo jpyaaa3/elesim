@@ -837,7 +837,7 @@ class PerceptionCapture:
                 PerceptionCapture._warned_missing_sim_pose = True
                 print(
                     "[perception] sim mode but camera frame has no pose metadata; "
-                    "restart sim.py after update (world coords will use host FK until then)"
+                    "restart sim_agent.py after update (world coords will use endpoint FK until then)"
                 )
         object_world = mock_world
         if object_world is None and frame is not None:

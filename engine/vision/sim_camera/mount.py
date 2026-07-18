@@ -205,6 +205,8 @@ class FixedWorldCamera:
     depth_scale: float = 0.001
     _seq: int = 0
     _pose_warned: bool = False
+    _reset_pos: Optional[tuple[float, float, float]] = None
+    _reset_lookat: Optional[tuple[float, float, float]] = None
 
     @classmethod
     def create(
@@ -240,6 +242,17 @@ class FixedWorldCamera:
         return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t)
 
     def _apply_pose(self) -> None:
+        from engine.vision.sim_camera.remote_control import consume_pose
+
+        if self._reset_pos is None:
+            self._reset_pos = self.pos
+            self._reset_lookat = self.lookat
+        self.pos, self.lookat = consume_pose(
+            self.pos,
+            self.lookat,
+            reset_pos=self._reset_pos,
+            reset_lookat=self._reset_lookat or self.lookat,
+        )
         if not hasattr(self.camera, "set_pose"):
             return
         try:

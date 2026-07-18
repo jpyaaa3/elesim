@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import time
 import sys
-from typing import Optional
+from typing import Callable, Optional
 
 import glfw
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
+
+try:
+    from OpenGL import GL
+except ImportError:
+    GL = None  # type: ignore[assignment]
 
 from engine.pick import ControlService, HostState, PanelState
 from engine.config import HardwareConfig, PerceptionConfig, PickConfig
@@ -73,9 +78,19 @@ class ControlPanel:
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
         gaze_cfg: GazeStabilizerConfig | None = None,
+        video_source: Optional[Callable[[], object]] = None,
+        camera_input: Optional[Callable[[str, tuple[float, ...]], None]] = None,
+        endpoint_select: Optional[Callable[[str, str], None]] = None,
     ):
         self.state = state
         self.service = service
+        self._video_source = video_source
+        self._camera_input = camera_input
+        self._endpoint_select = endpoint_select
+        self._video_texture = 0
+        self._endpoint_cache: list[object] = []
+        self._active_endpoint_cache = ""
+        self._endpoint_cache_at = 0.0
         self._use_hardware = bool(use_hardware)
         self._use_go2 = bool(use_go2)
         self._go2_teleop_vx_mps = float(go2_teleop_vx_mps)
@@ -150,6 +165,79 @@ class ControlPanel:
         self._ui_style_base_scalars: dict[str, float] = {}
         self._ui_style_base_vectors: dict[str, tuple[float, float]] = {}
         self._pending_file_browse: Optional[tuple[str, str]] = None
+
+    def _draw_endpoint_selector(self) -> None:
+        now = time.monotonic()
+        if now - self._endpoint_cache_at >= 0.5:
+            try:
+                self._endpoint_cache = list(self.service.available_endpoints)
+                self._active_endpoint_cache = str(self.service.active_endpoint)
+                self._endpoint_cache_at = now
+            except Exception:
+                pass
+        endpoints = self._endpoint_cache
+        active = self._active_endpoint_cache
+        if not endpoints:
+            imgui.text_disabled("TARGET: waiting for endpoint")
+            return
+        imgui.text("TARGET")
+        for index, endpoint in enumerate(endpoints):
+            if isinstance(endpoint, dict):
+                endpoint_id = str(endpoint.get("endpoint_id", ""))
+                role = str(endpoint.get("role", ""))
+            else:
+                endpoint_id = str(getattr(endpoint, "endpoint_id", ""))
+                role = str(getattr(endpoint, "role", ""))
+            if not endpoint_id:
+                continue
+            selected = endpoint_id == active
+            label = f"{'* ' if selected else ''}{role}: {endpoint_id}##endpoint-{endpoint_id}"
+            if imgui.button(label):
+                if self._endpoint_select is not None:
+                    self._endpoint_select(endpoint_id, role)
+                else:
+                    self.service.select_endpoint(endpoint_id)
+            if index + 1 < len(endpoints):
+                imgui.same_line()
+
+    def _draw_sim_video(self) -> None:
+        self._draw_endpoint_selector()
+        if self._video_source is None or GL is None:
+            return
+        frame = self._video_source()
+        if frame is None or not hasattr(frame, "shape") or len(frame.shape) != 3:
+            imgui.text_disabled("SIM video waiting...")
+            return
+        height, width = int(frame.shape[0]), int(frame.shape[1])
+        if width <= 0 or height <= 0:
+            return
+        if not self._video_texture:
+            self._video_texture = int(GL.glGenTextures(1))
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self._video_texture)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self._video_texture)
+        GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
+        GL.glTexImage2D(
+            GL.GL_TEXTURE_2D, 0, GL.GL_RGB, width, height, 0,
+            GL.GL_BGR, GL.GL_UNSIGNED_BYTE, frame,
+        )
+        available = max(160.0, float(imgui.get_content_region_available_width()))
+        draw_height = min(available * height / width, 300.0)
+        imgui.image(self._video_texture, available, draw_height, uv0=(0.0, 1.0), uv1=(1.0, 0.0))
+        if not imgui.is_item_hovered() or self._camera_input is None:
+            return
+        io = imgui.get_io()
+        delta = io.mouse_delta
+        dx = float(getattr(delta, "x", delta[0] if delta else 0.0)) / max(available, 1.0)
+        dy = float(getattr(delta, "y", delta[1] if delta else 0.0)) / max(draw_height, 1.0)
+        if imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
+            self._camera_input("orbit", (dx, dy))
+        elif imgui.is_mouse_dragging(1) and abs(dx) + abs(dy) > 0.0:
+            self._camera_input("pan", (dx, dy))
+        wheel = float(getattr(io, "mouse_wheel", 0.0))
+        if abs(wheel) > 1e-6:
+            self._camera_input("zoom", (-wheel * 0.08,))
 
     def request_file_browse(self, *, kind: str, initial_path: str) -> None:
         self._pending_file_browse = (str(kind), str(initial_path))
@@ -481,6 +569,7 @@ class ControlPanel:
             status_w = max(1.0, float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
+                    self._draw_sim_video,
                     draw_status_panel,
                     draw_resolution_panel,
                 ),
@@ -507,6 +596,7 @@ class ControlPanel:
             right_w = max(scaled(self, 300.0), float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
+                    self._draw_sim_video,
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
@@ -522,6 +612,7 @@ class ControlPanel:
                     draw_go2_panel,
                     draw_ik_panel,
                     draw_sag_panel,
+                    self._draw_sim_video,
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
@@ -588,5 +679,11 @@ class ControlPanel:
                 glfw.swap_buffers(window)
                 time.sleep(0.01)
         finally:
+            if self._video_texture and GL is not None:
+                try:
+                    GL.glDeleteTextures([self._video_texture])
+                except Exception:
+                    pass
+                self._video_texture = 0
             impl.shutdown()
             glfw.terminate()

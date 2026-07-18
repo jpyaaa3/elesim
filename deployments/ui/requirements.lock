@@ -1,0 +1,8 @@
+numpy==1.26.4
+pyzmq==27.1.0
+PyYAML==6.0.2
+glfw==2.10.0
+imgui==2.0.0
+PyOpenGL==3.1.10
+aiortc==1.13.0
+av==14.4.0

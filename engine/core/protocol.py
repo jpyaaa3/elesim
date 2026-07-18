@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import math
 import time
+import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -249,6 +250,153 @@ def dumps_msg(msg: Dict[str, Any]) -> bytes:
 
 def loads_msg(buf: bytes) -> Dict[str, Any]:
     return json.loads(buf.decode("utf-8"))
+
+
+PROTOCOL_VERSION = 2
+ENDPOINT_ROLES = frozenset({"controller", "robot", "sim", "ui"})
+
+
+class ProtocolError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class EndpointDescriptor:
+    endpoint_id: str
+    role: str
+    capabilities: tuple[str, ...] = ()
+    streams: Optional[dict[str, str]] = None
+    instance_id: str = ""
+
+    def __post_init__(self) -> None:
+        _validate_identifier(self.endpoint_id, "endpoint_id")
+        if self.role not in ENDPOINT_ROLES:
+            raise ProtocolError(f"unsupported endpoint role: {self.role!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "endpoint_id": self.endpoint_id,
+            "role": self.role,
+            "capabilities": list(self.capabilities),
+            "streams": dict(self.streams or {}),
+            "instance_id": self.instance_id,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "EndpointDescriptor":
+        capabilities = raw.get("capabilities", ())
+        streams = raw.get("streams", {})
+        if not isinstance(capabilities, (list, tuple)):
+            raise ProtocolError("endpoint capabilities must be a list")
+        if not isinstance(streams, Mapping):
+            raise ProtocolError("endpoint streams must be an object")
+        return cls(
+            endpoint_id=str(raw.get("endpoint_id", "")),
+            role=str(raw.get("role", "")),
+            capabilities=tuple(str(value) for value in capabilities),
+            streams={str(key): str(value) for key, value in streams.items()},
+            instance_id=str(raw.get("instance_id", "")),
+        )
+
+
+@dataclass(frozen=True)
+class Envelope:
+    message_type: str
+    source_id: str
+    target_id: str = "server"
+    payload: Optional[dict[str, Any]] = None
+    seq: int = 0
+    timestamp: float = 0.0
+    message_id: str = ""
+    lease_id: str = ""
+    version: int = PROTOCOL_VERSION
+
+    def __post_init__(self) -> None:
+        if int(self.version) != PROTOCOL_VERSION:
+            raise ProtocolError(
+                f"protocol version {self.version!r} is unsupported; expected {PROTOCOL_VERSION}"
+            )
+        _validate_identifier(self.message_type, "message_type")
+        _validate_identifier(self.source_id, "source_id")
+        _validate_identifier(self.target_id, "target_id")
+        if int(self.seq) < 0:
+            raise ProtocolError("seq must be non-negative")
+        if not isinstance(self.payload or {}, dict):
+            raise ProtocolError("payload must be an object")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": int(self.version),
+            "message_id": self.message_id or uuid.uuid4().hex,
+            "type": self.message_type,
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "seq": int(self.seq),
+            "timestamp": float(self.timestamp or time.time()),
+            "lease_id": self.lease_id,
+            "payload": dict(self.payload or {}),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "Envelope":
+        required = ("version", "message_id", "type", "source_id", "target_id", "seq", "timestamp", "payload")
+        missing = [key for key in required if key not in raw]
+        if missing:
+            raise ProtocolError(f"missing envelope fields: {', '.join(missing)}")
+        return cls(
+            version=int(raw["version"]),
+            message_id=str(raw["message_id"]),
+            message_type=str(raw["type"]),
+            source_id=str(raw["source_id"]),
+            target_id=str(raw["target_id"]),
+            seq=int(raw["seq"]),
+            timestamp=float(raw["timestamp"]),
+            lease_id=str(raw.get("lease_id", "")),
+            payload=dict(raw["payload"]),
+        )
+
+
+def _validate_identifier(value: str, field: str) -> None:
+    text = str(value).strip()
+    if not text or len(text) > 128:
+        raise ProtocolError(f"{field} must contain 1..128 characters")
+    if any(char.isspace() for char in text):
+        raise ProtocolError(f"{field} must not contain whitespace")
+
+
+def make_envelope(
+    message_type: str,
+    source_id: str,
+    *,
+    target_id: str = "server",
+    payload: Optional[dict[str, Any]] = None,
+    seq: int = 0,
+    lease_id: str = "",
+) -> Envelope:
+    return Envelope(
+        message_type=message_type,
+        source_id=source_id,
+        target_id=target_id,
+        payload=payload or {},
+        seq=seq,
+        timestamp=time.time(),
+        message_id=uuid.uuid4().hex,
+        lease_id=lease_id,
+    )
+
+
+def dumps_envelope(envelope: Envelope) -> bytes:
+    return json.dumps(envelope.to_dict(), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def loads_envelope(buf: bytes) -> Envelope:
+    try:
+        raw = json.loads(buf.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"invalid envelope JSON: {exc}") from exc
+    if not isinstance(raw, Mapping):
+        raise ProtocolError("envelope root must be an object")
+    return Envelope.from_dict(raw)
 
 
 def pack_state(

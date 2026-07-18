@@ -1,0 +1,2 @@
+"""Distributed Genesis simulation endpoint."""
+

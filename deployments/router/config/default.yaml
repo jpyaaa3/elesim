@@ -1,0 +1,4 @@
+schema_version: 1
+router:
+  bind_endpoint: tcp://0.0.0.0:5558
+  heartbeat_timeout_s: 3.5

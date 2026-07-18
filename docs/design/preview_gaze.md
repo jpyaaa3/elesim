@@ -29,10 +29,10 @@ The linear axis is not commanded by this controller.
 
 Implementation:
 
-- `engine/gaze/preview_lite.py`: pitch-rate filtering and lead estimate
-- `engine/gaze/preview_mpc.py`: one-step solve
-- `engine/gaze/gaze_service.py`: lifecycle, fallback, logging, and command dispatch
-- `engine/pick/gaze_actions.py`: public control-service delegation
+- `deployments/controller/src/elesim_controller/gaze/preview_lite.py`: pitch-rate filtering and lead estimate
+- `deployments/controller/src/elesim_controller/gaze/preview_mpc.py`: one-step solve
+- `deployments/controller/src/elesim_controller/gaze/gaze_service.py`: lifecycle, fallback, logging, and command dispatch
+- `deployments/controller/src/elesim_controller/pick/gaze_actions.py`: public control-service delegation
 
 ## Signal Priority
 

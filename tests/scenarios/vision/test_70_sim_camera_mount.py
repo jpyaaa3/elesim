@@ -8,7 +8,7 @@ import numpy as np
 from engine.vision.sim_camera.mount import hand_eye_to_genesis_attach_T, load_hand_eye_offset_T, _OPTICAL_FROM_GENESIS_CAMERA
 from engine.vision.sim_camera.pose import _link_world_transform, camera_axes_from_genesis_camera_object
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists())
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
 
 
 class _FakeTensor:

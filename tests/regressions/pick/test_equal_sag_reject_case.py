@@ -5,7 +5,7 @@ import sys
 import unittest
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "host.py").exists())
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

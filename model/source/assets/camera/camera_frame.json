@@ -1,0 +1,17 @@
+{
+  "notes": "Visual camera payload. The mesh attachment is independent from the camera optical frame; D435 optical origin is offset toward one end of the body.",
+  "connectors": {
+    "from": {
+      "p": [0.0, -0.025, -0.00495],
+      "q": [-0.5, 0.5, -0.5, 0.5],
+      "joint": {
+        "type": "fixed",
+        "axis": [1.0, 0.0, 0.0]
+      }
+    },
+    "to": {
+      "p": [-0.037, 0.0, 0.02505],
+      "q": [0.0, 0.0, 0.0, 1.0]
+    }
+  }
+}
