@@ -1,2 +1,0 @@
-"""Core Elesim engine package."""
-

@@ -1,1 +1,0 @@
-"""Arm contract tests."""

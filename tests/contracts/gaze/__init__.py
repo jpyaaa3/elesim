@@ -1,1 +1,0 @@
-"""Gaze stabilizer contract tests."""

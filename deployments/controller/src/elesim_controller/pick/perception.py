@@ -235,7 +235,7 @@ class PerceptionActions:
             self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
 
     def _side_camera_config(self) -> Optional[SimConfig]:
-        cfg_path = self._config_path or str(Path(__file__).resolve().parents[3] / "configs/config.yaml")
+        cfg_path = self._config_path or str(Path(__file__).resolve().parents[3] / "config/default.yaml")
         try:
             cfg = load_app_config(str(cfg_path)).sim_config
         except Exception as exc:
@@ -579,4 +579,3 @@ class PerceptionActions:
             camera_xyz=camera_xyz,
         )
         return p_world is not None
-

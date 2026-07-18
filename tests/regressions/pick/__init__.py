@@ -1,1 +1,0 @@
-"""Pick pipeline regression tests."""

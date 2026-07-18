@@ -1,2 +1,0 @@
-"""Physical robot endpoint application."""
-

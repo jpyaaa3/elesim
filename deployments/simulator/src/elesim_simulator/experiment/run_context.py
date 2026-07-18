@@ -118,7 +118,7 @@ class RunContext:
         if not env_rid:
             if strict:
                 raise ValueError(
-                    "ELESIM_RUN_ID is not set in environment; start sim_agent.py with matching run id"
+                    "ELESIM_RUN_ID is not set; start elesim-simulator with the matching run id"
                 )
             return False
         if env_rid != str(self.run_id):

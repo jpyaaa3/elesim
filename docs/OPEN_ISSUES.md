@@ -1,5 +1,11 @@
 # Open Issues
 
+> Path migration note (2026-07-18): references below to `engine/`, root
+> launchers, `configs/`, `assets/` and `crafts/` describe the pre-v3 layout.
+> Their current homes are `deployments/*/src`, deployment-local `config/`,
+> `model/source/assets` and `model/bundles/default`. Historical observations
+> are retained so their evidence is not lost.
+
 This file tracks known unresolved or deferred issues so they do not get lost while higher-priority work continues.
 
 ## General and Potential Codebase Risks (2026-07-01)

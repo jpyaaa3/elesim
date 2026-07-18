@@ -99,7 +99,7 @@ def ros_import_hint(*, config_workspace: str = "") -> str:
         "  source /opt/ros/humble/setup.bash\n"
         f"  source {ws}/install/setup.bash\n"
         "  export UNITREE_ROS2_WS=" + ws + "\n"
-        "  python robot_agent.py --config configs/config.jetson.yaml\n"
+        "  elesim-robot --config /etc/elesim/robot.yaml\n"
         "Or use: bash scripts/run_robot_jetson.sh\n"
         "Verify: python3 -c \"from unitree_api.msg import Request; print('ok')\""
     )

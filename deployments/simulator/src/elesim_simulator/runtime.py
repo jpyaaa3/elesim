@@ -3195,7 +3195,7 @@ def _run() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--config",
-        default=str(_REPO_ROOT / "configs/config.yaml"),
+        default=str(_REPO_ROOT / "config/default.yaml"),
         help="path to YAML config file",
     )
     ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")

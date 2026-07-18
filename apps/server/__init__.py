@@ -1,2 +1,0 @@
-"""Elesim routing server application."""
-

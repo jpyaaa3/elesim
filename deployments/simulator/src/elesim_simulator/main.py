@@ -112,7 +112,7 @@ def _run() -> None:
     try:
         from elesim_simulator.runtime import main as run_genesis
 
-        sys.argv = ["sim_agent.py", "--config", generated, *sim_args]
+        sys.argv = ["elesim-simulator", "--config", generated, *sim_args]
         run_genesis()
     finally:
         bridge.close()
