@@ -2,7 +2,154 @@
 
 Elesim은 Unitree GO2에 장착된 4-DOF 분절 로봇팔을 제어하고 시뮬레이션하는
 분산 프로그램이다. 다섯 개 실행 프로그램은 서로의 Python 구현을 import하지
-않고 protocol-v3 메시지로만 통신한다.
+않고 protocol-v4 메시지와 명시적으로 광고된 media stream으로만 통신한다.
+
+## 한 줄 설치
+
+깨끗한 Ubuntu에서는 Docker 격리 설치를 권장한다. `curl`만 준비하고 다음 명령을
+실행하면 저장소를 `git clone`하거나 호스트 Python에 패키지를 설치하지 않고,
+일회용 Python 컨테이너에서 터미널 설치 마법사가 시작된다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh | bash
+```
+
+위 명령은 `main`에 병합된 뒤의 정식 명령이다. 현재 `refactoring` 브랜치를
+그대로 push해서 시험할 때는 반드시 같은 브랜치를 지정한다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+  | ELESIM_REF=refactoring bash
+```
+
+Docker가 없으면 스크립트가 Ubuntu의 `docker.io`와 Compose v2 plugin을 설치할지
+먼저 묻는다. 이미 Docker가 있으면 기존 Compose project와 image tag를 덮어쓰지
+않고 별도 namespace를 사용한다. 원격 코드를 바로 실행하기 전에 검토하려면 `bootstrap.sh`를
+내려받아 읽은 뒤 `bash bootstrap.sh`로 실행한다. 다른 branch/tag는
+`ELESIM_REF`로 선택한다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh \
+  | ELESIM_REF=refactoring bash
+```
+
+마법사는 이 컴퓨터의 용도를 먼저 묻고 다음 프로필 중 필요한 역할만 설치한다.
+
+| 프로필 | 설치 역할 |
+| --- | --- |
+| 한 PC 시뮬레이션 | Router, Simulator, Controller, UI |
+| 조작 노트북 | Controller, UI |
+| 시뮬레이션 서버 | Router, headless Simulator |
+| Robot Jetson | Robot |
+| 사용자 지정 | 선택한 역할만 |
+
+프로필은 편의용 묶음일 뿐이다. `사용자 지정`을 고르면 Router, Simulator,
+Controller, UI 중 이 컴퓨터에 둘 프로그램만 직접 선택할 수 있다. 물리 Robot의
+컨테이너 설치는 아직 지원하지 않는다.
+
+설치 방식에서 `Docker Compose`를 선택하면 역할마다 `protocol + 해당 역할`만 든
+독립 이미지를 만들며, 호스트 APT/Python 환경은 바꾸지 않는다. 기본 설치 위치는
+`~/.local/share/elesim`, 명령 래퍼는 `~/.local/bin`이다. 최초 시작은 이미지를
+빌드하므로 시간이 걸린다. 특히 Simulator의 Genesis/Torch/Pinocchio 다운로드와
+image export 중에는 수분간 출력이 뜸할 수 있으며, 이후 실행은 Docker cache를 쓴다.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+elesim-up                 # 선택한 역할 image build + 백그라운드 시작
+elesim-logs               # 통합 로그
+elesim-net doctor         # protocol/network 진단
+elesim-down               # 종료
+```
+
+## 원격 Simulator 빠른 시험
+
+고성능 서버에서는 `시뮬레이션 서버` 프로필로 Router와 headless Simulator를,
+노트북에서는 `조작 노트북` 프로필로 Controller와 UI를 설치한다. 두 설치에서
+Router 주소를 서버의 실제 LAN IP로 동일하게 지정한 뒤 다음 순서로 실행한다.
+
+```bash
+# 서버
+elesim-up
+elesim-net doctor
+
+# 노트북
+elesim-up
+elesim-net doctor --active
+```
+
+연구실 공유 서버에서는 허가받은 GPU 번호를 `specific`으로 지정하거나 `cpu`를
+선택한다. GPU 할당 규칙을 모르면 `inherit`를 선택하지 않는다. 컨테이너 설치는
+호스트 Python, CUDA SDK, ROS SDK에 패키지를 설치하지 않는다. Docker가 이미
+있다면 생성 범위는 Docker image/container와 기본적으로
+`~/.local/share/elesim`, `~/.local/bin`뿐이다.
+
+시험 후에는 서버에서 먼저 다음 명령으로 프로세스와 네트워크를 내린다.
+
+```bash
+elesim-down
+docker compose -f "$HOME/.local/share/elesim/containers/compose.yaml" down --rmi local
+```
+
+두 번째 명령은 이 설치 prefix의 로컬 이미지까지 지운다. 다른 Compose project나
+기존 개발 컨테이너는 설치 경로 hash로 namespace가 분리되어 건드리지 않는다.
+
+컨테이너 밖의 Python venv가 필요한 기존 개발 환경과 Robot Jetson은 마법사에서
+`native`를 선택한다. 그 경로는 Python 3.10 이상과 `python3-venv`가 필요하다.
+Simulator GPU 모드는 호스트 NVIDIA driver와 NVIDIA Container Toolkit이 별도로
+필요하다. CPU 모드는 둘 없이 실행할 수 있다. 현재 자동 생성 Simulator 이미지는
+Ubuntu 22.04 기반 `linux/amd64`용이며, Jetson/ARM은 Robot과 마찬가지로 native
+설치를 사용한다.
+
+Controller나 Simulator를 설치할 때 GPU 정책도 선택한다. 기본 `inherit`는
+`CUDA_VISIBLE_DEVICES`를 건드리지 않아 Slurm이나 연구실 실행 스크립트의 할당을
+그대로 따른다. `specific`은 `nvidia-smi -L` 기준 index/UUID 하나만 사용하고,
+`cpu`는 GPU를 비워 주면서 Simulator도 CPU backend로 실행한다.
+
+공유 GPU 상황이 매번 달라지면 `inherit`로 설치하고 실행할 때 결정한다.
+
+```bash
+# container inherit 설치: 선택값을 Compose가 두 compute 역할에 전달한다.
+CUDA_VISIBLE_DEVICES=1 elesim-up
+
+# native 설치: 프로세스별로 직접 지정할 수 있다.
+CUDA_VISIBLE_DEVICES=1 elesim-simulator
+CUDA_VISIBLE_DEVICES="" elesim-simulator --cpu
+```
+
+컨테이너를 완전히 CPU backend로 바꾸려면 마법사에서 `cpu` 정책을 선택한다.
+단순히 CUDA를 숨기는 것뿐 아니라 Simulator 설정의 Genesis backend도 함께 바뀐다.
+
+이미 소스를 받은 개발자는 저장소 루트에서 native 마법사를 직접 실행할 수 있다.
+
+```bash
+python3 -m venv .setup-venv
+.setup-venv/bin/python -m pip install -r misc/tooling/setup/requirements.lock
+.setup-venv/bin/python -m pip install --no-deps packages/protocol misc/tooling/setup
+.setup-venv/bin/elesim-setup --source-root "$PWD"
+```
+
+비대화형 컨테이너 설치는 다음처럼 생성한다. 이 단계는 Compose 파일만 만들며,
+실제 image build는 생성된 `elesim-up`에서 수행한다.
+
+```bash
+.setup-venv/bin/elesim-setup --source-root "$PWD" install \
+  --mode container --profile local-sim --gpu-mode cpu
+```
+
+설치 후 IP를 다시 바꾸거나 통신 상태를 확인할 때는 다음 명령을 쓴다.
+
+```bash
+elesim-net show
+elesim-net configure
+elesim-net doctor
+elesim-net doctor --active
+```
+
+일반 `doctor`는 DNS, Router TCP, protocol-v4 등록/discovery, 광고된 RGBD endpoint,
+TURN TCP 또는 UDP STUN, WebRTC stream 광고를 검사한다. `--active`는 실제 ZMQ
+RGBD multipart frame과 observer/hand-eye WebRTC frame까지 받는다. 능동 WebRTC
+검사는 짧은 simulation session을 독점하므로 실행 중인 UI를 먼저 종료한다.
+자세한 설치 상태와 오류 해석은 [설치 마법사](misc/docs/setup.md)에 있다.
 
 ## 설치 구성 선택
 
@@ -11,17 +158,17 @@ Elesim은 Unitree GO2에 장착된 4-DOF 분절 로봇팔을 제어하고 시뮬
 | 사용 형태 | 노트북 | 고성능 PC | Robot Jetson |
 | --- | --- | --- | --- |
 | 단일 PC 시뮬레이션 | Router, Controller, UI, Simulator | 없음 | 없음 |
-| 분산 시뮬레이션 | Router, Controller, UI | Simulator | 없음 |
+| 분산 시뮬레이션 | Controller, UI | Router, Simulator, 선택적 Coturn | 없음 |
 | 실제 로봇 | Router, Controller, UI | 선택 사항 | Robot |
 
 각 프로그램의 책임은 다음과 같다.
 
 | 프로그램 | 책임 |
 | --- | --- |
-| `elesim-router` | endpoint 등록, 탐색, lease 발급, 메시지 전달 |
+| `elesim-router` | endpoint 등록, 탐색, motion/simulation lease, signaling, TURN credential |
 | `elesim-controller` | 인식, IK, Look-Aim-Grasp, Gaze, 목표 관절값 계산 |
-| `elesim-ui` | ImGui 조작 화면, 상태 표시, Simulator 영상 수신 |
-| `elesim-simulator` | Genesis 물리 연산, 가상 센서, 영상 렌더링 |
+| `elesim-ui` | ImGui 조작 화면, 상태 표시, observer/hand-eye 영상 수신과 원격 시뮬레이션 조작 |
+| `elesim-simulator` | Genesis 물리 연산, 가상 센서, 두 영상 렌더링과 simulation command 실행 |
 | `elesim-robot` | Dynamixel/GO2 제어, RGBD 송신, 로컬 안전 처리 |
 
 일반 개발에서는 저장소 소스를 editable install해서 사용한다. 실제 장비에
@@ -29,8 +176,9 @@ Elesim은 Unitree GO2에 장착된 4-DOF 분절 로봇팔을 제어하고 시뮬
 
 ## 사전 요구 사항
 
-- Linux와 Python 3.10 이상
-- `git`, `python3-venv`, `pip`, `setuptools>=68`, `wheel`
+- 컨테이너 마법사: Ubuntu/Linux, `curl`, Docker Engine, Compose v2, 인터넷 연결
+- native 마법사: Python 3.10 이상과 `python3-venv`
+- 소스 개발: `git`, `pip`, `setuptools>=68`, `wheel`
 - Simulator용 GPU 드라이버와 Genesis 실행 환경
 - UI용 OpenGL, GLFW와 데스크톱 디스플레이 환경
 - Robot Jetson용 Dynamixel, RealSense, ROS2 Humble 및 `unitree_ros2`
@@ -247,14 +395,18 @@ GO2 backend을 사용할 때는 systemd의 `elesim` 계정에서도 ROS2와
 
 모든 제어 메시지는 Router를 기준으로 연결된다. 여러 컴퓨터를 사용하는 경우
 `127.0.0.1`은 자기 자신만 뜻하므로 원격 연결 주소나 advertise 주소로 쓰면
-안 된다.
+안 된다. 기본 설정은 loopback 전용 plaintext 개발 프로필이다. LAN 또는 외부
+서버 주소를 쓰려면 각 프로젝트의 `public.example.yaml`을 복사해 Curve 인증서
+경로와 실제 주소를 설정해야 하며, plaintext public bind는 기본적으로 거부된다.
+설치 마법사는 평문 LAN을 개발 예외로만 허용하며, TURN credential을 발급하는
+Router에는 반드시 CURVE credential root를 요구한다.
 
 | 설정 파일 | 반드시 확인할 값 |
 | --- | --- |
 | `controller/config/runtime.yaml` | `server_endpoint`, `active_target` |
 | `ui/config/default.yaml` | `server_endpoint`, Controller와 Simulator ID |
-| `simulator/config/runtime.yaml` | `server_endpoint`, `streams.rgbd_advertise` |
-| `robot/config/default.yaml` | `server_endpoint`, device, camera advertise |
+| `simulator/config/runtime.yaml` | `server_endpoint`, `streams.rgbd_bind/advertise`, security |
+| `robot/config/default.yaml` | `server_endpoint`, device, camera advertise, security |
 
 기본 통신 포트는 다음과 같다.
 
@@ -262,11 +414,27 @@ GO2 backend을 사용할 때는 systemd의 `elesim` 계정에서도 ROS2와
 | --- | --- |
 | Router ZMQ | TCP 5558 |
 | RGBD 직접 스트림 | TCP 5568 |
-| WebRTC 영상 | signaling은 Router, media는 직접 연결 |
+| WebRTC observer/hand-eye | signaling은 Router, media는 직접 연결 또는 TURN relay |
+| Coturn(선택) | TCP/UDP 3478, UDP 49160-49200 |
 
 Router 호스트의 방화벽은 5558을 허용해야 한다. RGBD 수신이 필요한 컴퓨터에서는
 송신 호스트의 5568에 접근할 수 있어야 한다. WebRTC를 사용할 때는 호스트
-방화벽과 NAT가 media 연결을 막지 않는지도 확인한다.
+방화벽과 NAT가 media 연결을 막지 않는지도 확인한다. 직접 ICE 연결이 불가능한
+환경에서는 `misc/infra/coturn`을 사용한다.
+
+보안 파일은 다음 명령으로 한 번 생성한다.
+
+```bash
+python3 misc/infra/bootstrap_security.py \
+  --turn-public-ip 203.0.113.10 \
+  --turn-realm sim.example.com
+```
+
+Router, Simulator, 노트북, Robot에는 필요한 private key만 따로 배포한다. 전체
+배포 표와 Coturn 명령은 [릴리스 배포](misc/docs/deployment.md)에 있다.
+설치 마법사의 CURVE 네트워크 진단을 사용하려면 관리용
+`curve/clients/doctor-main.key_secret`도 진단을 실행할 기기에 배포한다. 이 key는
+Router 등록/discovery에만 쓰이며 RGBD media allowlist에는 들어가지 않는다.
 
 한 호스트의 `0.0.0.0:5558`에는 Router를 하나만 실행할 수 있다.
 `Address already in use`가 나오면 기존 Router 프로세스나 컨테이너를 종료한다.
@@ -276,14 +444,14 @@ Router 호스트의 방화벽은 5558을 허용해야 한다. RGBD 수신이 필
 ### 소스 워크스페이스
 
 가상환경을 활성화한 뒤 네 프로세스를 Router → Simulator → Controller → UI
-순서로 실행한다. 현재 UI WebRTC 세션은 Simulator 등록 전 offer 실패를 자동으로
-재시도하지 않으므로 최초 영상 연결 검증에서는 이 순서를 지킨다.
+순서로 실행한다. UI simulation session은 Simulator가 늦게 등록돼도 재시도하지만,
+이 순서가 시작 로그를 가장 읽기 쉽다.
 
 터미널 1:
 
 ```bash
 source .venv/bin/activate
-elesim-router --bind tcp://0.0.0.0:5558
+elesim-router --config router/config/default.yaml
 ```
 
 터미널 2:
@@ -360,27 +528,48 @@ cd /opt/elesim/ui
   --server tcp://127.0.0.1:5558
 ```
 
-WebRTC 의존성이나 영상 경로를 의도적으로 사용하지 않을 때만 UI에
-`--no-webrtc`를 추가한다.
+원격 Simulator 영상과 simulation control session을 모두 의도적으로 사용하지
+않을 때만 UI에 `--no-webrtc`를 추가한다.
 
 ## 원격 Simulator 실행
 
-노트북에서 Router, Controller, UI를 실행하고 고성능 PC에서 Simulator만
-실행한다. Simulator의 `server_endpoint`와 CLI `--server`에는 Router
-노트북의 LAN IP를 사용한다.
+권장 배치는 외부 고성능 PC에 Router와 Simulator를 함께 두고, 노트북에는
+Controller와 UI를 두는 방식이다. 같은 LAN이면 Coturn 없이 먼저 시험하고,
+NAT를 사이에 두면 고성능 PC에 Coturn도 실행한다. 먼저
+`misc/infra/bootstrap_security.py`로 키를 생성한 뒤 각 `public.example.yaml`을
+실제 주소와 설치 경로에 맞게 복사·수정한다.
+
+고성능 PC:
 
 ```bash
-cd /opt/elesim/simulator
-./venv/bin/elesim-simulator \
-  --config config/default.yaml \
-  --runtime-config config/runtime.yaml \
-  --model-bundle model/bundles/default \
-  --server tcp://192.168.0.10:5558
+elesim-router --config /etc/elesim/router.public.yaml
+
+elesim-simulator \
+  --config /opt/elesim/simulator/config/config.remote.yaml \
+  --runtime-config /etc/elesim/simulator.public.yaml \
+  --model-bundle /opt/elesim/simulator/model/bundles/default \
+  --server tcp://127.0.0.1:5558
 ```
 
-이때 `config/runtime.yaml`의 `rgbd_advertise`도 고성능 PC의 실제 LAN IP로
-바꿔야 한다. UI의 orbit, pan, zoom 입력은 protocol 메시지로 Simulator에
-전달되므로 영상 생성 컴퓨터가 달라도 노트북에서 시점을 조작할 수 있다.
+노트북:
+
+```bash
+elesim-controller \
+  --config controller/config/config.pc.yaml \
+  --runtime-config /etc/elesim/controller.public.yaml
+
+elesim-ui --config /etc/elesim/ui.public.yaml
+```
+
+`config.remote.yaml`은 Genesis 네이티브 Viewer 창만 끄고 observer와 hand-eye
+렌더 카메라는 유지한다. UI는 두 영상을 독립 WebRTC peer로 수신하며, observer
+위에서 좌클릭 드래그로 orbit, 우클릭 드래그로 pan, wheel로 zoom한다. 툴바의
+pause/resume, single-step, reset, speed, reset-view, debug marker 명령도 Router를
+거쳐 Simulator의 Genesis main thread에서 실행된다.
+
+즉 원격으로 받는 것은 단순 `sim_camera` 하나가 아니다. 작업용 hand-eye 영상과
+전체 시뮬레이션을 살펴보는 observer 영상 및 조작 상태를 함께 받는다. 다만
+Genesis가 만든 운영체제 창 자체를 화면 캡처해 전달하는 구조는 아니다.
 
 ## 실제 로봇 실행
 
@@ -430,9 +619,10 @@ python3 misc/tooling/quality/check.py --group required
 python3 misc/tooling/quality/check.py --group extended
 ```
 
-`required`는 protocol, 다섯 릴리스 프로젝트, model/release 도구와 5-process
-topology를 검사한다. `extended`는 분석, 디버그, 실험 도구, 코드 크기 예산과
-핵심 안전 조건 mutation 검사를 실행한다.
+`required`는 protocol, 다섯 릴리스 프로젝트, model/release/setup 도구, 5-process
+topology, CurveZMQ/ZAP RGBD 실송수신, observer/hand-eye 두 WebRTC 영상의 실제
+인코딩·디코딩을 검사한다. `extended`는 분석, 디버그, 실험 도구, 코드 크기
+예산과 핵심 안전 조건 mutation 검사를 실행한다.
 
 GUI 테스트 러너는 다음과 같이 실행한다.
 
@@ -441,8 +631,9 @@ PYTHONPATH=packages/protocol/src:controller/src:ui/src:misc/tooling/model_builde
 python3 misc/tooling/quality/test_gui.py
 ```
 
-실제 Genesis 렌더링, WebRTC 지연, RealSense, Dynamixel과 GO2 동작은 자동
-테스트만으로 보증되지 않으므로 장비별 수동 검증이 별도로 필요하다.
+실제 Genesis GPU 렌더링, 부하 상태의 WebRTC 지연, 실제 TURN relay 선택,
+RealSense, Dynamixel과 GO2 동작은 자동 테스트만으로 보증되지 않으므로 장비별
+수동 검증이 별도로 필요하다.
 
 ## 저장소 구조
 
@@ -452,16 +643,19 @@ controller/                 Controller 릴리스 프로젝트
 ui/                         UI 릴리스 프로젝트
 robot/                      Robot 릴리스 프로젝트
 simulator/                  Simulator 릴리스 프로젝트
-packages/protocol/          모든 역할이 공유하는 protocol-v3 계약
+packages/protocol/          모든 역할이 공유하는 protocol-v4 계약
 model/bundles/default/      Simulator가 읽는 완성 모델
 misc/                       런타임에 설치하지 않는 개발지원 자산
 misc/model/source/          원본 geometry와 blueprint
 misc/tooling/model_builder/ 오프라인 모델 생성 도구
 misc/tooling/release/       역할별 릴리스 생성기
+misc/tooling/setup/         설치 마법사와 ZMQ/WebRTC 네트워크 진단기
 misc/tooling/quality/       테스트 GUI와 품질 점검 도구
 misc/tooling/debug/         수동 진단 도구
 misc/tooling/experiments/   반복 가능한 실험 실행기
 misc/integration/           멀티프로세스 topology 테스트
+misc/infra/                 Curve key bootstrap과 선택적 Coturn 구성
+misc/setup/bootstrap.py     git clone 없는 표준 라이브러리 부트스트랩
 misc/scripts/               소스 워크스페이스 실행 스크립트
 misc/docs/                  아키텍처, 설정과 배포 문서
 misc/results/               보존된 실험 결과
@@ -472,4 +666,5 @@ misc/results/               보존된 실험 결과
 - [아키텍처](misc/docs/architecture.md)
 - [설정 체계](misc/docs/configuration.md)
 - [릴리스 배포](misc/docs/deployment.md)
+- [설치 마법사와 네트워크 진단](misc/docs/setup.md)
 - [미해결 문제](misc/docs/OPEN_ISSUES_KR.md)

@@ -1,9 +1,13 @@
-schema_version: 1
+schema_version: 2
 runtime:
   endpoint_id: ui-main
   controller_id: controller-main
   simulator_id: sim-default
   server_endpoint: tcp://127.0.0.1:5558
+security:
+  router_client_secret_file: ""
+  router_server_public_file: ""
+  allow_insecure_remote: false
 presentation:
   use_hardware: false
   use_go2: true

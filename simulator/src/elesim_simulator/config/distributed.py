@@ -19,13 +19,18 @@ class RuntimeRoleConfig:
     active_target: str = ""
     camera_enabled: bool = False
     streams: dict[str, str] = field(default_factory=dict)
+    router_client_secret_file: str = ""
+    router_server_public_file: str = ""
+    media_server_secret_file: str = ""
+    media_client_public_keys_dir: str = ""
+    allow_insecure_remote: bool = False
 
 
 def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
     source = Path(path)
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
-        raise ValueError(f"{source}: schema_version must be 1")
+    if not isinstance(raw, dict) or raw.get("schema_version") != 2:
+        raise ValueError(f"{source}: schema_version must be 2")
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
         raise ValueError(f"{source}: runtime must be an object")
@@ -38,6 +43,17 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
         raise ValueError(f"{source}: invalid runtime role {role!r}")
     if not endpoint_id:
         raise ValueError(f"{source}: endpoint_id is required")
+    security = raw.get("security", {})
+    if not isinstance(security, dict):
+        raise ValueError(f"{source}: security must be an object")
+
+    def resolved(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        candidate = Path(text).expanduser()
+        return str(candidate if candidate.is_absolute() else (source.parent / candidate).resolve())
+
     return RuntimeRoleConfig(
         role=role,
         endpoint_id=endpoint_id,
@@ -47,4 +63,11 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
         active_target=str(runtime.get("active_target", "")),
         camera_enabled=bool(runtime.get("camera_enabled", False)),
         streams={str(key): str(value) for key, value in streams.items()},
+        router_client_secret_file=resolved(security.get("router_client_secret_file")),
+        router_server_public_file=resolved(security.get("router_server_public_file")),
+        media_server_secret_file=resolved(security.get("media_server_secret_file")),
+        media_client_public_keys_dir=resolved(
+            security.get("media_client_public_keys_dir")
+        ),
+        allow_insecure_remote=bool(security.get("allow_insecure_remote", False)),
     )

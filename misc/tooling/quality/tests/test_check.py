@@ -19,7 +19,10 @@ class QualityMatrixTests(unittest.TestCase):
                 "simulator",
                 "ui",
                 "model-builder",
+                "setup-tools",
                 "topology",
+                "secure-media",
+                "webrtc-media",
             },
         )
 

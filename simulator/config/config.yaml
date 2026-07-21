@@ -34,7 +34,7 @@ simulation:
       width: 640
       height: 480
       fov_deg: 60.0
-    side:
+    observer:
       enable: true
       port: tcp://127.0.0.1:5569
       jpeg: true

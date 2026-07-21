@@ -8,7 +8,7 @@
 
 이 파일은 우선순위가 더 높은 작업을 진행하는 동안 알려진 미해결/보류 이슈가 묻히지 않도록 추적한다.
 
-## 현재 상태 (2026-07-20)
+## 현재 상태 (2026-07-21)
 
 이 절이 deployment 기반 현 구조의 기준이다. 아래의 긴 절들은 refactor 이전
 근거를 보존한 기록이며, 여기에서 다시 언급하지 않은 경로와 테스트 수치는 과거
@@ -38,18 +38,23 @@
 ### P1. Multi-host 및 hardware 배포는 여전히 수동 gate임
 
 - 상태: open.
-- in-process 5-node topology, lease, reconnect, stale sequence, media descriptor,
+- in-process 5-process topology, 분리된 motion/simulation lease, reconnect,
+  stale sequence, Curve 설정, dual WebRTC signaling, media descriptor,
   isolated wheel은 자동 검증을 통과한다.
 - 실제 Wi-Fi/LAN, Jetson USB/serial, ROS2/Unitree topic, clock skew, packet loss,
-  process restart timing은 software-only gate에서 검증하지 못했다.
+  credential 설치와 process restart timing은 software-only gate에서 검증하지
+  못했다.
 
-### P1. 현재 ZMQ TCP는 신뢰된 네트워크를 전제로 함
+### P1. 원격 Genesis 영상과 조작은 live gate가 필요함
 
-- 상태: open, 배포/보안 결정 필요.
-- protocol v3는 role, lease, payload, sequence를 검증하지만 CurveZMQ 인증,
-  암호화, operator identity provisioning은 없다.
-- threat model과 key 배포 방식을 정하기 전에는 Router와 direct media endpoint를
-  신뢰할 수 없는 네트워크에 노출하면 안 된다.
+- 상태: open.
+- observer/hand-eye session의 독립성, 실제 aiortc encoded frame 전달, TURN
+  credential 갱신, camera/physics command의 Simulator main-thread mailbox
+  도착은 자동 테스트로 증명한다.
+- Genesis GPU offscreen capture, aiortc encode/decode latency, 실제 ICE 선택,
+  Coturn relay, 두 컴퓨터 사이 orbit/pan/zoom 반응성은 아직 증명하지 못했다.
+- 필요한 근거: direct LAN 1회와 TURN relay 1회에서 두 영상, pause/step/reset,
+  제한된 command backlog, 양쪽 process restart 후 reconnect를 확인하는 것이다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 
@@ -82,7 +87,7 @@
 - model bundle은 self-contained, hash 검증, runtime immutable 상태다.
 - Robot은 physical I/O, measured canonical `q`, deadman/current/read-failure safety,
   stale sequence와 lease enforcement를 소유한다.
-- Controller/Simulator는 direct protocol-v3 endpoint를 사용한다. sibling role의
+- Controller/Simulator는 direct protocol-v4 endpoint를 사용한다. sibling role의
   복사 구현을 제거했고 import boundary를 테스트한다.
 - payload/lifecycle/trace/reconnect/partial command/async UI/Pick stop/camera
   lifecycle/WebRTC signaling에 contract test가 있다.
@@ -92,6 +97,19 @@
   파일은 method마다 무한 분할하지 않고 책임 section으로 나눴다.
 - 생성된 모든 release를 sibling deployment와 source-tree import가 없는 임시
   위치에 설치해 probe한다.
+
+### 2026-07-21 remote-simulator refactor에서 닫힌 항목
+
+- non-loopback Router와 RGBD transport는 기본적으로 CurveZMQ를 요구하며,
+  Router는 public key, endpoint ID, role의 정확한 조합을 인증한다.
+- UI는 Controller를 camera-input relay로 쓰지 않고 독립 Simulator session을
+  소유한다.
+- Simulator는 observer/hand-eye WebRTC view를 분리해 보내고 orbit, pan, zoom,
+  pause/resume, step, reset, speed, marker 명령을 Genesis main thread에서 적용한다.
+- Coturn REST credential은 Router가 짧은 수명으로 발급하며 static secret과
+  private key 생성물은 Git에서 제외된다.
+- TURN 갱신은 기존 simulation session 안에서 UI의 두 peer를 교체하며, 로컬
+  교체 실패 시 작동 중인 receiver를 보존한다.
 
 ---
 

@@ -118,9 +118,9 @@ _register(
 )
 _register(
     "sim_config",
-    "simulation.cameras.side",
-    _prefixed(SimConfig, "sim_side_camera_"),
-    strip_prefix="sim_side_camera_",
+    "simulation.cameras.observer",
+    _prefixed(SimConfig, "sim_observer_camera_"),
+    strip_prefix="sim_observer_camera_",
 )
 _register(
     "sim_config",
@@ -184,6 +184,9 @@ _perception_publish = {
     "publish_hz",
     "sim_camera_port",
     "sim_camera_jpeg",
+    "sim_camera_curve_client_secret_file",
+    "sim_camera_curve_server_key",
+    "sim_camera_allow_insecure_remote",
 }
 _perception_detector = {"detector_config", "detector", "target_label", "yolo_device", "pipeline"}
 _perception_runtime = _field_names(PerceptionConfig) - _perception_tracking - _perception_publish - _perception_detector

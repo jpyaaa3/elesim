@@ -41,7 +41,7 @@ CHECKS: tuple[Check, ...] = (
         "protocol",
         ("packages/protocol/tests",),
         (PROTOCOL_SRC,),
-        description="Protocol v3 contracts and transport primitives",
+        description="Protocol v4 contracts, media sessions and secure transport",
     ),
     Check(
         "router",
@@ -87,11 +87,29 @@ CHECKS: tuple[Check, ...] = (
         description="Protocol-level multi-process topology smoke test",
     ),
     Check(
+        "secure-media",
+        ("misc/integration/test_secure_media.py",),
+        (PROTOCOL_SRC, "controller/src", "simulator/src"),
+        description="Authenticated direct Simulator RGBD media plane",
+    ),
+    Check(
+        "webrtc-media",
+        ("misc/integration/test_webrtc_media.py",),
+        (PROTOCOL_SRC, "simulator/src", "ui/src"),
+        description="Two independent encoded Simulator WebRTC streams",
+    ),
+    Check(
         "quality-tools",
         ("misc/tooling/quality/tests",),
         (PROTOCOL_SRC,),
         group="extended",
         description="Repository quality-gate behavior and readability budgets",
+    ),
+    Check(
+        "setup-tools",
+        ("misc/tooling/setup/tests",),
+        (PROTOCOL_SRC, "misc/tooling/setup/src"),
+        description="Installer profiles, generated configs and network diagnostics",
     ),
     Check(
         "critical-mutations",

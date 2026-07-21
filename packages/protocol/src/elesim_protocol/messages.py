@@ -253,7 +253,7 @@ def loads_msg(buf: bytes) -> Dict[str, Any]:
     return json.loads(buf.decode("utf-8"))
 
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 MAX_ENVELOPE_BYTES = 1_048_576
 ENDPOINT_ROLES = frozenset({"controller", "robot", "simulator", "ui"})
 
@@ -261,7 +261,21 @@ CAPABILITY_OPERATOR_CONTROL = "operator_control"
 CAPABILITY_MOTION_ARM = "motion.arm"
 CAPABILITY_MOTION_GO2 = "motion.go2"
 CAPABILITY_STREAM_RGBD = "stream.rgbd"
-CAPABILITY_STREAM_RENDERED = "stream.rendered"
+CAPABILITY_STREAM_OBSERVER = "stream.observer"
+CAPABILITY_STREAM_HAND_EYE_PREVIEW = "stream.hand_eye_preview"
+
+MEDIA_TRANSPORT_ZMQ = "zmq"
+MEDIA_TRANSPORT_WEBRTC = "webrtc"
+MEDIA_TRANSPORTS = frozenset({MEDIA_TRANSPORT_ZMQ, MEDIA_TRANSPORT_WEBRTC})
+MEDIA_KIND_RGB = "rgb"
+MEDIA_KIND_RGBD = "rgbd"
+MEDIA_KINDS = frozenset({MEDIA_KIND_RGB, MEDIA_KIND_RGBD})
+MEDIA_SECURITY_NONE = "none"
+MEDIA_SECURITY_CURVE = "curve"
+MEDIA_SECURITY_DTLS_SRTP = "dtls-srtp"
+MEDIA_SECURITY_MODES = frozenset(
+    {MEDIA_SECURITY_NONE, MEDIA_SECURITY_CURVE, MEDIA_SECURITY_DTLS_SRTP}
+)
 
 MESSAGE_TYPES = frozenset(
     {
@@ -283,8 +297,15 @@ MESSAGE_TYPES = frozenset(
         "lease_revoked",
         "motion_command",
         "telemetry",
-        "camera_input",
         "ack",
+        "open_simulation_session",
+        "simulation_session_opened",
+        "simulation_session_granted",
+        "simulation_session_revoked",
+        "close_simulation_session",
+        "simulation_command",
+        "simulation_result",
+        "simulation_status",
         "webrtc_signal",
         "error",
     }
@@ -296,11 +317,81 @@ class ProtocolError(ValueError):
 
 
 @dataclass(frozen=True)
+class MediaStreamDescriptor:
+    """A direct media stream advertised by an endpoint.
+
+    The router carries this metadata but never relays media payloads. ZMQ
+    streams can be loopback plaintext or CURVE protected. WebRTC streams are
+    always protected by DTLS-SRTP and use the router only for signaling.
+    """
+
+    transport: str
+    media_kind: str
+    endpoint: str
+    security: str
+    curve_server_key: str = ""
+
+    def __post_init__(self) -> None:
+        if self.transport not in MEDIA_TRANSPORTS:
+            raise ProtocolError(f"unsupported media transport: {self.transport!r}")
+        if self.media_kind not in MEDIA_KINDS:
+            raise ProtocolError(f"unsupported media kind: {self.media_kind!r}")
+        endpoint = str(self.endpoint).strip()
+        if not endpoint or len(endpoint) > 2048 or any(char.isspace() for char in endpoint):
+            raise ProtocolError("media endpoint must contain 1..2048 non-whitespace characters")
+        if self.security not in MEDIA_SECURITY_MODES:
+            raise ProtocolError(f"unsupported media security mode: {self.security!r}")
+        key = str(self.curve_server_key).strip()
+        if self.transport == MEDIA_TRANSPORT_WEBRTC:
+            if self.media_kind != MEDIA_KIND_RGB:
+                raise ProtocolError("WebRTC streams currently support RGB media only")
+            if self.security != MEDIA_SECURITY_DTLS_SRTP:
+                raise ProtocolError("WebRTC streams must use DTLS-SRTP security")
+            if key:
+                raise ProtocolError("WebRTC streams must not advertise a CURVE server key")
+            return
+        if self.security == MEDIA_SECURITY_DTLS_SRTP:
+            raise ProtocolError("ZMQ streams cannot use DTLS-SRTP security")
+        if self.security == MEDIA_SECURITY_CURVE:
+            if len(key) != 40 or any(char.isspace() for char in key):
+                raise ProtocolError("CURVE server key must be a 40-character Z85 key")
+        elif key:
+            raise ProtocolError("plaintext media streams must not advertise a CURVE server key")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "transport": self.transport,
+            "media_kind": self.media_kind,
+            "endpoint": self.endpoint,
+            "security": self.security,
+            "curve_server_key": self.curve_server_key,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "MediaStreamDescriptor":
+        if not isinstance(raw, Mapping):
+            raise ProtocolError("media stream descriptor must be an object")
+        unknown = sorted(
+            set(raw)
+            - {"transport", "media_kind", "endpoint", "security", "curve_server_key"}
+        )
+        if unknown:
+            raise ProtocolError("unknown media stream descriptor fields: " + ", ".join(unknown))
+        return cls(
+            transport=str(raw.get("transport", "")),
+            media_kind=str(raw.get("media_kind", "")),
+            endpoint=str(raw.get("endpoint", "")),
+            security=str(raw.get("security", "")),
+            curve_server_key=str(raw.get("curve_server_key", "")),
+        )
+
+
+@dataclass(frozen=True)
 class EndpointDescriptor:
     endpoint_id: str
     role: str
     capabilities: tuple[str, ...] = ()
-    streams: Optional[dict[str, str]] = None
+    streams: Optional[dict[str, MediaStreamDescriptor]] = None
     instance_id: str = ""
 
     def __post_init__(self) -> None:
@@ -316,15 +407,20 @@ class EndpointDescriptor:
         streams = self.streams or {}
         if not isinstance(streams, dict):
             raise ProtocolError("endpoint streams must be an object")
-        if any(not str(key).strip() or not str(value).strip() for key, value in streams.items()):
-            raise ProtocolError("endpoint streams must have non-empty names and endpoints")
+        for key, value in streams.items():
+            _validate_identifier(str(key), "media stream name")
+            if not isinstance(value, MediaStreamDescriptor):
+                raise ProtocolError("endpoint streams must contain media stream descriptors")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "endpoint_id": self.endpoint_id,
             "role": self.role,
             "capabilities": list(self.capabilities),
-            "streams": dict(self.streams or {}),
+            "streams": {
+                str(name): descriptor.to_dict()
+                for name, descriptor in (self.streams or {}).items()
+            },
             "instance_id": self.instance_id,
         }
 
@@ -343,11 +439,11 @@ class EndpointDescriptor:
             endpoint_id=str(raw.get("endpoint_id", "")),
             role=str(raw.get("role", "")),
             capabilities=tuple(str(value) for value in capabilities),
-            streams=(
-                {str(key): str(value) for key, value in streams.items()}
-                if streams
-                else None
-            ),
+            streams={
+                str(key): MediaStreamDescriptor.from_dict(value)
+                for key, value in streams.items()
+            }
+            or None,
             instance_id=str(raw.get("instance_id", "")),
         )
 

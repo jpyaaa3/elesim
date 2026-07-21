@@ -8,11 +8,6 @@ import glfw
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
-try:
-    from OpenGL import GL
-except ImportError:
-    GL = None  # type: ignore[assignment]
-
 from elesim_ui.models import (
     ControlService,
     GazeStabilizerConfig,
@@ -24,6 +19,7 @@ from elesim_ui.models import (
     gaze_config_to_dict,
 )
 from elesim_ui.helpers import scaled, set_panel_header_font
+from elesim_ui.simulator_view import SimulatorView
 from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from elesim_ui import file_dialog
 
@@ -89,16 +85,15 @@ class ControlPanel:
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
         gaze_cfg: GazeStabilizerConfig | None = None,
-        video_source: Optional[Callable[[], object]] = None,
-        camera_input: Optional[Callable[[str, tuple[float, ...]], None]] = None,
+        simulator_session: Optional[object] = None,
         endpoint_select: Optional[Callable[[str, str], None]] = None,
     ):
         self.state = state
         self.service = service
-        self._video_source = video_source
-        self._camera_input = camera_input
+        self._simulator_view = (
+            None if simulator_session is None else SimulatorView(simulator_session)
+        )
         self._endpoint_select = endpoint_select
-        self._video_texture = 0
         self._endpoint_cache: list[object] = []
         self._active_endpoint_cache = ""
         self._endpoint_cache_at = 0.0
@@ -213,42 +208,8 @@ class ControlPanel:
 
     def _draw_sim_video(self) -> None:
         self._draw_endpoint_selector()
-        if self._video_source is None or GL is None:
-            return
-        frame = self._video_source()
-        if frame is None or not hasattr(frame, "shape") or len(frame.shape) != 3:
-            imgui.text_disabled("SIM video waiting...")
-            return
-        height, width = int(frame.shape[0]), int(frame.shape[1])
-        if width <= 0 or height <= 0:
-            return
-        if not self._video_texture:
-            self._video_texture = int(GL.glGenTextures(1))
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self._video_texture)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, self._video_texture)
-        GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
-        GL.glTexImage2D(
-            GL.GL_TEXTURE_2D, 0, GL.GL_RGB, width, height, 0,
-            GL.GL_BGR, GL.GL_UNSIGNED_BYTE, frame,
-        )
-        available = max(160.0, float(imgui.get_content_region_available_width()))
-        draw_height = min(available * height / width, 300.0)
-        imgui.image(self._video_texture, available, draw_height, uv0=(0.0, 1.0), uv1=(1.0, 0.0))
-        if not imgui.is_item_hovered() or self._camera_input is None:
-            return
-        io = imgui.get_io()
-        delta = io.mouse_delta
-        dx = float(getattr(delta, "x", delta[0] if delta else 0.0)) / max(available, 1.0)
-        dy = float(getattr(delta, "y", delta[1] if delta else 0.0)) / max(draw_height, 1.0)
-        if imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
-            self._camera_input("orbit", (dx, dy))
-        elif imgui.is_mouse_dragging(1) and abs(dx) + abs(dy) > 0.0:
-            self._camera_input("pan", (dx, dy))
-        wheel = float(getattr(io, "mouse_wheel", 0.0))
-        if abs(wheel) > 1e-6:
-            self._camera_input("zoom", (-wheel * 0.08,))
+        if self._simulator_view is not None:
+            self._simulator_view.draw()
 
     def request_file_browse(self, *, kind: str, initial_path: str) -> None:
         self._pending_file_browse = (str(kind), str(initial_path))
@@ -691,11 +652,7 @@ class ControlPanel:
                 glfw.swap_buffers(window)
                 time.sleep(0.01)
         finally:
-            if self._video_texture and GL is not None:
-                try:
-                    GL.glDeleteTextures([self._video_texture])
-                except Exception:
-                    pass
-                self._video_texture = 0
+            if self._simulator_view is not None:
+                self._simulator_view.close()
             impl.shutdown()
             glfw.terminate()

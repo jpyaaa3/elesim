@@ -34,7 +34,7 @@ CASES: tuple[MutationCase, ...] = (
         source_file="elesim_protocol/messages.py",
         original="or self.version != PROTOCOL_VERSION:",
         mutant="or False:",
-        tests=("packages/protocol/tests/test_protocol_v3.py",),
+        tests=("packages/protocol/tests/test_protocol_v4.py",),
     ),
     MutationCase(
         name="router-active-lease",
@@ -43,6 +43,15 @@ CASES: tuple[MutationCase, ...] = (
         original="or request.lease_id != lease_id:",
         mutant="or False:",
         tests=("router/tests/legacy/test_router_server.py",),
+        python_paths=("packages/protocol/src",),
+    ),
+    MutationCase(
+        name="simulator-operator-session-lease",
+        source_root="simulator/src",
+        source_file="elesim_simulator/endpoint.py",
+        original="or message.lease_id != self.simulation_session_id",
+        mutant="or False",
+        tests=("simulator/tests/test_endpoint.py",),
         python_paths=("packages/protocol/src",),
     ),
     MutationCase(

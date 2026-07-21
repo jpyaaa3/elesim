@@ -23,8 +23,8 @@ Controller and simulator preserve the existing YAML inheritance behavior:
 schema_version: 1
 extends: config.yaml
 simulation:
-  viewer:
-    enable: false
+  runtime:
+    enable_viewer: false
 ```
 
 `extends` is resolved relative to the file containing it. Mappings merge
@@ -41,7 +41,35 @@ fields in their `default.yaml`.
 
 CLI options may override addresses for temporary LAN layouts. Production
 installations should keep stable addresses in the deployed YAML and mount
-secrets separately when transport authentication is added.
+secrets separately. Runtime identity/security files use schema version 2;
+simulation/model behavior profiles retain their independent schema version 1.
+
+The checked-in defaults are loopback-only. Each role provides a
+`public.example.yaml` or `runtime.public.example.yaml` showing Curve paths for
+multi-host use. A direct media publisher has two different addresses:
+
+- `rgbd_bind` is the local socket, normally `tcp://0.0.0.0:5568` on a remote
+  Simulator.
+- `rgbd_advertise` is the hostname/IP Controller can reach.
+
+Public media also requires `media_server_secret_file` and
+`media_client_public_keys_dir`. The latter is a ZAP allowlist containing only
+Controller's public media key. Advertising a public address does not alter the
+local bind automatically.
+
+The terminal installer writes equivalent host-specific configuration under
+`~/.local/share/elesim/roles/<role>/config`. Files are named `installed.yaml`
+or `runtime.installed.yaml`; Simulator also receives `app.installed.yaml` for
+the selected GPU/CPU policy. It never modifies the checked-in defaults. The
+non-secret source of truth is `install-state.json`, and `elesim-net configure`
+regenerates every installed role from that state so Router, Controller, UI,
+Simulator and Robot cannot silently drift to different Router addresses.
+
+GPU allocation remains outside deployment configuration by default. In
+`inherit` mode the generated launchers preserve an existing
+`CUDA_VISIBLE_DEVICES`, allowing Slurm or a laboratory launcher to own the
+assignment. A pinned installation exports exactly one index/UUID; CPU mode
+hides CUDA and sets Simulator `use_gpu` false.
 
 ## Model Inputs
 

@@ -24,18 +24,26 @@ def test_checked_in_default_config_is_valid() -> None:
     assert config.safety.router_liveness_s > config.safety.command_deadman_s
 
 
+def test_public_config_requires_controller_media_allowlist_path() -> None:
+    config = load_config(ROOT / "robot/config/public.example.yaml")
+
+    assert config.camera.bind == "tcp://0.0.0.0:5568"
+    assert config.security.media_server_secret_file.endswith("robot-media.key_secret")
+    assert config.security.media_client_public_keys_dir.endswith("media-authorized")
+
+
 def test_unknown_top_level_section_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown robot config keys"):
-        _load_document({"schema_version": 1, "surprise": {}})
+        _load_document({"schema_version": 2, "surprise": {}})
 
 
 def test_unknown_nested_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown arm config keys"):
-        _load_document({"schema_version": 1, "arm": {"typo_current_limit": 10}})
+        _load_document({"schema_version": 2, "arm": {"typo_current_limit": 10}})
 
 
-@pytest.mark.parametrize("schema", (None, 0, 2, "1"))
-def test_schema_version_must_be_exactly_one(schema: object) -> None:
+@pytest.mark.parametrize("schema", (None, 0, 1, 3, "2"))
+def test_schema_version_must_be_exactly_two(schema: object) -> None:
     with pytest.raises(ValueError, match="schema_version"):
         _load_document({"schema_version": schema})
 
@@ -44,7 +52,7 @@ def test_invalid_safety_bounds_are_rejected() -> None:
     with pytest.raises(ValueError, match="router_liveness_s"):
         _load_document(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "safety": {"command_deadman_s": 1.0, "router_liveness_s": 0.5},
             }
         )

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
+    CurveClientConfig,
     EndpointClient,
     EndpointDescriptor,
     OPERATOR_OPERATIONS,
@@ -26,7 +27,6 @@ _COALESCED_SERVICE_CALLS = frozenset(
     {
         "apply_partial_control_u",
         "send_go2_velocity",
-        "send_sim_camera_input",
         "update_gaze_stabilizer_config",
     }
 )
@@ -70,6 +70,8 @@ class OperatorSession:
         controller_stale_s: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
         endpoint_factory: Callable[..., Any] = EndpointClient,
+        curve: Optional[CurveClientConfig] = None,
+        allow_insecure_remote: bool = False,
         max_pending: int = 256,
         autostart: bool = True,
     ) -> None:
@@ -81,6 +83,8 @@ class OperatorSession:
         self.controller_stale_s = max(self.snapshot_period_s * 2.0, float(controller_stale_s))
         self.clock = clock
         self.endpoint_factory = endpoint_factory
+        self.curve = curve
+        self.allow_insecure_remote = bool(allow_insecure_remote)
         self.max_pending = max(16, int(max_pending))
 
         self._lock = threading.RLock()
@@ -244,6 +248,8 @@ class OperatorSession:
             endpoint = self.endpoint_factory(
                 self.server_endpoint,
                 EndpointDescriptor(self.ui_id, "ui", ()),
+                curve=self.curve,
+                allow_insecure_remote=self.allow_insecure_remote,
             )
             while not self._stop.is_set():
                 try:

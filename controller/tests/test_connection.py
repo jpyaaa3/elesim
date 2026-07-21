@@ -3,7 +3,13 @@ from __future__ import annotations
 from dataclasses import replace
 
 from elesim_controller.connection import ControllerConnection
-from elesim_protocol import EndpointDescriptor, Envelope, SimMappingConfig, make_envelope
+from elesim_protocol import (
+    EndpointDescriptor,
+    Envelope,
+    SimMappingConfig,
+    SimulationStatusPayload,
+    make_envelope,
+)
 
 
 class Endpoint:
@@ -120,6 +126,55 @@ def test_telemetry_and_ack_are_delivered_without_local_zmq_bridge() -> None:
 
     assert sink.telemetry == [{"q": [-0.1, 0.2, 0.3, -0.4], "q_source": "measured"}]
     assert sink.acks == [{"ok": False, "reason": "limit"}]
+
+
+def test_simulation_status_is_typed_and_delivered_only_from_the_active_target() -> None:
+    value, _sink, endpoint = connection()
+    value.active_target = "sim-a"
+    received: list[SimulationStatusPayload] = []
+    value.simulation_status_handler = received.append
+    payload = SimulationStatusPayload(
+        epoch=2,
+        paused=True,
+        speed=0.5,
+        debug_visible=False,
+        sim_time_s=3.0,
+    ).to_payload()
+
+    value.handle_envelope(
+        endpoint,
+        envelope("simulation_status", payload, source_id="sim-b"),
+    )
+    value.handle_envelope(
+        endpoint,
+        envelope("simulation_status", payload, source_id="sim-a"),
+    )
+
+    assert received == [SimulationStatusPayload.from_payload(payload)]
+
+
+def test_invalid_target_stream_configuration_does_not_escape_connection_thread() -> None:
+    value, sink, endpoint = connection()
+    value.endpoints = [
+        EndpointDescriptor(
+            "sim-a", "simulator", ("motion.arm",), instance_id="sim-instance"
+        ).to_dict()
+    ]
+
+    def reject_descriptor(_descriptor: dict[str, object]) -> None:
+        raise ValueError("missing media server key")
+
+    value.on_target_selected = reject_descriptor
+    value.handle_envelope(
+        endpoint,
+        envelope("target_selected", {"target_id": "sim-a", "lease_id": "lease-a"}),
+    )
+
+    assert value.active_target == "sim-a"
+    assert sink.targets == ["sim-a"]
+    assert sink.errors == [
+        "target stream configuration failed: missing media server key"
+    ]
 
 
 def test_target_submission_is_canonical_and_latest_rate_limited_value_is_retained() -> None:

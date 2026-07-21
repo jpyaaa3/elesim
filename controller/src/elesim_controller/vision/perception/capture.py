@@ -668,6 +668,9 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
                 sim_cam_cls = lambda: SimRenderedCamera(  # noqa: E731
                     endpoint=str(cfg.sim_camera_port),
                     use_jpeg=bool(cfg.sim_camera_jpeg),
+                    curve_client_secret_file=str(cfg.sim_camera_curve_client_secret_file),
+                    curve_server_key=str(cfg.sim_camera_curve_server_key),
+                    allow_insecure_remote=bool(cfg.sim_camera_allow_insecure_remote),
                 )
                 if use_search_track:
                     self._run_camera_search_track(

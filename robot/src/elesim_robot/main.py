@@ -12,8 +12,15 @@ from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
     CAPABILITY_STREAM_RGBD,
+    CurveClientConfig,
+    CurveServerConfig,
     EndpointClient,
     EndpointDescriptor,
+    MEDIA_KIND_RGBD,
+    MEDIA_SECURITY_CURVE,
+    MEDIA_SECURITY_NONE,
+    MEDIA_TRANSPORT_ZMQ,
+    MediaStreamDescriptor,
 )
 from elesim_robot.camera.worker import CameraPublisherThread
 from elesim_robot.config import load_config
@@ -48,6 +55,39 @@ def _run() -> None:
     camera_enabled = config.camera.enabled if args.camera is None else bool(args.camera)
     rgbd_bind = str(args.rgbd_bind).strip() or config.camera.bind
     advertised = str(args.rgbd_advertise).strip() or config.camera.advertise or rgbd_bind
+    router_curve = None
+    if bool(config.security.router_client_secret_file) != bool(
+        config.security.router_server_public_file
+    ):
+        raise ValueError("router CURVE client and server certificate paths must be configured together")
+    if config.security.router_client_secret_file:
+        router_curve = CurveClientConfig.from_files(
+            client_secret_file=config.security.router_client_secret_file,
+            server_public_file=config.security.router_server_public_file,
+        )
+    if bool(config.security.media_server_secret_file) != bool(
+        config.security.media_client_public_keys_dir
+    ):
+        raise ValueError(
+            "media CURVE server certificate and client-key directory must be configured together"
+        )
+    media_curve = (
+        None
+        if not config.security.media_server_secret_file
+        else CurveServerConfig.from_file(config.security.media_server_secret_file)
+    )
+
+    streams = {}
+    if camera_enabled:
+        streams["rgbd"] = MediaStreamDescriptor(
+            transport=MEDIA_TRANSPORT_ZMQ,
+            media_kind=MEDIA_KIND_RGBD,
+            endpoint=advertised,
+            security=(MEDIA_SECURITY_CURVE if media_curve is not None else MEDIA_SECURITY_NONE),
+            curve_server_key=(
+                "" if media_curve is None else media_curve.public_key.decode("ascii")
+            ),
+        )
 
     capabilities = [CAPABILITY_MOTION_ARM]
     if camera_enabled:
@@ -60,8 +100,10 @@ def _run() -> None:
             endpoint_id,
             "robot",
             tuple(capabilities),
-            streams={"rgbd": advertised} if camera_enabled else {},
+            streams=streams,
         ),
+        curve=router_curve,
+        allow_insecure_remote=config.security.allow_insecure_remote,
     )
 
     runtime = RobotRuntime(
@@ -77,6 +119,9 @@ def _run() -> None:
             width=config.camera.width,
             height=config.camera.height,
             fps=config.camera.fps,
+            curve=media_curve,
+            curve_client_keys_dir=config.security.media_client_public_keys_dir,
+            allow_insecure_remote=config.security.allow_insecure_remote,
         )
         if camera_enabled
         else None

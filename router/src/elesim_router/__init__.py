@@ -1,4 +1,4 @@
-"""Elesim protocol-v3 registry, lease authority and router."""
+"""Elesim protocol-v4 registry, lease authorities and secure router."""
 
 from __future__ import annotations
 

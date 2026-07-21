@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from elesim_protocol import Envelope, SimMappingConfig
+from elesim_protocol import (
+    Envelope,
+    SimMappingConfig,
+    SimulationSessionGrantedPayload,
+    SimulationStatusPayload,
+)
 from elesim_simulator.control_state import SimulationStateSource
 from elesim_simulator.endpoint import SimulatorEndpoint
 
@@ -80,3 +85,142 @@ def test_runtime_telemetry_is_merged_and_sent_as_canonical_q() -> None:
     assert kwargs["lease_id"] == "lease-a"
     assert kwargs["payload"]["q"] == [-0.1, 0.2, 0.3, -0.3]
     assert kwargs["payload"]["go2_base_pos"] == [0.0, 0.0, 0.3]
+
+
+def grant_simulation_session(value: SimulatorEndpoint, client: Client) -> None:
+    granted = SimulationSessionGrantedPayload(
+        request_id="open-1",
+        session_id="session-a",
+        simulator_id="sim-a",
+        ui_id="ui-a",
+        streams=("observer", "hand_eye_preview"),
+    )
+    value.handle_envelope(
+        client,
+        Envelope(
+            message_type="simulation_session_granted",
+            source_id="server",
+            target_id="sim-a",
+            payload=granted.to_payload(),
+            seq=2,
+            timestamp=1.0,
+            message_id="grant-1",
+            lease_id="session-a",
+        ),
+    )
+
+
+def test_simulation_command_is_queued_until_the_genesis_thread_completes_it() -> None:
+    value, _state, client = endpoint()
+    grant_simulation_session(value, client)
+    command = Envelope(
+        message_type="simulation_command",
+        source_id="ui-a",
+        target_id="sim-a",
+        payload={
+            "schema_version": 1,
+            "request_id": "pause-1",
+            "session_id": "session-a",
+            "command": "pause",
+            "arguments": {},
+        },
+        seq=3,
+        timestamp=1.0,
+        message_id="pause-message",
+        lease_id="session-a",
+    )
+
+    value.handle_envelope(client, command)
+    pending = value.operator_mailbox.drain()
+    assert len(pending) == 1
+    assert client.sent == []
+    value.operator_mailbox.complete(pending[0], ok=True, reason="paused")
+    value.flush_simulation_results(client)
+
+    assert client.sent[-1][0] == "simulation_result"
+    assert client.sent[-1][1]["target_id"] == "ui-a"
+    assert client.sent[-1][1]["payload"]["request_id"] == "pause-1"
+
+
+def test_simulation_command_rejects_a_mismatched_operator_session_lease() -> None:
+    value, _state, client = endpoint()
+    grant_simulation_session(value, client)
+    command = Envelope(
+        message_type="simulation_command",
+        source_id="ui-a",
+        target_id="sim-a",
+        payload={
+            "schema_version": 1,
+            "request_id": "pause-wrong-lease",
+            "session_id": "session-a",
+            "command": "pause",
+            "arguments": {},
+        },
+        seq=3,
+        timestamp=1.0,
+        message_id="pause-wrong-lease-message",
+        lease_id="session-other",
+    )
+
+    value.handle_envelope(client, command)
+
+    assert value.operator_mailbox.drain() == []
+    assert client.sent[-1][0] == "simulation_result"
+    assert client.sent[-1][1]["payload"]["ok"] is False
+    assert client.sent[-1][1]["payload"]["reason"] == "simulation_session_mismatch"
+
+
+def test_simulation_status_is_published_to_the_router_not_a_motion_owner() -> None:
+    value, _state, client = endpoint()
+    value.publish_simulation_status(
+        SimulationStatusPayload(
+            epoch=1,
+            paused=True,
+            speed=1.0,
+            debug_visible=False,
+            sim_time_s=2.0,
+        )
+    )
+    value.flush_simulation_status(client)
+
+    assert client.sent[-1][0] == "simulation_status"
+    assert "target_id" not in client.sent[-1][1]
+    assert client.sent[-1][1]["payload"]["epoch"] == 1
+
+
+def test_webrtc_offer_is_answered_for_the_requested_named_stream() -> None:
+    calls: list[tuple[object, ...]] = []
+    state = SimulationStateSource(SimMappingConfig())
+    client = Client()
+    value = SimulatorEndpoint(
+        server_endpoint="inproc://unused",
+        endpoint_id="sim-a",
+        state=state,
+        streams={},
+        webrtc_offer_handler=lambda *args: calls.append(args) or {"sdp": "answer-sdp", "type": "answer"},
+    )
+    grant_simulation_session(value, client)
+    value.handle_envelope(
+        client,
+        Envelope(
+            message_type="webrtc_signal",
+            source_id="ui-a",
+            target_id="sim-a",
+            payload={
+                "schema_version": 1,
+                "session_id": "session-a",
+                "stream": "hand_eye_preview",
+                "signal": "offer",
+                "sdp": "offer-sdp",
+                "type": "offer",
+            },
+            seq=3,
+            timestamp=1.0,
+            message_id="offer-1",
+            lease_id="session-a",
+        ),
+    )
+
+    assert calls[0][:3] == ("hand_eye_preview", "offer-sdp", "offer")
+    assert client.sent[-1][0] == "webrtc_signal"
+    assert client.sent[-1][1]["payload"]["stream"] == "hand_eye_preview"

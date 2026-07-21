@@ -4,23 +4,39 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Mapping, Optional
+from dataclasses import dataclass, replace
+from typing import Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
+    CloseSimulationSessionRequest,
     DiscoverRequest,
     EndpointDescriptor,
     Envelope,
     MotionCommandRequest,
+    OpenSimulationSessionRequest,
     OperatorIntentRequest,
     ProtocolError,
     RegisterRequest,
     SelectTargetRequest,
+    SimulationCommandRequest,
+    SimulationResultPayload,
+    SimulationSessionGrantedPayload,
+    SimulationSessionOpenedPayload,
+    SimulationSessionRevokedPayload,
+    SimulationStatusPayload,
     TelemetryPayload,
+    WebRtcSignalPayload,
     make_envelope,
     validate_routed_payload,
+)
+
+from .simulation_sessions import (
+    SimulationSession,
+    SimulationSessionError,
+    SimulationSessionRegistry,
+    TurnCredentialIssuer,
 )
 
 
@@ -38,13 +54,22 @@ class RoutedMessage:
 
 
 class RouterCore:
-    def __init__(self, *, heartbeat_timeout_s: float = 3.5) -> None:
+    def __init__(
+        self,
+        *,
+        heartbeat_timeout_s: float = 3.5,
+        turn_issuer: Optional[TurnCredentialIssuer] = None,
+        endpoint_authorizer: Optional[Callable[[str, str, str], bool]] = None,
+    ) -> None:
         self.heartbeat_timeout_s = max(0.5, float(heartbeat_timeout_s))
         self.endpoints: dict[str, RegisteredEndpoint] = {}
         self.endpoint_by_identity: dict[bytes, str] = {}
         self.active_target_by_controller: dict[str, str] = {}
         self.controller_by_target: dict[str, str] = {}
         self.lease_by_controller: dict[str, str] = {}
+        self.simulation_sessions = SimulationSessionRegistry()
+        self.turn_issuer = turn_issuer
+        self.endpoint_authorizer = endpoint_authorizer
         self._last_seq: dict[str, int] = {}
         self._server_seq: dict[str, int] = {}
 
@@ -103,10 +128,18 @@ class RouterCore:
         request: Envelope,
         *,
         now: Optional[float] = None,
+        wall_time: Optional[float] = None,
+        authenticated_user_id: str = "",
     ) -> list[RoutedMessage]:
         current = time.monotonic() if now is None else float(now)
+        current_wall = time.time() if wall_time is None else float(wall_time)
         if request.message_type == "register":
-            return self._register(identity, request, now=current)
+            return self._register(
+                identity,
+                request,
+                now=current,
+                authenticated_user_id=authenticated_user_id,
+            )
 
         source = self._registered_source(identity, request)
         if source is None:
@@ -139,8 +172,6 @@ class RouterCore:
         if request.message_type == "motion_command":
             assert isinstance(parsed, MotionCommandRequest)
             return self._route_motion(identity, request, source, parsed)
-        if request.message_type == "camera_input":
-            return self._route_leased_controller_message(identity, request, source)
         if request.message_type == "operator_intent":
             assert isinstance(parsed, OperatorIntentRequest)
             return self._route_operator_intent(identity, request, source)
@@ -151,8 +182,30 @@ class RouterCore:
             return self._route_endpoint_response(identity, request, source)
         if request.message_type == "ack":
             return self._route_endpoint_response(identity, request, source)
+        if request.message_type == "open_simulation_session":
+            assert isinstance(parsed, OpenSimulationSessionRequest)
+            return self._open_simulation_session(
+                identity,
+                request,
+                source,
+                parsed,
+                wall_time=current_wall,
+            )
+        if request.message_type == "close_simulation_session":
+            assert isinstance(parsed, CloseSimulationSessionRequest)
+            return self._close_simulation_session(identity, request, source, parsed)
+        if request.message_type == "simulation_command":
+            assert isinstance(parsed, SimulationCommandRequest)
+            return self._route_simulation_command(identity, request, source, parsed)
+        if request.message_type == "simulation_result":
+            assert isinstance(parsed, SimulationResultPayload)
+            return self._route_simulation_result(identity, request, source, parsed)
+        if request.message_type == "simulation_status":
+            assert isinstance(parsed, SimulationStatusPayload)
+            return self._route_simulation_status(identity, request, source)
         if request.message_type == "webrtc_signal":
-            return self._route_webrtc(identity, request, source)
+            assert isinstance(parsed, WebRtcSignalPayload)
+            return self._route_webrtc(identity, request, source, parsed)
         return self._error(identity, request, f"unsupported message type: {request.message_type}")
 
     def _register(
@@ -161,6 +214,7 @@ class RouterCore:
         request: Envelope,
         *,
         now: float,
+        authenticated_user_id: str,
     ) -> list[RoutedMessage]:
         try:
             registration = RegisterRequest.from_payload(request.payload or {})
@@ -169,6 +223,12 @@ class RouterCore:
         descriptor = registration.endpoint
         if descriptor.endpoint_id != request.source_id:
             return self._error(identity, request, "source_id does not match endpoint descriptor")
+        if self.endpoint_authorizer is not None and not self.endpoint_authorizer(
+            str(authenticated_user_id),
+            descriptor.endpoint_id,
+            descriptor.role,
+        ):
+            return self._error(identity, request, "authenticated identity is not authorized for endpoint")
 
         identity_owner = self.endpoint_by_identity.get(identity)
         if identity_owner and identity_owner != descriptor.endpoint_id:
@@ -361,22 +421,218 @@ class RouterCore:
                 )
         return [RoutedMessage(target.identity, request)]
 
-    def _route_webrtc(
+    def _open_simulation_session(
+        self,
+        identity: bytes,
+        request: Envelope,
+        source: RegisteredEndpoint,
+        opened: OpenSimulationSessionRequest,
+        *,
+        wall_time: float,
+    ) -> list[RoutedMessage]:
+        if source.descriptor.role != "ui":
+            return self._error(identity, request, "only UI endpoints open simulation sessions")
+        simulator = self.endpoints.get(opened.simulator_id)
+        if simulator is None or simulator.descriptor.role != "simulator":
+            return self._error(identity, request, "simulator is unavailable")
+        advertised = simulator.descriptor.streams or {}
+        missing = sorted(set(opened.streams) - set(advertised))
+        if missing:
+            return self._error(
+                identity,
+                request,
+                "simulator does not advertise streams: " + ", ".join(missing),
+            )
+        try:
+            session = self.simulation_sessions.open(
+                request_id=opened.request_id,
+                ui_id=request.source_id,
+                simulator_id=opened.simulator_id,
+                streams=opened.streams,
+            )
+        except SimulationSessionError as exc:
+            return self._error(identity, request, str(exc))
+        session.request_id = opened.request_id
+        ui_turn = simulator_turn = None
+        if self.turn_issuer is not None:
+            ui_turn = self.turn_issuer.issue(session.ui_id, session.session_id, now=wall_time)
+            simulator_turn = self.turn_issuer.issue(
+                session.simulator_id,
+                session.session_id,
+                now=wall_time,
+            )
+            session.turn_expires_at = min(ui_turn.expires_at, simulator_turn.expires_at)
+        granted = SimulationSessionGrantedPayload(
+            request_id=opened.request_id,
+            session_id=session.session_id,
+            simulator_id=session.simulator_id,
+            ui_id=session.ui_id,
+            streams=session.streams,
+            turn=simulator_turn,
+        )
+        response = SimulationSessionOpenedPayload(
+            request_id=opened.request_id,
+            session_id=session.session_id,
+            simulator_id=session.simulator_id,
+            streams=session.streams,
+            turn=ui_turn,
+        )
+        return [
+            RoutedMessage(
+                simulator.identity,
+                self._server_envelope(
+                    "simulation_session_granted",
+                    target_id=session.simulator_id,
+                    payload=granted.to_payload(),
+                    lease_id=session.session_id,
+                    trace_context=request.trace_context,
+                ),
+            ),
+            RoutedMessage(
+                identity,
+                self._server_envelope(
+                    "simulation_session_opened",
+                    target_id=session.ui_id,
+                    payload=response.to_payload(),
+                    lease_id=session.session_id,
+                    trace_context=request.trace_context,
+                ),
+            ),
+        ]
+
+    def _close_simulation_session(
+        self,
+        identity: bytes,
+        request: Envelope,
+        source: RegisteredEndpoint,
+        closed: CloseSimulationSessionRequest,
+    ) -> list[RoutedMessage]:
+        if source.descriptor.role != "ui":
+            return self._error(identity, request, "only UI endpoints close simulation sessions")
+        session = self.simulation_sessions.by_id.get(closed.session_id)
+        if session is None or session.ui_id != request.source_id:
+            return self._error(identity, request, "simulation session is not owned by this UI")
+        return self._revoke_simulation_session(
+            session,
+            reason="closed",
+            trace_context=request.trace_context,
+        )
+
+    @staticmethod
+    def _session_matches(
+        session: Optional[SimulationSession],
+        request: Envelope,
+        session_id: str,
+    ) -> bool:
+        return (
+            session is not None
+            and session.session_id == session_id
+            and request.lease_id == session.session_id
+        )
+
+    def _route_simulation_command(
+        self,
+        identity: bytes,
+        request: Envelope,
+        source: RegisteredEndpoint,
+        command: SimulationCommandRequest,
+    ) -> list[RoutedMessage]:
+        session = self.simulation_sessions.by_ui.get(request.source_id)
+        if (
+            source.descriptor.role != "ui"
+            or not self._session_matches(session, request, command.session_id)
+            or session is None
+            or request.target_id != session.simulator_id
+        ):
+            return self._error(identity, request, "command does not match active simulation session")
+        simulator = self.endpoints.get(session.simulator_id)
+        if simulator is None:
+            return self._error(identity, request, "simulator is unavailable")
+        return [RoutedMessage(simulator.identity, request)]
+
+    def _route_simulation_result(
+        self,
+        identity: bytes,
+        request: Envelope,
+        source: RegisteredEndpoint,
+        result: SimulationResultPayload,
+    ) -> list[RoutedMessage]:
+        session = self.simulation_sessions.by_simulator.get(request.source_id)
+        if (
+            source.descriptor.role != "simulator"
+            or not self._session_matches(session, request, result.session_id)
+            or session is None
+            or request.target_id != session.ui_id
+        ):
+            return self._error(identity, request, "result does not match active simulation session")
+        ui = self.endpoints.get(session.ui_id)
+        if ui is None:
+            return self._error(identity, request, "simulation UI is unavailable")
+        return [RoutedMessage(ui.identity, request)]
+
+    def _route_simulation_status(
         self,
         identity: bytes,
         request: Envelope,
         source: RegisteredEndpoint,
     ) -> list[RoutedMessage]:
-        target = self.endpoints.get(request.target_id)
+        if source.descriptor.role != "simulator":
+            return self._error(identity, request, "only simulators publish simulation status")
+        recipients: set[str] = set()
+        controller_id = self.controller_by_target.get(request.source_id, "")
+        if controller_id:
+            recipients.add(controller_id)
+        session = self.simulation_sessions.by_simulator.get(request.source_id)
+        if session is not None:
+            recipients.add(session.ui_id)
+        routed: list[RoutedMessage] = []
+        for endpoint_id in sorted(recipients):
+            endpoint = self.endpoints.get(endpoint_id)
+            if endpoint is not None:
+                routed.append(
+                    RoutedMessage(
+                        endpoint.identity,
+                        replace(request, target_id=endpoint_id),
+                    )
+                )
+        return routed
+
+    def _route_webrtc(
+        self,
+        identity: bytes,
+        request: Envelope,
+        source: RegisteredEndpoint,
+        signal: WebRtcSignalPayload,
+    ) -> list[RoutedMessage]:
+        if source.descriptor.role == "ui":
+            session = self.simulation_sessions.by_ui.get(request.source_id)
+            expected_target = "" if session is None else session.simulator_id
+        elif source.descriptor.role == "simulator":
+            session = self.simulation_sessions.by_simulator.get(request.source_id)
+            expected_target = "" if session is None else session.ui_id
+        else:
+            session = None
+            expected_target = ""
+        if (
+            not self._session_matches(session, request, signal.session_id)
+            or session is None
+            or request.target_id != expected_target
+            or signal.stream not in session.streams
+        ):
+            return self._error(identity, request, "WebRTC signal does not match active simulation session")
+        target = self.endpoints.get(expected_target)
         if target is None:
             return self._error(identity, request, "WebRTC target is unavailable")
-        role_pair = {source.descriptor.role, target.descriptor.role}
-        if "ui" not in role_pair or not role_pair.intersection({"controller", "simulator"}):
-            return self._error(identity, request, "WebRTC roles are not permitted")
         return [RoutedMessage(target.identity, request)]
 
-    def expire(self, *, now: Optional[float] = None) -> list[RoutedMessage]:
+    def expire(
+        self,
+        *,
+        now: Optional[float] = None,
+        wall_time: Optional[float] = None,
+    ) -> list[RoutedMessage]:
         current = time.monotonic() if now is None else float(now)
+        current_wall = time.time() if wall_time is None else float(wall_time)
         expired = sorted(
             endpoint_id
             for endpoint_id, endpoint in self.endpoints.items()
@@ -385,6 +641,99 @@ class RouterCore:
         routed: list[RoutedMessage] = []
         for endpoint_id in expired:
             routed.extend(self._drop(endpoint_id))
+        routed.extend(self._refresh_turn_credentials(wall_time=current_wall))
+        return routed
+
+    def _refresh_turn_credentials(self, *, wall_time: float) -> list[RoutedMessage]:
+        if self.turn_issuer is None:
+            return []
+        routed: list[RoutedMessage] = []
+        for session in tuple(self.simulation_sessions.by_id.values()):
+            if not self.turn_issuer.refresh_due(session.turn_expires_at, now=wall_time):
+                continue
+            ui = self.endpoints.get(session.ui_id)
+            simulator = self.endpoints.get(session.simulator_id)
+            if ui is None or simulator is None:
+                continue
+            ui_turn = self.turn_issuer.issue(session.ui_id, session.session_id, now=wall_time)
+            simulator_turn = self.turn_issuer.issue(
+                session.simulator_id,
+                session.session_id,
+                now=wall_time,
+            )
+            session.turn_expires_at = min(ui_turn.expires_at, simulator_turn.expires_at)
+            opened = SimulationSessionOpenedPayload(
+                request_id=session.request_id,
+                session_id=session.session_id,
+                simulator_id=session.simulator_id,
+                streams=session.streams,
+                turn=ui_turn,
+            )
+            granted = SimulationSessionGrantedPayload(
+                request_id=session.request_id,
+                session_id=session.session_id,
+                simulator_id=session.simulator_id,
+                ui_id=session.ui_id,
+                streams=session.streams,
+                turn=simulator_turn,
+            )
+            routed.extend(
+                (
+                    RoutedMessage(
+                        simulator.identity,
+                        self._server_envelope(
+                            "simulation_session_granted",
+                            target_id=session.simulator_id,
+                            payload=granted.to_payload(),
+                            lease_id=session.session_id,
+                        ),
+                    ),
+                    RoutedMessage(
+                        ui.identity,
+                        self._server_envelope(
+                            "simulation_session_opened",
+                            target_id=session.ui_id,
+                            payload=opened.to_payload(),
+                            lease_id=session.session_id,
+                        ),
+                    ),
+                )
+            )
+        return routed
+
+    def _revoke_simulation_session(
+        self,
+        session: SimulationSession,
+        *,
+        reason: str,
+        trace_context: Optional[Mapping[str, str]] = None,
+        excluded_endpoint: str = "",
+    ) -> list[RoutedMessage]:
+        self.simulation_sessions.close(session.session_id)
+        payload = SimulationSessionRevokedPayload(
+            session_id=session.session_id,
+            simulator_id=session.simulator_id,
+            reason=reason,
+        ).to_payload()
+        routed: list[RoutedMessage] = []
+        for endpoint_id in (session.simulator_id, session.ui_id):
+            if endpoint_id == excluded_endpoint:
+                continue
+            endpoint = self.endpoints.get(endpoint_id)
+            if endpoint is None:
+                continue
+            routed.append(
+                RoutedMessage(
+                    endpoint.identity,
+                    self._server_envelope(
+                        "simulation_session_revoked",
+                        target_id=endpoint_id,
+                        payload=payload,
+                        lease_id=session.session_id,
+                        trace_context=trace_context,
+                    ),
+                )
+            )
         return routed
 
     def _release_controller(
@@ -420,15 +769,31 @@ class RouterCore:
         *,
         trace_context: Optional[Mapping[str, str]] = None,
     ) -> list[RoutedMessage]:
+        routed: list[RoutedMessage] = []
+        session = (
+            self.simulation_sessions.by_ui.get(endpoint_id)
+            or self.simulation_sessions.by_simulator.get(endpoint_id)
+        )
+        if session is not None:
+            routed.extend(
+                self._revoke_simulation_session(
+                    session,
+                    reason="endpoint disconnected",
+                    trace_context=trace_context,
+                    excluded_endpoint=endpoint_id,
+                )
+            )
         endpoint = self.endpoints.pop(endpoint_id, None)
         if endpoint is not None:
             self.endpoint_by_identity.pop(endpoint.identity, None)
         self._last_seq.pop(endpoint_id, None)
         self._server_seq.pop(endpoint_id, None)
         if endpoint_id in self.active_target_by_controller:
-            return self._release_controller(
-                endpoint_id,
-                trace_context=trace_context,
+            routed.extend(
+                self._release_controller(
+                    endpoint_id,
+                    trace_context=trace_context,
+                )
             )
         owner = self.controller_by_target.pop(endpoint_id, "")
         if owner:
@@ -436,7 +801,7 @@ class RouterCore:
             self.lease_by_controller.pop(owner, None)
             controller = self.endpoints.get(owner)
             if controller is not None:
-                return [
+                routed.append(
                     RoutedMessage(
                         controller.identity,
                         self._server_envelope(
@@ -446,8 +811,8 @@ class RouterCore:
                             trace_context=trace_context,
                         ),
                     )
-                ]
-        return []
+                )
+        return routed
 
 
 __all__ = ["RegisteredEndpoint", "RoutedMessage", "RouterCore"]

@@ -182,9 +182,9 @@ def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
     row_x = float(imgui.get_cursor_pos_x())
     row_w = max(1.0, float(imgui.get_content_region_available_width()))
     button_w = scaled(panel, _OFFSET_BUTTON_W)
-    changed, paused = imgui.checkbox("Lock", bool(panel.state.paused))
+    changed, locked = imgui.checkbox("Lock", bool(panel.state.controls_locked))
     if changed:
-        panel.state.set_paused(bool(paused))
+        panel.state.set_controls_locked(bool(locked))
 
     button_x = row_x + row_w - button_w
     current_x = float(imgui.get_cursor_pos_x())
@@ -254,9 +254,9 @@ def draw_control_4dof_panel(panel) -> None:
         and panel.service.has_client()
         and link_state is not None
     )
-    slider_lock_paused = bool(panel.state.paused)
+    controls_locked = bool(panel.state.controls_locked)
     sliders_locked = bool(
-        slider_lock_paused
+        controls_locked
         or (
             panel._use_hardware
             and (

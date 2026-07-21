@@ -53,7 +53,7 @@ simulation:
       port: tcp://127.0.0.1:5568
       rgb: true
       width: 640
-    side:
+    observer:
       enable: true
       fov_deg: 60.0
       height: 480

@@ -13,7 +13,7 @@ from elesim_protocol import SimMappingConfig
 from elesim_robot.go2.config import Go2HardwareConfig
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,15 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
+class SecurityConfig:
+    router_client_secret_file: str = ""
+    router_server_public_file: str = ""
+    media_server_secret_file: str = ""
+    media_client_public_keys_dir: str = ""
+    allow_insecure_remote: bool = False
+
+
+@dataclass(frozen=True)
 class RobotConfig:
     endpoint_id: str
     server_endpoint: str
@@ -69,6 +78,7 @@ class RobotConfig:
     go2: Go2HardwareConfig
     camera: CameraConfig
     safety: SafetyConfig
+    security: SecurityConfig
 
 
 def _mapping(raw: object, *, context: str) -> dict[str, Any]:
@@ -190,9 +200,19 @@ def _validate_safety(config: SafetyConfig) -> None:
 
 
 def load_config(path: str | Path) -> RobotConfig:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    source = Path(path)
+    raw = yaml.safe_load(source.read_text(encoding="utf-8"))
     root = _mapping(raw, context="robot")
-    allowed_top = {"schema_version", "runtime", "arm", "mapping", "go2", "camera", "safety"}
+    allowed_top = {
+        "schema_version",
+        "runtime",
+        "arm",
+        "mapping",
+        "go2",
+        "camera",
+        "safety",
+        "security",
+    }
     unknown_top = sorted(set(root) - allowed_top)
     if unknown_top:
         raise ValueError(f"unknown robot config keys: {', '.join(unknown_top)}")
@@ -215,6 +235,26 @@ def load_config(path: str | Path) -> RobotConfig:
     go2 = Go2HardwareConfig(**_values(Go2HardwareConfig, root.get("go2"), context="go2"))
     camera = CameraConfig(**_values(CameraConfig, root.get("camera"), context="camera"))
     safety = SafetyConfig(**_values(SafetyConfig, root.get("safety"), context="safety"))
+    security = SecurityConfig(
+        **_values(SecurityConfig, root.get("security"), context="security")
+    )
+
+    def resolved(value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            return ""
+        candidate = Path(text).expanduser()
+        return str(candidate if candidate.is_absolute() else (source.parent / candidate).resolve())
+
+    security = SecurityConfig(
+        router_client_secret_file=resolved(security.router_client_secret_file),
+        router_server_public_file=resolved(security.router_server_public_file),
+        media_server_secret_file=resolved(security.media_server_secret_file),
+        media_client_public_keys_dir=resolved(
+            security.media_client_public_keys_dir
+        ),
+        allow_insecure_remote=security.allow_insecure_remote,
+    )
 
     endpoint_id = str(runtime.get("endpoint_id", "robot-go2")).strip()
     server_endpoint = str(runtime.get("server_endpoint", "tcp://127.0.0.1:5558")).strip()
@@ -241,6 +281,7 @@ def load_config(path: str | Path) -> RobotConfig:
         go2=go2,
         camera=camera,
         safety=safety,
+        security=security,
     )
 
 
@@ -248,6 +289,7 @@ __all__ = [
     "CameraConfig",
     "HardwareConfig",
     "RobotConfig",
+    "SecurityConfig",
     "SafetyConfig",
     "load_config",
 ]

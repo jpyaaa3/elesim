@@ -1,0 +1,16 @@
+schema_version: 2
+runtime:
+  role: simulator
+  endpoint_id: sim-default
+  server_endpoint: tcp://127.0.0.1:5558
+  streams:
+    rgbd_bind: tcp://0.0.0.0:5568
+    rgbd_advertise: tcp://sim.example.com:5568
+    observer_bind: tcp://127.0.0.1:5569
+    observer_advertise: tcp://127.0.0.1:5569
+security:
+  router_client_secret_file: /etc/elesim/secrets/curve/clients/sim-default.key_secret
+  router_server_public_file: /etc/elesim/secrets/curve/router/router.key
+  media_server_secret_file: /etc/elesim/secrets/curve/media/simulator-media.key_secret
+  media_client_public_keys_dir: /etc/elesim/secrets/curve/media-authorized
+  allow_insecure_remote: false

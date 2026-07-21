@@ -1,4 +1,4 @@
-"""Protocol-v3 endpoint owned by the simulator deployment."""
+"""Protocol-v4 endpoint owned by the simulator deployment."""
 
 from __future__ import annotations
 
@@ -8,18 +8,33 @@ from typing import Any, Callable, Mapping, Optional
 from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
-    CAPABILITY_STREAM_RENDERED,
+    CAPABILITY_STREAM_HAND_EYE_PREVIEW,
+    CAPABILITY_STREAM_OBSERVER,
     CAPABILITY_STREAM_RGBD,
+    CurveClientConfig,
     EndpointClient,
     EndpointDescriptor,
     Envelope,
+    MediaStreamDescriptor,
+    ProtocolError,
+    SimulationCommandRequest,
+    SimulationResultPayload,
+    SimulationSessionGrantedPayload,
+    SimulationSessionRevokedPayload,
+    SimulationStatusPayload,
+    TurnCredentials,
+    WebRtcSignalPayload,
 )
 
 from .control_state import SimulationStateSource
+from .simulation.operator_control import (
+    SimulationOperatorCommand,
+    SimulationOperatorMailbox,
+)
 
 
 class SimulatorEndpoint:
-    """Owns router lifecycle while Genesis communicates through memory only."""
+    """Own router lifecycle while Genesis communicates through memory only."""
 
     def __init__(
         self,
@@ -27,27 +42,45 @@ class SimulatorEndpoint:
         server_endpoint: str,
         endpoint_id: str,
         state: SimulationStateSource,
-        streams: Mapping[str, str],
-        camera_input_handler: Optional[Callable[[str, object], None]] = None,
-        webrtc_offer_handler: Optional[Callable[[str, str], Mapping[str, Any]]] = None,
+        streams: Mapping[str, MediaStreamDescriptor],
+        operator_mailbox: Optional[SimulationOperatorMailbox] = None,
+        webrtc_offer_handler: Optional[
+            Callable[[str, str, str, Optional[TurnCredentials], str], Mapping[str, Any]]
+        ] = None,
+        webrtc_session_close_handler: Optional[Callable[[str], None]] = None,
+        curve: Optional[CurveClientConfig] = None,
+        allow_insecure_remote: bool = False,
         endpoint_factory: Callable[..., Any] = EndpointClient,
     ) -> None:
         self.server_endpoint = str(server_endpoint)
         self.endpoint_id = str(endpoint_id)
         self.state = state
         self.streams = dict(streams)
-        self.camera_input_handler = camera_input_handler
+        self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
         self.webrtc_offer_handler = webrtc_offer_handler
+        self.webrtc_session_close_handler = webrtc_session_close_handler
+        self.curve = curve
+        self.allow_insecure_remote = bool(allow_insecure_remote)
         self.endpoint_factory = endpoint_factory
+
         self.controller_id = ""
         self.active_lease = ""
         self.last_control_seq = -1
+        self.simulation_ui_id = ""
+        self.simulation_session_id = ""
+        self.simulation_streams: tuple[str, ...] = ()
+        self.turn_credentials: Optional[TurnCredentials] = None
+        self.last_simulation_seq = -1
+
         self.stop_event = threading.Event()
         self.ready = threading.Event()
         self.thread: Optional[threading.Thread] = None
         self._telemetry_lock = threading.Lock()
         self._telemetry: dict[str, Any] = {}
         self._telemetry_dirty = False
+        self._status_lock = threading.Lock()
+        self._status: Optional[SimulationStatusPayload] = None
+        self._status_dirty = False
 
     def start(self) -> None:
         self.stop_event.clear()
@@ -74,10 +107,36 @@ class SimulatorEndpoint:
         self.active_lease = ""
         self.last_control_seq = -1
 
+    def grant_simulation_session(self, granted: SimulationSessionGrantedPayload) -> None:
+        changed = granted.session_id != self.simulation_session_id
+        self.simulation_ui_id = granted.ui_id
+        self.simulation_session_id = granted.session_id
+        self.simulation_streams = tuple(granted.streams)
+        self.turn_credentials = granted.turn
+        if changed:
+            self.last_simulation_seq = -1
+
+    def revoke_simulation_session(self) -> None:
+        session_id = self.simulation_session_id
+        self.simulation_ui_id = ""
+        self.simulation_session_id = ""
+        self.simulation_streams = ()
+        self.turn_credentials = None
+        self.last_simulation_seq = -1
+        if session_id and self.webrtc_session_close_handler is not None:
+            self.webrtc_session_close_handler(session_id)
+
     def publish_telemetry(self, payload: Mapping[str, Any]) -> None:
         with self._telemetry_lock:
             self._telemetry.update(dict(payload))
             self._telemetry_dirty = True
+
+    def publish_simulation_status(self, status: SimulationStatusPayload) -> None:
+        if not isinstance(status, SimulationStatusPayload):
+            raise TypeError("simulation status publisher requires SimulationStatusPayload")
+        with self._status_lock:
+            self._status = status
+            self._status_dirty = True
 
     def flush_telemetry(self, client: Any) -> None:
         if not self.controller_id or not self.active_lease:
@@ -94,6 +153,28 @@ class SimulatorEndpoint:
             lease_id=self.active_lease,
         )
 
+    def flush_simulation_status(self, client: Any) -> None:
+        with self._status_lock:
+            if not self._status_dirty or self._status is None:
+                return
+            status = self._status
+            self._status_dirty = False
+        client.send("simulation_status", payload=status.to_payload())
+
+    def flush_simulation_results(self, client: Any) -> None:
+        for result in self.operator_mailbox.take_results():
+            if (
+                result.target_id != self.simulation_ui_id
+                or result.payload.session_id != self.simulation_session_id
+            ):
+                continue
+            client.send(
+                "simulation_result",
+                target_id=result.target_id,
+                payload=result.payload.to_payload(),
+                lease_id=self.simulation_session_id,
+            )
+
     def handle_envelope(self, client: Any, message: Envelope) -> None:
         if message.message_type == "lease_granted":
             self.grant_lease(
@@ -103,6 +184,22 @@ class SimulatorEndpoint:
             return
         if message.message_type == "lease_revoked":
             self.revoke_lease()
+            return
+        if message.message_type == "simulation_session_granted":
+            try:
+                granted = SimulationSessionGrantedPayload.from_payload(message.payload or {})
+            except ProtocolError:
+                return
+            if granted.simulator_id == self.endpoint_id and message.lease_id == granted.session_id:
+                self.grant_simulation_session(granted)
+            return
+        if message.message_type == "simulation_session_revoked":
+            try:
+                revoked = SimulationSessionRevokedPayload.from_payload(message.payload or {})
+            except ProtocolError:
+                return
+            if revoked.session_id == self.simulation_session_id:
+                self.revoke_simulation_session()
             return
         if message.message_type == "motion_command":
             ok, reason = self._apply_motion(message)
@@ -114,27 +211,13 @@ class SimulatorEndpoint:
                 trace_context=message.trace_context,
             )
             return
-        if message.message_type == "camera_input":
-            ok, _reason = self._validate_control(message)
-            if ok and self.camera_input_handler is not None:
-                payload = message.payload or {}
-                self.camera_input_handler(str(payload.get("command", "")), payload.get("values", ()))
+        if message.message_type == "simulation_command":
+            self._queue_simulation_command(client, message)
             return
-        if message.message_type == "webrtc_signal" and self.webrtc_offer_handler is not None:
-            payload = message.payload or {}
-            if str(payload.get("signal", "")) == "offer":
-                answer = self.webrtc_offer_handler(
-                    str(payload.get("sdp", "")),
-                    str(payload.get("type", "offer")),
-                )
-                client.send(
-                    "webrtc_signal",
-                    target_id=message.source_id,
-                    payload={"signal": "answer", **dict(answer)},
-                    trace_context=message.trace_context,
-                )
+        if message.message_type == "webrtc_signal":
+            self._handle_webrtc_offer(client, message)
 
-    def _validate_control(self, message: Envelope, *, allow_estop: bool = False) -> tuple[bool, str]:
+    def _validate_motion(self, message: Envelope, *, allow_estop: bool = False) -> tuple[bool, str]:
         if allow_estop:
             return True, "accepted"
         if message.source_id != self.controller_id or message.lease_id != self.active_lease:
@@ -144,10 +227,22 @@ class SimulatorEndpoint:
         self.last_control_seq = message.seq
         return True, "accepted"
 
+    def _validate_simulation_session(self, message: Envelope, session_id: str) -> tuple[bool, str]:
+        if (
+            message.source_id != self.simulation_ui_id
+            or message.lease_id != self.simulation_session_id
+            or session_id != self.simulation_session_id
+        ):
+            return False, "simulation_session_mismatch"
+        if message.seq <= self.last_simulation_seq:
+            return False, "stale_sequence"
+        self.last_simulation_seq = message.seq
+        return True, "accepted"
+
     def _apply_motion(self, message: Envelope) -> tuple[bool, str]:
         payload = dict(message.payload or {})
         command = str(payload.get("command", ""))
-        ok, reason = self._validate_control(message, allow_estop=command == "estop")
+        ok, reason = self._validate_motion(message, allow_estop=command == "estop")
         if not ok:
             return ok, reason
         try:
@@ -156,20 +251,84 @@ class SimulatorEndpoint:
             reason = str(exc)
             return False, reason if reason else "invalid_command"
 
+    def _queue_simulation_command(self, client: Any, message: Envelope) -> None:
+        try:
+            request = SimulationCommandRequest.from_payload(message.payload or {})
+        except ProtocolError:
+            return
+        ok, reason = self._validate_simulation_session(message, request.session_id)
+        if ok:
+            queued = self.operator_mailbox.enqueue(
+                SimulationOperatorCommand.from_request(request, ui_id=message.source_id)
+            )
+            if queued:
+                return
+            reason = "simulation command queue is full"
+        result = SimulationResultPayload(
+            request_id=request.request_id,
+            session_id=request.session_id,
+            command=request.command,
+            ok=False,
+            reason=reason,
+        )
+        client.send(
+            "simulation_result",
+            target_id=message.source_id,
+            payload=result.to_payload(),
+            lease_id=message.lease_id,
+            trace_context=message.trace_context,
+        )
+
+    def _handle_webrtc_offer(self, client: Any, message: Envelope) -> None:
+        if self.webrtc_offer_handler is None:
+            return
+        try:
+            signal = WebRtcSignalPayload.from_payload(message.payload or {})
+        except ProtocolError:
+            return
+        ok, _reason = self._validate_simulation_session(message, signal.session_id)
+        if not ok or signal.signal != "offer" or signal.stream not in self.simulation_streams:
+            return
+        answer = self.webrtc_offer_handler(
+            signal.stream,
+            signal.sdp,
+            signal.type,
+            self.turn_credentials,
+            signal.session_id,
+        )
+        payload = WebRtcSignalPayload(
+            session_id=signal.session_id,
+            stream=signal.stream,
+            signal="answer",
+            sdp=str(answer["sdp"]),
+            type=str(answer["type"]),
+        )
+        client.send(
+            "webrtc_signal",
+            target_id=message.source_id,
+            payload=payload.to_payload(),
+            lease_id=self.simulation_session_id,
+            trace_context=message.trace_context,
+        )
+
     def _run(self) -> None:
+        capabilities = [CAPABILITY_MOTION_ARM, CAPABILITY_MOTION_GO2]
+        if "rgbd" in self.streams:
+            capabilities.append(CAPABILITY_STREAM_RGBD)
+        if "observer" in self.streams:
+            capabilities.append(CAPABILITY_STREAM_OBSERVER)
+        if "hand_eye_preview" in self.streams:
+            capabilities.append(CAPABILITY_STREAM_HAND_EYE_PREVIEW)
         client = self.endpoint_factory(
             self.server_endpoint,
             EndpointDescriptor(
                 self.endpoint_id,
                 "simulator",
-                (
-                    CAPABILITY_MOTION_ARM,
-                    CAPABILITY_MOTION_GO2,
-                    CAPABILITY_STREAM_RGBD,
-                    CAPABILITY_STREAM_RENDERED,
-                ),
+                tuple(capabilities),
                 streams=self.streams,
             ),
+            curve=self.curve,
+            allow_insecure_remote=self.allow_insecure_remote,
         )
         self.ready.set()
         was_registered = client.registered
@@ -180,10 +339,14 @@ class SimulatorEndpoint:
                     self.handle_envelope(client, message)
                 if was_registered and not client.registered:
                     self.revoke_lease()
+                    self.revoke_simulation_session()
                 was_registered = client.registered
                 self.flush_telemetry(client)
+                self.flush_simulation_status(client)
+                self.flush_simulation_results(client)
         finally:
             self.revoke_lease()
+            self.revoke_simulation_session()
             client.close()
 
 

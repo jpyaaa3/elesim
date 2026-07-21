@@ -175,8 +175,8 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         self._perception_rate_last_t: float = 0.0
         self._perception_rate_last_frame_idx: int = -1
         self._perception_hz: float = 0.0
-        self._side_camera_recorder: Optional[Any] = None
-        self._side_camera_record_path: Optional[Path] = None
+        self._observer_camera_recorder: Optional[Any] = None
+        self._observer_camera_record_path: Optional[Path] = None
         self._remote_preview_stop = threading.Event()
         self._remote_preview_thread: Optional[threading.Thread] = None
         self._last_pick_profile: Optional[PickPhaseProfile] = None
@@ -2428,7 +2428,7 @@ class ControlService(_MotionFeedbackActions):
         sag_model_override: Optional[dict[str, Any]] = None,
     ) -> None:
         if self.client is not None and (
-            force or (not self.state.paused) or (source == "target")
+            force or (not self.state.controls_locked) or (source == "target")
         ):
             self.client.send_target_values(
                 linear_m=float(self.state.linear),
@@ -2634,7 +2634,7 @@ class ControlService(_MotionFeedbackActions):
         if self._perception_capture is not cap:
             return
         if bool(stop_recording):
-            self._stop_side_camera_recording()
+            self._stop_observer_camera_recording()
         self._perception_capture = None
         self._perception_capture_epoch += 1
         self._perception_rate_last_t = 0.0

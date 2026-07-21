@@ -1,0 +1,15 @@
+schema_version: 2
+router:
+  bind_endpoint: tcp://0.0.0.0:5558
+  heartbeat_timeout_s: 3.5
+security:
+  curve_server_secret_file: /etc/elesim/secrets/curve/router/router.key_secret
+  curve_public_keys_dir: /etc/elesim/secrets/curve/authorized
+  endpoint_registry_file: /etc/elesim/secrets/curve/endpoints.yaml
+  allow_insecure_remote: false
+turn:
+  urls:
+    - "turn:sim.example.com:3478?transport=udp"
+  static_auth_secret_file: /etc/elesim/secrets/turn.secret
+  credential_ttl_s: 3600
+  refresh_before_s: 600

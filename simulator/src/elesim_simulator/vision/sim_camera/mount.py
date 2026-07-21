@@ -195,8 +195,8 @@ class Node9EyeInHandCamera:
 
 
 @dataclass
-class FixedWorldCamera:
-    """Genesis camera held at a fixed world pose for side-view recordings."""
+class ObserverCamera:
+    """Operator-controlled Genesis camera for the remote scene view."""
 
     camera: Any
     intrinsics: SimCameraIntrinsics
@@ -217,7 +217,7 @@ class FixedWorldCamera:
         fov_deg: float = 55.0,
         pos: tuple[float, float, float] = (0.45, -1.8, 0.55),
         lookat: tuple[float, float, float] = (0.45, 0.0, 0.25),
-    ) -> "FixedWorldCamera":
+    ) -> "ObserverCamera":
         """Register camera before ``scene.build()``."""
         w, h = int(res[0]), int(res[1])
         pos_t = tuple(float(x) for x in pos)
@@ -241,18 +241,10 @@ class FixedWorldCamera:
         intr = intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg)
         return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t)
 
-    def _apply_pose(self) -> None:
-        from elesim_simulator.vision.sim_camera.remote_control import consume_pose
-
+    def _set_camera_pose(self) -> None:
         if self._reset_pos is None:
             self._reset_pos = self.pos
             self._reset_lookat = self.lookat
-        self.pos, self.lookat = consume_pose(
-            self.pos,
-            self.lookat,
-            reset_pos=self._reset_pos,
-            reset_lookat=self._reset_lookat or self.lookat,
-        )
         if not hasattr(self.camera, "set_pose"):
             return
         try:
@@ -265,11 +257,56 @@ class FixedWorldCamera:
             except Exception as exc:
                 if not self._pose_warned:
                     self._pose_warned = True
-                    print(f"[sim_camera] fixed camera pose update failed: {exc}")
+                    print(f"[sim_camera] observer pose update failed: {exc}")
         except Exception as exc:
             if not self._pose_warned:
                 self._pose_warned = True
-                print(f"[sim_camera] fixed camera pose update failed: {exc}")
+                print(f"[sim_camera] observer pose update failed: {exc}")
+
+    def apply_operator_command(self, command: str, arguments: dict[str, Any]) -> None:
+        """Apply a validated camera command on the Genesis owner thread."""
+
+        import math
+
+        if self._reset_pos is None:
+            self._reset_pos = self.pos
+            self._reset_lookat = self.lookat
+        name = str(command)
+        if name == "reset_view":
+            self.pos = self._reset_pos
+            self.lookat = self._reset_lookat or self.lookat
+            self._set_camera_pose()
+            return
+        eye = np.asarray(self.pos, dtype=float)
+        target = np.asarray(self.lookat, dtype=float)
+        offset = eye - target
+        radius = max(float(np.linalg.norm(offset)), 0.05)
+        if name == "orbit":
+            yaw = math.atan2(float(offset[1]), float(offset[0])) - float(arguments["dx"]) * math.pi
+            pitch = math.asin(float(np.clip(offset[2] / radius, -0.98, 0.98)))
+            pitch += float(arguments["dy"]) * math.pi * 0.5
+            pitch = float(np.clip(pitch, -1.45, 1.45))
+            offset = radius * np.array(
+                [math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)]
+            )
+            eye = target + offset
+        elif name == "zoom":
+            radius = float(np.clip(radius * math.exp(float(arguments["delta"]) * 1.5), 0.08, 20.0))
+            eye = target + offset / max(float(np.linalg.norm(offset)), 1e-9) * radius
+        elif name == "pan":
+            forward = target - eye
+            forward /= max(float(np.linalg.norm(forward)), 1e-9)
+            right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
+            right /= max(float(np.linalg.norm(right)), 1e-9)
+            up = np.cross(right, forward)
+            shift = (-float(arguments["dx"]) * right + float(arguments["dy"]) * up) * radius
+            eye += shift
+            target += shift
+        else:
+            raise ValueError(f"unsupported observer camera command: {name}")
+        self.pos = tuple(float(value) for value in eye)
+        self.lookat = tuple(float(value) for value in target)
+        self._set_camera_pose()
 
     def _camera_pose_world(self) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
         origin = np.asarray(self.pos, dtype=float).reshape(3)
@@ -304,7 +341,7 @@ class FixedWorldCamera:
 
         target_w = int(self.intrinsics.width)
         target_h = int(self.intrinsics.height)
-        self._apply_pose()
+        self._set_camera_pose()
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))

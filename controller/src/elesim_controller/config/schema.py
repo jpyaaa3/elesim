@@ -65,17 +65,17 @@ class SimConfig:
     sim_camera_width: int = 640
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
-    sim_side_camera_enable: bool = True
-    sim_side_camera_port: str = "tcp://127.0.0.1:5569"
-    sim_side_camera_jpeg: bool = True
-    sim_side_camera_jpeg_quality: int = 85
-    sim_side_camera_max_hz: float = 20.0
-    sim_side_camera_record_fps: float = 30.0
-    sim_side_camera_width: int = 960
-    sim_side_camera_height: int = 540
-    sim_side_camera_fov_deg: float = 55.0
-    sim_side_camera_pos: Tuple[float, float, float] = (0.45, -1.8, 0.55)
-    sim_side_camera_lookat: Tuple[float, float, float] = (0.45, 0.0, 0.25)
+    sim_observer_camera_enable: bool = True
+    sim_observer_camera_port: str = "tcp://127.0.0.1:5569"
+    sim_observer_camera_jpeg: bool = True
+    sim_observer_camera_jpeg_quality: int = 85
+    sim_observer_camera_max_hz: float = 20.0
+    sim_observer_camera_record_fps: float = 30.0
+    sim_observer_camera_width: int = 960
+    sim_observer_camera_height: int = 540
+    sim_observer_camera_fov_deg: float = 55.0
+    sim_observer_camera_pos: Tuple[float, float, float] = (0.45, -1.8, 0.55)
+    sim_observer_camera_lookat: Tuple[float, float, float] = (0.45, 0.0, 0.25)
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0
     perf_log_path: str = ""
@@ -228,6 +228,9 @@ class PerceptionConfig:
     track_redetect_grow_ratio_stale: float = 1.03
     sim_camera_port: str = "tcp://127.0.0.1:5568"
     sim_camera_jpeg: bool = True
+    sim_camera_curve_client_secret_file: str = ""
+    sim_camera_curve_server_key: str = ""
+    sim_camera_allow_insecure_remote: bool = False
     run_local: bool = True
 
     def resolved_detector_config_path(self) -> Path:

@@ -1,4 +1,4 @@
-"""Direct protocol-v3 connection for the controller deployment."""
+"""Direct protocol-v4 connection for the controller deployment."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
+    CurveClientConfig,
     EndpointClient,
     EndpointDescriptor,
     Envelope,
     ProtocolError,
     SimMappingConfig,
+    SimulationStatusPayload,
     encode_value,
 )
 
@@ -27,7 +29,7 @@ class _Submission:
 
 
 def canonical_motion_payload(message: Mapping[str, Any]) -> dict[str, Any]:
-    """Convert the controller command API to one canonical v3 motion payload."""
+    """Convert the controller command API to one canonical v4 motion payload."""
 
     command = str(message.get("t", "")).strip()
     if not command:
@@ -68,6 +70,8 @@ class ControllerConnection:
         send_hz: float = 30.0,
         discover_period_s: float = 1.0,
         endpoint_factory: Callable[..., Any] = EndpointClient,
+        curve: Optional[CurveClientConfig] = None,
+        allow_insecure_remote: bool = False,
     ) -> None:
         self.server_endpoint = str(server_endpoint)
         self.controller_id = str(controller_id)
@@ -77,6 +81,8 @@ class ControllerConnection:
         self.send_period_s = 0.0 if send_hz <= 0.0 else 1.0 / float(send_hz)
         self.discover_period_s = max(0.1, float(discover_period_s))
         self.endpoint_factory = endpoint_factory
+        self.curve = curve
+        self.allow_insecure_remote = bool(allow_insecure_remote)
 
         self.stop_event = threading.Event()
         self.ready = threading.Event()
@@ -86,6 +92,9 @@ class ControllerConnection:
         self.endpoints: list[dict[str, Any]] = []
         self.operator_handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
         self.on_target_selected: Optional[Callable[[dict[str, Any]], None]] = None
+        self.simulation_status_handler: Optional[
+            Callable[[SimulationStatusPayload], None]
+        ] = None
 
         self._outbox: queue.Queue[_Submission] = queue.Queue()
         self._pending_target: Optional[dict[str, Any]] = None
@@ -116,15 +125,6 @@ class ControllerConnection:
     def submit(self, message: Mapping[str, Any], *, force: bool = False) -> None:
         self._outbox.put(_Submission("motion", dict(message), bool(force)))
 
-    def send_camera_input(self, command: str, values: tuple[float, ...] = ()) -> None:
-        self._outbox.put(
-            _Submission(
-                "camera",
-                {"command": str(command), "values": [float(value) for value in values]},
-                True,
-            )
-        )
-
     def select_target(self, target_id: str) -> None:
         self.desired_target = str(target_id)
         self._selection_requested = ""
@@ -138,6 +138,8 @@ class ControllerConnection:
                 "controller",
                 (CAPABILITY_OPERATOR_CONTROL,),
             ),
+            curve=self.curve,
+            allow_insecure_remote=self.allow_insecure_remote,
         )
         self.ready.set()
         try:
@@ -186,7 +188,12 @@ class ControllerConnection:
                 None,
             )
             if descriptor is not None and self.on_target_selected is not None:
-                self.on_target_selected(dict(descriptor))
+                try:
+                    self.on_target_selected(dict(descriptor))
+                except (KeyError, ProtocolError, TypeError, ValueError) as exc:
+                    self.state_sink.accept_error(
+                        f"target stream configuration failed: {exc}"
+                    )
             return
         if message_type in {"target_lost", "target_released"}:
             self.active_target = ""
@@ -199,6 +206,17 @@ class ControllerConnection:
         if message_type == "telemetry":
             if not self.active_target or message.source_id == self.active_target:
                 self.state_sink.accept_telemetry(payload)
+            return
+        if message_type == "simulation_status":
+            if self.active_target and message.source_id != self.active_target:
+                return
+            try:
+                status = SimulationStatusPayload.from_payload(payload)
+            except ProtocolError as exc:
+                self.state_sink.accept_error(f"invalid simulation status: {exc}")
+                return
+            if self.simulation_status_handler is not None:
+                self.simulation_status_handler(status)
             return
         if message_type == "ack":
             self.state_sink.accept_ack(payload)
@@ -268,15 +286,6 @@ class ControllerConnection:
             if submission.kind == "select":
                 self._selection_requested = ""
                 self._request_desired_target(endpoint)
-                continue
-            if submission.kind == "camera":
-                if self.active_target and self.lease_id:
-                    endpoint.send(
-                        "camera_input",
-                        target_id=self.active_target,
-                        payload=submission.payload,
-                        lease_id=self.lease_id,
-                    )
                 continue
             payload = canonical_motion_payload(submission.payload)
             if payload["command"] == "target" and not submission.force:

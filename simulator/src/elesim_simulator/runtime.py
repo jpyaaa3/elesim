@@ -35,6 +35,7 @@ from elesim_simulator.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_simulator.core.runtime_urdf import select_runtime_urdf
 from elesim_simulator.robot.arm.sag_model import segment_errors_from_model
 from elesim_simulator.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_simulator.simulation.operator_control import SimulationOperatorController
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -879,8 +880,9 @@ class SimScene:
     walking_metrics: object = None
     eye_camera: object = None
     camera_publisher: object = None
-    side_camera: object = None
-    side_camera_publisher: object = None
+    observer_camera: object = None
+    observer_camera_publisher: object = None
+    frame_hub: object = None
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
@@ -889,7 +891,7 @@ class SimScene:
     sim_step_count: int = 0
     _sim_wall_start_s: float = field(default_factory=time.perf_counter)
     _last_camera_publish_t: float = 0.0
-    _last_side_camera_publish_t: float = 0.0
+    _last_observer_camera_publish_t: float = 0.0
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
@@ -1207,7 +1209,7 @@ class SimScene:
             try:
                 self.scene.reset()
             except Exception as exc:
-                print(f"[sim] scene.reset failed: {exc}")
+                raise RuntimeError(f"Genesis scene reset failed: {exc}") from exc
         if self.go2 is not None:
             self.go2.reset_locomotion()
         seen_entities: set[int] = set()
@@ -1259,7 +1261,7 @@ class SimScene:
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
     ) -> None:
-        if self.eye_camera is None or self.camera_publisher is None:
+        if self.eye_camera is None:
             return
         import time
 
@@ -1274,31 +1276,38 @@ class SimScene:
                 rgb_enabled=bool(rgb_enabled),
                 depth_enabled=bool(depth_enabled),
             )
-            if self.camera_publisher.publish(frame):
-                self._last_camera_publish_t = now
+            if self.frame_hub is not None:
+                self.frame_hub.publish("rgbd", frame)
+                self.frame_hub.publish("hand_eye_preview", frame)
+            if self.camera_publisher is not None:
+                self.camera_publisher.publish(frame)
+            self._last_camera_publish_t = now
         except Exception as exc:
             print(f"[sim_camera] capture/publish failed: {exc}")
 
-    def maybe_publish_side_camera(
+    def maybe_publish_observer_camera(
         self,
         *,
         max_hz: float,
         force: bool = False,
     ) -> None:
-        if self.side_camera is None or self.side_camera_publisher is None:
+        if self.observer_camera is None:
             return
         import time
 
         period = 1.0 / max(1.0, float(max_hz))
         now = time.time()
-        if not force and (now - float(self._last_side_camera_publish_t)) < period:
+        if not force and (now - float(self._last_observer_camera_publish_t)) < period:
             return
         try:
-            frame = self.side_camera.capture(ts=now, rgb_enabled=True, depth_enabled=False)
-            if self.side_camera_publisher.publish(frame):
-                self._last_side_camera_publish_t = now
+            frame = self.observer_camera.capture(ts=now, rgb_enabled=True, depth_enabled=False)
+            if self.frame_hub is not None:
+                self.frame_hub.publish("observer", frame)
+            if self.observer_camera_publisher is not None:
+                self.observer_camera_publisher.publish(frame)
+            self._last_observer_camera_publish_t = now
         except Exception as exc:
-            print(f"[sim_camera] side capture/publish failed: {exc}")
+            print(f"[sim_camera] observer capture/publish failed: {exc}")
 
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         if self.eye_camera is not None:
@@ -2047,16 +2056,16 @@ class RuntimePrep:
                 fov_deg=float(a.cfg.sim_camera_fov_deg),
             )
 
-        side_camera = None
-        if bool(getattr(a.cfg, "sim_side_camera_enable", False)):
-            from elesim_simulator.vision.sim_camera import FixedWorldCamera
+        observer_camera = None
+        if bool(getattr(a.cfg, "sim_observer_camera_enable", False)):
+            from elesim_simulator.vision.sim_camera import ObserverCamera
 
-            side_camera = FixedWorldCamera.create(
+            observer_camera = ObserverCamera.create(
                 a.sim_scene.scene,
-                res=(int(a.cfg.sim_side_camera_width), int(a.cfg.sim_side_camera_height)),
-                fov_deg=float(a.cfg.sim_side_camera_fov_deg),
-                pos=tuple(float(x) for x in a.cfg.sim_side_camera_pos),
-                lookat=tuple(float(x) for x in a.cfg.sim_side_camera_lookat),
+                res=(int(a.cfg.sim_observer_camera_width), int(a.cfg.sim_observer_camera_height)),
+                fov_deg=float(a.cfg.sim_observer_camera_fov_deg),
+                pos=tuple(float(x) for x in a.cfg.sim_observer_camera_pos),
+                lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
             )
 
         t_build = time.time()
@@ -2128,25 +2137,31 @@ class RuntimePrep:
                 str(a.cfg.sim_camera_port),
                 use_jpeg=bool(a.cfg.sim_camera_jpeg),
                 jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
+                curve=a.media_curve,
+                curve_client_keys_dir=a.media_curve_client_keys_dir,
+                allow_insecure_remote=a.allow_insecure_remote_media,
             )
 
-        if side_camera is not None:
-            a.sim_scene.side_camera = side_camera
+        if observer_camera is not None:
+            a.sim_scene.observer_camera = observer_camera
             from elesim_simulator.vision.sim_camera import SimCameraPublisher
 
-            a.sim_scene.side_camera_publisher = SimCameraPublisher(
-                str(a.cfg.sim_side_camera_port),
-                use_jpeg=bool(a.cfg.sim_side_camera_jpeg),
-                jpeg_quality=int(a.cfg.sim_side_camera_jpeg_quality),
+            a.sim_scene.observer_camera_publisher = SimCameraPublisher(
+                str(a.cfg.sim_observer_camera_port),
+                use_jpeg=bool(a.cfg.sim_observer_camera_jpeg),
+                jpeg_quality=int(a.cfg.sim_observer_camera_jpeg_quality),
                 send_depth=False,
+                curve=a.media_curve,
+                curve_client_keys_dir=a.media_curve_client_keys_dir,
+                allow_insecure_remote=a.allow_insecure_remote_media,
             )
             print(
-                "[sim_camera] side view | res=%dx%d pos=%s lookat=%s"
+                "[sim_camera] observer view | res=%dx%d pos=%s lookat=%s"
                 % (
-                    int(a.cfg.sim_side_camera_width),
-                    int(a.cfg.sim_side_camera_height),
-                    tuple(float(x) for x in a.cfg.sim_side_camera_pos),
-                    tuple(float(x) for x in a.cfg.sim_side_camera_lookat),
+                    int(a.cfg.sim_observer_camera_width),
+                    int(a.cfg.sim_observer_camera_height),
+                    tuple(float(x) for x in a.cfg.sim_observer_camera_pos),
+                    tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
                 )
             )
 
@@ -2217,6 +2232,54 @@ class SimRuntime:
         self._applied_go2_sport_pose_seq: int = 0
         self._applied_go2_obstacles_avoid_seq: int = 0
         self._t_mirror_status_log: float = 0.0
+        self._last_status_publish_t: float = 0.0
+        self._status_dirty = True
+        self._force_hand_eye_capture = True
+        self.operator = SimulationOperatorController(
+            reset_environment=self._reset_environment,
+            observer_command=self._apply_observer_command,
+        )
+        self.operator.debug_visible = bool(app.spawn.draw_debug_markers)
+
+    def _reset_environment(self) -> None:
+        a = self.app
+        start_q = proto.default_start_sim_q(a._proto_cfg)
+        if a.state_source is not None:
+            a.state_source.seed_estimate_q(start_q)
+        a.sim_scene.reset_environment(mapping_cfg=a._proto_cfg)
+        self._force_hand_eye_capture = True
+
+    def _apply_observer_command(self, command: str, arguments: dict[str, Any]) -> None:
+        camera = self.app.sim_scene.observer_camera
+        if camera is None:
+            raise RuntimeError("observer camera is disabled")
+        camera.apply_operator_command(command, arguments)
+
+    def _apply_operator_commands(self) -> None:
+        mailbox = self.app.operator_mailbox
+        if mailbox is None:
+            return
+        for command in mailbox.drain():
+            try:
+                ok, reason = self.operator.apply(command)
+            except Exception as exc:
+                ok, reason = False, str(exc) or type(exc).__name__
+            mailbox.complete(command, ok=ok, reason=reason)
+            self._status_dirty = True
+
+    def _publish_simulation_status(self, *, force: bool = False) -> None:
+        publisher = self.app.simulation_status_publisher
+        if publisher is None:
+            return
+        now = time.monotonic()
+        if not force and not self._status_dirty and now - self._last_status_publish_t < 0.5:
+            return
+        status = self.operator.status(
+            sim_time_s=self.app.sim_scene.sim_time_s(float(self.app.params.dt))
+        )
+        publisher(status)
+        self._last_status_publish_t = now
+        self._status_dirty = False
 
     def _maybe_log_mirror_status(self, now: float) -> None:
         a = self.app
@@ -2232,7 +2295,7 @@ class SimRuntime:
         base_rpy = a.state_source.go2_base_rpy()
         leg_q = a.state_source.go2_leg_q()
         go2_vel = a.state_source.go2_vel()
-        endpoint = "protocol-v3"
+        endpoint = "protocol-v4"
         if age is None:
             link_txt = "no host state yet"
         else:
@@ -2273,9 +2336,8 @@ class SimRuntime:
             reset_seq = int(a.state_source.sim_reset_seq())
             if reset_seq > int(self._applied_sim_reset_seq):
                 self._applied_sim_reset_seq = reset_seq
+                self.operator.reset()
                 start_q = proto.default_start_sim_q(a._proto_cfg)
-                a.state_source.seed_estimate_q(start_q)
-                a.sim_scene.reset_environment(mapping_cfg=a._proto_cfg)
                 a.sim_scene.maybe_publish_camera(
                     arm_q=(
                         float(start_q.linear_m),
@@ -2288,10 +2350,11 @@ class SimRuntime:
                     rgb_enabled=bool(a.cfg.sim_camera_rgb),
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
-                a.sim_scene.maybe_publish_side_camera(
-                    max_hz=float(a.cfg.sim_side_camera_max_hz),
+                a.sim_scene.maybe_publish_observer_camera(
+                    max_hz=float(a.cfg.sim_observer_camera_max_hz),
                     force=True,
                 )
+                self._status_dirty = True
 
     def _apply_go2_feature_commands(self) -> bool:
         a = self.app
@@ -2322,9 +2385,9 @@ class SimRuntime:
                 a.sim_scene.camera_publisher.close()
             except Exception:
                 pass
-        if a.sim_scene.side_camera_publisher is not None:
+        if a.sim_scene.observer_camera_publisher is not None:
             try:
-                a.sim_scene.side_camera_publisher.close()
+                a.sim_scene.observer_camera_publisher.close()
             except Exception:
                 pass
         if a.state_source is not None:
@@ -2345,6 +2408,7 @@ class SimRuntime:
             while True:
                 perf.reset_loop()
                 t_sec = time.perf_counter()
+                self._apply_operator_commands()
                 self._poll_host_and_update_model()
                 sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
                 if sim_target_xyz is not None:
@@ -2434,7 +2498,8 @@ class SimRuntime:
                 active_dynamic_keys: set[str] = set()
                 _HOST_VISIBLE_MARKER_NAMES = frozenset({"ready_pose", "ready_pose_dir"})
                 _HOST_CAMERA_MARKER_NAMES = frozenset({"camera_optical", "camera_look", "camera_right"})
-                if a.spawn.draw_debug_markers and cam_origin is not None and cam_look is not None and cam_right is not None:
+                debug_visible = bool(a.spawn.draw_debug_markers and self.operator.debug_visible)
+                if debug_visible and cam_origin is not None and cam_look is not None and cam_right is not None:
                     pos_arr = np.asarray(cam_origin, dtype=float).reshape(3)
                     active_dynamic_keys.add("sim_camera:sphere")
                     a.markers.draw_dynamic_sphere(
@@ -2444,7 +2509,7 @@ class SimRuntime:
                         [0.1, 0.7, 1.0, 0.95],
                         0.004,
                     )
-                if a.spawn.draw_debug_markers and a.state_source is not None:
+                if debug_visible and a.state_source is not None:
                     for marker in a.state_source.debug_markers():
                         if str(marker.get("frame", "world")) != "world":
                             continue
@@ -2486,9 +2551,11 @@ class SimRuntime:
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 perf.section("markers", t_sec)
                 t_sec = time.perf_counter()
-                a.sim_scene.step()
+                did_step = self.operator.should_step()
+                if did_step:
+                    a.sim_scene.step()
                 perf.section("physics", t_sec)
-                if a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
+                if did_step and a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
                     a.sim_scene.go2.reapply_last_mirror_pose()
                 q_cam = a._errmodel_q() if a._has_state_source() else None
                 arm_q = None
@@ -2500,19 +2567,33 @@ class SimRuntime:
                         float(q_cam.theta2_rad),
                     )
                 t_sec = time.perf_counter()
-                a.sim_scene.maybe_publish_camera(
-                    arm_q=arm_q,
-                    max_hz=float(a.cfg.sim_camera_max_hz),
-                    rgb_enabled=bool(a.cfg.sim_camera_rgb),
-                    depth_enabled=bool(a.cfg.sim_camera_depth),
-                )
-                a.sim_scene.maybe_publish_side_camera(max_hz=float(a.cfg.sim_side_camera_max_hz))
+                if did_step or self._force_hand_eye_capture:
+                    a.sim_scene.maybe_publish_camera(
+                        arm_q=arm_q,
+                        max_hz=float(a.cfg.sim_camera_max_hz),
+                        force=self._force_hand_eye_capture,
+                        rgb_enabled=bool(a.cfg.sim_camera_rgb),
+                        depth_enabled=bool(a.cfg.sim_camera_depth),
+                    )
+                    self._force_hand_eye_capture = False
+                observer_dirty = self.operator.take_observer_dirty()
+                if did_step or observer_dirty:
+                    a.sim_scene.maybe_publish_observer_camera(
+                        max_hz=float(a.cfg.sim_observer_camera_max_hz),
+                        force=observer_dirty,
+                    )
                 perf.section("camera", t_sec)
-                if bool(getattr(a.params, "realtime", True)):
+                if did_step and bool(getattr(a.params, "realtime", True)):
                     a.sim_scene.throttle_realtime(
                         float(a.params.dt),
-                        realtime_factor=float(getattr(a.params, "realtime_factor", 1.0)),
+                        realtime_factor=(
+                            float(getattr(a.params, "realtime_factor", 1.0))
+                            * float(self.operator.speed)
+                        ),
                     )
+                elif not did_step:
+                    time.sleep(min(0.02, float(a.params.dt)))
+                self._publish_simulation_status()
                 perf.report_if_due()
         except KeyboardInterrupt:
             pass
@@ -2538,6 +2619,12 @@ class GenesisApp:
         enable_link: Optional[bool] = None,
         state_source: Optional[Any] = None,
         feedback_publisher: Optional[Any] = None,
+        frame_hub: Optional[Any] = None,
+        operator_mailbox: Optional[Any] = None,
+        simulation_status_publisher: Optional[Any] = None,
+        media_curve: Optional[Any] = None,
+        media_curve_client_keys_dir: str = "",
+        allow_insecure_remote_media: bool = False,
     ):
         self.params = params if params is not None else SimParam()
         self.cfg = cfg if cfg is not None else SimConfig()
@@ -2554,9 +2641,14 @@ class GenesisApp:
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
         self.layout = JointLayout()
         self.markers = MarkerSet()
-        self.sim_scene = SimScene()
+        self.sim_scene = SimScene(frame_hub=frame_hub)
         self.state_source = state_source
         self.feedback_pub = feedback_publisher
+        self.operator_mailbox = operator_mailbox
+        self.simulation_status_publisher = simulation_status_publisher
+        self.media_curve = media_curve
+        self.media_curve_client_keys_dir = str(media_curve_client_keys_dir)
+        self.allow_insecure_remote_media = bool(allow_insecure_remote_media)
 
     def _apply_ideal_rates_if_needed(self) -> None:
         if self.layout.control_mode != "commanded":
@@ -2600,6 +2692,10 @@ class GenesisApp:
         SimRuntime(self).run()
 
 
+def _select_compute_backend(config: SimConfig, *, force_cpu: bool) -> SimConfig:
+    return replace(config, use_gpu=False) if force_cpu else config
+
+
 def run_runtime(
     *,
     config_path: Optional[str] = None,
@@ -2607,6 +2703,13 @@ def run_runtime(
     model_bundle: str = "",
     state_source: Optional[Any] = None,
     feedback_publisher: Optional[Any] = None,
+    frame_hub: Optional[Any] = None,
+    operator_mailbox: Optional[Any] = None,
+    simulation_status_publisher: Optional[Any] = None,
+    media_curve: Optional[Any] = None,
+    media_curve_client_keys_dir: str = "",
+    media_bind_endpoints: Optional[dict[str, str]] = None,
+    allow_insecure_remote_media: bool = False,
 ) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -2617,6 +2720,7 @@ def run_runtime(
     ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
     ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
+    ap.add_argument("--cpu", action="store_true", help="run Genesis on CPU for this process")
     ap.add_argument("--no-viewer", action="store_true", help="disable Genesis viewer for profiling/headless runs")
     ap.add_argument("--no-sim-camera", action="store_true", help="disable simulated RGB-D camera")
     ap.add_argument("--sim-camera-hz", type=float, default=None, help="override simulated camera publish rate")
@@ -2636,8 +2740,16 @@ def run_runtime(
     args = ap.parse_args(command_line if (argv is not None or config_path is not None) else None)
 
     bundle = load_app_config(args.config)
-    sim_cfg = bundle.sim_config
+    sim_cfg = _select_compute_backend(bundle.sim_config, force_cpu=bool(args.cpu))
     spawn_cfg = bundle.spawn_config
+    media_binds = dict(media_bind_endpoints or {})
+    if str(media_binds.get("rgbd", "")).strip():
+        sim_cfg = replace(sim_cfg, sim_camera_port=str(media_binds["rgbd"]).strip())
+    if str(media_binds.get("observer", "")).strip():
+        sim_cfg = replace(
+            sim_cfg,
+            sim_observer_camera_port=str(media_binds["observer"]).strip(),
+        )
     if str(model_bundle).strip():
         sim_cfg = replace(
             sim_cfg,
@@ -2657,7 +2769,7 @@ def run_runtime(
     if args.no_viewer:
         sim_cfg = replace(sim_cfg, enable_viewer=False)
     if args.no_sim_camera:
-        sim_cfg = replace(sim_cfg, sim_camera_enable=False, sim_side_camera_enable=False)
+        sim_cfg = replace(sim_cfg, sim_camera_enable=False, sim_observer_camera_enable=False)
     if args.sim_camera_hz is not None:
         sim_cfg = replace(sim_cfg, sim_camera_max_hz=max(1.0, float(args.sim_camera_hz)))
     if args.sim_camera_rgb is not None:
@@ -2684,6 +2796,12 @@ def run_runtime(
         mapping_cfg=bundle.mapping_config,
         state_source=state_source,
         feedback_publisher=feedback_publisher,
+        frame_hub=frame_hub,
+        operator_mailbox=operator_mailbox,
+        simulation_status_publisher=simulation_status_publisher,
+        media_curve=media_curve,
+        media_curve_client_keys_dir=media_curve_client_keys_dir,
+        allow_insecure_remote_media=allow_insecure_remote_media,
     )
     app.run()
 

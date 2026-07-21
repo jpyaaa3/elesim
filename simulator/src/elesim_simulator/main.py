@@ -1,55 +1,83 @@
 #!/usr/bin/env python3
-"""Genesis simulation endpoint with direct protocol-v3 transport."""
+"""Genesis simulation endpoint with protocol-v4 control and direct media."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import threading
 from pathlib import Path
 
+from elesim_protocol import (
+    CurveClientConfig,
+    CurveServerConfig,
+    MEDIA_KIND_RGB,
+    MEDIA_KIND_RGBD,
+    MEDIA_SECURITY_CURVE,
+    MEDIA_SECURITY_DTLS_SRTP,
+    MEDIA_SECURITY_NONE,
+    MEDIA_TRANSPORT_WEBRTC,
+    MEDIA_TRANSPORT_ZMQ,
+    MediaStreamDescriptor,
+)
 from elesim_simulator.config import load_app_config, load_runtime_role_config
 from elesim_simulator.control_state import SimulationStateSource
 from elesim_simulator.endpoint import SimulatorEndpoint
 from elesim_simulator.model_bundle import resolve_model_bundle
 from elesim_simulator.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_simulator.simulation.operator_control import SimulationOperatorMailbox
 from elesim_simulator.telemetry import RuntimeTelemetry
-from elesim_simulator.vision.sim_camera.subscriber import SimCameraSubscriber
-from elesim_simulator.vision.webrtc import WebRtcVideoSender, available as webrtc_available
+from elesim_simulator.vision.frame_hub import FrameHub
+from elesim_simulator.vision.webrtc import NamedWebRtcVideoSender, available as webrtc_available
 
 
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-class _RenderedFrameSource:
-    def __init__(self, endpoint: str, *, use_jpeg: bool) -> None:
-        self.subscriber = SimCameraSubscriber(endpoint, use_jpeg=use_jpeg)
-        self.latest = None
-        self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._run, name="sim-rendered-frame", daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def _run(self) -> None:
-        while not self.stop_event.is_set():
-            frame = self.subscriber.recv_latest(timeout_ms=250)
-            if frame is not None:
-                self.latest = frame.color_bgr
-
-    def get(self):
-        return self.latest
-
-    def close(self) -> None:
-        self.stop_event.set()
-        self.thread.join(timeout=2.0)
-        self.subscriber.close()
+def _router_curve(role) -> CurveClientConfig | None:
+    client = str(role.router_client_secret_file).strip()
+    server = str(role.router_server_public_file).strip()
+    if bool(client) != bool(server):
+        raise ValueError("router CURVE client and server certificate paths must be configured together")
+    if not client:
+        return None
+    return CurveClientConfig.from_files(
+        client_secret_file=client,
+        server_public_file=server,
+    )
 
 
-def _camera_input(command: str, values: object) -> None:
-    from elesim_simulator.vision.sim_camera.remote_control import enqueue
+def _media_curve(role) -> CurveServerConfig | None:
+    secret = str(role.media_server_secret_file).strip()
+    authorized = str(role.media_client_public_keys_dir).strip()
+    if bool(secret) != bool(authorized):
+        raise ValueError(
+            "media CURVE server certificate and client-key directory must be configured together"
+        )
+    return None if not secret else CurveServerConfig.from_file(secret)
 
-    enqueue(command, values)
+
+def _media_descriptor(
+    *,
+    endpoint: str,
+    media_kind: str,
+    curve: CurveServerConfig | None,
+) -> MediaStreamDescriptor:
+    return MediaStreamDescriptor(
+        transport=MEDIA_TRANSPORT_ZMQ,
+        media_kind=media_kind,
+        endpoint=str(endpoint),
+        security=MEDIA_SECURITY_CURVE if curve is not None else MEDIA_SECURITY_NONE,
+        curve_server_key="" if curve is None else curve.public_key.decode("ascii"),
+    )
+
+
+def _webrtc_descriptor(endpoint_id: str, stream: str) -> MediaStreamDescriptor:
+    return MediaStreamDescriptor(
+        transport=MEDIA_TRANSPORT_WEBRTC,
+        media_kind=MEDIA_KIND_RGB,
+        endpoint=f"webrtc://{endpoint_id}/{stream}",
+        security=MEDIA_SECURITY_DTLS_SRTP,
+    )
 
 
 def _run() -> None:
@@ -67,38 +95,65 @@ def _run() -> None:
         raise ValueError(f"runtime role must be simulator, got {role.role!r}")
     server_endpoint = str(args.server).strip() or role.server_endpoint
     endpoint_id = str(args.id).strip() or role.endpoint_id
+    router_curve = _router_curve(role)
+    media_curve = _media_curve(role)
+    media_client_keys = str(role.media_client_public_keys_dir).strip()
+
     development_rebuild = os.environ.get("ELESIM_SIM_DEV_REBUILD", "").strip() == "1"
     model_bundle = ""
     if not development_rebuild:
         model_bundle = str(resolve_model_bundle(args.model_bundle or None))
 
-    rendered_source = _RenderedFrameSource(
-        str(bundle.sim_config.sim_side_camera_port),
-        use_jpeg=bool(bundle.sim_config.sim_side_camera_jpeg),
-    )
-    rendered_source.start()
+    frame_hub = FrameHub(("rgbd", "observer", "hand_eye_preview"))
+    operator_mailbox = SimulationOperatorMailbox(max_pending=128)
+    providers = {}
+    rates = {}
+    if bool(bundle.sim_config.sim_observer_camera_enable):
+        providers["observer"] = lambda: frame_hub.latest_bgr("observer")
+        rates["observer"] = float(bundle.sim_config.sim_observer_camera_max_hz)
+    if bool(bundle.sim_config.sim_camera_enable):
+        providers["hand_eye_preview"] = lambda: frame_hub.latest_bgr("hand_eye_preview")
+        rates["hand_eye_preview"] = float(bundle.sim_config.sim_camera_max_hz)
     webrtc = (
-        WebRtcVideoSender(
-            rendered_source.get,
-            fps=float(bundle.sim_config.sim_side_camera_max_hz),
-        )
-        if webrtc_available()
+        NamedWebRtcVideoSender(providers, fps=rates)
+        if providers and webrtc_available()
         else None
     )
     if webrtc is None:
         print("[sim_agent] WebRTC unavailable; install aiortc and av")
+
+    streams: dict[str, MediaStreamDescriptor] = {}
+    if bool(bundle.sim_config.sim_camera_enable):
+        rgbd_endpoint = role.streams.get("rgbd_advertise", "") or str(bundle.sim_config.sim_camera_port)
+        streams["rgbd"] = _media_descriptor(
+            endpoint=rgbd_endpoint,
+            media_kind=MEDIA_KIND_RGBD,
+            curve=media_curve,
+        )
+    if bool(bundle.sim_config.sim_observer_camera_enable):
+        observer_endpoint = role.streams.get("observer_advertise", "") or str(
+            bundle.sim_config.sim_observer_camera_port
+        )
+        streams["observer_rgb"] = _media_descriptor(
+            endpoint=observer_endpoint,
+            media_kind=MEDIA_KIND_RGB,
+            curve=media_curve,
+        )
+    if webrtc is not None:
+        for stream in providers:
+            streams[stream] = _webrtc_descriptor(endpoint_id, stream)
 
     state = SimulationStateSource(bundle.mapping_config)
     endpoint = SimulatorEndpoint(
         server_endpoint=server_endpoint,
         endpoint_id=endpoint_id,
         state=state,
-        streams={
-            "rgbd": role.streams.get("rgbd_advertise", "") or str(bundle.sim_config.sim_camera_port),
-            "rendered_view": role.streams.get("rendered_view", "webrtc"),
-        },
-        camera_input_handler=_camera_input,
+        streams=streams,
+        operator_mailbox=operator_mailbox,
         webrtc_offer_handler=None if webrtc is None else webrtc.accept_offer,
+        webrtc_session_close_handler=None if webrtc is None else webrtc.close_session,
+        curve=router_curve,
+        allow_insecure_remote=role.allow_insecure_remote,
     )
     telemetry = RuntimeTelemetry(endpoint.publish_telemetry)
     endpoint.start()
@@ -111,12 +166,21 @@ def _run() -> None:
             model_bundle=model_bundle,
             state_source=state,
             feedback_publisher=telemetry,
+            frame_hub=frame_hub,
+            operator_mailbox=operator_mailbox,
+            simulation_status_publisher=endpoint.publish_simulation_status,
+            media_curve=media_curve,
+            media_curve_client_keys_dir=media_client_keys,
+            media_bind_endpoints={
+                "rgbd": role.streams.get("rgbd_bind", ""),
+                "observer": role.streams.get("observer_bind", ""),
+            },
+            allow_insecure_remote_media=role.allow_insecure_remote,
         )
     finally:
         endpoint.close()
         if webrtc is not None:
             webrtc.close()
-        rendered_source.close()
 
 
 def main() -> None:

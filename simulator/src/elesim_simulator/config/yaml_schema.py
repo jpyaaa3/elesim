@@ -98,9 +98,9 @@ _register(
 )
 _register(
     "sim_config",
-    "simulation.cameras.side",
-    _prefixed(SimConfig, "sim_side_camera_"),
-    strip_prefix="sim_side_camera_",
+    "simulation.cameras.observer",
+    _prefixed(SimConfig, "sim_observer_camera_"),
+    strip_prefix="sim_observer_camera_",
 )
 _register(
     "sim_config",

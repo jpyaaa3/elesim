@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-setup"
+version = "0.2.0"
+description = "Interactive installer and distributed-network diagnostics for Elesim"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.2.0",
+  "PyYAML>=6,<7",
+  "pyzmq>=27,<28",
+]
+
+[project.optional-dependencies]
+media = ["aiortc>=1.9,<2", "av>=12,<16"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+elesim-setup = "elesim_setup.cli:main"
+elesim-net = "elesim_setup.network:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

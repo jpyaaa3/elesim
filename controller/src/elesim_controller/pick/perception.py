@@ -183,7 +183,7 @@ class PerceptionActions:
         if not self._perception_run_local:
             self._stop_remote_preview()
             if bool(stop_recording):
-                self._stop_side_camera_recording()
+                self._stop_observer_camera_recording()
             if self.client is not None and hasattr(self.client, "send_perception_stop"):
                 self.client.send_perception_stop()
             if bool(stop_recording):
@@ -197,7 +197,7 @@ class PerceptionActions:
         cap = self._perception_capture
         if cap is None:
             if bool(stop_recording):
-                self._stop_side_camera_recording()
+                self._stop_observer_camera_recording()
                 self.state.set_perception_recording(False)
             self.state.set_perception_status(running=False, failed=False, msg="stopped")
             return
@@ -236,79 +236,79 @@ class PerceptionActions:
         else:
             self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
 
-    def _side_camera_config(self) -> Optional[SimConfig]:
+    def _observer_camera_config(self) -> Optional[SimConfig]:
         cfg_path = self._config_path or str(Path(__file__).resolve().parents[3] / "config/default.yaml")
         try:
             cfg = load_app_config(str(cfg_path)).sim_config
         except Exception as exc:
-            print(f"[perception] side camera config load failed: {exc}")
+            print(f"[perception] observer camera config load failed: {exc}")
             return None
-        endpoint = str(getattr(cfg, "sim_side_camera_port", "")).strip()
-        if not bool(getattr(cfg, "sim_side_camera_enable", False)) or not endpoint:
+        endpoint = str(getattr(cfg, "sim_observer_camera_port", "")).strip()
+        if not bool(getattr(cfg, "sim_observer_camera_enable", False)) or not endpoint:
             return None
         return cfg
 
     @staticmethod
-    def _side_record_path_for(record_path: str | Path) -> Path:
+    def _observer_record_path_for(record_path: str | Path) -> Path:
         p = Path(record_path)
         stem = p.stem
         if stem.endswith("_record"):
             stem = stem[: -len("_record")]
-        return p.with_name(f"{stem}_side.mp4")
+        return p.with_name(f"{stem}_observer.mp4")
 
     @staticmethod
-    def _side_snapshot_stem_for(capture_path: str | Path) -> str:
+    def _observer_snapshot_stem_for(capture_path: str | Path) -> str:
         stem = Path(capture_path).stem
         for suffix in ("_depth_vis", "_color", "_overlay", "_depth", "_meta"):
             if stem.endswith(suffix):
                 stem = stem[: -len(suffix)]
                 break
-        return f"{stem}_side"
+        return f"{stem}_observer"
 
-    def _start_side_camera_recording(self, record_path: str | Path) -> Optional[Path]:
-        if self._side_camera_recorder is not None:
-            self._stop_side_camera_recording()
-        cfg = self._side_camera_config()
+    def _start_observer_camera_recording(self, record_path: str | Path) -> Optional[Path]:
+        if self._observer_camera_recorder is not None:
+            self._stop_observer_camera_recording()
+        cfg = self._observer_camera_config()
         if cfg is None:
             return None
         try:
             from elesim_controller.vision.sim_camera.recording import SimCameraVideoRecorder
         except Exception as exc:
-            print(f"[perception] side recorder import failed: {exc}")
+            print(f"[perception] observer recorder import failed: {exc}")
             return None
-        out_path = self._side_record_path_for(record_path)
+        out_path = self._observer_record_path_for(record_path)
         rec = SimCameraVideoRecorder(
-            str(cfg.sim_side_camera_port),
+            str(cfg.sim_observer_camera_port),
             out_path=out_path,
-            fps=float(getattr(cfg, "sim_side_camera_record_fps", 30.0)),
-            use_jpeg=bool(cfg.sim_side_camera_jpeg),
+            fps=float(getattr(cfg, "sim_observer_camera_record_fps", 30.0)),
+            use_jpeg=bool(cfg.sim_observer_camera_jpeg),
         )
         if not rec.start():
-            print(f"[perception] side recording skipped: {rec.last_error}")
+            print(f"[perception] observer recording skipped: {rec.last_error}")
             return None
-        self._side_camera_recorder = rec
-        self._side_camera_record_path = out_path
-        print(f"[perception] side recording started: {out_path.resolve()}")
+        self._observer_camera_recorder = rec
+        self._observer_camera_record_path = out_path
+        print(f"[perception] observer recording started: {out_path.resolve()}")
         return out_path
 
-    def _stop_side_camera_recording(self) -> Optional[tuple[bool, str, int, int, str]]:
-        rec = self._side_camera_recorder
+    def _stop_observer_camera_recording(self) -> Optional[tuple[bool, str, int, int, str]]:
+        rec = self._observer_camera_recorder
         if rec is None:
             return None
-        self._side_camera_recorder = None
-        self._side_camera_record_path = None
+        self._observer_camera_recorder = None
+        self._observer_camera_record_path = None
         ok, path_s, frame_count, unique_count, err = rec.stop()
         if ok:
             print(
-                "[perception] side recording saved (%df/%du): %s"
+                "[perception] observer recording saved (%df/%du): %s"
                 % (int(frame_count), int(unique_count), path_s)
             )
         else:
-            print(f"[perception] side recording stop failed: {err or path_s}")
+            print(f"[perception] observer recording stop failed: {err or path_s}")
         return bool(ok), str(path_s), int(frame_count), int(unique_count), str(err or "")
 
-    def _capture_side_camera_snapshot(self, paired_path: str | Path) -> Optional[Path]:
-        cfg = self._side_camera_config()
+    def _capture_observer_camera_snapshot(self, paired_path: str | Path) -> Optional[Path]:
+        cfg = self._observer_camera_config()
         if cfg is None:
             return None
         try:
@@ -317,32 +317,32 @@ class PerceptionActions:
                 save_sim_camera_snapshot,
             )
         except Exception as exc:
-            print(f"[perception] side snapshot import failed: {exc}")
+            print(f"[perception] observer snapshot import failed: {exc}")
             return None
         try:
             frame = capture_sim_camera_snapshot(
-                str(cfg.sim_side_camera_port),
-                use_jpeg=bool(cfg.sim_side_camera_jpeg),
+                str(cfg.sim_observer_camera_port),
+                use_jpeg=bool(cfg.sim_observer_camera_jpeg),
                 timeout_s=1.5,
             )
             if frame is None:
-                print("[perception] side snapshot skipped: no side camera frame")
+                print("[perception] observer snapshot skipped: no observer camera frame")
                 return None
             paired = Path(paired_path)
-            stem = self._side_snapshot_stem_for(paired)
-            side_path = save_sim_camera_snapshot(
+            stem = self._observer_snapshot_stem_for(paired)
+            observer_path = save_sim_camera_snapshot(
                 frame=frame,
                 out_dir=paired.parent,
                 stem=stem,
                 meta={
                     "paired_capture": str(paired.resolve()),
-                    "endpoint": str(cfg.sim_side_camera_port),
+                    "endpoint": str(cfg.sim_observer_camera_port),
                 },
             )
-            print(f"[perception] side snapshot saved {side_path.resolve()}")
-            return side_path
+            print(f"[perception] observer snapshot saved {observer_path.resolve()}")
+            return observer_path
         except Exception as exc:
-            print(f"[perception] side snapshot failed: {exc}")
+            print(f"[perception] observer snapshot failed: {exc}")
             return None
 
     def capture_perception_frame(self) -> bool:
@@ -384,10 +384,14 @@ class PerceptionActions:
             print(f"[perception] {msg}")
             return False
         path_s = str(path.resolve())
-        side_path = self._capture_side_camera_snapshot(path)
-        side_s = "" if side_path is None else str(side_path.resolve())
+        observer_path = self._capture_observer_camera_snapshot(path)
+        observer_s = "" if observer_path is None else str(observer_path.resolve())
         self.state.set_perception_last_capture(path_s)
-        msg = f"saved {path_s}" if not side_s else f"saved {path_s} + side {side_s}"
+        msg = (
+            f"saved {path_s}"
+            if not observer_s
+            else f"saved {path_s} + observer {observer_s}"
+        )
         self.state.set_perception_status(
             running=bool(self.state.perception_running),
             failed=False,
@@ -434,14 +438,16 @@ class PerceptionActions:
             return False
         self.state.set_perception_recording(True, path_s)
         overlay_tag = "overlay" if use_overlay else "raw"
-        side_path = self._start_side_camera_recording(path_s)
-        side_msg = "" if side_path is None else f" + side {side_path.resolve()}"
+        observer_path = self._start_observer_camera_recording(path_s)
+        observer_msg = (
+            "" if observer_path is None else f" + observer {observer_path.resolve()}"
+        )
         self.state.set_perception_status(
             running=True,
             failed=False,
-            msg=f"recording started ({overlay_tag}): {path_s}{side_msg}",
+            msg=f"recording started ({overlay_tag}): {path_s}{observer_msg}",
         )
-        print(f"[perception] recording started ({overlay_tag}): {path_s}{side_msg}")
+        print(f"[perception] recording started ({overlay_tag}): {path_s}{observer_msg}")
         return True
 
     def stop_perception_recording(self) -> bool:
@@ -468,28 +474,34 @@ class PerceptionActions:
             return False
         ok, path_s, frame_count = cap.stop_recording()
         if not ok:
-            self._stop_side_camera_recording()
+            self._stop_observer_camera_recording()
             self.state.set_perception_status(
                 running=bool(self.state.perception_running),
                 failed=True,
                 msg="recording is not active",
             )
             return False
-        side_result = self._stop_side_camera_recording()
-        side_msg = ""
-        if side_result is not None:
-            side_ok, side_path_s, side_frames, side_unique, side_err = side_result
-            if side_ok:
-                side_msg = " | side %df/%du: %s" % (side_frames, side_unique, side_path_s)
+        observer_result = self._stop_observer_camera_recording()
+        observer_msg = ""
+        if observer_result is not None:
+            observer_ok, observer_path_s, observer_frames, observer_unique, observer_err = (
+                observer_result
+            )
+            if observer_ok:
+                observer_msg = " | observer %df/%du: %s" % (
+                    observer_frames,
+                    observer_unique,
+                    observer_path_s,
+                )
             else:
-                side_msg = f" | side failed: {side_err or side_path_s}"
+                observer_msg = f" | observer failed: {observer_err or observer_path_s}"
         self.state.set_perception_recording(False, path_s)
         self.state.set_perception_status(
             running=bool(self.state.perception_running),
             failed=False,
-            msg=f"recording saved ({frame_count}f): {path_s}{side_msg}",
+            msg=f"recording saved ({frame_count}f): {path_s}{observer_msg}",
         )
-        print(f"[perception] recording saved ({frame_count}f): {path_s}{side_msg}")
+        print(f"[perception] recording saved ({frame_count}f): {path_s}{observer_msg}")
         return True
 
     def toggle_perception_recording(self) -> bool:
@@ -511,6 +523,9 @@ class PerceptionActions:
             with SimRenderedCamera(
                 endpoint=str(cfg.sim_camera_port),
                 use_jpeg=bool(cfg.sim_camera_jpeg),
+                curve_client_secret_file=str(cfg.sim_camera_curve_client_secret_file),
+                curve_server_key=str(cfg.sim_camera_curve_server_key),
+                allow_insecure_remote=bool(cfg.sim_camera_allow_insecure_remote),
             ) as cam:
                 frame = cam.capture(retries=60)
             return save_perception_frame_bundle(

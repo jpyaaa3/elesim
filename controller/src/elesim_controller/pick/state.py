@@ -95,7 +95,7 @@ class PanelState:
     u_offset_s1: float = 0.0
     u_offset_s2: float = 0.0
     offset_revision: int = 0
-    paused: bool = False
+    controls_locked: bool = False
     claw_closed: bool = False
     torque_lock_bypass: bool = False
     visual_target_scale: float = 0.16
@@ -187,19 +187,26 @@ class PanelState:
                 self.roll,
                 self.theta1,
                 self.theta2,
-                self.paused,
+                self.controls_locked,
                 (self.target_x, self.target_y, self.target_z),
                 (self.target_vx, self.target_vy, self.target_vz),
                 sag_model,
             )
 
-    def set_all(self, linear: float, roll: float, theta1: float, theta2: float, paused: bool) -> None:
+    def set_all(
+        self,
+        linear: float,
+        roll: float,
+        theta1: float,
+        theta2: float,
+        controls_locked: bool,
+    ) -> None:
         with self._lock:
             self.linear = float(linear)
             self.roll = float(roll)
             self.theta1 = float(theta1)
             self.theta2 = float(theta2)
-            self.paused = bool(paused)
+            self.controls_locked = bool(controls_locked)
 
     def set_q(self, linear: float, roll: float, theta1: float, theta2: float) -> None:
         with self._lock:
@@ -268,9 +275,9 @@ class PanelState:
             self.sag_model_path = str(model_path)
             self.raw_sag_model = dict(sag_model)
 
-    def set_paused(self, paused: bool) -> None:
+    def set_controls_locked(self, locked: bool) -> None:
         with self._lock:
-            self.paused = bool(paused)
+            self.controls_locked = bool(locked)
 
     def toggle_claw_closed(self) -> None:
         with self._lock:

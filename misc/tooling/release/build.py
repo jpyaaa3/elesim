@@ -48,9 +48,9 @@ def build_wheel(project: Path, wheel_dir: Path) -> Path:
     return created.pop()
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(source: Path, destination: Path, *, ignore=None) -> None:
     if source.exists():
-        shutil.copytree(source, destination, dirs_exist_ok=True)
+        shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
 
 
 def copy_simulator_bundle(model_root: Path, release: Path) -> None:
@@ -58,6 +58,29 @@ def copy_simulator_bundle(model_root: Path, release: Path) -> None:
     if not (source / "bundle.json").is_file():
         raise FileNotFoundError(f"validated simulator bundle is missing: {source}")
     copy_tree(source, release / "model/bundles/default")
+
+
+def copy_infrastructure(source: Path, release_root: Path) -> None:
+    destination = release_root / "infra"
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source / "bootstrap_security.py", destination / "bootstrap_security.py")
+    copy_tree(source / "coturn", destination / "coturn")
+    setup_destination = destination / "setup"
+    setup_destination.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source.parent / "setup/bootstrap.py", setup_destination / "bootstrap.py")
+    shutil.copy2(source.parent / "setup/bootstrap.sh", setup_destination / "bootstrap.sh")
+    copy_tree(source / "containers", destination / "containers")
+    copy_tree(
+        source.parent / "tooling/setup",
+        setup_destination / "package",
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            ".pytest_cache",
+            "build",
+            "*.egg-info",
+        ),
+    )
 
 
 def main() -> None:
@@ -102,6 +125,8 @@ def main() -> None:
             encoding="utf-8",
         )
         print(release)
+
+    copy_infrastructure(ROOT / "misc/infra", output)
 
     if not args.no_verify:
         verify_release_tree(output)

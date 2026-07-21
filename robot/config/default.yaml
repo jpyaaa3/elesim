@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 runtime:
   endpoint_id: robot-go2
   server_endpoint: tcp://127.0.0.1:5558
@@ -29,11 +29,17 @@ go2:
   ros_workspace: ~/ros2_ws
 camera:
   enabled: true
-  bind: tcp://0.0.0.0:5568
+  bind: tcp://127.0.0.1:5568
   advertise: tcp://127.0.0.1:5568
   width: 640
   height: 480
   fps: 30
+security:
+  router_client_secret_file: ""
+  router_server_public_file: ""
+  media_server_secret_file: ""
+  media_client_public_keys_dir: ""
+  allow_insecure_remote: false
 safety:
   command_deadman_s: 0.5
   router_liveness_s: 3.5

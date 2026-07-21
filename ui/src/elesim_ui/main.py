@@ -8,10 +8,26 @@ from elesim_ui.config import load_config
 from elesim_ui.control_panel import ControlPanel
 from elesim_ui.operator import RemoteControlService, RemotePanelState
 from elesim_ui.operator_session import OperatorSession
-from elesim_ui.webrtc_session import UiWebRtcSession
+from elesim_protocol import CurveClientConfig
+from elesim_ui.simulator_session import UiSimulatorSession
 
 
 _ROOT = Path(__file__).resolve().parents[2]
+
+
+def _router_curve(config) -> CurveClientConfig | None:
+    client = str(config.router_client_secret_file).strip()
+    server = str(config.router_server_public_file).strip()
+    if bool(client) != bool(server):
+        raise ValueError(
+            "router CURVE client and server certificate paths must be configured together"
+        )
+    if not client:
+        return None
+    return CurveClientConfig.from_files(
+        client_secret_file=client,
+        server_public_file=server,
+    )
 
 
 def main() -> None:
@@ -26,11 +42,14 @@ def main() -> None:
     server = str(args.server).strip() or config.server_endpoint
     controller_id = str(args.controller_id).strip() or config.controller_id
     sim_id = str(args.sim_id).strip() or config.simulator_id
+    router_curve = _router_curve(config)
 
     session = OperatorSession(
         server,
         ui_id=config.endpoint_id,
         controller_id=controller_id,
+        curve=router_curve,
+        allow_insecure_remote=config.allow_insecure_remote,
     )
     state = RemotePanelState(
         session,
@@ -46,18 +65,23 @@ def main() -> None:
         },
     )
     service = RemoteControlService(session, state)
-    video = None
+    simulator_session = None
     if not args.no_webrtc:
         try:
-            video = UiWebRtcSession(server, ui_id=config.endpoint_id, sim_id=sim_id)
-            video.start()
+            simulator_session = UiSimulatorSession(
+                server,
+                ui_id=config.endpoint_id,
+                sim_id=sim_id,
+                curve=router_curve,
+                allow_insecure_remote=config.allow_insecure_remote,
+            )
         except Exception as exc:
             print(f"[ui] WebRTC unavailable: {exc}")
 
     def select_endpoint(endpoint_id: str, endpoint_role: str) -> None:
         service.select_endpoint(endpoint_id)
-        if video is not None and endpoint_role == "simulator":
-            video.switch_target(endpoint_id)
+        if simulator_session is not None and endpoint_role == "simulator":
+            simulator_session.switch_target(endpoint_id)
 
     panel = ControlPanel(
         state,
@@ -71,15 +95,14 @@ def main() -> None:
         perception_cfg=config.perception,
         pick_cfg=config.pick,
         gaze_cfg=config.gaze,
-        video_source=None if video is None else video.frame,
-        camera_input=lambda command, values: service.send_sim_camera_input(command, values),
+        simulator_session=simulator_session,
         endpoint_select=select_endpoint,
     )
     try:
         panel.run()
     finally:
-        if video is not None:
-            video.close()
+        if simulator_session is not None:
+            simulator_session.close()
         service.close()
 
 

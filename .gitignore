@@ -39,3 +39,7 @@ elesim_wip_save.txt
 # Local helper scripts.
 u
 j
+
+# Generated deployment credentials.
+misc/infra/generated/
+misc/infra/coturn/.env

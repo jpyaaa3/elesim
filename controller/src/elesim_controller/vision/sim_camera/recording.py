@@ -62,7 +62,11 @@ class SimCameraVideoRecorder:
             self._frame_count = 0
             self._unique_count = 0
             self._last_error = ""
-        self._thread = threading.Thread(target=self._run, name="sim-side-camera-recorder", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run,
+            name="sim-observer-camera-recorder",
+            daemon=True,
+        )
         self._thread.start()
         return True
 
@@ -221,7 +225,7 @@ def save_sim_camera_snapshot(
     path = out / f"{stem}_color.jpg"
     cv2.imwrite(str(path), image)
     meta_out = {
-        "mode": "sim_side_camera",
+        "mode": "sim_observer_camera",
         "seq": int(getattr(frame, "seq", 0)),
         "ts": float(getattr(frame, "ts", 0.0)),
         "width": int(getattr(frame.intrinsics, "width", image.shape[1])),

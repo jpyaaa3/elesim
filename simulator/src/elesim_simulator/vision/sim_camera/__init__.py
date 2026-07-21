@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 _EXPORTS = {
-    "FixedWorldCamera": "mount",
     "Node9EyeInHandCamera": "mount",
+    "ObserverCamera": "mount",
     "SimCameraFrame": "types",
     "SimCameraIntrinsics": "types",
     "SimCameraPublisher": "publisher",

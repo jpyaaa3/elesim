@@ -18,6 +18,7 @@ from .messages import (
     loads_envelope,
 )
 from .payloads import validate_routed_payload
+from .security import CurveClientConfig, configure_curve_client, require_secure_remote
 
 
 class TransportError(RuntimeError):
@@ -128,6 +129,8 @@ class EndpointClient:
         server_timeout_s: float = 3.5,
         max_pending: int = 512,
         trace_context_provider: Optional[Callable[[], Mapping[str, str]]] = None,
+        curve: Optional[CurveClientConfig] = None,
+        allow_insecure_remote: bool = False,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.server_endpoint = str(server_endpoint)
@@ -139,6 +142,12 @@ class EndpointClient:
         self.clock = clock
         self.max_pending = max(1, int(max_pending))
         self.trace_context_provider = trace_context_provider
+        self.curve = curve
+        require_secure_remote(
+            self.server_endpoint,
+            curve_enabled=curve is not None,
+            allow_insecure_remote=bool(allow_insecure_remote),
+        )
         self.session = EndpointSession(
             self.descriptor,
             heartbeat_s=heartbeat_s,
@@ -148,6 +157,8 @@ class EndpointClient:
         self.context = zmq.Context.instance()
         self.socket = self.context.socket(zmq.DEALER)
         self.socket.setsockopt(zmq.LINGER, 0)
+        if self.curve is not None:
+            configure_curve_client(self.socket, self.curve)
         identity = (
             f"{self.descriptor.role}:{self.descriptor.endpoint_id}:"
             f"{self.descriptor.instance_id}:{os.getpid()}"

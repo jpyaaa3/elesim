@@ -8,7 +8,7 @@
 
 This file tracks known unresolved or deferred issues so they do not get lost while higher-priority work continues.
 
-## Current Status (2026-07-20)
+## Current Status (2026-07-21)
 
 This section is authoritative for the deployment-based architecture. The long
 sections below it are retained as pre-refactor evidence; paths and test counts
@@ -40,20 +40,25 @@ there are historical unless repeated here.
 ### P1. Multi-Host And Hardware Deployment Remain Manual Gates
 
 - Status: open.
-- The in-process five-node topology, leases, reconnect, stale sequence handling,
-  media descriptors, and isolated wheels pass automatically.
+- The in-process five-process topology, separate motion/simulation leases,
+  reconnect, stale sequence handling, Curve configuration, dual WebRTC
+  signaling, media descriptors, and isolated wheels pass automatically.
 - Actual Wi-Fi/LAN routing, Jetson USB/serial behavior, ROS2/Unitree topics,
-  clock skew, packet loss, and process restart timing have not been exercised by
-  this software-only gate.
+  credential installation, clock skew, packet loss, and process restart timing
+  have not been exercised by this software-only gate.
 
-### P1. Plain ZMQ TCP Assumes A Trusted Network
+### P1. Remote Genesis Video And Control Need A Live Gate
 
-- Status: open, deployment/security decision required.
-- Protocol v3 validates roles, leases, payloads and sequence numbers, but the
-  transport currently has no CurveZMQ authentication, encryption, or operator
-  identity provisioning.
-- Do not expose Router or direct media endpoints to an untrusted network until
-  a threat model and key distribution strategy are defined.
+- Status: open.
+- Automated tests prove independent observer/hand-eye sessions, real aiortc
+  encoded-frame delivery, TURN credential refresh, and camera/physics command
+  delivery to the Simulator main-thread mailbox.
+- They do not prove Genesis GPU offscreen capture, aiortc encode/decode latency,
+  actual ICE selection, Coturn relay, or responsive orbit/pan/zoom on two real
+  machines.
+- Required evidence: one direct-LAN run and one TURN-relayed run showing both
+  live streams, pause/step/reset semantics, bounded command backlog and clean
+  reconnect after either process restarts.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 
@@ -86,7 +91,7 @@ there are historical unless repeated here.
 - Model bundles are self-contained, hashed, validated, and runtime-immutable.
 - Robot owns physical I/O, measured canonical `q`, deadman/current/read-failure
   safety, stale-sequence checks and lease enforcement.
-- Controller and simulator use direct protocol-v3 endpoints; copied sibling-role
+- Controller and simulator use direct protocol-v4 endpoints; copied sibling-role
   implementations were removed and import boundaries are tested.
 - Payloads, lifecycle, trace context, reconnect, partial commands, async UI
   state, Pick stop, camera lifecycle and WebRTC signaling have contract tests.
@@ -97,6 +102,20 @@ there are historical unless repeated here.
   split into one-file-per-method fragments.
 - Every generated release is temporarily installed and probed without sibling
   installed releases or source-tree imports.
+
+### Closed By The 2026-07-21 Remote-Simulator Refactor
+
+- Non-loopback Router and RGBD transport are CurveZMQ protected by default;
+  Router authorizes exact public-key, endpoint-ID and role tuples.
+- UI owns an independent Simulator session instead of relaying camera input
+  through Controller.
+- Simulator publishes separate observer and hand-eye WebRTC views and applies
+  orbit, pan, zoom, pause/resume, step, reset, speed and marker commands on the
+  Genesis main thread.
+- Coturn REST credentials are short-lived and minted by Router; generated
+  static secrets and private keys are Git-ignored.
+- TURN refresh replaces both UI peer connections inside the existing session;
+  failed local replacement preserves the working receivers.
 
 ---
 

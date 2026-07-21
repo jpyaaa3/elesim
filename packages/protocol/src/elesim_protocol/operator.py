@@ -1,4 +1,4 @@
-"""Typed operator/controller intent surface carried over protocol v3."""
+"""Typed operator/controller intent surface carried over protocol v4."""
 
 OPERATOR_VIEW_SCHEMA_VERSION = 1
 
@@ -15,7 +15,7 @@ SERVICE_CALLS = frozenset(
         "stop_gaze_stabilizer", "stop_perception_capture", "stop_pick_e2e",
         "toggle_perception_recording", "torque_off", "torque_on",
         "update_gaze_stabilizer_config", "update_perception_config",
-        "send_sim_camera_input", "select_endpoint", "current_host_state",
+        "select_endpoint", "current_host_state",
         "has_client", "current_control_u", "control_mapping", "pick_e2e_running",
     }
 )
@@ -29,7 +29,7 @@ SERVICE_VALUES = frozenset(
 STATE_CALLS = frozenset(
     {
         "clear_ik_status", "offset_values", "set_claw_closed", "set_mock_object_preferred_dir",
-        "set_mock_object_world_xyz", "set_paused", "set_perception_record_overlay", "set_target",
+        "set_mock_object_world_xyz", "set_controls_locked", "set_perception_record_overlay", "set_target",
         "set_target_dir", "set_torque_lock_bypass",
     }
 )

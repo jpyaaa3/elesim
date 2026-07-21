@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from elesim_protocol import CurveClientConfig
+
 from elesim_controller.vision.perception.depth_pose import CameraIntrinsics
 from elesim_controller.vision.perception.realsense_camera import RealSenseFrame
 from elesim_controller.vision.sim_camera.subscriber import SimCameraSubscriber
@@ -16,14 +18,35 @@ class SimRenderedCamera:
         endpoint: str = "tcp://127.0.0.1:5568",
         use_jpeg: bool = True,
         timeout_ms: int = 500,
+        curve_client_secret_file: str = "",
+        curve_server_key: str = "",
+        allow_insecure_remote: bool = False,
     ) -> None:
         self._endpoint = str(endpoint)
         self._use_jpeg = bool(use_jpeg)
         self._timeout_ms = int(timeout_ms)
+        secret_file = str(curve_client_secret_file).strip()
+        server_key = str(curve_server_key).strip()
+        if bool(secret_file) != bool(server_key):
+            raise ValueError("sim camera CURVE client secret and server key must be configured together")
+        self._curve = (
+            None
+            if not secret_file
+            else CurveClientConfig.from_client_file(
+                client_secret_file=secret_file,
+                server_key=server_key,
+            )
+        )
+        self._allow_insecure_remote = bool(allow_insecure_remote)
         self._sub: SimCameraSubscriber | None = None
 
     def start(self) -> None:
-        self._sub = SimCameraSubscriber(self._endpoint, use_jpeg=self._use_jpeg)
+        self._sub = SimCameraSubscriber(
+            self._endpoint,
+            use_jpeg=self._use_jpeg,
+            curve=self._curve,
+            allow_insecure_remote=self._allow_insecure_remote,
+        )
         self._sub.connect()
 
     def stop(self) -> None:

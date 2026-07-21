@@ -1,0 +1,12 @@
+schema_version: 2
+runtime:
+  role: controller
+  endpoint_id: controller-main
+  server_endpoint: tcp://sim.example.com:5558
+  active_target: sim-default
+  streams: {}
+security:
+  router_client_secret_file: /etc/elesim/secrets/curve/clients/controller-main.key_secret
+  router_server_public_file: /etc/elesim/secrets/curve/router/router.key
+  media_client_secret_file: /etc/elesim/secrets/curve/clients/controller-main.key_secret
+  allow_insecure_remote: false

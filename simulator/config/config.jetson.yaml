@@ -7,5 +7,5 @@ simulation:
   cameras:
     hand_eye:
       enable: false
-    side:
+    observer:
       enable: false

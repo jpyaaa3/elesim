@@ -5,6 +5,11 @@ from typing import Optional
 
 import numpy as np
 import zmq
+from elesim_protocol import (
+    CurveClientConfig,
+    configure_curve_client,
+    require_secure_remote,
+)
 from elesim_controller.observability.tracing import sampled_traced
 
 from elesim_controller.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
@@ -13,13 +18,28 @@ from elesim_controller.vision.sim_camera.types import SimCameraFrame, SimCameraI
 class SimCameraSubscriber:
     """Ctrl-side SUB: latest-frame-only sim camera relay."""
 
-    def __init__(self, endpoint: str, *, use_jpeg: bool = True) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        use_jpeg: bool = True,
+        curve: CurveClientConfig | None = None,
+        allow_insecure_remote: bool = False,
+    ) -> None:
         self.endpoint = str(endpoint)
         self.use_jpeg = bool(use_jpeg)
+        self.curve = curve
+        require_secure_remote(
+            self.endpoint,
+            curve_enabled=curve is not None,
+            allow_insecure_remote=bool(allow_insecure_remote),
+        )
         self._ctx = zmq.Context.instance()
         self._sock = self._ctx.socket(zmq.SUB)
         self._sock.setsockopt(zmq.LINGER, 0)
         self._sock.setsockopt(zmq.RCVHWM, 2)
+        if self.curve is not None:
+            configure_curve_client(self._sock, self.curve)
         self._connected = False
 
     def connect(self) -> None:

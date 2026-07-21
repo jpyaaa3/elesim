@@ -1,4 +1,4 @@
-"""Genesis measurements converted to protocol-v3 telemetry payloads."""
+"""Genesis measurements converted to protocol-v4 telemetry payloads."""
 
 from __future__ import annotations
 

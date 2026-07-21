@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Optional
+
+from elesim_protocol import CurveServerConfig
 
 from elesim_robot.camera.publisher import RgbdPublisher
 from elesim_robot.camera.realsense import RealSenseCamera
@@ -21,6 +24,9 @@ class CameraPublisherThread:
         fps: int,
         camera_factory: Callable[..., Any] = RealSenseCamera,
         publisher_factory: Callable[..., Any] = RgbdPublisher,
+        curve: CurveServerConfig | None = None,
+        curve_client_keys_dir: str | Path | None = None,
+        allow_insecure_remote: bool = False,
     ) -> None:
         self.endpoint = str(endpoint)
         self.width = int(width)
@@ -28,6 +34,9 @@ class CameraPublisherThread:
         self.fps = int(fps)
         self._camera_factory = camera_factory
         self._publisher_factory = publisher_factory
+        self._curve = curve
+        self._curve_client_keys_dir = curve_client_keys_dir
+        self._allow_insecure_remote = bool(allow_insecure_remote)
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -77,6 +86,9 @@ class CameraPublisherThread:
                 use_jpeg=True,
                 jpeg_quality=75,
                 send_depth=True,
+                curve=self._curve,
+                curve_client_keys_dir=self._curve_client_keys_dir,
+                allow_insecure_remote=self._allow_insecure_remote,
             )
             camera.start()
             seq = 0

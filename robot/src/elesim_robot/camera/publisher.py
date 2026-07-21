@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import zmq
+from zmq.auth.thread import ThreadAuthenticator
+from elesim_protocol import (
+    CurveServerConfig,
+    configure_curve_server,
+    require_curve_server_auth,
+)
 from elesim_robot.tracing import sampled_traced
 
 from elesim_robot.camera.types import RgbdFrame
@@ -17,19 +24,51 @@ class RgbdPublisher:
         use_jpeg: bool = True,
         jpeg_quality: int = 85,
         send_depth: bool = True,
+        curve: CurveServerConfig | None = None,
+        curve_client_keys_dir: str | Path | None = None,
+        allow_insecure_remote: bool = False,
     ) -> None:
         self.endpoint = str(endpoint)
         self.use_jpeg = bool(use_jpeg)
         self.jpeg_quality = int(jpeg_quality)
         self.send_depth = bool(send_depth)
-        self._ctx = zmq.Context.instance()
+        self.curve = curve
+        authorized_dir = (
+            None
+            if curve_client_keys_dir is None or not str(curve_client_keys_dir).strip()
+            else Path(curve_client_keys_dir).expanduser().resolve()
+        )
+        require_curve_server_auth(
+            self.endpoint,
+            curve_enabled=curve is not None,
+            authorized_clients=authorized_dir is not None,
+            allow_insecure_remote=bool(allow_insecure_remote),
+        )
+        if authorized_dir is not None and not authorized_dir.is_dir():
+            raise FileNotFoundError(f"media client key directory is missing: {authorized_dir}")
+        self._owns_context = authorized_dir is not None
+        self._ctx = zmq.Context() if self._owns_context else zmq.Context.instance()
+        self._authenticator: ThreadAuthenticator | None = None
+        if authorized_dir is not None:
+            self._authenticator = ThreadAuthenticator(self._ctx)
+            self._authenticator.start()
+            self._authenticator.configure_curve(domain="*", location=str(authorized_dir))
         self._sock = self._ctx.socket(zmq.PUB)
         self._sock.setsockopt(zmq.LINGER, 0)
         self._sock.setsockopt(zmq.SNDHWM, 1)
+        if self.curve is not None:
+            configure_curve_server(self._sock, self.curve)
         self._sock.bind(self.endpoint)
         self.published = 0
         self.dropped = 0
-        print(f"[robot_camera] publisher bound {self.endpoint} jpeg={self.use_jpeg} depth={self.send_depth}")
+        print(
+            f"[robot_camera] publisher bound {self.bound_endpoint} "
+            f"jpeg={self.use_jpeg} depth={self.send_depth}"
+        )
+
+    @property
+    def bound_endpoint(self) -> str:
+        return self._sock.getsockopt(zmq.LAST_ENDPOINT).decode("utf-8")
 
     @sampled_traced("camera.robot.publish", sample_key="camera.robot.publish", every=60, kind="producer")
     def publish(self, frame: RgbdFrame) -> bool:
@@ -71,3 +110,8 @@ class RgbdPublisher:
             self._sock.close(0)
         except Exception:
             pass
+        if self._authenticator is not None:
+            self._authenticator.stop()
+            self._authenticator = None
+        if self._owns_context:
+            self._ctx.term()

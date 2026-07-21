@@ -52,16 +52,16 @@ class SimConfig:
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
 
-    sim_side_camera_enable: bool = True
-    sim_side_camera_port: str = "tcp://127.0.0.1:5569"
-    sim_side_camera_jpeg: bool = True
-    sim_side_camera_jpeg_quality: int = 85
-    sim_side_camera_max_hz: float = 20.0
-    sim_side_camera_width: int = 960
-    sim_side_camera_height: int = 540
-    sim_side_camera_fov_deg: float = 55.0
-    sim_side_camera_pos: tuple[float, float, float] = (0.45, -1.8, 0.55)
-    sim_side_camera_lookat: tuple[float, float, float] = (0.45, 0.0, 0.25)
+    sim_observer_camera_enable: bool = True
+    sim_observer_camera_port: str = "tcp://127.0.0.1:5569"
+    sim_observer_camera_jpeg: bool = True
+    sim_observer_camera_jpeg_quality: int = 85
+    sim_observer_camera_max_hz: float = 20.0
+    sim_observer_camera_width: int = 960
+    sim_observer_camera_height: int = 540
+    sim_observer_camera_fov_deg: float = 55.0
+    sim_observer_camera_pos: tuple[float, float, float] = (0.45, -1.8, 0.55)
+    sim_observer_camera_lookat: tuple[float, float, float] = (0.45, 0.0, 0.25)
 
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0

@@ -79,7 +79,7 @@ class PanelStateDefaults:
     u_offset_s1: float = 0.0
     u_offset_s2: float = 0.0
     offset_revision: int = 0
-    paused: bool = False
+    controls_locked: bool = False
     claw_closed: bool = False
     torque_lock_bypass: bool = False
 
