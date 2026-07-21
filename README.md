@@ -275,23 +275,53 @@ Router 호스트의 방화벽은 5558을 허용해야 한다. RGBD 수신이 필
 
 ### 소스 워크스페이스
 
-가상환경을 활성화한 뒤 터미널 두 개를 사용한다.
+가상환경을 활성화한 뒤 네 프로세스를 Router → Simulator → Controller → UI
+순서로 실행한다. 현재 UI WebRTC 세션은 Simulator 등록 전 offer 실패를 자동으로
+재시도하지 않으므로 최초 영상 연결 검증에서는 이 순서를 지킨다.
 
-터미널 1에서 Router, Controller, UI를 실행한다.
+터미널 1:
 
 ```bash
 source .venv/bin/activate
-./misc/scripts/run_laptop_stack.sh controller/config/config.pc.yaml
+elesim-router --bind tcp://0.0.0.0:5558
 ```
 
-터미널 2에서 Simulator를 실행한다.
+터미널 2:
 
 ```bash
 source .venv/bin/activate
-./misc/scripts/run_sim_worker.sh simulator/config/config.pc.yaml \
+elesim-simulator \
+  --config simulator/config/config.pc.yaml \
+  --runtime-config simulator/config/runtime.yaml \
   --model-bundle model/bundles/default \
   --server tcp://127.0.0.1:5558
 ```
+
+터미널 3:
+
+```bash
+source .venv/bin/activate
+elesim-controller \
+  --config controller/config/config.pc.yaml \
+  --runtime-config controller/config/runtime.yaml \
+  --server tcp://127.0.0.1:5558 \
+  --target sim-default
+```
+
+터미널 4:
+
+```bash
+source .venv/bin/activate
+elesim-ui \
+  --config ui/config/default.yaml \
+  --server tcp://127.0.0.1:5558 \
+  --controller-id controller-main \
+  --sim-id sim-default
+```
+
+`misc/scripts/run_laptop_stack.sh`는 일반 제어 개발에는 사용할 수 있지만, 현재는
+Simulator보다 UI를 먼저 시작할 수 있으므로 최초 원격 영상 연결 검증에는 쓰지
+않는다.
 
 종료할 때는 각 터미널에서 `Ctrl+C`를 누른다. UI에서 workflow 중단 버튼을
 누르는 것은 Pick 동작만 중단하며 프로세스 전체 종료 명령이 아니다.
