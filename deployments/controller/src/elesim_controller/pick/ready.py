@@ -3,7 +3,7 @@ from __future__ import annotations
 from ._deps import *  # noqa: F401,F403
 from elesim_controller.observability.tracing import traced_thread_target
 
-class ReadyActions:
+class ReadyGeometryActions:
     def _pick_frozen_world(self) -> Optional[tuple[float, float, float]]:
         frozen = self._pick_frozen_world_xyz
         if frozen is not None:
@@ -664,6 +664,10 @@ class ReadyActions:
             source="target",
         )
 
+
+class ReadySolveActions(ReadyGeometryActions):
+    """Feasible ready-pose resolution, IK dispatch, and grasp entry."""
+
     def _start_ready_pose_resolve_and_solve(
         self,
         *,
@@ -1117,6 +1121,10 @@ class ReadyActions:
             time.sleep(0.05)
         print("[Pick] %s | timeout after %.1fs" % (str(label), float(timeout_s)))
         return False
+
+
+class LookActions(ReadySolveActions):
+    """Preferred-direction selection, rough pre-aim, and Look execution."""
 
     def _pick_user_preferred_dir(self) -> Optional[tuple[float, float, float]]:
         try:
@@ -1712,6 +1720,10 @@ class ReadyActions:
             daemon=True,
         )
         self._ik_worker.start()
+
+
+class ReadyActions(LookActions):
+    """Public ready-pose action exposed to the controller service."""
 
     def start_ready_pose(self) -> None:
         if self.state.ik_running or self._visual_busy():

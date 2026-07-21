@@ -176,6 +176,7 @@ class Dynamixel3dofDriver:
             cfg.id_seg2: JointConstraintDeg(0.0, 360.0),
             cfg.id_claw: JointConstraintDeg(230.0, 340.0),
         }
+        self.arm_mode = "unknown"
 
         self.port = PortHandler(cfg.device_name)
         self.packet = PacketHandler(cfg.protocol_version)
@@ -249,6 +250,7 @@ class Dynamixel3dofDriver:
         self.torque_off_all()
         for dxl_id in self.ids:
             self._write1(dxl_id, ADDR_OPERATING_MODE, OP_MODE_POSITION)
+        self.arm_mode = "position"
 
     def set_operating_mode_ids(self, ids: List[int], mode: int, *, torque_on: bool = True) -> None:
         clean_ids = [int(dxl_id) for dxl_id in ids]
@@ -262,15 +264,18 @@ class Dynamixel3dofDriver:
 
     def set_velocity_mode_for_arm(self) -> None:
         self.set_operating_mode_ids(self.arm_ids(), OP_MODE_VELOCITY, torque_on=True)
+        self.arm_mode = "velocity"
 
     def set_lji_hybrid_mode_for_arm(self) -> None:
         self.set_operating_mode_ids([self.cfg.id_linear], OP_MODE_POSITION, torque_on=True)
         self.set_profiles([self.cfg.id_linear])
         self.set_operating_mode_ids(self.lji_velocity_ids(), OP_MODE_VELOCITY, torque_on=True)
+        self.arm_mode = "hybrid"
 
     def set_position_mode_for_arm(self) -> None:
         self.set_operating_mode_ids(self.arm_ids(), OP_MODE_POSITION, torque_on=True)
         self.set_profiles(self.arm_ids())
+        self.arm_mode = "position"
 
     def set_profiles(self, ids: Optional[List[int]] = None) -> None:
         use_ids = list(self.profiles.keys()) if ids is None else [int(dxl_id) for dxl_id in ids]
@@ -383,6 +388,16 @@ class Dynamixel3dofDriver:
             direction = int(self.direction.get(int(dxl_id), +1))
             goals_deg[int(dxl_id)] = tick_to_deg_0_360(tick, direction)
         self.command_partial_deg(goals_deg)
+
+    def safe_hold_arm(self) -> None:
+        """Stop velocity control, switch to position mode and hold measured pose."""
+        if self.arm_mode == "velocity":
+            self.stop_arm_velocity()
+        elif self.arm_mode == "hybrid":
+            self.stop_lji_velocity()
+        if self.arm_mode != "position":
+            self.set_position_mode_for_arm()
+        self.hold_current_arm_position()
 
     def command_claw_deg(self, claw_deg: float) -> None:
         self._write4(self.cfg.id_claw, ADDR_GOAL_POSITION, self.deg_to_goal_tick(self.cfg.id_claw, claw_deg))

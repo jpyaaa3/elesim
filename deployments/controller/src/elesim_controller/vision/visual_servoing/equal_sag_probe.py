@@ -47,23 +47,38 @@ def solve_equal_sag_offsets(
     drift = np.asarray(drift_world, dtype=float).reshape(3)
     drift_norm = float(np.linalg.norm(drift))
     zero = (0.0, 0.0, 0.0)
-    if drift_norm < float(min_drift_m):
-        return EqualSagEstimate(False, 0.0, 0.0, tuple(float(v) for v in drift), zero, drift_norm, float("inf"), "drift_too_small")
-
+    drift_tuple = tuple(float(v) for v in drift)
     j = np.asarray(sensitivity_m_per_deg, dtype=float)
     if j.shape != (3, 2):
         raise ValueError(f"sensitivity_m_per_deg must have shape (3, 2), got {j.shape}")
+    if not np.all(np.isfinite(drift)) or not np.all(np.isfinite(j)):
+        return EqualSagEstimate(
+            False,
+            0.0,
+            0.0,
+            drift_tuple,
+            zero,
+            float("inf"),
+            float("inf"),
+            "non_finite_input",
+        )
+    if drift_norm < float(min_drift_m):
+        return EqualSagEstimate(False, 0.0, 0.0, drift_tuple, zero, drift_norm, float("inf"), "drift_too_small")
+
     try:
         singular = np.linalg.svd(j, compute_uv=False)
     except np.linalg.LinAlgError:
-        return EqualSagEstimate(False, 0.0, 0.0, tuple(float(v) for v in drift), zero, drift_norm, float("inf"), "svd_failed")
+        return EqualSagEstimate(False, 0.0, 0.0, drift_tuple, zero, drift_norm, float("inf"), "svd_failed")
     if singular.size < 2 or float(singular[-1]) <= 1e-9:
-        return EqualSagEstimate(False, 0.0, 0.0, tuple(float(v) for v in drift), zero, drift_norm, float("inf"), "singular_sensitivity")
+        return EqualSagEstimate(False, 0.0, 0.0, drift_tuple, zero, drift_norm, float("inf"), "singular_sensitivity")
     condition = float(singular[0] / singular[-1])
     if condition > float(condition_max):
-        return EqualSagEstimate(False, 0.0, 0.0, tuple(float(v) for v in drift), zero, drift_norm, condition, "ill_conditioned")
+        return EqualSagEstimate(False, 0.0, 0.0, drift_tuple, zero, drift_norm, condition, "ill_conditioned")
 
-    offsets, *_ = np.linalg.lstsq(j, drift, rcond=None)
+    try:
+        offsets, *_ = np.linalg.lstsq(j, drift, rcond=None)
+    except np.linalg.LinAlgError:
+        return EqualSagEstimate(False, 0.0, 0.0, drift_tuple, zero, drift_norm, condition, "solve_failed")
     seg1 = float(offsets[0])
     seg2 = float(offsets[1])
     reconstructed = j @ offsets
@@ -73,7 +88,7 @@ def solve_equal_sag_offsets(
             False,
             seg1,
             seg2,
-            tuple(float(v) for v in drift),
+            drift_tuple,
             tuple(float(v) for v in reconstructed),
             residual,
             condition,
@@ -84,7 +99,7 @@ def solve_equal_sag_offsets(
             False,
             seg1,
             seg2,
-            tuple(float(v) for v in drift),
+            drift_tuple,
             tuple(float(v) for v in reconstructed),
             residual,
             condition,
@@ -94,7 +109,7 @@ def solve_equal_sag_offsets(
         True,
         seg1,
         seg2,
-        tuple(float(v) for v in drift),
+        drift_tuple,
         tuple(float(v) for v in reconstructed),
         residual,
         condition,

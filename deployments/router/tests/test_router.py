@@ -6,7 +6,7 @@ from elesim_protocol import (
     EndpointDescriptor,
     make_envelope,
 )
-from elesim_router.main import RouterCore
+from elesim_router.core import RouterCore
 
 
 def register(
@@ -16,7 +16,12 @@ def register(
     role: str,
     capabilities: tuple[str, ...],
 ) -> None:
-    descriptor = EndpointDescriptor(endpoint_id, role, capabilities=capabilities)
+    descriptor = EndpointDescriptor(
+        endpoint_id,
+        role,
+        capabilities=capabilities,
+        instance_id=f"{endpoint_id}-instance",
+    )
     reply = core.handle(
         identity,
         make_envelope(
@@ -72,7 +77,7 @@ def test_motion_requires_controller_and_matching_lease() -> None:
             "controller-a",
             target_id="robot-a",
             lease_id=lease_id,
-            payload={"q": [0.0, 0.1, 0.2, 0.3]},
+            payload={"command": "target", "q": [0.0, 0.1, 0.2, 0.3]},
             seq=3,
         ),
         now=1.2,
@@ -86,7 +91,7 @@ def test_motion_requires_controller_and_matching_lease() -> None:
             "robot-a",
             target_id="robot-a",
             lease_id=lease_id,
-            payload={"q": [0.0, 0.1, 0.2, 0.3]},
+            payload={"command": "target", "q": [0.0, 0.1, 0.2, 0.3]},
             seq=2,
         ),
         now=1.3,
@@ -133,3 +138,131 @@ def test_global_sequence_rejects_replay_across_message_types() -> None:
     replay = core.handle(b"ui", make_envelope("discover", "ui-a", seq=2), now=1.2)
     assert replay[0].envelope.message_type == "error"
     assert "stale sequence" in str(replay[0].envelope.payload["reason"])
+
+
+def test_register_sequence_is_part_of_global_replay_protection() -> None:
+    core = RouterCore()
+    register(core, b"robot", "robot-a", "robot", (CAPABILITY_MOTION_ARM,))
+    replay = core.handle(
+        b"robot",
+        make_envelope("heartbeat", "robot-a", seq=1),
+        now=1.1,
+    )
+    assert replay[0].envelope.message_type == "error"
+    assert "stale sequence" in str(replay[0].envelope.payload["reason"])
+
+
+def test_live_endpoint_id_cannot_be_taken_by_another_instance() -> None:
+    core = RouterCore()
+    register(core, b"first", "robot-a", "robot", (CAPABILITY_MOTION_ARM,))
+    intruder = EndpointDescriptor(
+        "robot-a",
+        "robot",
+        (CAPABILITY_MOTION_ARM,),
+        instance_id="different-instance",
+    )
+
+    reply = core.handle(
+        b"second",
+        make_envelope(
+            "register",
+            "robot-a",
+            payload={"endpoint": intruder.to_dict()},
+            seq=1,
+        ),
+        now=1.1,
+    )
+
+    assert reply[-1].envelope.message_type == "error"
+    assert "already registered" in str(reply[-1].envelope.payload["reason"])
+    assert core.endpoints["robot-a"].identity == b"first"
+
+
+def test_same_instance_reconnect_revokes_old_lease_before_registration() -> None:
+    core = RouterCore()
+    register(core, b"controller", "controller-a", "controller", (CAPABILITY_OPERATOR_CONTROL,))
+    register(core, b"robot-old", "robot-a", "robot", (CAPABILITY_MOTION_ARM,))
+    core.handle(
+        b"controller",
+        make_envelope(
+            "select_target",
+            "controller-a",
+            payload={"target_id": "robot-a"},
+            seq=2,
+        ),
+        now=1.1,
+    )
+    descriptor = EndpointDescriptor(
+        "robot-a",
+        "robot",
+        (CAPABILITY_MOTION_ARM,),
+        instance_id="robot-a-instance",
+    )
+
+    routed = core.handle(
+        b"robot-new",
+        make_envelope(
+            "register",
+            "robot-a",
+            payload={"endpoint": descriptor.to_dict()},
+            seq=3,
+        ),
+        now=1.2,
+    )
+
+    assert routed[0].identity == b"controller"
+    assert routed[0].envelope.message_type == "target_lost"
+    assert routed[-1].identity == b"robot-new"
+    assert routed[-1].envelope.message_type == "registered"
+    assert core.endpoints["robot-a"].identity == b"robot-new"
+
+
+def test_router_rejects_invalid_motion_payload_before_forwarding() -> None:
+    core = RouterCore()
+    register(core, b"controller", "controller-a", "controller", (CAPABILITY_OPERATOR_CONTROL,))
+    register(core, b"robot", "robot-a", "robot", (CAPABILITY_MOTION_ARM,))
+    selected = core.handle(
+        b"controller",
+        make_envelope(
+            "select_target",
+            "controller-a",
+            payload={"target_id": "robot-a"},
+            seq=2,
+        ),
+        now=1.1,
+    )[-1].envelope
+    lease_id = str(selected.payload["lease_id"])
+
+    rejected = core.handle(
+        b"controller",
+        make_envelope(
+            "motion_command",
+            "controller-a",
+            target_id="robot-a",
+            lease_id=lease_id,
+            payload={"command": "target", "u": {"linear": 10}},
+            seq=3,
+        ),
+        now=1.2,
+    )
+
+    assert rejected[0].identity == b"controller"
+    assert rejected[0].envelope.message_type == "error"
+    assert "legacy u" in str(rejected[0].envelope.payload["reason"])
+
+
+def test_server_reply_preserves_trace_context() -> None:
+    core = RouterCore()
+    descriptor = EndpointDescriptor("ui-a", "ui", instance_id="ui-instance")
+    reply = core.handle(
+        b"ui",
+        make_envelope(
+            "register",
+            "ui-a",
+            payload={"endpoint": descriptor.to_dict()},
+            seq=1,
+            trace_context={"traceparent": "00-abc-def-01"},
+        ),
+        now=1.0,
+    )[-1].envelope
+    assert reply.trace_context == {"traceparent": "00-abc-def-01"}

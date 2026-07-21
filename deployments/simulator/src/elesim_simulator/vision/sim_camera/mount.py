@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from elesim_simulator.vision.perception_bridge.hand_eye import load_hand_eye_transform
+from elesim_simulator.vision.sim_camera.calibration import load_hand_eye_transform
 from elesim_simulator.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
 # RealSense optical (+X right, +Y down, +Z look) -> Genesis/OpenGL camera (+X right, +Y up, -Z look).

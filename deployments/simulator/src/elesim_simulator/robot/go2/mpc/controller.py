@@ -44,16 +44,19 @@ _TAU_LIM = np.array(
 )
 
 
-def _repo_go2_urdf() -> tuple[Path, Path] | None:
-    for root in Path(__file__).resolve().parents:
-        go2_asset_dir = root / "assets" / "go2"
-        go2_urdf = go2_asset_dir / "go2.urdf"
-        if go2_urdf.is_file():
-            return go2_asset_dir, go2_urdf
-    return None
+def _resolve_go2_urdf(go2_urdf_path: str | Path | None) -> tuple[Path, Path]:
+    if go2_urdf_path is None or not str(go2_urdf_path).strip():
+        from elesim_simulator.model_bundle import resolve_model_bundle
+
+        go2_urdf = resolve_model_bundle() / "assets/go2/go2.urdf"
+    else:
+        go2_urdf = Path(go2_urdf_path).expanduser().resolve()
+    if not go2_urdf.is_file():
+        raise FileNotFoundError(f"GO2 MPC URDF not found: {go2_urdf}")
+    return go2_urdf.parent, go2_urdf
 
 
-def _require_convex_mpc():
+def _require_convex_mpc(*, go2_urdf_path: str | Path | None = None):
     try:
         import casadi as ca
         import convex_mpc.centroidal_mpc as centroidal_mpc
@@ -68,11 +71,9 @@ def _require_convex_mpc():
             "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git "
             "and conda install -c conda-forge pinocchio casadi"
         ) from exc
-    go2_paths = _repo_go2_urdf()
-    if go2_paths is not None:
-        go2_asset_dir, go2_urdf = go2_paths
-        go2_robot_data.URDF_PATH = go2_urdf
-        go2_robot_data.PACKAGE_DIRS = go2_asset_dir
+    go2_asset_dir, go2_urdf = _resolve_go2_urdf(go2_urdf_path)
+    go2_robot_data.URDF_PATH = go2_urdf
+    go2_robot_data.PACKAGE_DIRS = go2_asset_dir
     if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):
         for solver_name, solver_opts in (
             (
@@ -111,8 +112,12 @@ class ConvexMpcGenesisController:
         arm_link_names: set[str] | None = None,
         metrics: WalkingMetricsLogger | None = None,
         command_source: str = "teleop",
+        go2_urdf_path: str | Path | None = None,
     ) -> None:
-        PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC = _require_convex_mpc()
+        self._go2_urdf_path = go2_urdf_path
+        PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC = _require_convex_mpc(
+            go2_urdf_path=self._go2_urdf_path
+        )
 
         self._entity = entity
         self._dt = float(dt)
@@ -270,7 +275,9 @@ class ConvexMpcGenesisController:
         self._set_ready_actuation()
 
     def _enter_torque_mode(self) -> None:
-        _, _, LegController, _, _ = _require_convex_mpc()
+        _, _, LegController, _, _ = _require_convex_mpc(
+            go2_urdf_path=self._go2_urdf_path
+        )
         self._ready_mode = False
         self._torque_mode = True
         self._leg_controller = LegController()

@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tooling.release.verify import verify_release_tree
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOYMENTS = ("router", "controller", "ui", "robot", "simulator")
@@ -16,7 +18,17 @@ def build_wheel(project: Path, wheel_dir: Path) -> Path:
     before = set(wheel_dir.glob("*.whl"))
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(wheel_dir), str(project)],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--no-build-isolation",
+                "--no-deps",
+                "--wheel-dir",
+                str(wheel_dir),
+                str(project),
+            ],
             check=True,
         )
     finally:
@@ -38,9 +50,21 @@ def copy_tree(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, dirs_exist_ok=True)
 
 
+def copy_simulator_bundle(model_root: Path, release: Path) -> None:
+    source = model_root / "bundles/default"
+    if not (source / "bundle.json").is_file():
+        raise FileNotFoundError(f"validated simulator bundle is missing: {source}")
+    copy_tree(source, release / "model/bundles/default")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build isolated Elesim deployment contexts")
     parser.add_argument("--output", default="dist/releases")
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="skip isolated wheel install and entrypoint probes",
+    )
     args = parser.parse_args()
     output = (ROOT / args.output).resolve()
     wheel_dir = output.parent / "wheels"
@@ -69,12 +93,15 @@ def main() -> None:
             copy_tree(project / "systemd", release / "systemd")
             shutil.copy2(project / "install.sh", release / "install.sh")
         if name == "simulator":
-            copy_tree(ROOT / "model", release / "model")
+            copy_simulator_bundle(ROOT / "model", release)
         (release / "WHEELS.env").write_text(
             f"PROTOCOL_WHEEL={protocol_wheel.name}\nAPP_WHEEL={app_wheel.name}\n",
             encoding="utf-8",
         )
         print(release)
+
+    if not args.no_verify:
+        verify_release_tree(output)
 
 
 if __name__ == "__main__":

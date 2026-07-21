@@ -6,7 +6,8 @@ from pathlib import Path
 
 from elesim_ui.config import load_config
 from elesim_ui.control_panel import ControlPanel
-from elesim_ui.operator import OperatorClient, RemoteControlService, RemotePanelState
+from elesim_ui.operator import RemoteControlService, RemotePanelState
+from elesim_ui.operator_session import OperatorSession
 from elesim_ui.webrtc_session import UiWebRtcSession
 
 
@@ -26,13 +27,25 @@ def main() -> None:
     controller_id = str(args.controller_id).strip() or config.controller_id
     sim_id = str(args.sim_id).strip() or config.simulator_id
 
-    client = OperatorClient(
+    session = OperatorSession(
         server,
         ui_id=config.endpoint_id,
         controller_id=controller_id,
     )
-    state = RemotePanelState(client)
-    service = RemoteControlService(client, state)
+    state = RemotePanelState(
+        session,
+        initial_state={
+            "visual_target_label": str(config.perception.target_label).strip(),
+            "visual_target_scale": float(config.pick.target_scale),
+            "visual_center_tol": float(config.pick.center_tol),
+            "visual_target_uv_u": float(config.pick.target_uv_u),
+            "visual_target_uv_v": float(config.pick.target_uv_v),
+            "visual_scale_tol": float(config.pick.scale_tol),
+            "visual_ready_distance_m": float(config.pick.ready_pose_standoff_m),
+            "visual_look_distance_m": float(config.pick.look_pose_standoff_m),
+        },
+    )
+    service = RemoteControlService(session, state)
     video = None
     if not args.no_webrtc:
         try:
@@ -63,7 +76,6 @@ def main() -> None:
         endpoint_select=select_endpoint,
     )
     try:
-        service.refresh_host_state()
         panel.run()
     finally:
         if video is not None:

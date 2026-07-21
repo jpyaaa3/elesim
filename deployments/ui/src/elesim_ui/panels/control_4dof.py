@@ -182,8 +182,9 @@ def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
     row_x = float(imgui.get_cursor_pos_x())
     row_w = max(1.0, float(imgui.get_content_region_available_width()))
     button_w = scaled(panel, _OFFSET_BUTTON_W)
-    _, paused = imgui.checkbox("Lock", bool(panel.state.paused))
-    panel.state.set_paused(bool(paused))
+    changed, paused = imgui.checkbox("Lock", bool(panel.state.paused))
+    if changed:
+        panel.state.set_paused(bool(paused))
 
     button_x = row_x + row_w - button_w
     current_x = float(imgui.get_cursor_pos_x())

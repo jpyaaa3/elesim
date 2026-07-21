@@ -1,5 +1,7 @@
 """Typed operator/controller intent surface carried over protocol v3."""
 
+OPERATOR_VIEW_SCHEMA_VERSION = 1
+
 SERVICE_CALLS = frozenset(
     {
         "apply_partial_control_u", "capture_perception_frame", "disconnect_device",
@@ -13,15 +15,14 @@ SERVICE_CALLS = frozenset(
         "stop_gaze_stabilizer", "stop_perception_capture", "stop_pick_e2e",
         "toggle_perception_recording", "torque_off", "torque_on",
         "update_gaze_stabilizer_config", "update_perception_config",
-        "send_sim_camera_input", "select_endpoint",
+        "send_sim_camera_input", "select_endpoint", "current_host_state",
+        "has_client", "current_control_u", "control_mapping", "pick_e2e_running",
     }
 )
 
 SERVICE_VALUES = frozenset(
     {
-        "_gaze_cfg", "_pick_config_effective", "control_mapping", "current_control_u",
-        "current_host_state", "gaze_config", "has_client", "pick_e2e_running",
-        "available_endpoints", "active_endpoint",
+        "gaze_config", "available_endpoints", "active_endpoint",
     }
 )
 
@@ -33,4 +34,19 @@ STATE_CALLS = frozenset(
     }
 )
 
-OPERATOR_OPERATIONS = frozenset({"snapshot", "service_call", "service_get", "state_call", "state_set"})
+STATE_VALUES = frozenset(
+    {
+        "visual_center_tol",
+        "visual_look_distance_m",
+        "visual_ready_distance_m",
+        "visual_scale_tol",
+        "visual_target_label",
+        "visual_target_scale",
+        "visual_target_uv_u",
+        "visual_target_uv_v",
+    }
+)
+
+OPERATOR_OPERATIONS = frozenset(
+    {"snapshot", "view_snapshot", "service_call", "service_get", "state_call", "state_set"}
+)

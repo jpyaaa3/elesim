@@ -8,6 +8,7 @@ import math
 import time
 import uuid
 from dataclasses import dataclass
+from numbers import Real
 from typing import Any, Dict, Mapping, Optional
 
 
@@ -253,6 +254,7 @@ def loads_msg(buf: bytes) -> Dict[str, Any]:
 
 
 PROTOCOL_VERSION = 3
+MAX_ENVELOPE_BYTES = 1_048_576
 ENDPOINT_ROLES = frozenset({"controller", "robot", "simulator", "ui"})
 
 CAPABILITY_OPERATOR_CONTROL = "operator_control"
@@ -307,6 +309,15 @@ class EndpointDescriptor:
             raise ProtocolError(f"unsupported endpoint role: {self.role!r}")
         if any(not str(value).strip() for value in self.capabilities):
             raise ProtocolError("endpoint capabilities must not contain empty values")
+        if len(set(self.capabilities)) != len(self.capabilities):
+            raise ProtocolError("endpoint capabilities must be unique")
+        if self.instance_id:
+            _validate_identifier(self.instance_id, "instance_id")
+        streams = self.streams or {}
+        if not isinstance(streams, dict):
+            raise ProtocolError("endpoint streams must be an object")
+        if any(not str(key).strip() or not str(value).strip() for key, value in streams.items()):
+            raise ProtocolError("endpoint streams must have non-empty names and endpoints")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -319,6 +330,9 @@ class EndpointDescriptor:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "EndpointDescriptor":
+        unknown = sorted(set(raw) - {"endpoint_id", "role", "capabilities", "streams", "instance_id"})
+        if unknown:
+            raise ProtocolError("unknown endpoint descriptor fields: " + ", ".join(unknown))
         capabilities = raw.get("capabilities", ())
         streams = raw.get("streams", {})
         if not isinstance(capabilities, (list, tuple)):
@@ -352,7 +366,7 @@ class Envelope:
     version: int = PROTOCOL_VERSION
 
     def __post_init__(self) -> None:
-        if int(self.version) != PROTOCOL_VERSION:
+        if isinstance(self.version, bool) or type(self.version) is not int or self.version != PROTOCOL_VERSION:
             raise ProtocolError(
                 f"protocol version {self.version!r} is unsupported; expected {PROTOCOL_VERSION}"
             )
@@ -361,12 +375,24 @@ class Envelope:
             raise ProtocolError(f"unsupported message type: {self.message_type!r}")
         _validate_identifier(self.source_id, "source_id")
         _validate_identifier(self.target_id, "target_id")
-        if int(self.seq) < 0:
+        if isinstance(self.seq, bool) or type(self.seq) is not int or self.seq < 0:
             raise ProtocolError("seq must be non-negative")
+        if isinstance(self.timestamp, bool) or not isinstance(self.timestamp, Real) or not math.isfinite(float(self.timestamp)):
+            raise ProtocolError("timestamp must be finite")
         if not isinstance(self.payload or {}, dict):
             raise ProtocolError("payload must be an object")
         if not isinstance(self.trace_context or {}, dict):
             raise ProtocolError("trace_context must be an object")
+        _validate_json_value(self.payload or {}, context="payload")
+        trace = self.trace_context or {}
+        if any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            or len(key) > 128
+            or len(value) > 512
+            for key, value in trace.items()
+        ):
+            raise ProtocolError("trace_context keys or values are invalid")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -394,14 +420,23 @@ class Envelope:
         payload = raw["payload"]
         if not isinstance(payload, Mapping):
             raise ProtocolError("payload must be an object")
+        version = raw["version"]
+        seq = raw["seq"]
+        timestamp = raw["timestamp"]
+        if isinstance(version, bool) or type(version) is not int:
+            raise ProtocolError("version must be an integer")
+        if isinstance(seq, bool) or type(seq) is not int:
+            raise ProtocolError("seq must be an integer")
+        if isinstance(timestamp, bool) or not isinstance(timestamp, Real):
+            raise ProtocolError("timestamp must be numeric")
         return cls(
-            version=int(raw["version"]),
+            version=version,
             message_id=str(raw["message_id"]),
             message_type=str(raw["type"]),
             source_id=str(raw["source_id"]),
             target_id=str(raw["target_id"]),
-            seq=int(raw["seq"]),
-            timestamp=float(raw["timestamp"]),
+            seq=seq,
+            timestamp=float(timestamp),
             lease_id=str(raw.get("lease_id", "")),
             trace_context={str(key): str(value) for key, value in trace_context.items()},
             payload=dict(payload),
@@ -414,6 +449,30 @@ def _validate_identifier(value: str, field: str) -> None:
         raise ProtocolError(f"{field} must contain 1..128 characters")
     if any(char.isspace() for char in text):
         raise ProtocolError(f"{field} must not contain whitespace")
+
+
+def _validate_json_value(value: Any, *, context: str, depth: int = 0) -> None:
+    if depth > 16:
+        raise ProtocolError(f"{context} nesting is too deep")
+    if value is None or isinstance(value, (bool, str)):
+        return
+    if isinstance(value, int) and not isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ProtocolError(f"{context} contains a non-finite number")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_json_value(item, context=context, depth=depth + 1)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ProtocolError(f"{context} keys must be strings")
+            _validate_json_value(item, context=context, depth=depth + 1)
+        return
+    raise ProtocolError(f"{context} contains a non-JSON value: {type(value).__name__}")
 
 
 def make_envelope(
@@ -440,10 +499,27 @@ def make_envelope(
 
 
 def dumps_envelope(envelope: Envelope) -> bytes:
-    return json.dumps(envelope.to_dict(), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    try:
+        encoded = json.dumps(
+            envelope.to_dict(),
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ProtocolError(f"envelope is not JSON-safe: {exc}") from exc
+    if len(encoded) > MAX_ENVELOPE_BYTES:
+        raise ProtocolError(
+            f"envelope is too large: {len(encoded)} bytes > {MAX_ENVELOPE_BYTES}"
+        )
+    return encoded
 
 
 def loads_envelope(buf: bytes) -> Envelope:
+    if len(buf) > MAX_ENVELOPE_BYTES:
+        raise ProtocolError(
+            f"envelope is too large: {len(buf)} bytes > {MAX_ENVELOPE_BYTES}"
+        )
     try:
         raw = json.loads(buf.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -6,9 +6,21 @@ from typing import Any
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
-from elesim_simulator.vision.perception_bridge.transforms import make_transform_from_world_pose, transform_point
 from elesim_simulator.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
 from elesim_simulator.vision.sim_camera.mount import load_hand_eye_offset_T, _OPTICAL_FROM_GENESIS_CAMERA
+
+
+def _world_transform(position: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+    transform = np.eye(4, dtype=float)
+    transform[:3, :3] = np.asarray(rotation, dtype=float).reshape(3, 3)
+    transform[:3, 3] = np.asarray(position, dtype=float).reshape(3)
+    return transform
+
+
+def _transform_point(transform: np.ndarray, point: np.ndarray | list[float]) -> np.ndarray:
+    homogeneous = np.ones(4, dtype=float)
+    homogeneous[:3] = np.asarray(point, dtype=float).reshape(3)
+    return (np.asarray(transform, dtype=float).reshape(4, 4) @ homogeneous)[:3]
 
 
 def _link_world_transform(link) -> np.ndarray:
@@ -16,7 +28,7 @@ def _link_world_transform(link) -> np.ndarray:
     quat_wxyz = _to_numpy_1d(link.get_quat())[:4]
     quat_xyzw = _quat_wxyz_to_xyzw(quat_wxyz)
     rot = Rot.from_quat(quat_xyzw).as_matrix()
-    return make_transform_from_world_pose(pos, rot)
+    return _world_transform(pos, rot)
 
 
 def camera_axes_from_genesis_camera_object(
@@ -34,9 +46,9 @@ def camera_axes_from_genesis_camera_object(
         raw = raw.numpy()
     T_w_genesis = np.asarray(raw, dtype=float).reshape(4, 4)
     T_world_optical = T_w_genesis @ np.asarray(_OPTICAL_FROM_GENESIS_CAMERA, dtype=float).reshape(4, 4)
-    origin = transform_point(T_world_optical, [0.0, 0.0, 0.0])
-    look = transform_point(T_world_optical, [0.0, 0.0, float(axis_len_m)]) - origin
-    right = transform_point(T_world_optical, [float(axis_len_m), 0.0, 0.0]) - origin
+    origin = _transform_point(T_world_optical, [0.0, 0.0, 0.0])
+    look = _transform_point(T_world_optical, [0.0, 0.0, float(axis_len_m)]) - origin
+    right = _transform_point(T_world_optical, [float(axis_len_m), 0.0, 0.0]) - origin
     return origin, look, right
 
 
@@ -52,9 +64,9 @@ def camera_axes_from_genesis_link(
     T_world_parent = _link_world_transform(link)
     T_parent_camera = load_hand_eye_offset_T(hand_eye_path)
     T_world_camera = T_world_parent @ np.asarray(T_parent_camera, dtype=float).reshape(4, 4)
-    origin = transform_point(T_world_camera, [0.0, 0.0, 0.0])
-    look = transform_point(T_world_camera, [0.0, 0.0, float(axis_len_m)]) - origin
-    right = transform_point(T_world_camera, [float(axis_len_m), 0.0, 0.0]) - origin
+    origin = _transform_point(T_world_camera, [0.0, 0.0, 0.0])
+    look = _transform_point(T_world_camera, [0.0, 0.0, float(axis_len_m)]) - origin
+    right = _transform_point(T_world_camera, [float(axis_len_m), 0.0, 0.0]) - origin
     return origin, look, right
 
 
@@ -81,7 +93,7 @@ def camera_point_to_world_from_axes(
     y_axis = y_axis / y_norm
     x_axis = np.cross(y_axis, z_axis)
     rot = np.column_stack([x_axis, y_axis, z_axis])
-    return transform_point(make_transform_from_world_pose(o, rot), point_camera)
+    return _transform_point(_world_transform(o, rot), point_camera)
 
 
 def camera_point_to_world_from_genesis_link(
@@ -95,4 +107,4 @@ def camera_point_to_world_from_genesis_link(
     T_world_parent = _link_world_transform(link)
     T_parent_camera = load_hand_eye_offset_T(hand_eye_path)
     T_world_camera = T_world_parent @ np.asarray(T_parent_camera, dtype=float).reshape(4, 4)
-    return transform_point(T_world_camera, point_camera)
+    return _transform_point(T_world_camera, point_camera)

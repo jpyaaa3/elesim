@@ -1,7 +1,7 @@
 {
   "meta": {
     "node_count": 10,
-    "use_hardware": true,
+    "use_hardware": false,
     "use_go2": true,
     "notes": "All poses/joints are root-relative."
   },
@@ -10,12 +10,12 @@
       "name": "plate",
       "kind": "plate",
       "assets": {
-        "mesh": "../assets/plate/plate_mesh.obj",
-        "frame": "../assets/plate/plate_frame.json",
-        "physics": "../assets/plate/plate_physics.json"
+        "mesh": "assets/plate/plate_mesh.obj",
+        "frame": "assets/plate/plate_frame.json",
+        "physics": "assets/plate/plate_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "fixed",
         "collision_enabled": true
       },
       "pose_root": {
@@ -36,12 +36,12 @@
       "name": "housing",
       "kind": "housing",
       "assets": {
-        "mesh": "../assets/housing/housing_mesh.obj",
-        "frame": "../assets/housing/housing_frame.json",
-        "physics": "../assets/housing/housing_physics.json"
+        "mesh": "assets/housing/housing_mesh.obj",
+        "frame": "assets/housing/housing_frame.json",
+        "physics": "assets/housing/housing_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -62,12 +62,12 @@
       "name": "wedge",
       "kind": "wedge",
       "assets": {
-        "mesh": "../assets/wedge/wedge_mesh.obj",
-        "frame": "../assets/wedge/wedge_frame.json",
-        "physics": "../assets/wedge/wedge_physics.json"
+        "mesh": "assets/wedge/wedge_mesh.obj",
+        "frame": "assets/wedge/wedge_frame.json",
+        "physics": "assets/wedge/wedge_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -88,12 +88,12 @@
       "name": "node0",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -114,12 +114,12 @@
       "name": "node1",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -140,12 +140,12 @@
       "name": "node2",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -166,12 +166,12 @@
       "name": "node3",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -192,12 +192,12 @@
       "name": "node4",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -218,12 +218,12 @@
       "name": "node5",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -244,12 +244,12 @@
       "name": "node6",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -270,12 +270,12 @@
       "name": "node7",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -296,12 +296,12 @@
       "name": "node8",
       "kind": "node",
       "assets": {
-        "mesh": "../assets/node/node_mesh.obj",
-        "frame": "../assets/node/node_frame.json",
-        "physics": "../assets/node/node_physics.json"
+        "mesh": "assets/node/node_mesh.obj",
+        "frame": "assets/node/node_frame.json",
+        "physics": "assets/node/node_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -322,12 +322,12 @@
       "name": "node9",
       "kind": "node_end",
       "assets": {
-        "mesh": "../assets/node_end/node_end_mesh.obj",
-        "frame": "../assets/node_end/node_end_frame.json",
-        "physics": "../assets/node_end/node_end_physics.json"
+        "mesh": "assets/node_end/node_end_mesh.obj",
+        "frame": "assets/node_end/node_end_frame.json",
+        "physics": "assets/node_end/node_end_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -348,12 +348,12 @@
       "name": "gripper_base",
       "kind": "gripper_base",
       "assets": {
-        "mesh": "../assets/gripper_base/gripper_base_mesh.obj",
-        "frame": "../assets/gripper_base/gripper_base_frame.json",
-        "physics": "../assets/gripper_base/gripper_base_physics.json"
+        "mesh": "assets/gripper_base/gripper_base_mesh.obj",
+        "frame": "assets/gripper_base/gripper_base_frame.json",
+        "physics": "assets/gripper_base/gripper_base_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "fixed",
         "collision_enabled": true
       },
       "pose_root": {
@@ -374,12 +374,12 @@
       "name": "gripper_claw_left",
       "kind": "gripper_claw_left",
       "assets": {
-        "mesh": "../assets/gripper_claw_left/gripper_claw_left_mesh.obj",
-        "frame": "../assets/gripper_claw_left/gripper_claw_left_frame.json",
-        "physics": "../assets/gripper_claw_left/gripper_claw_left_physics.json"
+        "mesh": "assets/gripper_claw_left/gripper_claw_left_mesh.obj",
+        "frame": "assets/gripper_claw_left/gripper_claw_left_frame.json",
+        "physics": "assets/gripper_claw_left/gripper_claw_left_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -400,12 +400,12 @@
       "name": "gripper_claw_right",
       "kind": "gripper_claw_right",
       "assets": {
-        "mesh": "../assets/gripper_claw_right/gripper_claw_right_mesh.obj",
-        "frame": "../assets/gripper_claw_right/gripper_claw_right_frame.json",
-        "physics": "../assets/gripper_claw_right/gripper_claw_right_physics.json"
+        "mesh": "assets/gripper_claw_right/gripper_claw_right_mesh.obj",
+        "frame": "assets/gripper_claw_right/gripper_claw_right_frame.json",
+        "physics": "assets/gripper_claw_right/gripper_claw_right_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "commanded",
         "collision_enabled": true
       },
       "pose_root": {
@@ -426,12 +426,12 @@
       "name": "camera",
       "kind": "camera",
       "assets": {
-        "mesh": "../assets/camera/camera_mesh.obj",
-        "frame": "../assets/camera/camera_frame.json",
-        "physics": "../assets/camera/camera_physics.json"
+        "mesh": "assets/camera/camera_mesh.obj",
+        "frame": "assets/camera/camera_frame.json",
+        "physics": "assets/camera/camera_physics.json"
       },
       "flags": {
-        "control_mode": "simulated",
+        "control_mode": "fixed",
         "collision_enabled": false
       },
       "pose_root": {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from ._deps import *  # noqa: F401,F403
 from elesim_controller.observability.tracing import traced_thread_target
 
-class AimActions:
+class AimMotionActions:
     def _pick_reach_model(
         self,
         sag_model: Optional[dict[str, Any]] = None,
@@ -203,6 +203,10 @@ class AimActions:
             )
         )
         return max(0.0, travel)
+
+
+class AimCenteringActions(AimMotionActions):
+    """Track acquisition and one-step image centering/approach commands."""
 
     def _wait_for_track_lock(self, *, timeout_s: float, require_frames: int) -> bool:
         deadline = time.time() + max(float(timeout_s), 0.1)
@@ -458,6 +462,10 @@ class AimActions:
 
     def stop_aim(self) -> None:
         self.stop_object_pick()
+
+
+class AimWorkflowActions(AimCenteringActions):
+    """Main closed-loop Aim lifecycle."""
 
     def start_aim(self) -> None:
         if self._pick_busy() or self._visual_busy():
@@ -847,6 +855,10 @@ class AimActions:
             daemon=True,
         )
         self._pick_worker.start()
+
+
+class AimActions(AimWorkflowActions):
+    """Post-Aim correction and standalone object-pick actions."""
 
     def start_equal_sag_tweak(self) -> None:
         """Deprecated alias: corrected ready + direction align is unified in start_ready_pose()."""

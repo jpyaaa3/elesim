@@ -23,7 +23,7 @@ simulation:
   assembly:
     arm_urdf_name: arm.urdf
     assy_build_json: blueprint.json
-    build_dir: ../crafts
+    build_dir: .model-build
     rebuild_assembly: true
     urdf_name: robot.urdf
   trajectory:
@@ -300,94 +300,6 @@ robot:
       vx_mps: 0.45
       vy_mps: 0.6
       wz_radps: 0.8
-    hardware:
-      velocity_feedback:
-        enable: true
-        kp_vx: 0.8
-        kp_vy: 0.8
-        kp_wz: 1.0
-        max_corr_vx: 0.15
-        max_corr_vy: 0.15
-        max_corr_wz: 0.25
-        max_vx: 0.6
-        max_vy: 0.6
-        max_wz: 1.0
-      heading_hold:
-        enable: true
-        integral_max: 0.35
-        kd: 0.15
-        ki: 0.4
-        kp: 2.5
-        max_wz: 0.5
-      ros:
-        backend: unitree_ros2
-        cmd_hz: 20.0
-        enabled: false
-        gait_on_start: none
-        leg_sync: true
-        lowstate_topic: /lowstate
-        obstacles_avoid_api_id: 1001
-        obstacles_avoid_request_topic: /api/obstacles_avoid/request
-        odom_topic: /odom
-        pose_source: odom
-        ros_workspace: ''
-        shutdown_mode: damp
-        sport_request_topic: /api/sport/request
-        sport_state_topic: /sportmodestate
-        stand_on_start: none
-        status_log_interval_s: 0.0
-        stop_on_zero_vel: true
-        vel_deadband: 0.02
-        world_frame_offset_xyz:
-        - 0.0
-        - 0.0
-        - 0.0
-        world_frame_yaw_deg: 0.0
-    locomotion:
-      pitch_trim:
-        gain_x_backward: -0.15
-        gain_x_forward: 0.0
-        gain_z: 0.9
-        max_rad: 0.05
-        z_ref_m: 0.12
-      payload:
-        enable: true
-        mass_kg: 0.0
-      mpc:
-        aux_kp: 15.0
-        aux_kv: 6.0
-        command_ramp_s: 0.15
-        ctrl_hz: 200.0
-        foot_placement_scale: 1.35
-        force_filter_alpha: 0.35
-        leg_kv_damping: 3.0
-        ready_kp: 120.0
-        ready_kv: 6.0
-        ready_pose_s: 0.12
-        steps_per_gait: 16
-        tau_filter_alpha: 0.25
-        torque_ramp_s: 0.12
-        torque_warmup_s: 0.05
-      general:
-        base_vel_blend: 0.0
-        command_idle_threshold: 0.05
-        foot_max_step_m: 0.008
-        foot_radius_m: 0.022
-        foot_swing_height_m: 0.06
-        gait_duty: 0.6
-        gait_hz: 2.2
-        ground_height_m: 0.0
-        leg_kp: 80.0
-        leg_kv: 4.0
-        leg_max_rate_radps: 6.0
-        mirror_from_host: false
-        mode: convex_mpc
-        nominal_body_height_m: 0.3
-        raibert_kv: 0.05
-        stance_time_s: 0.3
-        swing_time_s: 0.15
-        torque_safety_scale: 0.9
-        z_pos_des_m: 0.3
 world:
   target:
     collision: true
@@ -437,7 +349,7 @@ vision:
       sim_camera_port: tcp://127.0.0.1:5568
     detector:
       detector: config
-      detector_config: config/perception/detector.sim_hsv.json
+      detector_config: perception/detector.sim_hsv.json
       pipeline: yolo_seg
       target_label: sim_sphere
       yolo_device: auto

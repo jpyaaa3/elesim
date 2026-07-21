@@ -98,8 +98,8 @@ python3 -m elesim_ui.main \
 WebRTC 의존성이 없는 환경에서는 UI에 `--no-webrtc`를 추가할 수 있다. 이 경우
 제어 UI는 실행되지만 시뮬레이터 렌더링 영상은 표시되지 않는다.
 
-`scripts/run_laptop_stack.sh`는 wheel을 설치해 `elesim-*` console command를
-사용할 수 있는 환경에서 Router, Controller, UI를 한꺼번에 실행한다. Simulator는
+`scripts/run_laptop_stack.sh`는 현재 워크스페이스 소스를 사용해 Router,
+Controller, UI를 한꺼번에 실행한다. 별도의 wheel 설치는 필요 없다. Simulator는
 연산용 PC에서 따로 실행하거나 노트북에서 추가로 실행해야 한다.
 
 ## 실제 로봇 실행
@@ -191,22 +191,38 @@ sudo systemctl enable --now elesim-robot
 
 Simulator는 정상 실행 중에 URDF를 다시 만들지 않고
 `model/bundles/default`를 읽는다. geometry나 blueprint를 변경했을 때만 다음
-명령으로 모델을 다시 생성한다.
+명령으로 모델을 다시 생성한다. 아래 명령은 `tooling/model_builder` 패키지가
+설치된 개발 환경에서 실행한다.
 
 ```bash
-PYTHONPATH=packages/protocol/src:deployments/controller/src:tooling/model_builder/src \
-python3 -m elesim_model_builder.cli \
+elesim-build-sim-bundle \
+  --assets model/source/assets --output model/bundles/default
+
+elesim-build-arm-model \
+  --config deployments/controller/config/config.pc.yaml \
   --assets model/source/assets \
-  --output model/bundles/default
+  --output deployments/controller/config/arm_model.json
 ```
 
-runtime에서 모델을 다시 빌드하는 동작은 개발용이며
+Controller는 `config/arm_model.json`만 읽으며 실행 중에 조립 모델을 만들지
+않는다. Simulator runtime에서 모델을 다시 빌드하는 동작은 개발용이며
 `ELESIM_SIM_DEV_REBUILD=1`을 명시한 경우에만 허용된다.
 
 ## 테스트
 
 전체 테스트는 역할별로 분리돼 있다. 과학 계산 의존성이 설치된 개발
 컨테이너에서 실행하는 것을 권장한다.
+
+표준 검증 명령은 다음 두 개다.
+
+```bash
+python3 tooling/quality/check.py --group required
+python3 tooling/quality/check.py --group extended
+```
+
+`required`는 protocol, 다섯 deployment, model/release, 5-process topology를
+검사한다. `extended`는 분석/디버그/실험 도구, 코드 크기 예산, 핵심 안전 조건
+mutation 검사를 실행한다.
 
 ```bash
 PYTHONPATH=packages/protocol/src python3 -m pytest packages/protocol/tests
@@ -223,6 +239,20 @@ PYTHONPATH=packages/protocol/src:deployments/ui/src python3 -m pytest deployment
 ```bash
 PYTHONPATH=packages/protocol/src:deployments/router/src \
 python3 integration/smoke_topology.py
+```
+
+역할별 line execution 보고서는 production 의존성을 추가하지 않고 만들 수 있다.
+
+```bash
+python3 tooling/quality/line_coverage.py controller
+```
+
+release 생성은 기본적으로 각 wheel을 임시 위치에 독립 설치하고 설정, console
+entrypoint, simulator model bundle까지 검증한다.
+
+```bash
+python3 tooling/release/build.py
+python3 tooling/release/verify.py dist/releases
 ```
 
 GUI 테스트 러너:

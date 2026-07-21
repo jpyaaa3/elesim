@@ -3,20 +3,12 @@
 
 from __future__ import annotations
 
-import configparser
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 import elesim_protocol.messages as proto
-from elesim_controller.robot.go2.hardware.config import Go2HardwareConfig
-from elesim_controller.robot.go2.locomotion.config import Go2LocomotionConfig
 from elesim_controller.gaze.stabilizer import GazeStabilizerConfig
 from elesim_controller.robot.arm.joint_defs import JointLimit
-
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 
 
 @dataclass(frozen=True)
@@ -41,11 +33,11 @@ class SimConfig:
     use_hardware: bool = True
     use_go2: bool = False
 
-    build_dir: str = DEFAULT_BUILD_DIR
+    build_dir: str = ""
     assy_build_json: str = "blueprint.json"
     urdf_name: str = "robot.urdf"
     arm_urdf_name: str = "arm.urdf"
-    rebuild_assembly: bool = True
+    rebuild_assembly: bool = False
 
     host_ctrl_port: str = "tcp://127.0.0.1:5555"
     host_sim_port: str = "tcp://127.0.0.1:5556"
@@ -243,7 +235,7 @@ class PerceptionConfig:
         path = Path(raw)
         if path.is_absolute():
             return path
-        return Path(PROJECT_ROOT) / path
+        return path.resolve()
 
 
 @dataclass(frozen=True)
@@ -440,8 +432,6 @@ class AppConfigBundle:
     ik_config: IkConfig
     perception_config: PerceptionConfig
     pick_config: PickConfig
-    go2_locomotion_config: Go2LocomotionConfig
-    go2_hardware_config: Go2HardwareConfig
     gaze_stabilizer_config: GazeStabilizerConfig
     experiment_config: ExperimentConfig
     mapping_config: proto.SimMappingConfig

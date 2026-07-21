@@ -139,9 +139,9 @@ def _apply_gaze_config_patch(panel, patch: dict[str, object]) -> None:
     if not patch:
         return
     try:
-        cfg = panel.service.update_gaze_stabilizer_config(patch)
+        panel.service.update_gaze_stabilizer_config(patch)
         panel._gaze_config_draft.update(dict(patch))
-        panel._gaze_config_seen_signature = _gaze_config_signature(gaze_config_to_dict(cfg))
+        panel._gaze_config_seen_signature = _gaze_config_signature(panel._gaze_config_draft)
         panel._gaze_config_last_source = "local"
         panel._gaze_config_pending_until = time.time() + 0.5
     except Exception as exc:
@@ -651,7 +651,7 @@ def _draw_camera_controls(panel, *, running: bool) -> None:
         else:
             cfg = _build_perception_config(panel)
             panel.service.update_perception_config(cfg)
-            panel.service.start_perception_capture(config=cfg)
+            panel.service.start_perception_capture()
     imgui.same_line()
     if _refresh_button(panel, "vision_refresh"):
         panel.service.refresh_perception_capture()

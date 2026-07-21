@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any
 
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
@@ -11,23 +10,7 @@ from scipy.spatial.transform import Rotation as Rot
 import elesim_model_builder.json_builder as assembly_builder
 from elesim_controller.config import AppConfigBundle, load_app_config
 from elesim_protocol import linear_effective_q_bounds
-from elesim_controller.robot.arm.iklib.kinematics import Q4, Q_BENT, Q_NEUTRAL, Vec3, _ReachModel, _pick_manifest_value
-
-
-@dataclass(frozen=True)
-class IkSolveRequest:
-    target_world: Vec3
-    position_tol_m: float = 1e-4
-
-
-@dataclass(frozen=True)
-class IkSolveResult:
-    success: bool
-    q: Optional[Q4]
-    position_error_m: float
-    seed_name: str
-    iterations: int
-    reason: str = ""
+from elesim_controller.robot.arm.iklib.kinematics import _pick_manifest_value
 
 
 def _load_frame_to_offset(build_dir: str, part: dict[str, Any], *, part_name: str) -> np.ndarray:
@@ -47,9 +30,15 @@ def _load_frame_to_offset(build_dir: str, part: dict[str, Any], *, part_name: st
     return np.array([float(to_raw[0]), float(to_raw[1]), float(to_raw[2])], dtype=float)
 
 
-def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, Any]]:
+def build_solver_context(
+    config_path: str,
+    *,
+    build_dir: str | os.PathLike[str] | None = None,
+) -> tuple[AppConfigBundle, dict[str, Any]]:
     bundle = load_app_config(config_path)
-    build_dir = str(bundle.sim_config.build_dir)
+    build_dir = os.fspath(build_dir) if build_dir is not None else str(bundle.sim_config.build_dir)
+    if not build_dir:
+        raise ValueError("model build directory must be provided explicitly")
     manifest_path = os.path.join(build_dir, str(bundle.sim_config.assy_build_json))
     if bool(bundle.sim_config.rebuild_assembly) or (not os.path.isfile(manifest_path)):
         os.makedirs(build_dir, exist_ok=True)
@@ -218,136 +207,4 @@ def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, An
     return bundle, context
 
 
-def _optimize_position(
-    *,
-    q0: Sequence[float],
-    tol: float,
-    model: _ReachModel,
-    target_world: Sequence[float],
-    max_iters: int,
-    damping: float = 1e-2,
-    line_search_shrink: float = 0.5,
-    line_search_steps: int = 6,
-) -> tuple[bool, Q4, float, int]:
-    q = model.clamp_q(q0)
-    err_vec = model.error_vec(q, target_world)
-    err = float(np.linalg.norm(err_vec))
-    if err <= tol:
-        return True, q.copy(), err, 0
-
-    for iteration in range(1, max(int(max_iters), 1) + 1):
-        err_vec = model.error_vec(q, target_world)
-        err = float(np.linalg.norm(err_vec))
-        if err <= tol:
-            return True, q.copy(), err, iteration - 1
-        residual = np.asarray(err_vec, dtype=float).reshape(3)
-        J = model.position_jacobian(q)
-        H = J.T @ J + float(max(damping, 1e-9)) * np.eye(4, dtype=float)
-        g = J.T @ residual
-        try:
-            step = -np.linalg.solve(H, g)
-        except np.linalg.LinAlgError:
-            step = -np.linalg.pinv(H) @ g
-        accepted = False
-        for ls_idx in range(max(int(line_search_steps), 1)):
-            alpha = float(np.clip(line_search_shrink, 1e-3, 0.999)) ** ls_idx
-            q_try = model.clamp_q(q + alpha * step)
-            residual_try = np.asarray(model.error_vec(q_try, target_world), dtype=float).reshape(3)
-            residual_norm = float(np.linalg.norm(residual))
-            residual_try_norm = float(np.linalg.norm(residual_try))
-            err_try = float(np.linalg.norm(model.error_vec(q_try, target_world)))
-            if residual_try_norm < residual_norm:
-                q = q_try
-                err = err_try
-                accepted = True
-                break
-        if not accepted:
-            break
-    return bool(err <= tol), q.copy(), float(err), max(int(max_iters), 1)
-
-
-def solve_ik(
-    *,
-    target_world: Sequence[float],
-    context: dict[str, Any],
-    position_tol_m: float = 1e-4,
-    max_iters: int = 120,
-    neutral_seed: Optional[Sequence[float]] = None,
-    bent_seed: Optional[Sequence[float]] = None,
-    current_seed: Optional[Sequence[float]] = None,
-) -> IkSolveResult:
-    request = IkSolveRequest(
-        target_world=np.asarray(target_world, dtype=float).reshape(3),
-        position_tol_m=float(position_tol_m),
-    )
-    model = _ReachModel(context=context, limit=context["limit"])
-    tol = float(max(request.position_tol_m, 0.0))
-    best_q: Optional[Q4] = None
-    best_err = float("inf")
-    best_seed = "bent"
-    best_iters = int(max_iters)
-    seed_specs: list[tuple[str, np.ndarray]] = []
-    if current_seed is not None:
-        seed_specs.append(("current", np.asarray(current_seed, dtype=float).reshape(4)))
-    seed_specs.extend(
-        [
-            ("neutral", np.asarray(neutral_seed if neutral_seed is not None else Q_NEUTRAL, dtype=float).reshape(4)),
-            ("bent", np.asarray(bent_seed if bent_seed is not None else Q_BENT, dtype=float).reshape(4)),
-        ]
-    )
-    seen: set[tuple[float, ...]] = set()
-    for seed_name, q_seed in seed_specs:
-        key = tuple(np.round(q_seed.astype(float), 9))
-        if key in seen:
-            continue
-        seen.add(key)
-        success, q_sol, err, iters = _optimize_position(
-            q0=q_seed,
-            tol=tol,
-            model=model,
-            target_world=request.target_world,
-            max_iters=max_iters,
-        )
-        if err < best_err:
-            best_q = q_sol
-            best_err = err
-            best_seed = seed_name
-            best_iters = iters
-        if success:
-            return IkSolveResult(True, q_sol.copy(), err, seed_name, iters, "converged")
-    return IkSolveResult(False, None if best_q is None else best_q.copy(), best_err, best_seed, best_iters, "position tolerance not reached")
-
-
-def tighten_from_actual(
-    *,
-    current_q: Sequence[float],
-    actual_tip_world: Sequence[float],
-    target_world: Sequence[float],
-    context: dict[str, Any],
-    damping: float = 1e-2,
-    step_scale: float = 1.0,
-) -> np.ndarray:
-    model = _ReachModel(context=context, limit=context["limit"])
-    q = model.clamp_q(current_q)
-    pos_err = np.asarray(target_world, dtype=float).reshape(3) - np.asarray(actual_tip_world, dtype=float).reshape(3)
-    J = model.position_jacobian(q)
-    H = J.T @ J + float(max(damping, 1e-9)) * np.eye(4, dtype=float)
-    g = J.T @ pos_err
-    try:
-        dq = np.linalg.solve(H, g)
-    except np.linalg.LinAlgError:
-        dq = np.linalg.pinv(H) @ g
-    return model.clamp_q(q + float(step_scale) * dq)
-
-
-load_ik_context = load_solver_context
-
-
-__all__ = [
-    "IkSolveRequest",
-    "IkSolveResult",
-    "load_ik_context",
-    "load_solver_context",
-    "solve_ik",
-    "tighten_from_actual",
-]
+__all__ = ["build_solver_context"]

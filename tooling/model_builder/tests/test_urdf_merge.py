@@ -72,6 +72,38 @@ class Go2ArmMergerTests(unittest.TestCase):
                     parent_link="missing",
                 )
 
+    def test_merge_rebases_each_input_mesh_to_output_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            go2 = tmp / "assets/go2/go2.urdf"
+            arm = tmp / "arm.urdf"
+            out = tmp / "robot.urdf"
+            go2.parent.mkdir(parents=True)
+            (go2.parent / "dae").mkdir()
+            (go2.parent / "dae/base.dae").write_text("mesh", encoding="utf-8")
+            (tmp / "assets/arm").mkdir(parents=True)
+            (tmp / "assets/arm/plate.obj").write_text("mesh", encoding="utf-8")
+            _write(
+                go2,
+                '<robot name="go2"><link name="base"><visual><geometry>'
+                '<mesh filename="dae/base.dae"/></geometry></visual></link></robot>',
+            )
+            _write(
+                arm,
+                '<robot name="arm"><link name="plate"><visual><geometry>'
+                '<mesh filename="assets/arm/plate.obj"/></geometry></visual></link></robot>',
+            )
+
+            merge_go2_arm_urdf(
+                go2_urdf_path=go2,
+                arm_urdf_path=arm,
+                out_urdf_path=out,
+                mount_xyz=(0.0, 0.0, 0.0),
+            )
+
+            filenames = [mesh.attrib["filename"] for mesh in ET.parse(out).getroot().iter("mesh")]
+            self.assertEqual(filenames, ["assets/go2/dae/base.dae", "assets/arm/plate.obj"])
+
 
 if __name__ == "__main__":
     unittest.main()

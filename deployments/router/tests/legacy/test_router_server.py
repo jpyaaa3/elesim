@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from elesim_router.main import RouterCore
+from elesim_router.core import RouterCore
 from elesim_protocol import CAPABILITY_MOTION_ARM, EndpointDescriptor, make_envelope
 
 
 def _register(core: RouterCore, identity: bytes, endpoint_id: str, role: str, seq: int = 1) -> None:
-    descriptor = EndpointDescriptor(endpoint_id, role, capabilities=(CAPABILITY_MOTION_ARM,))
+    descriptor = EndpointDescriptor(
+        endpoint_id,
+        role,
+        capabilities=(CAPABILITY_MOTION_ARM,),
+        instance_id=f"{endpoint_id}-instance",
+    )
     routed = core.handle(
         identity,
         make_envelope(

@@ -17,6 +17,11 @@ NUM_Q = 4
 NUM_FEATURES = 3
 
 
+def _require_finite(name: str, value: np.ndarray | float) -> None:
+    if not np.all(np.isfinite(value)):
+        raise ValueError(f"{name} must contain only finite values")
+
+
 class GraspApproachMode(str, Enum):
     LOCAL_IMG_JACOBIAN = "local_img_jacobian"
     REACQUIRE = "reacquire"
@@ -37,6 +42,8 @@ def damped_pseudoinverse_mn(jacobian: np.ndarray, damping: float) -> np.ndarray:
     j = np.asarray(jacobian, dtype=float)
     if j.ndim != 2:
         raise ValueError(f"jacobian must be 2D, got {j.shape}")
+    _require_finite("jacobian", j)
+    _require_finite("damping", float(damping))
     m = int(j.shape[0])
     lam = float(max(damping, 1e-9))
     jj_t = j @ j.T
@@ -59,6 +66,8 @@ def estimate_j_img_from_stacks(
         raise ValueError("q_stack and s_stack must be 2D")
     if q.shape[0] != s.shape[0] or q.shape[0] < 1:
         raise ValueError(f"stack row mismatch: Q={q.shape}, S={s.shape}")
+    _require_finite("q_stack", q)
+    _require_finite("s_stack", s)
     m = int(s.shape[1])
     n = int(q.shape[1])
     b = np.linalg.pinv(q) @ s
@@ -196,11 +205,24 @@ def clip_dq(
     max_dq_theta2: Optional[float] = None,
 ) -> np.ndarray:
     arr = np.asarray(dq, dtype=float).reshape(NUM_Q)
+    _require_finite("dq", arr)
+    caps = np.array(
+        [
+            float(max_dq_linear),
+            float(max_dq_angle),
+            float(max_dq_theta1 if max_dq_theta1 is not None else max_dq_angle),
+            float(max_dq_theta2 if max_dq_theta2 is not None else max_dq_angle),
+        ],
+        dtype=float,
+    )
+    _require_finite("dq limits", caps)
+    if np.any(caps < 0.0):
+        raise ValueError("dq limits must be non-negative")
     out = arr.copy()
-    out[0] = float(np.clip(out[0], -float(max_dq_linear), float(max_dq_linear)))
-    roll_cap = float(max(max_dq_angle, 1e-9))
-    t1_cap = float(max(max_dq_theta1 if max_dq_theta1 is not None else roll_cap, 1e-9))
-    t2_cap = float(max(max_dq_theta2 if max_dq_theta2 is not None else roll_cap, 1e-9))
+    out[0] = float(np.clip(out[0], -caps[0], caps[0]))
+    roll_cap = float(caps[1])
+    t1_cap = float(caps[2])
+    t2_cap = float(caps[3])
     out[1] = float(np.clip(out[1], -roll_cap, roll_cap))
     out[2] = float(np.clip(out[2], -t1_cap, t1_cap))
     out[3] = float(np.clip(out[3], -t2_cap, t2_cap))
@@ -238,17 +260,32 @@ def compute_dq_lji(
     """
     j = np.asarray(j_lji, dtype=float).reshape(NUM_FEATURES, NUM_Q)
     s = np.asarray(s_lji, dtype=float).reshape(NUM_FEATURES)
+    gains = np.array([float(gain_z), float(gain_u), float(gain_v)], dtype=float)
+    _require_finite("j_lji", j)
+    _require_finite("s_lji", s)
+    _require_finite("gains", gains)
+    _require_finite("damping", float(damping))
+    if np.any(gains < 0.0):
+        raise ValueError("gains must be non-negative")
     lam = float(damping)
-    j_stack = np.vstack(
+    ordered_j = np.vstack(
         [
-            float(gain_z) * j[2:3, :],
-            float(gain_u) * j[0:1, :],
-            float(gain_v) * j[1:2, :],
+            j[2:3, :],
+            j[0:1, :],
+            j[1:2, :],
         ]
     )
-    s_stack = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+    # Apply gains to the feature error, matching dq = -J+ K s. Scaling J by
+    # K instead would invert gain semantics and overshoot when gain < 1.
+    ordered_s = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+    active = gains > 1e-12
+    if not bool(np.any(active)):
+        zeros = np.zeros(NUM_Q, dtype=float)
+        return zeros.copy(), zeros
+    j_stack = ordered_j[active, :]
+    s_stack = gains[active] * ordered_s[active]
     j_pinv = damped_pseudoinverse_mn(j_stack, lam)
-    dq_raw = (-j_pinv @ s_stack.reshape(3, 1)).reshape(NUM_Q)
+    dq_raw = (-j_pinv @ s_stack.reshape(-1, 1)).reshape(NUM_Q)
     dq = clip_dq(
         dq_raw,
         max_dq_linear=float(max_dq_linear),
@@ -287,6 +324,8 @@ class ImageJacobianEstimator3D:
     def push(self, delta_q: Sequence[float], delta_s: Sequence[float]) -> None:
         dq = np.asarray(delta_q, dtype=float).reshape(NUM_Q)
         ds = np.asarray(delta_s, dtype=float).reshape(NUM_FEATURES)
+        _require_finite("delta_q", dq)
+        _require_finite("delta_s", ds)
         self._samples.append(MotionSample(delta_q=dq.copy(), delta_s=ds.copy()))
 
     def sample_count(self) -> int:
@@ -403,7 +442,7 @@ def joint_saturated(
     meas_norm = float(np.linalg.norm(meas[active]))
     if cmd_norm <= 1e-9:
         return False
-    frac = min(float(min_motion_frac), 0.05)
+    frac = float(np.clip(float(min_motion_frac), 0.0, 1.0))
     return meas_norm < cmd_norm * frac
 
 

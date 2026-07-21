@@ -9,10 +9,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/base.dae" />
+        <mesh filename="assets/go2/dae/base.dae" />
       </geometry>
-      <material name="go2_base_mat">
-        <color rgba="0.439215686 0.439215686 0.439215686 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -69,10 +69,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/hip.dae" />
+        <mesh filename="assets/go2/dae/hip.dae" />
       </geometry>
-      <material name="go2_FL_hip_mat">
-        <color rgba="0.439215686 0.439215686 0.439215686 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -98,10 +98,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/thigh.dae" />
+        <mesh filename="assets/go2/dae/thigh.dae" />
       </geometry>
-      <material name="go2_FL_thigh_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -127,10 +127,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/calf.dae" />
+        <mesh filename="assets/go2/dae/calf.dae" />
       </geometry>
-      <material name="go2_FL_calf_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -184,10 +184,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/foot.dae" />
+        <mesh filename="assets/go2/dae/foot.dae" />
       </geometry>
-      <material name="go2_FL_foot_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -212,10 +212,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/hip.dae" />
+        <mesh filename="assets/go2/dae/hip.dae" />
       </geometry>
-      <material name="go2_FR_hip_mat">
-        <color rgba="0.439215686 0.439215686 0.439215686 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -241,10 +241,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="assets/go2/dae/thigh_mirror.dae" />
       </geometry>
-      <material name="go2_FR_thigh_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -270,10 +270,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="assets/go2/dae/calf_mirror.dae" />
       </geometry>
-      <material name="go2_FR_calf_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -327,10 +327,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/foot.dae" />
+        <mesh filename="assets/go2/dae/foot.dae" />
       </geometry>
-      <material name="go2_FR_foot_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -355,10 +355,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 3.1415 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/hip.dae" />
+        <mesh filename="assets/go2/dae/hip.dae" />
       </geometry>
-      <material name="go2_RL_hip_mat">
-        <color rgba="0.439215686 0.439215686 0.439215686 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -384,10 +384,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/thigh.dae" />
+        <mesh filename="assets/go2/dae/thigh.dae" />
       </geometry>
-      <material name="go2_RL_thigh_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -413,10 +413,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/calf.dae" />
+        <mesh filename="assets/go2/dae/calf.dae" />
       </geometry>
-      <material name="go2_RL_calf_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -470,10 +470,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/foot.dae" />
+        <mesh filename="assets/go2/dae/foot.dae" />
       </geometry>
-      <material name="go2_RL_foot_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -498,10 +498,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="3.1415 3.1415 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/hip.dae" />
+        <mesh filename="assets/go2/dae/hip.dae" />
       </geometry>
-      <material name="go2_RR_hip_mat">
-        <color rgba="0.439215686 0.439215686 0.439215686 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -527,10 +527,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/thigh_mirror.dae" />
+        <mesh filename="assets/go2/dae/thigh_mirror.dae" />
       </geometry>
-      <material name="go2_RR_thigh_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -556,10 +556,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/calf_mirror.dae" />
+        <mesh filename="assets/go2/dae/calf_mirror.dae" />
       </geometry>
-      <material name="go2_RR_calf_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -613,10 +613,10 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/go2/dae/foot.dae" />
+        <mesh filename="assets/go2/dae/foot.dae" />
       </geometry>
-      <material name="go2_RR_foot_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
+      <material name="">
+        <color rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
@@ -667,16 +667,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/plate/plate_mesh.obj" />
+        <mesh filename="assets/plate/plate_mesh.obj" />
       </geometry>
-      <material name="plate_mat">
-        <color rgba="0.188235294 0.188235294 0.188235294 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/plate/plate_mesh.obj" />
+        <mesh filename="assets/plate/plate_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -689,16 +686,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/housing/housing_mesh.obj" />
+        <mesh filename="assets/housing/housing_mesh.obj" />
       </geometry>
-      <material name="housing_mat">
-        <color rgba="0.062745098 0.062745098 0.062745098 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/housing/housing_mesh.obj" />
+        <mesh filename="assets/housing/housing_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -711,16 +705,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/wedge/wedge_mesh.obj" />
+        <mesh filename="assets/wedge/wedge_mesh.obj" />
       </geometry>
-      <material name="wedge_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/wedge/wedge_mesh.obj" />
+        <mesh filename="assets/wedge/wedge_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -733,16 +724,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node0_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -755,16 +743,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node1_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -777,16 +762,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node2_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -799,16 +781,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node3_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -821,16 +800,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node4_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -843,16 +819,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node5_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -865,16 +838,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node6_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -887,16 +857,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node7_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -909,16 +876,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node8_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -931,16 +895,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node_end/node_end_mesh.obj" />
+        <mesh filename="assets/node_end/node_end_mesh.obj" />
       </geometry>
-      <material name="node9_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node_end/node_end_mesh.obj" />
+        <mesh filename="assets/node_end/node_end_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -953,16 +914,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_base/gripper_base_mesh.obj" />
+        <mesh filename="assets/gripper_base/gripper_base_mesh.obj" />
       </geometry>
-      <material name="gripper_base_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_base/gripper_base_mesh.obj" />
+        <mesh filename="assets/gripper_base/gripper_base_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -975,16 +933,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
+        <mesh filename="assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
       </geometry>
-      <material name="gripper_claw_left_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
+        <mesh filename="assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -997,16 +952,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
+        <mesh filename="assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
       </geometry>
-      <material name="gripper_claw_right_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
+        <mesh filename="assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -1019,7 +971,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/camera/camera_mesh.obj" />
+        <mesh filename="assets/camera/camera_mesh.obj" />
       </geometry>
     </visual>
   </link>
@@ -1150,6 +1102,6 @@
   <joint name="j_go2_base_arm_plate" type="fixed">
     <parent link="base" />
     <child link="plate" />
-    <origin xyz="0.1 0 0.07" rpy="0 0 0" />
+    <origin xyz="0.35 0 0.08" rpy="0 0 0" />
   </joint>
 </robot>

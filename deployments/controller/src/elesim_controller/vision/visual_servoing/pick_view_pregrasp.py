@@ -57,6 +57,10 @@ def generate_view_pregrasp_candidates(
     """Build grasp pregrasp positions around the object with view-oriented offsets."""
     obj = np.asarray(object_world, dtype=float).reshape(3)
     base_off = np.asarray(base_offset_m, dtype=float).reshape(3)
+    if not np.all(np.isfinite(obj)):
+        raise ValueError("object position must contain only finite values")
+    if not np.all(np.isfinite(base_off)):
+        raise ValueError("base offset must contain only finite values")
     view_axis = _normalize(-base_off)
     if view_axis is None:
         view_axis = np.array([1.0, 0.0, 0.0], dtype=float)
@@ -64,9 +68,15 @@ def generate_view_pregrasp_candidates(
     distances: list[float] = []
     if view_distances_m is not None:
         for d in view_distances_m:
-            distances.append(float(d))
+            distance = float(d)
+            if not np.isfinite(distance):
+                raise ValueError("view distances must be finite")
+            distances.append(distance)
     if view_distance_m is not None:
-        distances.append(float(view_distance_m))
+        distance = float(view_distance_m)
+        if not np.isfinite(distance):
+            raise ValueError("view distance must be finite")
+        distances.append(distance)
     if not distances:
         distances = [0.45]
 
@@ -101,6 +111,8 @@ def generate_view_pregrasp_candidates(
             for dy in lateral_offsets_m:
                 for dx in lateral_offsets_m:
                     delta = np.array([float(dx), float(dy), float(dz)], dtype=float)
+                    if not np.all(np.isfinite(delta)):
+                        raise ValueError("candidate offsets must contain only finite values")
                     _add(obj + base_off + delta, f"grid_{dx:+.2f}_{dy:+.2f}_{dz:+.2f}")
                     _add(view_base + delta, f"view_{dist_tag}_{dx:+.2f}_{dy:+.2f}_{dz:+.2f}")
 

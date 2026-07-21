@@ -17,7 +17,7 @@ from elesim_controller.pick.control_ownership import (
 from elesim_controller.gaze.stabilizer import GazeStabilizer, GazeStabilizerConfig, resolve_walking_gaze_mode
 from elesim_controller.gaze.preview_lite import PitchLeadEstimator, resolve_pitch_rate
 from elesim_controller.gaze.preview_mpc import solve_preview_du
-from elesim_controller.observability.walking_metrics import CameraMetricsLogger, _env_run_id
+from elesim_controller.observability.camera_metrics import CameraMetricsLogger, env_run_id
 from elesim_controller.observability.tracing import traced_thread_target
 from elesim_controller.vision.visual_servoing.uv_jacobian import default_uv_jacobian
 
@@ -170,7 +170,7 @@ class GazeControlService:
         self._demo_thread.start()
 
     def _resolve_run_id(self, run_id: str) -> str:
-        return _env_run_id(run_id)
+        return env_run_id(run_id)
 
     def _start(
         self,

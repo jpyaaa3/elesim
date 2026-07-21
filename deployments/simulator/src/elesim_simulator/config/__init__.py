@@ -1,43 +1,28 @@
-"""Application configuration schema and format-neutral loader.
+"""Public simulator configuration surface."""
 
-This package is the only supported configuration import surface.  Concrete
-loader implementation stays in :mod:`elesim_simulator.config.loader`.
-"""
-
-from elesim_simulator.config.loader import load_app_config, load_app_config_from_ini
 from elesim_simulator.config.distributed import RuntimeRoleConfig, load_runtime_role_config
+from elesim_simulator.config.loader import load_app_config
 from elesim_simulator.config.schema import (
     AppConfigBundle,
-    ExperimentConfig,
-    HardwareConfig,
-    IkConfig,
-    PerceptionConfig,
-    PickConfig,
+    ArmMappingConfig,
     SimConfig,
     SimParam,
     SpawnConfig,
     UrdfExportConfig,
 )
 from elesim_simulator.robot.arm.joint_defs import JointLimit
-from elesim_simulator.robot.go2.hardware.config import Go2HardwareConfig
 from elesim_simulator.robot.go2.locomotion.config import Go2LocomotionConfig
 
 __all__ = [
     "AppConfigBundle",
-    "ExperimentConfig",
-    "HardwareConfig",
-    "IkConfig",
+    "ArmMappingConfig",
+    "Go2LocomotionConfig",
     "JointLimit",
-    "PerceptionConfig",
-    "PickConfig",
+    "RuntimeRoleConfig",
     "SimConfig",
     "SimParam",
     "SpawnConfig",
     "UrdfExportConfig",
-    "Go2HardwareConfig",
-    "Go2LocomotionConfig",
     "load_app_config",
-    "load_app_config_from_ini",
-    "RuntimeRoleConfig",
     "load_runtime_role_config",
 ]

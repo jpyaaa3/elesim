@@ -24,9 +24,6 @@ robot:
     teleop:
       vx_mps: 0.25
       vy_mps: 0.5
-    locomotion:
-      general:
-        mirror_from_host: true
 world:
   target:
     enable: false
@@ -35,7 +32,7 @@ vision:
     publishing:
       preview_endpoint: tcp://192.168.0.112:5570
     detector:
-      detector_config: config/perception/detector.yolo.example.json
+      detector_config: perception/detector.yolo.example.json
       target_label: sports ball
     runtime:
       mode: camera

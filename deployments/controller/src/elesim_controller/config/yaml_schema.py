@@ -12,8 +12,6 @@ from elesim_controller.config.schema import (
     AppConfigBundle,
     ExperimentConfig,
     GazeStabilizerConfig,
-    Go2HardwareConfig,
-    Go2LocomotionConfig,
     HardwareConfig,
     IkConfig,
     JointLimit,
@@ -40,8 +38,6 @@ _COMPONENT_TYPES: dict[str, type[Any]] = {
     "ik_config": IkConfig,
     "perception_config": PerceptionConfig,
     "pick_config": PickConfig,
-    "go2_locomotion_config": Go2LocomotionConfig,
-    "go2_hardware_config": Go2HardwareConfig,
     "gaze_stabilizer_config": GazeStabilizerConfig,
     "experiment_config": ExperimentConfig,
 }
@@ -178,54 +174,6 @@ _register(
     aliases={"part_color_rgba_by_name": "colors"},
 )
 _register("ik_config", "robot.arm.ik", _field_names(IkConfig))
-
-# GO2 hardware and locomotion.
-_go2_hw_vel = _prefixed(Go2HardwareConfig, "vel_feedback_")
-_go2_hw_heading = _prefixed(Go2HardwareConfig, "vel_heading_hold_")
-_register(
-    "go2_hardware_config",
-    "robot.go2.hardware.velocity_feedback",
-    _go2_hw_vel,
-    strip_prefix="vel_feedback_",
-)
-_register(
-    "go2_hardware_config",
-    "robot.go2.hardware.heading_hold",
-    _go2_hw_heading,
-    strip_prefix="vel_heading_hold_",
-)
-_register(
-    "go2_hardware_config",
-    "robot.go2.hardware.ros",
-    _field_names(Go2HardwareConfig) - _go2_hw_vel - _go2_hw_heading,
-)
-
-_go2_pitch = _prefixed(Go2LocomotionConfig, "mpc_pitch_trim_")
-_go2_payload = _prefixed(Go2LocomotionConfig, "mpc_payload_")
-_go2_mpc = _prefixed(Go2LocomotionConfig, "mpc_") - _go2_pitch - _go2_payload
-_register(
-    "go2_locomotion_config",
-    "robot.go2.locomotion.pitch_trim",
-    _go2_pitch,
-    strip_prefix="mpc_pitch_trim_",
-)
-_register(
-    "go2_locomotion_config",
-    "robot.go2.locomotion.payload",
-    _go2_payload,
-    strip_prefix="mpc_payload_",
-)
-_register(
-    "go2_locomotion_config",
-    "robot.go2.locomotion.mpc",
-    _go2_mpc,
-    strip_prefix="mpc_",
-)
-_register(
-    "go2_locomotion_config",
-    "robot.go2.locomotion.general",
-    _field_names(Go2LocomotionConfig) - _go2_pitch - _go2_payload - _go2_mpc,
-)
 
 # Vision.
 _perception_tracking = _prefixed(PerceptionConfig, "track_") | {"reacquire_on_lost"}
@@ -418,6 +366,14 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
         sim_config = replace(sim_config, **sim_paths)
         components["sim_config"] = sim_config
 
+    perception_config = components["perception_config"]
+    detector_config = str(perception_config.detector_config).strip()
+    if detector_config and not os.path.isabs(detector_config):
+        components["perception_config"] = replace(
+            perception_config,
+            detector_config=os.path.abspath(os.path.join(config_dir, detector_config)),
+        )
+
     mapping = build_mapping_config(components["joint_limit"], components["hardware_config"])
     return AppConfigBundle(mapping_config=mapping, **components)
 
@@ -446,8 +402,10 @@ def bundle_to_yaml_data(
                 continue
         if (
             config_dir is not None
-            and leaf.component == "sim_config"
-            and leaf.field in {"build_dir", "hand_eye_config"}
+            and (
+                (leaf.component == "sim_config" and leaf.field in {"build_dir", "hand_eye_config"})
+                or (leaf.component == "perception_config" and leaf.field == "detector_config")
+            )
             and isinstance(value, str)
             and value
             and os.path.isabs(value)

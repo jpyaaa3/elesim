@@ -14,7 +14,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-elesim-router --bind tcp://0.0.0.0:5558 & pids+=("$!")
-elesim-controller --config "$CONFIG" --runtime-config deployments/controller/config/runtime.yaml & pids+=("$!")
-elesim-ui --config deployments/ui/config/default.yaml & pids+=("$!")
+PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/deployments/router/src${PYTHONPATH:+:${PYTHONPATH}}" \
+  python3 -m elesim_router.main --bind tcp://0.0.0.0:5558 & pids+=("$!")
+PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/deployments/controller/src${PYTHONPATH:+:${PYTHONPATH}}" \
+  python3 -m elesim_controller.main \
+    --config "$CONFIG" \
+    --runtime-config deployments/controller/config/runtime.yaml & pids+=("$!")
+PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/deployments/ui/src${PYTHONPATH:+:${PYTHONPATH}}" \
+  python3 -m elesim_ui.main \
+    --config deployments/ui/config/default.yaml & pids+=("$!")
 wait -n "${pids[@]}"

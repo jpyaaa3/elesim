@@ -98,6 +98,7 @@ from .gaze_actions import GazeActions
 from .grasp import GraspActions
 from .perception import PerceptionActions
 from .ready import ReadyActions
+from .workflow import PickWorkflowPhase, run_pick_workflow
 
 
 DEFAULT_SAG_MODEL_PATH = os.path.join(
@@ -132,8 +133,8 @@ def resolve_initial_sag_model() -> dict[str, Any]:
     return {}
 
 
-class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, GazeActions):
-    """Controller-side actions: IK solve, target send, host commands."""
+class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActions, GazeActions):
+    """Construction, shared worker state, settling, and final gripper close."""
 
     def __init__(
         self,
@@ -151,7 +152,6 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         hand_eye_parent_frame: str = "node9",
         go2_arm_mount: Optional[Go2ArmMount] = None,
         use_hardware: bool = True,
-        remote_gaze_delegate: bool = True,
     ) -> None:
         self.state = state
         self.client = client
@@ -162,7 +162,6 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         self._config_path = None if config_path is None else str(config_path)
         self._perception_cfg = perception_cfg or PerceptionConfig()
         self._perception_run_local = self._perception_config_runs_locally(self._perception_cfg)
-        self._remote_gaze_delegate = bool(remote_gaze_delegate)
         self._pick_cfg = pick_cfg or PickConfig()
         self._hand_eye_transform = (
             None
@@ -358,18 +357,12 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         return self._gaze_service.is_running
 
     def _delegate_gaze_to_host(self) -> bool:
-        return (
-            bool(self._remote_gaze_delegate)
-            and not bool(self._perception_run_local)
-            and self.client is not None
-        )
+        """Workflow computation is always owned by this deployment."""
+        return False
 
     def _delegate_pick_to_host(self) -> bool:
-        return (
-            bool(self._remote_gaze_delegate)
-            and not bool(self._perception_run_local)
-            and self.client is not None
-        )
+        """Robot and simulator endpoints never execute Pick workflows."""
+        return False
 
     def _wait_until_q_settled(
         self,
@@ -653,6 +646,10 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
             % (str(label), float(arrival_err_m) * 1000.0)
         )
         return True, done_suffix
+
+
+class _ControllerContextActions(_ControlServiceCore):
+    """IK context, remote-state synchronization, visual state, and stop lifecycle."""
 
     def _ik_align_kwargs(self, *, force_full: bool = False) -> dict[str, Any]:
         pk = self._pick_config_effective()
@@ -1143,6 +1140,10 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         self.stop_gaze_stabilizer()
         self.stop_object_pick()
 
+
+class _MobilePickWorkflowActions(_ControllerContextActions):
+    """Mobile gaze-to-handoff workflow and standalone LJI grasp launch."""
+
     def _mobile_pick_object_world(self) -> Optional[tuple[float, float, float]]:
         obj = self._pick_latest_object_world() or self._pick_frozen_world()
         if obj is None:
@@ -1625,8 +1626,17 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         self._reset_grasp_guided_state()
         self._start_grasp_to_object(internal=True)
 
-    def start_look_aim_grasp_e2e(self) -> None:
-        """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
+
+class _VisualSearchActions(_MobilePickWorkflowActions):
+    """Sequential Pick workflows, target reacquisition, and FOV search."""
+
+    def _start_pick_workflow(
+        self,
+        *,
+        phases: Sequence[PickWorkflowPhase],
+        trace_name: str,
+        description: str,
+    ) -> None:
         if self.pick_e2e_running() or self._pick_busy() or self._visual_busy():
             self.state.set_pick_status(
                 running=False,
@@ -1647,170 +1657,76 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         self._pick_e2e_cancel.clear()
         timeout_s = float(self._pick_e2e_phase_timeout_s)
 
+        def _begin_phase(phase: PickWorkflowPhase) -> None:
+            self.state.set_pick_status(
+                running=True,
+                failed=False,
+                phase=str(phase.state_phase),
+                msg=f"E2E: {phase.label.title()}",
+            )
+
         def _worker() -> None:
             try:
-                print("[E2E] start | Look -> Aim -> Grasp")
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.LOOK.value,
-                    msg="E2E: Look",
+                print(f"[E2E] start | {description}")
+                result = run_pick_workflow(
+                    phases,
+                    timeout_s=timeout_s,
+                    begin_phase=_begin_phase,
+                    wait_phase=lambda label, timeout: self._wait_pick_phase_done(
+                        timeout_s=timeout,
+                        label=label,
+                    ),
+                    failed=lambda: bool(self.state.pick_failed),
+                    cancelled=self._pick_e2e_cancel.is_set,
                 )
-
-                self.start_look()
-                if self.state.pick_failed:
-                    return
-                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="look"):
-                    if not self.state.pick_failed:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="E2E: look timeout",
-                        )
-                    return
-
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.ACQUIRE.value,
-                    msg="E2E: Aim",
-                )
-                self.start_aim()
-                if self.state.pick_failed:
-                    return
-                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="aim"):
-                    if not self.state.pick_failed:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="E2E: aim timeout",
-                        )
-                    return
-
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.GRASP.value,
-                    msg="E2E: Grasp",
-                )
-                self.start_grasp()
-                if self.state.pick_failed:
-                    return
-                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="grasp"):
-                    if not self.state.pick_failed:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="E2E: grasp timeout",
-                        )
-                    return
-
-                if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
-                    return
-
-                self.state.set_pick_status(
-                    running=False,
-                    failed=False,
-                    phase=ObjectPickPhase.DONE.value,
-                    msg="E2E done | Look -> Aim -> Grasp",
-                )
-                print("[E2E] done | Look -> Aim -> Grasp")
+                if result.success:
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=False,
+                        phase=ObjectPickPhase.DONE.value,
+                        msg=f"E2E done | {description}",
+                    )
+                    print(f"[E2E] done | {description}")
+                elif result.reason in {"timeout", "exception"} and not self.state.pick_failed:
+                    detail = f": {result.detail}" if result.detail else ""
+                    self.state.set_pick_status(
+                        running=False,
+                        failed=True,
+                        phase=ObjectPickPhase.FAILED.value,
+                        msg=f"E2E: {result.phase} {result.reason}{detail}",
+                    )
             finally:
                 self._pick_e2e_worker = None
 
         self._pick_e2e_worker = threading.Thread(
-            target=traced_thread_target("pick.e2e.look_aim_grasp", _worker),
+            target=traced_thread_target(trace_name, _worker),
             name="pick-e2e",
             daemon=True,
         )
         self._pick_e2e_worker.start()
+
+    def start_look_aim_grasp_e2e(self) -> None:
+        """Run Look -> Aim -> Grasp (pre-contact IK + close gripper)."""
+        self._start_pick_workflow(
+            phases=(
+                PickWorkflowPhase("look", ObjectPickPhase.LOOK.value, self.start_look),
+                PickWorkflowPhase("aim", ObjectPickPhase.ACQUIRE.value, self.start_aim),
+                PickWorkflowPhase("grasp", ObjectPickPhase.GRASP.value, self.start_grasp),
+            ),
+            trace_name="pick.e2e.look_aim_grasp",
+            description="Look -> Aim -> Grasp",
+        )
 
     def start_look_aim_e2e(self) -> None:
         """Run Look -> Aim only (no grasp)."""
-        if self.pick_e2e_running() or self._pick_busy() or self._visual_busy():
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="busy",
-            )
-            return
-        if self.client is None:
-            self.state.set_pick_status(
-                running=False,
-                failed=True,
-                phase=ObjectPickPhase.FAILED.value,
-                msg="no host client",
-            )
-            return
-
-        self._pick_e2e_cancel.clear()
-        timeout_s = float(self._pick_e2e_phase_timeout_s)
-
-        def _worker() -> None:
-            try:
-                print("[E2E] start | Look -> Aim")
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.LOOK.value,
-                    msg="E2E: Look",
-                )
-
-                self.start_look()
-                if self.state.pick_failed:
-                    return
-                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="look"):
-                    if not self.state.pick_failed:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="E2E: look timeout",
-                        )
-                    return
-
-                self.state.set_pick_status(
-                    running=True,
-                    failed=False,
-                    phase=ObjectPickPhase.ACQUIRE.value,
-                    msg="E2E: Aim",
-                )
-                self.start_aim()
-                if self.state.pick_failed:
-                    return
-                if not self._wait_pick_phase_done(timeout_s=timeout_s, label="aim"):
-                    if not self.state.pick_failed:
-                        self.state.set_pick_status(
-                            running=False,
-                            failed=True,
-                            phase=ObjectPickPhase.FAILED.value,
-                            msg="E2E: aim timeout",
-                        )
-                    return
-
-                if str(self.state.pick_phase) != ObjectPickPhase.DONE.value:
-                    return
-
-                self.state.set_pick_status(
-                    running=False,
-                    failed=False,
-                    phase=ObjectPickPhase.DONE.value,
-                    msg="E2E done | Look -> Aim",
-                )
-                print("[E2E] done | Look -> Aim")
-            finally:
-                self._pick_e2e_worker = None
-
-        self._pick_e2e_worker = threading.Thread(
-            target=traced_thread_target("pick.e2e.look_aim", _worker),
-            name="pick-e2e",
-            daemon=True,
+        self._start_pick_workflow(
+            phases=(
+                PickWorkflowPhase("look", ObjectPickPhase.LOOK.value, self.start_look),
+                PickWorkflowPhase("aim", ObjectPickPhase.ACQUIRE.value, self.start_aim),
+            ),
+            trace_name="pick.e2e.look_aim",
+            description="Look -> Aim",
         )
-        self._pick_e2e_worker.start()
 
     def start_look_ready_pick_e2e(self, *, pick_distance_m: float = 0.15) -> None:
         """Deprecated: use start_look_aim_grasp_e2e()."""
@@ -2108,6 +2024,10 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         if cap is not None:
             cap.request_refresh()
         return True
+
+
+class _MotionFeedbackActions(_VisualSearchActions):
+    """Measured q handling, command waits, mapping, and IK result application."""
 
     def _q_array_from_state(self, host_state: Optional[HostState] = None) -> np.ndarray:
         src = host_state if host_state is not None else self.current_host_state()
@@ -2429,6 +2349,10 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
     def current_offsets(self) -> dict[str, float]:
         return self._offsets()
 
+
+class ControlService(_MotionFeedbackActions):
+    """Operator-facing controller commands and runtime configuration helpers."""
+
     def apply_control_u(self, *, u_linear: float, u_roll: float, u_s1: float, u_s2: float, apply_offset: bool = True) -> None:
         actual_u = self._display_to_actual_u(
             ControlU(
@@ -2475,12 +2399,13 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
             u_s2=float(merged["s2"]),
         )
         if self.client is not None:
-            offsets = self._offsets()
-            adjusted = {
-                str(k).strip().lower(): float(v) + float(offsets[str(k).strip().lower()])
-                for k, v in partial_u.items()
-            }
-            self.client.send_partial_control_u(adjusted, source=str(source))
+            self.client.send_target_values(
+                linear_m=float(self.state.linear),
+                roll_rad=float(self.state.roll),
+                theta1_rad=float(self.state.theta1),
+                theta2_rad=float(self.state.theta2),
+                source=str(source),
+            )
 
     def set_display_offset(self, axis: str, value: float) -> None:
         self.state.set_u_offset(axis, float(value))
@@ -2764,7 +2689,7 @@ class ControlService(ReadyActions, GraspActions, AimActions, PerceptionActions, 
         )
 
     def _pick_config_effective(self) -> PickConfig:
-        """Panel/runtime overrides on top of loaded ``configs/config.yaml`` pick settings."""
+        """Panel/runtime overrides on top of the loaded deployment pick settings."""
         pk = self._pick_cfg
         return replace(
             pk,

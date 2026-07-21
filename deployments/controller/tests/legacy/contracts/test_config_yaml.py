@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-import warnings
 from pathlib import Path
 
 from elesim_controller.config import load_app_config
+from elesim_controller.config.schema import SimConfig
 from elesim_controller.config.yaml_schema import ConfigValidationError
 
 
 class YamlConfigContractTests(unittest.TestCase):
+    def test_schema_defaults_do_not_request_runtime_model_building(self) -> None:
+        config = SimConfig()
+
+        self.assertEqual(config.build_dir, "")
+        self.assertFalse(config.rebuild_assembly)
+
     def _write(self, directory: Path, name: str, text: str) -> Path:
         path = directory / name
         path.write_text(text, encoding="utf-8")
@@ -26,6 +32,8 @@ class YamlConfigContractTests(unittest.TestCase):
         self.assertTrue(jetson.sim_config.use_hardware)
         self.assertEqual(base.sim_param.dt, pc.sim_param.dt)
         self.assertEqual(base.sim_param.dt, jetson.sim_param.dt)
+        self.assertFalse(hasattr(base, "go2_hardware_config"))
+        self.assertFalse(hasattr(base, "go2_locomotion_config"))
 
     def test_extends_deep_merges_mappings_and_replaces_lists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,11 +77,23 @@ simulation:
   cameras:
     hand_eye:
       config: presets/camera.json
+vision:
+  perception:
+    detector:
+      detector_config: perception/detector.json
 """,
             )
             bundle = load_app_config(str(path))
             self.assertEqual(bundle.sim_config.build_dir, str(directory / "generated"))
             self.assertEqual(bundle.sim_config.hand_eye_config, str(directory / "presets/camera.json"))
+            self.assertEqual(
+                bundle.perception_config.detector_config,
+                str(directory / "perception/detector.json"),
+            )
+            self.assertEqual(
+                bundle.perception_config.resolved_detector_config_path(),
+                directory / "perception/detector.json",
+            )
 
     def test_inherited_paths_resolve_from_the_file_that_declares_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,7 +158,7 @@ behaviors:
             with self.assertRaisesRegex(ConfigValidationError, "cycle"):
                 load_app_config(str(a))
 
-    def test_ini_dispatch_is_deprecated_but_available(self) -> None:
+    def test_ini_configuration_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write(
                 Path(tmp),
@@ -151,11 +171,8 @@ command_direction = 1, -1, 1, -1
 motor_direction = 1, -1, 1, -1
 """,
             )
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                bundle = load_app_config(str(path))
-            self.assertEqual(bundle.sim_param.dt, 0.03)
-            self.assertTrue(any(item.category is DeprecationWarning for item in caught))
+            with self.assertRaisesRegex(ValueError, "YAML"):
+                load_app_config(str(path))
 
 
 if __name__ == "__main__":

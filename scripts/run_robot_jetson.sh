@@ -11,5 +11,7 @@ source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "${UNITREE_WS}/install/setup.bash"
 set -u
 
-export PYTHONPATH="${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
-elesim-robot --config deployments/robot/config/default.yaml "$@"
+PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/deployments/robot/src${PYTHONPATH:+:${PYTHONPATH}}" \
+  python3 -m elesim_robot.main \
+    --config deployments/robot/config/default.yaml \
+    "$@"

@@ -21,10 +21,13 @@ class Go2MpcImportTests(unittest.TestCase):
         if importlib.util.find_spec("pinocchio") is None:
             self.skipTest("pinocchio is not installed")
         controller = importlib.import_module("elesim_simulator.robot.go2.mpc.controller")
-        controller._require_convex_mpc()
+        root = Path(__file__).resolve().parents[6]
+        expected = root / "model/bundles/default/assets/go2/go2.urdf"
+        controller._require_convex_mpc(go2_urdf_path=expected)
         data = importlib.import_module("convex_mpc.go2_robot_data")
         urdf_path = Path(data.URDF_PATH)
         self.assertTrue(urdf_path.is_file())
+        self.assertEqual(urdf_path.resolve(), expected.resolve())
         self.assertEqual(urdf_path.name, "go2.urdf")
         self.assertEqual(urdf_path.parent.name, "go2")
         pin_model = data.PinGo2Model()

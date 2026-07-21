@@ -15,15 +15,12 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
-import zmq
 import genesis as gs
 from genesis.utils import geom as gs_geom
 
 import elesim_protocol.messages as proto
 from elesim_simulator.config import (
     Go2LocomotionConfig,
-    HardwareConfig,
-    IkConfig,
     JointLimit,
     SimConfig,
     SimParam,
@@ -34,10 +31,10 @@ from elesim_simulator.config import (
 from elesim_simulator.robot.go2.locomotion import Go2Command
 from elesim_simulator.robot.go2.locomotion.controller import RaibertTrotController
 from elesim_simulator.robot.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
-from elesim_simulator.robot.arm.dynamixel import estimate_ideal_sim_rates
+from elesim_simulator.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_simulator.core.runtime_urdf import select_runtime_urdf
 from elesim_simulator.robot.arm.sag_model import segment_errors_from_model
-from elesim_simulator.observability.tracing import configure_tracing, message_span, shutdown_tracing, span
+from elesim_simulator.observability.tracing import configure_tracing, shutdown_tracing, span
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -245,6 +242,7 @@ class Go2Locomotion:
         arm_link_names: set[str] | None = None,
         metrics=None,
         command_source: str = "teleop",
+        go2_urdf_path: str | os.PathLike[str] | None = None,
     ):
         self._metrics = metrics
         self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
@@ -308,6 +306,7 @@ class Go2Locomotion:
                 arm_link_names=arm_link_names,
                 metrics=metrics,
                 command_source=str(command_source),
+                go2_urdf_path=go2_urdf_path,
             )
         else:
             self._controller = RaibertTrotController(entity, dt=float(dt), config=config)
@@ -1600,6 +1599,11 @@ class AssetProcessor:
                     mount_xyz=tuple(float(x) for x in self.app.spawn.go2_mount_offset_m),
                 )
 
+        if not dev_rebuild:
+            from elesim_simulator.model_bundle import validate_model_bundle
+
+            validate_model_bundle(self.app.cfg.build_dir)
+
         required = [in_json, arm_urdf]
         if bool(getattr(self.app.cfg, "use_go2", False)):
             required.append(robot_urdf)
@@ -1867,596 +1871,6 @@ class AssetProcessor:
         self.app.layout.fk_joint_chain = fk_chain
 
 
-class StateSource:
-    """Abstract source of 3-DOF chain state for the SIM runtime."""
-
-    def poll(self) -> None:
-        return None
-
-    def estimate_q(self) -> Optional[proto.SimQ]:
-        return None
-
-    def ik_target_xyz(self) -> Optional[np.ndarray]:
-        return None
-
-    def ik_target_dir(self) -> Optional[np.ndarray]:
-        return None
-
-    def sag_model(self) -> dict[str, Any]:
-        return {}
-
-    def claw_closed(self) -> bool:
-        return False
-
-    def go2_vel(self) -> tuple[float, float, float]:
-        return (0.0, 0.0, 0.0)
-
-    def go2_base_pos(self) -> Optional[tuple[float, float, float]]:
-        return None
-
-    def go2_base_rpy(self) -> Optional[tuple[float, float, float]]:
-        return None
-
-    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
-        return None
-
-    def go2_sport_pose(self) -> str:
-        return ""
-
-    def go2_sport_pose_seq(self) -> int:
-        return 0
-
-    def go2_obstacles_avoid_enabled(self) -> bool:
-        return False
-
-    def go2_obstacles_avoid_seq(self) -> int:
-        return 0
-
-    def sim_reset_seq(self) -> int:
-        return 0
-
-    def sim_target_xyz(self) -> Optional[np.ndarray]:
-        return None
-
-    def debug_markers(self) -> list[dict[str, Any]]:
-        return []
-
-    def close(self) -> None:
-        return None
-
-
-class HardwareStateCache(StateSource):
-    """
-    Direct passthrough cache of the latest host-published state.
-    Future IMU/AruCo/camera fusion should implement the same interface.
-    """
-
-    def __init__(self) -> None:
-        self._last_q: Optional[proto.SimQ] = None
-        self._last_ik_target_xyz: Optional[np.ndarray] = None
-        self._last_ik_target_dir: Optional[np.ndarray] = None
-        self._last_sag_model: dict[str, Any] = {}
-        self._last_claw_closed: bool = False
-        self._last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
-        self._last_go2_base_pos: Optional[tuple[float, float, float]] = None
-        self._last_go2_base_rpy: Optional[tuple[float, float, float]] = None
-        self._last_go2_leg_q: Optional[tuple[float, ...]] = None
-        self._last_go2_sport_pose: str = ""
-        self._last_go2_sport_pose_seq: int = 0
-        self._last_go2_obstacles_avoid_enabled: bool = False
-        self._last_go2_obstacles_avoid_seq: int = 0
-        self._last_sim_target_xyz: Optional[np.ndarray] = None
-        self._last_sim_reset_seq: int = 0
-        self._last_debug_markers: list[dict[str, Any]] = []
-
-    def update(
-        self,
-        q: proto.SimQ,
-        ik_target_xyz: Optional[np.ndarray] = None,
-        ik_target_dir: Optional[np.ndarray] = None,
-        sag_model: Optional[dict[str, Any]] = None,
-    ) -> None:
-        self._last_q = q
-        self._last_ik_target_xyz = None if ik_target_xyz is None else np.array(ik_target_xyz, dtype=float).reshape(3)
-        self._last_ik_target_dir = None if ik_target_dir is None else np.array(ik_target_dir, dtype=float).reshape(3)
-        if sag_model is not None:
-            self._last_sag_model = dict(sag_model)
-    def update_claw_closed(self, claw_closed: bool) -> None:
-        self._last_claw_closed = bool(claw_closed)
-
-    def update_go2_vel(self, go2_vel: tuple[float, float, float]) -> None:
-        self._last_go2_vel = (float(go2_vel[0]), float(go2_vel[1]), float(go2_vel[2]))
-
-    def update_go2_base(
-        self,
-        go2_base_pos: Optional[tuple[float, float, float]],
-        go2_base_rpy: Optional[tuple[float, float, float]],
-    ) -> None:
-        if go2_base_pos is not None:
-            self._last_go2_base_pos = (float(go2_base_pos[0]), float(go2_base_pos[1]), float(go2_base_pos[2]))
-        if go2_base_rpy is not None:
-            self._last_go2_base_rpy = (float(go2_base_rpy[0]), float(go2_base_rpy[1]), float(go2_base_rpy[2]))
-
-    def update_go2_leg_q(self, go2_leg_q: Optional[tuple[float, ...]]) -> None:
-        if go2_leg_q is not None and len(go2_leg_q) == 12:
-            self._last_go2_leg_q = tuple(float(v) for v in go2_leg_q)
-
-    def update_go2_sport_pose(self, pose: str, seq: int) -> None:
-        self._last_go2_sport_pose = str(pose).strip().lower()
-        self._last_go2_sport_pose_seq = int(seq)
-
-    def update_go2_obstacles_avoid(self, enabled: bool, seq: int) -> None:
-        self._last_go2_obstacles_avoid_enabled = bool(enabled)
-        self._last_go2_obstacles_avoid_seq = int(seq)
-
-    def update_sim_reset_seq(self, seq: int) -> None:
-        self._last_sim_reset_seq = int(seq)
-
-    def update_sim_target_xyz(self, xyz: Optional[tuple[float, float, float]]) -> None:
-        if xyz is not None:
-            self._last_sim_target_xyz = np.asarray(xyz, dtype=float).reshape(3)
-
-    def update_ik_target(self, ik_target_xyz: Optional[np.ndarray]) -> None:
-        self._last_ik_target_xyz = None if ik_target_xyz is None else np.array(ik_target_xyz, dtype=float).reshape(3)
-
-    def update_ik_target_dir(self, ik_target_dir: Optional[np.ndarray]) -> None:
-        self._last_ik_target_dir = None if ik_target_dir is None else np.array(ik_target_dir, dtype=float).reshape(3)
-
-    def update_debug_markers(self, debug_markers: list[dict[str, Any]]) -> None:
-        self._last_debug_markers = [dict(marker) for marker in list(debug_markers) if isinstance(marker, dict)]
-
-    def update_sag_model(self, sag_model: Optional[dict[str, Any]]) -> None:
-        if sag_model is None:
-            return
-        self._last_sag_model = dict(sag_model)
-
-    def estimate_q(self) -> Optional[proto.SimQ]:
-        return self._last_q
-
-    def seed_estimate_q(self, q: proto.SimQ) -> None:
-        self._last_q = q
-
-    def ik_target_xyz(self) -> Optional[np.ndarray]:
-        return None if self._last_ik_target_xyz is None else self._last_ik_target_xyz.copy()
-
-    def ik_target_dir(self) -> Optional[np.ndarray]:
-        return None if self._last_ik_target_dir is None else self._last_ik_target_dir.copy()
-
-    def sag_model(self) -> dict[str, Any]:
-        return dict(self._last_sag_model)
-
-    def claw_closed(self) -> bool:
-        return bool(self._last_claw_closed)
-
-    def go2_vel(self) -> tuple[float, float, float]:
-        return (
-            float(self._last_go2_vel[0]),
-            float(self._last_go2_vel[1]),
-            float(self._last_go2_vel[2]),
-        )
-
-    def go2_base_pos(self) -> Optional[tuple[float, float, float]]:
-        if self._last_go2_base_pos is None:
-            return None
-        return (
-            float(self._last_go2_base_pos[0]),
-            float(self._last_go2_base_pos[1]),
-            float(self._last_go2_base_pos[2]),
-        )
-
-    def go2_base_rpy(self) -> Optional[tuple[float, float, float]]:
-        if self._last_go2_base_rpy is None:
-            return None
-        return (
-            float(self._last_go2_base_rpy[0]),
-            float(self._last_go2_base_rpy[1]),
-            float(self._last_go2_base_rpy[2]),
-        )
-
-    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
-        if self._last_go2_leg_q is None:
-            return None
-        return tuple(float(v) for v in self._last_go2_leg_q)
-
-    def go2_sport_pose(self) -> str:
-        return str(self._last_go2_sport_pose).strip().lower()
-
-    def go2_sport_pose_seq(self) -> int:
-        return int(self._last_go2_sport_pose_seq)
-
-    def go2_obstacles_avoid_enabled(self) -> bool:
-        return bool(self._last_go2_obstacles_avoid_enabled)
-
-    def go2_obstacles_avoid_seq(self) -> int:
-        return int(self._last_go2_obstacles_avoid_seq)
-
-    def sim_reset_seq(self) -> int:
-        return int(self._last_sim_reset_seq)
-
-    def sim_target_xyz(self) -> Optional[np.ndarray]:
-        if self._last_sim_target_xyz is None:
-            return None
-        return self._last_sim_target_xyz.copy()
-
-    def debug_markers(self) -> list[dict[str, Any]]:
-        return [dict(marker) for marker in self._last_debug_markers]
-
-
-class HostStateSubscriber:
-    """SIM-side subscriber that consumes host state broadcasts."""
-
-    def __init__(self, endpoint: str) -> None:
-        if zmq is None:
-            raise RuntimeError("pyzmq is required for sim host subscriber")
-        self.endpoint = str(endpoint)
-        self.ctx = zmq.Context.instance()
-        self.sock = self.ctx.socket(zmq.SUB)
-        self.sock.setsockopt(zmq.LINGER, 0)
-        self.sock.setsockopt(zmq.SUBSCRIBE, b"")
-        self.sock.connect(self.endpoint)
-        self.poller = zmq.Poller()
-        self.poller.register(self.sock, zmq.POLLIN)
-        self.last_q: Optional[proto.SimQ] = None
-        self.last_u: Optional[proto.ControlU] = None
-        self.last_torque_enabled: bool = False
-        self.last_state_ts: float = 0.0
-        self.last_ik_target_xyz: Optional[np.ndarray] = None
-        self.last_ik_target_dir: Optional[np.ndarray] = None
-        self.last_sag_model: dict[str, Any] = {}
-        self.last_claw_closed: bool = False
-        self.last_go2_vel: tuple[float, float, float] = (0.0, 0.0, 0.0)
-        self.last_go2_base_pos: Optional[tuple[float, float, float]] = None
-        self.last_go2_base_rpy: Optional[tuple[float, float, float]] = None
-        self.last_go2_leg_q: Optional[tuple[float, ...]] = None
-        self.last_go2_sport_pose: str = ""
-        self.last_go2_sport_pose_seq: int = 0
-        self.last_go2_obstacles_avoid_enabled: bool = False
-        self.last_go2_obstacles_avoid_seq: int = 0
-        self.last_sim_target_xyz: Optional[tuple[float, float, float]] = None
-        self.last_sim_reset_seq: int = 0
-        self.last_debug_markers: list[dict[str, Any]] = []
-
-    def close(self) -> None:
-        try:
-            self.poller.unregister(self.sock)
-        except Exception:
-            pass
-        try:
-            self.sock.close(0)
-        except Exception:
-            pass
-
-    def poll(self) -> None:
-        try:
-            events = dict(self.poller.poll(timeout=0))
-        except zmq.ZMQError:
-            return
-        if self.sock not in events:
-            return
-        while True:
-            try:
-                data = self.sock.recv(flags=zmq.NOBLOCK)
-            except zmq.Again:
-                break
-            except zmq.ZMQError:
-                return
-            try:
-                msg = proto.loads_msg(data)
-            except Exception:
-                continue
-            with message_span(
-                "sim.host_state.receive",
-                msg,
-                endpoint=self.endpoint,
-                direction="receive",
-            ):
-                pass
-            if str(msg.get("t", "")).lower() != "state":
-                continue
-            self.last_state_ts = float(msg.get("ts", time.time()))
-            if "q" in msg:
-                try:
-                    self.last_q = proto.unpack_q(msg["q"])
-                except Exception:
-                    pass
-            if "u" in msg:
-                try:
-                    self.last_u = proto.unpack_u(msg["u"])
-                except Exception:
-                    pass
-            if "torque_enabled" in msg:
-                self.last_torque_enabled = bool(msg.get("torque_enabled", False))
-            target_raw = msg.get("ik_target", None)
-            if isinstance(target_raw, (list, tuple)) and len(target_raw) == 3:
-                self.last_ik_target_xyz = np.array([float(target_raw[0]), float(target_raw[1]), float(target_raw[2])], dtype=float)
-            target_dir_raw = msg.get("ik_target_dir", None)
-            if isinstance(target_dir_raw, (list, tuple)) and len(target_dir_raw) == 3:
-                self.last_ik_target_dir = np.array(
-                    [float(target_dir_raw[0]), float(target_dir_raw[1]), float(target_dir_raw[2])],
-                    dtype=float,
-                )
-            sag_raw = msg.get("sag_model", None)
-            if isinstance(sag_raw, dict):
-                self.last_sag_model = dict(sag_raw)
-            if "claw_closed" in msg:
-                self.last_claw_closed = bool(msg.get("claw_closed", False))
-            if "go2_vel" in msg:
-                try:
-                    self.last_go2_vel = proto.unpack_go2_vel(msg.get("go2_vel"))
-                except Exception:
-                    pass
-            pos_raw = msg.get("go2_base_pos", None)
-            if isinstance(pos_raw, (list, tuple)) and len(pos_raw) == 3:
-                self.last_go2_base_pos = (float(pos_raw[0]), float(pos_raw[1]), float(pos_raw[2]))
-            rpy_raw = msg.get("go2_base_rpy", None)
-            if isinstance(rpy_raw, (list, tuple)) and len(rpy_raw) == 3:
-                self.last_go2_base_rpy = (float(rpy_raw[0]), float(rpy_raw[1]), float(rpy_raw[2]))
-            leg_raw = msg.get("go2_leg_q", None)
-            if isinstance(leg_raw, (list, tuple)) and len(leg_raw) == 12:
-                self.last_go2_leg_q = tuple(float(v) for v in leg_raw)
-            if "go2_sport_pose" in msg:
-                self.last_go2_sport_pose = str(msg.get("go2_sport_pose", "")).strip().lower()
-            if "go2_sport_pose_seq" in msg:
-                try:
-                    self.last_go2_sport_pose_seq = int(msg.get("go2_sport_pose_seq", 0))
-                except (TypeError, ValueError):
-                    pass
-            if "go2_obstacles_avoid_enabled" in msg:
-                self.last_go2_obstacles_avoid_enabled = bool(msg.get("go2_obstacles_avoid_enabled", False))
-            if "go2_obstacles_avoid_seq" in msg:
-                try:
-                    self.last_go2_obstacles_avoid_seq = int(msg.get("go2_obstacles_avoid_seq", 0))
-                except (TypeError, ValueError):
-                    pass
-            if "sim_reset_seq" in msg:
-                try:
-                    self.last_sim_reset_seq = int(msg.get("sim_reset_seq", 0))
-                except (TypeError, ValueError):
-                    pass
-            sim_target_raw = msg.get("sim_target", None)
-            if isinstance(sim_target_raw, (list, tuple)) and len(sim_target_raw) == 3:
-                try:
-                    self.last_sim_target_xyz = (
-                        float(sim_target_raw[0]),
-                        float(sim_target_raw[1]),
-                        float(sim_target_raw[2]),
-                    )
-                except (TypeError, ValueError):
-                    pass
-            debug_markers_raw = msg.get("debug_markers", None)
-            if isinstance(debug_markers_raw, list):
-                next_markers: list[dict[str, Any]] = []
-                for raw in debug_markers_raw:
-                    if isinstance(raw, dict):
-                        next_markers.append(dict(raw))
-                self.last_debug_markers = next_markers
-
-
-class HostFeedbackPublisher:
-    """SIM-side publisher that pushes actual tip feedback to host."""
-
-    def __init__(self, endpoint: str) -> None:
-        if zmq is None:
-            raise RuntimeError("pyzmq is required for sim feedback publisher")
-        self.endpoint = str(endpoint)
-        self.ctx = zmq.Context.instance()
-        self.sock = self.ctx.socket(zmq.PUSH)
-        self.sock.setsockopt(zmq.LINGER, 0)
-        self.sock.connect(self.endpoint)
-
-    def send_actual_tip(
-        self,
-        actual_tip_xyz: Optional[np.ndarray],
-        actual_tip_dir: Optional[np.ndarray] = None,
-        *,
-        arm_q: Optional[proto.SimQ] = None,
-        camera_origin: Optional[np.ndarray] = None,
-        camera_look: Optional[np.ndarray] = None,
-        camera_right: Optional[np.ndarray] = None,
-        sim_time_s: Optional[float] = None,
-        sim_wall_elapsed_s: Optional[float] = None,
-        sim_realtime_factor: Optional[float] = None,
-        sim_step_count: Optional[int] = None,
-    ) -> None:
-        if actual_tip_xyz is None and arm_q is None and camera_origin is None and sim_time_s is None:
-            return
-        msg: dict[str, Any] = {
-            "t": "sim_state",
-            "ts": time.time(),
-        }
-        if sim_time_s is not None:
-            msg["sim_time_s"] = float(sim_time_s)
-        if sim_wall_elapsed_s is not None:
-            msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
-        if sim_realtime_factor is not None:
-            msg["sim_realtime_factor"] = float(sim_realtime_factor)
-        if sim_step_count is not None:
-            msg["sim_step_count"] = int(sim_step_count)
-        if arm_q is not None:
-            msg["sim_q"] = {
-                "linear_m": float(arm_q.linear_m),
-                "roll_rad": float(arm_q.roll_rad),
-                "theta1_rad": float(arm_q.theta1_rad),
-                "theta2_rad": float(arm_q.theta2_rad),
-            }
-        if actual_tip_xyz is not None:
-            msg["actual_tip"] = [
-                float(actual_tip_xyz[0]),
-                float(actual_tip_xyz[1]),
-                float(actual_tip_xyz[2]),
-            ]
-        if actual_tip_dir is not None:
-            d = np.asarray(actual_tip_dir, dtype=float).reshape(3)
-            norm = float(np.linalg.norm(d))
-            if norm > 1e-9:
-                d = d / norm
-                msg["actual_tip_dir"] = [float(d[0]), float(d[1]), float(d[2])]
-        if camera_origin is not None:
-            o = np.asarray(camera_origin, dtype=float).reshape(3)
-            msg["camera_world_origin"] = [float(o[0]), float(o[1]), float(o[2])]
-        if camera_look is not None:
-            look = np.asarray(camera_look, dtype=float).reshape(3)
-            msg["camera_world_look"] = [float(look[0]), float(look[1]), float(look[2])]
-        if camera_right is not None:
-            right = np.asarray(camera_right, dtype=float).reshape(3)
-            msg["camera_world_right"] = [float(right[0]), float(right[1]), float(right[2])]
-        try:
-            with message_span(
-                "sim.feedback.send",
-                msg,
-                endpoint=self.endpoint,
-                direction="send",
-            ):
-                self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
-        except Exception:
-            pass
-
-    def send_go2_base(
-        self,
-        go2_entity,
-        *,
-        sim_time_s: Optional[float] = None,
-        sim_wall_elapsed_s: Optional[float] = None,
-        sim_realtime_factor: Optional[float] = None,
-        sim_step_count: Optional[int] = None,
-    ) -> None:
-        try:
-            from elesim_simulator.simulation.genesis.utils import quat_wxyz_to_xyzw as _quat_wxyz_to_xyzw, to_numpy_1d as _to_numpy_1d
-            from scipy.spatial.transform import Rotation as Rot
-
-            base = go2_entity.get_link("base")
-            pos = _to_numpy_1d(base.get_pos())[:3]
-            quat_xyzw = _quat_wxyz_to_xyzw(_to_numpy_1d(base.get_quat())[:4])
-            rpy = Rot.from_quat(quat_xyzw).as_euler("xyz", degrees=False)
-            vel_world = _to_numpy_1d(base.get_vel())[:3]
-            ang_world = _to_numpy_1d(base.get_ang())[:3]
-            rot = Rot.from_quat(quat_xyzw)
-            vel_body = rot.inv().apply(vel_world)
-            ang_body = rot.inv().apply(ang_world)
-            now = time.time()
-            msg = {
-                "t": "sim_state",
-                "ts": now,
-                "go2_base_pos": [float(pos[0]), float(pos[1]), float(pos[2])],
-                "go2_base_rpy": [float(rpy[0]), float(rpy[1]), float(rpy[2])],
-                "go2_base_lin_vel_body": [float(vel_body[0]), float(vel_body[1]), float(vel_body[2])],
-                "go2_base_ang_vel": [float(ang_body[0]), float(ang_body[1]), float(ang_body[2])],
-                "go2_base_timestamp_s": float(now),
-            }
-            if sim_time_s is not None:
-                msg["sim_time_s"] = float(sim_time_s)
-            if sim_wall_elapsed_s is not None:
-                msg["sim_wall_elapsed_s"] = float(sim_wall_elapsed_s)
-            if sim_realtime_factor is not None:
-                msg["sim_realtime_factor"] = float(sim_realtime_factor)
-            if sim_step_count is not None:
-                msg["sim_step_count"] = int(sim_step_count)
-            with message_span(
-                "sim.go2_feedback.send",
-                msg,
-                endpoint=self.endpoint,
-                direction="send",
-            ):
-                self.sock.send(proto.dumps_msg(msg), flags=zmq.NOBLOCK)
-        except Exception:
-            pass
-
-    def close(self) -> None:
-        try:
-            self.sock.close(0)
-        except Exception:
-            pass
-
-
-class HostStateSource(StateSource):
-    """State source backed by host PUB/SUB updates."""
-
-    def __init__(self, endpoint: str) -> None:
-        self._sub = HostStateSubscriber(endpoint)
-        self._cache = HardwareStateCache()
-
-    def poll(self) -> None:
-        self._sub.poll()
-        self._cache.update_ik_target(self._sub.last_ik_target_xyz)
-        self._cache.update_ik_target_dir(self._sub.last_ik_target_dir)
-        self._cache.update_debug_markers(self._sub.last_debug_markers)
-        self._cache.update_sag_model(self._sub.last_sag_model)
-        self._cache.update_claw_closed(self._sub.last_claw_closed)
-        self._cache.update_go2_vel(self._sub.last_go2_vel)
-        self._cache.update_go2_base(self._sub.last_go2_base_pos, self._sub.last_go2_base_rpy)
-        self._cache.update_go2_leg_q(self._sub.last_go2_leg_q)
-        self._cache.update_go2_sport_pose(self._sub.last_go2_sport_pose, self._sub.last_go2_sport_pose_seq)
-        self._cache.update_go2_obstacles_avoid(
-            self._sub.last_go2_obstacles_avoid_enabled,
-            self._sub.last_go2_obstacles_avoid_seq,
-        )
-        self._cache.update_sim_target_xyz(self._sub.last_sim_target_xyz)
-        self._cache.update_sim_reset_seq(self._sub.last_sim_reset_seq)
-        if self._sub.last_q is not None:
-            self._cache.update(self._sub.last_q, self._sub.last_ik_target_xyz, self._sub.last_ik_target_dir, self._sub.last_sag_model)
-
-    def estimate_q(self) -> Optional[proto.SimQ]:
-        return self._cache.estimate_q()
-
-    def seed_estimate_q(self, q: proto.SimQ) -> None:
-        self._cache.seed_estimate_q(q)
-        self._sub.last_q = q
-
-    def ik_target_xyz(self) -> Optional[np.ndarray]:
-        return self._cache.ik_target_xyz()
-
-    def ik_target_dir(self) -> Optional[np.ndarray]:
-        return self._cache.ik_target_dir()
-
-    def sag_model(self) -> dict[str, Any]:
-        return self._cache.sag_model()
-
-    def claw_closed(self) -> bool:
-        return self._cache.claw_closed()
-
-    def go2_vel(self) -> tuple[float, float, float]:
-        return self._cache.go2_vel()
-
-    def go2_base_pos(self) -> Optional[tuple[float, float, float]]:
-        return self._cache.go2_base_pos()
-
-    def go2_base_rpy(self) -> Optional[tuple[float, float, float]]:
-        return self._cache.go2_base_rpy()
-
-    def go2_leg_q(self) -> Optional[tuple[float, ...]]:
-        return self._cache.go2_leg_q()
-
-    def go2_sport_pose(self) -> str:
-        return self._cache.go2_sport_pose()
-
-    def go2_sport_pose_seq(self) -> int:
-        return self._cache.go2_sport_pose_seq()
-
-    def go2_obstacles_avoid_enabled(self) -> bool:
-        return self._cache.go2_obstacles_avoid_enabled()
-
-    def go2_obstacles_avoid_seq(self) -> int:
-        return self._cache.go2_obstacles_avoid_seq()
-
-    def host_state_age_s(self) -> Optional[float]:
-        ts = float(self._sub.last_state_ts)
-        if ts <= 0.0:
-            return None
-        return max(0.0, time.time() - ts)
-
-    def sim_reset_seq(self) -> int:
-        return self._cache.sim_reset_seq()
-
-    def sim_target_xyz(self) -> Optional[np.ndarray]:
-        return self._cache.sim_target_xyz()
-
-    def debug_markers(self) -> list[dict[str, Any]]:
-        return self._cache.debug_markers()
-
-    def close(self) -> None:
-        self._sub.close()
-
-
 class RuntimePrep:
     """Scene wiring and runtime objects."""
 
@@ -2669,6 +2083,7 @@ class RuntimePrep:
                 arm_entity=ent,
                 arm_link_names=set(a.layout.arm_link_names),
                 metrics=metrics,
+                go2_urdf_path=os.path.join(a.cfg.build_dir, "assets/go2/go2.urdf"),
             )
             if go2_mirror:
                 print("[runtime] GO2 mirror_from_host=true: merged robot follows host go2_base_* (MPC off)")
@@ -2817,7 +2232,7 @@ class SimRuntime:
         base_rpy = a.state_source.go2_base_rpy()
         leg_q = a.state_source.go2_leg_q()
         go2_vel = a.state_source.go2_vel()
-        endpoint = str(a.cfg.host_sim_port).strip()
+        endpoint = "protocol-v3"
         if age is None:
             link_txt = "no host state yet"
         else:
@@ -3117,12 +2532,12 @@ class GenesisApp:
         model: Optional[SpawnConfig] = None,
         *,
         urdf_export_cfg: Optional[UrdfExportConfig] = None,
-        ik_cfg: Optional[IkConfig] = None,
         go2_locomotion_config: Optional[Go2LocomotionConfig] = None,
         mapping_cfg: Optional[proto.SimMappingConfig] = None,
         endpoint: Optional[str] = None,
         enable_link: Optional[bool] = None,
-        hardware_cfg: Optional[HardwareConfig] = None,
+        state_source: Optional[Any] = None,
+        feedback_publisher: Optional[Any] = None,
     ):
         self.params = params if params is not None else SimParam()
         self.cfg = cfg if cfg is not None else SimConfig()
@@ -3133,21 +2548,15 @@ class GenesisApp:
         )
         self.spawn = model if model is not None else SpawnConfig()
         self.urdf_export_cfg = urdf_export_cfg if urdf_export_cfg is not None else UrdfExportConfig()
-        self.ik_cfg = ik_cfg if ik_cfg is not None else IkConfig()
         self.go2_locomotion_config = (
             go2_locomotion_config if go2_locomotion_config is not None else Go2LocomotionConfig()
         )
-        self.hardware_cfg = hardware_cfg if hardware_cfg is not None else HardwareConfig()
-
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
-        host_state_endpoint = str(self.cfg.host_sim_port).strip()
-
         self.layout = JointLayout()
         self.markers = MarkerSet()
         self.sim_scene = SimScene()
-        self.state_source: Optional[StateSource] = HostStateSource(host_state_endpoint) if host_state_endpoint else None
-        feedback_endpoint = str(self.cfg.host_feedback_port).strip()
-        self.feedback_pub: Optional[HostFeedbackPublisher] = HostFeedbackPublisher(feedback_endpoint) if feedback_endpoint else None
+        self.state_source = state_source
+        self.feedback_pub = feedback_publisher
 
     def _apply_ideal_rates_if_needed(self) -> None:
         if self.layout.control_mode != "commanded":
@@ -3191,7 +2600,14 @@ class GenesisApp:
         SimRuntime(self).run()
 
 
-def _run() -> None:
+def run_runtime(
+    *,
+    config_path: Optional[str] = None,
+    argv: Optional[list[str]] = None,
+    model_bundle: str = "",
+    state_source: Optional[Any] = None,
+    feedback_publisher: Optional[Any] = None,
+) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--config",
@@ -3214,11 +2630,19 @@ def _run() -> None:
         help="override simulated camera resolution, e.g. 424x240",
     )
     ap.add_argument("--no-debug-markers", action="store_true", help="disable dynamic debug markers")
-    args = ap.parse_args()
+    command_line = list(argv or [])
+    if config_path is not None:
+        command_line = ["--config", str(config_path), *command_line]
+    args = ap.parse_args(command_line if (argv is not None or config_path is not None) else None)
 
     bundle = load_app_config(args.config)
     sim_cfg = bundle.sim_config
     spawn_cfg = bundle.spawn_config
+    if str(model_bundle).strip():
+        sim_cfg = replace(
+            sim_cfg,
+            build_dir=os.path.abspath(str(model_bundle)),
+        )
     if args.perf_log or args.perf_interval is not None or args.perf_log_file is not None:
         sim_cfg = replace(
             sim_cfg,
@@ -3248,25 +2672,24 @@ def _run() -> None:
             sim_cfg = replace(sim_cfg, sim_camera_width=max(1, int(raw_w)), sim_camera_height=max(1, int(raw_h)))
         except Exception as exc:
             raise SystemExit(f"invalid --sim-camera-size {args.sim_camera_size!r}; expected WIDTHxHEIGHT") from exc
-    perception_mode = str(bundle.perception_config.mode).strip().lower()
-    if bool(sim_cfg.sim_camera_auto_disable_unused) and perception_mode not in ("sim", "sim_rendered"):
-        if bool(sim_cfg.sim_camera_enable):
-            print(f"[sim_camera] disabled: perception.mode={perception_mode!r} does not consume sim camera")
-        sim_cfg = replace(sim_cfg, sim_camera_enable=False)
     if args.no_debug_markers:
         spawn_cfg = replace(spawn_cfg, draw_debug_markers=False)
     app = GenesisApp(
         params=bundle.sim_param,
         cfg=sim_cfg,
-        hardware_cfg=bundle.hardware_config,
         limit=bundle.joint_limit,
         model=spawn_cfg,
         urdf_export_cfg=bundle.urdf_export_config,
-        ik_cfg=bundle.ik_config,
         go2_locomotion_config=bundle.go2_locomotion_config,
         mapping_cfg=bundle.mapping_config,
+        state_source=state_source,
+        feedback_publisher=feedback_publisher,
     )
     app.run()
+
+
+def _run() -> None:
+    run_runtime()
 
 
 def main() -> None:

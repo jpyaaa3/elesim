@@ -4,6 +4,19 @@ import ast
 from pathlib import Path
 
 
+FORBIDDEN_IMPLEMENTATION_PATHS = (
+    "elesim_simulator/gaze",
+    "elesim_simulator/pick",
+    "elesim_simulator/robot/arm/dynamixel.py",
+    "elesim_simulator/robot/arm/ik.py",
+    "elesim_simulator/robot/arm/iklib",
+    "elesim_simulator/robot/go2/hardware",
+    "elesim_simulator/vision/perception",
+    "elesim_simulator/vision/pick",
+    "elesim_simulator/vision/visual_servoing",
+)
+
+
 def test_simulator_has_no_monolith_builder_or_sibling_imports() -> None:
     root = Path(__file__).parents[1] / "src"
     forbidden = ("engine", "apps", "builders", "elesim_controller", "elesim_robot", "elesim_ui")
@@ -20,3 +33,13 @@ def test_simulator_has_no_monolith_builder_or_sibling_imports() -> None:
                 if name in forbidden or name.startswith(tuple(item + "." for item in forbidden)):
                     violations.append(f"{path.relative_to(root)}:{node.lineno}: {name}")
     assert not violations, "\n".join(violations)
+
+
+def test_simulator_contains_only_simulator_owned_implementations() -> None:
+    root = Path(__file__).parents[1] / "src"
+    present = []
+    for path in FORBIDDEN_IMPLEMENTATION_PATHS:
+        candidate = root / path
+        if candidate.is_file() or (candidate.is_dir() and any(candidate.rglob("*.py"))):
+            present.append(path)
+    assert not present, "simulator contains copied foreign-role code:\n" + "\n".join(present)

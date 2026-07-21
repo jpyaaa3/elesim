@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from elesim_robot.main import RobotRuntime
+from elesim_robot.runtime import RobotRuntime
 from elesim_protocol import EndpointDescriptor, SimMappingConfig, make_envelope
 
 

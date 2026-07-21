@@ -66,6 +66,101 @@ class GazeStabilizerConfig:
     preview_enable: bool = False
 
 
+@dataclass(frozen=True)
+class PanelStateDefaults:
+    """Offline-safe values rendered before the first controller snapshot."""
+
+    linear: float = 0.0
+    roll: float = 0.0
+    theta1: float = 0.0
+    theta2: float = 0.0
+    u_offset_linear: float = 0.0
+    u_offset_roll: float = 0.0
+    u_offset_s1: float = 0.0
+    u_offset_s2: float = 0.0
+    offset_revision: int = 0
+    paused: bool = False
+    claw_closed: bool = False
+    torque_lock_bypass: bool = False
+
+    visual_target_scale: float = 0.16
+    visual_center_tol: float = 0.12
+    visual_target_uv_u: float = 0.5
+    visual_target_uv_v: float = 0.0
+    visual_scale_tol: float = 0.01
+    visual_confidence_min: float = 0.0
+    visual_target_label: str = ""
+    visual_ready_distance_m: float = 0.20
+    visual_look_distance_m: float = 0.20
+
+    perception_running: bool = False
+    perception_failed: bool = False
+    perception_status_msg: str = ""
+    perception_frame_idx: int = 0
+    perception_label: str = ""
+    perception_confidence: float = 0.0
+    perception_camera_xyz: tuple[float, float, float] | None = None
+    perception_world_xyz: tuple[float, float, float] | None = None
+    perception_tracker_phase: str = "search"
+    perception_track_ok_frames: int = 0
+    perception_image_scale: float = 0.0
+    perception_bbox_wh: tuple[int, int] = (0, 0)
+    perception_tracker_backend: str = ""
+    perception_last_capture_path: str = ""
+    perception_recording: bool = False
+    perception_record_with_overlay: bool = False
+    perception_last_record_path: str = ""
+    perception_center_uv: tuple[float, float] | None = None
+    perception_last_update_s: float = 0.0
+    perception_hz: float = 0.0
+
+    gaze_running: bool = False
+    gaze_mode: str = "idle"
+    gaze_status_msg: str = ""
+    gaze_u_err: float = 0.0
+    gaze_v_err: float = 0.0
+    gaze_du_roll: float = 0.0
+    gaze_du_s1: float = 0.0
+    gaze_du_s2: float = 0.0
+    gaze_tick_count: int = 0
+    gaze_update_count: int = 0
+    gaze_obs_age_s: float = -1.0
+
+    mock_object_x: float = 0.5
+    mock_object_y: float = 0.0
+    mock_object_z: float = 1.2
+    mock_object_dir_x: float = 1.0
+    mock_object_dir_y: float = 0.0
+    mock_object_dir_z: float = 0.0
+    pick_running: bool = False
+    pick_failed: bool = False
+    pick_phase: str = "idle"
+    pick_status_msg: str = ""
+
+    target_x: float = 0.5
+    target_y: float = 0.0
+    target_z: float = 1.0
+    target_vx: float = 1.0
+    target_vy: float = 0.0
+    target_vz: float = 0.0
+    sag_model_path: str = ""
+    raw_sag_model: dict[str, Any] | None = None
+
+    ik_running: bool = False
+    ik_converged: bool = False
+    ik_failed: bool = False
+    ik_err_m: float = 0.0
+    ik_status_msg: str = ""
+    ik_sim_tip_err_m: float = 0.0
+    ik_track_roll_err_rad: float = 0.0
+    ik_track_theta1_err_rad: float = 0.0
+    ik_track_theta2_err_rad: float = 0.0
+    ik_track_bend_max_err_rad: float = 0.0
+    ik_sol_roll: float = 0.0
+    ik_sol_theta1: float = 0.0
+    ik_sol_theta2: float = 0.0
+
+
 def gaze_config_to_dict(config: Any) -> dict[str, Any]:
     if dataclasses.is_dataclass(config):
         return {field.name: getattr(config, field.name) for field in dataclasses.fields(config)}

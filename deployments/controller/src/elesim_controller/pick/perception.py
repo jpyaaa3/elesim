@@ -1,5 +1,7 @@
 """Perception capture, preview, and mock-target workflow methods."""
 from __future__ import annotations
+from collections.abc import Mapping
+from dataclasses import fields
 from ._deps import *  # noqa: F401,F403
 
 class PerceptionActions:
@@ -155,7 +157,7 @@ class PerceptionActions:
                     self._retire_perception_capture(old)
             else:
                 self._retire_perception_capture(old)
-        cfg = config or self._perception_cfg
+        cfg = self._perception_cfg
         self._perception_cfg = cfg
         self.state.visual_target_label = str(cfg.target_label).strip()
         epoch = int(self._perception_capture_epoch) + 1
@@ -525,10 +527,30 @@ class PerceptionActions:
             print(f"[perception] one-shot sim capture failed: {exc}")
             return None
 
-    def update_perception_config(self, config: PerceptionConfig) -> None:
-        self._perception_cfg = config
-        self._perception_run_local = self._perception_config_runs_locally(config)
-        self.state.visual_target_label = str(config.target_label).strip()
+    def update_perception_config(self, config: PerceptionConfig | Mapping[str, Any] | Any) -> None:
+        if isinstance(config, PerceptionConfig):
+            updated = config
+        else:
+            if isinstance(config, Mapping):
+                raw = {str(key): value for key, value in config.items()}
+            elif hasattr(config, "__dict__"):
+                raw = {
+                    str(key): value
+                    for key, value in vars(config).items()
+                    if not str(key).startswith("_")
+                }
+            else:
+                raise TypeError("perception config update must be an object")
+            allowed = {field.name for field in fields(PerceptionConfig)}
+            unknown = sorted(set(raw) - allowed)
+            if unknown:
+                raise ValueError(
+                    "unknown perception config fields: " + ", ".join(unknown)
+                )
+            updated = replace(self._perception_cfg, **raw)
+        self._perception_cfg = updated
+        self._perception_run_local = self._perception_config_runs_locally(updated)
+        self.state.visual_target_label = str(updated.target_label).strip()
 
     def _mock_world_xyz_from_state(self) -> Optional[tuple[float, float, float]]:
         if str(self._perception_cfg.mode).strip().lower() != "mock":

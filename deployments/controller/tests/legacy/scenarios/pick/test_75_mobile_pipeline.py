@@ -4,7 +4,6 @@ import math
 import sys
 import types
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -55,50 +54,17 @@ def _host(
 
 
 class MobilePickPipelineTests(unittest.TestCase):
-    def test_mobile_pick_delegates_to_remote_host(self) -> None:
+    def test_mobile_pick_is_never_delegated_to_target_endpoint(self) -> None:
         client = MagicMock()
-        host = replace(
-            _host(),
-            pick_running=True,
-            pick_failed=False,
-            pick_phase="acquire",
-            pick_status_msg="remote running",
-        )
-        client.refresh_state.return_value = host
         svc = ControlService(
             PanelState(),
             client=client,
             perception_cfg=PerceptionConfig(run_local=False, provider="host", mode="camera"),
         )
 
-        svc.start_mobile_gaze_lji_pick_e2e()
-
-        client.send_mobile_pick_start.assert_called_once()
-        self.assertIsNone(svc._pick_e2e_worker)
-        self.assertTrue(svc.state.pick_running)
-        self.assertEqual(svc.state.pick_status_msg, "remote running")
-
-    def test_mobile_pick_stop_delegates_to_remote_host(self) -> None:
-        client = MagicMock()
-        host = replace(
-            _host(),
-            pick_running=False,
-            pick_failed=False,
-            pick_phase="idle",
-            pick_status_msg="remote stopped",
-        )
-        client.refresh_state.return_value = host
-        svc = ControlService(
-            PanelState(),
-            client=client,
-            perception_cfg=PerceptionConfig(run_local=False, provider="host", mode="camera"),
-        )
-
-        svc.stop_pick_e2e()
-
-        client.send_mobile_pick_stop.assert_called_once()
-        self.assertFalse(svc.state.pick_running)
-        self.assertEqual(svc.state.pick_status_msg, "remote stopped")
+        self.assertFalse(svc._delegate_pick_to_host())
+        self.assertFalse(svc._delegate_gaze_to_host())
+        client.send_mobile_pick_start.assert_not_called()
 
     def test_handoff_distance_uses_sim_base_pose(self) -> None:
         svc = ControlService(PanelState(), client=None)

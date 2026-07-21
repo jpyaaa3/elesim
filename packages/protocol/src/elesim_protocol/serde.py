@@ -3,18 +3,28 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 
-from .messages import ControlU, SimQ
+from .messages import ControlU, ProtocolError, SimQ
 
 
 def encode_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, (float, np.floating)):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ProtocolError("encoded value contains a non-finite number")
+        return number
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
     if isinstance(value, Path):
         return {"__type__": "Path", "value": str(value)}
     if dataclasses.is_dataclass(value):
@@ -26,7 +36,7 @@ def encode_value(value: Any) -> Any:
             },
         }
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return encode_value(value.tolist())
     if isinstance(value, dict):
         return {str(key): encode_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
@@ -47,6 +57,7 @@ def is_json_candidate(value: Any) -> bool:
     return (
         value is None
         or isinstance(value, (bool, int, float, str, Path, list, tuple, dict, np.ndarray))
+        or isinstance(value, (np.bool_, np.integer, np.floating))
         or dataclasses.is_dataclass(value)
     )
 

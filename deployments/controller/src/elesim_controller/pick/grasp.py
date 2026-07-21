@@ -7,7 +7,7 @@ def _service_type():
     from .actions import ControlService
     return ControlService
 
-class GraspActions:
+class GraspGeometryActions:
     @staticmethod
     def _compute_grasp_nominal_endpoint(
         object_world: tuple[float, float, float],
@@ -120,6 +120,10 @@ class GraspActions:
             approach_dir,
         )
         return wp_dist > tip_dist + 1e-4
+
+
+class GraspLjiSolverActions(GraspGeometryActions):
+    """LJI setup, feature construction, constrained solve, and command shaping."""
 
     def _reset_grasp_guided_state(self) -> None:
         self._grasp_waypoint_idx = 0
@@ -439,14 +443,18 @@ class GraspActions:
     ) -> tuple[np.ndarray, np.ndarray]:
         jj = np.asarray(j, dtype=float).reshape(3, 4)
         s = np.asarray(s_lji, dtype=float).reshape(3)
-        a = np.vstack(
+        gains = np.array([float(gain_z), float(gain_u), float(gain_v)], dtype=float)
+        ordered_j = np.vstack(
             [
-                float(gain_z) * jj[2:3, :],
-                float(gain_u) * jj[0:1, :],
-                float(gain_v) * jj[1:2, :],
+                jj[2:3, :],
+                jj[0:1, :],
+                jj[1:2, :],
             ]
         )
-        b = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+        ordered_s = np.array([float(s[2]), float(s[0]), float(s[1])], dtype=float)
+        active = gains > 1e-12
+        a = ordered_j[active, :]
+        b = gains[active] * ordered_s[active]
         return a, b
 
     @staticmethod
@@ -458,7 +466,11 @@ class GraspActions:
         damping: float,
     ) -> float:
         x = np.asarray(dq, dtype=float).reshape(4)
-        r = np.asarray(a, dtype=float).reshape(3, 4) @ x + np.asarray(b, dtype=float).reshape(3)
+        matrix = np.asarray(a, dtype=float)
+        target = np.asarray(b, dtype=float).reshape(-1)
+        if matrix.ndim != 2 or matrix.shape[1] != 4 or matrix.shape[0] != target.size:
+            raise ValueError(f"incompatible LJI objective shapes: A={matrix.shape}, b={target.shape}")
+        r = matrix @ x + target
         lam = float(max(damping, 1e-9))
         return float(np.dot(r, r) + lam * lam * np.dot(x, x))
 
@@ -774,6 +786,10 @@ class GraspActions:
             return None
         self._grasp_lji_bad_motion_streak = 0
         return "bad_motion"
+
+
+class GraspLjiSafetyActions(GraspLjiSolverActions):
+    """Depth gates, reliable-state latching, retract, and command smoothing."""
 
     def _grasp_lji_depth_snapshot(
         self,
@@ -1117,6 +1133,10 @@ class GraspActions:
         q_target = self._clamp_q(q0 + horizon * dq_arr)
         return np.asarray(q_target, dtype=float).reshape(4) - q0
 
+
+class GraspLjiRuntimeActions(GraspLjiSafetyActions):
+    """Measured-motion sampling, trace recording, reacquire, and blind handoff."""
+
     def _grasp_lji_wait_motion_fraction(
         self,
         *,
@@ -1378,7 +1398,7 @@ class GraspActions:
             return
         self._grasp_lji_log_close()
         raw_path = os.environ.get("ELESIM_LJI_LOG_PATH", "").strip()
-        base = Path(raw_path) if raw_path else Path("engine/logs/lji_grasp")
+        base = Path(raw_path) if raw_path else Path("logs/lji_grasp")
         if not base.is_absolute():
             base = Path.cwd() / base
         try:
@@ -1974,6 +1994,10 @@ class GraspActions:
         print("[Grasp] %s" % done_msg)
         return True
 
+
+class GraspTrackingActions(GraspLjiRuntimeActions):
+    """Object filtering, visual recovery, and sag correction during approach."""
+
     def _grasp_init_filtered_tracking(
         self,
         object_world: tuple[float, float, float],
@@ -2533,6 +2557,10 @@ class GraspActions:
                 )
             )
         return bool(centered_ok), obs, host_state
+
+
+class GraspWaypointActions(GraspTrackingActions):
+    """Waypoint IK, direction alignment, Cartesian advance, and final approach."""
 
     def _grasp_ik_to_waypoint(
         self,
@@ -3154,6 +3182,10 @@ class GraspActions:
         )
         return True, q_cmd, host_state, target_world
 
+
+class GraspGuidedActions(GraspWaypointActions):
+    """Public guided-grasp setup and the legacy guided worker."""
+
     def _start_grasp_guided_approach(self, *, internal: bool = False) -> bool:
         """Start online UV→sag→axial-IK loop toward pre-contact (no offline plan)."""
         if not internal and (self.state.ik_running or self._visual_busy()):
@@ -3749,6 +3781,10 @@ class GraspActions:
                     msg="grasp failed",
                 )
             self._ik_worker = None
+
+
+class GraspActions(GraspGuidedActions):
+    """LJI approach loop exposed to the controller service."""
 
     def _run_grasp_lji_approach_worker(
         self,

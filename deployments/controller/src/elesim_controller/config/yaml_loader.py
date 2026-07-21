@@ -80,6 +80,7 @@ def _resolve_owned_paths(document: dict[str, Any], *, config_dir: str) -> None:
     path_keys = (
         ("simulation", "assembly", "build_dir"),
         ("simulation", "cameras", "hand_eye", "config"),
+        ("vision", "perception", "detector", "detector_config"),
     )
     for keys in path_keys:
         cursor: Any = document

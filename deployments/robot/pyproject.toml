@@ -9,12 +9,17 @@ requires-python = ">=3.10"
 dependencies = [
   "elesim-protocol==0.1.0",
   "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
   "PyYAML>=6,<7",
   "pyzmq>=27,<28",
 ]
 
 [project.optional-dependencies]
-jetson = ["dynamixel-sdk>=3.7", "pyrealsense2>=2.55"]
+jetson = [
+  "dynamixel-sdk>=3.7",
+  "opencv-python-headless>=4.8,<5",
+  "pyrealsense2>=2.55",
+]
 test = ["pytest>=8,<9"]
 
 [project.scripts]

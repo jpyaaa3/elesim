@@ -13,6 +13,18 @@ This writes one self-contained build context per role under
 protocol wheel, configuration, direct dependency pins and deployment metadata.
 The simulator context additionally contains the prebuilt model bundle.
 
+The build command verifies every generated context by default. It performs a
+clean `--no-deps` temporary install, checks wheel ownership, parses the shipped
+configuration, validates the simulator model bundle, and runs the installed
+entry point with `--help`. To re-run only this verification:
+
+```bash
+python3 tooling/release/verify.py dist/releases
+```
+
+`--no-verify` exists only for diagnosing an incomplete build; an artifact made
+with that option has not passed the release gate.
+
 ## Container Roles
 
 Build a role by loading the generated wheel names:

@@ -1,0 +1,19 @@
+{
+  "date": "2026-07-20",
+  "revision": "0e631c5",
+  "branch": "refactoring",
+  "tracked_python_files": 448,
+  "tracked_python_lines_approx": 93606,
+  "tests": {
+    "passed": 412,
+    "skipped": 1,
+    "warnings": 1,
+    "topology_smoke": "passed"
+  },
+  "release": {
+    "wheel_build": "passed",
+    "isolated_install_and_startup": "not_tested"
+  },
+  "automatic_gate": "software_only",
+  "hardware_in_loop": "manual_approval_required"
+}

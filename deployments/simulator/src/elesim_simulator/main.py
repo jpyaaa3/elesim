@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-"""Genesis simulation endpoint with protocol-v3 transport."""
+"""Genesis simulation endpoint with direct protocol-v3 transport."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import sys
-import tempfile
 import threading
-import time
 from pathlib import Path
 
-import yaml
-
-from elesim_simulator.bridge import SimProtocolBridge
 from elesim_simulator.config import load_app_config, load_runtime_role_config
+from elesim_simulator.control_state import SimulationStateSource
+from elesim_simulator.endpoint import SimulatorEndpoint
+from elesim_simulator.model_bundle import resolve_model_bundle
 from elesim_simulator.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_simulator.telemetry import RuntimeTelemetry
 from elesim_simulator.vision.sim_camera.subscriber import SimCameraSubscriber
 from elesim_simulator.vision.webrtc import WebRtcVideoSender, available as webrtc_available
 
@@ -48,81 +46,77 @@ class _RenderedFrameSource:
         self.subscriber.close()
 
 
-def _runtime_config(source: str, state_endpoint: str, feedback_endpoint: str, bundle_dir: str) -> str:
-    document = {
-        "schema_version": 1,
-        "extends": os.path.abspath(source),
-        "transport": {
-            "host": {
-                "simulation_endpoint": state_endpoint,
-                "feedback_endpoint": feedback_endpoint,
-            }
-        },
-        "simulation": {
-            "assembly": {
-                "build_dir": os.path.abspath(bundle_dir),
-                "rebuild_assembly": False,
-            }
-        },
-    }
-    handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", prefix="elesim-sim-agent-", delete=False)
-    with handle:
-        yaml.safe_dump(document, handle, sort_keys=False)
-    return handle.name
+def _camera_input(command: str, values: object) -> None:
+    from elesim_simulator.vision.sim_camera.remote_control import enqueue
+
+    enqueue(command, values)
 
 
 def _run() -> None:
     parser = argparse.ArgumentParser(description="Elesim distributed Genesis agent")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
-    parser.add_argument("--model-bundle", default=str(_ROOT.parents[1] / "model/bundles/default"))
+    parser.add_argument("--model-bundle", default="")
     parser.add_argument("--server", default="")
     parser.add_argument("--id", default="")
-    parser.add_argument("--legacy-state", default="tcp://127.0.0.1:5586")
-    parser.add_argument("--legacy-feedback", default="tcp://127.0.0.1:5587")
     args, sim_args = parser.parse_known_args()
+
     bundle = load_app_config(args.config)
     role = load_runtime_role_config(args.runtime_config)
     if role.role != "simulator":
         raise ValueError(f"runtime role must be simulator, got {role.role!r}")
     server_endpoint = str(args.server).strip() or role.server_endpoint
     endpoint_id = str(args.id).strip() or role.endpoint_id
+    development_rebuild = os.environ.get("ELESIM_SIM_DEV_REBUILD", "").strip() == "1"
+    model_bundle = ""
+    if not development_rebuild:
+        model_bundle = str(resolve_model_bundle(args.model_bundle or None))
+
     rendered_source = _RenderedFrameSource(
         str(bundle.sim_config.sim_side_camera_port),
         use_jpeg=bool(bundle.sim_config.sim_side_camera_jpeg),
     )
     rendered_source.start()
-    webrtc = WebRtcVideoSender(rendered_source.get, fps=float(bundle.sim_config.sim_side_camera_max_hz)) if webrtc_available() else None
+    webrtc = (
+        WebRtcVideoSender(
+            rendered_source.get,
+            fps=float(bundle.sim_config.sim_side_camera_max_hz),
+        )
+        if webrtc_available()
+        else None
+    )
     if webrtc is None:
         print("[sim_agent] WebRTC unavailable; install aiortc and av")
-    bridge = SimProtocolBridge(
+
+    state = SimulationStateSource(bundle.mapping_config)
+    endpoint = SimulatorEndpoint(
         server_endpoint=server_endpoint,
         endpoint_id=endpoint_id,
-        legacy_state_bind=args.legacy_state,
-        legacy_feedback_bind=args.legacy_feedback,
-        mapping=bundle.mapping_config,
+        state=state,
         streams={
             "rgbd": role.streams.get("rgbd_advertise", "") or str(bundle.sim_config.sim_camera_port),
             "rendered_view": role.streams.get("rendered_view", "webrtc"),
         },
+        camera_input_handler=_camera_input,
         webrtc_offer_handler=None if webrtc is None else webrtc.accept_offer,
     )
-    bridge.start()
-    generated = _runtime_config(args.config, args.legacy_state, args.legacy_feedback, args.model_bundle)
+    telemetry = RuntimeTelemetry(endpoint.publish_telemetry)
+    endpoint.start()
     try:
-        from elesim_simulator.runtime import main as run_genesis
+        from elesim_simulator.runtime import run_runtime
 
-        sys.argv = ["elesim-simulator", "--config", generated, *sim_args]
-        run_genesis()
+        run_runtime(
+            config_path=args.config,
+            argv=sim_args,
+            model_bundle=model_bundle,
+            state_source=state,
+            feedback_publisher=telemetry,
+        )
     finally:
-        bridge.close()
+        endpoint.close()
         if webrtc is not None:
             webrtc.close()
         rendered_source.close()
-        try:
-            os.unlink(generated)
-        except OSError:
-            pass
 
 
 def main() -> None:

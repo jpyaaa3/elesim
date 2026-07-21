@@ -13,7 +13,7 @@ from elesim_controller.config import PickConfig, load_app_config
 
 
 class TestPickConfigEffectivePattern(unittest.TestCase):
-    """Regression: runtime replace must preserve configs/config.yaml fields not overridden by UI."""
+    """Runtime replace preserves deployment config fields not overridden by UI."""
 
     def test_replace_preserves_sag_drift_knobs(self) -> None:
         loaded = PickConfig(

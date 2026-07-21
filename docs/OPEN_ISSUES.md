@@ -8,6 +8,103 @@
 
 This file tracks known unresolved or deferred issues so they do not get lost while higher-priority work continues.
 
+## Current Status (2026-07-20)
+
+This section is authoritative for the deployment-based architecture. The long
+sections below it are retained as pre-refactor evidence; paths and test counts
+there are historical unless repeated here.
+
+### P0. Live Look-Aim-Grasp Convergence Is Not Proven
+
+- Status: open; highest priority.
+- Automated evidence now exists: deterministic UV/LJI/equal-sag/ready/IK
+  properties, a headless phase workflow, and recorded failing/healthy grasp log
+  replay.
+- The recorded failure is correctly diagnosed as an object-world jump,
+  measured-motion stalls, a blind handoff near 98 mm, about 20 degrees of look
+  error, and final abort.
+- Missing evidence: one complete Genesis run and one hardware run proving
+  target visibility, bounded camera motion, decreasing `remain`, safe blind
+  handoff, plausible contact, and gripper closure.
+
+### P1. Camera And Perception Timing Still Need Live Validation
+
+- Status: open.
+- Unit tests prove that Pick stop does not own camera shutdown and that worker
+  lifecycle/state transitions are explicit.
+- They do not prove RealSense/YOLO/Genesis frame continuity, depth validity, or
+  tracker identity while the hand-eye camera moves.
+- Required evidence: timestamped frame/drop metrics through Look, Aim, LJI,
+  blind handoff, operator stop, reconnect, and target reacquisition.
+
+### P1. Multi-Host And Hardware Deployment Remain Manual Gates
+
+- Status: open.
+- The in-process five-node topology, leases, reconnect, stale sequence handling,
+  media descriptors, and isolated wheels pass automatically.
+- Actual Wi-Fi/LAN routing, Jetson USB/serial behavior, ROS2/Unitree topics,
+  clock skew, packet loss, and process restart timing have not been exercised by
+  this software-only gate.
+
+### P1. Plain ZMQ TCP Assumes A Trusted Network
+
+- Status: open, deployment/security decision required.
+- Protocol v3 validates roles, leases, payloads and sequence numbers, but the
+  transport currently has no CurveZMQ authentication, encryption, or operator
+  identity provisioning.
+- Do not expose Router or direct media endpoints to an untrusted network until
+  a threat model and key distribution strategy are defined.
+
+### P2. Broad Runtime Fallbacks Need Continued Audit
+
+- Status: open.
+- A current scan finds roughly 267 broad exception handlers across deployments
+  and tooling. Many are deliberate optional-driver/UI fallbacks, but the count
+  is too large to assume every one is observable and safe.
+- Continue replacing silent fallback with typed expected errors and structured
+  endpoint/UI health, especially around cameras, Genesis, ROS2 and telemetry.
+
+### P2. Headless Coverage Is Weak At Physical Adapters
+
+- Status: open by design, not hidden.
+- Pure control code is strongly exercised (UV 94%, LJI 91%, workflow 87%, replay
+  93%, robot runtime 79%), while UI panels, RealSense/YOLO, Dynamixel transport,
+  Unitree bridge and Genesis camera operations remain low.
+- See `docs/audit/2026-07-20/coverage.md`. These gaps require integration rigs,
+  not assertions over deeper mocks.
+
+### P2. Genesis And Upstream Dynamics Warnings Remain
+
+- Status: open, currently non-fatal.
+- GO2 neutral qpos and neutral self-collision filtering still need a live
+  contact/dynamics decision. Inertia-frame interpretation also remains pending.
+- The `hppfcl` -> `coal` warning originates in the Pinocchio/convex-MPC
+  dependency chain; Elesim does not directly import `hppfcl`.
+
+### Closed By The 2026-07-20 Refactor
+
+- Model bundles are self-contained, hashed, validated, and runtime-immutable.
+- Robot owns physical I/O, measured canonical `q`, deadman/current/read-failure
+  safety, stale-sequence checks and lease enforcement.
+- Controller and simulator use direct protocol-v3 endpoints; copied sibling-role
+  implementations were removed and import boundaries are tested.
+- Payloads, lifecycle, trace context, reconnect, partial commands, async UI
+  state, Pick stop, camera lifecycle and WebRTC signaling have contract tests.
+- Core algorithms now have deterministic property, headless and replay tests;
+  seven critical mutants are killed by the suite.
+- No deployment class may exceed 1000 lines and no function may exceed 900
+  lines. Large workflow files remain sectioned by responsibility rather than
+  split into one-file-per-method fragments.
+- Every generated release is temporarily installed and probed without sibling
+  deployments or source-tree imports.
+
+---
+
+## Historical Pre-Refactor Backlog
+
+The remainder documents how the project reached the current state. Treat an
+item as current only if it also appears in the authoritative section above.
+
 ## General and Potential Codebase Risks (2026-07-01)
 
 These are broader risks found while reviewing the current code shape and recent test results. They are not necessarily current failures, but they are places where "all tests pass" can still leave a real integration problem.

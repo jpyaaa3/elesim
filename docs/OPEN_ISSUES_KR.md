@@ -8,6 +8,98 @@
 
 이 파일은 우선순위가 더 높은 작업을 진행하는 동안 알려진 미해결/보류 이슈가 묻히지 않도록 추적한다.
 
+## 현재 상태 (2026-07-20)
+
+이 절이 deployment 기반 현 구조의 기준이다. 아래의 긴 절들은 refactor 이전
+근거를 보존한 기록이며, 여기에서 다시 언급하지 않은 경로와 테스트 수치는 과거
+정보로 취급한다.
+
+### P0. 실제 Look-Aim-Grasp 수렴은 아직 증명되지 않음
+
+- 상태: open, 최우선.
+- UV/LJI/equal-sag/ready/IK deterministic property, headless phase workflow,
+  실패/정상 grasp 로그 replay까지 자동화했다.
+- 기존 실패 로그는 object-world jump, measured-motion stall, 약 98 mm에서의
+  blind handoff, 약 20도 look error, 최종 abort로 재현·진단된다.
+- 남은 근거: target visibility, 제한된 camera motion, 감소하는 `remain`, 안전한
+  blind handoff, 그럴듯한 접촉과 gripper close를 증명하는 Genesis 1회 및 실제
+  하드웨어 1회의 완전한 실행이다.
+
+### P1. Camera/perception timing은 live 검증이 필요함
+
+- 상태: open.
+- Pick stop이 camera shutdown을 소유하지 않는다는 것과 worker lifecycle/state
+  transition은 unit test로 고정했다.
+- 그러나 hand-eye camera가 움직이는 동안 RealSense/YOLO/Genesis frame 연속성,
+  depth validity, tracker identity는 아직 증명하지 못했다.
+- 필요한 근거: Look, Aim, LJI, blind handoff, 사용자 stop, reconnect, reacquire를
+  관통하는 timestamp/frame-drop metric이다.
+
+### P1. Multi-host 및 hardware 배포는 여전히 수동 gate임
+
+- 상태: open.
+- in-process 5-node topology, lease, reconnect, stale sequence, media descriptor,
+  isolated wheel은 자동 검증을 통과한다.
+- 실제 Wi-Fi/LAN, Jetson USB/serial, ROS2/Unitree topic, clock skew, packet loss,
+  process restart timing은 software-only gate에서 검증하지 못했다.
+
+### P1. 현재 ZMQ TCP는 신뢰된 네트워크를 전제로 함
+
+- 상태: open, 배포/보안 결정 필요.
+- protocol v3는 role, lease, payload, sequence를 검증하지만 CurveZMQ 인증,
+  암호화, operator identity provisioning은 없다.
+- threat model과 key 배포 방식을 정하기 전에는 Router와 direct media endpoint를
+  신뢰할 수 없는 네트워크에 노출하면 안 된다.
+
+### P2. 광범위한 runtime fallback은 계속 감사해야 함
+
+- 상태: open.
+- 현재 deployments/tooling 전체에 broad exception handler가 약 267개 있다.
+  optional driver/UI fallback도 포함하지만 모두 관측 가능하고 안전하다고 가정할
+  수 있는 수량은 아니다.
+- 특히 camera, Genesis, ROS2, telemetry에서 silent fallback을 typed expected
+  error와 구조화된 endpoint/UI health로 계속 바꿔야 한다.
+
+### P2. Physical adapter의 headless coverage가 낮음
+
+- 상태: 의도적으로 open이며 숨기지 않는다.
+- 순수 제어 코드는 UV 94%, LJI 91%, workflow 87%, replay 93%, robot runtime
+  79%로 강하게 실행된다. UI panel, RealSense/YOLO, Dynamixel transport,
+  Unitree bridge, Genesis camera operation은 낮다.
+- `docs/audit/2026-07-20/coverage.md` 참고. 이 영역은 더 깊은 mock이 아니라
+  integration rig가 필요하다.
+
+### P2. Genesis 및 upstream dynamics warning이 남음
+
+- 상태: open, 현재 non-fatal.
+- GO2 neutral qpos와 neutral self-collision filtering은 live contact/dynamics로
+  판단해야 한다. inertia frame 해석도 미결이다.
+- `hppfcl` -> `coal` warning은 Pinocchio/convex-MPC dependency chain에서 오며,
+  Elesim은 `hppfcl`을 직접 import하지 않는다.
+
+### 2026-07-20 refactor에서 닫힌 항목
+
+- model bundle은 self-contained, hash 검증, runtime immutable 상태다.
+- Robot은 physical I/O, measured canonical `q`, deadman/current/read-failure safety,
+  stale sequence와 lease enforcement를 소유한다.
+- Controller/Simulator는 direct protocol-v3 endpoint를 사용한다. sibling role의
+  복사 구현을 제거했고 import boundary를 테스트한다.
+- payload/lifecycle/trace/reconnect/partial command/async UI/Pick stop/camera
+  lifecycle/WebRTC signaling에 contract test가 있다.
+- 핵심 알고리즘에 deterministic property/headless/replay test가 생겼고, 일곱
+  critical mutant를 모두 테스트가 잡는다.
+- deployment class는 1000줄, function은 900줄을 넘을 수 없다. 큰 workflow
+  파일은 method마다 무한 분할하지 않고 책임 section으로 나눴다.
+- 생성된 모든 release를 sibling deployment와 source-tree import가 없는 임시
+  위치에 설치해 probe한다.
+
+---
+
+## Refactor 이전 역사적 backlog
+
+이 아래는 현 상태에 도달한 과정을 보존한 기록이다. 위의 기준 절에도 등장하는
+항목만 현재 이슈로 취급한다.
+
 ## 전반적/잠재적 코드베이스 리스크 (2026-07-01)
 
 아래 항목들은 현재 코드 구조와 최근 테스트 결과를 보며 확인한 넓은 범위의 리스크다. 반드시 현재 실패라는 뜻은 아니지만, "모든 테스트 통과" 뒤에도 실제 통합 문제가 남을 수 있는 지점들이다.

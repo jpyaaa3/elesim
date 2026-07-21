@@ -21,7 +21,7 @@ robot:
   arm:
     hardware:
       arm_latency_log_enable: true
-      arm_latency_log_path: engine/logs/arm_latency
+      arm_latency_log_path: logs/arm_latency
       arm_servo_thread_enable: true
       baudrate: 1000000
       current_read_hz: 5.0
@@ -46,17 +46,12 @@ robot:
       - 0.35
       - 0.0
       - 0.08
-    hardware:
-      ros:
-        enabled: true
-        pose_source: sportmodestate
-        ros_workspace: ~/ros2_ws
 vision:
   perception:
     publishing:
       preview_bind: tcp://0.0.0.0:5570
     detector:
-      detector_config: config/perception/detector.real_green_hsv.json
+      detector_config: perception/detector.real_green_hsv.json
       target_label: sports ball
     runtime:
       mode: camera

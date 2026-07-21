@@ -34,3 +34,12 @@ camera:
   width: 640
   height: 480
   fps: 30
+safety:
+  command_deadman_s: 0.5
+  router_liveness_s: 3.5
+  monitor_period_s: 0.05
+  read_failure_limit: 3
+  telemetry_period_s: 0.1
+  max_go2_vx_m_s: 0.8
+  max_go2_vy_m_s: 0.5
+  max_go2_wz_rad_s: 1.5

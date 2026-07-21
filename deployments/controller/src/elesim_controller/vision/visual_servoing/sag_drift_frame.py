@@ -22,6 +22,8 @@ class SagDriftComponents:
 
 def _unit_vec3(vec: Sequence[float]) -> np.ndarray:
     v = np.asarray(vec, dtype=float).reshape(3)
+    if not np.all(np.isfinite(v)):
+        raise ValueError("direction must contain only finite values")
     norm = float(np.linalg.norm(v))
     if norm <= 1e-9:
         raise ValueError("direction must be nonzero")
@@ -47,6 +49,11 @@ def prepare_sag_drift_input(
 ) -> SagDriftComponents:
     """Decompose drift along FK axis; gate sag input when dir/lateral mismatch is large."""
     drift = np.asarray(drift_world, dtype=float).reshape(3)
+    limits = np.array([max_dir_error_deg, max_lateral_m, min_axial_m], dtype=float)
+    if not np.all(np.isfinite(drift)):
+        raise ValueError("drift must contain only finite values")
+    if not np.all(np.isfinite(limits)):
+        raise ValueError("sag drift limits must be finite")
     axis = _unit_vec3(axis_world)
     drift_tuple = (float(drift[0]), float(drift[1]), float(drift[2]))
     axial_scalar = float(np.dot(drift, axis))

@@ -68,6 +68,10 @@ def _set_style_color(style, name: str, rgba: tuple[float, float, float, float]) 
         pass
 
 
+def draw_sim_video_panel(panel: "ControlPanel") -> None:
+    panel._draw_sim_video()
+
+
 class ControlPanel:
     """External ImGui window that draws and edits PanelState."""
 
@@ -576,7 +580,7 @@ class ControlPanel:
             status_w = max(1.0, float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
-                    self._draw_sim_video,
+                    draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,
                 ),
@@ -603,7 +607,7 @@ class ControlPanel:
             right_w = max(scaled(self, 300.0), float(imgui.get_content_region_available_width()))
             self._draw_panel_stack(
                 (
-                    self._draw_sim_video,
+                    draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
@@ -619,7 +623,7 @@ class ControlPanel:
                     draw_go2_panel,
                     draw_ik_panel,
                     draw_sag_panel,
-                    self._draw_sim_video,
+                    draw_sim_video_panel,
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
@@ -671,7 +675,8 @@ class ControlPanel:
 
         try:
             while not glfw.window_should_close(window) and not self._stop:
-                self._host_state = self.service.refresh_host_state()
+                self.service.poll()
+                self._host_state = self.service.current_host_state()
                 self.sync_offset_drafts()
                 glfw.poll_events()
                 self._process_pending_file_browse()

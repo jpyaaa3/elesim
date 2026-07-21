@@ -1,0 +1,26 @@
+{
+  "date": "2026-07-20",
+  "base_revision": "0e631c5",
+  "branch": "refactoring",
+  "working_tree": "uncommitted implementation",
+  "python_files": 397,
+  "python_lines_approx": 65785,
+  "tests": {
+    "required_pytest_passed": 539,
+    "extended_pytest_passed": 34,
+    "critical_mutations_killed": 7,
+    "topology_smoke": "passed",
+    "known_warnings": [
+      "controller non-finite preview test intentionally exercises a NumPy warning",
+      "upstream hppfcl import is deprecated in favor of coal",
+      "model generation reports known Euler gimbal-lock warnings"
+    ]
+  },
+  "release": {
+    "wheel_build": "passed",
+    "isolated_install_config_entrypoint": "passed for all five roles",
+    "simulator_bundle_integrity": "passed"
+  },
+  "automatic_gate": "software_only",
+  "hardware_in_loop": "still_required"
+}

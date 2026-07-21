@@ -45,8 +45,8 @@ def draw_sag_panel(panel) -> None:
             panel.request_file_browse(kind="sag", initial_path=panel._sag_model_path_draft)
         imgui.same_line()
         if imgui.button("Load Model"):
-            try:
-                resolved_path, model = panel.service.load_sag_model(panel._sag_model_path_draft)
+            def loaded(result) -> None:
+                resolved_path, model = result
                 panel._sag_model_path_draft = str(resolved_path)
                 panel.service.send_sag_model_meta(source="target")
                 raw_type = str(model.get("model_type", "") or "").strip()
@@ -60,6 +60,15 @@ def draw_sag_panel(panel) -> None:
                     model_type = "unknown"
                 panel._sag_status_text = f"loaded: {resolved_path} ({model_type})"
                 panel._sag_status_ok = True
-            except Exception as exc:
-                panel._sag_status_text = f"load failed: {exc}"
+
+            def failed(error: str) -> None:
+                panel._sag_status_text = f"load failed: {error}"
                 panel._sag_status_ok = False
+
+            panel._sag_status_text = "loading..."
+            panel._sag_status_ok = True
+            panel.service.load_sag_model_async(
+                panel._sag_model_path_draft,
+                on_result=loaded,
+                on_error=failed,
+            )

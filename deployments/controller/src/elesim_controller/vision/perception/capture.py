@@ -135,8 +135,8 @@ class PerceptionSnapshot:
     center_uv: Optional[tuple[float, float]] = None
 
 
-class PerceptionCapture:
-    """Runs detection in a worker thread; publishes via ``publish_fn``."""
+class _PerceptionCaptureStorage:
+    """Frame cache, recording, and preview publication state."""
 
     _warned_missing_sim_pose: bool = False
 
@@ -445,6 +445,10 @@ class PerceptionCapture:
             meta=meta,
         )
 
+
+class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
+    """Snapshot access, worker lifecycle, and pipeline dispatch."""
+
     def tracker_phase(self) -> str:
         return str(self.snapshot().tracker_phase)
 
@@ -710,6 +714,10 @@ class PerceptionCapture:
         finally:
             if enable_preview:
                 close_preview(_PREVIEW_WINDOW)
+
+
+class _PerceptionDetectionActions(_PerceptionCaptureLifecycle):
+    """Detection normalization, world projection, tracking, and redetection."""
 
     def _is_mock_mode(self) -> bool:
         return str(self._config.mode).strip().lower() == "mock"
@@ -1023,6 +1031,10 @@ class PerceptionCapture:
             status_msg=f"track redetect ({tracker.backend_name}) scale {new_scale:.3f}",
         )
         return True, new_area, yolo_det, p_world, f"redetect ok scale={new_scale:.3f}"
+
+
+class _PerceptionCameraPipelines(_PerceptionDetectionActions):
+    """Live camera search/track and segmentation loops."""
 
     def _run_camera_search_track(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]
@@ -1635,6 +1647,10 @@ class PerceptionCapture:
         """Legacy alias: same as yolo_seg (mask every frame + TRACK semantics)."""
         self._run_camera_yolo_seg(**kwargs)
 
+
+class _PerceptionMockPipelines(_PerceptionCameraPipelines):
+    """Deterministic mock-frame and mock-segmentation loops."""
+
     def _run_mock(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]
         detector_cfg = kwargs["detector_cfg"]
@@ -1898,6 +1914,10 @@ class PerceptionCapture:
                 time.sleep(0.05)
 
         self._set_snapshot(running=False, status_msg="stopped")
+
+
+class PerceptionCapture(_PerceptionMockPipelines):
+    """Public perception worker with camera and mock pipeline implementations."""
 
     def _run_mock_search_track(self, **kwargs: Any) -> None:
         detector = kwargs["detector"]

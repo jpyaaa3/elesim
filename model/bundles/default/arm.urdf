@@ -9,16 +9,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/plate/plate_mesh.obj" />
+        <mesh filename="assets/plate/plate_mesh.obj" />
       </geometry>
-      <material name="plate_mat">
-        <color rgba="0.188235294 0.188235294 0.188235294 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/plate/plate_mesh.obj" />
+        <mesh filename="assets/plate/plate_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -31,16 +28,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/housing/housing_mesh.obj" />
+        <mesh filename="assets/housing/housing_mesh.obj" />
       </geometry>
-      <material name="housing_mat">
-        <color rgba="0.062745098 0.062745098 0.062745098 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/housing/housing_mesh.obj" />
+        <mesh filename="assets/housing/housing_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -53,16 +47,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/wedge/wedge_mesh.obj" />
+        <mesh filename="assets/wedge/wedge_mesh.obj" />
       </geometry>
-      <material name="wedge_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/wedge/wedge_mesh.obj" />
+        <mesh filename="assets/wedge/wedge_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -75,16 +66,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node0_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -97,16 +85,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node1_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -119,16 +104,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node2_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -141,16 +123,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node3_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -163,16 +142,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node4_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -185,16 +161,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node5_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -207,16 +180,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node6_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -229,16 +199,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node7_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -251,16 +218,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
-      <material name="node8_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node/node_mesh.obj" />
+        <mesh filename="assets/node/node_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -273,16 +237,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node_end/node_end_mesh.obj" />
+        <mesh filename="assets/node_end/node_end_mesh.obj" />
       </geometry>
-      <material name="node9_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/node_end/node_end_mesh.obj" />
+        <mesh filename="assets/node_end/node_end_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -295,16 +256,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_base/gripper_base_mesh.obj" />
+        <mesh filename="assets/gripper_base/gripper_base_mesh.obj" />
       </geometry>
-      <material name="gripper_base_mat">
-        <color rgba="0.31372549 0.31372549 0.31372549 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_base/gripper_base_mesh.obj" />
+        <mesh filename="assets/gripper_base/gripper_base_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -317,16 +275,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
+        <mesh filename="assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
       </geometry>
-      <material name="gripper_claw_left_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
+        <mesh filename="assets/gripper_claw_left/gripper_claw_left_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -339,16 +294,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
+        <mesh filename="assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
       </geometry>
-      <material name="gripper_claw_right_mat">
-        <color rgba="0.690196078 0.690196078 0.690196078 1" />
-      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
+        <mesh filename="assets/gripper_claw_right/gripper_claw_right_mesh.obj" />
       </geometry>
     </collision>
   </link>
@@ -361,7 +313,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../../source/assets/camera/camera_mesh.obj" />
+        <mesh filename="assets/camera/camera_mesh.obj" />
       </geometry>
     </visual>
   </link>

@@ -10,6 +10,7 @@ from elesim_protocol import (
     PROTOCOL_VERSION,
     ProtocolError,
     dumps_envelope,
+    encode_value,
     loads_envelope,
     make_envelope,
 )
@@ -40,3 +41,23 @@ def test_v2_is_rejected() -> None:
 def test_old_sim_role_is_rejected() -> None:
     with pytest.raises(ProtocolError, match="unsupported endpoint role"):
         EndpointDescriptor("sim-a", "sim")
+
+
+@pytest.mark.parametrize("field", ("timestamp", "seq"))
+def test_nonfinite_or_nonintegral_envelope_metadata_is_rejected(field: str) -> None:
+    message = make_envelope("heartbeat", "robot-a", seq=1).to_dict()
+    message[field] = float("nan") if field == "timestamp" else 1.5
+    with pytest.raises(ProtocolError):
+        loads_envelope(json.dumps(message).encode())
+
+
+def test_oversized_envelope_is_rejected_before_json_parsing() -> None:
+    message = make_envelope("heartbeat", "robot-a", payload={"padding": "x" * 1_100_000})
+    with pytest.raises(ProtocolError, match="too large"):
+        loads_envelope(dumps_envelope(message))
+
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_operator_value_encoder_rejects_nonfinite_numbers(value: float) -> None:
+    with pytest.raises(ProtocolError, match="non-finite"):
+        encode_value({"nested": [value]})

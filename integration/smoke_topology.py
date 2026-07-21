@@ -8,10 +8,12 @@ import time
 from queue import Empty
 
 from elesim_protocol import (
+    OPERATOR_VIEW_SCHEMA_VERSION,
     CAPABILITY_MOTION_ARM,
     CAPABILITY_OPERATOR_CONTROL,
     EndpointClient,
     EndpointDescriptor,
+    OperatorViewSnapshot,
 )
 from elesim_router.main import RoutingServer
 
@@ -34,7 +36,12 @@ def router_process(endpoint: str, stop: mp.Event) -> None:
 def target_process(role: str, endpoint_id: str, endpoint: str, stop: mp.Event, results: mp.Queue) -> None:
     client = EndpointClient(
         endpoint,
-        EndpointDescriptor(endpoint_id, role, (CAPABILITY_MOTION_ARM,)),
+        EndpointDescriptor(
+            endpoint_id,
+            role,
+            (CAPABILITY_MOTION_ARM,),
+            instance_id=f"{endpoint_id}-smoke",
+        ),
     )
     results.put(f"{role}_registered")
     try:
@@ -58,7 +65,12 @@ def target_process(role: str, endpoint_id: str, endpoint: str, stop: mp.Event, r
 def controller_process(endpoint: str, stop: mp.Event, results: mp.Queue) -> None:
     client = EndpointClient(
         endpoint,
-        EndpointDescriptor("controller-main", "controller", (CAPABILITY_OPERATOR_CONTROL,)),
+        EndpointDescriptor(
+            "controller-main",
+            "controller",
+            (CAPABILITY_OPERATOR_CONTROL,),
+            instance_id="controller-main-smoke",
+        ),
     )
     selected = False
     lease_id = ""
@@ -80,11 +92,27 @@ def controller_process(endpoint: str, stop: mp.Event, results: mp.Queue) -> None
                             payload={"command": "target", "q": [-0.1, 0.0, 0.1, -0.1]},
                         )
                 elif message.message_type == "operator_intent":
-                    request_id = str((message.payload or {}).get("request_id", ""))
+                    intent = message.payload or {}
+                    request_id = str(intent.get("request_id", ""))
+                    if str(intent.get("operation", "")) == "view_snapshot":
+                        result = {
+                            "schema_version": OPERATOR_VIEW_SCHEMA_VERSION,
+                            "state": {"pick_running": False},
+                            "service": {
+                                "has_client": True,
+                                "current_host_state": {
+                                    "connected": False,
+                                    "rx_age_s": -1.0,
+                                    "host_state_age_s": -1.0,
+                                },
+                            },
+                        }
+                    else:
+                        result = {"ready": True}
                     client.send(
                         "operator_result",
                         target_id=message.source_id,
-                        payload={"request_id": request_id, "ok": True, "result": {"ready": True}},
+                        payload={"request_id": request_id, "ok": True, "result": result},
                     )
             if not selected:
                 time.sleep(0.1)
@@ -93,7 +121,10 @@ def controller_process(endpoint: str, stop: mp.Event, results: mp.Queue) -> None
 
 
 def ui_process(endpoint: str, stop: mp.Event, results: mp.Queue) -> None:
-    client = EndpointClient(endpoint, EndpointDescriptor("ui-main", "ui", ()))
+    client = EndpointClient(
+        endpoint,
+        EndpointDescriptor("ui-main", "ui", (), instance_id="ui-main-smoke"),
+    )
     request_id = "smoke-request"
     sent = False
     try:
@@ -104,12 +135,16 @@ def ui_process(endpoint: str, stop: mp.Event, results: mp.Queue) -> None:
                 client.send(
                     "operator_intent",
                     target_id="controller-main",
-                    payload={"request_id": request_id, "operation": "snapshot"},
+                    payload={"request_id": request_id, "operation": "view_snapshot"},
                 )
                 sent = True
             for message in client.receive(timeout_ms=50):
                 body = message.payload or {}
                 if message.message_type == "operator_result" and body.get("request_id") == request_id:
+                    view = OperatorViewSnapshot.from_payload(body.get("result"))
+                    host = view.service.get("current_host_state", {})
+                    if host.get("rx_age_s") != -1.0 or host.get("host_state_age_s") != -1.0:
+                        raise RuntimeError(f"unexpected initial host age: {host!r}")
                     results.put("ui_result")
                     return
     finally:

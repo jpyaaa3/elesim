@@ -6,4 +6,4 @@ genesis-world==1.2.0
 casadi==3.7.2
 pin==3.3.1
 aiortc==1.13.0
-av==14.4.0
+av==14.2.0

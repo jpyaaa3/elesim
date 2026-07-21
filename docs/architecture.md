@@ -54,6 +54,16 @@ artifacts under `model/bundles`. The simulator consumes a prebuilt bundle by
 default. Runtime rebuilding is a development-only operation enabled explicitly
 with `ELESIM_SIM_DEV_REBUILD=1`.
 
+The controller likewise reads `config/arm_model.json` and never constructs an
+assembly at runtime. The installed model-builder commands regenerate both
+artifacts offline; arm-model intermediate files live in a temporary workspace:
+
+```bash
+elesim-build-sim-bundle --assets model/source/assets --output model/bundles/default
+elesim-build-arm-model --config deployments/controller/config/config.pc.yaml \
+  --assets model/source/assets --output deployments/controller/config/arm_model.json
+```
+
 ## Protocol Invariants
 
 - Protocol version is exactly v3; old envelopes are rejected.
@@ -66,6 +76,22 @@ with `ELESIM_SIM_DEV_REBUILD=1`.
 
 ## Verification Matrix
 
+The canonical entry point runs this matrix with package-specific import paths:
+
+```bash
+python3 tooling/quality/check.py --group required
+```
+
+The required gate covers protocol, all five deployments, model/release tooling,
+and the five-process topology smoke. The extended gate covers offline tools,
+readability budgets, and focused mutation checks:
+
+```bash
+python3 tooling/quality/check.py --group extended
+```
+
+The equivalent individual commands are:
+
 ```bash
 PYTHONPATH=packages/protocol/src python3 -m pytest packages/protocol/tests
 PYTHONPATH=packages/protocol/src:deployments/router/src python3 -m pytest deployments/router/tests
@@ -75,6 +101,40 @@ PYTHONPATH=packages/protocol/src:deployments/simulator/src python3 -m pytest dep
 PYTHONPATH=packages/protocol/src:deployments/ui/src python3 -m pytest deployments/ui/tests
 PYTHONPATH=tooling/model_builder/src:deployments/controller/src:packages/protocol/src python3 -m pytest tooling/model_builder/tests
 PYTHONPATH=packages/protocol/src:deployments/router/src python3 integration/smoke_topology.py
+```
+
+Release artifacts have a separate isolation gate. Building release contexts
+installs each protocol/application wheel pair into a clean temporary target,
+loads deployment configuration, validates the simulator bundle, checks that no
+sibling deployment is visible, and invokes the packaged console entry point
+with `--help`:
+
+```bash
+python3 tooling/release/build.py
+python3 tooling/release/verify.py dist/releases
+```
+
+## Test Layers
+
+- Contract tests pin protocol, payload, lease, safety, configuration, and role
+  boundaries.
+- Deterministic property tests exercise UV, LJI, equal-sag, ready-pose and
+  reachable FK-to-IK invariants over broad generated inputs.
+- Headless workflow tests execute Look -> Aim -> Grasp phase ordering without
+  Genesis or camera windows.
+- Recorded-log replay turns known field failures into deterministic regression
+  reports.
+- Focused mutations prove that critical version, lease, stale-command,
+  deadman, control-direction, gain, and finite-input guards are observed by the
+  tests.
+- Live Genesis and hardware-in-loop validation remains a manual gate because
+  software-only tests cannot establish physical convergence or camera timing.
+
+Generate a role-specific line-execution report without adding a production
+dependency:
+
+```bash
+python3 tooling/quality/line_coverage.py controller
 ```
 
 Use the development container when scientific or graphics dependencies are not

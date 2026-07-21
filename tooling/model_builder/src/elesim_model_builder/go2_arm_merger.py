@@ -42,6 +42,17 @@ def _duplicates(values: Sequence[str]) -> list[str]:
     return sorted(dupes)
 
 
+def _rebase_meshes(root: ET.Element, *, source_dir: Path, output_dir: Path) -> None:
+    for mesh in root.iter("mesh"):
+        filename = str(mesh.attrib.get("filename", "")).strip()
+        if not filename or "://" in filename:
+            continue
+        source = Path(filename)
+        if not source.is_absolute():
+            source = source_dir / source
+        mesh.set("filename", Path(os.path.relpath(source.resolve(), output_dir)).as_posix())
+
+
 def merge_go2_arm_urdf(
     *,
     go2_urdf_path: str | os.PathLike[str],
@@ -82,6 +93,9 @@ def merge_go2_arm_urdf(
         raise ValueError(f"merge parent link not found: {parent_link}")
     if str(child_link).strip() not in available_links:
         raise ValueError(f"merge child link not found: {child_link}")
+
+    _rebase_meshes(go2_root, source_dir=go2_path.parent, output_dir=out_path.parent)
+    _rebase_meshes(arm_root, source_dir=arm_path.parent, output_dir=out_path.parent)
 
     merged = ET.Element("robot", attrib={"name": "go2_arm"})
     for child in list(go2_root):

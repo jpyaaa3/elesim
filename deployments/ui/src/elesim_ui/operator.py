@@ -1,112 +1,169 @@
+"""Cached, non-blocking proxies consumed by the ImGui panels."""
+
 from __future__ import annotations
 
-import threading
-import time
-import uuid
-from typing import Any
+import dataclasses
+from typing import Any, Callable
 
 from elesim_protocol import (
-    EndpointClient,
-    EndpointDescriptor,
     SERVICE_CALLS,
     SERVICE_VALUES,
     STATE_CALLS,
-    decode_value,
-    encode_value,
+    STATE_VALUES,
+    ControlU,
+    SimMappingConfig,
 )
+from elesim_ui.models import (
+    GazeStabilizerConfig,
+    PanelStateDefaults,
+    PickConfig,
+)
+from elesim_ui.operator_session import OperatorSession
 
 
-class OperatorClient:
-    def __init__(
-        self,
-        server_endpoint: str,
-        *,
-        ui_id: str,
-        controller_id: str,
-        timeout_ms: int = 3000,
-    ) -> None:
-        self.controller_id = str(controller_id)
-        self.timeout_ms = int(timeout_ms)
-        self.endpoint = EndpointClient(
-            server_endpoint,
-            EndpointDescriptor(str(ui_id), "ui", ()),
-        )
-        self.lock = threading.Lock()
-
-    def request(self, operation: str, name: str = "", *args: Any, **kwargs: Any) -> Any:
-        request_id = uuid.uuid4().hex
-        payload = {
-            "request_id": request_id,
-            "operation": str(operation),
-            "name": str(name),
-            "args": [encode_value(value) for value in args],
-            "kwargs": {str(key): encode_value(value) for key, value in kwargs.items()},
-        }
-        with self.lock:
-            self.endpoint.heartbeat()
-            self.endpoint.send(
-                "operator_intent",
-                target_id=self.controller_id,
-                payload=payload,
-            )
-            deadline = time.monotonic() + self.timeout_ms / 1000.0
-            while time.monotonic() < deadline:
-                for message in self.endpoint.receive(timeout_ms=50):
-                    body = message.payload or {}
-                    if message.message_type == "operator_result" and body.get("request_id") == request_id:
-                        if not bool(body.get("ok", False)):
-                            raise RuntimeError(str(body.get("error", "operator request failed")))
-                        return decode_value(body.get("result"))
-                    if message.message_type == "error" and body.get("reply_to"):
-                        raise RuntimeError(str(body.get("reason", "router rejected operator request")))
-        raise TimeoutError(f"controller did not answer {operation} {name}")
-
-    def close(self) -> None:
-        self.endpoint.close()
+_MISSING = object()
 
 
 class RemotePanelState:
-    def __init__(self, client: OperatorClient) -> None:
-        object.__setattr__(self, "_client", client)
-        object.__setattr__(self, "_cache", {})
-        self.sync()
+    def __init__(
+        self,
+        session: OperatorSession,
+        *,
+        initial_state: dict[str, Any] | None = None,
+    ) -> None:
+        object.__setattr__(self, "_session", session)
+        values = dataclasses.asdict(PanelStateDefaults())
+        values.update(initial_state or {})
+        missing = {
+            key: value
+            for key, value in values.items()
+            if session.state_value(key, _MISSING) is _MISSING
+        }
+        session.seed_state(missing)
 
-    def sync(self) -> None:
-        snapshot = self._client.request("snapshot")
-        object.__getattribute__(self, "_cache").update(snapshot)
+    def sync(self) -> str:
+        """Request a fresh snapshot without waiting for it."""
+        return self._session.request_snapshot()
+
+    def offset_values(self) -> tuple[float, float, float, float, int]:
+        return (
+            float(self._session.state_value("u_offset_linear", 0.0)),
+            float(self._session.state_value("u_offset_roll", 0.0)),
+            float(self._session.state_value("u_offset_s1", 0.0)),
+            float(self._session.state_value("u_offset_s2", 0.0)),
+            int(self._session.state_value("offset_revision", 0)),
+        )
+
+    def mock_object_world_xyz(self) -> tuple[float, float, float]:
+        return (
+            float(self._session.state_value("mock_object_x", 0.5)),
+            float(self._session.state_value("mock_object_y", 0.0)),
+            float(self._session.state_value("mock_object_z", 1.2)),
+        )
+
+    def mock_object_preferred_dir(self) -> tuple[float, float, float]:
+        return (
+            float(self._session.state_value("mock_object_dir_x", 1.0)),
+            float(self._session.state_value("mock_object_dir_y", 0.0)),
+            float(self._session.state_value("mock_object_dir_z", 0.0)),
+        )
 
     def __getattr__(self, name: str) -> Any:
         if name in STATE_CALLS:
-            return lambda *args, **kwargs: self._client.request("state_call", name, *args, **kwargs)
-        cache = object.__getattribute__(self, "_cache")
-        if name in cache:
-            return cache[name]
+            return lambda *args, **kwargs: self._session.submit(
+                "state_call", name, *args, **kwargs
+            )
+        value = self._session.state_value(name, _MISSING)
+        if value is not _MISSING:
+            return value
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name.startswith("_"):
             object.__setattr__(self, name, value)
             return
-        object.__getattribute__(self, "_cache")[name] = value
-        self._client.request("state_set", name, value=value)
+        if name not in STATE_VALUES:
+            raise AttributeError(f"state value is not writable through operator protocol: {name}")
+        self._session.submit("state_set", name, value=value)
 
 
 class RemoteControlService:
-    def __init__(self, client: OperatorClient, state: RemotePanelState) -> None:
-        self.client = client
+    def __init__(self, session: OperatorSession, state: RemotePanelState) -> None:
+        self.session = session
         self.state = state
 
     def refresh_host_state(self) -> Any:
-        result = self.client.request("service_call", "refresh_host_state")
-        self.state.sync()
-        return result
+        self.session.request_snapshot()
+        return self.current_host_state()
+
+    def poll(self) -> None:
+        self.session.dispatch_callbacks()
+
+    def current_host_state(self) -> Any:
+        return self.session.service_value("current_host_state")
+
+    def has_client(self) -> bool:
+        return bool(self.session.service_value("has_client", False))
+
+    def current_control_u(self) -> ControlU:
+        return self.session.service_value(
+            "current_control_u",
+            ControlU(u_linear=0.0, u_roll=0.0, u_s1=0.0, u_s2=0.0),
+        )
+
+    def control_mapping(self) -> SimMappingConfig:
+        return self.session.service_value("control_mapping", SimMappingConfig())
+
+    def pick_e2e_running(self) -> bool:
+        return bool(self.session.service_value("pick_e2e_running", False))
+
+    def _pick_config_effective(self) -> Any:
+        return self.session.service_value("pick_config", PickConfig())
+
+    @property
+    def gaze_config(self) -> Any:
+        return self.session.service_value("gaze_config", GazeStabilizerConfig())
+
+    @property
+    def _gaze_cfg(self) -> Any:
+        return self.gaze_config
+
+    @property
+    def available_endpoints(self) -> list[Any]:
+        return list(self.session.service_value("available_endpoints", ()))
+
+    @property
+    def active_endpoint(self) -> str:
+        return str(self.session.service_value("active_endpoint", ""))
+
+    def update_gaze_stabilizer_config(self, patch: dict[str, Any]) -> Any:
+        self.session.submit("service_call", "update_gaze_stabilizer_config", patch)
+        return self.gaze_config
+
+    def load_sag_model_async(
+        self,
+        path: str,
+        *,
+        on_result: Callable[[Any], None],
+        on_error: Callable[[str], None],
+    ) -> str:
+        return self.session.submit(
+            "service_call",
+            "load_sag_model",
+            str(path),
+            on_result=on_result,
+            on_error=on_error,
+            request_timeout_s=5.0,
+        )
 
     def close(self) -> None:
-        self.client.close()
+        self.session.close()
 
     def __getattr__(self, name: str) -> Any:
         if name in SERVICE_CALLS:
-            return lambda *args, **kwargs: self.client.request("service_call", name, *args, **kwargs)
+            return lambda *args, **kwargs: self.session.submit(
+                "service_call", name, *args, **kwargs
+            )
         if name in SERVICE_VALUES:
-            return self.client.request("service_get", name)
+            return self.session.service_value(name)
         raise AttributeError(name)

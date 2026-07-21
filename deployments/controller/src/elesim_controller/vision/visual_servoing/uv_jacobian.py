@@ -10,11 +10,18 @@ import numpy as np
 UV_CONTROL_AXIS_NAMES = ("roll", "s1", "s2")
 
 
+def _require_finite(name: str, value: np.ndarray | float) -> None:
+    if not np.all(np.isfinite(value)):
+        raise ValueError(f"{name} must contain only finite values")
+
+
 def damped_pseudoinverse(jacobian: np.ndarray, damping: float) -> np.ndarray:
     """Return J+ = J^T (J J^T + lambda^2 I)^-1 for a 2xN image Jacobian."""
     j = np.asarray(jacobian, dtype=float)
     if j.ndim != 2 or j.shape[0] != 2:
         raise ValueError(f"jacobian must have shape (2, N), got {j.shape}")
+    _require_finite("jacobian", j)
+    _require_finite("damping", float(damping))
     lam = float(max(damping, 1e-9))
     jj_t = j @ j.T
     inv = np.linalg.inv(jj_t + (lam * lam) * np.eye(2, dtype=float))
@@ -61,6 +68,9 @@ def broyden_update_uv_jacobian(
     j = np.asarray(jacobian, dtype=float).reshape(2, 3)
     du = np.asarray(control_delta, dtype=float).reshape(3)
     dy = np.asarray(uv_delta, dtype=float).reshape(2)
+    _require_finite("jacobian", j)
+    _require_finite("control_delta", du)
+    _require_finite("uv_delta", dy)
     du_norm_sq = float(du @ du)
     if du_norm_sq < float(min_control_norm) ** 2:
         return j.copy()
@@ -86,8 +96,13 @@ def solve_uv_control_delta(
     """Solve dcontrol = -gain * J+ * uv_error for roll/s1/s2 display-u."""
     err = np.asarray(uv_error, dtype=float).reshape(2)
     j = np.asarray(jacobian, dtype=float).reshape(2, 3)
+    _require_finite("uv_error", err)
+    _require_finite("jacobian", j)
+    _require_finite("damping", float(damping))
+    _require_finite("gain", float(gain))
     pinv = damped_pseudoinverse(j, float(damping))
     delta = -float(gain) * (pinv @ err)
     limits = np.asarray(max_abs_delta, dtype=float).reshape(3)
+    _require_finite("max_abs_delta", limits)
     limits = np.maximum(np.abs(limits), 1e-6)
     return np.clip(delta, -limits, limits)
