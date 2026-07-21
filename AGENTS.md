@@ -1,14 +1,14 @@
 # Elesim Maintenance Guide
 
-Read `docs/architecture.md` before changing a cross-cutting behavior.
+Read `misc/docs/architecture.md` before changing a cross-cutting behavior.
 
 ## Deployable Packages
 
-- `deployments/ui`
-- `deployments/controller`
-- `deployments/router`
-- `deployments/robot`
-- `deployments/simulator`
+- `ui`
+- `controller`
+- `router`
+- `robot`
+- `simulator`
 
 Each package is independently installable. Implement process behavior inside
 the owning deployment and share only protocol contracts through
@@ -28,6 +28,6 @@ the owning deployment and share only protocol contracts through
 
 ## Verification
 
-Run the per-package matrix in `docs/architecture.md`, then run
-`integration/smoke_topology.py`. Build isolated contexts with
-`python3 tooling/release/build.py`.
+Run the per-package matrix in `misc/docs/architecture.md`, then run
+`misc/integration/smoke_topology.py`. Build isolated contexts with
+`python3 misc/tooling/release/build.py`.
