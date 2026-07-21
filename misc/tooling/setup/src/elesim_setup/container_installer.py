@@ -311,15 +311,20 @@ def _entrypoint(role: str) -> str:
 
 def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = False) -> None:
     ignored = {"__pycache__", ".pytest_cache", "build", "dist"}
-    if ignore_config:
-        ignored.add("config")
+    source_root = source.resolve()
 
-    def ignore(_directory: str, names: list[str]) -> set[str]:
-        return {
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        matches = {
             name
             for name in names
             if name in ignored or name.endswith((".pyc", ".egg-info"))
         }
+        # Deployment config is mounted separately at runtime.  Only omit that
+        # top-level directory; packages such as src/elesim_simulator/config are
+        # application code and must remain in the install context.
+        if ignore_config and Path(directory).resolve() == source_root:
+            matches.add("config")
+        return matches
 
     shutil.copytree(source, destination, ignore=ignore)
 

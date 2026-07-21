@@ -25,7 +25,10 @@ def test_container_dry_run_reports_plan_without_writing(local_state) -> None:
 
 
 def test_container_context_contains_only_protocol_and_owned_deployment(local_state) -> None:
-    state = local_state(roles=("router", "controller"), install_mode="container")
+    state = local_state(
+        roles=("router", "controller", "simulator"),
+        install_mode="container",
+    )
 
     ContainerInstaller(state).run()
 
@@ -37,6 +40,13 @@ def test_container_context_contains_only_protocol_and_owned_deployment(local_sta
         assert not (context / "simulator").exists()
         assert not (context / "robot").exists()
         assert not (context / "ui").exists()
+
+    controller = state.prefix_path / "containers/build/controller/application"
+    simulator = state.prefix_path / "containers/build/simulator/application"
+    assert not (controller / "config").exists()
+    assert not (simulator / "config").exists()
+    assert (controller / "src/elesim_controller/config/__init__.py").is_file()
+    assert (simulator / "src/elesim_simulator/config/__init__.py").is_file()
 
 
 def test_compute_context_locks_tested_torch_and_robotpkg_pinocchio(local_state) -> None:
