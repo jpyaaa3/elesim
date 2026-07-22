@@ -256,13 +256,11 @@ grep -R 'server_endpoint\|key_secret\|router.key' misc/infra/generated/*.remote.
 
 ```bash
 # [클라이언트]
-cd ~/ws/elesim
 PYTHONPATH="$PWD/packages/protocol/src:$PWD/controller/src" python3 -m elesim_controller.main --config controller/config/config.pc.yaml --runtime-config misc/infra/generated/controller.remote.yaml
 ```
 
 ```bash
 # [노트북 개발 환경]
-cd ~/ws/elesim
 PYTHONPATH="$PWD/packages/protocol/src:$PWD/ui/src" python3 -m elesim_ui.main --config misc/infra/generated/ui.remote.yaml
 ```
 
