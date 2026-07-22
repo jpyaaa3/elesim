@@ -1,1 +1,0 @@
-"""Log-derived regression tests."""

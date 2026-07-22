@@ -1,0 +1,9 @@
+numpy==1.26.4
+scipy==1.15.3
+pyzmq==27.1.0
+PyYAML==6.0.2
+genesis-world==1.2.0
+torch==2.12.1
+casadi==3.7.2
+aiortc==1.13.0
+av==14.2.0

@@ -1,0 +1,13 @@
+schema_version: 2
+runtime:
+  role: controller
+  endpoint_id: controller-main
+  server_endpoint: tcp://127.0.0.1:5558
+  rpc_endpoint: tcp://127.0.0.1:5559
+  bind_endpoint: tcp://127.0.0.1:5557
+  active_target: sim-default
+security:
+  router_client_secret_file: ""
+  router_server_public_file: ""
+  media_client_secret_file: ""
+  allow_insecure_remote: false

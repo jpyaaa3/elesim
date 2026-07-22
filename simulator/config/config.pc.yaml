@@ -1,0 +1,6 @@
+schema_version: 1
+extends: config.yaml
+simulation:
+  runtime:
+    use_gpu: true
+    enable_viewer: true

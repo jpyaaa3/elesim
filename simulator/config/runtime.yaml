@@ -1,0 +1,14 @@
+schema_version: 2
+runtime:
+  role: simulator
+  endpoint_id: sim-default
+  server_endpoint: tcp://127.0.0.1:5558
+  streams:
+    rgbd_advertise: tcp://127.0.0.1:5568
+    observer_advertise: tcp://127.0.0.1:5569
+security:
+  router_client_secret_file: ""
+  router_server_public_file: ""
+  media_server_secret_file: ""
+  media_client_public_keys_dir: ""
+  allow_insecure_remote: false

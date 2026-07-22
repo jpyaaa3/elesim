@@ -1,0 +1,13 @@
+FROM python:3.10-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+COPY requirements.lock requirements-media.lock /tmp/elesim/
+RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<81" wheel && \
+    python -m pip install --no-cache-dir \
+      -r /tmp/elesim/requirements.lock \
+      -r /tmp/elesim/requirements-media.lock
+COPY protocol/ /tmp/elesim/protocol/
+COPY setup/ /tmp/elesim/setup/
+RUN python -m pip install --no-cache-dir --no-deps /tmp/elesim/protocol /tmp/elesim/setup && \
+    python -m pip check && \
+    rm -rf /tmp/elesim

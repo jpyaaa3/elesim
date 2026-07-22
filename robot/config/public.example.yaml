@@ -1,0 +1,19 @@
+schema_version: 2
+runtime:
+  endpoint_id: robot-go2
+  server_endpoint: tcp://sim.example.com:5558
+  device: /dev/ttyUSB0
+  use_go2: true
+camera:
+  enabled: true
+  bind: tcp://0.0.0.0:5568
+  advertise: tcp://robot.example.com:5568
+  width: 640
+  height: 480
+  fps: 30
+security:
+  router_client_secret_file: /etc/elesim/secrets/curve/clients/robot-go2.key_secret
+  router_server_public_file: /etc/elesim/secrets/curve/router/router.key
+  media_server_secret_file: /etc/elesim/secrets/curve/media/robot-media.key_secret
+  media_client_public_keys_dir: /etc/elesim/secrets/curve/media-authorized
+  allow_insecure_remote: false

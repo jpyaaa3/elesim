@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-controller"
+version = "0.2.0"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.2.0",
+  "numpy>=1.26,<2",
+  "scipy>=1.11",
+  "pyzmq>=27,<28",
+  "PyYAML>=6,<7",
+  "opencv-contrib-python>=4.8,<4.12",
+]
+
+[project.optional-dependencies]
+perception = ["ultralytics>=8.0", "pyrealsense2>=2.54"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+elesim-controller = "elesim_controller.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

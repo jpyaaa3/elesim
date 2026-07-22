@@ -1,0 +1,559 @@
+"""UI-owned simulation lease, command, status and WebRTC lifecycle."""
+
+from __future__ import annotations
+
+import threading
+import time
+import uuid
+from collections import deque
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Optional
+
+from elesim_protocol import (
+    CloseSimulationSessionRequest,
+    CurveClientConfig,
+    EndpointClient,
+    EndpointDescriptor,
+    OpenSimulationSessionRequest,
+    ProtocolError,
+    SimulationCommandRequest,
+    SimulationResultPayload,
+    SimulationSessionOpenedPayload,
+    SimulationSessionRevokedPayload,
+    SimulationStatusPayload,
+    TurnCredentials,
+    WebRtcSignalPayload,
+)
+
+from .webrtc import WebRtcVideoReceiver
+
+
+SIMULATION_STREAMS = ("observer", "hand_eye_preview")
+_COALESCED_COMMANDS = frozenset(
+    {"orbit", "pan", "zoom", "set_speed", "set_debug_visible"}
+)
+
+
+@dataclass(frozen=True)
+class UiSimulationSnapshot:
+    requested_sim_id: str
+    active_sim_id: str
+    session_id: str
+    connected_streams: tuple[str, ...]
+    status: Optional[SimulationStatusPayload]
+    pending_commands: int
+    last_result: Optional[SimulationResultPayload]
+    last_error: str
+
+
+@dataclass(frozen=True)
+class _QueuedCommand:
+    request_id: str
+    command: str
+    arguments: dict[str, Any]
+
+
+def _coalesce_command(
+    previous: _QueuedCommand,
+    current: _QueuedCommand,
+) -> _QueuedCommand:
+    if current.command in {"orbit", "pan"}:
+        arguments = {
+            axis: max(
+                -2.0,
+                min(2.0, float(previous.arguments[axis]) + float(current.arguments[axis])),
+            )
+            for axis in ("dx", "dy")
+        }
+        return _QueuedCommand(current.request_id, current.command, arguments)
+    if current.command == "zoom":
+        delta = float(previous.arguments["delta"]) + float(current.arguments["delta"])
+        return _QueuedCommand(
+            current.request_id,
+            current.command,
+            {"delta": max(-2.0, min(2.0, delta))},
+        )
+    return current
+
+
+class UiSimulatorSession:
+    """Run one UI-to-simulator operator session on its own protocol endpoint."""
+
+    def __init__(
+        self,
+        server_endpoint: str,
+        *,
+        ui_id: str,
+        sim_id: str,
+        endpoint_factory: Callable[..., Any] = EndpointClient,
+        receiver_factory: Callable[[], Any] = WebRtcVideoReceiver,
+        curve: Optional[CurveClientConfig] = None,
+        allow_insecure_remote: bool = False,
+        retry_s: float = 0.5,
+        poll_ms: int = 50,
+        max_pending_commands: int = 128,
+        clock: Callable[[], float] = time.monotonic,
+        autostart: bool = True,
+    ) -> None:
+        self.server_endpoint = str(server_endpoint)
+        self.endpoint_id = f"{str(ui_id)}-simulator"
+        self.endpoint_factory = endpoint_factory
+        self.receiver_factory = receiver_factory
+        self.curve = curve
+        self.allow_insecure_remote = bool(allow_insecure_remote)
+        self.retry_s = max(0.05, float(retry_s))
+        self.poll_ms = max(0, int(poll_ms))
+        self.max_pending_commands = max(8, int(max_pending_commands))
+        self.clock = clock
+
+        self._lock = threading.RLock()
+        self._requested_sim_id = str(sim_id)
+        self._active_sim_id = ""
+        self._session_id = ""
+        self._opening_request_id = ""
+        self._closing_session_id = ""
+        self._retry_after = 0.0
+        self._receivers: dict[str, Any] = {}
+        self._turn: Optional[TurnCredentials] = None
+        self._connected_streams: set[str] = set()
+        self._status: Optional[SimulationStatusPayload] = None
+        self._commands: deque[_QueuedCommand] = deque()
+        self._pending_command_ids: set[str] = set()
+        self._sent_messages: dict[str, tuple[str, str]] = {}
+        self._last_result: Optional[SimulationResultPayload] = None
+        self._last_error = ""
+        self._was_registered = False
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        if autostart:
+            self.start()
+
+    @property
+    def active_sim_id(self) -> str:
+        with self._lock:
+            return self._active_sim_id
+
+    @property
+    def connected_streams(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(
+                stream for stream in SIMULATION_STREAMS if stream in self._connected_streams
+            )
+
+    @property
+    def status(self) -> Optional[SimulationStatusPayload]:
+        with self._lock:
+            return self._status
+
+    @property
+    def last_error(self) -> str:
+        with self._lock:
+            return self._last_error
+
+    @property
+    def snapshot(self) -> UiSimulationSnapshot:
+        with self._lock:
+            return UiSimulationSnapshot(
+                requested_sim_id=self._requested_sim_id,
+                active_sim_id=self._active_sim_id,
+                session_id=self._session_id,
+                connected_streams=tuple(
+                    stream
+                    for stream in SIMULATION_STREAMS
+                    if stream in self._connected_streams
+                ),
+                status=self._status,
+                pending_commands=len(self._commands) + len(self._pending_command_ids),
+                last_result=self._last_result,
+                last_error=self._last_error,
+            )
+
+    def receiver(self, stream: str) -> Any:
+        with self._lock:
+            return self._receivers.get(str(stream))
+
+    def frame(self, stream: str):
+        receiver = self.receiver(stream)
+        return None if receiver is None else receiver.latest_bgr
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._run,
+                name="ui-simulator-session",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def switch_target(self, sim_id: str) -> None:
+        with self._lock:
+            self._requested_sim_id = str(sim_id).strip()
+            self._retry_after = 0.0
+            self._commands.clear()
+
+    def send_command(self, command: str, arguments: Mapping[str, Any] | None = None) -> str:
+        command_name = str(command).strip()
+        with self._lock:
+            session_id = self._session_id
+        if not session_id:
+            self._set_error("simulation session is not connected")
+            return ""
+        request_id = uuid.uuid4().hex
+        parsed = SimulationCommandRequest.from_payload(
+            {
+                "schema_version": 1,
+                "request_id": request_id,
+                "session_id": session_id,
+                "command": command_name,
+                "arguments": dict(arguments or {}),
+            }
+        )
+        queued = _QueuedCommand(parsed.request_id, parsed.command, parsed.arguments)
+        with self._lock:
+            if (
+                command_name in _COALESCED_COMMANDS
+                and self._commands
+                and self._commands[-1].command == command_name
+            ):
+                self._commands[-1] = _coalesce_command(self._commands[-1], queued)
+                return request_id
+            if len(self._commands) >= self.max_pending_commands:
+                self._last_error = (
+                    f"simulation command queue is full ({self.max_pending_commands})"
+                )
+                return ""
+            self._commands.append(queued)
+        return request_id
+
+    def run_cycle(self, client: Any) -> None:
+        client.heartbeat()
+        for message in client.receive(timeout_ms=self.poll_ms):
+            self._handle_message(client, message)
+
+        registered = bool(client.registered)
+        if self._was_registered and not registered:
+            self._lose_session("router connection lost")
+        self._was_registered = registered
+        if not registered:
+            return
+        self._drive_session(client)
+        self._flush_commands(client)
+
+    def _drive_session(self, client: Any) -> None:
+        now = self.clock()
+        with self._lock:
+            requested = self._requested_sim_id
+            active = self._active_sim_id
+            opening = self._opening_request_id
+            closing = self._closing_session_id
+            retry_after = self._retry_after
+        if active and requested != active:
+            if not closing:
+                self._send_close(client)
+            return
+        if not active and requested and not opening and not closing and now >= retry_after:
+            self._send_open(client, requested)
+
+    def _send_open(self, client: Any, simulator_id: str) -> None:
+        request = OpenSimulationSessionRequest(
+            request_id=uuid.uuid4().hex,
+            simulator_id=simulator_id,
+            streams=SIMULATION_STREAMS,
+        )
+        envelope = client.send(
+            "open_simulation_session",
+            payload=request.to_payload(),
+        )
+        with self._lock:
+            self._opening_request_id = request.request_id
+            self._sent_messages[str(envelope.message_id)] = ("open", request.request_id)
+
+    def _send_close(self, client: Any) -> None:
+        with self._lock:
+            session_id = self._session_id
+        if not session_id:
+            return
+        request = CloseSimulationSessionRequest(
+            request_id=uuid.uuid4().hex,
+            session_id=session_id,
+        )
+        envelope = client.send(
+            "close_simulation_session",
+            payload=request.to_payload(),
+            lease_id=session_id,
+        )
+        with self._lock:
+            self._closing_session_id = session_id
+            self._sent_messages[str(envelope.message_id)] = ("close", session_id)
+            self._commands.clear()
+        self._close_receivers()
+
+    def _flush_commands(self, client: Any) -> None:
+        while True:
+            with self._lock:
+                if self._closing_session_id or not self._commands:
+                    return
+                queued = self._commands.popleft()
+                session_id = self._session_id
+                target_id = self._active_sim_id
+            if not session_id or not target_id:
+                return
+            request = SimulationCommandRequest(
+                request_id=queued.request_id,
+                session_id=session_id,
+                command=queued.command,
+                arguments=queued.arguments,
+            )
+            envelope = client.send(
+                "simulation_command",
+                target_id=target_id,
+                payload=request.to_payload(),
+                lease_id=session_id,
+            )
+            with self._lock:
+                self._pending_command_ids.add(request.request_id)
+                self._sent_messages[str(envelope.message_id)] = (
+                    "command",
+                    request.request_id,
+                )
+
+    def _handle_message(self, client: Any, message: Any) -> None:
+        try:
+            if message.message_type == "simulation_session_opened":
+                self._handle_opened(client, message)
+            elif message.message_type == "simulation_session_revoked":
+                self._handle_revoked(message)
+            elif message.message_type == "webrtc_signal":
+                self._handle_webrtc_answer(message)
+            elif message.message_type == "simulation_status":
+                self._handle_status(message)
+            elif message.message_type == "simulation_result":
+                self._handle_result(message)
+            elif message.message_type == "error":
+                self._handle_router_error(message)
+        except (ProtocolError, RuntimeError, ValueError, KeyError) as exc:
+            self._set_error(f"simulation message rejected: {exc}")
+
+    def _handle_opened(self, client: Any, message: Any) -> None:
+        opened = SimulationSessionOpenedPayload.from_payload(message.payload or {})
+        if message.lease_id != opened.session_id:
+            raise ProtocolError("simulation session lease does not match opened payload")
+        with self._lock:
+            refreshing = (
+                opened.session_id == self._session_id
+                and opened.simulator_id == self._active_sim_id
+            )
+            if refreshing and opened.turn == self._turn:
+                return
+            expected_request = self._opening_request_id
+            requested = self._requested_sim_id
+        if not refreshing and (
+            opened.request_id != expected_request or opened.simulator_id != requested
+        ):
+            return
+
+        if not refreshing:
+            with self._lock:
+                self._active_sim_id = opened.simulator_id
+                self._session_id = opened.session_id
+                self._opening_request_id = ""
+                self._closing_session_id = ""
+                self._status = None
+                self._last_error = ""
+        try:
+            receivers = self._negotiate_receivers(client, opened)
+        except Exception:
+            if not refreshing:
+                self._send_close(client)
+            raise
+
+        with self._lock:
+            stale = (
+                self._session_id != opened.session_id
+                or self._active_sim_id != opened.simulator_id
+            )
+            previous = tuple(self._receivers.values())
+            if not stale:
+                self._receivers = receivers
+                self._turn = opened.turn
+                self._connected_streams.clear()
+                self._last_error = ""
+        if stale:
+            self._close_receiver_set(receivers.values())
+            return
+        self._close_receiver_set(previous)
+
+    def _negotiate_receivers(
+        self,
+        client: Any,
+        opened: SimulationSessionOpenedPayload,
+    ) -> dict[str, Any]:
+        receivers: dict[str, Any] = {}
+        signals: list[WebRtcSignalPayload] = []
+        try:
+            for stream in opened.streams:
+                receiver = self.receiver_factory()
+                receivers[stream] = receiver
+                offer = receiver.create_offer(turn=opened.turn)
+                signals.append(
+                    WebRtcSignalPayload(
+                        session_id=opened.session_id,
+                        stream=stream,
+                        signal="offer",
+                        sdp=str(offer["sdp"]),
+                        type=str(offer["type"]),
+                    )
+                )
+            for signal in signals:
+                client.send(
+                    "webrtc_signal",
+                    target_id=opened.simulator_id,
+                    payload=signal.to_payload(),
+                    lease_id=opened.session_id,
+                )
+        except Exception:
+            self._close_receiver_set(receivers.values())
+            raise
+        return receivers
+
+    def _handle_revoked(self, message: Any) -> None:
+        revoked = SimulationSessionRevokedPayload.from_payload(message.payload or {})
+        with self._lock:
+            if revoked.session_id not in {self._session_id, self._closing_session_id}:
+                return
+        self._clear_session()
+
+    def _handle_webrtc_answer(self, message: Any) -> None:
+        signal = WebRtcSignalPayload.from_payload(message.payload or {})
+        with self._lock:
+            session_id = self._session_id
+            simulator_id = self._active_sim_id
+            receiver = self._receivers.get(signal.stream)
+        if (
+            signal.signal != "answer"
+            or signal.session_id != session_id
+            or message.lease_id != session_id
+            or message.source_id != simulator_id
+            or receiver is None
+        ):
+            return
+        receiver.accept_answer(signal.sdp, signal.type)
+        with self._lock:
+            self._connected_streams.add(signal.stream)
+
+    def _handle_status(self, message: Any) -> None:
+        status = SimulationStatusPayload.from_payload(message.payload or {})
+        with self._lock:
+            if message.source_id == self._active_sim_id:
+                self._status = status
+
+    def _handle_result(self, message: Any) -> None:
+        result = SimulationResultPayload.from_payload(message.payload or {})
+        with self._lock:
+            if (
+                result.session_id != self._session_id
+                or message.source_id != self._active_sim_id
+            ):
+                return
+            self._pending_command_ids.discard(result.request_id)
+            self._last_result = result
+            if not result.ok:
+                self._last_error = result.reason or f"{result.command} failed"
+
+    def _handle_router_error(self, message: Any) -> None:
+        payload = dict(message.payload or {})
+        reply_to = str(payload.get("reply_to", ""))
+        reason = str(payload.get("reason", "router rejected simulation request"))
+        with self._lock:
+            kind, request_id = self._sent_messages.pop(reply_to, ("", ""))
+            if kind == "open" and request_id == self._opening_request_id:
+                self._opening_request_id = ""
+                self._retry_after = self.clock() + self.retry_s
+            elif kind == "close" and request_id == self._closing_session_id:
+                self._clear_session_locked()
+            elif kind == "command":
+                self._pending_command_ids.discard(request_id)
+            self._last_error = reason
+
+    def _lose_session(self, reason: str) -> None:
+        self._close_receivers()
+        with self._lock:
+            self._clear_session_locked()
+            self._last_error = reason
+            self._retry_after = self.clock() + self.retry_s
+
+    def _clear_session(self) -> None:
+        self._close_receivers()
+        with self._lock:
+            self._clear_session_locked()
+
+    def _clear_session_locked(self) -> None:
+        self._active_sim_id = ""
+        self._session_id = ""
+        self._opening_request_id = ""
+        self._closing_session_id = ""
+        self._turn = None
+        self._connected_streams.clear()
+        self._status = None
+        self._commands.clear()
+        self._pending_command_ids.clear()
+
+    def _close_receivers(self) -> None:
+        with self._lock:
+            receivers = tuple(self._receivers.values())
+            self._receivers.clear()
+            self._connected_streams.clear()
+        self._close_receiver_set(receivers)
+
+    @staticmethod
+    def _close_receiver_set(receivers: Any) -> None:
+        for receiver in receivers:
+            try:
+                receiver.close()
+            except Exception:
+                pass
+
+    def _set_error(self, message: str) -> None:
+        with self._lock:
+            self._last_error = str(message)
+
+    def _run(self) -> None:
+        client = None
+        try:
+            client = self.endpoint_factory(
+                self.server_endpoint,
+                EndpointDescriptor(self.endpoint_id, "ui", ()),
+                curve=self.curve,
+                allow_insecure_remote=self.allow_insecure_remote,
+            )
+            while not self._stop.is_set():
+                try:
+                    self.run_cycle(client)
+                except Exception as exc:
+                    self._set_error(f"simulation transport failed: {exc}")
+                    self._stop.wait(self.retry_s)
+        except Exception as exc:
+            self._set_error(f"simulation transport unavailable: {exc}")
+        finally:
+            if client is not None:
+                try:
+                    if self._session_id:
+                        self._send_close(client)
+                except Exception:
+                    pass
+                client.close()
+            self._clear_session()
+
+    def close(self) -> None:
+        self._stop.set()
+        with self._lock:
+            thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=3.0)
+        self._clear_session()
+
+
+__all__ = ["SIMULATION_STREAMS", "UiSimulationSnapshot", "UiSimulatorSession"]

@@ -1,0 +1,14 @@
+schema_version: 2
+router:
+  bind_endpoint: tcp://127.0.0.1:5558
+  heartbeat_timeout_s: 3.5
+security:
+  curve_server_secret_file: ""
+  curve_public_keys_dir: ""
+  endpoint_registry_file: ""
+  allow_insecure_remote: false
+turn:
+  urls: []
+  static_auth_secret_file: ""
+  credential_ttl_s: 3600
+  refresh_before_s: 600

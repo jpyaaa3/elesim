@@ -1,0 +1,51 @@
+schema_version: 2
+runtime:
+  endpoint_id: robot-go2
+  server_endpoint: tcp://127.0.0.1:5558
+  device: /dev/ttyUSB0
+  use_go2: true
+arm:
+  command_direction: [1, -1, 1, -1]
+  motor_direction: [1, -1, 1, -1]
+  baudrate: 1000000
+  current_limit_ma: 2500
+  profile_vel_seg1: 150
+  profile_acc_seg1: 20
+  profile_vel_seg2: 150
+  profile_acc_seg2: 20
+mapping:
+  linear_q_min_m: -0.230
+  linear_q_max_m: 0.0
+  roll_q_min_rad: -1.5707963267948966
+  roll_q_max_rad: 1.5707963267948966
+  seg1_q_min_rad: -0.6283185307179586
+  seg1_q_max_rad: 0.6283185307179586
+  seg2_q_min_rad: -0.6283185307179586
+  seg2_q_max_rad: 0.6283185307179586
+go2:
+  enabled: true
+  backend: unitree_ros2
+  pose_source: sportmodestate
+  ros_workspace: ~/ros2_ws
+camera:
+  enabled: true
+  bind: tcp://127.0.0.1:5568
+  advertise: tcp://127.0.0.1:5568
+  width: 640
+  height: 480
+  fps: 30
+security:
+  router_client_secret_file: ""
+  router_server_public_file: ""
+  media_server_secret_file: ""
+  media_client_public_keys_dir: ""
+  allow_insecure_remote: false
+safety:
+  command_deadman_s: 0.5
+  router_liveness_s: 3.5
+  monitor_period_s: 0.05
+  read_failure_limit: 3
+  telemetry_period_s: 0.1
+  max_go2_vx_m_s: 0.8
+  max_go2_vy_m_s: 0.5
+  max_go2_wz_rad_s: 1.5

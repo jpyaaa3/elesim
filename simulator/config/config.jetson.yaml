@@ -1,0 +1,11 @@
+schema_version: 1
+extends: config.yaml
+simulation:
+  runtime:
+    use_gpu: false
+    enable_viewer: false
+  cameras:
+    hand_eye:
+      enable: false
+    observer:
+      enable: false

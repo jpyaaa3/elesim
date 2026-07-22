@@ -1,6 +1,16 @@
 __pycache__/
 *.py[cod]
 
+# Local agent/editor state.
+.cursor/
+.agents/
+.codex/
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.swp
+
 .venv/
 venv/
 env/
@@ -23,14 +33,13 @@ logs/
 # Local reference clone used for upstream comparison.
 update/
 
-# Generated builder scratch outputs.
-crafts/_go2_check*/
-
 # Local scratch handoff notes.
 elesim_wip_save.txt
 
 # Local helper scripts.
 u
+j
 
-# Local backups of heavy GO2 source meshes.
-assets/go2_original_*/
+# Generated deployment credentials.
+misc/infra/generated/
+misc/infra/coturn/.env
