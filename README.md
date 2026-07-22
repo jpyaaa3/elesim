@@ -105,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/set
 작업 스케줄러가 GPU를 배정한다면 `inherit`을 선택하고 실행할 때 지정한다.
 
 ```bash
-CUDA_VISIBLE_DEVICES=<NUMNER> elesim-up
+CUDA_VISIBLE_DEVICES=<NUMBER> elesim-up
 ```
 
 `.bashrc`에 `CUDA_VISIBLE_DEVICES`를 전역 설정하면 다른 연구 프로그램과 스케줄러
