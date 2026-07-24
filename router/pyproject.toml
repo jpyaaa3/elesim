@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-router"
-version = "0.2.0"
+version = "0.2.1"
 requires-python = ">=3.10"
-dependencies = ["elesim-protocol==0.2.0", "pyzmq>=27,<28", "PyYAML>=6,<7"]
+dependencies = ["elesim-protocol==0.2.1", "pyzmq>=27,<28", "PyYAML>=6,<7"]
 
 [project.scripts]
 elesim-router = "elesim_router.main:main"

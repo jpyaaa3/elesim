@@ -29,6 +29,28 @@ python3 misc/tooling/release/verify.py dist/releases
 `--no-verify` exists only for diagnosing an incomplete build; an artifact made
 with that option has not passed the release gate.
 
+## Reproducible Multi-Host Bootstrap
+
+When multiple hosts must install the same source snapshot, use the same full
+40-character commit SHA in both the raw bootstrap URL and `ELESIM_REF`. Run the
+same command on each owning host, replacing the example SHA with the selected
+commit:
+
+```bash
+# [each Router/Simulator/Controller/UI host]
+elesim_commit=0123456789abcdef0123456789abcdef01234567
+curl -fsSL \
+  "https://raw.githubusercontent.com/jpyaaa3/elesim/${elesim_commit}/misc/setup/bootstrap.sh" \
+  | ELESIM_REF="$elesim_commit" bash
+```
+
+A branch or tag is intentionally treated as mutable and checked for freshness
+on every invocation; it can therefore move between hosts. A full commit SHA
+selects an immutable cached snapshot and makes the source revision printed by
+each bootstrap directly comparable. GitHub likewise recommends commit-ID
+archives when the extracted contents must remain stable; see
+[Downloading source code archives](https://docs.github.com/en/repositories/working-with-files/using-files/downloading-source-code-archives).
+
 ## Multi-Host Credentials
 
 Plaintext defaults bind to loopback. Before exposing Router or RGBD streams on

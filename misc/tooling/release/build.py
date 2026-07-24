@@ -102,6 +102,10 @@ def copy_infrastructure(source: Path, release_root: Path) -> None:
     setup_destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source.parent / "setup/bootstrap.py", setup_destination / "bootstrap.py")
     shutil.copy2(source.parent / "setup/bootstrap.sh", setup_destination / "bootstrap.sh")
+    shutil.copy2(
+        source.parent / "setup/bootstrap-contract.json",
+        setup_destination / "bootstrap-contract.json",
+    )
     copy_tree(source / "containers", destination / "containers")
     copy_tree(
         source.parent / "tooling/setup",

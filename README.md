@@ -28,6 +28,22 @@ curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/set
   | ELESIM_REF=refactoring bash
 ```
 
+브랜치와 태그처럼 이동할 수 있는 ref는 실행할 때마다 조건부로 최신성을 확인한다.
+서버가 HTTP `304 Not Modified`를 반환하면 검증된 snapshot을 재사용하고, 변경됐으면
+새 revision을 별도로 내려받는다. 반면 full 40자리 commit SHA는 immutable
+snapshot으로 재사용한다. 터미널에는 실제 revision 또는 archive digest와 함께
+새 다운로드, HTTP `304` 검증, immutable cache 재사용 중 해당 상태가 표시된다.
+
+이전 설치기의 URL 기반 cache가 남아 있어도 새 cache는 이를 자동으로 우회한다.
+네트워크, archive 검증, bootstrap 세대 일치 확인이 실패하면 이전 snapshot은
+보존하지만 오래된 설치기를 대신 실행하지 않고 중단한다. 조건부 cache를 무시하고
+전체 archive를 다시 확인하려면 다음처럼 `--refresh`를 `bash` 인자로 전달한다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+  | ELESIM_REF=refactoring bash -s -- --refresh
+```
+
 이 명령은 다음 순서로 동작한다.
 
 1. Docker와 Compose v2 사용 가능 여부를 확인한다.

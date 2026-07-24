@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
 
 from conftest import ROOT, copy_role_configs
 from elesim_setup import cli, network
 from elesim_setup.state import InstallState
+
+
+def test_cli_commands_match_bootstrap_contract() -> None:
+    contract = json.loads(
+        (ROOT / "misc/setup/bootstrap-contract.json").read_text(encoding="utf-8")
+    )
+    subparsers = next(
+        action
+        for action in cli._parser()._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    assert tuple(subparsers.choices) == tuple(contract["required_commands"])
 
 
 def test_noninteractive_install_dry_run_uses_same_installer(tmp_path: Path) -> None:

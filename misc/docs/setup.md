@@ -37,7 +37,8 @@ The shell bootstrap:
 2. Records host-only facts that would otherwise disappear inside the setup
    container: OS/architecture, Jetson, WSL/WSLg, display availability,
    `nvidia-smi -L`, invocation directory, user, and SSH agent socket.
-3. Downloads the standard-library `bootstrap.py`.
+3. Downloads the standard-library `bootstrap.py` to a temporary file in the
+   setup cache and atomically publishes the complete download.
 4. Runs it as the calling UID/GID in a disposable `python:3.10-slim`
    container. The container receives the user's home and invocation directory,
    but never the Docker socket.
@@ -70,6 +71,50 @@ curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/boot
 `ELESIM_REPOSITORY`, `ELESIM_REF`, `ELESIM_ARCHIVE_URL`,
 `ELESIM_CACHE_DIR`, and `--refresh` control source retrieval. Extraction rejects
 absolute paths, parent traversal, links, and device entries.
+
+### Source Cache And Freshness
+
+Source cache v2 keeps each archive URL in its own namespace and stores immutable
+snapshots by the resolved Git commit or, for a custom archive without Git
+metadata, by the archive SHA-256 digest. The legacy
+`sources/<short-url-hash>` cache is left in place but is never an authoritative
+input, so an old setup wheel cannot be selected merely because the same branch
+URL was used before. GitHub codeload revision identity comes from the commit
+recorded in the tar PAX header, as defined by
+[Git archive](https://git-scm.com/docs/git-archive/2.46.0.html).
+
+Mutable refs, including branches and tags, are validated on every invocation
+with `If-None-Match` or `If-Modified-Since`. An HTTP `304 Not Modified` reuses
+the snapshot only after its index and setup package are checked. A changed
+response is downloaded and published as a new snapshot. Servers without
+validators are downloaded each time and compared by content digest. A full
+40-character commit SHA is immutable and may reuse a complete snapshot without
+a network request.
+
+Retrieval is fail-closed. A network, HTTP, extraction, archive-contract, or
+bootstrap-generation failure preserves any previously completed snapshot for
+diagnosis, but does not run it as a stale fallback. The setup entry point is
+also checked for the contract-required `gui` command before the GUI starts;
+source and release tests keep the complete command list aligned with the
+contract.
+
+The shell path passes `ELESIM_ARCHIVE_URL` through a temporary mode-0600 Docker
+environment file and removes it on exit, so signed URL query values do not
+appear in Docker arguments or cache metadata. It also enables an exact hash
+comparison between the freshly downloaded `bootstrap.py` and the archived
+copy. Direct stdin or standalone Python execution uses the versioned bootstrap
+contract because there is no shell-owned download generation to compare.
+
+Startup output identifies the requested ref, resolved commit or archive digest,
+and whether the source was downloaded, validated by HTTP `304`, or read from an
+immutable cache. `--refresh` skips conditional request headers and downloads
+the complete archive again. When using the piped shell bootstrap, pass the
+option to `bash` after `-s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+  | ELESIM_REF=refactoring bash -s -- --refresh
+```
 
 ## GUI Request Model
 

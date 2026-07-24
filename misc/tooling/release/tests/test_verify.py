@@ -25,7 +25,7 @@ def test_wheel_boundary_accepts_only_the_owned_package(tmp_path: Path) -> None:
         tmp_path / "controller.whl",
         "elesim_controller/__init__.py",
         "elesim_controller/main.py",
-        "elesim_controller-0.2.0.dist-info/METADATA",
+        "elesim_controller-0.2.1.dist-info/METADATA",
     )
 
     assert_wheel_boundary(wheel, "elesim_controller")
@@ -52,14 +52,14 @@ def test_wheel_boundary_rejects_missing_owned_package(tmp_path: Path) -> None:
 def test_wheel_environment_is_data_not_shell_code(tmp_path: Path) -> None:
     env_file = tmp_path / "WHEELS.env"
     env_file.write_text(
-        "PROTOCOL_WHEEL=elesim_protocol-0.2.0.whl\n"
-        "APP_WHEEL=elesim_controller-0.2.0.whl\n",
+        "PROTOCOL_WHEEL=elesim_protocol-0.2.1.whl\n"
+        "APP_WHEEL=elesim_controller-0.2.1.whl\n",
         encoding="utf-8",
     )
 
     assert read_wheel_environment(env_file) == {
-        "PROTOCOL_WHEEL": "elesim_protocol-0.2.0.whl",
-        "APP_WHEEL": "elesim_controller-0.2.0.whl",
+        "PROTOCOL_WHEEL": "elesim_protocol-0.2.1.whl",
+        "APP_WHEEL": "elesim_controller-0.2.1.whl",
     }
 
 

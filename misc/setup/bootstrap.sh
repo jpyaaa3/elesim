@@ -9,11 +9,27 @@ gui_port="${ELESIM_GUI_PORT:-8765}"
 raw_url="${ELESIM_BOOTSTRAP_URL:-https://raw.githubusercontent.com/${repository}/${ref}/misc/setup/bootstrap.py}"
 cache_dir="${ELESIM_CACHE_DIR:-$HOME/.cache/elesim/setup}"
 bootstrap_file="$cache_dir/bootstrap.py"
+bootstrap_tmp=""
+archive_env_file=""
+browser_pid=""
 
 fail() {
   printf 'Elesim bootstrap error: %s\n' "$*" >&2
   exit 2
 }
+
+cleanup() {
+  if [[ -n "$bootstrap_tmp" ]]; then
+    rm -f -- "$bootstrap_tmp" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$archive_env_file" ]]; then
+    rm -f -- "$archive_env_file" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$browser_pid" ]]; then
+    kill "$browser_pid" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 [[ "$gui_port" =~ ^[0-9]+$ ]] && ((gui_port >= 1 && gui_port <= 65535)) || \
@@ -55,7 +71,17 @@ fi
   fail "Docker Compose v2 plugin ('docker compose') is required"
 
 mkdir -p "$cache_dir" "$HOME/.local/share/elesim" "$HOME/.local/bin"
-curl -fsSL "$raw_url" -o "$bootstrap_file"
+bootstrap_tmp="$(mktemp "$cache_dir/.bootstrap.py.XXXXXX")"
+curl -fsSL "$raw_url" -o "$bootstrap_tmp"
+mv -f -- "$bootstrap_tmp" "$bootstrap_file"
+bootstrap_tmp=""
+if [[ -n "${ELESIM_ARCHIVE_URL:-}" ]]; then
+  case "$ELESIM_ARCHIVE_URL" in
+    *$'\n'*|*$'\r'*) fail "ELESIM_ARCHIVE_URL must not contain newlines" ;;
+  esac
+  archive_env_file="$(mktemp "$cache_dir/.archive-env.XXXXXX")"
+  printf 'ELESIM_ARCHIVE_URL=%s\n' "$ELESIM_ARCHIVE_URL" >"$archive_env_file"
+fi
 
 host_arch="$(uname -m)"
 host_os_id=""
@@ -139,6 +165,7 @@ docker_args=(
   --env "ELESIM_GUI_HOST=0.0.0.0"
   --env "ELESIM_GUI_PORT=$gui_port"
   --env "ELESIM_GUI_TOKEN=$gui_token"
+  --env "ELESIM_VERIFY_BOOTSTRAP_SOURCE=1"
   --env "ELESIM_HOST_ARCH=$host_arch"
   --env "ELESIM_HOST_OS_ID=$host_os_id"
   --env "ELESIM_HOST_OS_VERSION=$host_os_version"
@@ -151,6 +178,9 @@ docker_args=(
   --volume "$HOME:$HOME"
   --volume "$bootstrap_file:/tmp/elesim-bootstrap.py:ro"
 )
+if [[ -n "$archive_env_file" ]]; then
+  docker_args+=(--env-file "$archive_env_file")
+fi
 if ((gui_mode)); then
   docker_args+=(--publish "127.0.0.1:${gui_port}:${gui_port}")
 elif [[ -r /dev/tty ]]; then
@@ -167,7 +197,6 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   )
 fi
 
-browser_pid=""
 gui_url="http://127.0.0.1:${gui_port}/?token=${gui_token}"
 if ((gui_mode)); then
   printf '%s\n' "[bootstrap] 호스트 Python/CUDA/ROS 환경을 건드리지 않고 GUI 설치기를 시작합니다."
@@ -190,13 +219,6 @@ if ((gui_mode)) && [[ "$no_open" != "1" ]] && \
   ) &
   browser_pid="$!"
 fi
-
-cleanup() {
-  if [[ -n "$browser_pid" ]]; then
-    kill "$browser_pid" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT INT TERM
 
 if ((gui_mode)); then
   gui_arguments=(gui)

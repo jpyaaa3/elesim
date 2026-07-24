@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-setup"
-version = "0.2.0"
+version = "0.2.1"
 description = "Interactive installer and distributed-network diagnostics for Elesim"
 requires-python = ">=3.10"
 dependencies = [
-  "elesim-protocol==0.2.0",
+  "elesim-protocol==0.2.1",
   "dulwich>=0.22,<0.23",
   "paramiko>=3.5,<4",
   "PyYAML>=6,<7",

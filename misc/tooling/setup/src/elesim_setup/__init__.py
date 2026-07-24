@@ -3,7 +3,7 @@
 from .profiles import PROFILES, ROLE_ORDER, Profile, roles_for_profile
 from .state import ComputeSettings, InstallState, NetworkSettings, SecuritySettings
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "ComputeSettings",

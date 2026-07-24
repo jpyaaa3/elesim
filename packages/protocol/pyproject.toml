@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-protocol"
-version = "0.2.0"
+version = "0.2.1"
 description = "Protocol v4 and secure ZMQ transport for Elesim nodes"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23,<2", "pyzmq>=27,<28"]
