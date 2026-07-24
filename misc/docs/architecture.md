@@ -53,12 +53,17 @@ misc/tooling/model_builder -> misc/model/source + controller model schema
 misc/tooling/release -> top-level release projects + protocol project
 misc/tooling/setup -> packages/protocol public API + deployment artifacts on disk
 misc/infra/containers -> setup-generated isolated role image contexts
+misc/infra/development -> setup-generated all-in-one coding environment only
 misc/integration -> public process/protocol surfaces
 ```
 
 A release project must not import a sibling project or a repository-root legacy
 module. Communication between deployed processes is always a protocol message or a
 documented media stream.
+
+The developer container deliberately co-locates all source projects for coding
+and tests, but it does not weaken release ownership: no deployment wheel or
+general-user role image may import a sibling deployment.
 
 ## Model Lifecycle
 

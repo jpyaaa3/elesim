@@ -12,11 +12,12 @@ from typing import Any, Mapping
 from .profiles import normalize_roles
 
 
-STATE_SCHEMA_VERSION = 2
-SUPPORTED_STATE_SCHEMAS = frozenset({1, STATE_SCHEMA_VERSION})
+STATE_SCHEMA_VERSION = 3
+SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, STATE_SCHEMA_VERSION})
 SECURITY_MODES = frozenset({"loopback", "curve", "insecure-lan"})
 GPU_MODES = frozenset({"inherit", "specific", "cpu"})
 INSTALL_MODES = frozenset({"native", "container"})
+TURN_MODES = frozenset({"none", "managed", "external"})
 DEFAULT_PREFIX = Path("~/.local/share/elesim").expanduser()
 DEFAULT_BIN_DIR = Path("~/.local/bin").expanduser()
 
@@ -100,6 +101,32 @@ class ComputeSettings:
 
 
 @dataclass(frozen=True)
+class TurnSettings:
+    """Installer ownership of a TURN relay; URLs remain network endpoints."""
+
+    mode: str = "none"
+    realm: str = ""
+    public_host: str = ""
+
+    def validate(self) -> "TurnSettings":
+        if self.mode not in TURN_MODES:
+            raise ValueError(f"지원하지 않는 TURN 모드: {self.mode!r}")
+        realm = self.realm.strip()
+        public_host = self.public_host.strip()
+        if self.mode == "managed":
+            if not realm:
+                raise ValueError("managed TURN에는 realm이 필요합니다")
+            _validate_connect_host(public_host, name="TURN public hostname/IP")
+        elif realm or public_host:
+            raise ValueError("TURN realm/public_host는 managed 모드에서만 지정할 수 있습니다")
+        return self
+
+    @property
+    def managed(self) -> bool:
+        return self.mode == "managed"
+
+
+@dataclass(frozen=True)
 class InstallState:
     profile: str
     roles: tuple[str, ...]
@@ -109,6 +136,7 @@ class InstallState:
     network: NetworkSettings = field(default_factory=NetworkSettings)
     security: SecuritySettings = field(default_factory=SecuritySettings)
     compute: ComputeSettings = field(default_factory=ComputeSettings)
+    turn: TurnSettings = field(default_factory=TurnSettings)
     install_mode: str = "native"
     install_go2_mpc: bool = True
     schema_version: int = STATE_SCHEMA_VERSION
@@ -141,6 +169,7 @@ class InstallState:
         self.network.validate()
         self.security.validate()
         self.compute.validate()
+        self.turn.validate()
         if self.install_mode not in INSTALL_MODES:
             raise ValueError(f"지원하지 않는 설치 방식: {self.install_mode!r}")
         if self.install_mode == "container" and "robot" in self.roles:
@@ -150,11 +179,14 @@ class InstallState:
             )
         if self.security.mode == "loopback" and not _host_is_loopback(self.network.router_host):
             raise ValueError("loopback 보안 모드는 loopback Router 주소에서만 사용할 수 있습니다")
-        if (
-            "router" in self.roles
-            and self.network.turn_urls
-            and self.security.mode != "curve"
-        ):
+        has_turn_urls = bool(self.network.turn_urls)
+        if self.turn.mode == "none" and has_turn_urls:
+            raise ValueError("TURN URL에는 managed 또는 external TURN 모드가 필요합니다")
+        if self.turn.mode != "none" and not has_turn_urls:
+            raise ValueError(f"{self.turn.mode} TURN 모드에는 TURN URL이 필요합니다")
+        if self.turn.managed and "router" not in self.roles:
+            raise ValueError("managed Coturn은 Router가 설치되는 호스트에서만 사용할 수 있습니다")
+        if "router" in self.roles and has_turn_urls and self.security.mode != "curve":
             raise ValueError("TURN을 발급하는 Router는 CURVE credential root가 필요합니다")
         return self
 
@@ -175,13 +207,18 @@ class InstallState:
         network_raw = raw.get("network", {})
         security_raw = raw.get("security", {})
         compute_raw = raw.get("compute", {})
+        turn_raw = raw.get("turn", {})
         if not all(
             isinstance(value, Mapping)
-            for value in (network_raw, security_raw, compute_raw)
+            for value in (network_raw, security_raw, compute_raw, turn_raw)
         ):
-            raise ValueError("설치 상태의 network/security/compute가 object가 아닙니다")
+            raise ValueError("설치 상태의 network/security/compute/turn이 object가 아닙니다")
         network_values = dict(network_raw)
         network_values["turn_urls"] = tuple(network_values.get("turn_urls", ()))
+        if source_schema < 3:
+            turn_raw = {
+                "mode": "external" if network_values["turn_urls"] else "none",
+            }
         return cls(
             profile=str(raw.get("profile", "custom")),
             roles=tuple(str(value) for value in raw.get("roles", ())),
@@ -191,6 +228,7 @@ class InstallState:
             network=NetworkSettings(**network_values),
             security=SecuritySettings(**dict(security_raw)),
             compute=ComputeSettings(**dict(compute_raw)),
+            turn=TurnSettings(**dict(turn_raw)),
             install_mode=str(raw.get("install_mode", "native")),
             install_go2_mpc=bool(raw.get("install_go2_mpc", True)),
             schema_version=STATE_SCHEMA_VERSION,
@@ -281,5 +319,7 @@ __all__ = [
     "SECURITY_MODES",
     "STATE_SCHEMA_VERSION",
     "SecuritySettings",
+    "TURN_MODES",
+    "TurnSettings",
     "default_state_path",
 ]

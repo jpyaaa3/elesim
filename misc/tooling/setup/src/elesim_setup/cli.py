@@ -21,6 +21,7 @@ from .state import (
     InstallState,
     NetworkSettings,
     SecuritySettings,
+    TurnSettings,
     default_state_path,
 )
 
@@ -218,6 +219,7 @@ def run_wizard(
             credentials_root=credentials_root,
         ),
         compute=compute,
+        turn=TurnSettings(mode="external" if turn_urls else "none"),
         install_mode=install_mode,
     ).validate()
 
@@ -326,6 +328,15 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
             gpu_mode=args.gpu_mode,
             gpu_device=args.gpu_device,
         ),
+        turn=TurnSettings(
+            mode=(
+                args.turn_mode
+                if args.turn_mode != "auto"
+                else "external" if args.turn_url else "none"
+            ),
+            realm=args.turn_realm,
+            public_host=args.turn_public_host,
+        ),
         install_mode=args.mode,
         install_go2_mpc=not args.skip_go2_mpc,
     ).validate()
@@ -338,6 +349,20 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("wizard", help="대화형 설치 마법사")
+    gui = subparsers.add_parser("gui", help="로컬 브라우저 설치 마법사")
+    gui.add_argument("--host", default=os.environ.get("ELESIM_GUI_HOST", "127.0.0.1"))
+    gui.add_argument("--port", type=int, default=int(os.environ.get("ELESIM_GUI_PORT", "8765")))
+    gui.add_argument("--token", default=os.environ.get("ELESIM_GUI_TOKEN", ""))
+    gui.add_argument("--no-open", action="store_true", help=argparse.SUPPRESS)
+    gui.add_argument(
+        "--invocation-dir",
+        default=os.environ.get("ELESIM_INVOCATION_DIR", str(Path.cwd())),
+    )
+    gui.add_argument(
+        "--repository",
+        default=os.environ.get("ELESIM_REPOSITORY", "jpyaaa3/elesim"),
+    )
+    gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", "main"))
     install = subparsers.add_parser("install", help="자동화용 비대화형 설치")
     install.add_argument("--profile", choices=tuple(PROFILES), default="local-sim")
     install.add_argument(
@@ -364,6 +389,13 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--gpu-device", default="", help="specific 모드의 GPU index/UUID")
     install.add_argument("--turn-url", action="append", default=[])
     install.add_argument(
+        "--turn-mode",
+        choices=("auto", "none", "managed", "external"),
+        default="auto",
+    )
+    install.add_argument("--turn-realm", default="")
+    install.add_argument("--turn-public-host", default="")
+    install.add_argument(
         "--security",
         choices=("auto", "loopback", "curve", "insecure-lan"),
         default="auto",
@@ -386,6 +418,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
         source_root = _source_root(args.source_root, state_path)
+        if args.command == "gui":
+            from .capabilities import detect_install_host_capabilities
+            from .gui import run_gui
+            from .service import SetupService
+
+            capabilities = detect_install_host_capabilities()
+            return run_gui(
+                source_root=source_root,
+                invocation_dir=Path(args.invocation_dir),
+                repository=args.repository,
+                ref=args.ref,
+                runner=lambda request, log: SetupService(
+                    capabilities,
+                    log=log,
+                ).run(request),
+                host=args.host,
+                port=args.port,
+                token=args.token,
+                capabilities=capabilities,
+            )
         if args.command in {None, "wizard"}:
             return run_wizard(source_root=source_root, state_path=state_path)
         if args.command == "install":

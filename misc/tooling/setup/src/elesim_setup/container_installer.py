@@ -89,15 +89,21 @@ class ContainerInstaller:
             self.log("[DRY-RUN] 호스트나 Docker daemon을 변경하지 않았습니다.")
             return
 
+        self.log("[1/6] 설치 디렉터리와 runtime data 준비")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         self._copy_runtime_data()
         generate_role_configs(self.state)
+        self.log("[2/6] 역할별 image context 생성")
         for role in self.state.roles:
             self._write_role_context(role)
+        self.log("[3/6] 설치/진단 tools context 생성")
         self._write_tools_context()
+        self.log("[4/6] Compose 구성 생성")
         self._write_compose()
+        self.log("[5/6] 실행 명령 생성")
         self._write_wrappers()
+        self.log("[6/6] 설치 상태 저장")
         saved = self.state.save(self.state_path)
         self.log(f"[완료] 설치 상태: {saved}")
         self.log(f"[다음] 이미지 빌드 및 시작: {self.state.bin_path / 'elesim-up'}")
@@ -161,6 +167,8 @@ class ContainerInstaller:
         services: dict[str, object] = {}
         for role in self.state.roles:
             services[role] = self._role_service(role)
+        if self.state.turn.managed:
+            services["coturn"] = self._coturn_service()
         services["tools"] = self._tools_service()
         payload = {"name": f"elesim-{self.installation_id}", "services": services}
         destination = self.container_root / "compose.yaml"
@@ -228,17 +236,58 @@ class ContainerInstaller:
             service["depends_on"] = ("router",)
         return service
 
+    def _coturn_service(self) -> dict[str, object]:
+        credentials = self.state.security.root
+        if credentials is None:
+            raise ValueError("managed Coturn requires a credential root")
+        secret = credentials / "turn.secret"
+        command = (
+            "exec turnserver -n --log-file=stdout --fingerprint "
+            "--use-auth-secret --no-cli --no-multicast-peers --no-tls --no-dtls "
+            "--min-port=49160 --max-port=49200 "
+            '--realm="$$TURN_REALM" --external-ip="$$TURN_PUBLIC_IP" '
+            '--static-auth-secret="$$(cat /run/secrets/turn.secret)"'
+        )
+        return {
+            "image": "coturn/coturn:4.14.0-r0-alpine",
+            "network_mode": "host",
+            "restart": "unless-stopped",
+            "entrypoint": ("/bin/sh", "-ec"),
+            # Compose's scalar command form is shell-split. Pass one explicit
+            # script argument so `sh -ec` receives the complete command.
+            "command": (command,),
+            "environment": {
+                "TURN_REALM": self.state.turn.realm,
+                "TURN_PUBLIC_IP": self.state.turn.public_host,
+            },
+            "volumes": (f"{secret}:/run/secrets/turn.secret:ro",),
+            "tmpfs": ("/var/lib/coturn",),
+            "depends_on": ("router",),
+        }
+
     def _apply_compute(self, service: dict[str, object]) -> None:
         environment = service["environment"]
         assert isinstance(environment, dict)
         if self.state.compute.gpu_mode == "cpu":
             environment["CUDA_VISIBLE_DEVICES"] = ""
             return
-        service["gpus"] = "all"
         environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility,graphics"
         if self.state.compute.gpu_mode == "specific":
-            environment["CUDA_VISIBLE_DEVICES"] = self.state.compute.gpu_device
+            service["deploy"] = {
+                "resources": {
+                    "reservations": {
+                        "devices": (
+                            {
+                                "driver": "nvidia",
+                                "device_ids": (self.state.compute.gpu_device,),
+                                "capabilities": ("gpu",),
+                            },
+                        )
+                    }
+                }
+            }
         else:
+            service["gpus"] = "all"
             # Compose null means "forward it when set, otherwise leave it unset".
             environment["CUDA_VISIBLE_DEVICES"] = None
 

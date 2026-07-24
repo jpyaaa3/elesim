@@ -11,7 +11,13 @@ from typing import Sequence
 
 from .configuration import generate_role_configs
 from .doctor import NetworkDoctor
-from .state import InstallState, NetworkSettings, SecuritySettings, default_state_path
+from .state import (
+    InstallState,
+    NetworkSettings,
+    SecuritySettings,
+    TurnSettings,
+    default_state_path,
+)
 
 
 def _prompt(label: str, current: str) -> str:
@@ -34,6 +40,11 @@ def _configure_interactive(state: InstallState) -> InstallState:
         credentials_root = _prompt("credential root", credentials_root or str(state.prefix_path / "secrets"))
     else:
         credentials_root = ""
+    turn = state.turn
+    if not turn_urls:
+        turn = TurnSettings()
+    elif turn.mode == "none":
+        turn = TurnSettings(mode="external")
     return replace(
         state,
         network=NetworkSettings(
@@ -46,6 +57,7 @@ def _configure_interactive(state: InstallState) -> InstallState:
             controller_id=state.network.controller_id,
         ),
         security=SecuritySettings(mode=security_mode, credentials_root=credentials_root),
+        turn=turn,
     ).validate()
 
 
@@ -75,7 +87,17 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
             else security.credentials_root
         ),
     )
-    return replace(state, network=updated_network, security=updated_security).validate()
+    updated_turn = state.turn
+    if not updated_network.turn_urls:
+        updated_turn = TurnSettings()
+    elif updated_turn.mode == "none":
+        updated_turn = TurnSettings(mode="external")
+    return replace(
+        state,
+        network=updated_network,
+        security=updated_security,
+        turn=updated_turn,
+    ).validate()
 
 
 def _parser() -> argparse.ArgumentParser:

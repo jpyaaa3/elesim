@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download an Elesim source archive and start the terminal setup wizard.
+"""Download an Elesim source archive and start the Elesim setup wizard.
 
 This file intentionally uses only the Python standard library. It can therefore
 be piped directly from GitHub before Elesim or its dependencies are installed.
@@ -148,6 +148,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def needs_controlling_terminal(arguments: Sequence[str]) -> bool:
+    return not any(value in {"gui", "install", "status"} for value in arguments)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     if sys.version_info < (3, 10):
         print("오류: Python 3.10 이상이 필요합니다.", file=sys.stderr)
@@ -159,20 +163,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         source_root = download_source(url, cache_root / "sources", refresh=bool(args.refresh))
         executable = prepare_bootstrap_venv(source_root, cache_root)
+        if not wizard_args:
+            wizard_args = ["gui"]
         command = (str(executable), "--source-root", str(source_root), *wizard_args)
         tty: BinaryIO | None = None
         run_stdin: BinaryIO | int | None = None
         try:
             if not sys.stdin.isatty():
-                try:
-                    tty = open("/dev/tty", "rb", buffering=0)
-                    run_stdin = tty
-                except OSError as exc:
-                    if "install" not in wizard_args:
+                if needs_controlling_terminal(wizard_args):
+                    try:
+                        tty = open("/dev/tty", "rb", buffering=0)
+                        run_stdin = tty
+                    except OSError as exc:
                         raise BootstrapError(
                             "대화형 설치에는 controlling terminal이 필요합니다; "
                             "자동화에서는 install subcommand를 지정하십시오"
                         ) from exc
+                else:
                     run_stdin = subprocess.DEVNULL
             completed = subprocess.run(command, stdin=run_stdin, check=False)
         finally:

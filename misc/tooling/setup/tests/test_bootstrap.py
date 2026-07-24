@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from misc.setup.bootstrap import BootstrapError, archive_url, download_source, safe_extract_archive
+from misc.setup.bootstrap import (
+    BootstrapError,
+    archive_url,
+    download_source,
+    needs_controlling_terminal,
+    safe_extract_archive,
+)
 
 
 def _archive(path: Path, members: dict[str, bytes]) -> None:
@@ -59,6 +65,13 @@ def test_download_source_reuses_completed_cache(tmp_path: Path) -> None:
     assert second == first
 
 
+def test_gui_and_automation_do_not_require_a_controlling_terminal() -> None:
+    assert needs_controlling_terminal(("gui",)) is False
+    assert needs_controlling_terminal(("install", "--profile", "compute")) is False
+    assert needs_controlling_terminal(("status",)) is False
+    assert needs_controlling_terminal(("wizard",)) is True
+
+
 def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None:
     script = (Path(__file__).resolve().parents[3] / "setup/bootstrap.sh").read_text(
         encoding="utf-8"
@@ -66,3 +79,13 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert "python:3.10-slim" in script
     assert '"${docker_cmd[@]}" compose version' in script
     assert "pip install" not in script
+    assert 'docker_args+=(--publish "127.0.0.1:${gui_port}:${gui_port}")' in script
+    assert '--workdir "$invocation_dir"' in script
+    assert '"ELESIM_HOST_ARCH=$host_arch"' in script
+    assert '"ELESIM_HOST_WSLG=$host_wslg"' in script
+    assert "port_is_in_use" in script
+    assert "selected another available port" in script
+    assert "gui_arguments=(gui)" in script
+    assert "wizard|install|status)" in script
+    assert 'if [[ "$argument" != "gui" ]]' in script
+    assert 'python /tmp/elesim-bootstrap.py "$@"' in script

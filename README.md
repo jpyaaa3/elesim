@@ -1,487 +1,392 @@
 # Elesim 사용자 설명서
 
-```text
-+------------+               +------------+               +------------+
-|            | <--- ZMQ ---> |            |               |            |
-|            |               |   Router   |               |   Robot    |
-|     UI     | <-- WebRTC -> |            | <--- ZMQ ---> |            |
-|            |               |  Simulator |               | Controller |
-|            | <--- RGBD --> |            |               |            |
-+------------+               +------------+               +------------+
-```
+Elesim은 한 프로그램이 아니라 독립 배포 가능한 다섯 프로그램으로 구성된다.
 
 | 프로그램 | 책임 |
 | --- | --- |
-| Router | 서버 |
-| Controller | 계산 |
-| UI | 인터페이스 |
-| Simulator | Genesis 엔진 및 기타 렌더링 |
-| Robot | 실제 모터 및 Go2와 소통 + 최소한의 안전 로직 |
+| Router | endpoint 등록, lease, 메시지 라우팅, WebRTC signaling, TURN credential |
+| Controller | Vision, IK, Look/Aim/Grasp, Gaze, 목표값 계산 |
+| UI | 사용자 입력, 상태 표시, observer/hand-eye 영상, Simulator 조작 |
+| Simulator | Genesis, 가상 telemetry, observer/hand-eye 렌더링 |
+| Robot | 실제 모터·카메라 I/O, feedback, deadman, 로컬 안전 제한 |
 
-## 설치 마법사
+프로그램끼리는 ZMQ protocol 또는 protocol에 광고된 RGBD/WebRTC stream으로만
+통신한다. 서로 다른 컴퓨터에 설치해도 되고, 한 컴퓨터에 함께 설치해도 된다.
 
-설치파일의 브랜치가 `main`일 경우 아래와 같이 설치 마법사를 실행함.
+## 빠른 설치
+
+Ubuntu 또는 WSL 터미널에서 설치할 디렉터리로 이동한 뒤 실행한다.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh | bash
 ```
 
-그러나 현재 `refactoring` 브랜치를 사용 중이므로, 대신 아래 명령어를 이용함.
+`main`이 아닌 브랜치를 시험할 때는 URL과 `ELESIM_REF`를 같은 브랜치로 맞춘다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh | ELESIM_REF=refactoring bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+  | ELESIM_REF=refactoring bash
 ```
 
-| 설치 방식 | 설치 범위 |
+이 명령은 다음 순서로 동작한다.
+
+1. Docker와 Compose v2 사용 가능 여부를 확인한다.
+2. 일회성 `python:3.10-slim` 컨테이너에서 설치 GUI를 실행한다.
+3. 브라우저로 `http://127.0.0.1:8765`를 연다. 사용 중인 포트면 다음 빈
+   포트를 자동 선택하고 정확한 URL을 터미널에 출력한다.
+4. 선택한 설치 파일과 이미지 build context만 생성한다.
+
+설치 중에는 호스트 Python, CUDA, ROS, APT를 변경하지 않는다. Docker가 없는
+Ubuntu에서만 설치 여부를 터미널로 한 번 묻고, 사용자가 승인한 경우에만 Docker
+패키지를 설치한다. 설치 GUI 자체는 Docker socket을 받지 않으므로 이미지를
+빌드하거나 서비스를 시작하지 않는다.
+
+브라우저가 자동으로 열리지 않으면 터미널에 출력된 token 포함 URL을 직접 연다.
+GUI는 호스트 loopback에만 공개된다.
+
+### 원격 컴퓨터에서 GUI 열기
+
+서버에 SSH로 접속한 터미널에서 설치기를 실행한다.
+
+```bash
+# [서버]
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh \
+  | ELESIM_NO_OPEN=1 bash
+```
+
+출력된 GUI 포트가 `8765`라면 노트북에서 SSH tunnel을 연다. `2222`는 예시이며
+실제 SSH 포트를 사용한다.
+
+```bash
+# [노트북]
+ssh -L 8765:127.0.0.1:8765 -p 2222 USER@SERVER
+```
+
+그 다음 노트북 브라우저에서 서버 터미널에 출력된 token 포함 URL을 연다. 설치
+GUI 포트는 외부 방화벽에 공개할 필요가 없다.
+
+## 설치 종류
+
+### 일반 사용자용
+
+다섯 프로그램 중 이 컴퓨터에 필요한 역할을 체크한다.
+
+| 기본 선택 | 역할 |
 | --- | --- |
-| 한 PC 시뮬레이션 | 전체 설치 |
+| 한 PC 시뮬레이션 | Router, Simulator, Controller, UI |
 | 조작 노트북 | Controller, UI |
-| 시뮬레이션 서버 | Router, headless Simulator |
-| Robot Jetson | Robot, native 전용 |
-| 사용자 지정 | 설치할 옵션을 수동으로 조정 |
+| 시뮬레이션 서버 | Router, Simulator |
+| 사용자 지정 | 필요한 역할 직접 선택 |
+| Robot Jetson | Robot 단독 |
 
-### 설치 가이드
+Router, Simulator, Controller, UI는 역할별 Docker 이미지와 하나의 Compose
+project로 구성된다. Robot은 Jetson/JetPack이 감지된 호스트에서만 선택할 수
+있으며 현재 native 단독 설치만 지원한다.
 
-설치 위치는 미지정 시 기본값 `~/.local/share/elesim`을 사용함.
+### 개발자용
 
-먼저, `설치 위치`는 다음과 같이 입력함.
+전체 저장소와 하나의 privileged 개발 컨테이너를 만든다. 이 이미지는 ROS2,
+Genesis, Torch, Pinocchio, RealSense, Dynamixel, WebRTC, OpenTelemetry,
+모델 builder와 테스트 도구를 포함한다.
 
-```text
-/path/to/directory
-```
+- 설치 위치가 비어 있으면 선택한 GitHub ref를 clone한다.
+- 완전한 Elesim Git checkout이면 pull/reset 없이 그대로 사용한다.
+- 관계없는 파일이 있는 디렉터리는 덮어쓰지 않고 거부한다.
+- Jaeger는 선택 사항이며 별도 profile로 생성된다.
+- Ubuntu/WSL `amd64`에서만 지원한다.
+- `/dev`, host network, host IPC와 GUI socket을 사용하는 privileged
+  컨테이너임을 확인해야 설치할 수 있다.
 
-`터미널 명령을 둘 위치`는 다음과 같이 입력함.
+## GUI 입력 항목
 
-```text
-/path/to/directory/bin
-```
+### 설치 경로
 
-`GPU 사용 정책`은 다음 중 하나를 지정함.
+기본 설치 위치는 `curl` 명령을 실행한 현재 디렉터리이고, 기본 명령 위치는 그
+아래 `bin/`이다. 서버에서 동작하는 `찾아보기` 버튼으로 변경할 수 있다.
 
-- `inherit`: 실행 시점의 `CUDA_VISIBLE_DEVICES`를 따름.
-- `specific`: 하나의 GPU index 또는 UUID를 고정하여 설치함.
-- `cpu`: CPU-only 모드.
-
-다음으로 인증서 옵션을 선택함. 입력하지 않고 Enter로 넘길 시 기본값으로 설정됨.
-
-- `credential root`: CurveZMQ 인증서 묶음의 위치임. 
-- `TURN realm`: 인증 영역 이름으로, 접속 주소는 아님. 시험 환경에서는 `elesim.local`, 정식 환경에서는 도메인 네임을 사용함.
-- `Coturn 사용`: 서로 다른 NAT 사이에서 WebRTC 직접 연결이 실패할 수 있을 때 선택함. 같은 LAN에서는 끌 수 있다.
-
-## 설치 후 공통 명령
-
-설치한 `bin`이 PATH에 없을 시 아래 명령어를 이용해 등록함.
-
-```bash
-echo 'export PATH="/path/to/directory/bin:$PATH"' >> ~/.bashrc
-```
+`PATH에 등록`을 선택하면 설치기는 `~/.bashrc`의 Elesim 관리 블록만 원자적으로
+추가하거나 갱신한다. 최초 변경 시 `~/.bashrc.elesim.bak`도 남긴다. 부모
+터미널의 환경은 바꿀 수 없으므로 설치 후 한 번 실행한다.
 
 ```bash
 source ~/.bashrc
 ```
 
-PATH에 bin을 등록했다면 Elesim을 실행할 수 있음.
+### GPU 정책
+
+- `inherit`: 실행 시점의 `CUDA_VISIBLE_DEVICES`와 scheduler 할당을 따른다.
+- `specific`: `nvidia-smi -L`에 나온 index 또는 UUID 하나만 컨테이너에
+  노출한다. 컨테이너 안에서는 보통 논리 `cuda:0`으로 보인다.
+- `cpu`: 컨테이너 GPU 요청을 제거하고 Genesis GPU backend도 끈다.
+
+공용 연구 서버에서는 `inherit`가 기본이다. 한 번만 GPU 0을 사용하려면:
 
 ```bash
-elesim-up                    # 이미지 빌드 및 백그라운드 실행
-elesim-logs                  # 로그 표출
-elesim-net doctor            # 주소, Router, 광고 stream 진단
-elesim-net doctor --active   # 실제 RGBD/WebRTC frame까지 진단
-elesim-down                  # Elesim 종료
+CUDA_VISIBLE_DEVICES=0 elesim-up
 ```
 
-설치 상태는 기본적으로 아래 경로에 저장되나, 사용자 지정 상태 경로가 출력됐다면 그 경로가 기준이 됨.
+### 주소와 보안
 
-```text
-~/.local/share/elesim/install-state.json
+- `Router hostname/IP`: 이 컴퓨터를 포함한 모든 endpoint가 Router에 접속할
+  때 사용하는 주소이다.
+- `advertise hostname/IP`: 다른 컴퓨터가 이 호스트의 직접 RGBD stream에
+  접속할 때 사용하는 주소이다.
+- `127.0.0.1`은 같은 컴퓨터만 뜻한다. 다른 컴퓨터 주소로 사용할 수 없다.
+- 원격 ZMQ에는 CurveZMQ를 사용한다. `신뢰 LAN 평문`은 암호화가 없는 명시적
+  개발 예외이다.
+
+Curve credential 선택:
+
+- `로컬 묶음 사용`: 이미 이 호스트에 필요한 역할별 key가 있을 때 사용한다.
+- `이 Router에서 생성`: Router 설치 호스트에서 새 묶음을 만든다.
+- `Router 호스트에서 받기`: SSH agent 또는 선택한 SSH 개인키로 역할에 필요한
+  파일만 가져온다.
+
+SSH 수신은 hostname, SSH port, 사용자, 서버의 credential root를 입력하고
+`호스트 확인`을 누른다. 표시된 host fingerprint를 사용자가 승인해야 전송한다.
+비밀번호 인증은 GUI에 저장하지 않으며 지원하지 않는다. SSH/`scp`는 설치 시 key
+전달 수단일 뿐, Elesim 제어·영상 통신에는 사용되지 않는다.
+
+### TURN/Coturn
+
+- `미사용`: 같은 LAN 또는 직접 ICE가 가능한 환경.
+- `이 Router와 Coturn 실행`: Router 호스트의 생성 Compose에 Coturn을 넣는다.
+- `기존 relay 사용`: 별도로 운영 중인 TURN URL을 사용한다.
+
+Managed Coturn은 Curve credential, Router 역할, public hostname/IP와 realm이
+필요하다. 선택하면 `elesim-up`, `elesim-down`, `elesim-logs`가 Coturn까지 함께
+관리한다. 필요한 방화벽 경로는 TCP/UDP `3478`과 UDP `49160-49200`이다.
+
+## 설치 후 명령
+
+설치 완료 화면의 절대경로 명령을 먼저 사용하면 PATH 등록 여부와 관계없이
+실행할 수 있다. 설치기는 파일만 생성했으므로 첫 `elesim-up`에서 이미지를
+빌드한다.
+
+### 일반 사용자용
+
+```bash
+elesim-build                 # 선택한 이미지 build
+elesim-up                    # build 후 detached 실행
+elesim-logs                  # 로그 follow; Ctrl+C는 서비스가 아니라 follow만 종료
+elesim-net doctor            # DNS/TCP/ZMQ/TURN/WebRTC 광고 진단
+elesim-net doctor --active   # 실제 RGBD와 두 WebRTC frame까지 진단
+elesim-down                  # 생성 Compose project 종료
+elesim-setup status          # 설치 상태 확인
 ```
 
-## 단일 컴퓨터로 시뮬레이션할 때
+`elesim-<role>`은 선택한 역할 하나를 foreground로 실행한다. 설치 상태는
+`<설치 위치>/install-state.json`, Compose 파일은
+`<설치 위치>/containers/compose.yaml`에 있다.
 
-먼저, Elesim을 실행함.
+### 개발자용
+
+```bash
+elesim-build                 # 통짜 개발 이미지 build
+elesim-up                    # 개발 컨테이너 detached 실행
+elesim-logs                  # 개발 컨테이너와 선택한 Jaeger 로그
+elesim-dev                   # 개발 shell
+elesim-down                  # 개발 환경 종료
+```
+
+Jaeger를 선택했다면:
+
+```bash
+elesim-jaeger-up
+elesim-jaeger-down
+```
+
+Jaeger UI 기본 주소는 `http://127.0.0.1:16686`이다. 개발 컨테이너 시작 시
+`$HOME/.venv`에 저장소 패키지를 editable로 연결하므로 소스 수정은 즉시 반영된다.
+
+## 단일 컴퓨터 시뮬레이션
+
+일반 사용자용에서 `한 PC 시뮬레이션`을 선택하고 loopback 보안을 유지한다.
 
 ```bash
 elesim-up
-```
-
-`inherit` 옵션으로 설치하여 GPU 사용을 제한하여야 할 때에는 다음과 같이 실행함.
-
-```bash
-CUDA_VISIBLE_DEVICES=<NUMBER> elesim-up
-```
-
-Elesim을 올린 후에 정상 작동을 확인함.
-
-```bash
 elesim-logs
 ```
 
-### Router
+UI에서 `sim-default`를 선택하면 다음 영상을 받는다.
 
-```bash
-# 터미널 1
-elesim-router --config router/config/default.yaml
-```
+- `observer`: 전체 Genesis 장면
+- `hand-eye`: 로봇 손끝 카메라
 
-### Simulator
+Observer에서 orbit, pan, zoom을 조작할 수 있고 pause/resume, single-step,
+reset, speed, reset-view와 debug marker 명령도 Simulator로 보낸다. 전달되는
+것은 Genesis 운영체제 Viewer의 화면 캡처가 아니라 Simulator가 별도로 렌더링한
+WebRTC stream이다.
 
-```bash
-# 터미널 2
-elesim-simulator --config simulator/config/config.pc.yaml --runtime-config simulator/config/runtime.yaml --model-bundle model/bundles/default --server tcp://127.0.0.1:5558
-```
+## 원격 시뮬레이션 서버
 
-### Controller
+### 서버 컴퓨터
 
-```bash
-# 터미널 3
-elesim-controller --config controller/config/config.pc.yaml --runtime-config controller/config/runtime.yaml --server tcp://127.0.0.1:5558 --target sim-default
-```
-
-### UI
-
-```bash
-# 터미널 4
-elesim-ui --config ui/config/default.yaml --server tcp://127.0.0.1:5558 --controller-id controller-main --sim-id sim-default
-```
-
-## 별도 서버나 컴퓨터를 사용할 때
-
-### 1. 정상 설치 여부 확인
+1. 일반 사용자용 `시뮬레이션 서버`를 선택한다.
+2. Router와 advertise 주소에 노트북에서 접근 가능한 서버 IP/DNS를 입력한다.
+3. CurveZMQ와 `이 Router에서 생성`을 선택한다.
+4. NAT relay가 필요하면 managed Coturn을 선택한다.
+5. 설치 후 `elesim-up`을 실행한다.
 
 ```bash
 # [서버]
 elesim-up
-```
-
-```bash
-# [서버]
-docker compose -f /path/to/directory/containers/compose.yaml ps
-```
-
-```bash
-# [서버]
 elesim-logs
 ```
 
-서버 방화벽 정책에 맞춰 노트북에서 필요한 TCP `5558`과 `5568` 접근을 허용하여야 함.
-이는 설치 마법사가 변경해주지 않음.
+원격 Simulator profile은 native Genesis Viewer를 끄지만 observer와 hand-eye
+렌더링은 유지한다.
 
-### 2. Coturn 시작
+### 조작 노트북
 
-현재 설치 마법사는 TURN secret과 환경 파일을 만들지만 Coturn 컨테이너를
-`elesim-up`에 포함하지 않는다. Coturn을 선택했다면 `[서버]`에서 별도로 시작한다.
+1. 일반 사용자용 `조작 노트북`을 선택한다.
+2. Router 주소에 서버 IP/DNS를 입력한다.
+3. CurveZMQ와 `Router 호스트에서 받기`를 선택한다.
+4. 서버 SSH 주소와 실제 포트, 사용자, 서버 credential root를 입력한다.
+5. fingerprint를 확인하고 설치한다.
 
-```bash
-# [서버]
-SOURCE_ROOT="$(python3 -c 'import json; print(json.load(open("~/.local/share/elesim/install-state.json"))["source_root"])')"
-```
+GUI는 Controller/UI/doctor와 Router public key 등 노트북 역할에 필요한 파일만
+복사한다. 서버의 전체 credential root나 Router private key는 노트북으로
+전달하지 않는다.
 
-```bash
-# [서버]
-docker compose --env-file /path/to/directory/infra/coturn.env -f "$SOURCE_ROOT/misc/infra/coturn/compose.yaml" up -d
-```
+필수 네트워크 경로:
 
-필요한 방화벽 경로는 TCP/UDP `3478`과 UDP `49160-49200`이다. 
+| 용도 | 기본 경로 |
+| --- | --- |
+| Router | TCP `5558` |
+| 직접 CurveZMQ RGBD | TCP `5568` |
+| Managed Coturn | TCP/UDP `3478`, UDP `49160-49200` |
+| 직접 WebRTC ICE | 환경이 선택한 UDP candidate |
 
-서버와 클라이언트가 같은 LAN에 연결되어 있다면 직접 ICE가 성공하므로 Coturn을 실행하지 않아도 된다.
+방화벽 변경은 연구실 정책과 관리자 권한이 관련되므로 설치기가 자동으로 하지
+않는다.
 
-### 3. 노트북으로 credential 전달
+## 실제 Robot Jetson
 
-```bash
-# [클라이언트]
-mkdir -p misc/infra/generated/remote-server/curve/{clients,router}
-```
+Jetson에서 일반 사용자용 `Robot`만 선택한다. Robot은 다른 역할과 분리되며
+JetPack/L4T, ROS2 Humble, `unitree_ros2`, 장치 권한과 로컬 안전 설정이 준비된
+호스트를 전제로 native 설치한다. 실제 모터를 연결하기 전에 deadman, 제한값과
+feedback 방향을 별도 검증한다.
 
-`2222`는 예시로써, 실제로 사용하는 서버의 포트는 상이할 수 있음.
-
-```bash
-# [클라이언트]
-scp -P 2222 username@0.0.0.0:/path/to/directory/secrets/curve/clients/controller-main.key_secret misc/infra/generated/remote-server/curve/clients/
-```
-
-```bash
-# [클라이언트]
-scp -P 2222 username@0.0.0.0:/path/to/directory/secrets/curve/clients/ui-main.key_secret misc/infra/generated/remote-server/curve/clients/
-```
+## 네트워크 진단
 
 ```bash
-# [클라이언트]
-scp -P 2222 username@0.0.0.0:/path/to/directory/secrets/curve/clients/doctor-main.key_secret misc/infra/generated/remote-server/curve/clients/
+elesim-net doctor
 ```
+
+기본 진단은 Router DNS/TCP, protocol endpoint 등록, advertised RGBD endpoint,
+TURN 연결과 Simulator의 두 WebRTC 광고를 확인한다.
 
 ```bash
-# [클라이언트]
-scp -P 2222 username@0.0.0.0:/path/to/directory/secrets/curve/router/router.key misc/infra/generated/remote-server/curve/router/
+elesim-net doctor --active --timeout 8
 ```
+
+Active 진단은 실제 RGBD multipart와 `observer`, `hand_eye_preview` frame을
+받는다. Simulator의 UI session 하나를 잠시 점유하므로 일반 UI를 먼저 종료한다.
+ICE 연결 성공만으로 TURN relay candidate가 실제 선택됐다고 단정할 수는 없다.
+
+## 종료와 보안
 
 ```bash
-# [클라이언트]
-chmod 600 misc/infra/generated/remote-server/curve/clients/*.key_secret
+elesim-down
 ```
 
-위 입력이 끝났으면 인증서가 잘 생성됐는지 확인한다.
+`elesim-logs`에서 `Ctrl+C`를 누르는 것은 로그 follow만 멈춘다. 서비스 종료에는
+반드시 `elesim-down`을 사용한다.
 
-```bash
-# [클라이언트]
-find misc/infra/generated/remote-server -maxdepth 5 -type f
-```
-
-```text
-# 정상적으로 생성된 경우
-curve/clients/controller-main.key_secret
-curve/clients/ui-main.key_secret
-curve/clients/doctor-main.key_secret
-curve/router/router.key
-```
-
-### 4. 기존 개발 노트북에서 원격 설정 생성
-
-1회성 작업으로써, 기존에 실행한 바가 있으면 스킵할 수 있음.
-
-```bash
-sed -e 's#tcp://sim.example.com:5558#tcp://127.0.0.1:5558#' -e 's#/etc/elesim/secrets/#remote-server/#g' controller/config/runtime.public.example.yaml > misc/infra/generated/controller.remote.yaml
-```
-
-```bash
-sed -e 's#tcp://sim.example.com:5558#tcp://127.0.0.1:5558#' -e 's#/etc/elesim/secrets/#remote-server/#g' ui/config/public.example.yaml > misc/infra/generated/ui.remote.yaml
-```
-
-생성 결과를 확인하려면 아래 명령어를 입력함.
-
-```bash
-grep -R 'server_endpoint\|key_secret\|router.key' misc/infra/generated/*.remote.yaml
-```
-
-### 5. 노트북 Controller와 UI 실행
-
-```bash
-# [클라이언트]
-PYTHONPATH="$PWD/packages/protocol/src:$PWD/controller/src" python3 -m elesim_controller.main --config controller/config/config.pc.yaml --runtime-config misc/infra/generated/controller.remote.yaml
-```
-
-```bash
-# [노트북 개발 환경]
-PYTHONPATH="$PWD/packages/protocol/src:$PWD/ui/src" python3 -m elesim_ui.main --config misc/infra/generated/ui.remote.yaml
-```
-
-UI에서 `sim-default`가 보이면 선택한다. UI는 다음 기능을 제공한다.
-
-- `observer`: 전체 시뮬레이션 장면 영상
-- `hand-eye`: 로봇 손끝 카메라 영상
-- observer 좌클릭 드래그: orbit
-- observer 우클릭 드래그: pan
-- wheel: zoom
-- pause/resume, single-step, reset, speed, reset-view, debug marker 제어
-
-원격으로 전달되는 것은 Genesis 운영체제 창의 화면 캡처가 아니라 Simulator가
-별도로 렌더링한 두 WebRTC stream이다.
-
-## 서버에서도 Genesis Viewer 보기
-
-```bash
-sed -i 's/extends: config.remote.yaml/extends: config.pc.yaml/' /path/to/directory/roles/simulator/config/app.installed.yaml
-```
-
-```bash
-printf '%s\n' 'services:' '  simulator:' '    environment:' '      DISPLAY: "${DISPLAY}"' '    volumes:' '      - /tmp/.X11-unix:/tmp/.X11-unix:rw' > /path/to/directory/containers/viewer.override.yaml
-```
-
-```bash
-xhost +si:localuser:root
-```
-
-```bash
-docker compose -f /path/to/directory/containers/compose.yaml -f /path/to/directory/containers/viewer.override.yaml config --quiet
-```
-
-```bash
-docker compose -f /path/to/directory/containers/compose.yaml -f /path/to/directory/containers/viewer.override.yaml up -d --force-recreate simulator
-```
-
-서버에서 Viewer 사용을 마쳤다면 아래 명령어를 입력해 X11 사용을 종료함.
-
-```bash
-xhost -si:localuser:root
-```
-
-Headless로 복구하려면 아래 명령어를 사용함.
-
-```bash
-sed -i 's/extends: config.pc.yaml/extends: config.remote.yaml/' /path/to/directory/roles/simulator/config/app.installed.yaml
-elesim-up
-```
-
-## 네트워크와 보안
-
-다음 자료는 절대 Git에 올리면 안 됨.
+Git에 올리면 안 되는 파일:
 
 - `*.key_secret`
 - `turn.secret`
-- `coturn.env`
-- 생성된 원격 설정과 전체 credential root
+- 생성된 credential root
+- 설치된 원격 host 설정
+- `misc/infra/generated/`
 
-## 종료 여부 확인
-
-Viewer override를 사용한 서버에서는:
+서버에서 임시 X11 권한을 열었다면 종료 후 반드시 회수한다.
 
 ```bash
-# [서버]
-docker compose -f /path/to/directory/containers/compose.yaml -f /path/to/directory/containers/viewer.override.yaml down
-docker stop elesim-coturn 2>/dev/null || true
 xhost -si:localuser:root
-```
-
-Headless 서버에서는:
-
-```bash
-# [서버]
-elesim-down
-docker stop elesim-coturn 2>/dev/null || true
-```
-
-확인:
-
-```bash
-docker ps
-sudo ss -lntup | grep -E ':(5558|5568|3478)\b' || true
 ```
 
 ## 제거와 재설치
 
-먼저 삭제할 prefix가 정확한지 확인한다. 다음 예시는
-`/path/to/directory`만 제거한다.
+먼저 제거할 설치 위치를 정확히 확인한다. 아래의
+`/exact/elesim/prefix`를 실제 한 설치만 가리키는 절대경로로 바꾼다.
 
 ```bash
-docker compose -f /path/to/directory/containers/compose.yaml down --remove-orphans --volumes --rmi all 2>/dev/null || true
-docker rm -f elesim-coturn 2>/dev/null || true
-xhost -si:localuser:root 2>/dev/null || true
-sudo rm -rf /path/to/directory/
-rm -f /path/to/directory/.local/share/elesim/install-state.json
-rm -rf /path/to/directory/.cache/elesim/setup
+/exact/elesim/prefix/bin/elesim-down
+docker compose -f /exact/elesim/prefix/containers/compose.yaml down \
+  --remove-orphans --volumes --rmi local
+rm -rf /exact/elesim/prefix
 ```
 
-삭제한 디렉터리 안에 현재 shell이 있었다면 다음 오류가 날 수 있다.
+공용 서버에서 `docker system prune`, `docker builder prune`, 전역 CUDA 변경을
+사용하지 않는다. 다른 프로젝트와 사용자의 자원까지 제거할 수 있다.
+
+PATH 등록을 제거하려면 `~/.bashrc`에서 아래 두 marker 사이만 삭제한다.
 
 ```text
-shell-init: error retrieving current directory: getcwd: ... No such file or directory
+# >>> Elesim managed PATH >>>
+# <<< Elesim managed PATH <<<
 ```
 
-이때는 `cd ~` 또는 새 터미널로 이동한다. 전역 `docker builder prune`은 다른
-연구자의 build cache까지 지울 수 있으므로 사용하지 않는다.
-
-PATH 등록을 제거하려면 `~/.bashrc`에서 해당 `export PATH=...` 한 줄만 삭제하고
-새 터미널을 연다.
+삭제한 디렉터리 안에 현재 shell이 있었다면 `getcwd: cannot access parent
+directories`가 나타날 수 있다. `cd ~` 또는 새 터미널로 이동한다.
 
 ## 문제 해결
 
 ### `Address already in use ... 5558`
 
-같은 호스트에서 Router가 이미 실행 중이다.
+같은 호스트에 Router가 이미 실행 중이다.
 
 ```bash
 sudo ss -lntp 'sport = :5558'
 ```
 
-기존 Router를 확인한 뒤 하나만 남긴다.
+소유한 Compose project를 확인한 뒤 Router 하나만 남긴다.
 
 ### `simulator is unavailable`
 
-Router가 `sim-default` Simulator를 현재 등록된 endpoint로 찾지 못했다는 뜻이다.
-UI는 0.5초마다 다시 시도하므로 먼저 서버 상태를 확인한다.
+Router에 `sim-default` Simulator가 등록되지 않았거나 재시작 중이다.
 
 ```bash
-docker compose -f /설치/prefix/containers/compose.yaml ps
-docker compose -f /설치/prefix/containers/compose.yaml logs --tail=200 simulator
+docker compose -f /설치/위치/containers/compose.yaml ps
+docker compose -f /설치/위치/containers/compose.yaml logs --tail=200 simulator
 ```
-
-`Restarting` 또는 `Exited`면 마지막 Simulator traceback을 해결해야 한다.
-
-### `No module named elesim_simulator.config`
-
-Python `config` package를 누락한 오래된 설치 컨텍스트다. 수정된 브랜치를 push한
-뒤 setup download cache를 지우고 다시 설치한다.
-
-```bash
-rm -rf ~/.cache/elesim/setup
-```
-
-### SSH 22번이 거부되지만 `ssh -p 2222`는 동작함
-
-서버 SSH가 2222를 쓰는 것이다. 새 22번을 열지 말고 다음처럼 사용한다.
-
-```bash
-scp -P 2222 USER@SERVER:/원본/파일 /목적지/
-```
-
-실수로 UFW 22번 규칙을 추가했다면 기존 2222 규칙은 건드리지 않고 제거한다.
-
-```bash
-sudo ufw delete allow 22/tcp
-```
-
-### `Viewer closed`
-
-Genesis 운영체제 Viewer를 닫으면 Viewer-enabled Simulator가 예외로 종료될 수 있다.
-장시간 원격 실행에는 `config.remote.yaml` headless profile을 사용한다.
 
 ### `command not found: elesim-up`
 
-설치 시 지정한 `bin`을 PATH에 넣거나 절대경로로 실행한다.
+설치 완료 화면에 나온 절대경로를 사용하거나 PATH 등록 후 새 shell을 연다.
 
 ```bash
-/설치/prefix/bin/elesim-up
+/설치/위치/bin/elesim-up
 ```
 
-## 개발 환경
+### SSH 22번은 거부되고 `ssh -p 2222`는 동작함
 
-소스 개발용 Python 환경은 다음처럼 구성한다. 실제 GPU/Genesis 환경에서는 기존
-`urop` 또는 `uropj` 개발 컨테이너를 사용할 수 있다.
+설치 GUI의 SSH port에 `2222`를 입력한다. Router TCP `5558`, SSH `2222`,
+TURN `3478`은 서로 다른 용도이다. 작동 중인 SSH 포트 대신 22번을 새로 열
+필요가 없다.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip 'setuptools>=68' wheel
-python -m pip install -r router/requirements.lock -r controller/requirements.lock -r ui/requirements.lock -r simulator/requirements.lock
-python -m pip install 'git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git'
-python -m pip install --no-deps -e packages/protocol -e router -e controller -e ui -e simulator
-python -m pip check
-```
+### `Viewer closed`
 
-역할별 릴리스를 생성하고 격리 설치를 검증하려면:
+Native Genesis Viewer를 닫으면 Viewer-enabled Simulator가 종료될 수 있다.
+장시간 원격 실행은 installer가 생성한 headless remote profile과 UI observer
+stream을 사용한다.
 
-```bash
-python3 misc/tooling/release/build.py
-python3 misc/tooling/release/verify.py dist/releases
-```
+## 개발과 검증
 
-결과는 `dist/releases/{router,controller,ui,robot,simulator}`에 생성된다. 각 역할은
-자기 application wheel과 같은 버전의 protocol wheel만 가진다.
-
-## 모델 수정
-
-Simulator는 실행 중 URDF를 다시 만들지 않고 `model/bundles/default`를 읽는다.
-geometry나 blueprint를 바꿨을 때만 개발 환경에서 재생성한다.
-
-```bash
-elesim-build-sim-bundle --assets misc/model/source/assets --output model/bundles/default
-elesim-build-arm-model --config controller/config/config.pc.yaml --assets misc/model/source/assets --output controller/config/arm_model.json
-```
-
-## 테스트
+개발자용 설치를 사용하거나 준비된 Python 환경에서 canonical gate를 실행한다.
 
 ```bash
 python3 misc/tooling/quality/check.py --group required
 python3 misc/tooling/quality/check.py --group extended
-```
-
-GUI 테스트 러너:
-
-```bash
-PYTHONPATH=packages/protocol/src:controller/src:ui/src:misc/tooling/model_builder/src python3 misc/tooling/quality/test_gui.py
+python3 misc/tooling/release/build.py
+python3 misc/tooling/release/verify.py dist/releases
 ```
 
 자동 테스트는 실제 Genesis GPU 렌더링, 실제 NAT의 TURN relay 선택, 부하 상태의
-WebRTC 지연, RealSense, Dynamixel과 GO2 동작을 완전히 보증하지 않는다.
+WebRTC 지연, RealSense, Dynamixel과 GO2의 물리 동작을 보증하지 않는다.
 
 ## 저장소 구조
 
@@ -496,14 +401,11 @@ model/bundles/default/      Simulator 완성 모델
 misc/model/source/          원본 geometry와 blueprint
 misc/tooling/model_builder/ 오프라인 모델 생성
 misc/tooling/release/       역할별 릴리스 생성과 검증
-misc/tooling/setup/         설치 마법사와 네트워크 진단
+misc/tooling/setup/         GUI 설치기와 네트워크 진단
 misc/tooling/quality/       자동 테스트와 테스트 GUI
-misc/tooling/debug/         수동 진단 도구
-misc/tooling/experiments/   반복 실험 실행기
 misc/integration/           멀티프로세스 통합 테스트
-misc/infra/                 Curve credential과 Coturn 구성
+misc/infra/                 보안, 일반/개발 컨테이너 입력
 misc/setup/                 git clone 없는 bootstrap
-misc/scripts/               소스 개발 실행 helper
 misc/docs/                  아키텍처와 배포 문서
 ```
 
@@ -511,6 +413,6 @@ misc/docs/                  아키텍처와 배포 문서
 
 - [아키텍처](misc/docs/architecture.md)
 - [설정 체계](misc/docs/configuration.md)
-- [설치 마법사와 네트워크 진단](misc/docs/setup.md)
+- [설치기 내부와 네트워크 진단](misc/docs/setup.md)
 - [릴리스와 멀티호스트 배포](misc/docs/deployment.md)
 - [미해결 문제](misc/docs/OPEN_ISSUES_KR.md)

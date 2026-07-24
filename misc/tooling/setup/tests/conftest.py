@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.state import ComputeSettings, InstallState, NetworkSettings, SecuritySettings
+from elesim_setup.state import (
+    ComputeSettings,
+    InstallState,
+    NetworkSettings,
+    SecuritySettings,
+    TurnSettings,
+)
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -20,6 +26,7 @@ def local_state(tmp_path: Path):
         security=None,
         network=None,
         compute=None,
+        turn=None,
         install_mode="native",
     ) -> InstallState:
         return InstallState(
@@ -31,6 +38,7 @@ def local_state(tmp_path: Path):
             network=network or NetworkSettings(),
             security=security or SecuritySettings(),
             compute=compute or ComputeSettings(),
+            turn=turn or TurnSettings(),
             install_mode=install_mode,
         )
 

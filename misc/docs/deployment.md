@@ -62,8 +62,20 @@ Install private files mode `0600` and make the public examples under each
 project's `config/` point to their installed locations. Never copy the full
 private-key tree to every machine.
 
-Coturn is optional on a flat LAN. For NAT traversal, run it beside the public
-Router/Simulator host:
+The setup GUI can perform this distribution without a manual `scp` sequence.
+Generate the bundle while installing Router, then select `receive from Router
+host` on the Controller/UI or Robot host. The operator must confirm the probed
+SSH host fingerprint. Setup authenticates with the SSH agent/default keys or a
+selected key, and copies only the selected roles' manifest. Passwords and the
+complete credential root are not accepted by the GUI.
+
+Coturn is optional on a flat LAN. The setup GUI's **managed** option places a
+pinned Coturn service in the Router host's generated Compose project. In that
+case `elesim-up`, `elesim-down`, and `elesim-logs` manage Router and Coturn
+together.
+
+The standalone release Compose is for an **external** relay that is deliberately
+operated outside the generated Elesim project:
 
 ```bash
 docker compose \
@@ -85,6 +97,11 @@ role builds:
 curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh | bash
 elesim-up
 ```
+
+The curl command opens a Korean/English loopback-only browser wizard. It
+generates files but does not build or start images; `elesim-up` is the first
+Docker build. The default prefix is the directory in which the curl command was
+started, not a global system directory.
 
 The generated project uses Linux host networking, read-only role configuration
 mounts, a read-only Simulator model mount, and a profile-gated tools container.
@@ -114,9 +131,27 @@ the workstation.
 
 On shared GPU hosts, prefer scheduler-assigned devices. The installer default
 does not overwrite `CUDA_VISIBLE_DEVICES`. If Compose must pin a physical GPU,
-replace `gpus: all` with a reservation containing one `device_ids` entry; an
-in-container selector cannot grant access to a GPU the container runtime did
-not expose. CPU-only installs do not require a GPU reservation.
+choose `specific`; the generated reservation contains one `device_ids` entry
+and does not expose the other devices. An in-container selector cannot grant
+access to a GPU the container runtime did not expose. CPU-only installs do not
+require a GPU reservation.
+
+## Development Container
+
+The GUI's Developer edition creates one complete Git workspace and a privileged
+development Compose project under `<workspace>/.elesim/development`. It is not a
+sixth runtime deployment and must not be used as a production multi-host
+artifact.
+
+An existing checkout is reused without pull/reset; an empty target is cloned at
+the selected ref. The image includes all role dependencies and uses a persistent
+`$HOME/.venv` for editable workspace installs. `elesim-up` starts the development
+container and `elesim-dev` opens a shell. Optional Jaeger is profile-gated and
+starts only through `elesim-jaeger-up`.
+
+This mode mounts `/dev`, uses host network/IPC, and is privileged. Use it only
+on an owned Ubuntu/WSL amd64 workstation. WSLg mounts are generated only when
+the outer bootstrap detected WSLg on the host.
 
 ## Remote Compute Server
 
@@ -151,6 +186,10 @@ Genesis Viewer window is not transported.
 Required firewall paths are Router TCP `5558`, direct RGBD TCP `5568`, and,
 when Coturn is used, TCP/UDP `3478` plus UDP `49160-49200`. A direct WebRTC LAN
 path may also use dynamically selected ICE UDP ports.
+
+The setup GUI itself remains on `127.0.0.1`; administer a remote installation
+through an SSH local-forward instead of opening the GUI port in the firewall.
+SSH's port is unrelated to Router, RGBD, or TURN ports.
 
 ## Robot Jetson
 

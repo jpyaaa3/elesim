@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
 import yaml
 
 from misc.infra.bootstrap_security import generate
-from misc.tooling.release.build import copy_infrastructure
+from misc.tooling.release.build import build_wheel, copy_infrastructure
 
 
 def test_security_bootstrap_generates_all_deployment_identities(tmp_path: Path) -> None:
@@ -72,7 +73,27 @@ def test_release_infrastructure_contains_bootstrap_and_coturn(tmp_path: Path) ->
     assert (release_root / "infra/setup/bootstrap.py").is_file()
     assert (release_root / "infra/setup/bootstrap.sh").is_file()
     assert (release_root / "infra/containers/Dockerfile.app").is_file()
+    assert (release_root / "infra/development/Dockerfile").is_file()
     assert (release_root / "infra/setup/package/pyproject.toml").is_file()
+    assert (
+        release_root
+        / "infra/setup/package/src/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf"
+    ).is_file()
     assert not (release_root / "infra/setup/package/build").exists()
     assert not tuple((release_root / "infra/setup/package").rglob("*.egg-info"))
     assert not tuple((release_root / "infra/setup/package").rglob("__pycache__"))
+
+
+def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> None:
+    project = Path(__file__).resolve().parents[2] / "setup"
+    wheel_dir = tmp_path / "wheels"
+    wheel_dir.mkdir()
+
+    wheel = build_wheel(project, wheel_dir)
+
+    with zipfile.ZipFile(wheel) as archive:
+        members = set(archive.namelist())
+    assert "elesim_setup/web/index.html" in members
+    assert "elesim_setup/web/app.js" in members
+    assert "elesim_setup/web/i18n.json" in members
+    assert "elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf" in members

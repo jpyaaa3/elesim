@@ -9,6 +9,8 @@ description = "Interactive installer and distributed-network diagnostics for Ele
 requires-python = ">=3.10"
 dependencies = [
   "elesim-protocol==0.2.0",
+  "dulwich>=0.22,<0.23",
+  "paramiko>=3.5,<4",
   "PyYAML>=6,<7",
   "pyzmq>=27,<28",
 ]
@@ -23,6 +25,9 @@ elesim-net = "elesim_setup.network:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+elesim_setup = ["web/*.html", "web/*.css", "web/*.js", "web/*.json", "web/fonts/*.otf"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import email.parser
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -36,16 +38,46 @@ def build_wheel(project: Path, wheel_dir: Path) -> Path:
         )
     finally:
         shutil.rmtree(project / "build", ignore_errors=True)
-        for metadata in (project / "src").glob("*.egg-info"):
-            shutil.rmtree(metadata, ignore_errors=True)
+        for parent in (project, project / "src"):
+            for metadata in parent.glob("*.egg-info"):
+                shutil.rmtree(metadata, ignore_errors=True)
     created = set(wheel_dir.glob("*.whl")) - before
     if len(created) != 1:
         prefix = project.name.replace("-", "_")
         candidates = sorted(wheel_dir.glob(f"*{prefix}*.whl"))
         if not candidates:
             raise RuntimeError(f"could not identify wheel built from {project}")
-        return candidates[-1]
-    return created.pop()
+        wheel = candidates[-1]
+    else:
+        wheel = created.pop()
+    _validate_wheel_metadata(wheel, project)
+    return wheel
+
+
+def _validate_wheel_metadata(wheel: Path, project: Path) -> None:
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            metadata_files = [
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+            ]
+            if len(metadata_files) != 1:
+                raise RuntimeError(
+                    f"wheel from {project} has {len(metadata_files)} METADATA files"
+                )
+            metadata = email.parser.BytesParser().parsebytes(
+                archive.read(metadata_files[0])
+            )
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError(f"invalid wheel built from {project}: {wheel}") from exc
+    name = str(metadata.get("Name", "")).strip()
+    version = str(metadata.get("Version", "")).strip()
+    if not name or name.upper() == "UNKNOWN" or not version or version == "0.0.0":
+        raise RuntimeError(
+            f"build backend did not read project metadata for {project}: "
+            f"name={name!r} version={version!r}"
+        )
 
 
 def copy_tree(source: Path, destination: Path, *, ignore=None) -> None:
@@ -65,6 +97,7 @@ def copy_infrastructure(source: Path, release_root: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source / "bootstrap_security.py", destination / "bootstrap_security.py")
     copy_tree(source / "coturn", destination / "coturn")
+    copy_tree(source / "development", destination / "development")
     setup_destination = destination / "setup"
     setup_destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source.parent / "setup/bootstrap.py", setup_destination / "bootstrap.py")

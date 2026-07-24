@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from elesim_setup.profiles import ROLE_ORDER, normalize_roles, roles_for_profile
-from elesim_setup.state import ComputeSettings, InstallState, NetworkSettings, SecuritySettings
+from elesim_setup.state import (
+    ComputeSettings,
+    InstallState,
+    NetworkSettings,
+    SecuritySettings,
+    TurnSettings,
+)
 
 
 def test_profiles_select_only_the_expected_deployments() -> None:
@@ -97,7 +103,63 @@ def test_legacy_native_state_is_migrated_without_changing_its_install_kind(
     migrated = InstallState.from_dict(raw)
 
     assert migrated.install_mode == "native"
-    assert migrated.schema_version > 1
+    assert migrated.schema_version == 3
+
+
+def test_schema_v2_turn_urls_are_migrated_as_external_turn(local_state) -> None:
+    raw = local_state(
+        roles=("router",),
+        network=NetworkSettings(
+            router_host="relay.example.com",
+            advertise_host="relay.example.com",
+            turn_urls=("turn:relay.example.com:3478?transport=udp",),
+        ),
+        security=SecuritySettings(
+            mode="curve",
+            credentials_root="/tmp/credentials",
+        ),
+    ).to_dict()
+    raw["schema_version"] = 2
+    raw.pop("turn", None)
+
+    migrated = InstallState.from_dict(raw)
+
+    assert migrated.turn.mode == "external"
+    assert migrated.turn.managed is False
+
+
+def test_managed_turn_requires_router_curve_and_identity(local_state) -> None:
+    turn = TurnSettings(
+        mode="managed",
+        realm="sim.example.com",
+        public_host="203.0.113.10",
+    )
+    network = NetworkSettings(
+        router_host="203.0.113.10",
+        advertise_host="203.0.113.10",
+        turn_urls=("turn:203.0.113.10:3478?transport=udp",),
+    )
+    security = SecuritySettings(mode="curve", credentials_root="/tmp/credentials")
+
+    assert local_state(
+        roles=("router",),
+        network=network,
+        security=security,
+        turn=turn,
+        install_mode="container",
+    ).validate()
+
+    with pytest.raises(ValueError, match="Router"):
+        local_state(
+            roles=("simulator",),
+            network=network,
+            security=security,
+            turn=turn,
+            install_mode="container",
+        ).validate()
+
+    with pytest.raises(ValueError, match="realm"):
+        TurnSettings(mode="managed", public_host="203.0.113.10").validate()
 
 
 def test_container_mode_rejects_generic_robot_image(local_state) -> None:
@@ -114,6 +176,7 @@ def test_router_turn_configuration_requires_curve(local_state) -> None:
             turn_urls=("turn:192.0.2.10:3478?transport=udp",),
         ),
         security=SecuritySettings(mode="insecure-lan"),
+        turn=TurnSettings(mode="external"),
     )
     with pytest.raises(ValueError, match="TURN.*CURVE"):
         state.validate()

@@ -15,7 +15,12 @@ from elesim_setup.configuration import (
     missing_credentials,
     tcp_endpoint,
 )
-from elesim_setup.state import ComputeSettings, NetworkSettings, SecuritySettings
+from elesim_setup.state import (
+    ComputeSettings,
+    NetworkSettings,
+    SecuritySettings,
+    TurnSettings,
+)
 
 
 def _load(path: Path) -> dict:
@@ -56,6 +61,7 @@ def test_curve_configs_use_role_specific_credentials(local_state, tmp_path: Path
             turn_urls=("turn:sim.example.com:3478?transport=udp",),
         ),
         security=SecuritySettings(mode="curve", credentials_root=str(credentials)),
+        turn=TurnSettings(mode="external"),
     )
     copy_role_configs(state)
 
