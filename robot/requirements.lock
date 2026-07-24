@@ -1,6 +1,5 @@
 numpy==1.26.4
 scipy==1.15.3
-pyzmq==27.1.0
 PyYAML==6.0.2
 dynamixel-sdk==4.0.5
 opencv-python-headless==4.11.0.86

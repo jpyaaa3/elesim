@@ -11,10 +11,10 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CloseSimulationSessionRequest,
-    CurveClientConfig,
-    EndpointClient,
+    DdsRuntimeSettings,
     EndpointDescriptor,
     OpenSimulationSessionRequest,
+    PeerClient,
     ProtocolError,
     SimulationCommandRequest,
     SimulationResultPayload,
@@ -81,26 +81,24 @@ class UiSimulatorSession:
 
     def __init__(
         self,
-        server_endpoint: str,
         *,
         ui_id: str,
         sim_id: str,
-        endpoint_factory: Callable[..., Any] = EndpointClient,
+        settings: Optional[DdsRuntimeSettings] = None,
+        peer: Any = None,
+        peer_factory: Callable[..., Any] = PeerClient,
         receiver_factory: Callable[[], Any] = WebRtcVideoReceiver,
-        curve: Optional[CurveClientConfig] = None,
-        allow_insecure_remote: bool = False,
         retry_s: float = 0.5,
         poll_ms: int = 50,
         max_pending_commands: int = 128,
         clock: Callable[[], float] = time.monotonic,
         autostart: bool = True,
     ) -> None:
-        self.server_endpoint = str(server_endpoint)
-        self.endpoint_id = f"{str(ui_id)}-simulator"
-        self.endpoint_factory = endpoint_factory
+        self.endpoint_id = str(ui_id)
+        self.settings = settings
+        self.peer = peer
+        self.peer_factory = peer_factory
         self.receiver_factory = receiver_factory
-        self.curve = curve
-        self.allow_insecure_remote = bool(allow_insecure_remote)
         self.retry_s = max(0.05, float(retry_s))
         self.poll_ms = max(0, int(poll_ms))
         self.max_pending_commands = max(8, int(max_pending_commands))
@@ -235,7 +233,7 @@ class UiSimulatorSession:
 
         registered = bool(client.registered)
         if self._was_registered and not registered:
-            self._lose_session("router connection lost")
+            self._lose_session("DDS peer became unavailable")
         self._was_registered = registered
         if not registered:
             return
@@ -307,12 +305,23 @@ class UiSimulatorSession:
                 command=queued.command,
                 arguments=queued.arguments,
             )
-            envelope = client.send(
-                "simulation_command",
-                target_id=target_id,
-                payload=request.to_payload(),
-                lease_id=session_id,
-            )
+            try:
+                envelope = client.send(
+                    "simulation_command",
+                    target_id=target_id,
+                    payload=request.to_payload(),
+                    lease_id=session_id,
+                )
+            except Exception:
+                # Do not lose an operator command merely because the Simulator
+                # boot vanished between discovery and the direct DDS write.
+                with self._lock:
+                    if (
+                        self._session_id == session_id
+                        and self._active_sim_id == target_id
+                    ):
+                        self._commands.appendleft(queued)
+                raise
             with self._lock:
                 self._pending_command_ids.add(request.request_id)
                 self._sent_messages[str(envelope.message_id)] = (
@@ -333,7 +342,7 @@ class UiSimulatorSession:
             elif message.message_type == "simulation_result":
                 self._handle_result(message)
             elif message.message_type == "error":
-                self._handle_router_error(message)
+                self._handle_peer_error(message)
         except (ProtocolError, RuntimeError, ValueError, KeyError) as exc:
             self._set_error(f"simulation message rejected: {exc}")
 
@@ -341,6 +350,8 @@ class UiSimulatorSession:
         opened = SimulationSessionOpenedPayload.from_payload(message.payload or {})
         if message.lease_id != opened.session_id:
             raise ProtocolError("simulation session lease does not match opened payload")
+        if message.source_id != opened.simulator_id:
+            raise ProtocolError("simulation session source does not match opened payload")
         with self._lock:
             refreshing = (
                 opened.session_id == self._session_id
@@ -463,10 +474,10 @@ class UiSimulatorSession:
             if not result.ok:
                 self._last_error = result.reason or f"{result.command} failed"
 
-    def _handle_router_error(self, message: Any) -> None:
+    def _handle_peer_error(self, message: Any) -> None:
         payload = dict(message.payload or {})
         reply_to = str(payload.get("reply_to", ""))
-        reason = str(payload.get("reason", "router rejected simulation request"))
+        reason = str(payload.get("reason", "DDS peer rejected simulation request"))
         with self._lock:
             kind, request_id = self._sent_messages.pop(reply_to, ("", ""))
             if kind == "open" and request_id == self._opening_request_id:
@@ -521,14 +532,14 @@ class UiSimulatorSession:
             self._last_error = str(message)
 
     def _run(self) -> None:
-        client = None
+        client = self.peer
+        owns_client = client is None
         try:
-            client = self.endpoint_factory(
-                self.server_endpoint,
-                EndpointDescriptor(self.endpoint_id, "ui", ()),
-                curve=self.curve,
-                allow_insecure_remote=self.allow_insecure_remote,
-            )
+            if client is None:
+                client = self.peer_factory(
+                    EndpointDescriptor(self.endpoint_id, "ui", ()),
+                    settings=self.settings,
+                )
             while not self._stop.is_set():
                 try:
                     self.run_cycle(client)
@@ -544,7 +555,8 @@ class UiSimulatorSession:
                         self._send_close(client)
                 except Exception:
                     pass
-                client.close()
+                if owns_client:
+                    client.close()
             self._clear_session()
 
     def close(self) -> None:

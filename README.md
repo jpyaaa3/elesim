@@ -1,17 +1,19 @@
 # Elesim 사용자 설명서
 
-Elesim은 한 프로그램이 아니라 독립 배포 가능한 다섯 프로그램으로 구성된다.
+Elesim은 한 프로그램이 아니라 독립 배포 가능한 네 프로그램으로 구성된다.
 
 | 프로그램 | 책임 |
 | --- | --- |
-| Router | endpoint 등록, lease, 메시지 라우팅, WebRTC signaling, TURN credential |
 | Controller | Vision, IK, Look/Aim/Grasp, Gaze, 목표값 계산 |
 | UI | 사용자 입력, 상태 표시, observer/hand-eye 영상, Simulator 조작 |
 | Simulator | Genesis, 가상 telemetry, observer/hand-eye 렌더링 |
 | Robot | 실제 모터·카메라 I/O, feedback, deadman, 로컬 안전 제한 |
 
-프로그램끼리는 ZMQ protocol 또는 protocol에 광고된 RGBD/WebRTC stream으로만
-통신한다. 서로 다른 컴퓨터에 설치해도 되고, 한 컴퓨터에 함께 설치해도 된다.
+프로그램끼리는 ROS 2/DDS로 직접 통신한다. 현재 discovery와 RGBD는 typed ROS
+message이고, 제어·WebRTC signaling은 bounded protocol-v5 DDS message를
+사용한다. observer/hand-eye 영상만 WebRTC를 사용한다. 중앙 Router와
+ZMQ/CURVE transport는 없다. 서로 다른 컴퓨터에 설치해도 되지만 DDS
+participant 사이에 양방향 UDP 경로가 있어야 한다.
 
 ## 빠른 설치
 
@@ -85,18 +87,18 @@ GUI 포트는 외부 방화벽에 공개할 필요가 없다.
 
 ### 일반 사용자용
 
-다섯 프로그램 중 이 컴퓨터에 필요한 역할을 체크한다.
+네 프로그램 중 이 컴퓨터에 필요한 역할을 체크한다.
 
 | 기본 선택 | 역할 |
 | --- | --- |
-| 한 PC 시뮬레이션 | Router, Simulator, Controller, UI |
+| 한 PC 시뮬레이션 | Simulator, Controller, UI |
 | 조작 노트북 | Controller, UI |
-| 시뮬레이션 서버 | Router, Simulator |
+| 시뮬레이션 서버 | Simulator |
 | 사용자 지정 | 필요한 역할 직접 선택 |
 | Robot Jetson | Robot 단독 |
 
-Router, Simulator, Controller, UI는 역할별 Docker 이미지와 하나의 Compose
-project로 구성된다. Robot은 Jetson/JetPack이 감지된 호스트에서만 선택할 수
+Simulator, Controller, UI는 역할별 Docker 이미지와 하나의 Compose project로
+구성된다. Robot은 Jetson/JetPack이 감지된 호스트에서만 선택할 수
 있으며 현재 native 단독 설치만 지원한다.
 
 ### 개발자용
@@ -141,37 +143,55 @@ source ~/.bashrc
 CUDA_VISIBLE_DEVICES=0 elesim-up
 ```
 
-### 주소와 보안
+### DDS 네트워크와 보안
 
-- `Router hostname/IP`: 이 컴퓨터를 포함한 모든 endpoint가 Router에 접속할
-  때 사용하는 주소이다.
-- `advertise hostname/IP`: 다른 컴퓨터가 이 호스트의 직접 RGBD stream에
-  접속할 때 사용하는 주소이다.
-- `127.0.0.1`은 같은 컴퓨터만 뜻한다. 다른 컴퓨터 주소로 사용할 수 없다.
-- 원격 ZMQ에는 CurveZMQ를 사용한다. `신뢰 LAN 평문`은 암호화가 없는 명시적
-  개발 예외이다.
+- `system ID`: 한 Elesim graph의 ROS namespace이다. 참여할 모든 호스트에서
+  같아야 한다.
+- `ROS domain ID`: 같은 DDS domain의 번호이다. 참여할 모든 호스트에서 같아야
+  하지만 보안 수단은 아니다.
+- `DDS interface`: DDS가 사용할 로컬 interface 이름(예: `eth0`, `wg0`)이다.
+  다른 peer가 실제로 도달할 수 있는 LAN 또는 VPN interface를 선택한다.
+- `discovery`: 같은 L2에서는 multicast를, multicast가 전달되지 않는 routed
+  network에서는 reachable static peer 주소를 사용한다. static peer는 relay가
+  아니며 양방향 UDP 경로를 만들지 않는다.
 
-Curve credential 선택:
+보안 profile은 둘 중 하나다.
 
-- `로컬 묶음 사용`: 이미 이 호스트에 필요한 역할별 key가 있을 때 사용한다.
-- `이 Router에서 생성`: Router 설치 호스트에서 새 묶음을 만든다.
-- `Router 호스트에서 받기`: SSH agent 또는 선택한 SSH 개인키로 역할에 필요한
-  파일만 가져온다.
+- `trusted-network`: DDS 암호화 없음. 소유한 LAN 또는 routed VPN에서만 쓰고,
+  선택한 interface와 방화벽으로 참여 가능 호스트를 제한한다.
+- `sros2`: 공유 compute나 신뢰하지 않는 network에서 사용한다. 역할마다 별도
+  keystore enclave를 배치하고 DDS Security 인증·권한·암호화를 enforce한다.
 
-SSH 수신은 hostname, SSH port, 사용자, 서버의 credential root를 입력하고
-`호스트 확인`을 누른다. 표시된 host fingerprint를 사용자가 승인해야 전송한다.
-비밀번호 인증은 GUI에 저장하지 않으며 지원하지 않는다. SSH/`scp`는 설치 시 key
-전달 수단일 뿐, Elesim 제어·영상 통신에는 사용되지 않는다.
+`ROS_DOMAIN_ID`는 우연한 graph 충돌을 줄일 뿐 인증, 접근 통제, 암호화 또는
+tenant 격리를 제공하지 않는다. 최종 구조에는 ZMQ, CurveZMQ, CURVE key와 ZAP
+allowlist가 없다.
+
+설치 GUI는 계속 loopback에만 열린다. 원격 GUI를 위한 SSH `-p 2222` 같은 값은
+SSH server의 포트일 뿐 DDS 설정에 들어가지 않는다.
 
 ### TURN/Coturn
 
 - `미사용`: 같은 LAN 또는 직접 ICE가 가능한 환경.
-- `이 Router와 Coturn 실행`: Router 호스트의 생성 Compose에 Coturn을 넣는다.
+- `이 Simulator와 Coturn 실행`: Simulator 호스트의 생성 Compose에 Coturn을
+  넣는다.
 - `기존 relay 사용`: 별도로 운영 중인 TURN URL을 사용한다.
 
-Managed Coturn은 Curve credential, Router 역할, public hostname/IP와 realm이
-필요하다. 선택하면 `elesim-up`, `elesim-down`, `elesim-logs`가 Coturn까지 함께
-관리한다. 필요한 방화벽 경로는 TCP/UDP `3478`과 UDP `49160-49200`이다.
+Managed Coturn은 public hostname/IP, realm과 credential 정책이 필요하다.
+REST HMAC을 쓰면 static secret은 Coturn과 같은 호스트의 Simulator만 갖고,
+Simulator가 활성 session에 묶인 단기 ICE credential을 UI에 발급한다. UI에는
+static secret을 전달하지 않는다. 선택하면 `elesim-up`,
+`elesim-down`, `elesim-logs`가 Coturn까지 함께 관리한다. 필요한 방화벽 경로는
+TCP/UDP `3478`과 UDP `49160-49200`이다. TURN은 WebRTC media relay이며 DDS
+topic이나 signaling을 연결해 주지 않는다. Managed TURN credential과 signaling은
+DDS로 전달되므로 managed mode는 `sros2` profile을 요구한다.
+
+외부 TURN을 Simulator 호스트에 설치할 때에는 relay가 발급한 자격증명 JSON도
+선택한다. 파일 형식은
+`{"username":"...","credential":"...","expires_at":4102444800}`이며
+`expires_at`은 장기 credential이면 생략할 수 있다. 이 파일은 Simulator
+컨테이너에만 read-only로 mount되고, Controller/UI 전용 노트북에는 복사되지
+않는다. Simulator가 활성 UI session에 필요한 값을 DDS로 전달하므로 공유망에서는
+SROS2를 사용한다.
 
 ## 설치 후 명령
 
@@ -185,8 +205,8 @@ Managed Coturn은 Curve credential, Router 역할, public hostname/IP와 realm�
 elesim-build                 # 선택한 이미지 build
 elesim-up                    # build 후 detached 실행
 elesim-logs                  # 로그 follow; Ctrl+C는 서비스가 아니라 follow만 종료
-elesim-net doctor            # DNS/TCP/ZMQ/TURN/WebRTC 광고 진단
-elesim-net doctor --active   # 실제 RGBD와 두 WebRTC frame까지 진단
+elesim-net doctor            # DDS graph/QoS/TURN/WebRTC 광고 진단
+elesim-net doctor --active   # 실제 RGBD sample까지 진단
 elesim-down                  # 생성 Compose project 종료
 elesim-setup status          # 설치 상태 확인
 ```
@@ -224,7 +244,7 @@ elesim-up
 elesim-logs
 ```
 
-UI에서 `sim-default`를 선택하면 다음 영상을 받는다.
+UI에서 endpoint ID `sim-default`를 선택하면 다음 영상을 받는다.
 
 - `observer`: 전체 Genesis 장면
 - `hand-eye`: 로봇 손끝 카메라
@@ -239,10 +259,14 @@ WebRTC stream이다.
 ### 서버 컴퓨터
 
 1. 일반 사용자용 `시뮬레이션 서버`를 선택한다.
-2. Router와 advertise 주소에 노트북에서 접근 가능한 서버 IP/DNS를 입력한다.
-3. CurveZMQ와 `이 Router에서 생성`을 선택한다.
-4. NAT relay가 필요하면 managed Coturn을 선택한다.
-5. 설치 후 `elesim-up`을 실행한다.
+2. 노트북과 서버를 같은 LAN 또는 routed VPN에 놓는다.
+3. 두 호스트에 같은 system/domain ID를 넣고, DDS가 사용할 LAN/VPN interface를
+   선택한다.
+4. L2 multicast가 불가능하면 노트북의 reachable 주소를 static peer로 넣는다.
+5. 신뢰 network면 `trusted-network`, 공유 network면 `sros2`를 선택한다.
+6. WebRTC direct ICE가 불가능하면 Coturn을 선택한다. Managed mode를 쓰려면
+   `sros2` profile을 선택한다.
+7. 설치 후 `elesim-up`을 실행한다.
 
 ```bash
 # [서버]
@@ -256,26 +280,24 @@ elesim-logs
 ### 조작 노트북
 
 1. 일반 사용자용 `조작 노트북`을 선택한다.
-2. Router 주소에 서버 IP/DNS를 입력한다.
-3. CurveZMQ와 `Router 호스트에서 받기`를 선택한다.
-4. 서버 SSH 주소와 실제 포트, 사용자, 서버 credential root를 입력한다.
-5. fingerprint를 확인하고 설치한다.
-
-GUI는 Controller/UI/doctor와 Router public key 등 노트북 역할에 필요한 파일만
-복사한다. 서버의 전체 credential root나 Router private key는 노트북으로
-전달하지 않는다.
+2. 서버와 같은 system/domain ID를 넣고 LAN/VPN interface를 선택한다.
+3. routed network이면 서버의 reachable 주소를 static peer로 넣는다.
+4. 서버와 같은 security profile을 고른다. `sros2`이면 노트북 역할의 enclave만
+   설치한다.
+5. 설치 후 `elesim-up`을 실행한다.
 
 필수 네트워크 경로:
 
 | 용도 | 기본 경로 |
 | --- | --- |
-| Router | TCP `5558` |
-| 직접 CurveZMQ RGBD | TCP `5568` |
+| DDS discovery와 user data | 선택한 interface의 양방향 UDP; RMW/domain 설정에 따라 결정 |
 | Managed Coturn | TCP/UDP `3478`, UDP `49160-49200` |
 | 직접 WebRTC ICE | 환경이 선택한 UDP candidate |
 
 방화벽 변경은 연구실 정책과 관리자 권한이 관련되므로 설치기가 자동으로 하지
-않는다.
+않는다. 공인 서버 `123.123.123.123`과 NAT 뒤 노트북처럼 서로 직접 라우팅되지
+않는 구성은 서버 port forwarding만으로 지원되지 않는다. 이 경우 routed VPN을
+사용한다. TURN이나 SSH `2222` port forwarding은 DDS 경로를 대신하지 않는다.
 
 ## 실제 Robot Jetson
 
@@ -290,16 +312,15 @@ feedback 방향을 별도 검증한다.
 elesim-net doctor
 ```
 
-기본 진단은 Router DNS/TCP, protocol endpoint 등록, advertised RGBD endpoint,
-TURN 연결과 Simulator의 두 WebRTC 광고를 확인한다.
+기본 진단은 DDS participant discovery, endpoint descriptor/heartbeat,
+control/RGBD topic, TURN 연결과 Simulator signaling carrier를 확인한다.
 
 ```bash
 elesim-net doctor --active --timeout 8
 ```
 
-Active 진단은 실제 RGBD multipart와 `observer`, `hand_eye_preview` frame을
-받는다. Simulator의 UI session 하나를 잠시 점유하므로 일반 UI를 먼저 종료한다.
-ICE 연결 성공만으로 TURN relay candidate가 실제 선택됐다고 단정할 수는 없다.
+Active 진단은 실제 DDS `RgbdFrame`을 받는다. 두 WebRTC 영상과 실제 relay
+candidate 선택은 일반 UI를 사용한 live 검증 항목이다.
 
 ## 종료와 보안
 
@@ -312,9 +333,10 @@ elesim-down
 
 Git에 올리면 안 되는 파일:
 
-- `*.key_secret`
+- SROS2 keystore의 private key
 - `turn.secret`
-- 생성된 credential root
+- 외부 TURN `turn.credentials.json`
+- 생성된 SROS2 keystore와 credential root
 - 설치된 원격 host 설정
 - `misc/infra/generated/`
 
@@ -351,19 +373,16 @@ directories`가 나타날 수 있다. `cd ~` 또는 새 터미널로 이동한�
 
 ## 문제 해결
 
-### `Address already in use ... 5558`
+### 다른 호스트가 discovery되지 않음
 
-같은 호스트에 Router가 이미 실행 중이다.
-
-```bash
-sudo ss -lntp 'sport = :5558'
-```
-
-소유한 Compose project를 확인한 뒤 Router 하나만 남긴다.
+두 호스트의 system/domain ID, RMW implementation, 선택한 interface와 방화벽을
+확인한다. routed network에서는 양쪽이 서로 도달 가능한 static peer를 사용해야
+한다. static peer 설정은 NAT를 우회하지 않는다.
 
 ### `simulator is unavailable`
 
-Router에 `sim-default` Simulator가 등록되지 않았거나 재시작 중이다.
+Simulator heartbeat가 만료됐거나 process가 재시작 중이다. 같은 endpoint ID를
+주장하는 복수 boot가 탐지돼도 안전을 위해 선택이 거부된다.
 
 ```bash
 docker compose -f /설치/위치/containers/compose.yaml ps
@@ -380,9 +399,9 @@ docker compose -f /설치/위치/containers/compose.yaml logs --tail=200 simulat
 
 ### SSH 22번은 거부되고 `ssh -p 2222`는 동작함
 
-설치 GUI의 SSH port에 `2222`를 입력한다. Router TCP `5558`, SSH `2222`,
-TURN `3478`은 서로 다른 용도이다. 작동 중인 SSH 포트 대신 22번을 새로 열
-필요가 없다.
+원격 설치 GUI tunnel의 `ssh -p 2222`에 사용한다. SSH `2222`, DDS가 사용하는
+UDP, TURN `3478`은 서로 다른 용도이다. 작동 중인 SSH 포트 대신 22번을 새로
+열 필요가 없다.
 
 ### `Viewer closed`
 
@@ -401,18 +420,19 @@ python3 misc/tooling/release/build.py
 python3 misc/tooling/release/verify.py dist/releases
 ```
 
-자동 테스트는 실제 Genesis GPU 렌더링, 실제 NAT의 TURN relay 선택, 부하 상태의
-WebRTC 지연, RealSense, Dynamixel과 GO2의 물리 동작을 보증하지 않는다.
+자동 테스트는 실제 DDS multicast/static-peer discovery, SROS2 enforce,
+packet loss와 Wi-Fi/VPN reconnect, Genesis GPU 렌더링, 실제 NAT의 TURN relay
+선택, 부하 상태의 RGBD/WebRTC 지연, RealSense, Dynamixel과 GO2의 물리 동작을
+보증하지 않는다.
 
 ## 저장소 구조
 
 ```text
-router/                     Router 배포 프로젝트
 controller/                 Controller 배포 프로젝트
 ui/                         UI 배포 프로젝트
 robot/                      Robot 배포 프로젝트
 simulator/                  Simulator 배포 프로젝트
-packages/protocol/          protocol-v4 계약과 transport
+packages/elesim_interfaces/ ROS 2 msg/srv/action 계약
 model/bundles/default/      Simulator 완성 모델
 misc/model/source/          원본 geometry와 blueprint
 misc/tooling/model_builder/ 오프라인 모델 생성

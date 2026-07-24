@@ -12,7 +12,7 @@ behavior belongs in its owning deployment package.
 | `model_builder/` | Compile source geometry into immutable runtime models | `elesim-build-sim-bundle` |
 | `quality/` | Manual test and quality interfaces | `test_gui.py` |
 | `release/` | Build and verify isolated role release contexts | `build.py` |
-| `setup/` | Install selected roles and diagnose ZMQ/TURN/WebRTC links | `elesim-setup` |
+| `setup/` | Install selected roles and diagnose DDS/TURN/WebRTC links | `elesim-setup` |
 
 ```bash
 python3 misc/tooling/quality/test_gui.py

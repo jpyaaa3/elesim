@@ -25,10 +25,6 @@ class CoverageProfile:
 
 PROFILES: dict[str, CoverageProfile] = {
     "protocol": CoverageProfile("packages/protocol/tests", ("packages/protocol/src",)),
-    "router": CoverageProfile(
-        "router/tests",
-        ("packages/protocol/src", "router/src"),
-    ),
     "robot": CoverageProfile(
         "robot/tests",
         ("packages/protocol/src", "robot/src"),

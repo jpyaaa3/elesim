@@ -8,48 +8,29 @@ from elesim_ui.config import load_config
 from elesim_ui.control_panel import ControlPanel
 from elesim_ui.operator import RemoteControlService, RemotePanelState
 from elesim_ui.operator_session import OperatorSession
-from elesim_protocol import CurveClientConfig
+from elesim_ui.peer_runtime import UiPeerHub
 from elesim_ui.simulator_session import UiSimulatorSession
 
 
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-def _router_curve(config) -> CurveClientConfig | None:
-    client = str(config.router_client_secret_file).strip()
-    server = str(config.router_server_public_file).strip()
-    if bool(client) != bool(server):
-        raise ValueError(
-            "router CURVE client and server certificate paths must be configured together"
-        )
-    if not client:
-        return None
-    return CurveClientConfig.from_files(
-        client_secret_file=client,
-        server_public_file=server,
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Elesim desktop operator UI")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
-    parser.add_argument("--server", default="")
     parser.add_argument("--controller-id", default="")
     parser.add_argument("--sim-id", default="")
     parser.add_argument("--no-webrtc", action="store_true")
     args = parser.parse_args()
     config = load_config(args.config)
-    server = str(args.server).strip() or config.server_endpoint
     controller_id = str(args.controller_id).strip() or config.controller_id
     sim_id = str(args.sim_id).strip() or config.simulator_id
-    router_curve = _router_curve(config)
+    peer_hub = UiPeerHub(endpoint_id=config.endpoint_id, settings=config.dds)
 
     session = OperatorSession(
-        server,
         ui_id=config.endpoint_id,
         controller_id=controller_id,
-        curve=router_curve,
-        allow_insecure_remote=config.allow_insecure_remote,
+        peer=peer_hub.channel("operator"),
     )
     state = RemotePanelState(
         session,
@@ -69,11 +50,9 @@ def main() -> None:
     if not args.no_webrtc:
         try:
             simulator_session = UiSimulatorSession(
-                server,
                 ui_id=config.endpoint_id,
                 sim_id=sim_id,
-                curve=router_curve,
-                allow_insecure_remote=config.allow_insecure_remote,
+                peer=peer_hub.channel("simulator"),
             )
         except Exception as exc:
             print(f"[ui] WebRTC unavailable: {exc}")
@@ -104,6 +83,7 @@ def main() -> None:
         if simulator_session is not None:
             simulator_session.close()
         service.close()
+        peer_hub.close()
 
 
 if __name__ == "__main__":

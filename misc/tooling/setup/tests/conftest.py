@@ -7,9 +7,9 @@ import pytest
 
 from elesim_setup.state import (
     ComputeSettings,
+    DdsSettings,
     InstallState,
     NetworkSettings,
-    SecuritySettings,
     TurnSettings,
 )
 
@@ -21,9 +21,9 @@ ROOT = Path(__file__).resolve().parents[4]
 def local_state(tmp_path: Path):
     def factory(
         *,
-        roles=("router",),
+        roles=("simulator",),
         profile="custom",
-        security=None,
+        dds=None,
         network=None,
         compute=None,
         turn=None,
@@ -36,7 +36,7 @@ def local_state(tmp_path: Path):
             bin_dir=str(tmp_path / "bin"),
             source_root=str(ROOT),
             network=network or NetworkSettings(),
-            security=security or SecuritySettings(),
+            dds=dds or DdsSettings(),
             compute=compute or ComputeSettings(),
             turn=turn or TurnSettings(),
             install_mode=install_mode,

@@ -1,121 +1,137 @@
 from __future__ import annotations
 
-import socket
 import struct
-import threading
 
 import pytest
 
 from elesim_setup.doctor import (
-    DoctorReport,
     FAIL,
-    NetworkDoctor,
     PASS,
-    ProtocolSession,
     SKIP,
-    TcpTarget,
+    WARN,
+    DdsGraphSnapshot,
+    DoctorReport,
+    NetworkDoctor,
     build_stun_binding_request,
     parse_tcp_endpoint,
     parse_turn_url,
-    tcp_connect,
     validate_stun_response,
 )
+from elesim_setup.state import NetworkSettings, TurnSettings
 
 
-def test_endpoint_parsers_support_ipv6_and_turn_transport() -> None:
-    assert parse_tcp_endpoint("tcp://[2001:db8::5]:5558") == TcpTarget("2001:db8::5", 5558)
-    target = parse_turn_url("turn:relay.example.com:3478?transport=udp")
-    assert (target.host, target.port, target.transport) == ("relay.example.com", 3478, "udp")
-    secure = parse_turn_url("turns:relay.example.com")
-    assert (secure.port, secure.transport) == (5349, "tcp")
-
-
-@pytest.mark.parametrize("value", ["http://example.com", "turn:", "turn:host?transport=sctp"])
-def test_invalid_turn_url_is_rejected(value: str) -> None:
+def test_parse_tcp_endpoint_supports_ipv4_hostname_and_ipv6() -> None:
+    assert parse_tcp_endpoint("tcp://server.example:5558").host == "server.example"
+    assert parse_tcp_endpoint("tcp://[2001:db8::1]:5568").port == 5568
     with pytest.raises(ValueError):
-        parse_turn_url(value)
+        parse_tcp_endpoint("udp://server:5558")
 
 
-def test_stun_response_validation_checks_transaction_and_length() -> None:
-    _request, transaction_id = build_stun_binding_request(b"abcdefghijkl")
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("turn:relay.example.com", ("relay.example.com", 3478, "udp")),
+        (
+            "turn:relay.example.com:443?transport=tcp",
+            ("relay.example.com", 443, "tcp"),
+        ),
+        ("turns://relay.example.com", ("relay.example.com", 5349, "tcp")),
+    ],
+)
+def test_turn_url_parser(url: str, expected: tuple[str, int, str]) -> None:
+    target = parse_turn_url(url)
+    assert (target.host, target.port, target.transport) == expected
+
+
+def test_stun_response_validation_checks_transaction() -> None:
+    request, transaction_id = build_stun_binding_request(b"x" * 12)
+    assert len(request) == 20
     response = struct.pack("!HHI12s", 0x0101, 0, 0x2112A442, transaction_id)
     validate_stun_response(response, transaction_id)
     with pytest.raises(ValueError, match="transaction"):
-        validate_stun_response(response, b"mnopqrstuvwx")
-    with pytest.raises(ValueError, match="short"):
-        validate_stun_response(b"bad", transaction_id)
+        validate_stun_response(response, b"y" * 12)
 
 
-def test_tcp_probe_connects_to_real_local_listener() -> None:
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(1)
-    port = listener.getsockname()[1]
-    accepted = threading.Event()
-
-    def serve() -> None:
-        connection, _address = listener.accept()
-        connection.close()
-        accepted.set()
-
-    thread = threading.Thread(target=serve)
-    thread.start()
-    try:
-        tcp_connect(TcpTarget("127.0.0.1", port), timeout_s=1.0)
-        assert accepted.wait(1.0)
-    finally:
-        listener.close()
-        thread.join(timeout=1.0)
-
-
-def test_report_exit_semantics_ignore_warn_and_skip() -> None:
+def test_report_warn_and_skip_do_not_make_it_fail() -> None:
     report = DoctorReport()
     report.add("one", PASS, "ok")
-    report.add("two", SKIP, "optional")
+    report.add("two", WARN, "warning")
+    report.add("three", SKIP, "skipped")
     assert report.ok
-    report.add("three", FAIL, "broken", "fix it")
+    report.add("four", FAIL, "bad")
     assert not report.ok
-    assert "조치: fix it" in report.render()
 
 
-def test_router_tcp_failure_skips_protocol_and_media(local_state) -> None:
-    probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-    probe.close()
-    state = local_state(network=local_state().network.__class__(router_port=port))
+def test_doctor_reports_dds_graph_rgbd_and_webrtc_control_carrier(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = local_state(roles=("simulator", "controller"))
+    graph = DdsGraphSnapshot(
+        nodes=("/elesim/v5/simulator", "/elesim/v5/controller"),
+        topics={
+            "/elesim/sim_default/rgbd/frame": (
+                "elesim_interfaces/msg/RgbdFrame",
+            ),
+            "/elesim/v5/peers/sim_default/boot/control": (
+                "elesim_interfaces/msg/PeerEnvelope",
+            ),
+        },
+        services={},
+    )
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_graph",
+        lambda *_args, **_kwargs: graph,
+    )
 
-    report = NetworkDoctor(state, timeout_s=0.2).run()
+    report = NetworkDoctor(state).run()
+    by_name = {result.name: result for result in report.results}
 
+    assert by_name["DDS graph"].status == PASS
+    assert by_name["RGBD topic"].status == PASS
+    assert by_name["RGBD frame"].status == SKIP
+    assert by_name["WebRTC signaling"].status == PASS
+    assert report.ok
+
+
+def test_doctor_dds_failure_skips_dependent_checks(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("RMW unavailable")
+
+    monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", fail)
+    report = NetworkDoctor(local_state()).run()
     by_name = {result.name: result.status for result in report.results}
-    assert by_name["Router TCP"] == FAIL
-    assert by_name["ZMQ protocol"] == SKIP
-    assert by_name["WebRTC"] == SKIP
+
+    assert by_name["DDS graph"] == FAIL
+    assert by_name["RGBD topic"] == SKIP
+    assert by_name["WebRTC signaling"] == SKIP
 
 
-def test_protocol_session_waits_for_revoke_before_closing() -> None:
-    class Message:
-        message_type = "simulation_session_revoked"
+def test_turn_probe_remains_independent_of_dds(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = local_state(
+        network=NetworkSettings(
+            turn_urls=("turn:relay.example.com:3478?transport=udp",),
+        ),
+        turn=TurnSettings(
+            mode="external",
+            credential_file="/tmp/turn.credentials.json",
+        ),
+    )
+    monkeypatch.setattr(
+        "elesim_setup.doctor.udp_stun_probe",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_graph",
+        lambda *_args, **_kwargs: DdsGraphSnapshot((), {}, {}),
+    )
 
-    class Client:
-        def __init__(self) -> None:
-            self.sent = []
-            self.receive_calls = 0
+    report = NetworkDoctor(state).run()
 
-        def send(self, message_type, **kwargs):
-            self.sent.append((message_type, kwargs))
-
-        def receive(self, timeout_ms=0):
-            self.receive_calls += 1
-            yield Message()
-
-    session = object.__new__(ProtocolSession)
-    session.client = Client()
-    session.timeout_s = 1.0
-    session.session_id = "session-1"
-
-    session._close_simulation_session()
-
-    assert session.client.sent[0][0] == "close_simulation_session"
-    assert session.client.receive_calls == 1
-    assert session.session_id == ""
+    assert next(result for result in report.results if result.name == "TURN 1").status == PASS

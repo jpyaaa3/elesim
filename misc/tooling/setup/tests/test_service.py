@@ -27,15 +27,12 @@ def test_general_service_uses_existing_container_installer_contract(
     request = SetupRequest.from_dict(
         {
             "edition": "general",
-            "roles": ["router"],
+            "roles": ["simulator"],
             "prefix": str(tmp_path / "install"),
             "bin_dir": str(tmp_path / "bin"),
             "source_root": str(Path(__file__).resolve().parents[4]),
             "gpu_mode": "cpu",
-            "router_host": "127.0.0.1",
-            "advertise_host": "127.0.0.1",
-            "security_mode": "loopback",
-            "credential_source": "unused",
+            "dds_security_profile": "trusted-network",
             "turn_mode": "none",
         }
     )

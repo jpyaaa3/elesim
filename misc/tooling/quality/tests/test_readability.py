@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-RELEASE_PROJECTS = ("router", "controller", "ui", "robot", "simulator")
+RELEASE_PROJECTS = ("controller", "ui", "robot", "simulator")
 MAX_CLASS_LINES = 1000
 MAX_FUNCTION_LINES = 900
 

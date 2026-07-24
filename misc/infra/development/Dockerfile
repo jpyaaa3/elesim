@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-utils sudo udev usbutils vim \
     python3-argcomplete python3-colcon-common-extensions python3-pip \
     python3-rosdep python3-tk python3-vcstool python3-venv \
+    ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators \
+    ros-humble-sros2 \
     libdbus-1-3 libegl1 libfontconfig1 libfreetype6 libgl1 libglfw3 \
     libglvnd0 libglu1-mesa libglx-mesa0 libice6 libosmesa6 libsm6 \
     libusb-1.0-0 libx11-6 libx11-xcb1 libxcb-icccm4 libxcb-image0 \

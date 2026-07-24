@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
-    CurveClientConfig,
-    EndpointClient,
+    DdsRuntimeSettings,
     EndpointDescriptor,
     OPERATOR_OPERATIONS,
     OperatorViewSnapshot,
+    PeerClient,
     decode_value,
     encode_value,
 )
@@ -34,7 +34,7 @@ _COALESCED_SERVICE_CALLS = frozenset(
 
 @dataclass(frozen=True)
 class OperatorStatus:
-    router_online: bool
+    dds_online: bool
     controller_online: bool
     pending_count: int
     last_error: str
@@ -57,11 +57,10 @@ class _Request:
 
 
 class OperatorSession:
-    """Own the UI's operator socket and expose thread-safe read caches."""
+    """Own the UI operator request pump and expose thread-safe read caches."""
 
     def __init__(
         self,
-        server_endpoint: str,
         *,
         ui_id: str,
         controller_id: str,
@@ -69,22 +68,21 @@ class OperatorSession:
         snapshot_period_s: float = 0.10,
         controller_stale_s: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
-        endpoint_factory: Callable[..., Any] = EndpointClient,
-        curve: Optional[CurveClientConfig] = None,
-        allow_insecure_remote: bool = False,
+        settings: Optional[DdsRuntimeSettings] = None,
+        peer: Any = None,
+        peer_factory: Callable[..., Any] = PeerClient,
         max_pending: int = 256,
         autostart: bool = True,
     ) -> None:
-        self.server_endpoint = str(server_endpoint)
         self.ui_id = str(ui_id)
         self.controller_id = str(controller_id)
         self.request_timeout_s = max(0.05, float(request_timeout_s))
         self.snapshot_period_s = max(0.02, float(snapshot_period_s))
         self.controller_stale_s = max(self.snapshot_period_s * 2.0, float(controller_stale_s))
         self.clock = clock
-        self.endpoint_factory = endpoint_factory
-        self.curve = curve
-        self.allow_insecure_remote = bool(allow_insecure_remote)
+        self.settings = settings
+        self.peer = peer
+        self.peer_factory = peer_factory
         self.max_pending = max(16, int(max_pending))
 
         self._lock = threading.RLock()
@@ -99,7 +97,7 @@ class OperatorSession:
         self._snapshot_request_id = ""
         self._last_snapshot_requested_at: Optional[float] = None
         self._last_snapshot_at: Optional[float] = None
-        self._router_online = False
+        self._dds_online = False
         self._last_error = ""
         if autostart:
             self.start()
@@ -158,7 +156,7 @@ class OperatorSession:
                 else max(0.0, now - self._last_snapshot_at)
             )
             return OperatorStatus(
-                router_online=self._router_online,
+                dds_online=self._dds_online,
                 controller_online=age <= self.controller_stale_s,
                 pending_count=len(self._requests),
                 last_error=self._last_error,
@@ -234,7 +232,7 @@ class OperatorSession:
     def run_cycle(self, endpoint: Any, *, now: Optional[float] = None) -> None:
         current = self.clock() if now is None else float(now)
         endpoint.heartbeat()
-        self._router_online = bool(endpoint.server_alive())
+        self._dds_online = bool(endpoint.registered)
         for message in endpoint.receive(timeout_ms=20):
             self._handle_message(message, now=current)
         self._expire_requests(now=current)
@@ -243,14 +241,14 @@ class OperatorSession:
             self._flush_outbox(endpoint, now=current)
 
     def _run(self) -> None:
-        endpoint = None
+        endpoint = self.peer
+        owns_endpoint = endpoint is None
         try:
-            endpoint = self.endpoint_factory(
-                self.server_endpoint,
-                EndpointDescriptor(self.ui_id, "ui", ()),
-                curve=self.curve,
-                allow_insecure_remote=self.allow_insecure_remote,
-            )
+            if endpoint is None:
+                endpoint = self.peer_factory(
+                    EndpointDescriptor(self.ui_id, "ui", ()),
+                    settings=self.settings,
+                )
             while not self._stop.is_set():
                 try:
                     self.run_cycle(endpoint)
@@ -260,7 +258,7 @@ class OperatorSession:
         except Exception as exc:
             self._record_error(f"operator transport unavailable: {exc}")
         finally:
-            if endpoint is not None:
+            if endpoint is not None and owns_endpoint:
                 endpoint.close()
 
     def _schedule_snapshot(self, *, now: float) -> None:
@@ -291,11 +289,21 @@ class OperatorSession:
                     for key, value in request.kwargs.items()
                 },
             }
-            envelope = endpoint.send(
-                "operator_intent",
-                target_id=self.controller_id,
-                payload=payload,
-            )
+            try:
+                envelope = endpoint.send(
+                    "operator_intent",
+                    target_id=self.controller_id,
+                    payload=payload,
+                )
+            except Exception:
+                # Discovery can report a graph as ready immediately before the
+                # selected Controller boot disappears. Preserve the unsent
+                # request so the next cycle can retry it or expire it normally.
+                with self._lock:
+                    live = self._requests.get(request_id)
+                    if live is not None and live.sent_at is None:
+                        self._outbox.appendleft(request_id)
+                raise
             with self._lock:
                 live = self._requests.get(request_id)
                 if live is not None:
@@ -321,7 +329,7 @@ class OperatorSession:
                 self._complete(
                     request_id,
                     ok=False,
-                    error=str(payload.get("reason", "router rejected operator request")),
+                    error=str(payload.get("reason", "DDS peer rejected operator request")),
                     now=now,
                 )
 

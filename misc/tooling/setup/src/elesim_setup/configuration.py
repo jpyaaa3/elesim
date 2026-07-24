@@ -1,38 +1,23 @@
-"""Generate deployment-owned YAML from one explicit network profile."""
+"""Generate deployment-owned YAML and DDS middleware configuration."""
 
 from __future__ import annotations
 
-import ipaddress
+import re
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
 
-from .state import InstallState
+from .state import DdsSettings, InstallState
 
 
 GENERATED_CONFIG = "installed.yaml"
 GENERATED_RUNTIME = "runtime.installed.yaml"
 GENERATED_APP = "app.installed.yaml"
-
-
-def tcp_endpoint(host: str, port: int) -> str:
-    value = str(host).strip()
-    if value.startswith("[") and value.endswith("]"):
-        value = value[1:-1]
-    rendered = f"[{value}]" if ":" in value else value
-    return f"tcp://{rendered}:{int(port)}"
-
-
-def host_is_loopback(host: str) -> bool:
-    value = str(host).strip().lower().removeprefix("[").removesuffix("]")
-    if value == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
+GENERATED_DDS = "cyclonedds.xml"
+_INVALID_ROS_NAME = re.compile(r"[^a-z0-9_]+")
 
 
 def role_directory(state: InstallState, role: str) -> Path:
@@ -50,61 +35,50 @@ def generated_app_config_path(state: InstallState, role: str) -> Path:
     return role_directory(state, role) / "config" / GENERATED_APP
 
 
-def credentials_for_role(state: InstallState, role: str) -> tuple[Path, ...]:
-    root = state.security.root
-    if state.security.mode != "curve" or root is None:
-        return ()
-    router_public = root / "curve/router/router.key"
-    if role == "router":
-        values = (
-            root / "curve/router/router.key_secret",
-            root / "curve/authorized",
-            root / "curve/endpoints.yaml",
-        )
-        return values + ((root / "turn.secret",) if state.network.turn_urls else ())
-    if role == "controller":
-        return (
-            root / f"curve/clients/{state.network.controller_id}.key_secret",
-            router_public,
-        )
-    if role == "ui":
-        return (root / "curve/clients/ui-main.key_secret", router_public)
-    if role == "simulator":
-        return (
-            root / f"curve/clients/{state.network.simulator_id}.key_secret",
-            router_public,
-            root / "curve/media/simulator-media.key_secret",
-            root / "curve/media-authorized",
-        )
-    if role == "robot":
-        return (
-            root / "curve/clients/robot-go2.key_secret",
-            router_public,
-            root / "curve/media/robot-media.key_secret",
-            root / "curve/media-authorized",
-        )
-    raise ValueError(f"unknown role: {role}")
+def generated_dds_config_path(state: InstallState, role: str) -> Path:
+    return role_directory(state, role) / "config" / GENERATED_DDS
 
 
-def missing_credentials(state: InstallState) -> tuple[Path, ...]:
-    missing: list[Path] = []
-    for role in state.roles:
-        for path in credentials_for_role(state, role):
-            if not path.exists() and path not in missing:
-                missing.append(path)
-    return tuple(missing)
+def dds_node_key(state: InstallState, role: str) -> str:
+    values = {
+        "controller": state.network.controller_id,
+        "simulator": state.network.simulator_id,
+        "ui": "ui-main",
+        "robot": "robot-go2",
+        "doctor": "doctor-main",
+    }
+    try:
+        raw = values[role]
+    except KeyError as exc:
+        raise ValueError(f"unknown role: {role}") from exc
+    key = _INVALID_ROS_NAME.sub("_", str(raw).strip().lower().replace("-", "_"))
+    key = key.strip("_")
+    if not key:
+        raise ValueError(f"{role} endpoint ID cannot form a ROS node key")
+    if not key[0].isalpha():
+        key = f"node_{key}"
+    return key[:63]
+
+
+def dds_enclave(state: InstallState, role: str) -> str:
+    base = state.dds.enclave.rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/{dds_node_key(state, role)}"
+
+
+def rgbd_topic(state: InstallState, role: str) -> str:
+    return f"/{state.dds.system_id}/{dds_node_key(state, role)}/rgbd/frame"
 
 
 def generate_role_configs(state: InstallState) -> dict[str, Path]:
-    """Write only the installed copies; source-tree defaults remain untouched."""
+    """Write only installed copies; source-tree defaults remain untouched."""
 
-    state.validate()
+    state.require_runnable_dds()
     written: dict[str, Path] = {}
     for role in state.roles:
         destination = generated_config_path(state, role)
-        if role == "router":
-            payload = _router_config(state, destination.parent / "default.yaml")
-        elif role == "controller":
+        if role == "controller":
             payload = _controller_config(state, destination.parent / "runtime.yaml")
         elif role == "ui":
             payload = _ui_config(state, destination.parent / "default.yaml")
@@ -119,6 +93,10 @@ def generate_role_configs(state: InstallState) -> dict[str, Path]:
         else:
             raise ValueError(f"unknown role: {role}")
         _write_yaml(destination, payload)
+        _write_cyclonedds(
+            generated_dds_config_path(state, role),
+            state.dds,
+        )
         written[role] = destination
     return written
 
@@ -135,6 +113,11 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 def _write_yaml(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rendered = yaml.safe_dump(dict(payload), sort_keys=False, allow_unicode=True)
+    _atomic_text(path, rendered)
+
+
+def _atomic_text(path: Path, rendered: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",
@@ -147,122 +130,119 @@ def _write_yaml(path: Path, payload: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
-def _security_client(state: InstallState, endpoint_id: str) -> dict[str, Any]:
-    root = state.security.root
-    if state.security.mode == "curve" and root is not None:
-        return {
-            "router_client_secret_file": str(root / f"curve/clients/{endpoint_id}.key_secret"),
-            "router_server_public_file": str(root / "curve/router/router.key"),
-            "allow_insecure_remote": False,
-        }
-    return {
-        "router_client_secret_file": "",
-        "router_server_public_file": "",
-        "allow_insecure_remote": state.security.allow_insecure_remote,
-    }
-
-
-def _router_config(state: InstallState, source: Path) -> dict[str, Any]:
-    raw = _read_yaml(source)
-    remote = not host_is_loopback(state.network.router_host)
-    raw["router"] = {
-        "bind_endpoint": tcp_endpoint("0.0.0.0" if remote else "127.0.0.1", state.network.router_port),
-        "heartbeat_timeout_s": float((raw.get("router") or {}).get("heartbeat_timeout_s", 3.5)),
-    }
-    root = state.security.root
-    if state.security.mode == "curve" and root is not None:
-        raw["security"] = {
-            "curve_server_secret_file": str(root / "curve/router/router.key_secret"),
-            "curve_public_keys_dir": str(root / "curve/authorized"),
-            "endpoint_registry_file": str(root / "curve/endpoints.yaml"),
-            "allow_insecure_remote": False,
-        }
-    else:
-        raw["security"] = {
-            "curve_server_secret_file": "",
-            "curve_public_keys_dir": "",
-            "endpoint_registry_file": "",
-            "allow_insecure_remote": state.security.allow_insecure_remote,
-        }
-    turn = dict(raw.get("turn") or {})
-    turn["urls"] = list(state.network.turn_urls)
-    turn["static_auth_secret_file"] = (
-        str(root / "turn.secret") if root is not None and state.network.turn_urls else ""
+def _dds_payload(state: InstallState, role: str) -> dict[str, Any]:
+    vendor_config = (
+        "/opt/elesim/config/cyclonedds.xml"
+        if state.install_mode == "container"
+        else str(generated_dds_config_path(state, role))
     )
-    raw["turn"] = turn
-    return raw
+    return {
+        "system_id": state.dds.system_id,
+        "node_key": dds_node_key(state, role),
+        "domain_id": state.dds.domain_id,
+        "rmw_implementation": state.dds.rmw_implementation,
+        "discovery_mode": state.dds.discovery_mode,
+        "static_peers": list(state.dds.static_peers),
+        "network_interface": state.dds.interface,
+        "vendor_config": vendor_config,
+        "security_profile": state.dds.security_profile,
+        "keystore": state.dds.keystore,
+        "enclave": dds_enclave(state, role),
+    }
 
 
 def _controller_config(state: InstallState, source: Path) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
+    runtime.pop("server_endpoint", None)
     runtime.update(
         {
             "role": "controller",
             "endpoint_id": state.network.controller_id,
-            "server_endpoint": tcp_endpoint(state.network.router_host, state.network.router_port),
             "active_target": state.network.simulator_id,
         }
     )
     raw["runtime"] = runtime
-    security = _security_client(state, state.network.controller_id)
-    root = state.security.root
-    security["media_client_secret_file"] = (
-        str(root / f"curve/clients/{state.network.controller_id}.key_secret")
-        if state.security.mode == "curve" and root is not None
-        else ""
-    )
-    raw["security"] = security
+    raw["dds"] = _dds_payload(state, "controller")
+    raw.pop("security", None)
     return raw
 
 
 def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
+    runtime.pop("server_endpoint", None)
     runtime.update(
         {
             "endpoint_id": "ui-main",
             "controller_id": state.network.controller_id,
             "simulator_id": state.network.simulator_id,
-            "server_endpoint": tcp_endpoint(state.network.router_host, state.network.router_port),
         }
     )
     raw["runtime"] = runtime
-    raw["security"] = _security_client(state, "ui-main")
+    raw["dds"] = _dds_payload(state, "ui")
+    raw.pop("security", None)
     return raw
 
 
 def _simulator_config(state: InstallState, source: Path) -> dict[str, Any]:
     raw = _read_yaml(source)
-    remote_media = not host_is_loopback(state.network.advertise_host)
-    raw["runtime"] = {
-        "role": "simulator",
-        "endpoint_id": state.network.simulator_id,
-        "server_endpoint": tcp_endpoint(state.network.router_host, state.network.router_port),
-        "streams": {
-            "rgbd_bind": tcp_endpoint("0.0.0.0" if remote_media else "127.0.0.1", state.network.rgbd_port),
-            "rgbd_advertise": tcp_endpoint(state.network.advertise_host, state.network.rgbd_port),
-            "observer_bind": "tcp://127.0.0.1:5569",
-            "observer_advertise": "tcp://127.0.0.1:5569",
-        },
-    }
-    security = _security_client(state, state.network.simulator_id)
-    root = state.security.root
-    security.update(
+    runtime = dict(raw.get("runtime") or {})
+    runtime.pop("server_endpoint", None)
+    streams = dict(runtime.get("streams") or {})
+    for key in (
+        "rgbd_bind",
+        "rgbd_advertise",
+        "observer_bind",
+        "observer_advertise",
+    ):
+        streams.pop(key, None)
+    streams.update(
         {
-            "media_server_secret_file": (
-                str(root / "curve/media/simulator-media.key_secret")
-                if state.security.mode == "curve" and root is not None
-                else ""
+            "rgbd_topic": rgbd_topic(state, "simulator"),
+            "observer": (
+                f"webrtc://{state.dds.system_id}/"
+                f"{dds_node_key(state, 'simulator')}/observer"
             ),
-            "media_client_public_keys_dir": (
-                str(root / "curve/media-authorized")
-                if state.security.mode == "curve" and root is not None
-                else ""
+            "hand_eye_preview": (
+                f"webrtc://{state.dds.system_id}/"
+                f"{dds_node_key(state, 'simulator')}/hand_eye_preview"
             ),
         }
     )
-    raw["security"] = security
+    runtime.update(
+        {
+            "role": "simulator",
+            "endpoint_id": state.network.simulator_id,
+            "streams": streams,
+        }
+    )
+    raw["runtime"] = runtime
+    raw["dds"] = _dds_payload(state, "simulator")
+    raw.pop("security", None)
+    turn = dict(raw.get("turn") or {})
+    turn["urls"] = list(state.network.turn_urls)
+    if state.turn.managed and state.turn.secret_path is not None:
+        turn["realm"] = state.turn.realm
+        turn["static_auth_secret_file"] = (
+            "/run/secrets/turn.secret"
+            if state.install_mode == "container"
+            else str(state.turn.secret_path)
+        )
+        turn.pop("credential_file", None)
+    elif state.turn.mode == "external" and state.turn.credential_path is not None:
+        turn.pop("realm", None)
+        turn.pop("static_auth_secret_file", None)
+        turn["credential_file"] = (
+            "/run/secrets/turn.credentials.json"
+            if state.install_mode == "container"
+            else str(state.turn.credential_path)
+        )
+    else:
+        turn.pop("realm", None)
+        turn.pop("static_auth_secret_file", None)
+        turn.pop("credential_file", None)
+    raw["turn"] = turn
     return raw
 
 
@@ -286,52 +266,64 @@ def _simulator_app_config(state: InstallState) -> dict[str, Any]:
 def _robot_config(state: InstallState, source: Path) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
-    runtime.update(
-        {
-            "endpoint_id": "robot-go2",
-            "server_endpoint": tcp_endpoint(state.network.router_host, state.network.router_port),
-        }
-    )
+    runtime.pop("server_endpoint", None)
+    runtime.update({"endpoint_id": "robot-go2"})
     raw["runtime"] = runtime
     camera = dict(raw.get("camera") or {})
-    remote_media = not host_is_loopback(state.network.advertise_host)
-    camera.update(
-        {
-            "bind": tcp_endpoint("0.0.0.0" if remote_media else "127.0.0.1", state.network.rgbd_port),
-            "advertise": tcp_endpoint(state.network.advertise_host, state.network.rgbd_port),
-        }
-    )
+    camera.pop("bind", None)
+    camera.pop("advertise", None)
+    camera["topic"] = rgbd_topic(state, "robot")
     raw["camera"] = camera
-    security = _security_client(state, "robot-go2")
-    root = state.security.root
-    security.update(
-        {
-            "media_server_secret_file": (
-                str(root / "curve/media/robot-media.key_secret")
-                if state.security.mode == "curve" and root is not None
-                else ""
-            ),
-            "media_client_public_keys_dir": (
-                str(root / "curve/media-authorized")
-                if state.security.mode == "curve" and root is not None
-                else ""
-            ),
-        }
-    )
-    raw["security"] = security
+    raw["dds"] = _dds_payload(state, "robot")
+    raw.pop("security", None)
     return raw
 
 
+def _write_cyclonedds(path: Path, dds: DdsSettings) -> None:
+    root = ET.Element("CycloneDDS")
+    domain = ET.SubElement(root, "Domain", {"id": str(dds.domain_id)})
+    general = ET.SubElement(domain, "General")
+    ET.SubElement(general, "AllowMulticast").text = (
+        "true" if dds.discovery_mode == "multicast" else "false"
+    )
+    if dds.interface:
+        interfaces = ET.SubElement(general, "Interfaces")
+        ET.SubElement(
+            interfaces,
+            "NetworkInterface",
+            {"name": dds.interface, "automatic": "false"},
+        )
+    discovery = ET.SubElement(domain, "Discovery")
+    ET.SubElement(discovery, "ParticipantIndex").text = "auto"
+    if dds.static_peers:
+        peers = ET.SubElement(discovery, "Peers")
+        for peer in dds.static_peers:
+            ET.SubElement(peers, "Peer", {"Address": peer})
+    ET.indent(root, space="  ")
+    rendered = ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
+    _atomic_text(path, rendered)
+
+
+def write_cyclonedds_config(path: Path, dds: DdsSettings) -> Path:
+    """Write a validated CycloneDDS vendor config for non-role environments."""
+
+    dds.validate()
+    _write_cyclonedds(path, dds)
+    return path
+
+
 __all__ = [
-    "GENERATED_CONFIG",
     "GENERATED_APP",
+    "GENERATED_CONFIG",
+    "GENERATED_DDS",
     "GENERATED_RUNTIME",
-    "credentials_for_role",
+    "dds_enclave",
+    "dds_node_key",
     "generate_role_configs",
     "generated_app_config_path",
     "generated_config_path",
-    "host_is_loopback",
-    "missing_credentials",
+    "generated_dds_config_path",
+    "rgbd_topic",
     "role_directory",
-    "tcp_endpoint",
+    "write_cyclonedds_config",
 ]

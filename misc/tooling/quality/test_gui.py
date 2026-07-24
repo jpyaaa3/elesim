@@ -33,7 +33,6 @@ from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_
 
 TEST_ROOTS = (
     ROOT / "packages/protocol/tests",
-    ROOT / "router/tests",
     ROOT / "controller/tests",
     ROOT / "robot/tests",
     ROOT / "simulator/tests",
@@ -45,7 +44,6 @@ TEST_ROOTS = (
 )
 SOURCE_ROOTS = (
     ROOT / "packages/protocol/src",
-    ROOT / "router/src",
     ROOT / "controller/src",
     ROOT / "robot/src",
     ROOT / "simulator/src",
@@ -59,7 +57,7 @@ DESCRIPTION_H = 320.0
 ERROR_SUMMARY_H = 220.0
 MAX_LOG_LINES = 4000
 PYTEST_LOCATION_RE = re.compile(
-    r"^(?:packages|router|controller|robot|simulator|ui|misc/tooling)/.+\.py:\d+(?::|$)"
+    r"^(?:packages|controller|robot|simulator|ui|misc/tooling)/.+\.py:\d+(?::|$)"
 )
 
 
@@ -231,8 +229,7 @@ TEST_GROUPS = (
 )
 
 TEST_GROUPS += (
-    TestCaseGroup("프로토콜", _under("packages/protocol/tests/"), "v3 envelope, 직렬화와 transport 계약을 확인합니다."),
-    TestCaseGroup("라우터", _under("router/tests/"), "등록, discovery, lease와 role 기반 forwarding을 확인합니다."),
+    TestCaseGroup("프로토콜", _under("packages/protocol/tests/"), "v5 DDS 계약, peer discovery와 target-owned authority를 확인합니다."),
     TestCaseGroup("로봇", _under("robot/tests/"), "Jetson I/O 경계, q 명령과 local safety를 확인합니다."),
     TestCaseGroup("시뮬레이터", _under("simulator/tests/"), "Genesis adapter, model bundle과 virtual endpoint 계약을 확인합니다."),
     TestCaseGroup("UI", _under("ui/tests/"), "UI가 controller 구현 없이 operator protocol만 사용하는지 확인합니다."),

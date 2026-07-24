@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run Look -> Aim -> Grasp (guided) against sim mock object.
 
-Requires elesim-router + elesim-simulator + elesim-controller and perception mode=mock.
+Requires elesim-simulator on the configured DDS graph and perception mode=mock.
+This tool starts its own Controller participant.
 
 Example:
   python misc/tooling/debug/run_grasp_guided_mock.py --object 0.5 0.0 1.2
@@ -14,14 +15,12 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from elesim_controller.robot.arm import ik as ik_pipeline
-from elesim_controller.config import load_runtime_role_config
-from elesim_controller.pick import ControlClient, ControlService, PanelState
 from elesim_controller.vision.pick.core import ObjectPickPhase
 
 
@@ -34,7 +33,7 @@ def _parse_phases(raw: str) -> list[str]:
     return out or ["look", "aim", "grasp"]
 
 
-def _wait_pick_done(service: ControlService, *, timeout_s: float, label: str) -> bool:
+def _wait_pick_done(service: Any, *, timeout_s: float, label: str) -> bool:
     deadline = time.time() + float(max(timeout_s, 1.0))
     while time.time() < deadline:
         phase = str(service.state.pick_phase)
@@ -66,23 +65,16 @@ def main() -> int:
     )
     ap.add_argument("--timeout", type=float, default=600.0, help="per-phase timeout [s]")
     args = ap.parse_args()
+    from misc.tooling.controller_runtime import start_tool_controller
+
     phases = _parse_phases(str(args.phases))
     object_xyz = tuple(float(v) for v in args.object)
 
-    bundle, ik_context = ik_pipeline.load_solver_context(str(args.config))
-    runtime = load_runtime_role_config(ROOT / "controller/config/runtime.yaml")
-    client = ControlClient(runtime.bind_endpoint)
-    state = PanelState()
-    service = ControlService(
-        state,
-        client=client,
-        mapping_cfg=bundle.mapping_config,
-        ik_cfg=bundle.ik_config,
-        ik_context=ik_context,
-        config_path=str(args.config),
-        perception_cfg=bundle.perception_config,
-        pick_cfg=bundle.pick_config,
+    service = start_tool_controller(
+        str(args.config),
+        runtime_config_path=ROOT / "controller/config/runtime.yaml",
     )
+    bundle = service.bundle
     if str(bundle.perception_config.mode).strip().lower() != "mock":
         print(
             "[mock-grasp] warning: perception mode is not 'mock' in the controller config - "
@@ -92,7 +84,10 @@ def main() -> int:
     try:
         host_state = service.refresh_host_state()
         if host_state is None or not host_state.connected:
-            print("[mock-grasp] target not connected - start router, simulator, and controller first")
+            print(
+                "[mock-grasp] target not connected - start simulator and controller "
+                "on the same DDS graph first"
+            )
             return 1
 
         service.set_mock_object_world(*object_xyz)

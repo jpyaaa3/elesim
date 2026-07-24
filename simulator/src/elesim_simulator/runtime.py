@@ -2134,29 +2134,16 @@ class RuntimePrep:
             from elesim_simulator.vision.sim_camera import SimCameraPublisher
 
             a.sim_scene.camera_publisher = SimCameraPublisher(
-                str(a.cfg.sim_camera_port),
-                use_jpeg=bool(a.cfg.sim_camera_jpeg),
-                jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
-                curve=a.media_curve,
-                curve_client_keys_dir=a.media_curve_client_keys_dir,
-                allow_insecure_remote=a.allow_insecure_remote_media,
+                a.rgbd_topic,
+                endpoint_id=a.rgbd_endpoint_id,
+                boot_id=a.rgbd_boot_id,
+                settings=a.dds_settings,
             )
 
         if observer_camera is not None:
             a.sim_scene.observer_camera = observer_camera
-            from elesim_simulator.vision.sim_camera import SimCameraPublisher
-
-            a.sim_scene.observer_camera_publisher = SimCameraPublisher(
-                str(a.cfg.sim_observer_camera_port),
-                use_jpeg=bool(a.cfg.sim_observer_camera_jpeg),
-                jpeg_quality=int(a.cfg.sim_observer_camera_jpeg_quality),
-                send_depth=False,
-                curve=a.media_curve,
-                curve_client_keys_dir=a.media_curve_client_keys_dir,
-                allow_insecure_remote=a.allow_insecure_remote_media,
-            )
             print(
-                "[sim_camera] observer view | res=%dx%d pos=%s lookat=%s"
+                "[sim_camera] observer WebRTC source | res=%dx%d pos=%s lookat=%s"
                 % (
                     int(a.cfg.sim_observer_camera_width),
                     int(a.cfg.sim_observer_camera_height),
@@ -2295,7 +2282,7 @@ class SimRuntime:
         base_rpy = a.state_source.go2_base_rpy()
         leg_q = a.state_source.go2_leg_q()
         go2_vel = a.state_source.go2_vel()
-        endpoint = "protocol-v4"
+        endpoint = "dds-v5"
         if age is None:
             link_txt = "no host state yet"
         else:
@@ -2622,9 +2609,10 @@ class GenesisApp:
         frame_hub: Optional[Any] = None,
         operator_mailbox: Optional[Any] = None,
         simulation_status_publisher: Optional[Any] = None,
-        media_curve: Optional[Any] = None,
-        media_curve_client_keys_dir: str = "",
-        allow_insecure_remote_media: bool = False,
+        dds_settings: Optional[Any] = None,
+        rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
+        rgbd_endpoint_id: str = "sim-default",
+        rgbd_boot_id: str = "",
     ):
         self.params = params if params is not None else SimParam()
         self.cfg = cfg if cfg is not None else SimConfig()
@@ -2646,9 +2634,17 @@ class GenesisApp:
         self.feedback_pub = feedback_publisher
         self.operator_mailbox = operator_mailbox
         self.simulation_status_publisher = simulation_status_publisher
-        self.media_curve = media_curve
-        self.media_curve_client_keys_dir = str(media_curve_client_keys_dir)
-        self.allow_insecure_remote_media = bool(allow_insecure_remote_media)
+        self.dds_settings = dds_settings
+        self.rgbd_topic = (
+            str(rgbd_topic).strip()
+            or "/elesim/sim_default/rgbd/frame"
+        )
+        self.rgbd_endpoint_id = str(rgbd_endpoint_id)
+        self.rgbd_boot_id = str(rgbd_boot_id)
+        if self.cfg.sim_camera_enable and not self.rgbd_topic.startswith("/"):
+            raise ValueError(
+                "simulated RGB-D requires an absolute DDS rgbd_topic"
+            )
 
     def _apply_ideal_rates_if_needed(self) -> None:
         if self.layout.control_mode != "commanded":
@@ -2706,10 +2702,10 @@ def run_runtime(
     frame_hub: Optional[Any] = None,
     operator_mailbox: Optional[Any] = None,
     simulation_status_publisher: Optional[Any] = None,
-    media_curve: Optional[Any] = None,
-    media_curve_client_keys_dir: str = "",
-    media_bind_endpoints: Optional[dict[str, str]] = None,
-    allow_insecure_remote_media: bool = False,
+    dds_settings: Optional[Any] = None,
+    rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
+    rgbd_endpoint_id: str = "sim-default",
+    rgbd_boot_id: str = "",
 ) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -2742,14 +2738,6 @@ def run_runtime(
     bundle = load_app_config(args.config)
     sim_cfg = _select_compute_backend(bundle.sim_config, force_cpu=bool(args.cpu))
     spawn_cfg = bundle.spawn_config
-    media_binds = dict(media_bind_endpoints or {})
-    if str(media_binds.get("rgbd", "")).strip():
-        sim_cfg = replace(sim_cfg, sim_camera_port=str(media_binds["rgbd"]).strip())
-    if str(media_binds.get("observer", "")).strip():
-        sim_cfg = replace(
-            sim_cfg,
-            sim_observer_camera_port=str(media_binds["observer"]).strip(),
-        )
     if str(model_bundle).strip():
         sim_cfg = replace(
             sim_cfg,
@@ -2799,9 +2787,10 @@ def run_runtime(
         frame_hub=frame_hub,
         operator_mailbox=operator_mailbox,
         simulation_status_publisher=simulation_status_publisher,
-        media_curve=media_curve,
-        media_curve_client_keys_dir=media_curve_client_keys_dir,
-        allow_insecure_remote_media=allow_insecure_remote_media,
+        dds_settings=dds_settings,
+        rgbd_topic=rgbd_topic,
+        rgbd_endpoint_id=rgbd_endpoint_id,
+        rgbd_boot_id=rgbd_boot_id,
     )
     app.run()
 

@@ -18,7 +18,7 @@ def test_client_is_disconnected_until_target_telemetry_arrives() -> None:
     client = ControlClient(cfg=SimMappingConfig())
     assert client.get_state().connected is False
 
-    client.router_connected(True)
+    client.peer_connected(True)
     client.target_changed("robot-a")
     client.accept_telemetry({"q": [0.0, 0.0, 0.0, 0.0]})
     assert client.get_state().connected is True

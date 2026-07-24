@@ -9,10 +9,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from elesim_protocol import (
-    CurveClientConfig,
+    DdsRuntimeSettings,
     MEDIA_KIND_RGBD,
-    MEDIA_SECURITY_CURVE,
-    MEDIA_TRANSPORT_ZMQ,
+    MEDIA_TRANSPORT_DDS,
     MediaStreamDescriptor,
 )
 
@@ -34,13 +33,11 @@ class _ControlFacade:
         service,
         connection: ControllerConnection,
         *,
-        media_client_secret_file: str = "",
-        allow_insecure_remote: bool = False,
+        dds_settings: DdsRuntimeSettings,
     ) -> None:
         self._service = service
         self._connection = connection
-        self._media_client_secret_file = str(media_client_secret_file)
-        self._allow_insecure_remote = bool(allow_insecure_remote)
+        self._dds_settings = dds_settings
 
     def __getattr__(self, name):
         return getattr(self._service, name)
@@ -54,29 +51,23 @@ class _ControlFacade:
         if not isinstance(raw_stream, dict):
             return
         stream = MediaStreamDescriptor.from_dict(raw_stream)
-        if stream.transport != MEDIA_TRANSPORT_ZMQ or stream.media_kind != MEDIA_KIND_RGBD:
-            raise ValueError("target rgbd stream must be ZMQ RGB-D media")
-        if stream.security == MEDIA_SECURITY_CURVE and not self._media_client_secret_file:
-            raise ValueError("target rgbd stream requires a media CURVE client certificate")
+        if stream.transport != MEDIA_TRANSPORT_DDS or stream.media_kind != MEDIA_KIND_RGBD:
+            raise ValueError("target rgbd stream must be a DDS RGB-D topic")
         current = self._service._perception_cfg
         updated = replace(
             current,
             mode="sim",
             provider="local",
             run_local=True,
-            sim_camera_port=stream.endpoint,
-            sim_camera_curve_client_secret_file=(
-                self._media_client_secret_file
-                if stream.security == MEDIA_SECURITY_CURVE
-                else ""
-            ),
-            sim_camera_curve_server_key=stream.curve_server_key,
-            sim_camera_allow_insecure_remote=self._allow_insecure_remote,
+            sim_camera_topic=stream.endpoint,
+            sim_camera_dds_settings=self._dds_settings,
+            sim_camera_source_id=str(descriptor.get("endpoint_id", "")),
+            sim_camera_source_boot_id=str(descriptor.get("instance_id", "")),
         )
         self._service.update_perception_config(updated)
         print(
             f"[control_agent] RGBD source={stream.endpoint} "
-            f"target={descriptor.get('endpoint_id', '')} security={stream.security}"
+            f"target={descriptor.get('endpoint_id', '')} transport=DDS"
         )
 
     @property
@@ -92,7 +83,6 @@ def _run() -> None:
     parser = argparse.ArgumentParser(description="Elesim control computation agent")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
-    parser.add_argument("--server", default="")
     parser.add_argument("--id", default="")
     parser.add_argument("--target", default="")
     args = parser.parse_args()
@@ -100,36 +90,22 @@ def _run() -> None:
     role = load_runtime_role_config(args.runtime_config)
     if role.role != "controller":
         raise ValueError(f"runtime role must be controller, got {role.role!r}")
-    server_endpoint = str(args.server).strip() or role.server_endpoint
     controller_id = str(args.id).strip() or role.endpoint_id
     target_id = str(args.target).strip() or role.active_target
-    router_curve = None
-    if bool(role.router_client_secret_file) != bool(role.router_server_public_file):
-        raise ValueError("router CURVE client and server certificate paths must be configured together")
-    if role.router_client_secret_file:
-        router_curve = CurveClientConfig.from_files(
-            client_secret_file=role.router_client_secret_file,
-            server_public_file=role.router_server_public_file,
-        )
     link = ControlClient(cfg=bundle.mapping_config)
     connection = ControllerConnection(
-        server_endpoint=server_endpoint,
         controller_id=controller_id,
         mapping=bundle.mapping_config,
         initial_target=target_id,
         state_sink=link,
-        curve=router_curve,
-        allow_insecure_remote=role.allow_insecure_remote,
+        dds_settings=role.dds,
     )
     link.attach_sender(connection.submit)
     runtime = build_control_runtime(args.config, link)
     facade = _ControlFacade(
         runtime.service,
         connection,
-        media_client_secret_file=(
-            role.media_client_secret_file or role.router_client_secret_file
-        ),
-        allow_insecure_remote=role.allow_insecure_remote,
+        dds_settings=role.dds,
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)
     dispatcher = OperatorDispatcher(runtime.state, facade)
@@ -137,7 +113,10 @@ def _run() -> None:
     connection.operator_handler = dispatcher.handle
     connection.simulation_status_handler = simulation_sync.accept
     connection.start()
-    print(f"[control_agent] server={server_endpoint} target={target_id}")
+    print(
+        f"[control_agent] DDS system={role.dds.system_id} "
+        f"domain={role.dds.domain_id} target={target_id}"
+    )
     try:
         while True:
             time.sleep(0.25)

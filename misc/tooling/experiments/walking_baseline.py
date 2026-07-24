@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Walking baseline runner - control and sim agents must be pre-started."""
+"""Walking baseline runner; Simulator must be running and the tool owns Controller."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from elesim_controller.config import load_app_config, load_runtime_role_config
-from elesim_controller.pick import ControlClient, ControlService, PanelState
+from elesim_controller.config import load_app_config
 from elesim_controller.experiment.run_context import RunContext
 from elesim_controller.observability.walking_scenarios import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
 
@@ -47,33 +47,19 @@ def _trial_run_id(
     return f"{run_prefix}_{preset}_{motion}_{trial:03d}"
 
 
-def _connect_service(config_path: str) -> ControlService:
-    bundle = load_app_config(config_path)
-    client = ControlClient(
-        endpoint=load_runtime_role_config(ROOT / "controller/config/runtime.yaml").bind_endpoint,
-        cfg=bundle.mapping_config,
-    )
-    host = client.refresh_state()
-    if not host.connected:
-        raise SystemExit("target not reachable - start router, simulator, and controller first")
-    ownership_enable = False
-    if hasattr(bundle, "experiment_config"):
-        ownership_enable = bool(getattr(bundle.experiment_config, "ownership_enable", False))
-    service = ControlService(
-        PanelState(),
-        client=client,
-        mapping_cfg=bundle.mapping_config,
-        ik_cfg=bundle.ik_config,
-        config_path=config_path,
-        perception_cfg=bundle.perception_config,
-        pick_cfg=bundle.pick_config,
-        gaze_cfg=bundle.gaze_stabilizer_config,
-        ownership_enable=ownership_enable,
-    )
-    return service
+def _connect_service(config_path: str) -> Any:
+    from misc.tooling.controller_runtime import start_tool_controller
+
+    try:
+        return start_tool_controller(
+            config_path,
+            runtime_config_path=ROOT / "controller/config/runtime.yaml",
+        )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
-def _apply_preset(service: ControlService, preset: ArmPosePreset | str) -> None:
+def _apply_preset(service: Any, preset: ArmPosePreset | str) -> None:
     q = arm_pose_as_q(preset)
     service.state.set_q(*q)
     service.send_current_target(source="experiment", force=True)

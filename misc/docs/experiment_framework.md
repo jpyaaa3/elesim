@@ -6,19 +6,21 @@ live under `misc/tooling/experiments`; analysis-only commands live under
 
 ## Runtime Prerequisites
 
-Start the router, controller and selected robot or simulator deployment before
-running an interactive experiment. Source-workspace runs need these package
-roots on `PYTHONPATH`:
+Start Controller and the selected Robot or Simulator deployment before running
+an interactive experiment. UI is required only for interactive presentation.
+All processes must use the same DDS graph and security profile. Source-workspace
+runs first build and source the ROS interfaces:
 
 ```bash
-export PYTHONPATH="packages/protocol/src:router/src:controller/src:simulator/src"
-python3 -m elesim_router.main
+colcon build --packages-select elesim_interfaces
+source install/setup.bash
+export PYTHONPATH="controller/src:simulator/src"
 python3 -m elesim_controller.main --config controller/config/default.yaml
 python3 -m elesim_simulator.main --config simulator/config/default.yaml
 ```
 
-Installed release artifacts use the `elesim-router`, `elesim-controller` and
-`elesim-simulator` console commands instead.
+Installed release artifacts use the `elesim-controller` and
+`elesim-simulator` console commands instead. There is no Router process.
 
 ## Evidence
 
@@ -29,6 +31,6 @@ defaults.
 
 ## Test GUI
 
-`python3 misc/tooling/quality/test_gui.py` discovers tests across protocol,
-release projects and tooling. Its buttons reflect ownership rather than a single
-root `tests/` hierarchy.
+`python3 misc/tooling/quality/test_gui.py` discovers tests across ROS interfaces,
+release projects and tooling. Its buttons reflect ownership rather than a
+single root `tests/` hierarchy.

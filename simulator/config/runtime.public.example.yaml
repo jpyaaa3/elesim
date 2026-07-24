@@ -2,15 +2,25 @@ schema_version: 2
 runtime:
   role: simulator
   endpoint_id: sim-default
-  server_endpoint: tcp://127.0.0.1:5558
   streams:
-    rgbd_bind: tcp://0.0.0.0:5568
-    rgbd_advertise: tcp://sim.example.com:5568
-    observer_bind: tcp://127.0.0.1:5569
-    observer_advertise: tcp://127.0.0.1:5569
-security:
-  router_client_secret_file: /etc/elesim/secrets/curve/clients/sim-default.key_secret
-  router_server_public_file: /etc/elesim/secrets/curve/router/router.key
-  media_server_secret_file: /etc/elesim/secrets/curve/media/simulator-media.key_secret
-  media_client_public_keys_dir: /etc/elesim/secrets/curve/media-authorized
-  allow_insecure_remote: false
+    rgbd_topic: /elesim/sim_default/rgbd/frame
+    observer: webrtc://sim-default/observer
+    hand_eye_preview: webrtc://sim-default/hand_eye_preview
+dds:
+  system_id: elesim
+  domain_id: 42
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: static
+  static_peers:
+    - 10.10.0.2
+  network_interface: wg0
+  vendor_config: /etc/elesim/simulator/cyclonedds.xml
+  security_profile: sros2
+  keystore: /etc/elesim/sros2
+  enclave: /elesim/simulator
+turn:
+  urls:
+    - turn:sim.example.com:3478?transport=udp
+  realm: sim.example.com
+  static_auth_secret_file: /run/secrets/turn.secret
+  credential_file: ""

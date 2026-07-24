@@ -253,7 +253,7 @@ def loads_msg(buf: bytes) -> Dict[str, Any]:
     return json.loads(buf.decode("utf-8"))
 
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 MAX_ENVELOPE_BYTES = 1_048_576
 ENDPOINT_ROLES = frozenset({"controller", "robot", "simulator", "ui"})
 
@@ -264,32 +264,32 @@ CAPABILITY_STREAM_RGBD = "stream.rgbd"
 CAPABILITY_STREAM_OBSERVER = "stream.observer"
 CAPABILITY_STREAM_HAND_EYE_PREVIEW = "stream.hand_eye_preview"
 
-MEDIA_TRANSPORT_ZMQ = "zmq"
+MEDIA_TRANSPORT_DDS = "dds"
 MEDIA_TRANSPORT_WEBRTC = "webrtc"
-MEDIA_TRANSPORTS = frozenset({MEDIA_TRANSPORT_ZMQ, MEDIA_TRANSPORT_WEBRTC})
+MEDIA_TRANSPORTS = frozenset({MEDIA_TRANSPORT_DDS, MEDIA_TRANSPORT_WEBRTC})
 MEDIA_KIND_RGB = "rgb"
 MEDIA_KIND_RGBD = "rgbd"
 MEDIA_KINDS = frozenset({MEDIA_KIND_RGB, MEDIA_KIND_RGBD})
 MEDIA_SECURITY_NONE = "none"
-MEDIA_SECURITY_CURVE = "curve"
+MEDIA_SECURITY_DDS = "dds-security"
 MEDIA_SECURITY_DTLS_SRTP = "dtls-srtp"
 MEDIA_SECURITY_MODES = frozenset(
-    {MEDIA_SECURITY_NONE, MEDIA_SECURITY_CURVE, MEDIA_SECURITY_DTLS_SRTP}
+    {
+        MEDIA_SECURITY_NONE,
+        MEDIA_SECURITY_DDS,
+        MEDIA_SECURITY_DTLS_SRTP,
+    }
 )
 
 MESSAGE_TYPES = frozenset(
     {
-        "register",
-        "registered",
-        "heartbeat",
-        "heartbeat_ack",
         "discover",
         "endpoint_list",
         "operator_intent",
         "operator_result",
-        "ui_state",
         "select_target",
         "target_selected",
+        "renew_target",
         "release_target",
         "target_released",
         "target_lost",
@@ -302,6 +302,7 @@ MESSAGE_TYPES = frozenset(
         "simulation_session_opened",
         "simulation_session_granted",
         "simulation_session_revoked",
+        "renew_simulation_session",
         "close_simulation_session",
         "simulation_command",
         "simulation_result",
@@ -320,16 +321,15 @@ class ProtocolError(ValueError):
 class MediaStreamDescriptor:
     """A direct media stream advertised by an endpoint.
 
-    The router carries this metadata but never relays media payloads. ZMQ
-    streams can be loopback plaintext or CURVE protected. WebRTC streams are
-    always protected by DTLS-SRTP and use the router only for signaling.
+    RGB-D uses a typed DDS topic under the deployment security profile.
+    Observer and hand-eye video use WebRTC DTLS-SRTP; their offer/answer
+    signaling travels directly over DDS.
     """
 
     transport: str
     media_kind: str
     endpoint: str
     security: str
-    curve_server_key: str = ""
 
     def __post_init__(self) -> None:
         if self.transport not in MEDIA_TRANSPORTS:
@@ -341,22 +341,18 @@ class MediaStreamDescriptor:
             raise ProtocolError("media endpoint must contain 1..2048 non-whitespace characters")
         if self.security not in MEDIA_SECURITY_MODES:
             raise ProtocolError(f"unsupported media security mode: {self.security!r}")
-        key = str(self.curve_server_key).strip()
         if self.transport == MEDIA_TRANSPORT_WEBRTC:
             if self.media_kind != MEDIA_KIND_RGB:
                 raise ProtocolError("WebRTC streams currently support RGB media only")
             if self.security != MEDIA_SECURITY_DTLS_SRTP:
                 raise ProtocolError("WebRTC streams must use DTLS-SRTP security")
-            if key:
-                raise ProtocolError("WebRTC streams must not advertise a CURVE server key")
             return
-        if self.security == MEDIA_SECURITY_DTLS_SRTP:
-            raise ProtocolError("ZMQ streams cannot use DTLS-SRTP security")
-        if self.security == MEDIA_SECURITY_CURVE:
-            if len(key) != 40 or any(char.isspace() for char in key):
-                raise ProtocolError("CURVE server key must be a 40-character Z85 key")
-        elif key:
-            raise ProtocolError("plaintext media streams must not advertise a CURVE server key")
+        if self.transport == MEDIA_TRANSPORT_DDS:
+            if self.security not in {MEDIA_SECURITY_NONE, MEDIA_SECURITY_DDS}:
+                raise ProtocolError(
+                    "DDS streams must use plaintext trusted-network or DDS security"
+                )
+            return
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -364,7 +360,6 @@ class MediaStreamDescriptor:
             "media_kind": self.media_kind,
             "endpoint": self.endpoint,
             "security": self.security,
-            "curve_server_key": self.curve_server_key,
         }
 
     @classmethod
@@ -373,7 +368,7 @@ class MediaStreamDescriptor:
             raise ProtocolError("media stream descriptor must be an object")
         unknown = sorted(
             set(raw)
-            - {"transport", "media_kind", "endpoint", "security", "curve_server_key"}
+            - {"transport", "media_kind", "endpoint", "security"}
         )
         if unknown:
             raise ProtocolError("unknown media stream descriptor fields: " + ", ".join(unknown))
@@ -382,7 +377,6 @@ class MediaStreamDescriptor:
             media_kind=str(raw.get("media_kind", "")),
             endpoint=str(raw.get("endpoint", "")),
             security=str(raw.get("security", "")),
-            curve_server_key=str(raw.get("curve_server_key", "")),
         )
 
 
@@ -653,7 +647,6 @@ def pack_state(
     perception_failed: Optional[bool] = None,
     perception_status: Optional[str] = None,
     perception_source: Optional[str] = None,
-    perception_preview_endpoint: Optional[str] = None,
     perception_recording: Optional[bool] = None,
     perception_record_with_overlay: Optional[bool] = None,
     perception_last_record_path: Optional[str] = None,
@@ -763,8 +756,6 @@ def pack_state(
         out["perception_status"] = str(perception_status)
     if perception_source is not None:
         out["perception_source"] = str(perception_source)
-    if perception_preview_endpoint is not None:
-        out["perception_preview_endpoint"] = str(perception_preview_endpoint)
     if perception_recording is not None:
         out["perception_recording"] = bool(perception_recording)
     if perception_record_with_overlay is not None:

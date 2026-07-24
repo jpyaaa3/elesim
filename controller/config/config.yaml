@@ -12,7 +12,7 @@ simulation:
     realtime_factor: 1.0
     roll_rate: .inf
     substeps: 1
-    zmq_hwm: 1
+    queue_depth: 1
   runtime:
     enable_viewer: true
     floor: true
@@ -50,7 +50,7 @@ simulation:
       jpeg: true
       jpeg_quality: 75
       max_hz: 30.0
-      port: tcp://127.0.0.1:5568
+      topic: /elesim/simulator/rgbd/frame
       rgb: true
       width: 640
     observer:
@@ -64,7 +64,7 @@ simulation:
       - 0.0
       - 0.25
       max_hz: 20.0
-      port: tcp://127.0.0.1:5569
+      stream: webrtc://elesim/sim-default/observer
       pos:
       - 0.45
       - -1.8
@@ -75,11 +75,6 @@ simulation:
     log_enable: false
     log_interval_s: 2.0
     log_path: ''
-transport:
-  host:
-    control_endpoint: tcp://127.0.0.1:5558
-    feedback_endpoint: tcp://127.0.0.1:5567
-    simulation_endpoint: tcp://127.0.0.1:5566
 robot:
   arm:
     hardware:
@@ -341,12 +336,8 @@ vision:
       watchdog_min_frames: 8
       reacquire_on_lost: true
     publishing:
-      preview_bind: tcp://127.0.0.1:5570
-      preview_endpoint: tcp://127.0.0.1:5570
-      preview_jpeg_quality: 75
       publish_hz: 60.0
-      sim_camera_jpeg: true
-      sim_camera_port: tcp://127.0.0.1:5568
+      sim_camera_topic: /elesim/simulator/rgbd/frame
     detector:
       detector: config
       detector_config: perception/detector.sim_hsv.json

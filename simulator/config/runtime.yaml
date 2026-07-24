@@ -2,13 +2,23 @@ schema_version: 2
 runtime:
   role: simulator
   endpoint_id: sim-default
-  server_endpoint: tcp://127.0.0.1:5558
   streams:
-    rgbd_advertise: tcp://127.0.0.1:5568
-    observer_advertise: tcp://127.0.0.1:5569
-security:
-  router_client_secret_file: ""
-  router_server_public_file: ""
-  media_server_secret_file: ""
-  media_client_public_keys_dir: ""
-  allow_insecure_remote: false
+    rgbd_topic: /elesim/sim_default/rgbd/frame
+    observer: webrtc://sim-default/observer
+    hand_eye_preview: webrtc://sim-default/hand_eye_preview
+dds:
+  system_id: elesim
+  domain_id: 0
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast
+  static_peers: []
+  network_interface: lo
+  vendor_config: ""
+  security_profile: trusted-network
+  keystore: ""
+  enclave: ""
+turn:
+  urls: []
+  realm: ""
+  static_auth_secret_file: ""
+  credential_file: ""

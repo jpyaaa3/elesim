@@ -1,5 +1,18 @@
 """Versioned wire contract shared by independently deployed Elesim nodes."""
 
+from .authority import (
+    AuthorityError,
+    FenceDecision,
+    IdempotencyCache,
+    IdempotencyConflict,
+    LeaseDecision,
+    LeaseFence,
+    MotionLease,
+    MotionLeaseAuthority,
+    SessionDecision,
+    SimulationSession,
+    SimulationSessionAuthority,
+)
 from .messages import *  # noqa: F401,F403
 from .payloads import (
     CloseSimulationSessionRequest,
@@ -8,7 +21,6 @@ from .payloads import (
     OpenSimulationSessionRequest,
     OperatorIntentRequest,
     OperatorViewSnapshot,
-    RegisterRequest,
     SIMULATION_COMMANDS,
     SIMULATION_SCHEMA_VERSION,
     SIMULATION_STREAMS,
@@ -24,6 +36,15 @@ from .payloads import (
     WebRtcSignalPayload,
     validate_routed_payload,
 )
+from .peer import (
+    PeerAmbiguityError,
+    PeerDescriptor,
+    PeerDirectory,
+    PeerDirectoryError,
+    PeerError,
+    PeerHeartbeat,
+    PeerIdentity,
+)
 from .operator import (
     OPERATOR_OPERATIONS,
     OPERATOR_VIEW_SCHEMA_VERSION,
@@ -33,16 +54,17 @@ from .operator import (
     STATE_VALUES,
 )
 from .serde import decode_value, encode_value, state_snapshot
-from .security import (
-    CurveClientConfig,
-    CurveServerConfig,
-    TransportSecurityError,
-    configure_curve_client,
-    configure_curve_server,
-    endpoint_is_loopback,
-    require_curve_server_auth,
-    require_secure_remote,
+from .rgbd import (
+    DdsRgbdPublisher,
+    DdsRgbdSubscriber,
+    RgbdIntrinsicsSample,
+    RgbdSample,
 )
-from .transport import EndpointClient, EndpointSession, TransportError
+from .transport import (
+    DdsPeerNode,
+    DdsRuntimeSettings,
+    DdsTransportError,
+    PeerClient,
+)
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"

@@ -23,7 +23,6 @@ class RoleSpec:
 
 
 ROLE_SPECS: Mapping[str, RoleSpec] = {
-    "router": RoleSpec("elesim_router", "elesim_router.main", "elesim-router"),
     "controller": RoleSpec(
         "elesim_controller", "elesim_controller.main", "elesim-controller"
     ),
@@ -124,6 +123,13 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "Dockerfile")
     if role == "simulator":
         _require_path(release / "model/bundles/default/bundle.json")
+    _require_path(release / "interfaces/elesim_interfaces", kind="directory")
+    _require_path(release / "interfaces/elesim_interfaces/package.xml")
+    _require_path(release / "interfaces/elesim_interfaces/CMakeLists.txt")
+    _require_path(release / "interfaces/elesim_interfaces/msg/RgbdFrame.msg")
+    _require_path(
+        release / "interfaces/elesim_interfaces/srv/OpenSimulationSession.srv"
+    )
     return _release_wheels(release, role)
 
 
@@ -153,7 +159,7 @@ require_installed("elesim_protocol")
 require_installed(owned_package)
 
 siblings = {
-    "elesim_router", "elesim_controller", "elesim_ui", "elesim_robot", "elesim_simulator"
+    "elesim_controller", "elesim_ui", "elesim_robot", "elesim_simulator"
 } - {owned_package}
 visible = sorted(name for name in siblings if importlib.util.find_spec(name) is not None)
 if visible:

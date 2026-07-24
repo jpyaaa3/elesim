@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 
+from elesim_protocol import DdsRuntimeSettings
 from elesim_robot.camera.worker import CameraPublisherThread
 
 
@@ -33,7 +34,10 @@ class OneFrameCamera:
 
 def test_camera_thread_surfaces_background_start_failure() -> None:
     worker = CameraPublisherThread(
-        "inproc://unused",
+        "/elesim/test/rgbd/frame",
+        endpoint_id="robot-a",
+        boot_id="boot-a",
+        dds_settings=DdsRuntimeSettings(),
         width=640,
         height=480,
         fps=30,
@@ -52,23 +56,23 @@ def test_camera_thread_surfaces_background_start_failure() -> None:
     assert "camera unplugged" in status["error"]
 
 
-def test_camera_worker_forwards_media_security_to_the_publisher() -> None:
+def test_camera_worker_forwards_dds_identity_to_the_publisher() -> None:
     captured: dict[str, object] = {}
 
     def publisher_factory(_endpoint: str, **kwargs):
         captured.update(kwargs)
         return RecordingPublisher(**kwargs)
 
-    curve = object()
     worker = CameraPublisherThread(
-        "inproc://unused",
+        "/elesim/test/rgbd/frame",
+        endpoint_id="robot-a",
+        boot_id="boot-a",
+        dds_settings=DdsRuntimeSettings(domain_id=17),
         width=640,
         height=480,
         fps=30,
         camera_factory=lambda **_kwargs: OneFrameCamera(),
         publisher_factory=publisher_factory,
-        curve=curve,  # type: ignore[arg-type]
-        allow_insecure_remote=True,
     )
     worker.start()
     deadline = time.monotonic() + 1.0
@@ -76,5 +80,7 @@ def test_camera_worker_forwards_media_security_to_the_publisher() -> None:
         time.sleep(0.001)
     worker.stop()
 
-    assert captured["curve"] is curve
-    assert captured["allow_insecure_remote"] is True
+    assert captured["endpoint_id"] == "robot-a"
+    assert captured["boot_id"] == "boot-a"
+    assert captured["settings"] == DdsRuntimeSettings(domain_id=17)
+    assert captured["send_depth"] is True

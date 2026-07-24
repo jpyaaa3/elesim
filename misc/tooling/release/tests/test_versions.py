@@ -5,10 +5,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 PROJECTS = {
     "packages/protocol/pyproject.toml": "elesim-protocol",
-    "router/pyproject.toml": "elesim-router",
     "controller/pyproject.toml": "elesim-controller",
     "ui/pyproject.toml": "elesim-ui",
     "simulator/pyproject.toml": "elesim-simulator",
@@ -18,15 +17,14 @@ PROJECTS = {
 }
 INTERNAL_DEPENDENCIES = {
     "packages/protocol/pyproject.toml": (),
-    "router/pyproject.toml": ("elesim-protocol==0.2.1",),
-    "controller/pyproject.toml": ("elesim-protocol==0.2.1",),
-    "ui/pyproject.toml": ("elesim-protocol==0.2.1",),
-    "simulator/pyproject.toml": ("elesim-protocol==0.2.1",),
-    "robot/pyproject.toml": ("elesim-protocol==0.2.1",),
-    "misc/tooling/setup/pyproject.toml": ("elesim-protocol==0.2.1",),
+    "controller/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "ui/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "simulator/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "robot/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "misc/tooling/setup/pyproject.toml": ("elesim-protocol==0.3.0",),
     "misc/tooling/model_builder/pyproject.toml": (
-        "elesim-protocol==0.2.1",
-        "elesim-controller==0.2.1",
+        "elesim-protocol==0.3.0",
+        "elesim-controller==0.3.0",
     ),
 }
 EXPORTED_VERSIONS = (

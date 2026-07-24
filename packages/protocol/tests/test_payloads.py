@@ -6,7 +6,6 @@ import pytest
 
 from elesim_protocol import (
     OPERATOR_VIEW_SCHEMA_VERSION,
-    EndpointDescriptor,
     ProtocolError,
     STATE_VALUES,
     SERVICE_CALLS,
@@ -19,7 +18,6 @@ from elesim_protocol.payloads import (
     OpenSimulationSessionRequest,
     OperatorIntentRequest,
     OperatorViewSnapshot,
-    RegisterRequest,
     SelectTargetRequest,
     SimulationCommandRequest,
     SimulationResultPayload,
@@ -32,16 +30,6 @@ from elesim_protocol.payloads import (
     WebRtcSignalPayload,
     validate_routed_payload,
 )
-
-
-def test_register_requires_wire_instance_identity() -> None:
-    descriptor = EndpointDescriptor("robot-a", "robot", instance_id="instance-a")
-    parsed = RegisterRequest.from_payload({"endpoint": descriptor.to_dict()})
-    assert parsed.endpoint == descriptor
-
-    missing = EndpointDescriptor("robot-a", "robot")
-    with pytest.raises(ProtocolError, match="instance_id"):
-        RegisterRequest.from_payload({"endpoint": missing.to_dict()})
 
 
 def test_discovery_and_target_selection_are_typed() -> None:

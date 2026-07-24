@@ -22,7 +22,7 @@ def cancellation_reason(
 
 
 class SimulationWorkflowSync:
-    """Cancel controller workflows away from the router's receive thread."""
+    """Cancel controller workflows away from the DDS receive thread."""
 
     def __init__(self, service: Any, *, autostart: bool = True) -> None:
         self.service = service

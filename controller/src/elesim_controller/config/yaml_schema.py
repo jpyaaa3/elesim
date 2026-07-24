@@ -128,17 +128,6 @@ _register(
     _prefixed(SimConfig, "perf_"),
     strip_prefix="perf_",
 )
-_register(
-    "sim_config",
-    "transport.host",
-    {"host_ctrl_port", "host_sim_port", "host_feedback_port"},
-    aliases={
-        "host_ctrl_port": "control_endpoint",
-        "host_sim_port": "simulation_endpoint",
-        "host_feedback_port": "feedback_endpoint",
-    },
-)
-
 # Arm, world, and generated URDF.
 _register("hardware_config", "robot.arm.hardware", _field_names(HardwareConfig))
 _register("joint_limit", "robot.arm.model", _field_names(JointLimit))
@@ -178,18 +167,22 @@ _register("ik_config", "robot.arm.ik", _field_names(IkConfig))
 # Vision.
 _perception_tracking = _prefixed(PerceptionConfig, "track_") | {"reacquire_on_lost"}
 _perception_publish = {
-    "preview_bind",
-    "preview_endpoint",
-    "preview_jpeg_quality",
     "publish_hz",
-    "sim_camera_port",
-    "sim_camera_jpeg",
-    "sim_camera_curve_client_secret_file",
-    "sim_camera_curve_server_key",
-    "sim_camera_allow_insecure_remote",
+    "sim_camera_topic",
 }
 _perception_detector = {"detector_config", "detector", "target_label", "yolo_device", "pipeline"}
-_perception_runtime = _field_names(PerceptionConfig) - _perception_tracking - _perception_publish - _perception_detector
+_perception_runtime_injected = {
+    "sim_camera_dds_settings",
+    "sim_camera_source_id",
+    "sim_camera_source_boot_id",
+}
+_perception_runtime = (
+    _field_names(PerceptionConfig)
+    - _perception_tracking
+    - _perception_publish
+    - _perception_detector
+    - _perception_runtime_injected
+)
 _register(
     "perception_config",
     "vision.perception.tracking",
@@ -200,6 +193,10 @@ _register("perception_config", "vision.perception.tracking", {"reacquire_on_lost
 _register("perception_config", "vision.perception.publishing", _perception_publish)
 _register("perception_config", "vision.perception.detector", _perception_detector)
 _register("perception_config", "vision.perception.runtime", _perception_runtime)
+# These values are filled from the selected DDS peer descriptor at runtime.
+# Treating them as mapped would accidentally make process identity writable in
+# the static application YAML, so only mark them as intentionally owned here.
+_ASSIGNED["perception_config"].update(_perception_runtime_injected)
 
 # Pick workflow. Prefixes become explicit workflow subsections.
 _pick_groups = (

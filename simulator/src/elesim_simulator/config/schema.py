@@ -42,7 +42,6 @@ class SimConfig:
 
     hand_eye_config: str = ""
     sim_camera_enable: bool = True
-    sim_camera_port: str = "tcp://127.0.0.1:5568"
     sim_camera_jpeg: bool = True
     sim_camera_jpeg_quality: int = 85
     sim_camera_rgb: bool = True
@@ -53,7 +52,6 @@ class SimConfig:
     sim_camera_fov_deg: float = 60.0
 
     sim_observer_camera_enable: bool = True
-    sim_observer_camera_port: str = "tcp://127.0.0.1:5569"
     sim_observer_camera_jpeg: bool = True
     sim_observer_camera_jpeg_quality: int = 85
     sim_observer_camera_max_hz: float = 20.0

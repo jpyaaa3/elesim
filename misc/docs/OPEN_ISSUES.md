@@ -8,11 +8,32 @@
 
 This file tracks known unresolved or deferred issues so they do not get lost while higher-priority work continues.
 
-## Current Status (2026-07-22)
+## Current Status (2026-07-24)
 
 This section is authoritative for the deployment-based architecture. The long
 sections below it are retained as pre-refactor evidence; paths and test counts
 there are historical unless repeated here.
+
+### P0. Router-Free ROS 2/DDS Migration Needs Live Proof And Typed-Surface Follow-Up
+
+- Status: open for live validation and typed service/action binding. Router/ZMQ
+  removal, the direct DDS carrier, software-only contracts, and the
+  four-process CycloneDDS smoke are complete.
+- The final topology has no Router, ZMQ, CurveZMQ, CURVE key or ZAP policy.
+  Robot/Simulator own their motion leases, Simulator separately owns its UI
+  session, RGBD is DDS, WebRTC signaling is a reliable DDS request/reply
+  exchange, and WebRTC pixels remain DTLS/SRTP.
+- Control/signaling currently uses the bounded `PeerEnvelope` DDS message.
+  Typed service/action definitions are generated but not runtime-wired, so they
+  must not be presented as active interfaces.
+- Completed software evidence includes generated ROSIDL artifacts, four
+  Router-free release trees, protocol/setup and isolated role suites,
+  duplicate endpoint fail-closed behavior, restart identity handling,
+  target-owned lease/session expiry, stale sequence rejection, coherent RGBD,
+  two-stream negotiation, and one four-process real-RMW same-host smoke.
+- Required live evidence: one host, L2 multicast, routed static peers, routed
+  VPN, global IPv6, production SROS2 enforcement, loss/reorder, process kill,
+  Wi-Fi/VPN reconnect, and explicit rejection of NAT-only layouts.
 
 ### P0. Live Look-Aim-Grasp Convergence Is Not Proven
 
@@ -40,19 +61,20 @@ there are historical unless repeated here.
 ### P1. Multi-Host And Hardware Deployment Remain Manual Gates
 
 - Status: open.
-- The in-process five-process topology, separate motion/simulation leases,
-  reconnect, stale sequence handling, Curve configuration, dual WebRTC
-  signaling, media descriptors, and isolated wheels pass automatically.
-- Actual Wi-Fi/LAN routing, Jetson USB/serial behavior, ROS2/Unitree topics,
-  credential installation, clock skew, packet loss, and process restart timing
-  have not been exercised by this software-only gate.
+- Same-host tests do not prove DDS multicast/static-peer discovery, direct
+  user-data locators, vendor port mapping, QoS under loss, or SROS2 permissions.
+- Actual LAN/routed-VPN/global-IPv6 routing, Jetson USB/serial behavior,
+  ROS2/Unitree domain/context coexistence, clock skew, packet loss and process
+  restart timing have not been exercised by the live gate.
+- Ordinary IPv4 NAT, CGNAT and symmetric NAT are deliberately unsupported.
+  TURN relays WebRTC media only; it must never be presented as DDS traversal.
 
 ### P1. Remote Genesis Video And Control Need A Live Gate
 
 - Status: open.
-- Automated tests prove independent observer/hand-eye sessions, real aiortc
-  encoded-frame delivery, TURN credential refresh, and camera/physics command
-  delivery to the Simulator main-thread mailbox.
+- Existing tests prove independent observer/hand-eye media, Simulator
+  main-thread mailbox behavior, DDS session/signaling contracts, and a
+  same-host four-process DDS smoke.
 - They do not prove Genesis GPU offscreen capture, aiortc encode/decode latency,
   actual ICE selection, Coturn relay, or responsive orbit/pan/zoom on two real
   machines.
@@ -60,22 +82,22 @@ there are historical unless repeated here.
   live streams, pause/step/reset semantics, bounded command backlog and clean
   reconnect after either process restarts.
 
-### P1. Remote Setup Still Has Manual Service And Credential Steps
+### P1. DDS Security And Remote Setup Need Live Validation
 
 - Status: open; documented operational limitation.
-- Selecting TURN in the setup wizard generates the URL, static secret and
-  Coturn environment, but the generated `elesim-up` Compose project does not
-  start or stop the separate Coturn service.
-- A CURVE network doctor uses `doctor-main.key_secret`, but laptop role
-  credential validation currently requires only Controller/UI private keys and
-  the Router public key. The administrator must distribute the doctor key
-  explicitly before `elesim-net doctor` can register.
-- A server-side native Genesis Viewer also requires a manual X11 Compose
-  override and temporary `xhost` grant. Headless rendering remains the safe
-  default.
-- Required improvement: make optional Coturn lifecycle and doctor credential
-  requirements explicit installer products, with generated cleanup commands
-  and integration tests.
+- The wizard must generate consistent system/domain/RMW/discovery/interface
+  settings on every host, distinguish `trusted-network` from `sros2`, and
+  validate only the selected role's SROS2 enclave.
+- `trusted-network` has no DDS encryption and is acceptable only behind a
+  deliberate LAN/VPN interface and firewall boundary. `ROS_DOMAIN_ID` is not
+  security.
+- Managed Coturn deliberately mounts the REST HMAC secret into Coturn and the
+  co-located Simulator, which issues short-lived session-bound credentials.
+  UI must never receive that secret. External TURN can use independently
+  provisioned credentials.
+- Required evidence: browser and CLI generation for both profiles, production
+  RMW/SROS2 enforce mode, a non-default SSH GUI-forward port, managed/external
+  Coturn lifecycle, and exact cleanup commands.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 
@@ -120,7 +142,10 @@ there are historical unless repeated here.
 - Every generated release is temporarily installed and probed without sibling
   installed releases or source-tree imports.
 
-### Closed By The 2026-07-21 Remote-Simulator Refactor
+### Historical: Closed By The 2026-07-21 Remote-Simulator Refactor
+
+This records the superseded ZMQ/Router implementation. None of its transport or
+credential choices are part of the final ROS 2/DDS architecture.
 
 - Non-loopback Router and RGBD transport are CurveZMQ protected by default;
   Router authorizes exact public-key, endpoint-ID and role tuples.

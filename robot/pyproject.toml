@@ -4,14 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-robot"
-version = "0.2.1"
+version = "0.3.0"
 requires-python = ">=3.10"
 dependencies = [
-  "elesim-protocol==0.2.1",
+  "elesim-protocol==0.3.0",
   "numpy>=1.26,<3",
   "scipy>=1.11,<2",
   "PyYAML>=6,<7",
-  "pyzmq>=27,<28",
 ]
 
 [project.optional-dependencies]

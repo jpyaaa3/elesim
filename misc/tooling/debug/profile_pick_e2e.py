@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Profile Look / Ready pick phases (full stack or compute-only).
 
-Full stack (requires elesim-router + elesim-simulator + elesim-controller):
+Full stack (requires elesim-simulator; this tool owns Controller on the DDS graph):
   ELESIM_PROFILE_PICK=1 python misc/tooling/debug/profile_pick_e2e.py --phases look,ready
 
 Compute-only (no host):
@@ -18,15 +18,14 @@ import sys
 import time
 from io import StringIO
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from elesim_controller.vision.perception_bridge.hand_eye import load_hand_eye_transform
-from elesim_controller.config import load_runtime_role_config
 from elesim_controller.robot.arm import ik as ik_pipeline
-from elesim_controller.pick import ControlClient, ControlService, PanelState
 from elesim_controller.vision.pick.core import ObjectPickPhase
 from elesim_controller.observability.pick_timing import (
     PickTimingCollector,
@@ -37,6 +36,7 @@ from elesim_controller.observability.pick_timing import (
     uninstall_fk_counter,
 )
 from elesim_controller.vision.visual_servoing.feasible_ready_pose import resolve_feasible_ready_pose
+from misc.tooling.controller_runtime import start_tool_controller
 
 
 def _parse_phases(raw: str) -> list[str]:
@@ -48,7 +48,7 @@ def _parse_phases(raw: str) -> list[str]:
     return out or ["look", "ready"]
 
 
-def _wait_pick_done(service: ControlService, *, timeout_s: float, label: str) -> bool:
+def _wait_pick_done(service: Any, *, timeout_s: float, label: str) -> bool:
     deadline = time.time() + float(max(timeout_s, 1.0))
     while time.time() < deadline:
         if str(service.state.pick_phase) == ObjectPickPhase.DONE.value and not service.state.pick_running:
@@ -162,38 +162,18 @@ def _run_e2e(
     if not pick_profile_enabled():
         print("[profile] warning: set ELESIM_PROFILE_PICK=1 for detailed spans")
 
-    bundle, ik_context = ik_pipeline.load_solver_context(config_path)
-    hand_eye_transform = None
-    hand_eye_parent_frame = "node9"
-    hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
-    if hand_eye_path:
-        try:
-            hand_eye_transform, hand_eye_meta = load_hand_eye_transform(hand_eye_path)
-            hand_eye_parent_frame = str(hand_eye_meta.get("parent_frame", "node9"))
-        except Exception:
-            hand_eye_transform = None
-
-    runtime = load_runtime_role_config(ROOT / "controller/config/runtime.yaml")
-    link = ControlClient(runtime.bind_endpoint, cfg=bundle.mapping_config)
-    state = PanelState()
-    service = ControlService(
-        state,
-        client=link,
-        mapping_cfg=bundle.mapping_config,
-        ik_cfg=bundle.ik_config,
-        ik_context=ik_context,
-        config_path=config_path,
-        perception_cfg=bundle.perception_config,
-        pick_cfg=bundle.pick_config,
-        hand_eye_transform=hand_eye_transform,
-        hand_eye_parent_frame=hand_eye_parent_frame,
-        use_hardware=bool(bundle.sim_config.use_hardware),
+    service = start_tool_controller(
+        config_path,
+        runtime_config_path=ROOT / "controller/config/runtime.yaml",
     )
 
     try:
         host_state = service.refresh_host_state()
         if host_state is None or not host_state.connected:
-            print("[profile] target not connected - start router, simulator, and controller first")
+            print(
+                "[profile] target not connected - start simulator and controller "
+                "on the same DDS graph first"
+            )
             return 1
 
         service.set_mock_object_world(*object_xyz)

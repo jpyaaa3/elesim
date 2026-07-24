@@ -1,4 +1,4 @@
-"""Direct protocol-v4 connection for the controller deployment."""
+"""Direct protocol-v5 DDS connection for the controller deployment."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
-    CurveClientConfig,
-    EndpointClient,
+    DdsRuntimeSettings,
+    DdsTransportError,
     EndpointDescriptor,
     Envelope,
+    PeerClient,
     ProtocolError,
     SimMappingConfig,
     SimulationStatusPayload,
@@ -29,7 +30,7 @@ class _Submission:
 
 
 def canonical_motion_payload(message: Mapping[str, Any]) -> dict[str, Any]:
-    """Convert the controller command API to one canonical v4 motion payload."""
+    """Convert the controller command API to one canonical motion payload."""
 
     command = str(message.get("t", "")).strip()
     if not command:
@@ -53,36 +54,33 @@ def canonical_motion_payload(message: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class ControllerConnection:
-    """Owns the only router socket used by the controller process.
+    """Owns the Controller's DDS participant and direct peer traffic.
 
     Workflow threads submit plain commands to a queue. The connection thread
-    alone touches the ZeroMQ socket, which avoids cross-thread socket use.
+    alone spins the ROS executor, which keeps rclpy lifecycle and callbacks on
+    one thread.
     """
 
     def __init__(
         self,
         *,
-        server_endpoint: str,
         controller_id: str,
         initial_target: str,
         mapping: SimMappingConfig,
         state_sink: Any,
+        dds_settings: Optional[DdsRuntimeSettings] = None,
         send_hz: float = 30.0,
         discover_period_s: float = 1.0,
-        endpoint_factory: Callable[..., Any] = EndpointClient,
-        curve: Optional[CurveClientConfig] = None,
-        allow_insecure_remote: bool = False,
+        endpoint_factory: Callable[..., Any] = PeerClient,
     ) -> None:
-        self.server_endpoint = str(server_endpoint)
         self.controller_id = str(controller_id)
         self.desired_target = str(initial_target)
         self.mapping = mapping
         self.state_sink = state_sink
+        self.dds_settings = dds_settings
         self.send_period_s = 0.0 if send_hz <= 0.0 else 1.0 / float(send_hz)
         self.discover_period_s = max(0.1, float(discover_period_s))
         self.endpoint_factory = endpoint_factory
-        self.curve = curve
-        self.allow_insecure_remote = bool(allow_insecure_remote)
 
         self.stop_event = threading.Event()
         self.ready = threading.Event()
@@ -101,6 +99,7 @@ class ControllerConnection:
         self._last_target_sent_at: Optional[float] = None
         self._last_discover_at: Optional[float] = None
         self._selection_requested = ""
+        self._selection_requested_at: Optional[float] = None
 
     def start(self) -> None:
         if self.thread is not None and self.thread.is_alive():
@@ -109,7 +108,7 @@ class ControllerConnection:
         self.ready.clear()
         self.thread = threading.Thread(
             target=self._run,
-            name="controller-router",
+            name="controller-dds",
             daemon=True,
         )
         self.thread.start()
@@ -120,7 +119,7 @@ class ControllerConnection:
         self.stop_event.set()
         if self.thread is not None:
             self.thread.join(timeout=3.0)
-        self.state_sink.router_connected(False)
+        self.state_sink.peer_connected(False)
 
     def submit(self, message: Mapping[str, Any], *, force: bool = False) -> None:
         self._outbox.put(_Submission("motion", dict(message), bool(force)))
@@ -128,51 +127,48 @@ class ControllerConnection:
     def select_target(self, target_id: str) -> None:
         self.desired_target = str(target_id)
         self._selection_requested = ""
+        self._selection_requested_at = None
         self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
 
     def _run(self) -> None:
         endpoint = self.endpoint_factory(
-            self.server_endpoint,
             EndpointDescriptor(
                 self.controller_id,
                 "controller",
                 (CAPABILITY_OPERATOR_CONTROL,),
             ),
-            curve=self.curve,
-            allow_insecure_remote=self.allow_insecure_remote,
+            settings=self.dds_settings,
         )
         self.ready.set()
         try:
             while not self.stop_event.is_set():
-                endpoint.heartbeat()
                 try:
+                    endpoint.heartbeat()
                     messages = tuple(endpoint.receive(timeout_ms=20))
+                    self.state_sink.peer_connected(bool(endpoint.registered))
+                    for message in messages:
+                        self.handle_envelope(endpoint, message)
+                    now = time.monotonic()
+                    self.drain_outbox(endpoint, now=now)
+                    self.flush_target(endpoint, now=now)
+                    if endpoint.registered and (
+                        self._last_discover_at is None
+                        or now - self._last_discover_at >= self.discover_period_s
+                    ):
+                        endpoint.send("discover", payload={})
+                        self._last_discover_at = now
+                except DdsTransportError as exc:
+                    self.state_sink.peer_connected(False)
+                    self.state_sink.accept_error(f"DDS peer transport failed: {exc}")
+                    self.stop_event.wait(0.1)
                 except (ProtocolError, ValueError) as exc:
                     self.state_sink.accept_error(f"protocol receive failed: {exc}")
-                    messages = ()
-                self.state_sink.router_connected(bool(endpoint.server_alive()))
-                for message in messages:
-                    self.handle_envelope(endpoint, message)
-                now = time.monotonic()
-                self.drain_outbox(endpoint, now=now)
-                self.flush_target(endpoint, now=now)
-                if endpoint.registered and (
-                    self._last_discover_at is None
-                    or now - self._last_discover_at >= self.discover_period_s
-                ):
-                    endpoint.send("discover", payload={})
-                    self._last_discover_at = now
         finally:
             endpoint.close()
 
     def handle_envelope(self, endpoint: Any, message: Envelope) -> None:
         payload = dict(message.payload or {})
         message_type = message.message_type
-        if message_type == "registered":
-            self.state_sink.router_connected(True)
-            endpoint.send("discover", payload={})
-            self._last_discover_at = time.monotonic()
-            return
         if message_type == "endpoint_list":
             raw_endpoints = payload.get("endpoints", [])
             self.endpoints = [dict(value) for value in raw_endpoints if isinstance(value, Mapping)]
@@ -182,6 +178,7 @@ class ControllerConnection:
             self.active_target = str(payload.get("target_id", ""))
             self.lease_id = str(payload.get("lease_id", ""))
             self._selection_requested = self.active_target
+            self._selection_requested_at = None
             self.state_sink.target_changed(self.active_target)
             descriptor = next(
                 (value for value in self.endpoints if value.get("endpoint_id") == self.active_target),
@@ -199,6 +196,7 @@ class ControllerConnection:
             self.active_target = ""
             self.lease_id = ""
             self._selection_requested = ""
+            self._selection_requested_at = None
             self.state_sink.target_changed("")
             endpoint.send("discover", payload={})
             self._last_discover_at = time.monotonic()
@@ -222,7 +220,7 @@ class ControllerConnection:
             self.state_sink.accept_ack(payload)
             return
         if message_type == "error":
-            self.state_sink.accept_error(str(payload.get("reason", "router error")))
+            self.state_sink.accept_error(str(payload.get("reason", "peer error")))
             return
         if message_type == "operator_intent":
             request_id = str(payload.get("request_id", ""))
@@ -264,18 +262,29 @@ class ControllerConnection:
                 payload=wire_result,
                 trace_context=message.trace_context,
             )
-        except (ProtocolError, TypeError, ValueError) as exc:
+        except (DdsTransportError, ProtocolError, TypeError, ValueError) as exc:
             self.state_sink.accept_error(f"operator result send failed: {exc}")
 
-    def _request_desired_target(self, endpoint: Any) -> None:
+    def _request_desired_target(
+        self,
+        endpoint: Any,
+        *,
+        now: Optional[float] = None,
+    ) -> None:
         if not self.desired_target or self.active_target == self.desired_target:
-            return
-        if self._selection_requested == self.desired_target:
             return
         if not any(value.get("endpoint_id") == self.desired_target for value in self.endpoints):
             return
+        current = time.monotonic() if now is None else float(now)
+        if (
+            self._selection_requested == self.desired_target
+            and self._selection_requested_at is not None
+            and current - self._selection_requested_at < self.discover_period_s
+        ):
+            return
         endpoint.send("select_target", payload={"target_id": self.desired_target})
         self._selection_requested = self.desired_target
+        self._selection_requested_at = current
 
     def drain_outbox(self, endpoint: Any, *, now: float) -> None:
         while True:
@@ -285,13 +294,22 @@ class ControllerConnection:
                 return
             if submission.kind == "select":
                 self._selection_requested = ""
-                self._request_desired_target(endpoint)
+                self._selection_requested_at = None
+                self._request_desired_target(endpoint, now=now)
                 continue
             payload = canonical_motion_payload(submission.payload)
             if payload["command"] == "target" and not submission.force:
                 self._pending_target = payload
                 continue
-            self._send_motion(endpoint, payload, allow_without_lease=payload["command"] == "estop")
+            try:
+                self._send_motion(
+                    endpoint,
+                    payload,
+                    allow_without_lease=payload["command"] == "estop",
+                )
+            except DdsTransportError:
+                self._outbox.put(submission)
+                raise
             if payload["command"] == "target":
                 self._last_target_sent_at = float(now)
 
@@ -303,8 +321,8 @@ class ControllerConnection:
         if not self.active_target or not self.lease_id:
             return
         payload = self._pending_target
-        self._pending_target = None
         self._send_motion(endpoint, payload)
+        self._pending_target = None
         self._last_target_sent_at = float(now)
 
     def _send_motion(

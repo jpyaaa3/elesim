@@ -50,7 +50,8 @@ class TestPerceptionRemote(unittest.TestCase):
         svc = self._remote_service()
         svc.start_perception_capture()
         self.assertIsNone(svc._perception_capture)
-        self.assertIn("Jetson", str(svc.state.perception_status_msg))
+        self.assertIn("DDS RGB-D", str(svc.state.perception_status_msg))
+        self.assertIn("Controller", str(svc.state.perception_status_msg))
 
     def test_current_visual_observation_host_only(self) -> None:
         svc = self._remote_service()

@@ -1,70 +1,138 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from elesim_setup.credentials import (
-    credential_relative_paths,
     install_staged_credentials,
+    probe_ssh_fingerprint,
+    validate_external_turn_credentials,
 )
-from elesim_setup.state import NetworkSettings, SecuritySettings
 
 
-def test_laptop_transfer_manifest_contains_only_laptop_role_material(
-    local_state,
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "secrets"
-    state = local_state(
-        roles=("controller", "ui"),
-        network=NetworkSettings(
-            router_host="sim.example.com",
-            advertise_host="laptop.example.com",
-        ),
-        security=SecuritySettings(mode="curve", credentials_root=str(root)),
-    )
-
-    paths = {str(path) for path in credential_relative_paths(state)}
-
-    assert "curve/clients/controller-main.key_secret" in paths
-    assert "curve/clients/ui-main.key_secret" in paths
-    assert "curve/clients/doctor-main.key_secret" in paths
-    assert "curve/router/router.key" in paths
-    assert all("router.key_secret" not in value for value in paths)
-    assert all("robot-go2" not in value for value in paths)
-
-
-def test_staged_credentials_are_installed_without_overwriting_different_keys(
-    tmp_path: Path,
-) -> None:
+def test_staged_sros2_files_are_installed_with_private_modes(tmp_path: Path) -> None:
     staged = tmp_path / "staged"
     destination = tmp_path / "destination"
-    private = staged / "curve/clients/controller-main.key_secret"
+    private = staged / "keystore/enclaves/elesim/key.pem"
+    public = staged / "keystore/enclaves/elesim/cert.pem"
     private.parent.mkdir(parents=True)
-    private.write_text("first", encoding="utf-8")
+    private.write_text("private", encoding="utf-8")
+    public.write_text("public", encoding="utf-8")
 
     installed = install_staged_credentials(staged, destination)
 
-    target = destination / "curve/clients/controller-main.key_secret"
-    assert target in installed
-    assert target.read_text(encoding="utf-8") == "first"
-    assert target.stat().st_mode & 0o777 == 0o600
-
-    private.write_text("second", encoding="utf-8")
-    with pytest.raises(FileExistsError):
-        install_staged_credentials(staged, destination)
-    assert target.read_text(encoding="utf-8") == "first"
+    assert len(installed) == 2
+    assert (destination / private.relative_to(staged)).stat().st_mode & 0o777 == 0o600
+    assert (destination / public.relative_to(staged)).stat().st_mode & 0o777 == 0o644
 
 
-def test_identical_existing_credentials_are_idempotent(tmp_path: Path) -> None:
+def test_staged_files_never_overwrite_different_material(tmp_path: Path) -> None:
     staged = tmp_path / "staged"
     destination = tmp_path / "destination"
-    source = staged / "curve/router/router.key"
-    target = destination / "curve/router/router.key"
-    source.parent.mkdir(parents=True)
-    target.parent.mkdir(parents=True)
+    source = staged / "turn.secret"
+    target = destination / "turn.secret"
+    source.parent.mkdir()
+    target.parent.mkdir()
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="덮어"):
+        install_staged_credentials(staged, destination)
+
+
+def test_identical_existing_files_are_idempotent(tmp_path: Path) -> None:
+    staged = tmp_path / "staged"
+    destination = tmp_path / "destination"
+    source = staged / "cert.pem"
+    target = destination / "cert.pem"
+    source.parent.mkdir()
+    target.parent.mkdir()
     source.write_text("same", encoding="utf-8")
     target.write_text("same", encoding="utf-8")
 
     assert install_staged_credentials(staged, destination) == ()
+
+
+def test_ssh_fingerprint_uses_the_supplied_non_default_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[str, int], float]] = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    class Key:
+        @staticmethod
+        def asbytes() -> bytes:
+            return b"server-key"
+
+    class Transport:
+        def __init__(self, _connection):
+            pass
+
+        def start_client(self, *, timeout: float) -> None:
+            assert timeout == 3.0
+
+        @staticmethod
+        def get_remote_server_key() -> Key:
+            return Key()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "elesim_setup.credentials.socket.create_connection",
+        lambda address, timeout: (
+            calls.append((address, timeout)) or Connection()
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(Transport=Transport))
+
+    fingerprint = probe_ssh_fingerprint("server.example", 2222, timeout_s=3.0)
+
+    assert calls == [(("server.example", 2222), 3.0)]
+    assert fingerprint.startswith("SHA256:")
+
+
+def test_external_turn_credentials_use_strict_bounded_json(tmp_path: Path) -> None:
+    credentials = tmp_path / "turn.credentials.json"
+    credentials.write_text(
+        '{"username":"lab-user","credential":"lab-password"}\n',
+        encoding="utf-8",
+    )
+
+    validate_external_turn_credentials(
+        credentials,
+        urls=("turn:relay.example.com:3478?transport=udp",),
+    )
+
+    credentials.write_text(
+        '{"username":"lab-user","credential":"lab-password","secret":"bad"}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unknown fields"):
+        validate_external_turn_credentials(
+            credentials,
+            urls=("turn:relay.example.com:3478?transport=udp",),
+        )
+
+
+def test_external_turn_credentials_fail_when_expired(tmp_path: Path) -> None:
+    credentials = tmp_path / "turn.credentials.json"
+    credentials.write_text(
+        '{"username":"lab-user","credential":"lab-password","expires_at":1}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="expired"):
+        validate_external_turn_credentials(
+            credentials,
+            urls=("turn:relay.example.com:3478?transport=udp",),
+        )

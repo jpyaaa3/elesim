@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import shlex
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
 import yaml
 
-from .configuration import generate_role_configs, missing_credentials, role_directory
+from .configuration import (
+    dds_enclave,
+    generate_role_configs,
+    role_directory,
+)
+from .credentials import validate_external_turn_credentials
 from .state import InstallState
 
 
@@ -44,8 +51,7 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
 
 
 class ContainerInstaller:
-    _DEFAULT_BASE_IMAGE = "python:3.10-slim-bookworm"
-    _SIMULATOR_BASE_IMAGE = "ros:humble-ros-base-jammy"
+    _ROS_BASE_IMAGE = "ros:humble-ros-base-jammy"
 
     def __init__(
         self,
@@ -77,10 +83,8 @@ class ContainerInstaller:
 
     def run(self) -> None:
         self._validate_source()
-        missing = missing_credentials(self.state)
-        if missing:
-            rendered = "\n".join(f"  - {path}" for path in missing)
-            raise FileNotFoundError(f"CURVE credential이 부족합니다:\n{rendered}")
+        self.state.require_runnable_dds()
+        self._validate_external_turn_credentials()
         self.log("\n컨테이너 설치 계획")
         for action in build_container_plan(self.state):
             self.log(f"  [{action.title}] {action.detail}")
@@ -92,6 +96,7 @@ class ContainerInstaller:
         self.log("[1/6] 설치 디렉터리와 runtime data 준비")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        self._prepare_turn_secret()
         self._copy_runtime_data()
         generate_role_configs(self.state)
         self.log("[2/6] 역할별 image context 생성")
@@ -112,6 +117,9 @@ class ContainerInstaller:
         root = self.state.source_path
         required = [
             root / "packages/protocol/pyproject.toml",
+            root / "packages/elesim_interfaces/package.xml",
+            root / "packages/elesim_interfaces/CMakeLists.txt",
+            root / "packages/elesim_interfaces/msg/RgbdFrame.msg",
             root / "misc/tooling/setup/pyproject.toml",
             root / "misc/infra/containers/Dockerfile.app",
             root / "misc/infra/containers/Dockerfile.tools",
@@ -146,6 +154,10 @@ class ContainerInstaller:
         shutil.copy2(root / "misc/infra/containers/robotpkg.asc", context / "robotpkg.asc")
         shutil.copy2(root / role / "requirements.lock", context / "requirements.lock")
         _copy_source_tree(root / "packages/protocol", context / "protocol")
+        _copy_source_tree(
+            root / "packages/elesim_interfaces",
+            context / "interfaces/elesim_interfaces",
+        )
         _copy_source_tree(root / role, context / "application", ignore_config=True)
         (context / "entrypoint").write_text(_entrypoint(role), encoding="utf-8")
         (context / "entrypoint").chmod(0o755)
@@ -158,9 +170,13 @@ class ContainerInstaller:
         context.mkdir(parents=True)
         shutil.copy2(root / "misc/infra/containers/Dockerfile.tools", context / "Dockerfile")
         setup = root / "misc/tooling/setup"
-        for name in ("requirements.lock", "requirements-media.lock"):
+        for name in ("requirements.lock",):
             shutil.copy2(setup / name, context / name)
         _copy_source_tree(root / "packages/protocol", context / "protocol")
+        _copy_source_tree(
+            root / "packages/elesim_interfaces",
+            context / "interfaces/elesim_interfaces",
+        )
         _copy_source_tree(setup, context / "setup")
 
     def _write_compose(self) -> None:
@@ -187,18 +203,14 @@ class ContainerInstaller:
                 "context": str(context),
                 "args": {
                     "ROLE": role,
-                    "BASE_IMAGE": (
-                        self._SIMULATOR_BASE_IMAGE
-                        if role == "simulator"
-                        else self._DEFAULT_BASE_IMAGE
-                    ),
+                    "BASE_IMAGE": self._ROS_BASE_IMAGE,
                     "COMPUTE_MODE": self.state.compute.gpu_mode,
                     "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
                 },
             },
             "network_mode": "host",
             "restart": "unless-stopped" if role != "ui" else "no",
-            "environment": {"PYTHONUNBUFFERED": "1"},
+            "environment": self._dds_environment(role),
             "volumes": [f"{role_root / 'config'}:/opt/elesim/config:ro"],
         }
         if role == "simulator":
@@ -210,6 +222,22 @@ class ContainerInstaller:
             )
             service["shm_size"] = "2gb"
             service["ipc"] = "host"
+            if self.state.turn.managed:
+                secret = self.state.turn.secret_path
+                if secret is None:
+                    raise ValueError("managed Coturn requires a TURN secret file")
+                service["volumes"].append(  # type: ignore[union-attr]
+                    f"{secret}:/run/secrets/turn.secret:ro"
+                )
+            elif self.state.turn.mode == "external":
+                credentials = self.state.turn.credential_path
+                if credentials is None:
+                    raise ValueError(
+                        "external TURN on Simulator requires a credential file"
+                    )
+                service["volumes"].append(  # type: ignore[union-attr]
+                    f"{credentials}:/run/secrets/turn.credentials.json:ro"
+                )
         if role == "ui":
             service["environment"].update(  # type: ignore[union-attr]
                 {
@@ -227,20 +255,17 @@ class ContainerInstaller:
                 )
         if role in {"controller", "simulator"}:
             self._apply_compute(service)
-        credentials = self.state.security.root
-        if credentials is not None:
+        keystore = self.state.dds.keystore_path
+        if keystore is not None:
             service["volumes"].append(  # type: ignore[union-attr]
-                f"{credentials}:{credentials}:ro"
+                f"{keystore}:{keystore}:ro"
             )
-        if role != "router" and "router" in self.state.roles:
-            service["depends_on"] = ("router",)
         return service
 
     def _coturn_service(self) -> dict[str, object]:
-        credentials = self.state.security.root
-        if credentials is None:
-            raise ValueError("managed Coturn requires a credential root")
-        secret = credentials / "turn.secret"
+        secret = self.state.turn.secret_path
+        if secret is None:
+            raise ValueError("managed Coturn requires a TURN secret file")
         command = (
             "exec turnserver -n --log-file=stdout --fingerprint "
             "--use-auth-secret --no-cli --no-multicast-peers --no-tls --no-dtls "
@@ -248,6 +273,8 @@ class ContainerInstaller:
             '--realm="$$TURN_REALM" --external-ip="$$TURN_PUBLIC_IP" '
             '--static-auth-secret="$$(cat /run/secrets/turn.secret)"'
         )
+        environment = self._dds_environment("doctor")
+        environment["HOME"] = "/tmp"
         return {
             "image": "coturn/coturn:4.14.0-r0-alpine",
             "network_mode": "host",
@@ -262,7 +289,7 @@ class ContainerInstaller:
             },
             "volumes": (f"{secret}:/run/secrets/turn.secret:ro",),
             "tmpfs": ("/var/lib/coturn",),
-            "depends_on": ("router",),
+            "depends_on": ("simulator",),
         }
 
     def _apply_compute(self, service: dict[str, object]) -> None:
@@ -293,21 +320,28 @@ class ContainerInstaller:
 
     def _tools_service(self) -> dict[str, object]:
         context = self.container_root / "build/tools"
-        volumes = [f"{self.state.prefix_path}:{self.state.prefix_path}:rw"]
+        dds_config = (
+            role_directory(self.state, self.state.roles[0]) / "config" / "cyclonedds.xml"
+        )
+        volumes = [
+            f"{self.state.prefix_path}:{self.state.prefix_path}:rw",
+            f"{dds_config}:/opt/elesim/config/cyclonedds.xml:ro",
+        ]
         if not _is_within(self.state.source_path, self.state.prefix_path):
             volumes.append(f"{self.state.source_path}:{self.state.source_path}:ro")
         if not _is_within(self.state_path, self.state.prefix_path):
             volumes.append(f"{self.state_path.parent}:{self.state_path.parent}:rw")
-        credentials = self.state.security.root
-        if credentials is not None and not _is_within(credentials, self.state.prefix_path):
-            volumes.append(f"{credentials}:{credentials}:ro")
+        keystore = self.state.dds.keystore_path
+        if keystore is not None and not _is_within(keystore, self.state.prefix_path):
+            volumes.append(f"{keystore}:{keystore}:ro")
+        environment = self._dds_environment("doctor")
         return {
             "image": f"elesim-managed/{self.installation_id}-tools:local",
             "build": {"context": str(context)},
             "network_mode": "host",
             "profiles": ("tools",),
             "user": f"{os.getuid()}:{os.getgid()}",
-            "environment": {"HOME": "/tmp"},
+            "environment": environment,
             "volumes": volumes,
         }
 
@@ -336,10 +370,90 @@ class ContainerInstaller:
                 "#!/usr/bin/env bash\nset -euo pipefail\nexec " + body + ' "$@"\n',
             )
 
+    def _dds_environment(self, role: str) -> dict[str, object]:
+        environment: dict[str, object] = {
+            "PYTHONUNBUFFERED": "1",
+            "ELESIM_SYSTEM_ID": self.state.dds.system_id,
+            "ELESIM_DDS_DISCOVERY_MODE": self.state.dds.discovery_mode,
+            "ELESIM_DDS_STATIC_PEERS": ",".join(self.state.dds.static_peers),
+            "ELESIM_DDS_NETWORK_INTERFACE": self.state.dds.interface,
+            "ELESIM_DDS_SECURITY_PROFILE": self.state.dds.security_profile,
+            "ELESIM_DDS_VENDOR_CONFIG": "/opt/elesim/config/cyclonedds.xml",
+            "ROS_DOMAIN_ID": str(self.state.dds.domain_id),
+            "RMW_IMPLEMENTATION": self.state.dds.rmw_implementation,
+            "ROS_LOCALHOST_ONLY": "0",
+            "CYCLONEDDS_URI": "file:///opt/elesim/config/cyclonedds.xml",
+        }
+        if self.state.dds.security_profile == "sros2":
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "true",
+                    "ROS_SECURITY_STRATEGY": "Enforce",
+                    "ROS_SECURITY_KEYSTORE": self.state.dds.keystore,
+                    "ROS_SECURITY_ENCLAVE_OVERRIDE": dds_enclave(
+                        self.state,
+                        role,
+                    ),
+                    "ELESIM_DDS_ENCLAVE": dds_enclave(self.state, role),
+                }
+            )
+        else:
+            environment["ROS_SECURITY_ENABLE"] = "false"
+        return environment
+
+    def _prepare_turn_secret(self) -> None:
+        if self.state.turn.mode == "external":
+            if "simulator" not in self.state.roles:
+                return
+            credentials = self.state.turn.credential_path
+            if credentials is None:
+                raise ValueError(
+                    "external TURN on Simulator requires a credential file"
+                )
+            credentials.chmod(0o600)
+            return
+        if not self.state.turn.managed:
+            return
+        secret = self.state.turn.secret_path
+        if secret is None:
+            raise ValueError("managed Coturn requires a TURN secret file")
+        if secret.exists():
+            if secret.is_symlink() or not secret.is_file():
+                raise ValueError(f"TURN secret path is not a regular file: {secret}")
+            secret.chmod(0o600)
+            return
+        secret.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=secret.parent,
+            prefix=f".{secret.name}.",
+            delete=False,
+        ) as handle:
+            handle.write(secrets.token_urlsafe(48) + "\n")
+            temporary = Path(handle.name)
+        temporary.chmod(0o600)
+        os.replace(temporary, secret)
+
+    def _validate_external_turn_credentials(self) -> None:
+        if (
+            self.state.turn.mode != "external"
+            or "simulator" not in self.state.roles
+        ):
+            return
+        credentials = self.state.turn.credential_path
+        if credentials is None:
+            raise ValueError(
+                "external TURN on Simulator requires a credential file"
+            )
+        validate_external_turn_credentials(
+            credentials,
+            urls=self.state.network.turn_urls,
+        )
+
 
 def _entrypoint(role: str) -> str:
     commands = {
-        "router": "elesim-router --config /opt/elesim/config/installed.yaml",
         "controller": (
             "elesim-controller --config /opt/elesim/config/config.pc.yaml "
             "--runtime-config /opt/elesim/config/runtime.installed.yaml"
@@ -355,7 +469,15 @@ def _entrypoint(role: str) -> str:
         command = commands[role]
     except KeyError as exc:
         raise ValueError(f"unsupported container role: {role}") from exc
-    return "#!/usr/bin/env bash\nset -euo pipefail\nexec " + command + ' "$@"\n'
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "source /opt/ros/humble/setup.bash\n"
+        "source /opt/elesim/ros/install/setup.bash\n"
+        "exec "
+        + command
+        + ' "$@"\n'
+    )
 
 
 def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = False) -> None:

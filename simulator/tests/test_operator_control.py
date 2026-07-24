@@ -37,7 +37,7 @@ def test_mailbox_coalesces_adjacent_camera_motion_and_keeps_results() -> None:
     assert [result.request_id for result in mailbox.take_results()] == ["orbit-1", "orbit-2"]
 
 
-def test_mailbox_is_bounded_without_blocking_the_router_thread() -> None:
+def test_mailbox_is_bounded_without_blocking_the_dds_thread() -> None:
     mailbox = SimulationOperatorMailbox(max_pending=1)
     assert mailbox.enqueue(command("pause", {})) is True
     assert mailbox.enqueue(command("reset", {}, "request-2")) is False

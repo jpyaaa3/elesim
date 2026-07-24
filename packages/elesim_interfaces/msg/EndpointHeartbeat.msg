@@ -1,0 +1,3 @@
+elesim_interfaces/PeerRef peer
+uint64 descriptor_revision
+uint64 sequence

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -12,32 +13,29 @@ from typing import Any, Mapping
 from .profiles import normalize_roles
 
 
-STATE_SCHEMA_VERSION = 3
-SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, STATE_SCHEMA_VERSION})
-SECURITY_MODES = frozenset({"loopback", "curve", "insecure-lan"})
+STATE_SCHEMA_VERSION = 5
+SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, 3, 4, STATE_SCHEMA_VERSION})
 GPU_MODES = frozenset({"inherit", "specific", "cpu"})
 INSTALL_MODES = frozenset({"native", "container"})
 TURN_MODES = frozenset({"none", "managed", "external"})
+DDS_DISCOVERY_MODES = frozenset({"multicast", "static"})
+DDS_SECURITY_PROFILES = frozenset({"trusted-network", "sros2"})
+DDS_RMW_IMPLEMENTATIONS = frozenset({"rmw_cyclonedds_cpp"})
 DEFAULT_PREFIX = Path("~/.local/share/elesim").expanduser()
 DEFAULT_BIN_DIR = Path("~/.local/bin").expanduser()
+_ROS_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_RMW_NAME = re.compile(r"^rmw_[a-z0-9_]{1,120}$")
 
 
 @dataclass(frozen=True)
 class NetworkSettings:
-    router_host: str = "127.0.0.1"
-    advertise_host: str = "127.0.0.1"
-    router_port: int = 5558
-    rgbd_port: int = 5568
+    """Application identities and WebRTC relay endpoints, not DDS locators."""
+
     turn_urls: tuple[str, ...] = ()
     simulator_id: str = "sim-default"
     controller_id: str = "controller-main"
 
     def validate(self) -> "NetworkSettings":
-        _validate_connect_host(self.router_host, name="Router hostname/IP")
-        _validate_connect_host(self.advertise_host, name="advertise hostname/IP")
-        for name, value in (("router_port", self.router_port), ("rgbd_port", self.rgbd_port)):
-            if isinstance(value, bool) or not 1 <= int(value) <= 65535:
-                raise ValueError(f"{name}는 1..65535 범위여야 합니다")
         _validate_identifier(self.simulator_id, name="simulator_id")
         _validate_identifier(self.controller_id, name="controller_id")
         for value in self.turn_urls:
@@ -52,26 +50,77 @@ class NetworkSettings:
 
 
 @dataclass(frozen=True)
-class SecuritySettings:
-    mode: str = "loopback"
-    credentials_root: str = ""
+class DdsSettings:
+    """Shared ROS 2/DDS runtime settings for all hosts in one Elesim system."""
 
-    def validate(self) -> "SecuritySettings":
-        if self.mode not in SECURITY_MODES:
-            raise ValueError(f"지원하지 않는 보안 모드: {self.mode!r}")
-        if self.mode == "curve" and not self.credentials_root.strip():
-            raise ValueError("CURVE 모드에는 credentials root가 필요합니다")
+    system_id: str = "elesim"
+    domain_id: int = 0
+    rmw_implementation: str = "rmw_cyclonedds_cpp"
+    discovery_mode: str = "multicast"
+    static_peers: tuple[str, ...] = ()
+    interface: str = ""
+    security_profile: str = "trusted-network"
+    keystore: str = ""
+    enclave: str = ""
+
+    def validate(self) -> "DdsSettings":
+        if not _ROS_NAME.fullmatch(self.system_id):
+            raise ValueError(
+                "DDS system_id는 소문자로 시작하는 영문 소문자/숫자/underscore 값이어야 합니다"
+            )
+        if isinstance(self.domain_id, bool) or not 0 <= int(self.domain_id) <= 232:
+            raise ValueError("ROS_DOMAIN_ID는 0..232 범위여야 합니다")
+        if (
+            not _RMW_NAME.fullmatch(self.rmw_implementation)
+            or self.rmw_implementation not in DDS_RMW_IMPLEMENTATIONS
+        ):
+            supported = ", ".join(sorted(DDS_RMW_IMPLEMENTATIONS))
+            raise ValueError(
+                f"지원하지 않는 RMW implementation: {self.rmw_implementation!r}; "
+                f"supported: {supported}"
+            )
+        if self.discovery_mode not in DDS_DISCOVERY_MODES:
+            raise ValueError(f"지원하지 않는 DDS discovery mode: {self.discovery_mode!r}")
+        peers = tuple(str(value).strip() for value in self.static_peers)
+        if any(not value or len(value) > 255 or any(ch.isspace() for ch in value) for value in peers):
+            raise ValueError("DDS static peer는 공백 없는 hostname/IP여야 합니다")
+        if self.discovery_mode == "multicast" and peers:
+            raise ValueError("multicast discovery에는 static peer를 함께 지정할 수 없습니다")
+        interface = str(self.interface).strip()
+        if (
+            len(interface) > 128
+            or any(character.isspace() for character in interface)
+            or "/" in interface
+        ):
+            raise ValueError("DDS interface는 공백과 경로 구분자가 없는 interface 이름이어야 합니다")
+        if self.security_profile not in DDS_SECURITY_PROFILES:
+            raise ValueError(
+                f"지원하지 않는 DDS security profile: {self.security_profile!r}"
+            )
+        keystore = str(self.keystore).strip()
+        enclave = str(self.enclave).strip()
+        if bool(keystore) != bool(enclave):
+            raise ValueError("SROS2 keystore와 enclave는 함께 지정해야 합니다")
+        if self.security_profile == "trusted-network" and (keystore or enclave):
+            raise ValueError(
+                "trusted-network profile에는 SROS2 keystore/enclave를 지정할 수 없습니다"
+            )
+        if enclave and (not enclave.startswith("/") or ".." in Path(enclave).parts):
+            raise ValueError("SROS2 enclave는 '..'이 없는 절대 ROS 경로여야 합니다")
         return self
 
     @property
-    def allow_insecure_remote(self) -> bool:
-        return self.mode == "insecure-lan"
+    def keystore_path(self) -> Path | None:
+        value = str(self.keystore).strip()
+        return None if not value else Path(value).expanduser().resolve()
 
     @property
-    def root(self) -> Path | None:
-        if not self.credentials_root.strip():
-            return None
-        return Path(self.credentials_root).expanduser().resolve()
+    def migrated_security_needs_configuration(self) -> bool:
+        return (
+            self.security_profile == "sros2"
+            and not self.keystore.strip()
+            and not self.enclave.strip()
+        )
 
 
 @dataclass(frozen=True)
@@ -107,23 +156,51 @@ class TurnSettings:
     mode: str = "none"
     realm: str = ""
     public_host: str = ""
+    secret_file: str = ""
+    credential_file: str = ""
 
     def validate(self) -> "TurnSettings":
         if self.mode not in TURN_MODES:
             raise ValueError(f"지원하지 않는 TURN 모드: {self.mode!r}")
         realm = self.realm.strip()
         public_host = self.public_host.strip()
+        secret_file = self.secret_file.strip()
+        credential_file = self.credential_file.strip()
         if self.mode == "managed":
             if not realm:
                 raise ValueError("managed TURN에는 realm이 필요합니다")
             _validate_connect_host(public_host, name="TURN public hostname/IP")
-        elif realm or public_host:
-            raise ValueError("TURN realm/public_host는 managed 모드에서만 지정할 수 있습니다")
+            if not secret_file:
+                raise ValueError("managed TURN에는 secret file 경로가 필요합니다")
+            if credential_file:
+                raise ValueError(
+                    "managed TURN에는 external credential file을 지정할 수 없습니다"
+                )
+        elif self.mode == "external":
+            if realm or public_host or secret_file:
+                raise ValueError(
+                    "TURN realm/public_host/secret_file은 managed 모드에서만 "
+                    "지정할 수 있습니다"
+                )
+        elif realm or public_host or secret_file or credential_file:
+            raise ValueError(
+                "TURN credential 설정은 TURN이 활성화된 경우에만 지정할 수 있습니다"
+            )
         return self
 
     @property
     def managed(self) -> bool:
         return self.mode == "managed"
+
+    @property
+    def secret_path(self) -> Path | None:
+        value = self.secret_file.strip()
+        return None if not value else Path(value).expanduser().resolve()
+
+    @property
+    def credential_path(self) -> Path | None:
+        value = self.credential_file.strip()
+        return None if not value else Path(value).expanduser().resolve()
 
 
 @dataclass(frozen=True)
@@ -134,7 +211,7 @@ class InstallState:
     bin_dir: str
     source_root: str
     network: NetworkSettings = field(default_factory=NetworkSettings)
-    security: SecuritySettings = field(default_factory=SecuritySettings)
+    dds: DdsSettings = field(default_factory=DdsSettings)
     compute: ComputeSettings = field(default_factory=ComputeSettings)
     turn: TurnSettings = field(default_factory=TurnSettings)
     install_mode: str = "native"
@@ -167,7 +244,7 @@ class InstallState:
         if not self.prefix.strip() or not self.bin_dir.strip() or not self.source_root.strip():
             raise ValueError("prefix, bin_dir와 source_root가 필요합니다")
         self.network.validate()
-        self.security.validate()
+        self.dds.validate()
         self.compute.validate()
         self.turn.validate()
         if self.install_mode not in INSTALL_MODES:
@@ -177,23 +254,60 @@ class InstallState:
                 "Robot Jetson은 generic Ubuntu 컨테이너로 설치할 수 없습니다. "
                 "JetPack/L4T, ROS2와 unitree_ros2가 준비된 Jetson에서 native 설치를 사용하십시오"
             )
-        if self.security.mode == "loopback" and not _host_is_loopback(self.network.router_host):
-            raise ValueError("loopback 보안 모드는 loopback Router 주소에서만 사용할 수 있습니다")
         has_turn_urls = bool(self.network.turn_urls)
         if self.turn.mode == "none" and has_turn_urls:
             raise ValueError("TURN URL에는 managed 또는 external TURN 모드가 필요합니다")
         if self.turn.mode != "none" and not has_turn_urls:
             raise ValueError(f"{self.turn.mode} TURN 모드에는 TURN URL이 필요합니다")
-        if self.turn.managed and "router" not in self.roles:
-            raise ValueError("managed Coturn은 Router가 설치되는 호스트에서만 사용할 수 있습니다")
-        if "router" in self.roles and has_turn_urls and self.security.mode != "curve":
-            raise ValueError("TURN을 발급하는 Router는 CURVE credential root가 필요합니다")
+        if self.turn.managed and "simulator" not in self.roles:
+            raise ValueError(
+                "managed Coturn은 Simulator가 설치되는 호스트에서만 사용할 수 있습니다"
+            )
+        if self.turn.managed and self.install_mode != "container":
+            raise ValueError("managed Coturn lifecycle에는 container 설치가 필요합니다")
+        if self.turn.managed and self.dds.security_profile != "sros2":
+            raise ValueError(
+                "managed TURN credential와 WebRTC signaling에는 sros2 profile이 필요합니다"
+            )
+        if (
+            self.turn.mode == "external"
+            and self.turn.credential_path is not None
+            and "simulator" not in self.roles
+        ):
+            raise ValueError(
+                "external TURN credential file은 Simulator 설치 호스트에만 "
+                "배포할 수 있습니다"
+            )
+        return self
+
+    def require_runnable_dds(self) -> "InstallState":
+        self.validate()
+        if self.dds.discovery_mode == "static" and not self.dds.static_peers:
+            raise ValueError(
+                "static DDS discovery에는 peer가 필요합니다. "
+                "이전 ZMQ 상태에서 자동으로 Router 주소를 peer로 재사용하지 않습니다"
+            )
+        if self.dds.migrated_security_needs_configuration:
+            raise ValueError(
+                "이전 Curve 상태는 SROS2 key로 자동 변환할 수 없습니다. "
+                "SROS2 keystore와 enclave를 명시하십시오"
+            )
+        if (
+            self.turn.mode == "external"
+            and "simulator" in self.roles
+            and self.turn.credential_path is None
+        ):
+            raise ValueError(
+                "Simulator의 external TURN에는 username/credential JSON file이 "
+                "필요합니다. 이전 상태라면 TURN 자격증명 경로를 다시 지정하십시오"
+            )
         return self
 
     def to_dict(self) -> dict[str, Any]:
         raw = asdict(self)
         raw["roles"] = list(self.roles)
         raw["network"]["turn_urls"] = list(self.network.turn_urls)
+        raw["dds"]["static_peers"] = list(self.dds.static_peers)
         return raw
 
     @classmethod
@@ -205,30 +319,80 @@ class InstallState:
                 f"expected one of {sorted(SUPPORTED_STATE_SCHEMAS)}"
             )
         network_raw = raw.get("network", {})
-        security_raw = raw.get("security", {})
         compute_raw = raw.get("compute", {})
         turn_raw = raw.get("turn", {})
+        dds_raw = raw.get("dds", {})
         if not all(
             isinstance(value, Mapping)
-            for value in (network_raw, security_raw, compute_raw, turn_raw)
+            for value in (network_raw, compute_raw, turn_raw, dds_raw)
         ):
-            raise ValueError("설치 상태의 network/security/compute/turn이 object가 아닙니다")
+            raise ValueError("설치 상태의 network/dds/compute/turn이 object가 아닙니다")
+
         network_values = dict(network_raw)
         network_values["turn_urls"] = tuple(network_values.get("turn_urls", ()))
+        network = NetworkSettings(
+            turn_urls=network_values["turn_urls"],
+            simulator_id=str(network_values.get("simulator_id", "sim-default")),
+            controller_id=str(network_values.get("controller_id", "controller-main")),
+        )
         if source_schema < 3:
             turn_raw = {
-                "mode": "external" if network_values["turn_urls"] else "none",
+                "mode": "external" if network.turn_urls else "none",
             }
+        if source_schema < 4:
+            security_raw = raw.get("security", {})
+            if not isinstance(security_raw, Mapping):
+                raise ValueError("설치 상태의 legacy security가 object가 아닙니다")
+            legacy_security = str(security_raw.get("mode", "loopback"))
+            dds = DdsSettings(
+                # The old Router/advertise addresses are deliberately not peers.
+                discovery_mode="multicast",
+                static_peers=(),
+                security_profile=(
+                    "sros2" if legacy_security == "curve" else "trusted-network"
+                ),
+            )
+        else:
+            dds_values = dict(dds_raw)
+            dds_values["static_peers"] = tuple(dds_values.get("static_peers", ()))
+            dds = DdsSettings(**dds_values)
+
+        turn_values = dict(turn_raw)
+        if source_schema < 5:
+            # v1..v4 external TURN stored only its URL. Keep the state
+            # inspectable, but require_runnable_dds() fails closed before a
+            # Simulator configuration can be regenerated without credentials.
+            turn_values.setdefault("credential_file", "")
+        if (
+            source_schema < 4
+            and str(turn_values.get("mode", "none")) == "managed"
+            and not str(turn_values.get("secret_file", "")).strip()
+        ):
+            legacy_security = raw.get("security", {})
+            legacy_root = (
+                str(legacy_security.get("credentials_root", "")).strip()
+                if isinstance(legacy_security, Mapping)
+                else ""
+            )
+            if legacy_root:
+                turn_values["secret_file"] = str(
+                    Path(legacy_root).expanduser().resolve() / "turn.secret"
+                )
+
         return cls(
             profile=str(raw.get("profile", "custom")),
-            roles=tuple(str(value) for value in raw.get("roles", ())),
+            roles=tuple(
+                role
+                for role in (str(value) for value in raw.get("roles", ()))
+                if role != "router"
+            ),
             prefix=str(raw.get("prefix", "")),
             bin_dir=str(raw.get("bin_dir", "")),
             source_root=str(raw.get("source_root", "")),
-            network=NetworkSettings(**network_values),
-            security=SecuritySettings(**dict(security_raw)),
+            network=network,
+            dds=dds,
             compute=ComputeSettings(**dict(compute_raw)),
-            turn=TurnSettings(**dict(turn_raw)),
+            turn=TurnSettings(**turn_values),
             install_mode=str(raw.get("install_mode", "native")),
             install_go2_mpc=bool(raw.get("install_go2_mpc", True)),
             schema_version=STATE_SCHEMA_VERSION,
@@ -268,18 +432,6 @@ def default_state_path() -> Path:
     return DEFAULT_PREFIX / "install-state.json"
 
 
-def _host_is_loopback(host: str) -> bool:
-    import ipaddress
-
-    value = str(host).strip().lower().removeprefix("[").removesuffix("]")
-    if value == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
-
-
 def _validate_connect_host(host: object, *, name: str) -> None:
     import ipaddress
 
@@ -309,16 +461,18 @@ def _validate_identifier(value: object, *, name: str) -> None:
 
 
 __all__ = [
+    "DDS_DISCOVERY_MODES",
+    "DDS_RMW_IMPLEMENTATIONS",
+    "DDS_SECURITY_PROFILES",
     "DEFAULT_BIN_DIR",
     "DEFAULT_PREFIX",
     "ComputeSettings",
+    "DdsSettings",
     "GPU_MODES",
     "INSTALL_MODES",
     "InstallState",
     "NetworkSettings",
-    "SECURITY_MODES",
     "STATE_SCHEMA_VERSION",
-    "SecuritySettings",
     "TURN_MODES",
     "TurnSettings",
     "default_state_path",

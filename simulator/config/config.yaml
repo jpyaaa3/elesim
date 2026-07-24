@@ -25,7 +25,6 @@ simulation:
     hand_eye:
       config: calibration/hand_eye.camera.json
       enable: true
-      port: tcp://127.0.0.1:5568
       jpeg: true
       jpeg_quality: 75
       rgb: true
@@ -36,7 +35,6 @@ simulation:
       fov_deg: 60.0
     observer:
       enable: true
-      port: tcp://127.0.0.1:5569
       jpeg: true
       jpeg_quality: 85
       max_hz: 20.0

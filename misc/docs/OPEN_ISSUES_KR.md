@@ -8,11 +8,31 @@
 
 이 파일은 우선순위가 더 높은 작업을 진행하는 동안 알려진 미해결/보류 이슈가 묻히지 않도록 추적한다.
 
-## 현재 상태 (2026-07-22)
+## 현재 상태 (2026-07-24)
 
 이 절이 deployment 기반 현 구조의 기준이다. 아래의 긴 절들은 refactor 이전
 근거를 보존한 기록이며, 여기에서 다시 언급하지 않은 경로와 테스트 수치는 과거
 정보로 취급한다.
+
+### P0. Router 없는 ROS 2/DDS 전환은 live 증명과 typed surface 후속이 필요함
+
+- 상태: 실제 network 검증과 typed service/action binding에 대해 open이다.
+  Router/ZMQ 제거, direct DDS carrier, software-only contract와 4-process
+  CycloneDDS smoke는 완료했다.
+- 최종 topology에는 Router, ZMQ, CurveZMQ, CURVE key, ZAP policy가 없다.
+  Robot/Simulator가 자기 motion lease를 소유하고 Simulator가 별도 UI session을
+  소유한다. RGBD와 WebRTC signaling request/reply는 DDS이며 영상 pixel은
+  DTLS/SRTP WebRTC로 유지한다.
+- control/signaling은 현재 bounded `PeerEnvelope` DDS message를 사용한다.
+  typed service/action 정의는 생성되지만 runtime에 연결되지 않았으므로 활성
+  interface인 것처럼 안내하면 안 된다.
+- 완료한 software 근거에는 ROSIDL 산출물, Router 없는 네 release tree,
+  protocol/setup 및 role별 suite, endpoint 중복 시 fail-closed, restart identity,
+  target-owned lease/session 만료, stale sequence 거부, coherent RGBD,
+  두 stream negotiation, 실제 RMW를 사용한 same-host 4-process smoke가 있다.
+- 필요한 live 근거: 한 host, L2 multicast, routed static peer, routed VPN,
+  global IPv6, 실제 SROS2 enforce, loss/reorder, process kill, Wi-Fi/VPN
+  reconnect, NAT-only layout의 명시적 거부다.
 
 ### P0. 실제 Look-Aim-Grasp 수렴은 아직 증명되지 않음
 
@@ -38,37 +58,41 @@
 ### P1. Multi-host 및 hardware 배포는 여전히 수동 gate임
 
 - 상태: open.
-- in-process 5-process topology, 분리된 motion/simulation lease, reconnect,
-  stale sequence, Curve 설정, dual WebRTC signaling, media descriptor,
-  isolated wheel은 자동 검증을 통과한다.
-- 실제 Wi-Fi/LAN, Jetson USB/serial, ROS2/Unitree topic, clock skew, packet loss,
-  credential 설치와 process restart timing은 software-only gate에서 검증하지
-  못했다.
+- same-host test는 DDS multicast/static-peer discovery, direct user-data
+  locator, vendor port mapping, loss 환경 QoS와 SROS2 permission을 증명하지
+  못한다.
+- 실제 LAN/routed-VPN/global-IPv6, Jetson USB/serial, ROS2/Unitree
+  domain/context 공존, clock skew, packet loss와 process restart timing은 live
+  gate에서 검증하지 못했다.
+- 일반 IPv4 NAT, CGNAT, symmetric NAT는 의도적으로 지원하지 않는다. TURN은
+  WebRTC media만 relay하며 DDS 우회 수단으로 안내하면 안 된다.
 
 ### P1. 원격 Genesis 영상과 조작은 live gate가 필요함
 
 - 상태: open.
-- observer/hand-eye session의 독립성, 실제 aiortc encoded frame 전달, TURN
-  credential 갱신, camera/physics command의 Simulator main-thread mailbox
-  도착은 자동 테스트로 증명한다.
+- 기존 테스트는 observer/hand-eye media 독립성, Simulator main-thread
+  mailbox, DDS session/signaling contract와 same-host 4-process DDS smoke를
+  증명한다.
 - Genesis GPU offscreen capture, aiortc encode/decode latency, 실제 ICE 선택,
   Coturn relay, 두 컴퓨터 사이 orbit/pan/zoom 반응성은 아직 증명하지 못했다.
 - 필요한 근거: direct LAN 1회와 TURN relay 1회에서 두 영상, pause/step/reset,
   제한된 command backlog, 양쪽 process restart 후 reconnect를 확인하는 것이다.
 
-### P1. 원격 설치에 수동 service/credential 단계가 남음
+### P1. DDS 보안과 원격 설치는 live 검증이 필요함
 
 - 상태: open, 사용자 설명서에 기록한 운영상 한계다.
-- 설치 마법사에서 TURN을 선택하면 URL, static secret, Coturn 환경 파일은
-  생성되지만 `elesim-up`이 만드는 Compose project는 별도 Coturn service를
-  시작하거나 종료하지 않는다.
-- CURVE network doctor는 `doctor-main.key_secret`을 사용하지만, 현재 조작 노트북
-  역할의 credential 검증은 Controller/UI private key와 Router public key만
-  요구한다. `elesim-net doctor`를 쓰려면 관리자가 doctor key를 따로 전달해야 한다.
-- 서버에서 Genesis native Viewer를 볼 때도 X11 Compose override와 임시 `xhost`
-  권한이 수동으로 필요하다. headless rendering이 안전한 기본값이다.
-- 필요한 개선: 선택적 Coturn lifecycle과 doctor credential 요구를 설치 산출물로
-  명시하고, 생성된 cleanup 명령과 integration test를 추가한다.
+- 마법사는 모든 host에 일치하는 system/domain/RMW/discovery/interface 설정을
+  생성하고 `trusted-network`와 `sros2`를 구분하며 선택 역할의 SROS2 enclave만
+  검증해야 한다.
+- `trusted-network`는 DDS 암호화가 없고 명시적인 LAN/VPN interface 및 firewall
+  경계 안에서만 허용된다. `ROS_DOMAIN_ID`는 보안이 아니다.
+- Managed Coturn은 REST HMAC secret을 Coturn과 같은 host의 Simulator에만
+  mount하고, Simulator가 session-bound 단기 credential을 발급한다. UI에는
+  secret을 절대 전달하지 않는다. External TURN은 별도 provisioned credential을
+  사용할 수 있다.
+- 필요한 근거: 두 profile의 browser/CLI 생성, production RMW/SROS2 enforce,
+  기본값이 아닌 SSH GUI-forward port, managed/external Coturn lifecycle,
+  정확한 cleanup 명령이다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 
@@ -112,7 +136,10 @@
 - 생성된 모든 release를 sibling deployment와 source-tree import가 없는 임시
   위치에 설치해 probe한다.
 
-### 2026-07-21 remote-simulator refactor에서 닫힌 항목
+### 역사적 기록: 2026-07-21 remote-simulator refactor에서 닫힌 항목
+
+아래는 교체 전 ZMQ/Router 구현의 기록이다. 해당 transport와 credential 선택은
+최종 ROS 2/DDS 아키텍처에 포함되지 않는다.
 
 - non-loopback Router와 RGBD transport는 기본적으로 CurveZMQ를 요구하며,
   Router는 public key, endpoint ID, role의 정확한 조합을 인증한다.

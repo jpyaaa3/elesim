@@ -52,7 +52,7 @@ class PendingSimulationResult:
 
 
 class SimulationOperatorMailbox:
-    """Bounded non-blocking command queue shared by router and Genesis threads."""
+    """Bounded non-blocking command queue shared by DDS and Genesis threads."""
 
     def __init__(self, *, max_pending: int = 128) -> None:
         self.max_pending = max(1, int(max_pending))

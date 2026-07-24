@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-protocol"
-version = "0.2.1"
-description = "Protocol v4 and secure ZMQ transport for Elesim nodes"
+version = "0.3.0"
+description = "Protocol v5 direct ROS 2/DDS peer contracts for Elesim nodes"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.23,<2", "pyzmq>=27,<28"]
+dependencies = ["numpy>=1.23,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

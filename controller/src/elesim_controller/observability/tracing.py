@@ -265,8 +265,10 @@ def extract_trace_context(message: Mapping[str, Any]) -> Any:
 
 def message_attributes(message: Mapping[str, Any], endpoint: str = "") -> dict[str, Any]:
     attrs: dict[str, Any] = {
-        "messaging.system": "zeromq",
-        "messaging.message.type": str(message.get("t", "unknown")),
+        "messaging.system": "ros2",
+        "messaging.message.type": str(
+            message.get("type", message.get("t", "unknown"))
+        ),
     }
     if endpoint:
         attrs["server.address"] = str(endpoint)

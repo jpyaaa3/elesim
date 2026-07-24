@@ -22,7 +22,7 @@ class SimParam:
     roll_rate: float = float("inf")
     bend_rate: float = float("inf")
 
-    zmq_hwm: int = 1
+    queue_depth: int = 1
 
 
 @dataclass(frozen=True)
@@ -39,9 +39,6 @@ class SimConfig:
     arm_urdf_name: str = "arm.urdf"
     rebuild_assembly: bool = False
 
-    host_ctrl_port: str = "tcp://127.0.0.1:5555"
-    host_sim_port: str = "tcp://127.0.0.1:5556"
-    host_feedback_port: str = "tcp://127.0.0.1:5557"
     hand_eye_config: str = ""
     show_all_ports: bool = False
     traj_enable: bool = True
@@ -55,7 +52,7 @@ class SimConfig:
     traj_lji_min_s: float = 0.07
     traj_lji_max_s: float = 0.35
     sim_camera_enable: bool = True
-    sim_camera_port: str = "tcp://127.0.0.1:5568"
+    sim_camera_topic: str = "/elesim/simulator/rgbd/frame"
     sim_camera_jpeg: bool = True
     sim_camera_jpeg_quality: int = 85
     sim_camera_rgb: bool = True
@@ -66,7 +63,7 @@ class SimConfig:
     sim_camera_height: int = 480
     sim_camera_fov_deg: float = 60.0
     sim_observer_camera_enable: bool = True
-    sim_observer_camera_port: str = "tcp://127.0.0.1:5569"
+    sim_observer_camera_stream: str = "webrtc://elesim/sim-default/observer"
     sim_observer_camera_jpeg: bool = True
     sim_observer_camera_jpeg_quality: int = 85
     sim_observer_camera_max_hz: float = 20.0
@@ -196,9 +193,6 @@ class PerceptionConfig:
     detector: str = "external"
     provider: str = "local"
     autostart: bool = False
-    preview_bind: str = "tcp://127.0.0.1:5570"
-    preview_endpoint: str = "tcp://127.0.0.1:5570"
-    preview_jpeg_quality: int = 75
     target_label: str = "sports ball"
     yolo_device: str = ""
     publish_hz: float = 15.0
@@ -226,11 +220,11 @@ class PerceptionConfig:
     track_proximity_mask_erode_px: int = 0
     track_redetect_grow_ratio: float = 1.12
     track_redetect_grow_ratio_stale: float = 1.03
-    sim_camera_port: str = "tcp://127.0.0.1:5568"
-    sim_camera_jpeg: bool = True
-    sim_camera_curve_client_secret_file: str = ""
-    sim_camera_curve_server_key: str = ""
-    sim_camera_allow_insecure_remote: bool = False
+    sim_camera_topic: str = "/elesim/simulator/rgbd/frame"
+    # Injected after DDS target discovery; never serialized into app YAML.
+    sim_camera_dds_settings: object | None = None
+    sim_camera_source_id: str = ""
+    sim_camera_source_boot_id: str = ""
     run_local: bool = True
 
     def resolved_detector_config_path(self) -> Path:

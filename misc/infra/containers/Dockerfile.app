@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=python:3.10-slim-bookworm
+ARG BASE_IMAGE=ros:humble-ros-base-jammy
 FROM ${BASE_IMAGE}
 
 ARG ROLE
@@ -15,9 +15,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CMAKE_PREFIX_PATH=/opt/openrobots
 
 RUN set -eux; \
-    packages="ca-certificates"; \
+    packages="ca-certificates python3-colcon-common-extensions python3-pip python3-venv python-is-python3 ros-humble-rmw-cyclonedds-cpp ros-humble-rosidl-default-generators ros-humble-sros2"; \
     case "$ROLE" in \
-      router) ;; \
       controller) packages="$packages libgl1 libglib2.0-0 libgomp1" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
       simulator) packages="$packages git python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libglu1-mesa libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
@@ -62,6 +61,14 @@ RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<81"
       fi; \
     fi && \
     python -m pip install --no-cache-dir -r /opt/elesim/requirements.lock
+
+COPY interfaces/elesim_interfaces/ /tmp/elesim/ros_ws/src/elesim_interfaces/
+RUN . /opt/ros/humble/setup.sh && \
+    colcon --log-base /tmp/elesim/ros_ws/log build \
+      --base-paths /tmp/elesim/ros_ws/src/elesim_interfaces \
+      --build-base /tmp/elesim/ros_ws/build \
+      --install-base /opt/elesim/ros/install && \
+    rm -rf /tmp/elesim/ros_ws/build /tmp/elesim/ros_ws/log
 
 COPY protocol/ /tmp/elesim/protocol/
 COPY application/ /tmp/elesim/application/

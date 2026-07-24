@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import numpy as np
+from elesim_protocol import RgbdIntrinsicsSample, RgbdSample
 
 from elesim_simulator.vision.sim_camera.mount import (
     _OPTICAL_FROM_GENESIS_CAMERA,
@@ -74,12 +74,68 @@ def test_genesis_camera_object_matches_link_attachment() -> None:
 
 
 def test_sim_camera_pub_sub_roundtrip() -> None:
-    endpoint = "inproc://simulator_camera_roundtrip"
-    publisher = SimCameraPublisher(endpoint, use_jpeg=False)
-    subscriber = SimCameraSubscriber(endpoint, use_jpeg=False)
+    channel: dict[str, object] = {}
+
+    class _Publisher:
+        bound_endpoint = "/elesim/sim/rgbd/frame"
+        published = 0
+        dropped = 0
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def publish(self, frame) -> bool:
+            channel["frame"] = RgbdSample(
+                color_bgr=frame.color_bgr,
+                depth_raw=frame.depth_raw,
+                depth_scale=frame.depth_scale,
+                intrinsics=RgbdIntrinsicsSample(
+                    fx=frame.intrinsics.fx,
+                    fy=frame.intrinsics.fy,
+                    cx=frame.intrinsics.cx,
+                    cy=frame.intrinsics.cy,
+                    width=frame.intrinsics.width,
+                    height=frame.intrinsics.height,
+                ),
+                seq=frame.seq,
+                ts=frame.ts,
+                source_id="sim-a",
+                source_boot_id="boot-a",
+                arm_q=frame.arm_q,
+            )
+            self.published += 1
+            return True
+
+        def close(self) -> None:
+            pass
+
+    class _Subscriber:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def connect(self) -> None:
+            pass
+
+        def recv_latest(self, *, timeout_ms: int):
+            del timeout_ms
+            return channel.pop("frame", None)
+
+        def close(self) -> None:
+            pass
+
+    endpoint = "/elesim/sim/rgbd/frame"
+    publisher = SimCameraPublisher(
+        endpoint,
+        endpoint_id="sim-a",
+        publisher_factory=_Publisher,
+    )
+    subscriber = SimCameraSubscriber(
+        endpoint,
+        endpoint_id="controller-a",
+        subscriber_factory=_Subscriber,
+    )
     subscriber.connect()
     try:
-        time.sleep(0.05)
         height, width = 48, 64
         frame = SimCameraFrame(
             color_bgr=np.zeros((height, width, 3), dtype=np.uint8),
@@ -94,20 +150,16 @@ def test_sim_camera_pub_sub_roundtrip() -> None:
                 height=height,
             ),
             seq=1,
-            ts=time.time(),
+            ts=123.0,
             arm_q=(0.0, 0.0, 0.0, 0.0),
         )
-        received = None
-        for _ in range(20):
-            publisher.publish(frame)
-            received = subscriber.recv_latest(timeout_ms=100)
-            if received is not None:
-                break
-            time.sleep(0.02)
+        assert publisher.publish(frame)
+        received = subscriber.recv_latest(timeout_ms=100)
         assert received is not None
         assert received.color_bgr.shape == (height, width, 3)
         assert received.depth_raw.shape == (height, width)
         assert received.seq == 1
+        assert received.arm_q == (0.0, 0.0, 0.0, 0.0)
     finally:
         publisher.close()
         subscriber.close()

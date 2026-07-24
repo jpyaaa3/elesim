@@ -1,171 +1,130 @@
 #!/usr/bin/env python3
-"""Preview the Genesis sim camera stream in a separate OpenCV window."""
+"""Preview one typed DDS RGB-D topic in an OpenCV window."""
 
 from __future__ import annotations
 
 import argparse
-import sys
 import time
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from elesim_controller.config import load_app_config
+from elesim_protocol import DdsRgbdSubscriber
 
 
 def _depth_preview(depth_raw: np.ndarray) -> np.ndarray:
-    if depth_raw is None or depth_raw.size == 0:
-        return np.zeros((1, 1, 3), dtype=np.uint8)
-    depth = np.asarray(depth_raw, dtype=np.uint16)
-    valid = depth[depth > 0]
+    import cv2
+
+    depth = np.asarray(depth_raw)
+    valid = depth[np.isfinite(depth) & (depth > 0)]
     if valid.size == 0:
         gray = np.zeros(depth.shape, dtype=np.uint8)
     else:
         near = float(np.percentile(valid, 2.0))
-        far = float(np.percentile(valid, 98.0))
-        if far <= near:
-            far = near + 1.0
-        normalized = np.clip((depth.astype(np.float32) - near) / (far - near), 0.0, 1.0)
+        far = max(near + 1e-6, float(np.percentile(valid, 98.0)))
+        normalized = np.clip(
+            (depth.astype(np.float32) - near) / (far - near),
+            0.0,
+            1.0,
+        )
         gray = (255.0 * (1.0 - normalized)).astype(np.uint8)
-        gray[depth == 0] = 0
-    import cv2
-
+        gray[depth <= 0] = 0
     return cv2.applyColorMap(gray, cv2.COLORMAP_TURBO)
 
 
-def _fit_image(image: np.ndarray, *, scale: float) -> np.ndarray:
-    scale = float(scale)
-    if scale <= 0.0 or abs(scale - 1.0) < 1e-6:
-        return image
-    import cv2
-
-    h, w = image.shape[:2]
-    return cv2.resize(image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
-
-
-def _compose(color_bgr: np.ndarray, depth_raw: np.ndarray, *, show_depth: bool, scale: float) -> np.ndarray:
-    import cv2
-
-    color = np.ascontiguousarray(color_bgr, dtype=np.uint8)
-    if show_depth:
-        depth = _depth_preview(depth_raw)
-        if depth.shape[:2] != color.shape[:2]:
-            depth = cv2.resize(depth, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
-        image = np.concatenate([color, depth], axis=1)
-    else:
-        image = color
-    return _fit_image(image, scale=scale)
-
-
-def _draw_status(image: np.ndarray, *, text: str) -> None:
-    import cv2
-
-    cv2.rectangle(image, (0, 0), (image.shape[1], 24), (0, 0, 0), thickness=-1)
-    cv2.putText(
-        image,
-        text,
-        (8, 17),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.48,
-        (235, 235, 235),
-        1,
-        cv2.LINE_AA,
-    )
-
-
-def _blank(width: int, height: int, *, text: str, scale: float) -> np.ndarray:
-    image = np.zeros((max(1, int(height)), max(1, int(width)), 3), dtype=np.uint8)
-    _draw_status(image, text=text)
-    return _fit_image(image, scale=scale)
-
-
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Show the Genesis sim camera stream in a preview window.")
-    ap.add_argument("--config", default=str(ROOT / "controller/config/default.yaml"))
-    ap.add_argument("--endpoint", default="", help="Override sim camera ZMQ endpoint.")
-    ap.add_argument("--jpeg", dest="jpeg", action="store_true", default=None, help="Decode color as JPEG.")
-    ap.add_argument("--raw", dest="jpeg", action="store_false", help="Decode color as raw BGR bytes.")
-    ap.add_argument("--depth", dest="depth", action="store_true", help="Show RGB plus depth colormap.")
-    ap.add_argument("--no-depth", dest="depth", action="store_false", help=argparse.SUPPRESS)
-    ap.set_defaults(depth=False)
-    ap.add_argument("--scale", type=float, default=1.0, help="Preview window scale.")
-    ap.add_argument("--timeout-ms", type=int, default=500)
-    ap.add_argument("--window", default="Sim Camera Preview")
-    args = ap.parse_args()
-
-    bundle = load_app_config(str(args.config))
-    sim_cfg = bundle.sim_config
-    endpoint = str(args.endpoint).strip() or str(sim_cfg.sim_camera_port)
-    use_jpeg = bool(sim_cfg.sim_camera_jpeg) if args.jpeg is None else bool(args.jpeg)
-    expected_w = max(1, int(sim_cfg.sim_camera_width))
-    expected_h = max(1, int(sim_cfg.sim_camera_height))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--topic",
+        default="/elesim/sim_default/rgbd/frame",
+        help="Absolute DDS RGB-D topic.",
+    )
+    parser.add_argument("--source-id", default="")
+    parser.add_argument("--source-boot", default="")
+    parser.add_argument("--depth", action="store_true")
+    parser.add_argument("--scale", type=float, default=1.0)
+    parser.add_argument("--timeout-ms", type=int, default=500)
+    parser.add_argument("--window", default="Elesim DDS RGB-D")
+    args = parser.parse_args()
 
     try:
         import cv2
-        from elesim_controller.vision.sim_camera.subscriber import SimCameraSubscriber
+
+        subscriber = DdsRgbdSubscriber(
+            args.topic,
+            endpoint_id="rgbd-preview",
+            expected_source_id=args.source_id,
+            expected_boot_id=args.source_boot,
+        )
     except Exception as exc:
-        print(f"[sim_camera_preview] OpenCV and pyzmq are required: {exc}")
+        print(f"[sim_camera_preview] ROS 2 interfaces/OpenCV unavailable: {exc}")
         return 2
 
-    sub = SimCameraSubscriber(endpoint, use_jpeg=use_jpeg)
-    last_frame_t = 0.0
-    last_seq = -1
-    fps = 0.0
     frames = 0
-    fps_t0 = time.time()
-
+    fps = 0.0
+    fps_started = time.monotonic()
     print(
-        f"[sim_camera_preview] connecting {endpoint} jpeg={use_jpeg} "
-        f"depth={bool(args.depth)}; press q or Esc to quit"
+        f"[sim_camera_preview] DDS topic={args.topic} "
+        f"source={args.source_id or '*'}; press q or Esc to quit"
     )
     try:
-        cv2.namedWindow(str(args.window), cv2.WINDOW_NORMAL)
+        cv2.namedWindow(args.window, cv2.WINDOW_NORMAL)
         while True:
-            frame = sub.recv_latest(timeout_ms=int(args.timeout_ms))
-            now = time.time()
-            if frame is None:
-                image = _blank(
-                    expected_w,
-                    expected_h,
-                    text=f"Waiting for sim camera | {endpoint}",
-                    scale=float(args.scale),
-                )
+            sample = subscriber.recv_latest(timeout_ms=args.timeout_ms)
+            if sample is None:
+                image = np.zeros((240, 424, 3), dtype=np.uint8)
+                status = "waiting for DDS RGB-D sample"
             else:
                 frames += 1
-                if now - fps_t0 >= 0.5:
-                    fps = frames / max(now - fps_t0, 1e-6)
-                    fps_t0 = now
+                elapsed = time.monotonic() - fps_started
+                if elapsed >= 0.5:
+                    fps = frames / elapsed
                     frames = 0
-                last_frame_t = now
-                last_seq = int(frame.seq)
-                image = _compose(
-                    frame.color_bgr,
-                    frame.depth_raw,
-                    show_depth=bool(args.depth),
-                    scale=float(args.scale),
+                    fps_started = time.monotonic()
+                image = np.ascontiguousarray(sample.color_bgr, dtype=np.uint8)
+                if args.depth:
+                    depth = _depth_preview(sample.depth_raw)
+                    image = np.concatenate((image, depth), axis=1)
+                if args.scale > 0.0 and abs(args.scale - 1.0) > 1e-6:
+                    height, width = image.shape[:2]
+                    image = cv2.resize(
+                        image,
+                        (
+                            max(1, int(width * args.scale)),
+                            max(1, int(height * args.scale)),
+                        ),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                age_ms = max(0.0, (time.time() - sample.ts) * 1000.0)
+                status = (
+                    f"{sample.source_id} seq={sample.seq} "
+                    f"fps={fps:.1f} age={age_ms:.0f}ms"
                 )
-                age_ms = max(0.0, (now - float(frame.ts)) * 1000.0) if frame.ts else 0.0
-                _draw_status(image, text=f"seq={last_seq} fps={fps:4.1f} age={age_ms:4.0f} ms")
-
-            if frame is None and last_frame_t > 0.0:
-                _draw_status(image, text=f"No new frame | last seq={last_seq} | {now - last_frame_t:.1f}s ago")
-            cv2.imshow(str(args.window), image)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
+            cv2.rectangle(
+                image,
+                (0, 0),
+                (image.shape[1], 24),
+                (0, 0, 0),
+                thickness=-1,
+            )
+            cv2.putText(
+                image,
+                status,
+                (8, 17),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                (235, 235, 235),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.imshow(args.window, image)
+            if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                 return 0
     except KeyboardInterrupt:
         return 0
-    except Exception as exc:
-        print(f"[sim_camera_preview] failed to open preview window: {exc}")
-        return 1
     finally:
-        sub.close()
+        subscriber.close()
         try:
-            cv2.destroyWindow(str(args.window))
+            cv2.destroyWindow(args.window)
         except Exception:
             pass
 

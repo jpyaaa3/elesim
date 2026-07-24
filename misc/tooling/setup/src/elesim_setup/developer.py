@@ -15,17 +15,19 @@ from typing import Callable, Mapping
 import yaml
 
 from .capabilities import HostCapabilities
+from .configuration import write_cyclonedds_config
 from .request import SetupRequest
 
 
 Log = Callable[[str], None]
 _REQUIRED_PROJECTS = (
-    "packages/protocol",
-    "router",
-    "controller",
-    "ui",
-    "simulator",
-    "robot",
+    ("packages/protocol", "pyproject.toml"),
+    ("packages/elesim_interfaces", "package.xml"),
+    ("packages/elesim_interfaces", "CMakeLists.txt"),
+    ("controller", "pyproject.toml"),
+    ("ui", "pyproject.toml"),
+    ("simulator", "pyproject.toml"),
+    ("robot", "pyproject.toml"),
 )
 
 
@@ -39,6 +41,7 @@ class DeveloperInstallState:
     gpu_mode: str
     gpu_device: str
     jaeger: bool
+    dds: dict[str, object]
 
 
 class DeveloperInstaller:
@@ -83,6 +86,10 @@ class DeveloperInstaller:
         self._prepare_workspace()
         self.log("[2/5] 개발 image context 생성")
         self._write_context()
+        write_cyclonedds_config(
+            self.generated_root / "cyclonedds.xml",
+            self.request.dds,
+        )
         self.log("[3/5] Compose 구성 생성")
         self._write_compose()
         self.log("[4/5] 실행 명령 생성")
@@ -167,7 +174,28 @@ class DeveloperInstaller:
             "XDG_RUNTIME_DIR": "${XDG_RUNTIME_DIR:-}",
             "PYTHONUNBUFFERED": "1",
             "PYTHONNOUSERSITE": "1",
+            "ELESIM_SYSTEM_ID": self.request.dds.system_id,
+            "ELESIM_DDS_DISCOVERY_MODE": self.request.dds.discovery_mode,
+            "ELESIM_DDS_STATIC_PEERS": ",".join(self.request.dds.static_peers),
+            "ELESIM_DDS_NETWORK_INTERFACE": self.request.dds.interface,
+            "ELESIM_DDS_SECURITY_PROFILE": self.request.dds.security_profile,
+            "ELESIM_DDS_VENDOR_CONFIG": "/opt/elesim/config/cyclonedds.xml",
+            "ROS_DOMAIN_ID": str(self.request.dds.domain_id),
+            "RMW_IMPLEMENTATION": self.request.dds.rmw_implementation,
+            "ROS_LOCALHOST_ONLY": "0",
+            "CYCLONEDDS_URI": "file:///opt/elesim/config/cyclonedds.xml",
         }
+        if self.request.dds.security_profile == "sros2":
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "true",
+                    "ROS_SECURITY_STRATEGY": "Enforce",
+                    "ROS_SECURITY_KEYSTORE": self.request.dds.keystore,
+                    "ELESIM_DDS_ENCLAVE_BASE": self.request.dds.enclave,
+                }
+            )
+        else:
+            environment["ROS_SECURITY_ENABLE"] = "false"
         if self.request.jaeger:
             environment.update(
                 {
@@ -202,6 +230,10 @@ class DeveloperInstaller:
                 f"{cache}:{cache}:rw",
                 "/dev:/dev",
                 "/tmp/.X11-unix:/tmp/.X11-unix:rw",
+                (
+                    f"{self.generated_root / 'cyclonedds.xml'}:"
+                    "/opt/elesim/config/cyclonedds.xml:ro"
+                ),
             ],
             "command": ("sleep", "infinity"),
             "restart": "unless-stopped",
@@ -229,6 +261,9 @@ class DeveloperInstaller:
             else:
                 service["gpus"] = "all"
                 environment["CUDA_VISIBLE_DEVICES"] = None
+        keystore = self.request.dds.keystore_path
+        if keystore is not None:
+            service["volumes"].append(f"{keystore}:{keystore}:ro")  # type: ignore[union-attr]
         if self.capabilities is not None and self.capabilities.wslg_available:
             service["volumes"].append("/mnt/wslg:/mnt/wslg:rw")  # type: ignore[union-attr]
             environment["WAYLAND_DISPLAY"] = "${WAYLAND_DISPLAY:-wayland-0}"
@@ -284,7 +319,7 @@ class DeveloperInstaller:
 
     def _write_state(self) -> None:
         state = DeveloperInstallState(
-            schema_version=1,
+            schema_version=2,
             workspace=str(self.workspace),
             bin_dir=str(self.request.bin_dir),
             repository=self.request.repository,
@@ -292,6 +327,17 @@ class DeveloperInstaller:
             gpu_mode=self.request.compute.gpu_mode,
             gpu_device=self.request.compute.gpu_device,
             jaeger=self.request.jaeger,
+            dds={
+                "system_id": self.request.dds.system_id,
+                "domain_id": self.request.dds.domain_id,
+                "rmw_implementation": self.request.dds.rmw_implementation,
+                "discovery_mode": self.request.dds.discovery_mode,
+                "static_peers": list(self.request.dds.static_peers),
+                "interface": self.request.dds.interface,
+                "security_profile": self.request.dds.security_profile,
+                "keystore": self.request.dds.keystore,
+                "enclave": self.request.dds.enclave,
+            },
         )
         destination = self.generated_root / "install-state.json"
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -310,7 +356,10 @@ class DeveloperInstaller:
 
 
 def _valid_workspace(workspace: Path) -> bool:
-    return all((workspace / project / "pyproject.toml").is_file() for project in _REQUIRED_PROJECTS)
+    return all(
+        (workspace / project / marker).is_file()
+        for project, marker in _REQUIRED_PROJECTS
+    )
 
 
 def _write_executable(path: Path, content: str) -> None:

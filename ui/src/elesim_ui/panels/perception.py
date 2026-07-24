@@ -965,9 +965,6 @@ def _build_perception_config(panel) -> PerceptionConfig:
             else str(panel._perception_detector_draft)
         ),
         provider=effective_provider,
-        preview_bind=str(getattr(panel, "_perception_preview_bind", "")),
-        preview_endpoint=str(getattr(panel, "_perception_preview_endpoint", "")),
-        preview_jpeg_quality=int(getattr(panel, "_perception_preview_jpeg_quality", 75)),
         target_label=str(panel._perception_target_label_draft),
         yolo_device=str(panel._perception_yolo_device_draft),
         publish_hz=float(panel._perception_publish_hz_draft),

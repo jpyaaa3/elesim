@@ -58,7 +58,6 @@ class HostState:
     perception_failed: bool = False
     perception_status: str = ""
     perception_source: str = ""
-    perception_preview_endpoint: str = ""
     perception_recording: bool = False
     perception_record_with_overlay: bool = False
     perception_last_record_path: str = ""

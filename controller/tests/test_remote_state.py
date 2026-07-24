@@ -8,7 +8,7 @@ from elesim_protocol import SimMappingConfig
 
 def test_measured_q_is_the_canonical_control_state() -> None:
     state = RemoteState(SimMappingConfig(), clock=lambda: 10.0)
-    state.router_connected(True)
+    state.peer_connected(True)
     state.target_changed("robot-a")
     state.accept_telemetry(
         {"q": [-0.1, 0.2, 0.3, -0.4], "q_source": "measured", "torque_enabled": True}
@@ -37,7 +37,7 @@ def test_target_switch_clears_previous_robot_measurements() -> None:
 def test_stale_telemetry_is_not_reported_as_connected() -> None:
     now = [10.0]
     state = RemoteState(SimMappingConfig(), stale_after_s=1.0, clock=lambda: now[0])
-    state.router_connected(True)
+    state.peer_connected(True)
     state.target_changed("robot-a")
     state.accept_telemetry({"q": [0.0, 0.0, 0.0, 0.0]})
     now[0] = 11.1

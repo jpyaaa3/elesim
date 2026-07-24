@@ -132,9 +132,6 @@ class ControlPanel:
         self._perception_show_preview_draft = bool(pc.show_preview)
         self._perception_pipeline_draft = str(pc.pipeline)
         self._perception_tracker_draft = str(pc.tracker)
-        self._perception_preview_bind = str(getattr(pc, "preview_bind", ""))
-        self._perception_preview_endpoint = str(getattr(pc, "preview_endpoint", ""))
-        self._perception_preview_jpeg_quality = int(getattr(pc, "preview_jpeg_quality", 75))
         self._gaze_config_draft = gaze_config_to_dict(gz)
         self._gaze_config_seen_signature = ""
         self._gaze_config_last_source = "local"

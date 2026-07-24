@@ -9,11 +9,11 @@ from typing import Any, Mapping
 
 import yaml
 
-from elesim_protocol import SimMappingConfig
+from elesim_protocol import DdsRuntimeSettings, SimMappingConfig
 from elesim_robot.go2.config import Go2HardwareConfig
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -39,8 +39,7 @@ class HardwareConfig:
 @dataclass(frozen=True)
 class CameraConfig:
     enabled: bool = True
-    bind: str = "tcp://0.0.0.0:5568"
-    advertise: str = ""
+    topic: str = "/elesim/robot_go2/rgbd/frame"
     width: int = 640
     height: int = 480
     fps: int = 30
@@ -49,7 +48,6 @@ class CameraConfig:
 @dataclass(frozen=True)
 class SafetyConfig:
     command_deadman_s: float = 0.5
-    router_liveness_s: float = 3.5
     monitor_period_s: float = 0.05
     read_failure_limit: int = 3
     telemetry_period_s: float = 0.1
@@ -59,18 +57,9 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
-class SecurityConfig:
-    router_client_secret_file: str = ""
-    router_server_public_file: str = ""
-    media_server_secret_file: str = ""
-    media_client_public_keys_dir: str = ""
-    allow_insecure_remote: bool = False
-
-
-@dataclass(frozen=True)
 class RobotConfig:
     endpoint_id: str
-    server_endpoint: str
+    dds: DdsRuntimeSettings
     device: str
     use_go2: bool
     arm: HardwareConfig
@@ -78,7 +67,6 @@ class RobotConfig:
     go2: Go2HardwareConfig
     camera: CameraConfig
     safety: SafetyConfig
-    security: SecurityConfig
 
 
 def _mapping(raw: object, *, context: str) -> dict[str, Any]:
@@ -176,20 +164,25 @@ def _validate_go2(config: Go2HardwareConfig) -> None:
     for value in config.world_frame_offset_xyz:
         _finite(value, name="go2.world_frame_offset_xyz")
     _finite(config.world_frame_yaw_deg, name="go2.world_frame_yaw_deg")
+    if config.ros_domain_id is not None:
+        if (
+            isinstance(config.ros_domain_id, bool)
+            or int(config.ros_domain_id) < 0
+            or int(config.ros_domain_id) > 232
+        ):
+            raise ValueError("go2.ros_domain_id must be in 0..232")
 
 
 def _validate_camera(config: CameraConfig) -> None:
     for name in ("width", "height", "fps"):
         _positive(getattr(config, name), name=f"camera.{name}")
-    if config.enabled and not str(config.bind).strip():
-        raise ValueError("camera.bind must not be empty when camera is enabled")
+    topic = str(config.topic).strip()
+    if config.enabled and (not topic or not topic.startswith("/")):
+        raise ValueError("camera.topic must be an absolute ROS topic when camera is enabled")
 
 
 def _validate_safety(config: SafetyConfig) -> None:
-    deadman = _positive(config.command_deadman_s, name="safety.command_deadman_s")
-    liveness = _positive(config.router_liveness_s, name="safety.router_liveness_s")
-    if liveness <= deadman:
-        raise ValueError("safety.router_liveness_s must exceed command_deadman_s")
+    _positive(config.command_deadman_s, name="safety.command_deadman_s")
     _positive(config.monitor_period_s, name="safety.monitor_period_s", allow_zero=True)
     if isinstance(config.read_failure_limit, bool) or int(config.read_failure_limit) < 1:
         raise ValueError("safety.read_failure_limit must be at least 1")
@@ -211,7 +204,7 @@ def load_config(path: str | Path) -> RobotConfig:
         "go2",
         "camera",
         "safety",
-        "security",
+        "dds",
     }
     unknown_top = sorted(set(root) - allowed_top)
     if unknown_top:
@@ -221,7 +214,7 @@ def load_config(path: str | Path) -> RobotConfig:
         raise ValueError(f"schema_version must be exactly {SCHEMA_VERSION}")
 
     runtime = _mapping(root.get("runtime"), context="runtime")
-    runtime_allowed = {"endpoint_id", "server_endpoint", "device", "use_go2"}
+    runtime_allowed = {"endpoint_id", "device", "use_go2"}
     runtime_unknown = sorted(set(runtime) - runtime_allowed)
     if runtime_unknown:
         raise ValueError(f"unknown runtime config keys: {', '.join(runtime_unknown)}")
@@ -235,33 +228,28 @@ def load_config(path: str | Path) -> RobotConfig:
     go2 = Go2HardwareConfig(**_values(Go2HardwareConfig, root.get("go2"), context="go2"))
     camera = CameraConfig(**_values(CameraConfig, root.get("camera"), context="camera"))
     safety = SafetyConfig(**_values(SafetyConfig, root.get("safety"), context="safety"))
-    security = SecurityConfig(
-        **_values(SecurityConfig, root.get("security"), context="security")
-    )
-
-    def resolved(value: str) -> str:
-        text = str(value).strip()
-        if not text:
-            return ""
-        candidate = Path(text).expanduser()
-        return str(candidate if candidate.is_absolute() else (source.parent / candidate).resolve())
-
-    security = SecurityConfig(
-        router_client_secret_file=resolved(security.router_client_secret_file),
-        router_server_public_file=resolved(security.router_server_public_file),
-        media_server_secret_file=resolved(security.media_server_secret_file),
-        media_client_public_keys_dir=resolved(
-            security.media_client_public_keys_dir
-        ),
-        allow_insecure_remote=security.allow_insecure_remote,
-    )
 
     endpoint_id = str(runtime.get("endpoint_id", "robot-go2")).strip()
-    server_endpoint = str(runtime.get("server_endpoint", "tcp://127.0.0.1:5558")).strip()
     if not endpoint_id:
         raise ValueError("runtime.endpoint_id must not be empty")
-    if not server_endpoint:
-        raise ValueError("runtime.server_endpoint must not be empty")
+    dds_raw = _mapping(root.get("dds"), context="dds")
+    vendor_config = str(dds_raw.get("vendor_config", "")).strip()
+    if vendor_config:
+        candidate = Path(vendor_config).expanduser()
+        dds_raw["vendor_config"] = str(
+            candidate
+            if candidate.is_absolute()
+            else (source.parent / candidate).resolve()
+        )
+    keystore = str(dds_raw.get("keystore", "")).strip()
+    if keystore:
+        candidate = Path(keystore).expanduser()
+        dds_raw["keystore"] = str(
+            candidate
+            if candidate.is_absolute()
+            else (source.parent / candidate).resolve()
+        )
+    dds = DdsRuntimeSettings.from_mapping(dds_raw, endpoint_id=endpoint_id)
     use_go2 = runtime.get("use_go2", True)
     if not isinstance(use_go2, bool):
         raise ValueError("runtime.use_go2 must be boolean")
@@ -273,7 +261,7 @@ def load_config(path: str | Path) -> RobotConfig:
     _validate_safety(safety)
     return RobotConfig(
         endpoint_id=endpoint_id,
-        server_endpoint=server_endpoint,
+        dds=dds,
         device=str(runtime.get("device", "")),
         use_go2=use_go2,
         arm=arm,
@@ -281,7 +269,6 @@ def load_config(path: str | Path) -> RobotConfig:
         go2=go2,
         camera=camera,
         safety=safety,
-        security=security,
     )
 
 
@@ -289,7 +276,6 @@ __all__ = [
     "CameraConfig",
     "HardwareConfig",
     "RobotConfig",
-    "SecurityConfig",
     "SafetyConfig",
     "load_config",
 ]

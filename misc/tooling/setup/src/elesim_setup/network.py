@@ -1,4 +1,4 @@
-"""Configure installed host addresses and run layered connectivity checks."""
+"""Configure installed DDS settings and run layered connectivity checks."""
 
 from __future__ import annotations
 
@@ -11,13 +11,7 @@ from typing import Sequence
 
 from .configuration import generate_role_configs
 from .doctor import NetworkDoctor
-from .state import (
-    InstallState,
-    NetworkSettings,
-    SecuritySettings,
-    TurnSettings,
-    default_state_path,
-)
+from .state import DdsSettings, InstallState, NetworkSettings, TurnSettings, default_state_path
 
 
 def _prompt(label: str, current: str) -> str:
@@ -26,78 +20,154 @@ def _prompt(label: str, current: str) -> str:
 
 
 def _configure_interactive(state: InstallState) -> InstallState:
-    print("\nElesim 기기 간 네트워크 설정")
-    router_host = _prompt("Router hostname/IP", state.network.router_host)
-    advertise_host = _prompt("이 기기의 advertise hostname/IP", state.network.advertise_host)
-    router_port = int(_prompt("Router TCP port", str(state.network.router_port)))
-    rgbd_port = int(_prompt("RGBD TCP port", str(state.network.rgbd_port)))
-    turn_raw = _prompt("TURN URL (없으면 '-')", state.network.turn_urls[0] if state.network.turn_urls else "-")
-    turn_urls = () if turn_raw == "-" else (turn_raw,)
-    print("보안 모드: loopback / curve / insecure-lan")
-    security_mode = _prompt("보안 모드", state.security.mode)
-    credentials_root = state.security.credentials_root
-    if security_mode == "curve":
-        credentials_root = _prompt("credential root", credentials_root or str(state.prefix_path / "secrets"))
+    print("\nElesim ROS 2/DDS 설정")
+    system_id = _prompt("Elesim system ID", state.dds.system_id)
+    domain_id = int(_prompt("ROS_DOMAIN_ID", str(state.dds.domain_id)))
+    discovery_mode = _prompt(
+        "DDS discovery (multicast/static)",
+        state.dds.discovery_mode,
+    )
+    peers_raw = _prompt(
+        "Static peer hostname/IP (쉼표 구분, 없으면 '-')",
+        ",".join(state.dds.static_peers) or "-",
+    )
+    static_peers = (
+        ()
+        if peers_raw == "-"
+        else tuple(value.strip() for value in peers_raw.split(",") if value.strip())
+    )
+    interface = _prompt("DDS interface (자동이면 '-')", state.dds.interface or "-")
+    interface = "" if interface == "-" else interface
+    security_profile = _prompt(
+        "DDS security profile (trusted-network/sros2)",
+        state.dds.security_profile,
+    )
+    keystore = state.dds.keystore
+    enclave = state.dds.enclave
+    if security_profile == "sros2":
+        keystore = _prompt(
+            "SROS2 keystore",
+            keystore or str(state.prefix_path / "sros2"),
+        )
+        enclave = _prompt("SROS2 base enclave", enclave or "/elesim")
     else:
-        credentials_root = ""
+        keystore = ""
+        enclave = ""
+    turn_raw = _prompt(
+        "TURN URL (없으면 '-')",
+        state.network.turn_urls[0] if state.network.turn_urls else "-",
+    )
+    turn_urls = () if turn_raw == "-" else (turn_raw,)
     turn = state.turn
     if not turn_urls:
         turn = TurnSettings()
     elif turn.mode == "none":
         turn = TurnSettings(mode="external")
+    if turn.mode == "external" and "simulator" in state.roles:
+        turn = replace(
+            turn,
+            credential_file=_prompt(
+                "External TURN username/credential JSON file",
+                turn.credential_file
+                or str(state.prefix_path / "secrets/turn.credentials.json"),
+            ),
+        )
     return replace(
         state,
-        network=NetworkSettings(
-            router_host=router_host,
-            advertise_host=advertise_host,
-            router_port=router_port,
-            rgbd_port=rgbd_port,
-            turn_urls=turn_urls,
-            simulator_id=state.network.simulator_id,
-            controller_id=state.network.controller_id,
+        network=replace(state.network, turn_urls=turn_urls),
+        dds=DdsSettings(
+            system_id=system_id,
+            domain_id=domain_id,
+            rmw_implementation=state.dds.rmw_implementation,
+            discovery_mode=discovery_mode,
+            static_peers=static_peers,
+            interface=interface,
+            security_profile=security_profile,
+            keystore=keystore,
+            enclave=enclave,
         ),
-        security=SecuritySettings(mode=security_mode, credentials_root=credentials_root),
         turn=turn,
-    ).validate()
+    ).require_runnable_dds()
 
 
 def _configure_from_args(state: InstallState, args: argparse.Namespace) -> InstallState:
-    network = state.network
-    security = state.security
-    updated_network = replace(
-        network,
-        router_host=args.router_host or network.router_host,
-        advertise_host=args.advertise_host or network.advertise_host,
-        router_port=network.router_port if args.router_port is None else args.router_port,
-        rgbd_port=network.rgbd_port if args.rgbd_port is None else args.rgbd_port,
-        turn_urls=(
-            ()
-            if args.clear_turn
-            else network.turn_urls if args.turn_url is None else tuple(args.turn_url)
+    peers = state.dds.static_peers
+    if args.clear_dds_static_peers:
+        peers = ()
+    elif args.dds_static_peer is not None:
+        peers = tuple(args.dds_static_peer)
+    dds = replace(
+        state.dds,
+        system_id=args.dds_system_id or state.dds.system_id,
+        domain_id=(
+            state.dds.domain_id if args.dds_domain_id is None else args.dds_domain_id
         ),
-        simulator_id=args.simulator_id or network.simulator_id,
-        controller_id=args.controller_id or network.controller_id,
-    )
-    updated_security = replace(
-        security,
-        mode=args.security or security.mode,
-        credentials_root=(
-            args.credentials_root
-            if args.credentials_root is not None
-            else security.credentials_root
+        rmw_implementation=(
+            args.dds_rmw_implementation or state.dds.rmw_implementation
+        ),
+        discovery_mode=args.dds_discovery_mode or state.dds.discovery_mode,
+        static_peers=peers,
+        interface=(
+            state.dds.interface
+            if args.dds_interface is None
+            else args.dds_interface
+        ),
+        security_profile=(
+            args.dds_security_profile or state.dds.security_profile
+        ),
+        keystore=(
+            state.dds.keystore if args.dds_keystore is None else args.dds_keystore
+        ),
+        enclave=(
+            state.dds.enclave if args.dds_enclave is None else args.dds_enclave
         ),
     )
-    updated_turn = state.turn
-    if not updated_network.turn_urls:
-        updated_turn = TurnSettings()
-    elif updated_turn.mode == "none":
-        updated_turn = TurnSettings(mode="external")
-    return replace(
-        state,
-        network=updated_network,
-        security=updated_security,
-        turn=updated_turn,
-    ).validate()
+    if dds.security_profile == "trusted-network":
+        dds = replace(dds, keystore="", enclave="")
+
+    turn_urls = (
+        ()
+        if args.clear_turn
+        else state.network.turn_urls
+        if args.turn_url is None
+        else tuple(args.turn_url)
+    )
+    network = replace(
+        state.network,
+        turn_urls=turn_urls,
+        simulator_id=args.simulator_id or state.network.simulator_id,
+        controller_id=args.controller_id or state.network.controller_id,
+    )
+    if not turn_urls:
+        turn = TurnSettings()
+    else:
+        mode = args.turn_mode or (
+            state.turn.mode if state.turn.mode != "none" else "external"
+        )
+        turn = TurnSettings(
+            mode=mode,
+            realm=(
+                args.turn_realm
+                if args.turn_realm is not None
+                else state.turn.realm if mode == "managed" else ""
+            ),
+            public_host=(
+                args.turn_public_host
+                if args.turn_public_host is not None
+                else state.turn.public_host if mode == "managed" else ""
+            ),
+            secret_file=(
+                args.turn_secret_file
+                if args.turn_secret_file is not None
+                else state.turn.secret_file if mode == "managed" else ""
+            ),
+            credential_file=(
+                args.turn_credential_file
+                if args.turn_credential_file is not None
+                else state.turn.credential_file if mode == "external" else ""
+            ),
+        )
+    return replace(state, network=network, dds=dds, turn=turn).require_runnable_dds()
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -105,22 +175,53 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", default=str(default_state_path()))
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("show", help="현재 IP/보안 설정 출력")
-    configure = subparsers.add_parser("configure", help="IP와 보안 경로를 바꾸고 역할별 YAML 재생성")
-    configure.add_argument("--router-host", default="")
-    configure.add_argument("--advertise-host", default="")
-    configure.add_argument("--router-port", type=int)
-    configure.add_argument("--rgbd-port", type=int)
+    subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
+    configure = subparsers.add_parser(
+        "configure",
+        help="DDS/TURN 설정을 바꾸고 역할별 YAML/XML을 재생성",
+    )
+    configure.add_argument("--dds-system-id", default="")
+    configure.add_argument("--dds-domain-id", type=int)
+    configure.add_argument(
+        "--dds-rmw-implementation",
+        choices=("rmw_cyclonedds_cpp",),
+        default="",
+    )
+    configure.add_argument(
+        "--dds-discovery-mode",
+        choices=("multicast", "static"),
+        default="",
+    )
+    configure.add_argument("--dds-static-peer", action="append")
+    configure.add_argument("--clear-dds-static-peers", action="store_true")
+    configure.add_argument("--dds-interface")
+    configure.add_argument(
+        "--dds-security-profile",
+        choices=("trusted-network", "sros2"),
+        default="",
+    )
+    configure.add_argument("--dds-keystore")
+    configure.add_argument("--dds-enclave")
     configure.add_argument("--turn-url", action="append")
     configure.add_argument("--clear-turn", action="store_true")
+    configure.add_argument(
+        "--turn-mode",
+        choices=("none", "managed", "external"),
+        default="",
+    )
+    configure.add_argument("--turn-realm")
+    configure.add_argument("--turn-public-host")
+    configure.add_argument("--turn-secret-file")
+    configure.add_argument("--turn-credential-file")
     configure.add_argument("--simulator-id", default="")
     configure.add_argument("--controller-id", default="")
-    configure.add_argument("--security", choices=("loopback", "curve", "insecure-lan"), default="")
-    configure.add_argument("--credentials-root")
     configure.add_argument("--non-interactive", action="store_true")
 
-    doctor = subparsers.add_parser("doctor", help="DNS/TCP/ZMQ/TURN/WebRTC 연결 검사")
-    doctor.add_argument("--active", action="store_true", help="실제 RGBD와 WebRTC frame까지 검사")
+    doctor = subparsers.add_parser(
+        "doctor",
+        help="DDS graph, RGBD topic, TURN과 WebRTC 연결 검사",
+    )
+    doctor.add_argument("--active", action="store_true", help="실제 DDS RGBD sample까지 검사")
     doctor.add_argument("--timeout", type=float, default=4.0)
     doctor.add_argument("--json", action="store_true", help="기계 판독용 JSON 출력")
     return parser
@@ -135,19 +236,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
         if args.command == "configure":
+            override_names = (
+                "dds_system_id",
+                "dds_domain_id",
+                "dds_rmw_implementation",
+                "dds_discovery_mode",
+                "dds_static_peer",
+                "clear_dds_static_peers",
+                "dds_interface",
+                "dds_security_profile",
+                "dds_keystore",
+                "dds_enclave",
+                "turn_url",
+                "clear_turn",
+                "turn_mode",
+                "turn_realm",
+                "turn_public_host",
+                "turn_secret_file",
+                "turn_credential_file",
+                "simulator_id",
+                "controller_id",
+            )
             has_override = any(
-                (
-                    bool(args.router_host),
-                    bool(args.advertise_host),
-                    args.router_port is not None,
-                    args.rgbd_port is not None,
-                    args.turn_url is not None,
-                    bool(args.clear_turn),
-                    bool(args.simulator_id),
-                    bool(args.controller_id),
-                    bool(args.security),
-                    args.credentials_root is not None,
-                )
+                getattr(args, name) not in (None, "", False, [])
+                for name in override_names
             )
             updated = (
                 _configure_from_args(state, args)
@@ -162,10 +274,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("실행 중인 프로세스는 새 설정을 읽도록 재시작해야 합니다.")
             return 0
         if args.command == "doctor":
-            if args.active:
-                print("주의: --active WebRTC 검사는 짧은 simulation session을 독점합니다.", file=sys.stderr)
-            report = NetworkDoctor(state, timeout_s=args.timeout, active=args.active).run()
-            print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2) if args.json else report.render())
+            report = NetworkDoctor(
+                state,
+                timeout_s=args.timeout,
+                active=args.active,
+            ).run()
+            print(
+                json.dumps(report.to_dict(), ensure_ascii=False, indent=2)
+                if args.json
+                else report.render()
+            )
             return 0 if report.ok else 1
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"오류: {exc}", file=sys.stderr)

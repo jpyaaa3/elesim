@@ -1,7 +1,7 @@
-"""Typed protocol-v4 payload contracts.
+"""Typed protocol-v5 application payload contracts.
 
-Envelopes remain JSON objects on the wire. These small DTOs define the fields
-that routing and endpoint code may rely on before touching domain state.
+These small DTOs define the bounded fields that peer code may rely on before
+touching domain state.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from numbers import Real
 from typing import Any, Mapping, Optional
 
-from .messages import ENDPOINT_ROLES, EndpointDescriptor, ProtocolError
+from .messages import ENDPOINT_ROLES, ProtocolError
 from .operator import OPERATOR_OPERATIONS, OPERATOR_VIEW_SCHEMA_VERSION
 
 
@@ -109,23 +109,6 @@ def _simulation_streams(raw: object) -> tuple[str, ...]:
     if unsupported:
         raise ProtocolError("unsupported simulation stream: " + ", ".join(unsupported))
     return streams
-
-
-@dataclass(frozen=True)
-class RegisterRequest:
-    endpoint: EndpointDescriptor
-
-    @classmethod
-    def from_payload(cls, payload: object) -> "RegisterRequest":
-        raw = _object(payload, context="register")
-        _unknown(raw, {"endpoint"}, context="register")
-        endpoint_raw = raw.get("endpoint")
-        if not isinstance(endpoint_raw, Mapping):
-            raise ProtocolError("register payload requires endpoint descriptor")
-        endpoint = EndpointDescriptor.from_dict(endpoint_raw)
-        if not endpoint.instance_id:
-            raise ProtocolError("registered endpoint instance_id must not be empty")
-        return cls(endpoint)
 
 
 @dataclass(frozen=True)
@@ -248,7 +231,7 @@ class MotionCommandRequest:
         if not command or len(command) > 128 or any(character.isspace() for character in command):
             raise ProtocolError("motion command must contain 1..128 non-whitespace characters")
         if "u" in raw:
-            raise ProtocolError("legacy u motor targets are not supported by protocol v4")
+            raise ProtocolError("legacy u motor targets are not supported by protocol v5")
         q: Optional[tuple[float, float, float, float]] = None
         if "q" in raw:
             q_values = _vector(raw["q"], 4, name="motion q")
@@ -706,10 +689,8 @@ class WebRtcSignalPayload:
 
 
 def validate_routed_payload(message_type: str, payload: object) -> object:
-    """Parse payloads whose fields affect router authority or motion safety."""
+    """Parse payloads whose fields affect peer authority or motion safety."""
 
-    if message_type == "register":
-        return RegisterRequest.from_payload(payload)
     if message_type == "discover":
         return DiscoverRequest.from_payload(payload)
     if message_type == "select_target":
@@ -738,7 +719,7 @@ def validate_routed_payload(message_type: str, payload: object) -> object:
         return SimulationStatusPayload.from_payload(payload)
     if message_type == "webrtc_signal":
         return WebRtcSignalPayload.from_payload(payload)
-    if message_type in {"heartbeat", "release_target"}:
+    if message_type == "release_target":
         raw = _object(payload, context=message_type)
         _unknown(raw, set(), context=message_type)
         return raw
@@ -752,7 +733,6 @@ __all__ = [
     "OpenSimulationSessionRequest",
     "OperatorIntentRequest",
     "OperatorViewSnapshot",
-    "RegisterRequest",
     "SelectTargetRequest",
     "SIMULATION_COMMANDS",
     "SIMULATION_SCHEMA_VERSION",

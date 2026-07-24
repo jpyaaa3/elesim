@@ -8,11 +8,11 @@ if (query.get("token")) {
 
 const token = sessionStorage.getItem("elesimSetupToken") || "";
 const steps = ["mode", "roles", "paths", "compute", "network", "review", "install"];
-const roleOrder = ["router", "simulator", "controller", "ui", "robot"];
+const roleOrder = ["simulator", "controller", "ui", "robot"];
 const presets = {
-  local: ["router", "simulator", "controller", "ui"],
+  local: ["simulator", "controller", "ui"],
   laptop: ["controller", "ui"],
-  compute: ["router", "simulator"],
+  compute: ["simulator"],
   custom: []
 };
 
@@ -146,61 +146,54 @@ function updateMode() {
   byId("general-roles").hidden = developer;
   byId("developer-roles").hidden = !developer;
   if (developer) {
-    byId("router-host").value = context.defaults.router_host;
-    byId("router-port").value = context.defaults.router_port;
-    byId("advertise-host").value = context.defaults.advertise_host;
-    byId("rgbd-port").value = context.defaults.rgbd_port;
-    document.querySelector('input[name="security-mode"][value="loopback"]').checked = true;
+    byId("dds-system-id").value = context.defaults.dds_system_id;
+    byId("dds-domain-id").value = context.defaults.dds_domain_id;
+    byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
+    document.querySelector('input[name="dds-discovery-mode"][value="multicast"]').checked = true;
+    document.querySelector('input[name="dds-security-profile"][value="trusted-network"]').checked = true;
+    byId("dds-static-peers").value = "";
+    byId("dds-interface").value = "";
+    byId("dds-keystore").value = "";
+    byId("dds-enclave").value = "";
     document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
-    document.querySelectorAll('input[name="credential-source"]').forEach((input) => {
-      input.checked = false;
-    });
     acceptedFingerprint = "";
   }
   byId("prefix-help").textContent = t("paths.prefix.help");
   updateConditionalControls();
 }
 
-function hasRouter() {
-  return checkedValue("edition") === "developer" || selectedRoles().includes("router");
+function hasSimulator() {
+  return checkedValue("edition") === "developer" || selectedRoles().includes("simulator");
 }
 
 function updateConditionalControls() {
   const gpuMode = checkedValue("gpu-mode");
   byId("gpu-device-row").hidden = gpuMode !== "specific";
 
-  const security = checkedValue("security-mode");
-  const curve = security === "curve";
-  const router = hasRouter();
-  byId("credential-section").hidden = !curve;
-  byId("credential-generate-option").hidden = !router;
-  const generateInput = document.querySelector('input[name="credential-source"][value="generate"]');
-  generateInput.disabled = !router;
-  if (generateInput.disabled && generateInput.checked) {
-    generateInput.checked = false;
-    document.querySelector('input[name="credential-source"][value="ssh"]').checked = true;
-  }
-
-  if (curve && !checkedValue("credential-source")) {
-    const value = router ? "generate" : "ssh";
-    document.querySelector(`input[name="credential-source"][value="${value}"]`).checked = true;
-  }
-  byId("ssh-fields").hidden = !curve || checkedValue("credential-source") !== "ssh";
+  const staticDiscovery = checkedValue("dds-discovery-mode") === "static";
+  byId("dds-static-fields").hidden = !staticDiscovery;
+  const sros2 = checkedValue("dds-security-profile") === "sros2";
+  byId("sros2-fields").hidden = !sros2;
 
   const turnManaged = document.querySelector('input[name="turn-mode"][value="managed"]');
-  turnManaged.disabled = !router || !curve;
-  byId("turn-managed-option").hidden = !router;
-  byId("turn-section").hidden = !router;
-  if ((!router || !curve) && checkedValue("turn-mode") !== "none") {
+  const simulator = hasSimulator();
+  turnManaged.disabled = !simulator;
+  byId("turn-managed-option").hidden = !simulator;
+  byId("turn-section").hidden = checkedValue("edition") === "developer";
+  if (!simulator && checkedValue("turn-mode") === "managed") {
     document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
   }
   const turnMode = checkedValue("turn-mode");
   byId("turn-fields").hidden = turnMode === "none";
   byId("turn-realm-row").hidden = turnMode !== "managed";
   byId("turn-public-row").hidden = turnMode !== "managed";
+  byId("turn-secret-row").hidden = turnMode !== "managed";
+  byId("turn-credential-row").hidden = turnMode !== "external" || !simulator;
   if (turnMode === "managed") {
-    if (!byId("turn-public-host").value) byId("turn-public-host").value = byId("router-host").value;
     if (!byId("turn-realm").value) byId("turn-realm").value = "elesim.local";
+    if (!byId("turn-secret-file").value) {
+      byId("turn-secret-file").value = `${byId("prefix").value.trim()}/secrets/turn.secret`;
+    }
     if (!byId("turn-url").value) {
       byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
     }
@@ -209,8 +202,8 @@ function updateConditionalControls() {
 
 function payload() {
   const edition = checkedValue("edition") || "general";
-  const securityMode = checkedValue("security-mode") || "loopback";
-  const turnMode = hasRouter() ? (checkedValue("turn-mode") || "none") : "none";
+  const securityProfile = checkedValue("dds-security-profile") || "trusted-network";
+  const turnMode = edition === "general" ? (checkedValue("turn-mode") || "none") : "none";
   return {
     language,
     edition,
@@ -220,13 +213,17 @@ function payload() {
     source_root: "",
     gpu_mode: checkedValue("gpu-mode") || "inherit",
     gpu_device: checkedValue("gpu-mode") === "specific" ? byId("gpu-device").value : "",
-    router_host: byId("router-host").value.trim(),
-    advertise_host: byId("advertise-host").value.trim(),
-    router_port: Number(byId("router-port").value),
-    rgbd_port: Number(byId("rgbd-port").value),
-    security_mode: securityMode,
-    credentials_root: securityMode === "curve" ? byId("credentials-root").value.trim() : "",
-    credential_source: securityMode === "curve" ? checkedValue("credential-source") : "unused",
+    dds_system_id: byId("dds-system-id").value.trim(),
+    dds_domain_id: Number(byId("dds-domain-id").value),
+    dds_rmw_implementation: byId("dds-rmw").value,
+    dds_discovery_mode: checkedValue("dds-discovery-mode") || "multicast",
+    dds_static_peers: checkedValue("dds-discovery-mode") === "static"
+      ? byId("dds-static-peers").value.trim()
+      : "",
+    dds_interface: byId("dds-interface").value.trim(),
+    dds_security_profile: securityProfile,
+    dds_keystore: securityProfile === "sros2" ? byId("dds-keystore").value.trim() : "",
+    dds_enclave: securityProfile === "sros2" ? byId("dds-enclave").value.trim() : "",
     ssh: {
       host: byId("ssh-host").value.trim(),
       port: Number(byId("ssh-port").value),
@@ -239,6 +236,10 @@ function payload() {
     turn_url: turnMode === "none" ? "" : byId("turn-url").value.trim(),
     turn_realm: turnMode === "managed" ? byId("turn-realm").value.trim() : "",
     turn_public_host: turnMode === "managed" ? byId("turn-public-host").value.trim() : "",
+    turn_secret_file: turnMode === "managed" ? byId("turn-secret-file").value.trim() : "",
+    turn_credential_file: turnMode === "external" && selectedRoles().includes("simulator")
+      ? byId("turn-credential-file").value.trim()
+      : "",
     register_path: byId("register-path").checked,
     jaeger: edition === "developer" && byId("jaeger").checked,
     repository: context.repository,
@@ -270,7 +271,7 @@ async function prepareReview() {
     ["review.prefix", summary.prefix],
     ["review.bin", summary.bin_dir],
     ["review.gpu", summary.gpu_mode],
-    ["review.security", summary.security_mode],
+    ["review.security", summary.security_profile],
     ["review.turn", summary.turn_mode],
     ["review.path", summary.register_path ? t("value.yes") : t("value.no")],
     ["review.jaeger", summary.jaeger ? t("value.yes") : t("value.no")]
@@ -285,8 +286,8 @@ async function prepareReview() {
     list.append(term, description);
   });
   const warning = byId("review-warning");
-  warning.hidden = summary.security_mode !== "insecure-lan";
-  warning.textContent = t("security.insecure.help");
+  warning.hidden = summary.security_profile !== "trusted-network";
+  warning.textContent = t("dds.security.trusted.help");
 }
 
 function updateStep() {
@@ -407,7 +408,9 @@ async function copyText(text) {
 
 async function openBrowser(target) {
   browseTarget = target;
-  browseMode = target === "ssh-key" ? "file" : "directory";
+  browseMode = ["ssh-key", "turn-credential-file"].includes(target)
+    ? "file"
+    : "directory";
   selectedFile = "";
   const initial = byId(target).value.trim() || context.defaults.prefix;
   await loadDirectory(initial, true);
@@ -478,7 +481,7 @@ function initializeEvents() {
     button.addEventListener("click", () => applyLanguage(button.dataset.language));
   });
   document.querySelectorAll('input[name="edition"]').forEach((input) => input.addEventListener("change", updateMode));
-  document.querySelectorAll('input[name="gpu-mode"], input[name="security-mode"], input[name="credential-source"], input[name="turn-mode"]')
+  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="turn-mode"]')
     .forEach((input) => input.addEventListener("change", updateConditionalControls));
   document.querySelectorAll("[data-preset]").forEach((button) => {
     button.addEventListener("click", () => applyPreset(button.dataset.preset));
@@ -503,9 +506,6 @@ function initializeEvents() {
     button.addEventListener("click", () => copyText(byId(button.dataset.copyTarget).textContent));
   });
   byId("ssh-probe").addEventListener("click", probeSsh);
-  byId("router-host").addEventListener("input", () => {
-    if (!byId("ssh-host").value.trim()) byId("ssh-host").value = byId("router-host").value;
-  });
   byId("turn-public-host").addEventListener("input", () => {
     if (checkedValue("turn-mode") === "managed") {
       byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
@@ -536,13 +536,14 @@ async function initialize() {
     language = navigator.language.toLowerCase().startsWith("ko") ? "ko" : "en";
     byId("prefix").value = context.defaults.prefix;
     byId("bin-dir").value = context.defaults.bin_dir;
-    byId("router-host").value = context.defaults.router_host;
-    byId("advertise-host").value = context.defaults.advertise_host;
-    byId("router-port").value = context.defaults.router_port;
-    byId("rgbd-port").value = context.defaults.rgbd_port;
-    byId("credentials-root").value = `${context.defaults.prefix}/secrets`;
-    byId("ssh-host").value = context.defaults.router_host;
-    byId("ssh-remote-root").value = `${context.defaults.prefix}/secrets`;
+    byId("dds-system-id").value = context.defaults.dds_system_id;
+    byId("dds-domain-id").value = context.defaults.dds_domain_id;
+    byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
+    byId("dds-interface").value = context.defaults.dds_interface;
+    byId("dds-static-peers").value = context.defaults.dds_static_peers;
+    byId("dds-keystore").value = context.defaults.dds_keystore;
+    byId("dds-enclave").value = context.defaults.dds_enclave;
+    byId("ssh-remote-root").value = context.defaults.prefix;
     byId("host-summary").textContent =
       `${context.capabilities.os_id || "Linux"} ${context.capabilities.os_version || ""} · ${context.capabilities.architecture}`;
     const gpu = byId("gpu-device");

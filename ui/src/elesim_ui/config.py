@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 
 import yaml
 
+from elesim_protocol import DdsRuntimeSettings
 from elesim_ui.models import GazeStabilizerConfig, HardwareConfig, PerceptionConfig, PickConfig
 
 
@@ -13,10 +15,7 @@ class UiConfig:
     endpoint_id: str
     controller_id: str
     simulator_id: str
-    server_endpoint: str
-    router_client_secret_file: str
-    router_server_public_file: str
-    allow_insecure_remote: bool
+    dds: DdsRuntimeSettings
     use_hardware: bool
     use_go2: bool
     go2_vx: float
@@ -28,9 +27,19 @@ class UiConfig:
     gaze: GazeStabilizerConfig
 
 
-def _section(raw: dict, name: str) -> dict:
+def _section(raw: Mapping[str, Any], name: str) -> dict[str, Any]:
     value = raw.get(name, {})
-    return value if isinstance(value, dict) else {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} must be an object")
+    return dict(value)
+
+
+def _resolved(source: Path, value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    candidate = Path(text).expanduser()
+    return str(candidate if candidate.is_absolute() else (source.parent / candidate).resolve())
 
 
 def load_config(path: str | Path) -> UiConfig:
@@ -39,24 +48,21 @@ def load_config(path: str | Path) -> UiConfig:
     if not isinstance(raw, dict) or raw.get("schema_version") != 2:
         raise ValueError(f"{source}: schema_version must be 2")
     runtime = _section(raw, "runtime")
-    security = _section(raw, "security")
     presentation = _section(raw, "presentation")
     go2 = _section(presentation, "go2")
-    def resolved(value: object) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        candidate = Path(text).expanduser()
-        return str(candidate if candidate.is_absolute() else (source.parent / candidate).resolve())
+    endpoint_id = str(runtime.get("endpoint_id", "ui-main")).strip()
+    if not endpoint_id:
+        raise ValueError(f"{source}: runtime.endpoint_id is required")
+    dds_raw = _section(raw, "dds")
+    for key in ("vendor_config", "keystore"):
+        if str(dds_raw.get(key, "")).strip():
+            dds_raw[key] = _resolved(source, dds_raw[key])
 
     return UiConfig(
-        endpoint_id=str(runtime.get("endpoint_id", "ui-main")),
+        endpoint_id=endpoint_id,
         controller_id=str(runtime.get("controller_id", "controller-main")),
         simulator_id=str(runtime.get("simulator_id", "sim-default")),
-        server_endpoint=str(runtime.get("server_endpoint", "tcp://127.0.0.1:5558")),
-        router_client_secret_file=resolved(security.get("router_client_secret_file")),
-        router_server_public_file=resolved(security.get("router_server_public_file")),
-        allow_insecure_remote=bool(security.get("allow_insecure_remote", False)),
+        dds=DdsRuntimeSettings.from_mapping(dds_raw, endpoint_id=endpoint_id),
         use_hardware=bool(presentation.get("use_hardware", False)),
         use_go2=bool(presentation.get("use_go2", True)),
         go2_vx=float(go2.get("vx_mps", 0.35)),

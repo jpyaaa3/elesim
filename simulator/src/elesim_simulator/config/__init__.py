@@ -1,6 +1,10 @@
 """Public simulator configuration surface."""
 
-from elesim_simulator.config.distributed import RuntimeRoleConfig, load_runtime_role_config
+from elesim_simulator.config.distributed import (
+    RuntimeRoleConfig,
+    TurnConfig,
+    load_runtime_role_config,
+)
 from elesim_simulator.config.loader import load_app_config
 from elesim_simulator.config.schema import (
     AppConfigBundle,
@@ -23,6 +27,7 @@ __all__ = [
     "SimParam",
     "SpawnConfig",
     "UrdfExportConfig",
+    "TurnConfig",
     "load_app_config",
     "load_runtime_role_config",
 ]

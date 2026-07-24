@@ -5,14 +5,14 @@
 `misc/tooling/setup` owns installation request validation, generated runtime
 configuration, role-isolated build contexts, shell wrappers, credential
 provisioning, and post-install network diagnosis. It does not own a deployment's
-domain behavior and imports no Router, Controller, UI, Simulator, or Robot
+domain behavior and imports no Controller, UI, Simulator, or Robot
 implementation.
 
 The browser wizard offers two editions:
 
-- **General** installs a selected subset of the five runtime applications.
-  Router, Simulator, Controller, and UI use role-isolated Docker images. Robot
-  is a native-only, Jetson-detected, exclusive selection.
+- **General** installs a selected subset of the four runtime applications.
+  Simulator, Controller, and UI use role-isolated Docker images. Robot is a
+  native-only, Jetson-detected, exclusive selection. Router is not a role.
 - **Developer** prepares one complete Git workspace and one privileged
   Ubuntu/ROS2 development image. It includes all applications, model tooling,
   tests, graphics/scientific dependencies, and optional Jaeger.
@@ -135,9 +135,9 @@ invoked. The default command directory is `<prefix>/bin`.
 
 ## General Installation
 
-General mode translates to state schema v3 and one of two existing backends:
+General mode translates to state schema v5 and one of two backends:
 
-- Router/Simulator/Controller/UI generate a Linux host-network Compose project.
+- Simulator/Controller/UI generate a Linux host-network Compose project.
 - Robot alone invokes the native role-isolated venv installer on a detected
   Jetson.
 
@@ -170,15 +170,16 @@ Generated layout:
 └── elesim-<selected-role>
 ```
 
-Each application context contains protocol plus one owned deployment only.
+Each application context contains `elesim_interfaces` plus one owned deployment
+only.
 Source configuration is copied into installed runtime data and never edited.
 The Simulator receives the immutable model bundle through a read-only mount.
-The tools image contains protocol and setup/doctor, not deployment
+The tools image contains ROS interfaces and setup/doctor, not deployment
 implementations.
 
-`network_mode: host` preserves the meaning of loopback and direct advertised
-ports across the generated Linux containers. Prefix-derived Compose names and
-image tags prevent separate installs from overwriting one another.
+`network_mode: host` preserves the selected DDS interface/locators and the
+meaning of loopback across generated Linux containers. Prefix-derived Compose
+names and image tags prevent separate installs from overwriting one another.
 
 ## Developer Installation
 
@@ -187,7 +188,7 @@ Developer mode requires Ubuntu/WSL amd64 and generates:
 ```text
 <workspace>/
 ├── .git/                             # existing or cloned
-├── router/ controller/ ui/ ...
+├── controller/ ui/ robot/ simulator/ ...
 ├── .elesim/development/
 │   ├── compose.yaml
 │   ├── install-state.json
@@ -265,61 +266,102 @@ parent shell, so the completion page displays:
 source ~/.bashrc
 ```
 
-## Curve Credentials
+## DDS Network And Security
 
-Non-loopback Curve mode requires one explicit source:
+The generated DDS runtime profile contains:
 
-- **existing** validates role-required files under the selected local root;
-- **generate** is allowed only on a Router host and invokes
-  `misc/infra/bootstrap_security.py`;
-- **ssh** downloads only role-required paths from the trusted administration
-  host.
+- a ROS-safe `system_id` shared by one Elesim graph;
+- `domain_id` and a pinned `rmw_implementation`;
+- `multicast` or `static` discovery;
+- reachable static peer addresses when multicast is not routed;
+- the local interface name used for DDS;
+- `trusted-network` or `sros2` security;
+- for SROS2, the role's keystore path and enclave.
 
-SSH mode supports an agent/default keys or one selected private key. It does
-not accept or store passwords. The GUI first probes the server key and asks the
-operator to confirm its SHA256 fingerprint. The transfer pins that same
-fingerprint during authentication, rejects remote symlinks/non-regular files,
-limits file count and size, stages downloads, and refuses to overwrite a
-different existing credential.
+Static peers seed DDS discovery but do not proxy user traffic or cross NAT.
+Every required pair of participants must have bidirectional UDP reachability.
+The installer rejects loopback for a multi-host profile and warns that ordinary
+IPv4 NAT, CGNAT and symmetric NAT are unsupported. A routed VPN is the
+supported remote-laptop topology.
 
-Private keys and `turn.secret` are installed mode `0600`. Controller/UI
-installations also receive `doctor-main.key_secret`; the complete credential
-root and Router private key remain on the administration host.
+`trusted-network` deliberately enables no DDS encryption. It is allowed only
+after the operator confirms that the selected LAN/VPN interface and firewall
+limit participation to trusted machines. `ROS_DOMAIN_ID` prevents accidental
+graph overlap only; it is not a security control.
+
+`sros2` enables DDS Security in enforce mode. The selected local keystore must
+contain the role's enclave, identity and permissions. Setup may generate or
+install only the selected role's enclave; SROS2 authority/material creation is
+an external administration step. It must not copy a complete certificate
+authority or every role's private material to each host.
+
+The loopback GUI and its SSH forwarding are unchanged. SSH mode may use an
+agent/default keys or a selected private key, pins the confirmed host
+fingerprint, and does not accept passwords. SSH is a setup transfer channel,
+not ROS 2/DDS or WebRTC transport.
 
 ## TURN Ownership
 
-State schema v3 separates TURN endpoint URLs from relay ownership:
+State schema v5 keeps TURN endpoint URLs separate from relay ownership and
+records an optional Simulator-only external credential file:
 
 - `none`: no TURN URL;
-- `external`: consume an independently managed relay;
+- `external`: consume an independently managed relay; a Simulator installation
+  selects a JSON file containing `username`, `credential`, and optional finite
+  `expires_at`;
 - `managed`: include Coturn in the generated general-user Compose project.
 
-Managed TURN requires Router, Curve security, realm, public host, one TURN URL,
-and the generated/shared `turn.secret`. The Coturn service uses host networking,
-a pinned image, a read-only secret mount, and UDP relay range `49160-49200`.
-Because it is in the same Compose project, `elesim-up`, `elesim-down`, and
-`elesim-logs` own its lifecycle. The standalone release Coturn Compose remains
-available only for operators who deliberately choose `external`.
+Managed TURN requires a Simulator host, realm, public host, one TURN URL, and a
+credential policy. Because credentials and signaling cross DDS, managed mode
+requires the `sros2` profile. The Coturn service uses host networking, a pinned
+image, and UDP relay range `49160-49200`. Because it is in the same Compose
+project, `elesim-up`, `elesim-down`, and `elesim-logs` own its lifecycle. The
+standalone release Coturn Compose remains available only for operators who
+deliberately choose `external`.
 
-Schema-v1/v2 state loads as schema v3; existing TURN URLs migrate to
-`external`, preserving previous external ownership semantics.
+WebRTC remains DTLS/SRTP in both DDS security profiles. Managed Coturn mounts
+its REST HMAC secret into Coturn and the co-located Simulator only. Simulator
+issues short-lived credentials bound to its active UI session; UI receives the
+issued credential but never the static secret. This makes Simulator part of the
+managed TURN trust boundary. For external TURN, setup mounts the selected JSON
+read-only into the Simulator container only; Controller/UI-only installations
+store the URL but do not receive or require the file. Simulator sends the
+usable username/password to the active UI as part of the DDS session grant.
+With `trusted-network`, that exchange inherits the controlled-LAN/VPN trust
+assumption; use SROS2 when other users can join or observe the DDS network.
+
+TURN relays WebRTC media only. It cannot make DDS discovery, topics, services,
+actions, or SDP signaling reachable through NAT.
+
+Schema-v1/v2 TURN URLs continue to migrate to `external`. Schema v1-v4 states
+have no external credential-file field; they remain inspectable, but a
+Simulator configuration fails closed until the operator selects that file. A schema-v3
+Router/ZMQ state migrates to multicast discovery with no inferred static peers:
+the old Router address is not enough to prove bidirectional DDS reachability.
+An old Curve selection cannot be translated into SROS2 identity/permissions and
+therefore migrates fail-closed until the operator selects `trusted-network`
+under its stated network assumptions or supplies a valid SROS2
+keystore/enclave.
 
 ## Non-Interactive Installation
 
 Automation can continue to use:
 
 ```bash
-PYTHONPATH=packages/protocol/src:misc/tooling/setup/src \
+PYTHONPATH=misc/tooling/setup/src \
 python3 -m elesim_setup.cli \
   --source-root "$PWD" \
   install \
   --mode container \
   --profile compute \
-  --router-host sim.example.com \
-  --advertise-host sim.example.com \
+  --dds-system-id elesim \
+  --dds-domain-id 42 \
+  --dds-rmw-implementation rmw_cyclonedds_cpp \
+  --dds-discovery-mode static \
+  --dds-static-peer 10.40.0.20 \
+  --dds-interface wg0 \
   --gpu-mode inherit \
-  --security curve \
-  --credentials-root /etc/elesim/secrets \
+  --dds-security-profile trusted-network \
   --turn-mode external \
   --turn-url 'turn:sim.example.com:3478?transport=udp'
 ```
@@ -338,16 +380,21 @@ Or:
 
 ```bash
 elesim-net configure --non-interactive \
-  --router-host 192.168.0.10 \
-  --advertise-host 192.168.0.30 \
-  --security curve \
-  --credentials-root /etc/elesim/secrets
+  --dds-system-id elesim \
+  --dds-domain-id 42 \
+  --dds-discovery-mode static \
+  --dds-static-peer 10.40.0.20 \
+  --dds-interface wg0 \
+  --dds-security-profile sros2 \
+  --dds-keystore /etc/elesim/keystore \
+  --dds-enclave /elesim/controller
 ```
 
 This rewrites only installed role configuration. Restart roles afterward.
-`router_host` is where every endpoint reaches Router; `advertise_host` is where
-other machines reach this host's direct RGBD publisher. `0.0.0.0` is bind-only
-and is never a valid advertised address.
+All participants in one graph use the same system/domain IDs and compatible
+RMW/QoS settings. `dds.interface` is local to each host. Static peer addresses
+name directly reachable participants; `0.0.0.0`, loopback on a multi-host
+installation, and an address hidden behind NAT are invalid peers.
 
 ## Network Doctor
 
@@ -357,9 +404,11 @@ elesim-net doctor
 
 The non-disruptive pass checks:
 
-- Router DNS/TCP reachability;
-- an actual protocol-v4 `doctor-main` registration and discovery;
-- advertised CurveZMQ RGBD syntax and TCP reachability;
+- DDS participant discovery, endpoint descriptors and heartbeats;
+- duplicate endpoint IDs and boot/process-instance changes;
+- endpoint, control-carrier, and RGBD topic names and QoS compatibility;
+- motion/session authority exchange reachability;
+- one passive RGBD subscription without taking a UI session;
 - TURN UDP STUN Binding or TCP connectivity;
 - Simulator advertisement of both DTLS-SRTP WebRTC streams.
 
@@ -369,15 +418,15 @@ The active pass consumes media:
 elesim-net doctor --active --timeout 8
 ```
 
-It receives one RGBD multipart message, opens a simulation session, exchanges
-two aiortc offers/answers, and waits for `observer` and `hand_eye_preview`
-frames. Stop the normal UI first because Simulator grants one UI simulation
-session. A successful ICE connection does not by itself prove that a relay
-candidate was selected.
+It receives one coherent DDS `RgbdFrame`. WebRTC negotiation and decoded-frame
+validation remain a live UI test because the doctor does not take the
+Simulator's exclusive UI session. A successful TURN probe says nothing about
+DDS reachability or whether an ICE relay candidate was selected.
 
-Use `--json` for automation. Authentication failure, malformed protocol,
-unreachable configured ports, or missing requested frames are `FAIL`. Optional
-services that are intentionally absent are `SKIP` or `WARN`.
+Use `--json` for automation. DDS discovery/QoS failure, SROS2 denial for an
+authorized role, malformed interfaces, unsupported NAT-only topology, or
+missing requested frames are `FAIL`. Optional services that are intentionally
+absent are `SKIP` or `WARN`.
 
 ## Verification Boundary
 
@@ -387,7 +436,8 @@ Setup tests must cover:
 - state migration and serialization;
 - generated role/tools/developer contexts and nested Python packages;
 - shell block idempotence;
-- role-scoped credential manifests and overwrite protection;
+- trusted-network acknowledgement, SROS2 role-scoped enclave validation and
+  overwrite protection;
 - web asset packaging, token/API boundaries, path containment, and job states;
 - bootstrap extraction and shell invocation;
 - generated release infrastructure.
@@ -396,6 +446,8 @@ Source-tree imports are insufficient. Release verification must inspect the
 copied setup package and built wheel, including `web/` and its CJK font.
 
 No automated setup test establishes real SSH-agent behavior against a remote
-host, WSLg/X11 rendering, NVIDIA runtime access, Jetson hardware support,
-Coturn relay selection across an actual NAT, or Genesis frame latency. Record
-those as explicit manual validation results.
+host, multicast/static-peer behavior on the owning network, SROS2 enforcement
+with the production RMW, Wi-Fi/VPN reconnect, WSLg/X11 rendering, NVIDIA
+runtime access, Jetson hardware support, Coturn relay selection across an
+actual NAT, or RGBD/Genesis frame latency. Record those as explicit manual
+validation results.

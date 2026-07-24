@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable, Optional
 
-from elesim_protocol import CurveServerConfig
+from elesim_protocol import DdsRgbdPublisher, DdsRuntimeSettings
 
-from elesim_robot.camera.publisher import RgbdPublisher
 from elesim_robot.camera.realsense import RealSenseCamera
 from elesim_robot.camera.types import RgbdFrame, RgbdIntrinsics
 
@@ -17,26 +15,26 @@ from elesim_robot.camera.types import RgbdFrame, RgbdIntrinsics
 class CameraPublisherThread:
     def __init__(
         self,
-        endpoint: str,
+        topic: str,
         *,
+        endpoint_id: str,
+        boot_id: str,
+        dds_settings: DdsRuntimeSettings,
         width: int,
         height: int,
         fps: int,
         camera_factory: Callable[..., Any] = RealSenseCamera,
-        publisher_factory: Callable[..., Any] = RgbdPublisher,
-        curve: CurveServerConfig | None = None,
-        curve_client_keys_dir: str | Path | None = None,
-        allow_insecure_remote: bool = False,
+        publisher_factory: Callable[..., Any] = DdsRgbdPublisher,
     ) -> None:
-        self.endpoint = str(endpoint)
+        self.topic = str(topic)
+        self.endpoint_id = str(endpoint_id)
+        self.boot_id = str(boot_id)
+        self.dds_settings = dds_settings
         self.width = int(width)
         self.height = int(height)
         self.fps = int(fps)
         self._camera_factory = camera_factory
         self._publisher_factory = publisher_factory
-        self._curve = curve
-        self._curve_client_keys_dir = curve_client_keys_dir
-        self._allow_insecure_remote = bool(allow_insecure_remote)
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -82,13 +80,11 @@ class CameraPublisherThread:
                 fps=self.fps,
             )
             publisher = self._publisher_factory(
-                self.endpoint,
-                use_jpeg=True,
-                jpeg_quality=75,
+                self.topic,
+                endpoint_id=self.endpoint_id,
+                boot_id=self.boot_id,
+                settings=self.dds_settings,
                 send_depth=True,
-                curve=self._curve,
-                curve_client_keys_dir=self._curve_client_keys_dir,
-                allow_insecure_remote=self._allow_insecure_remote,
             )
             camera.start()
             seq = 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless batch runner: host + sim restart per trial, auto Start Perception, walking baseline."""
+"""Headless batch runner with one Simulator and in-process DDS Controller per trial."""
 
 from __future__ import annotations
 
@@ -15,55 +15,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from elesim_controller.config import load_app_config, load_runtime_role_config
-from elesim_controller.pick import ControlClient
+from elesim_controller.config import load_app_config
 from misc.tooling.experiments.walking_baseline import _connect_service, _run_trial, _trial_run_id, _validate_gaze_config
-
-
-def _host_reachable(config_path: str) -> bool:
-    bundle = load_app_config(config_path)
-    runtime = load_runtime_role_config(ROOT / "controller/config/runtime.yaml")
-    client = ControlClient(endpoint=runtime.bind_endpoint, cfg=bundle.mapping_config)
-    try:
-        host = client.refresh_state()
-        return bool(host.connected)
-    finally:
-        client.close()
-
-
-def _ensure_host(config_path: str, *, log_dir: Path, restart: bool) -> subprocess.Popen | None:
-    if restart:
-        subprocess.run(["pkill", "-f", "elesim_controller.main"], check=False)
-        time.sleep(1.0)
-    elif _host_reachable(config_path):
-        print("[batch] host already reachable")
-        return None
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / "host.log"
-    print(f"[batch] starting router + controller -> {log_path}")
-    fh = open(log_path, "a", encoding="utf-8")
-    server = subprocess.Popen(
-        [sys.executable, "-m", "elesim_router.main"],
-        cwd=str(ROOT),
-        stdout=fh,
-        stderr=subprocess.STDOUT,
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "elesim_controller.main", "--config", config_path],
-        cwd=str(ROOT),
-        stdout=fh,
-        stderr=subprocess.STDOUT,
-    )
-    deadline = time.time() + 30.0
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            server.terminate()
-            raise SystemExit(f"controller exited early (code={proc.returncode}); see {log_path}")
-        if _host_reachable(config_path):
-            print("[batch] host ready")
-            return proc
-        time.sleep(0.5)
-    raise SystemExit("host did not become reachable within 30s")
 
 
 def _sim_log_text(log_path: Path) -> str:
@@ -105,6 +58,7 @@ def _start_sim(config_path: str, run_id: str, log_path: Path) -> subprocess.Pope
         stdout=fh,
         stderr=subprocess.STDOUT,
     )
+    fh.close()
     return proc
 
 
@@ -157,8 +111,6 @@ def main() -> None:
     ap.add_argument("--sim-warmup-s", type=float, default=180.0)
     ap.add_argument("--perception-warmup-s", type=float, default=20.0)
     ap.add_argument("--log-dir", default="logs/walking_baseline")
-    ap.add_argument("--restart-host", action="store_true", default=True)
-    ap.add_argument("--no-restart-host", action="store_false", dest="restart_host")
     ap.add_argument("--batch-log-dir", default="logs/walking_baseline/_batch")
     ap.add_argument("--notes", default="headless batch")
     ap.add_argument(
@@ -174,54 +126,59 @@ def main() -> None:
         _validate_gaze_config(str(args.gaze), bundle.gaze_stabilizer_config)
     batch_log_dir = Path(args.batch_log_dir)
     batch_log_dir.mkdir(parents=True, exist_ok=True)
-    host_proc = _ensure_host(config_path, log_dir=batch_log_dir, restart=bool(args.restart_host))
 
     trials = max(1, int(args.trials))
     trial_start = max(1, int(args.trial_start))
 
-    try:
-        for trial in range(trial_start, trial_start + trials):
-            run_id = _trial_run_id(
-                args.run_prefix,
-                args.preset,
-                args.motion,
-                trial,
-                run_id_stem=str(args.run_id_stem),
-            )
-            os.environ["ELESIM_RUN_ID"] = run_id
-            os.environ["ELESIM_WALKING_METRICS"] = "1"
+    for trial in range(trial_start, trial_start + trials):
+        run_id = _trial_run_id(
+            args.run_prefix,
+            args.preset,
+            args.motion,
+            trial,
+            run_id_stem=str(args.run_id_stem),
+        )
+        os.environ["ELESIM_RUN_ID"] = run_id
+        os.environ["ELESIM_WALKING_METRICS"] = "1"
 
-            sim_log = batch_log_dir / f"{run_id}_sim.log"
-            sim_proc = _start_sim(config_path, run_id, sim_log)
+        sim_log = batch_log_dir / f"{run_id}_sim.log"
+        sim_proc = _start_sim(config_path, run_id, sim_log)
+        service = None
+        try:
             if not _wait_sim_ready(sim_log, timeout_s=float(args.sim_warmup_s)):
-                _stop_proc(sim_proc, label="sim")
                 raise SystemExit(f"sim not ready for {run_id}; see {sim_log}")
 
             service = _connect_service(config_path)
-            try:
-                _wait_perception(service, config_path, timeout_s=float(args.perception_warmup_s))
-                _run_trial(
-                    service=service,
-                    run_id=run_id,
-                    preset=args.preset,
-                    motion=args.motion,
-                    vx=0.35 if args.motion == "forward" else (-0.35 if args.motion == "backward" else 0.0),
-                    vy=0.0,
-                    wz=0.5 if args.motion == "turn" else 0.0,
-                    duration=float(args.max_duration),
-                    gaze=str(args.gaze),
-                    log_dir=args.log_dir,
-                    notes=str(args.notes),
-                    strict_run_id=True,
-                )
-            finally:
+            _wait_perception(
+                service,
+                config_path,
+                timeout_s=float(args.perception_warmup_s),
+            )
+            _run_trial(
+                service=service,
+                run_id=run_id,
+                preset=args.preset,
+                motion=args.motion,
+                vx=(
+                    0.35
+                    if args.motion == "forward"
+                    else -0.35 if args.motion == "backward" else 0.0
+                ),
+                vy=0.0,
+                wz=0.5 if args.motion == "turn" else 0.0,
+                duration=float(args.max_duration),
+                gaze=str(args.gaze),
+                log_dir=args.log_dir,
+                notes=str(args.notes),
+                strict_run_id=True,
+            )
+        finally:
+            if service is not None:
                 service.close()
-
             _stop_proc(sim_proc, label="sim")
-            print(f"[batch] trial {trial - trial_start + 1}/{trials} complete: {run_id}")
-    finally:
-        pass  # keep host running for manual inspection
-
+        print(
+            f"[batch] trial {trial - trial_start + 1}/{trials} complete: {run_id}"
+        )
     print(f"[batch] all {trials} trial(s) finished")
 
 

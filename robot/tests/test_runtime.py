@@ -246,37 +246,6 @@ def test_safety_fault_is_latched_and_blocks_torque_on() -> None:
     assert arm.torque_on_count == 0
 
 
-def test_router_liveness_timeout_holds_arm_and_revokes_local_lease() -> None:
-    clock = FakeClock()
-    safety = replace(SafetyConfig(), router_liveness_s=1.0, monitor_period_s=10.0)
-    value, arm = runtime(clock=clock, safety=safety)
-    value.grant_lease("controller-a", "lease-a")
-    value.torque_enabled = True
-    clock.advance(1.01)
-
-    value.tick()
-
-    assert arm.safe_hold_count == 1
-    assert value.active_lease == ""
-    assert value.communication_fault == "router_liveness_timeout"
-
-
-def test_router_heartbeat_keeps_active_lease_alive() -> None:
-    clock = FakeClock()
-    safety = replace(SafetyConfig(), router_liveness_s=1.0, monitor_period_s=10.0)
-    value, arm = runtime(clock=clock, safety=safety)
-    value.grant_lease("controller-a", "lease-a")
-    value.torque_enabled = True
-    clock.advance(0.75)
-    value.mark_router_alive()
-    clock.advance(0.75)
-
-    value.tick()
-
-    assert arm.safe_hold_count == 0
-    assert value.active_lease == "lease-a"
-
-
 def test_go2_velocity_deadman_is_not_extended_by_unrelated_arm_commands() -> None:
     clock = FakeClock()
     go2 = FakeGo2()

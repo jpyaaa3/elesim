@@ -6,7 +6,6 @@ runtime config loader.
 | Role | Configuration |
 | --- | --- |
 | Controller | `controller/config/` |
-| Router | `router/config/` |
 | Robot | `robot/config/` |
 | Simulator | `simulator/config/` |
 | UI | `ui/config/` |
@@ -31,39 +30,60 @@ simulation:
 recursively; a child scalar or list replaces its parent value. Unknown schema
 versions and invalid types fail during startup.
 
-## Runtime Identity
+## Runtime Identity And DDS
 
-Router addresses, endpoint IDs and advertised streams live with the deployment
-that uses them. For example, controller and simulator runtime identity files
-are `controller/config/runtime.yaml` and
-`simulator/config/runtime.yaml`. UI and robot use the equivalent
-fields in their `default.yaml`.
+Every deployment owns a stable logical endpoint ID and creates a new boot ID
+at startup. It advertises exact valid, boot-specific service/topic prefixes;
+consumers do not reconstruct or silently sanitize them. A common DDS block
+defines:
 
-CLI options may override addresses for temporary LAN layouts. Production
-installations should keep stable addresses in the deployed YAML and mount
-secrets separately. Runtime identity/security files use schema version 2;
-simulation/model behavior profiles retain their independent schema version 1.
+```yaml
+dds:
+  system_id: elesim
+  domain_id: 42
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast       # or static
+  static_peers: []
+  interface: wg0
+  security_profile: trusted-network
+  keystore: null
+  enclave: null
+```
 
-The checked-in defaults are loopback-only. Each role provides a
-`public.example.yaml` or `runtime.public.example.yaml` showing Curve paths for
-multi-host use. A direct media publisher has two different addresses:
+All participants in one graph use the same system/domain ID, compatible RMW
+implementation and QoS contract. `interface` is host-specific and must name
+the LAN/VPN interface on which every required DDS peer is directly reachable.
+Static peers are reachable IP addresses used to seed discovery when multicast
+does not cross the network; they are not a relay or NAT traversal mechanism.
 
-- `rgbd_bind` is the local socket, normally `tcp://0.0.0.0:5568` on a remote
-  Simulator.
-- `rgbd_advertise` is the hostname/IP Controller can reach.
+The supported profiles are:
 
-Public media also requires `media_server_secret_file` and
-`media_client_public_keys_dir`. The latter is a ZAP allowlist containing only
-Controller's public media key. Advertising a public address does not alter the
-local bind automatically.
+- `trusted-network`: no DDS encryption; allowed only on an owned LAN or routed
+  VPN restricted by the selected interface and firewall.
+- `sros2`: DDS Security in enforce mode using the role's `keystore` and
+  `enclave`, required for untrusted/shared networks.
+
+`ROS_DOMAIN_ID` is not authentication or tenant isolation. There are no
+ZMQ/CURVE endpoints or keys in runtime configuration.
+
+CLI options may override DDS values for a temporary layout. Production
+installations should keep stable graph values in deployed YAML and mount SROS2
+private material separately.
 
 The terminal installer writes equivalent host-specific configuration under
 `~/.local/share/elesim/roles/<role>/config`. Files are named `installed.yaml`
 or `runtime.installed.yaml`; Simulator also receives `app.installed.yaml` for
 the selected GPU/CPU policy. It never modifies the checked-in defaults. The
 non-secret source of truth is `install-state.json`, and `elesim-net configure`
-regenerates every installed role from that state so Router, Controller, UI,
-Simulator and Robot cannot silently drift to different Router addresses.
+regenerates every installed role from that state so Controller, UI, Simulator
+and Robot cannot silently drift to incompatible system/domain IDs, RMW,
+discovery, interface or security settings.
+
+Simulator runtime configuration also owns TURN credentials. Managed mode points
+to a Coturn REST HMAC secret; external mode points to a JSON file containing
+`username`, `credential`, and optional `expires_at`. The two sources are
+mutually exclusive. Generated container configuration mounts either source
+under `/run/secrets`, and never copies the external file into Controller or UI.
 
 GPU allocation remains outside deployment configuration by default. In
 `inherit` mode the generated launchers preserve an existing

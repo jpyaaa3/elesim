@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .capabilities import HostCapabilities, detect_host_capabilities
-from .credentials import probe_ssh_fingerprint
+from .credentials import (
+    probe_ssh_fingerprint,
+    validate_external_turn_credentials,
+)
 from .request import SetupRequest
 
 
@@ -83,10 +86,15 @@ class WizardApplication:
             "defaults": {
                 "prefix": str(self.invocation_dir),
                 "bin_dir": str(self.invocation_dir / "bin"),
-                "router_host": "127.0.0.1",
-                "advertise_host": "127.0.0.1",
-                "router_port": 5558,
-                "rgbd_port": 5568,
+                "dds_system_id": "elesim",
+                "dds_domain_id": 0,
+                "dds_rmw_implementation": "rmw_cyclonedds_cpp",
+                "dds_discovery_mode": "multicast",
+                "dds_static_peers": "",
+                "dds_interface": "",
+                "dds_security_profile": "trusted-network",
+                "dds_keystore": "",
+                "dds_enclave": "",
             },
             "capabilities": self.capabilities.to_dict(),
             "allowed_roots": [str(path) for path in self.allowed_roots],
@@ -136,9 +144,19 @@ class WizardApplication:
         request = SetupRequest.from_dict(trusted)
         self._require_allowed(request.prefix)
         self._require_allowed(request.bin_dir)
-        credentials = request.security.root
-        if credentials is not None:
-            self._require_allowed(credentials)
+        keystore = request.dds.keystore_path
+        if keystore is not None:
+            self._require_allowed(keystore)
+        turn_secret = request.turn.secret_path
+        if turn_secret is not None:
+            self._require_allowed(turn_secret)
+        turn_credentials = request.turn.credential_path
+        if turn_credentials is not None:
+            self._require_allowed(turn_credentials)
+            validate_external_turn_credentials(
+                turn_credentials,
+                urls=request.network.turn_urls,
+            )
         identity = request.ssh.identity_file.strip()
         if identity:
             identity_path = Path(identity).expanduser().resolve()
@@ -155,7 +173,7 @@ class WizardApplication:
             "prefix": str(request.prefix),
             "bin_dir": str(request.bin_dir),
             "gpu_mode": request.compute.gpu_mode,
-            "security_mode": request.security.mode,
+            "security_profile": request.dds.security_profile,
             "turn_mode": request.turn.mode,
             "register_path": request.register_path,
             "jaeger": request.jaeger,

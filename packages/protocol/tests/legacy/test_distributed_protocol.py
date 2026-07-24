@@ -11,7 +11,7 @@ from elesim_protocol import (
 )
 
 
-def test_v4_envelope_round_trip() -> None:
+def test_v5_envelope_round_trip() -> None:
     envelope = make_envelope(
         "motion_command",
         "controller-a",

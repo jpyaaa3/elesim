@@ -46,7 +46,7 @@ class StateSink:
     def target_changed(self, target_id: str) -> None:
         self.targets.append(target_id)
 
-    def router_connected(self, connected: bool) -> None:
+    def peer_connected(self, connected: bool) -> None:
         self.connected.append(connected)
 
     def accept_error(self, reason: str) -> None:
@@ -70,7 +70,6 @@ def connection() -> tuple[ControllerConnection, StateSink, Endpoint]:
     sink = StateSink()
     endpoint = Endpoint()
     value = ControllerConnection(
-        server_endpoint="inproc://unused",
         controller_id="controller-a",
         initial_target="robot-a",
         mapping=SimMappingConfig(),
@@ -79,18 +78,8 @@ def connection() -> tuple[ControllerConnection, StateSink, Endpoint]:
     return value, sink, endpoint
 
 
-def test_registered_controller_discovers_and_reselects_after_target_loss() -> None:
+def test_controller_discovers_and_reselects_after_target_loss() -> None:
     value, sink, endpoint = connection()
-    descriptor = EndpointDescriptor(
-        "controller-a", "controller", ("operator_control",), instance_id="instance-a"
-    )
-
-    value.handle_envelope(
-        endpoint,
-        envelope("registered", {"endpoint": descriptor.to_dict()}),
-    )
-    assert endpoint.sent[-1] == ("discover", {"payload": {}})
-
     value.handle_envelope(
         endpoint,
         envelope(
@@ -116,7 +105,26 @@ def test_registered_controller_discovers_and_reselects_after_target_loss() -> No
     assert endpoint.sent[-1] == ("discover", {"payload": {}})
 
 
-def test_telemetry_and_ack_are_delivered_without_local_zmq_bridge() -> None:
+def test_target_selection_retries_only_after_discovery_interval() -> None:
+    value, _sink, endpoint = connection()
+    value.endpoints = [
+        EndpointDescriptor(
+            "robot-a", "robot", ("motion.arm",), instance_id="robot-instance"
+        ).to_dict()
+    ]
+
+    value._request_desired_target(endpoint, now=10.0)
+    value._request_desired_target(endpoint, now=10.9)
+    assert [message for message, _kwargs in endpoint.sent] == ["select_target"]
+
+    value._request_desired_target(endpoint, now=11.0)
+    assert [message for message, _kwargs in endpoint.sent] == [
+        "select_target",
+        "select_target",
+    ]
+
+
+def test_telemetry_and_ack_are_delivered_over_the_peer_connection() -> None:
     value, sink, endpoint = connection()
     value.handle_envelope(
         endpoint,

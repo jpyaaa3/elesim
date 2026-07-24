@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-from .configuration import generate_role_configs, missing_credentials, role_directory
+from .configuration import dds_enclave, generate_role_configs, role_directory
+from .credentials import validate_external_turn_credentials
 from .state import InstallState
 
 
@@ -37,7 +38,13 @@ def build_install_plan(state: InstallState) -> tuple[InstallAction, ...]:
         )
     actions.extend(
         (
-            InstallAction("네트워크", f"{state.security.mode}, Router {state.network.router_host}:{state.network.router_port}"),
+            InstallAction(
+                "DDS",
+                (
+                    f"domain {state.dds.domain_id}, "
+                    f"{state.dds.discovery_mode}, {state.dds.security_profile}"
+                ),
+            ),
             InstallAction("명령", f"실행 래퍼: {state.bin_path}"),
             InstallAction("상태", f"비밀값을 제외한 설치 상태: {state.state_path}"),
         )
@@ -68,10 +75,17 @@ class Installer:
 
     def run(self) -> None:
         self._validate_source()
-        missing = missing_credentials(self.state)
-        if missing:
-            rendered = "\n".join(f"  - {path}" for path in missing)
-            raise FileNotFoundError(f"CURVE credential이 부족합니다:\n{rendered}")
+        self.state.require_runnable_dds()
+        if self.state.turn.mode == "external" and "simulator" in self.state.roles:
+            credentials = self.state.turn.credential_path
+            if credentials is None:
+                raise ValueError(
+                    "external TURN on Simulator requires a credential file"
+                )
+            validate_external_turn_credentials(
+                credentials,
+                urls=self.state.network.turn_urls,
+            )
         self._show_plan()
         if self.dry_run:
             self.log("[DRY-RUN] 파일이나 패키지를 변경하지 않았습니다.")
@@ -79,6 +93,7 @@ class Installer:
 
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        self._install_ros_interfaces()
         self._install_tools()
         for role in self.state.roles:
             self._install_role(role)
@@ -98,6 +113,9 @@ class Installer:
         root = self.state.source_path
         required = [
             root / "packages/protocol/pyproject.toml",
+            root / "packages/elesim_interfaces/package.xml",
+            root / "packages/elesim_interfaces/CMakeLists.txt",
+            root / "packages/elesim_interfaces/msg/RgbdFrame.msg",
             root / "misc/tooling/setup/pyproject.toml",
         ]
         required.extend(root / role / "pyproject.toml" for role in self.state.roles)
@@ -121,17 +139,10 @@ class Installer:
     def _install_tools(self) -> None:
         root = self.state.source_path
         target = self.state.prefix_path / "tools"
-        python = self._ensure_venv(target / "venv")
+        python = self._ensure_venv(target / "venv", system_site_packages=True)
         self.log("[도구] elesim-setup / elesim-net 설치")
         self._pip(python, "install", "--upgrade", "pip", "setuptools>=68", "wheel")
         self._pip(python, "install", "-r", str(root / "misc/tooling/setup/requirements.lock"))
-        if {"ui", "simulator"}.intersection(self.state.roles):
-            self._pip(
-                python,
-                "install",
-                "-r",
-                str(root / "misc/tooling/setup/requirements-media.lock"),
-            )
         self._pip(
             python,
             "install",
@@ -161,7 +172,10 @@ class Installer:
             if (source / "install.sh").is_file():
                 shutil.copy2(source / "install.sh", target / "install.sh")
 
-        python = self._ensure_venv(target / "venv")
+        python = self._ensure_venv(
+            target / "venv",
+            system_site_packages=role == "robot",
+        )
         self.log(f"[{role}] Python dependency 설치")
         self._pip(python, "install", "--upgrade", "pip", "setuptools>=68", "wheel")
         self._pip(python, "install", "-r", str(source / "requirements.lock"))
@@ -183,11 +197,38 @@ class Installer:
         )
         self._pip(python, "check")
 
-    def _ensure_venv(self, path: Path) -> Path:
+    def _install_ros_interfaces(self) -> None:
+        root = self.state.source_path
+        ros_root = self.state.prefix_path / "ros"
+        command = (
+            "source /opt/ros/humble/setup.bash && "
+            "colcon --log-base "
+            f"{shlex.quote(str(ros_root / 'log'))} build "
+            "--base-paths "
+            f"{shlex.quote(str(root / 'packages/elesim_interfaces'))} "
+            "--build-base "
+            f"{shlex.quote(str(ros_root / 'build'))} "
+            "--install-base "
+            f"{shlex.quote(str(ros_root / 'install'))} "
+            "--symlink-install"
+        )
+        self.log("[ros] elesim_interfaces overlay build")
+        self._run(("/bin/bash", "-lc", command))
+
+    def _ensure_venv(
+        self,
+        path: Path,
+        *,
+        system_site_packages: bool = False,
+    ) -> Path:
         python = path / "bin/python"
         if not python.is_file():
             self.log(f"[venv] {path}")
-            self._run((sys.executable, "-m", "venv", str(path)))
+            arguments = [sys.executable, "-m", "venv"]
+            if system_site_packages:
+                arguments.append("--system-site-packages")
+            arguments.append(str(path))
+            self._run(tuple(arguments))
         return python
 
     def _pip(self, python: Path, *arguments: str) -> None:
@@ -210,11 +251,21 @@ class Installer:
         state_path = self.state_path
         _write_executable(
             self.state.bin_path / "elesim-setup",
-            _exec_script(tool_venv / "elesim-setup", ("--state", str(state_path))),
+            _exec_script(
+                tool_venv / "elesim-setup",
+                ("--state", str(state_path)),
+                source_ros=self.state.prefix_path / "ros/install/setup.bash",
+                environment=self._dds_environment("doctor"),
+            ),
         )
         _write_executable(
             self.state.bin_path / "elesim-net",
-            _exec_script(tool_venv / "elesim-net", ("--state", str(state_path))),
+            _exec_script(
+                tool_venv / "elesim-net",
+                ("--state", str(state_path)),
+                source_ros=self.state.prefix_path / "ros/install/setup.bash",
+                environment=self._dds_environment("doctor"),
+            ),
         )
         for role in self.state.roles:
             executable, arguments = self._role_command(role)
@@ -223,9 +274,50 @@ class Installer:
                 _exec_script(
                     executable,
                     arguments,
-                    environment=self._role_environment(role),
+                    environment={
+                        **self._role_environment(role),
+                        **self._dds_environment(role),
+                    },
+                    source_ros=self.state.prefix_path / "ros/install/setup.bash",
+                    source_unitree=role == "robot",
                 ),
             )
+
+    def _dds_environment(self, role: str) -> Mapping[str, str]:
+        config_role = role if role in self.state.roles else self.state.roles[0]
+        environment = {
+            "ELESIM_SYSTEM_ID": self.state.dds.system_id,
+            "ELESIM_DDS_DISCOVERY_MODE": self.state.dds.discovery_mode,
+            "ELESIM_DDS_STATIC_PEERS": ",".join(self.state.dds.static_peers),
+            "ELESIM_DDS_NETWORK_INTERFACE": self.state.dds.interface,
+            "ELESIM_DDS_SECURITY_PROFILE": self.state.dds.security_profile,
+            "ROS_DOMAIN_ID": str(self.state.dds.domain_id),
+            "RMW_IMPLEMENTATION": self.state.dds.rmw_implementation,
+            "ROS_LOCALHOST_ONLY": "0",
+            "CYCLONEDDS_URI": (
+                "file://"
+                + str(role_directory(self.state, config_role) / "config/cyclonedds.xml")
+            ),
+            "ELESIM_DDS_VENDOR_CONFIG": str(
+                role_directory(self.state, config_role) / "config/cyclonedds.xml"
+            ),
+        }
+        if self.state.dds.security_profile == "sros2":
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "true",
+                    "ROS_SECURITY_STRATEGY": "Enforce",
+                    "ROS_SECURITY_KEYSTORE": self.state.dds.keystore,
+                    "ROS_SECURITY_ENCLAVE_OVERRIDE": dds_enclave(
+                        self.state,
+                        role,
+                    ),
+                    "ELESIM_DDS_ENCLAVE": dds_enclave(self.state, role),
+                }
+            )
+        else:
+            environment["ROS_SECURITY_ENABLE"] = "false"
+        return environment
 
     def _role_environment(self, role: str) -> Mapping[str, str]:
         if role not in {"controller", "simulator"}:
@@ -240,8 +332,6 @@ class Installer:
         root = role_directory(self.state, role)
         executable = root / f"venv/bin/elesim-{role}"
         config = root / "config"
-        if role == "router":
-            return executable, ("--config", str(config / "installed.yaml"))
         if role == "controller":
             return executable, (
                 "--config",
@@ -302,9 +392,29 @@ def _exec_script(
     arguments: Sequence[str],
     *,
     environment: Mapping[str, str] | None = None,
+    source_ros: Path | None = None,
+    source_unitree: bool = False,
 ) -> str:
     command = shlex.join((str(executable), *(str(value) for value in arguments)))
     lines = ["#!/usr/bin/env bash", "set -euo pipefail"]
+    if source_ros is not None:
+        lines.extend(
+            (
+                "set +u",
+                "source /opt/ros/humble/setup.bash",
+            )
+        )
+        if source_unitree:
+            lines.extend(
+                (
+                    'unitree_ws="${UNITREE_ROS2_WS:-$HOME/ros2_ws}"',
+                    'if [[ -f "$unitree_ws/install/setup.bash" ]]; then',
+                    '  source "$unitree_ws/install/setup.bash"',
+                    "fi",
+                )
+            )
+        lines.append(f"source {shlex.quote(str(source_ros))}")
+        lines.append("set -u")
     for name, value in (environment or {}).items():
         lines.append(f"export {name}={shlex.quote(str(value))}")
     lines.append("exec " + command + ' "$@"')

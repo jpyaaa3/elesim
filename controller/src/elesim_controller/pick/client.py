@@ -1,7 +1,7 @@
 """Command port used by controller workflows.
 
-This module deliberately knows nothing about ZeroMQ. ``ControllerConnection``
-owns transport and attaches its thread-safe submission method here.
+``ControllerConnection`` owns DDS transport and attaches its thread-safe
+submission method here.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class ControlClient:
             self._sender = sender
 
     def close(self) -> None:
-        self._state.router_connected(False)
+        self._state.peer_connected(False)
 
     @property
     def is_connected(self) -> bool:
@@ -49,8 +49,8 @@ class ControlClient:
     def last_object_world_xyz(self) -> Optional[tuple[float, float, float]]:
         return self._state.object_world_xyz
 
-    def router_connected(self, connected: bool) -> None:
-        self._state.router_connected(connected)
+    def peer_connected(self, connected: bool) -> None:
+        self._state.peer_connected(connected)
 
     def target_changed(self, target_id: str) -> None:
         self._state.target_changed(target_id)

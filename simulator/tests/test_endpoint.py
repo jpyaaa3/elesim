@@ -37,7 +37,6 @@ def endpoint() -> tuple[SimulatorEndpoint, SimulationStateSource, Client]:
     state = SimulationStateSource(SimMappingConfig())
     client = Client()
     value = SimulatorEndpoint(
-        server_endpoint="inproc://unused",
         endpoint_id="sim-a",
         state=state,
         streams={},
@@ -99,7 +98,7 @@ def grant_simulation_session(value: SimulatorEndpoint, client: Client) -> None:
         client,
         Envelope(
             message_type="simulation_session_granted",
-            source_id="server",
+            source_id="sim-a",
             target_id="sim-a",
             payload=granted.to_payload(),
             seq=2,
@@ -170,7 +169,7 @@ def test_simulation_command_rejects_a_mismatched_operator_session_lease() -> Non
     assert client.sent[-1][1]["payload"]["reason"] == "simulation_session_mismatch"
 
 
-def test_simulation_status_is_published_to_the_router_not_a_motion_owner() -> None:
+def test_simulation_status_is_fanned_out_by_the_peer_authority() -> None:
     value, _state, client = endpoint()
     value.publish_simulation_status(
         SimulationStatusPayload(
@@ -193,7 +192,6 @@ def test_webrtc_offer_is_answered_for_the_requested_named_stream() -> None:
     state = SimulationStateSource(SimMappingConfig())
     client = Client()
     value = SimulatorEndpoint(
-        server_endpoint="inproc://unused",
         endpoint_id="sim-a",
         state=state,
         streams={},

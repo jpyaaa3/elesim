@@ -1,4 +1,4 @@
-"""Protocol-v4 endpoint owned by the simulator deployment."""
+"""Protocol-v5 direct DDS endpoint owned by the simulator deployment."""
 
 from __future__ import annotations
 
@@ -11,11 +11,12 @@ from elesim_protocol import (
     CAPABILITY_STREAM_HAND_EYE_PREVIEW,
     CAPABILITY_STREAM_OBSERVER,
     CAPABILITY_STREAM_RGBD,
-    CurveClientConfig,
-    EndpointClient,
+    DdsRuntimeSettings,
     EndpointDescriptor,
     Envelope,
     MediaStreamDescriptor,
+    PeerClient,
+    PeerIdentity,
     ProtocolError,
     SimulationCommandRequest,
     SimulationResultPayload,
@@ -34,33 +35,31 @@ from .simulation.operator_control import (
 
 
 class SimulatorEndpoint:
-    """Own router lifecycle while Genesis communicates through memory only."""
+    """Own the Simulator DDS peer while Genesis communicates through memory."""
 
     def __init__(
         self,
         *,
-        server_endpoint: str,
         endpoint_id: str,
         state: SimulationStateSource,
         streams: Mapping[str, MediaStreamDescriptor],
+        settings: Optional[DdsRuntimeSettings] = None,
         operator_mailbox: Optional[SimulationOperatorMailbox] = None,
         webrtc_offer_handler: Optional[
             Callable[[str, str, str, Optional[TurnCredentials], str], Mapping[str, Any]]
         ] = None,
         webrtc_session_close_handler: Optional[Callable[[str], None]] = None,
-        curve: Optional[CurveClientConfig] = None,
-        allow_insecure_remote: bool = False,
-        endpoint_factory: Callable[..., Any] = EndpointClient,
+        turn_credential_provider: Optional[Callable[[str, str, float], Any]] = None,
+        endpoint_factory: Callable[..., Any] = PeerClient,
     ) -> None:
-        self.server_endpoint = str(server_endpoint)
         self.endpoint_id = str(endpoint_id)
         self.state = state
         self.streams = dict(streams)
+        self.settings = settings
         self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
         self.webrtc_offer_handler = webrtc_offer_handler
         self.webrtc_session_close_handler = webrtc_session_close_handler
-        self.curve = curve
-        self.allow_insecure_remote = bool(allow_insecure_remote)
+        self.turn_credential_provider = turn_credential_provider
         self.endpoint_factory = endpoint_factory
 
         self.controller_id = ""
@@ -75,6 +74,7 @@ class SimulatorEndpoint:
         self.stop_event = threading.Event()
         self.ready = threading.Event()
         self.thread: Optional[threading.Thread] = None
+        self.peer_identity: Optional[PeerIdentity] = None
         self._telemetry_lock = threading.Lock()
         self._telemetry: dict[str, Any] = {}
         self._telemetry_dirty = False
@@ -85,7 +85,7 @@ class SimulatorEndpoint:
     def start(self) -> None:
         self.stop_event.clear()
         self.ready.clear()
-        self.thread = threading.Thread(target=self._run, name="simulator-router", daemon=True)
+        self.thread = threading.Thread(target=self._run, name="simulator-dds", daemon=True)
         self.thread.start()
         if not self.ready.wait(timeout=3.0):
             raise RuntimeError("simulator protocol endpoint failed to start")
@@ -320,16 +320,19 @@ class SimulatorEndpoint:
         if "hand_eye_preview" in self.streams:
             capabilities.append(CAPABILITY_STREAM_HAND_EYE_PREVIEW)
         client = self.endpoint_factory(
-            self.server_endpoint,
             EndpointDescriptor(
                 self.endpoint_id,
                 "simulator",
                 tuple(capabilities),
                 streams=self.streams,
             ),
-            curve=self.curve,
-            allow_insecure_remote=self.allow_insecure_remote,
+            settings=self.settings,
+            turn_credential_provider=self.turn_credential_provider,
         )
+        identity = getattr(getattr(client, "node", None), "identity", None)
+        if not isinstance(identity, PeerIdentity):
+            raise RuntimeError("simulator DDS peer did not expose its boot identity")
+        self.peer_identity = identity
         self.ready.set()
         was_registered = client.registered
         try:

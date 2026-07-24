@@ -33,7 +33,7 @@ def test_noninteractive_install_dry_run_uses_same_installer(tmp_path: Path) -> N
             "--profile",
             "custom",
             "--role",
-            "router",
+            "simulator",
             "--prefix",
             str(tmp_path / "install"),
             "--bin-dir",
@@ -85,7 +85,7 @@ def test_noninteractive_container_install_uses_container_backend(
             "--profile",
             "custom",
             "--role",
-            "router",
+            "simulator",
             "--mode",
             "container",
             "--prefix",
@@ -98,6 +98,41 @@ def test_noninteractive_container_install_uses_container_backend(
 
     assert result == 0
     assert not state_path.exists()
+
+
+def test_noninteractive_external_turn_requires_simulator_credential_path(
+    tmp_path: Path,
+) -> None:
+    credentials = tmp_path / "turn.json"
+    credentials.write_text(
+        '{"username":"lab-user","credential":"lab-password"}\n',
+        encoding="utf-8",
+    )
+    base = (
+        "--source-root",
+        str(ROOT),
+        "--state",
+        str(tmp_path / "state.json"),
+        "install",
+        "--profile",
+        "custom",
+        "--role",
+        "simulator",
+        "--mode",
+        "container",
+        "--prefix",
+        str(tmp_path / "install"),
+        "--bin-dir",
+        str(tmp_path / "bin"),
+        "--turn-mode",
+        "external",
+        "--turn-url",
+        "turn:relay.example.com:3478?transport=udp",
+        "--dry-run",
+    )
+
+    assert cli.main(base) == 2
+    assert cli.main((*base, "--turn-credential-file", str(credentials))) == 0
 
 
 def test_status_does_not_require_cached_source_to_still_exist(local_state, tmp_path: Path) -> None:
@@ -122,18 +157,19 @@ def test_network_configure_rewrites_all_installed_role_configs(local_state, tmp_
             str(path),
             "configure",
             "--non-interactive",
-            "--router-host",
+            "--dds-domain-id",
+            "17",
+            "--dds-discovery-mode",
+            "static",
+            "--dds-static-peer",
             "192.0.2.10",
-            "--advertise-host",
-            "192.0.2.20",
-            "--security",
-            "insecure-lan",
         )
     )
 
     assert result == 0
     updated = InstallState.load(path)
-    assert updated.network.router_host == "192.0.2.10"
-    assert updated.security.mode == "insecure-lan"
+    assert updated.dds.domain_id == 17
+    assert updated.dds.discovery_mode == "static"
+    assert updated.dds.static_peers == ("192.0.2.10",)
     assert (state.prefix_path / "roles/controller/config/runtime.installed.yaml").is_file()
     assert (state.prefix_path / "roles/ui/config/installed.yaml").is_file()

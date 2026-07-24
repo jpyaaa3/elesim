@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 
-ROLE_ORDER = ("router", "simulator", "controller", "ui", "robot")
+ROLE_ORDER = ("simulator", "controller", "ui", "robot")
 
 
 @dataclass(frozen=True)
@@ -22,22 +22,22 @@ PROFILES: dict[str, Profile] = {
     "local-sim": Profile(
         name="local-sim",
         title="한 PC 시뮬레이션",
-        roles=("router", "simulator", "controller", "ui"),
-        description="Router, Genesis Simulator, Controller와 UI를 같은 컴퓨터에 설치합니다.",
+        roles=("simulator", "controller", "ui"),
+        description="Genesis Simulator, Controller와 UI를 같은 컴퓨터에 설치합니다.",
         remote=False,
     ),
     "laptop": Profile(
         name="laptop",
         title="조작 노트북",
         roles=("controller", "ui"),
-        description="원격 Router/Simulator 또는 Robot을 조작하는 Controller와 UI를 설치합니다.",
+        description="원격 Simulator 또는 Robot을 조작하는 Controller와 UI를 설치합니다.",
         remote=True,
     ),
     "compute": Profile(
         name="compute",
         title="시뮬레이션 서버",
-        roles=("router", "simulator"),
-        description="고성능 컴퓨터에 Router와 headless Genesis Simulator를 설치합니다.",
+        roles=("simulator",),
+        description="고성능 컴퓨터에 headless Genesis Simulator를 설치합니다.",
         remote=True,
     ),
     "robot": Profile(

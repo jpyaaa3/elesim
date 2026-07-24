@@ -41,7 +41,7 @@ class Endpoint:
     def send(self, message_type: str, **kwargs: object) -> Envelope:
         envelope = make_envelope(
             message_type,
-            "ui-a-simulator",
+            "ui-a",
             target_id=str(kwargs.get("target_id", "server")),
             payload=dict(kwargs.get("payload", {})),
             lease_id=str(kwargs.get("lease_id", "")),
@@ -91,8 +91,8 @@ def opened(
     )
     return make_envelope(
         "simulation_session_opened",
-        "server",
-        target_id="ui-a-simulator",
+        simulator_id,
+        target_id="ui-a",
         payload=payload.to_payload(),
         lease_id=session_id,
         seq=1,
@@ -110,7 +110,7 @@ def answer(stream: str, *, session_id: str = "session-a") -> Envelope:
     return make_envelope(
         "webrtc_signal",
         "sim-a",
-        target_id="ui-a-simulator",
+        target_id="ui-a",
         payload=payload.to_payload(),
         lease_id=session_id,
         seq=2,
@@ -119,17 +119,15 @@ def answer(stream: str, *, session_id: str = "session-a") -> Envelope:
 
 def new_session(clock: Clock | None = None) -> UiSimulatorSession:
     return UiSimulatorSession(
-        "inproc://unused",
         ui_id="ui-a",
         sim_id="sim-a",
-        endpoint_factory=lambda *_args, **_kwargs: Endpoint(),
         receiver_factory=Receiver,
         clock=clock or Clock(),
         autostart=False,
     )
 
 
-def test_session_waits_for_router_grant_before_creating_two_offers() -> None:
+def test_session_waits_for_simulator_grant_before_creating_two_offers() -> None:
     Receiver.created.clear()
     endpoint = Endpoint()
     session = new_session()
@@ -231,10 +229,8 @@ def test_failed_turn_refresh_keeps_the_working_receivers() -> None:
         return Receiver()
 
     session = UiSimulatorSession(
-        "inproc://unused",
         ui_id="ui-a",
         sim_id="sim-a",
-        endpoint_factory=lambda *_args, **_kwargs: Endpoint(),
         receiver_factory=receiver_factory,
         clock=Clock(),
         autostart=False,
@@ -346,8 +342,8 @@ def test_switch_closes_old_peers_and_opens_next_target_after_revocation() -> Non
     endpoint.inbox.append(
         make_envelope(
             "simulation_session_revoked",
-            "server",
-            target_id="ui-a-simulator",
+            "sim-a",
+            target_id="ui-a",
             payload=revoked.to_payload(),
             lease_id="session-a",
             seq=3,
@@ -378,7 +374,7 @@ def test_status_is_parsed_as_typed_simulation_state() -> None:
         make_envelope(
             "simulation_status",
             "sim-a",
-            target_id="ui-a-simulator",
+            target_id="ui-a",
             payload=status.to_payload(),
             seq=4,
         )

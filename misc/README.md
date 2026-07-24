@@ -15,8 +15,8 @@ from application wheels and role-specific release contexts.
 
 Runtime inputs and generated artifacts remain at repository root:
 
-- `router/`, `controller/`, `ui/`, `robot/`, `simulator/`
-- `packages/protocol/`
+- `controller/`, `ui/`, `robot/`, `simulator/`
+- `packages/elesim_interfaces/`, `packages/protocol/`
 - `model/bundles/`
 - `dist/`
 - `logs/`

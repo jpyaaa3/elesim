@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from elesim_protocol import CurveClientConfig
+from elesim_protocol import DdsRuntimeSettings
 
 from elesim_controller.vision.perception.depth_pose import CameraIntrinsics
 from elesim_controller.vision.perception.realsense_camera import RealSenseFrame
@@ -15,37 +15,28 @@ class SimRenderedCamera:
     def __init__(
         self,
         *,
-        endpoint: str = "tcp://127.0.0.1:5568",
-        use_jpeg: bool = True,
+        topic: str = "/elesim/simulator/rgbd/frame",
         timeout_ms: int = 500,
-        curve_client_secret_file: str = "",
-        curve_server_key: str = "",
-        allow_insecure_remote: bool = False,
+        endpoint_id: str = "controller-rgbd",
+        dds_settings: DdsRuntimeSettings | None = None,
+        expected_source_id: str = "",
+        expected_boot_id: str = "",
     ) -> None:
-        self._endpoint = str(endpoint)
-        self._use_jpeg = bool(use_jpeg)
+        self._topic = str(topic)
         self._timeout_ms = int(timeout_ms)
-        secret_file = str(curve_client_secret_file).strip()
-        server_key = str(curve_server_key).strip()
-        if bool(secret_file) != bool(server_key):
-            raise ValueError("sim camera CURVE client secret and server key must be configured together")
-        self._curve = (
-            None
-            if not secret_file
-            else CurveClientConfig.from_client_file(
-                client_secret_file=secret_file,
-                server_key=server_key,
-            )
-        )
-        self._allow_insecure_remote = bool(allow_insecure_remote)
+        self._endpoint_id = str(endpoint_id)
+        self._dds_settings = dds_settings
+        self._expected_source_id = str(expected_source_id)
+        self._expected_boot_id = str(expected_boot_id)
         self._sub: SimCameraSubscriber | None = None
 
     def start(self) -> None:
         self._sub = SimCameraSubscriber(
-            self._endpoint,
-            use_jpeg=self._use_jpeg,
-            curve=self._curve,
-            allow_insecure_remote=self._allow_insecure_remote,
+            self._topic,
+            endpoint_id=self._endpoint_id,
+            dds_settings=self._dds_settings,
+            expected_source_id=self._expected_source_id,
+            expected_boot_id=self._expected_boot_id,
         )
         self._sub.connect()
 
@@ -85,9 +76,13 @@ class SimRenderedCamera:
                     camera_world_look=frame.camera_world_look,
                     camera_world_right=frame.camera_world_right,
                 )
-            last_exc = RuntimeError(f"no sim camera frame received from {self._endpoint}")
+            last_exc = RuntimeError(
+                f"no DDS RGB-D sample received from {self._topic}"
+            )
             if retry_sleep_s > 0:
                 import time
 
                 time.sleep(float(retry_sleep_s))
-        raise last_exc or RuntimeError(f"no sim camera frame received from {self._endpoint}")
+        raise last_exc or RuntimeError(
+            f"no DDS RGB-D sample received from {self._topic}"
+        )

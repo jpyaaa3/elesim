@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -18,9 +17,9 @@ from .state import (
     ComputeSettings,
     DEFAULT_BIN_DIR,
     DEFAULT_PREFIX,
+    DdsSettings,
     InstallState,
     NetworkSettings,
-    SecuritySettings,
     TurnSettings,
     default_state_path,
 )
@@ -48,7 +47,12 @@ def _yes_no(prompt: str, default: bool = True, *, input_fn: Input = input) -> bo
         print("y 또는 n을 입력하십시오.")
 
 
-def _menu(title: str, choices: Sequence[tuple[str, str]], *, input_fn: Input = input) -> str:
+def _menu(
+    title: str,
+    choices: Sequence[tuple[str, str]],
+    *,
+    input_fn: Input = input,
+) -> str:
     print(f"\n{title}")
     for index, (_value, label) in enumerate(choices, start=1):
         print(f"  {index}. {label}")
@@ -70,7 +74,7 @@ def run_wizard(
     input_fn: Input = input,
 ) -> int:
     print("\nElesim 설치 마법사")
-    print("각 실행 역할을 별도 가상환경에 설치하고 통신 설정을 함께 생성합니다.")
+    print("선택한 실행 역할과 ROS 2/DDS 구성을 격리된 환경에 설치합니다.")
     profile_name = _menu(
         "이 컴퓨터는 무엇을 합니까?",
         tuple(
@@ -82,7 +86,7 @@ def run_wizard(
     custom_roles: tuple[str, ...] = ()
     if profile_name == "custom":
         selected = _ask(
-            "역할을 쉼표로 구분 (router, simulator, controller, ui, robot)",
+            "역할을 쉼표로 구분 (simulator, controller, ui, robot)",
             "controller,ui",
             input_fn=input_fn,
         )
@@ -92,11 +96,8 @@ def run_wizard(
     install_mode = _menu(
         "어떻게 격리해서 설치합니까?",
         (
-            (
-                "container",
-                "Docker Compose - 깨끗한 Ubuntu/기존 환경 보존용 (권장)",
-            ),
-            ("native", "역할별 Python venv - 준비된 개발/Jetson 환경용"),
+            ("container", "Docker Compose - 기존 호스트 환경 보존용 (권장)"),
+            ("native", "역할별 Python venv - 준비된 ROS 2/Jetson 환경용"),
         ),
         input_fn=input_fn,
     )
@@ -118,90 +119,119 @@ def run_wizard(
         gpu_mode = _menu(
             "GPU 사용 정책",
             (
-                (
-                    "inherit",
-                    "외부 환경/스케줄러의 CUDA_VISIBLE_DEVICES를 그대로 따름 (권장)",
-                ),
+                ("inherit", "외부 CUDA_VISIBLE_DEVICES를 그대로 따름 (권장)"),
                 ("specific", "특정 GPU index 또는 UUID만 사용"),
                 ("cpu", "GPU를 사용하지 않고 CPU로 실행"),
             ),
             input_fn=input_fn,
         )
-        gpu_device = ""
-        if gpu_mode == "specific":
-            gpu_device = _ask(
-                "GPU index 또는 UUID (nvidia-smi -L 기준, 예: 1 또는 GPU-...)",
-                "0",
-                input_fn=input_fn,
-            )
-        compute = ComputeSettings(
-            gpu_mode=gpu_mode,
-            gpu_device=gpu_device,
-        ).validate()
+        gpu_device = (
+            _ask("GPU index 또는 UUID", "0", input_fn=input_fn)
+            if gpu_mode == "specific"
+            else ""
+        )
+        compute = ComputeSettings(gpu_mode=gpu_mode, gpu_device=gpu_device).validate()
 
-    if profile_name == "local-sim":
-        router_host = "127.0.0.1"
-        advertise_host = "127.0.0.1"
-        security_mode = "loopback"
-        credentials_root = ""
-    else:
-        default_host = _local_address_hint()
-        router_default = default_host if "router" in roles else "192.168.0.10"
-        router_host = _ask(
-            "다른 기기에서도 접근 가능한 Router hostname/IP",
-            router_default,
-            input_fn=input_fn,
-        )
-        if {"simulator", "robot"}.intersection(roles):
-            advertise_host = _ask(
-                "이 기기의 RGBD stream을 광고할 hostname/IP",
-                default_host,
+    domain_id = int(_ask("ROS_DOMAIN_ID (모든 기기에서 동일)", "0", input_fn=input_fn))
+    discovery_mode = _menu(
+        "DDS discovery",
+        (
+            ("multicast", "같은 L2 네트워크에서 multicast 자동 발견"),
+            ("static", "멀티캐스트가 막힌 네트워크의 static peer 목록"),
+        ),
+        input_fn=input_fn,
+    )
+    static_peers: tuple[str, ...] = ()
+    if discovery_mode == "static":
+        static_peers = tuple(
+            value.strip()
+            for value in _ask(
+                "DDS peer hostname/IP (쉼표 구분)",
+                "",
                 input_fn=input_fn,
-            )
-        else:
-            advertise_host = router_host
-        security_mode = _menu(
-            "원격 ZMQ 보안 방식",
-            (
-                ("curve", "CURVE 암호화 및 endpoint 인증 (권장)"),
-                ("insecure-lan", "신뢰된 LAN의 평문 통신 (명시적 개발 예외)"),
-            ),
-            input_fn=input_fn,
+            ).split(",")
+            if value.strip()
         )
-        credentials_root = ""
-        if security_mode == "curve":
-            credentials = Path(
+    interface = _ask("DDS network interface (자동이면 비움)", "", input_fn=input_fn)
+    security_profile = _menu(
+        "DDS 보안 profile",
+        (
+            ("trusted-network", "격리된 신뢰 네트워크/VPN (DDS 보안 비활성)"),
+            ("sros2", "SROS2 인증·암호화 강제"),
+        ),
+        input_fn=input_fn,
+    )
+    keystore = ""
+    enclave = ""
+    if security_profile == "sros2":
+        keystore = str(
+            Path(
                 _ask(
-                    "배포된 Elesim credential root",
-                    str(prefix / "secrets"),
+                    "SROS2 keystore 경로",
+                    str(prefix / "sros2"),
                     input_fn=input_fn,
                 )
             ).expanduser().resolve()
-            credentials_root = str(credentials)
-            if not credentials.exists() and "router" in roles:
-                if _yes_no("credential이 없습니다. 이 컴퓨터에서 새로 생성합니까?", input_fn=input_fn):
-                    _generate_credentials(
-                        source_root,
-                        credentials,
-                        prefix,
-                        public_host=advertise_host,
-                        input_fn=input_fn,
-                    )
-            elif not credentials.exists():
-                print("노트북/Robot에는 중앙에서 생성한 해당 host credential을 먼저 전달해야 합니다.")
+        )
+        enclave = _ask("SROS2 base enclave", "/elesim", input_fn=input_fn)
+    dds = DdsSettings(
+        domain_id=domain_id,
+        discovery_mode=discovery_mode,
+        static_peers=static_peers,
+        interface=interface,
+        security_profile=security_profile,
+        keystore=keystore,
+        enclave=enclave,
+    ).validate()
 
     turn_urls: tuple[str, ...] = ()
-    if profile_name != "local-sim" and security_mode == "curve" and _yes_no(
-        "NAT를 넘는 WebRTC용 Coturn을 사용합니까?",
+    turn = TurnSettings()
+    if _yes_no(
+        "NAT를 넘는 WebRTC용 TURN relay를 사용합니까?",
         default=False,
         input_fn=input_fn,
     ):
+        managed = (
+            install_mode == "container"
+            and "simulator" in roles
+            and _yes_no(
+            "이 Simulator 호스트가 Coturn lifecycle도 관리합니까?",
+            default=False,
+            input_fn=input_fn,
+            )
+        )
+        public_host = (
+            _ask("Coturn public hostname/IP", "", input_fn=input_fn)
+            if managed
+            else ""
+        )
         turn_url = _ask(
             "TURN URL",
-            f"turn:{router_host}:3478?transport=udp",
+            f"turn:{public_host}:3478?transport=udp" if public_host else "",
             input_fn=input_fn,
         )
         turn_urls = (turn_url,)
+        turn = (
+            TurnSettings(
+                mode="managed",
+                realm=_ask("TURN realm", "elesim.local", input_fn=input_fn),
+                public_host=public_host,
+                secret_file=str(prefix / "secrets/turn.secret"),
+            )
+            if managed
+            else TurnSettings(
+                mode="external",
+                credential_file=(
+                    _ask(
+                        "External TURN username/credential JSON file",
+                        "",
+                        input_fn=input_fn,
+                    )
+                    if "simulator" in roles
+                    else ""
+                ),
+            )
+        )
 
     state = InstallState(
         profile=profile_name,
@@ -209,25 +239,18 @@ def run_wizard(
         prefix=str(prefix),
         bin_dir=str(bin_dir),
         source_root=str(source_root),
-        network=NetworkSettings(
-            router_host=router_host,
-            advertise_host=advertise_host,
-            turn_urls=turn_urls,
-        ),
-        security=SecuritySettings(
-            mode=security_mode,
-            credentials_root=credentials_root,
-        ),
+        network=NetworkSettings(turn_urls=turn_urls),
+        dds=dds,
         compute=compute,
-        turn=TurnSettings(mode="external" if turn_urls else "none"),
+        turn=turn,
         install_mode=install_mode,
-    ).validate()
+    ).require_runnable_dds()
 
     print("\n사전 확인")
     for note in preflight_notes(roles, install_mode=install_mode):
         print(f"  - {note}")
-    if security_mode == "insecure-lan":
-        print("  - 경고: 평문 LAN 모드는 제어 메시지와 ZMQ RGBD를 암호화하지 않습니다.")
+    if security_profile == "trusted-network":
+        print("  - 경고: DDS 인증·암호화는 비활성입니다. 격리된 사설망/VPN에서만 사용하십시오.")
     if not _yes_no("이 설정으로 설치를 시작합니까?", input_fn=input_fn):
         print("설치를 취소했습니다.")
         return 1
@@ -236,46 +259,6 @@ def run_wizard(
     installer_type(state, state_path=state_path).run()
     _path_note(bin_dir)
     return 0
-
-
-def _generate_credentials(
-    source_root: Path,
-    output: Path,
-    prefix: Path,
-    *,
-    public_host: str,
-    input_fn: Input,
-) -> None:
-    script = source_root / "misc/infra/bootstrap_security.py"
-    if not script.is_file():
-        raise FileNotFoundError(script)
-    realm = _ask("TURN realm", "elesim.local", input_fn=input_fn)
-    command = (
-        sys.executable,
-        str(script),
-        "--output",
-        str(output),
-        "--coturn-env",
-        str(prefix / "infra/coturn.env"),
-        "--turn-public-ip",
-        public_host,
-        "--turn-realm",
-        realm,
-    )
-    print("$ " + " ".join(command))
-    subprocess.run(command, check=True)
-    print("credential 전체를 모든 기기에 복사하지 말고 역할별 private key만 배포하십시오.")
-
-
-def _local_address_hint() -> str:
-    try:
-        candidates = socket.gethostbyname_ex(socket.gethostname())[2]
-    except OSError:
-        candidates = []
-    for value in candidates:
-        if not value.startswith("127."):
-            return value
-    return "192.168.0.10"
 
 
 def _path_note(bin_dir: Path) -> None:
@@ -295,16 +278,26 @@ def _source_root(explicit: str, state_path: Path) -> Path:
     if state_path.is_file():
         return InstallState.load(state_path).source_path
     candidate = Path.cwd().resolve()
-    if (candidate / "packages/protocol/pyproject.toml").is_file():
+    if (
+        (candidate / "packages/protocol/pyproject.toml").is_file()
+        and (candidate / "packages/elesim_interfaces/package.xml").is_file()
+    ):
         return candidate
     raise FileNotFoundError("--source-root를 지정하거나 Elesim 저장소 루트에서 실행하십시오")
 
 
 def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
     roles = roles_for_profile(args.profile, args.role or ())
-    security_mode = args.security
-    if security_mode == "auto":
-        security_mode = "loopback" if args.router_host in {"127.0.0.1", "localhost", "::1"} else "curve"
+    peers = tuple(args.dds_static_peer or ())
+    turn_urls = tuple(args.turn_url or ())
+    turn_mode = (
+        args.turn_mode
+        if args.turn_mode != "auto"
+        else "external" if turn_urls else "none"
+    )
+    secret_file = args.turn_secret_file
+    if turn_mode == "managed" and not secret_file:
+        secret_file = str(Path(args.prefix).expanduser().resolve() / "secrets/turn.secret")
     return InstallState(
         profile=args.profile,
         roles=roles,
@@ -312,34 +305,35 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
         bin_dir=str(Path(args.bin_dir).expanduser().resolve()),
         source_root=str(source_root),
         network=NetworkSettings(
-            router_host=args.router_host,
-            advertise_host=args.advertise_host or args.router_host,
-            router_port=args.router_port,
-            rgbd_port=args.rgbd_port,
-            turn_urls=tuple(args.turn_url or ()),
+            turn_urls=turn_urls,
             simulator_id=args.simulator_id,
             controller_id=args.controller_id,
         ),
-        security=SecuritySettings(
-            mode=security_mode,
-            credentials_root=args.credentials_root,
+        dds=DdsSettings(
+            system_id=args.dds_system_id,
+            domain_id=args.dds_domain_id,
+            rmw_implementation=args.dds_rmw_implementation,
+            discovery_mode=args.dds_discovery_mode,
+            static_peers=peers,
+            interface=args.dds_interface,
+            security_profile=args.dds_security_profile,
+            keystore=args.dds_keystore,
+            enclave=args.dds_enclave,
         ),
         compute=ComputeSettings(
             gpu_mode=args.gpu_mode,
             gpu_device=args.gpu_device,
         ),
         turn=TurnSettings(
-            mode=(
-                args.turn_mode
-                if args.turn_mode != "auto"
-                else "external" if args.turn_url else "none"
-            ),
+            mode=turn_mode,
             realm=args.turn_realm,
             public_host=args.turn_public_host,
+            secret_file=secret_file,
+            credential_file=args.turn_credential_file,
         ),
         install_mode=args.mode,
         install_go2_mpc=not args.skip_go2_mpc,
-    ).validate()
+    ).require_runnable_dds()
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -363,6 +357,7 @@ def _parser() -> argparse.ArgumentParser:
         default=os.environ.get("ELESIM_REPOSITORY", "jpyaaa3/elesim"),
     )
     gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", "main"))
+
     install = subparsers.add_parser("install", help="자동화용 비대화형 설치")
     install.add_argument("--profile", choices=tuple(PROFILES), default="local-sim")
     install.add_argument(
@@ -374,19 +369,35 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--role", action="append", choices=ROLE_ORDER)
     install.add_argument("--prefix", default=str(DEFAULT_PREFIX))
     install.add_argument("--bin-dir", default=str(DEFAULT_BIN_DIR))
-    install.add_argument("--router-host", default="127.0.0.1")
-    install.add_argument("--advertise-host", default="")
-    install.add_argument("--router-port", type=int, default=5558)
-    install.add_argument("--rgbd-port", type=int, default=5568)
     install.add_argument("--simulator-id", default="sim-default")
     install.add_argument("--controller-id", default="controller-main")
+    install.add_argument("--dds-system-id", default="elesim")
+    install.add_argument("--dds-domain-id", type=int, default=0)
+    install.add_argument(
+        "--dds-rmw-implementation",
+        choices=("rmw_cyclonedds_cpp",),
+        default="rmw_cyclonedds_cpp",
+    )
+    install.add_argument(
+        "--dds-discovery-mode",
+        choices=("multicast", "static"),
+        default="multicast",
+    )
+    install.add_argument("--dds-static-peer", action="append", default=[])
+    install.add_argument("--dds-interface", default="")
+    install.add_argument(
+        "--dds-security-profile",
+        choices=("trusted-network", "sros2"),
+        default="trusted-network",
+    )
+    install.add_argument("--dds-keystore", default="")
+    install.add_argument("--dds-enclave", default="")
     install.add_argument(
         "--gpu-mode",
         choices=("inherit", "specific", "cpu"),
         default="inherit",
-        help="외부 CUDA 환경 상속, 특정 GPU 고정 또는 CPU 전용",
     )
-    install.add_argument("--gpu-device", default="", help="specific 모드의 GPU index/UUID")
+    install.add_argument("--gpu-device", default="")
     install.add_argument("--turn-url", action="append", default=[])
     install.add_argument(
         "--turn-mode",
@@ -395,12 +406,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     install.add_argument("--turn-realm", default="")
     install.add_argument("--turn-public-host", default="")
-    install.add_argument(
-        "--security",
-        choices=("auto", "loopback", "curve", "insecure-lan"),
-        default="auto",
-    )
-    install.add_argument("--credentials-root", default="")
+    install.add_argument("--turn-secret-file", default="")
+    install.add_argument("--turn-credential-file", default="")
     install.add_argument("--skip-go2-mpc", action="store_true")
     install.add_argument("--dry-run", action="store_true")
 
@@ -442,7 +449,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_wizard(source_root=source_root, state_path=state_path)
         if args.command == "install":
             state = _build_state(args, source_root)
-            installer_type = ContainerInstaller if state.install_mode == "container" else Installer
+            installer_type = (
+                ContainerInstaller
+                if state.install_mode == "container"
+                else Installer
+            )
             installer_type(
                 state,
                 state_path=state_path,

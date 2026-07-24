@@ -18,9 +18,6 @@ class PerceptionConfig:
     mode: str = "external"
     detector: str = "external"
     provider: str = "local"
-    preview_bind: str = "tcp://127.0.0.1:5570"
-    preview_endpoint: str = "tcp://127.0.0.1:5570"
-    preview_jpeg_quality: int = 75
     target_label: str = "sports ball"
     yolo_device: str = ""
     publish_hz: float = 15.0

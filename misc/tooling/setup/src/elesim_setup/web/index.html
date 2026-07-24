@@ -91,9 +91,9 @@
             <h2 data-i18n="roles.developer.title"></h2>
             <p data-i18n="roles.developer.help"></p>
             <ul>
-              <li>Router</li><li>Simulator</li><li>Controller</li>
+              <li>Simulator</li><li>Controller</li>
               <li>UI</li><li>Robot</li><li>Model Builder</li>
-              <li>ROS2 / Genesis / OpenTelemetry / test toolchain</li>
+              <li>ROS2 / DDS interfaces / Genesis / OpenTelemetry / test toolchain</li>
             </ul>
           </div>
         </section>
@@ -160,75 +160,92 @@
           </header>
           <div class="form-grid">
             <div class="field">
-              <label for="router-host" data-i18n="network.router"></label>
-              <input id="router-host" type="text" spellcheck="false">
+              <label for="dds-system-id" data-i18n="dds.system"></label>
+              <input id="dds-system-id" type="text" spellcheck="false">
             </div>
             <div class="field">
-              <label for="router-port" data-i18n="network.router.port"></label>
-              <input id="router-port" type="number" min="1" max="65535">
+              <label for="dds-domain-id" data-i18n="dds.domain"></label>
+              <input id="dds-domain-id" type="number" min="0" max="232">
             </div>
             <div class="field">
-              <label for="advertise-host" data-i18n="network.advertise"></label>
-              <input id="advertise-host" type="text" spellcheck="false">
+              <label for="dds-rmw" data-i18n="dds.rmw"></label>
+              <select id="dds-rmw">
+                <option value="rmw_cyclonedds_cpp">rmw_cyclonedds_cpp</option>
+              </select>
             </div>
             <div class="field">
-              <label for="rgbd-port" data-i18n="network.rgbd.port"></label>
-              <input id="rgbd-port" type="number" min="1" max="65535">
+              <label for="dds-interface" data-i18n="dds.interface"></label>
+              <input id="dds-interface" type="text" spellcheck="false">
             </div>
           </div>
 
           <fieldset>
-            <legend data-i18n="security.title"></legend>
+            <legend data-i18n="dds.discovery"></legend>
             <div class="choice-list">
               <label class="choice">
-                <input type="radio" name="security-mode" value="loopback" checked>
-                <span><strong data-i18n="security.loopback"></strong><small data-i18n="security.loopback.help"></small></span>
+                <input type="radio" name="dds-discovery-mode" value="multicast" checked>
+                <span><strong data-i18n="dds.discovery.multicast"></strong><small data-i18n="dds.discovery.multicast.help"></small></span>
               </label>
               <label class="choice">
-                <input type="radio" name="security-mode" value="curve">
-                <span><strong data-i18n="security.curve"></strong><small data-i18n="security.curve.help"></small></span>
+                <input type="radio" name="dds-discovery-mode" value="static">
+                <span><strong data-i18n="dds.discovery.static"></strong><small data-i18n="dds.discovery.static.help"></small></span>
               </label>
+            </div>
+            <div id="dds-static-fields" class="field" hidden>
+              <label for="dds-static-peers" data-i18n="dds.peers"></label>
+              <input id="dds-static-peers" type="text" spellcheck="false">
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend data-i18n="dds.security"></legend>
+            <div class="choice-list">
               <label class="choice danger">
-                <input type="radio" name="security-mode" value="insecure-lan">
-                <span><strong data-i18n="security.insecure"></strong><small data-i18n="security.insecure.help"></small></span>
+                <input type="radio" name="dds-security-profile" value="trusted-network" checked>
+                <span><strong data-i18n="dds.security.trusted"></strong><small data-i18n="dds.security.trusted.help"></small></span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="dds-security-profile" value="sros2">
+                <span><strong data-i18n="dds.security.sros2"></strong><small data-i18n="dds.security.sros2.help"></small></span>
               </label>
             </div>
           </fieldset>
 
-          <div id="credential-section" class="subsection" hidden>
-            <h2 data-i18n="credentials.title"></h2>
+          <div id="sros2-fields" class="subsection" hidden>
             <div class="field">
-              <label for="credentials-root" data-i18n="credentials.root"></label>
+              <label for="dds-keystore" data-i18n="dds.keystore"></label>
               <div class="input-action">
-                <input id="credentials-root" type="text" spellcheck="false">
-                <button type="button" class="secondary" data-browse="credentials-root" data-i18n="action.browse"></button>
+                <input id="dds-keystore" type="text" spellcheck="false">
+                <button type="button" class="secondary" data-browse="dds-keystore" data-i18n="action.browse"></button>
               </div>
             </div>
-            <div class="segmented" role="group">
-              <label><input type="radio" name="credential-source" value="existing"><span data-i18n="credentials.existing"></span></label>
-              <label id="credential-generate-option"><input type="radio" name="credential-source" value="generate"><span data-i18n="credentials.generate"></span></label>
-              <label><input type="radio" name="credential-source" value="ssh"><span data-i18n="credentials.ssh"></span></label>
-            </div>
-            <div id="ssh-fields" class="subsection nested" hidden>
-              <div class="form-grid">
-                <div class="field"><label for="ssh-host" data-i18n="ssh.host"></label><input id="ssh-host" type="text"></div>
-                <div class="field"><label for="ssh-port" data-i18n="ssh.port"></label><input id="ssh-port" type="number" value="22" min="1" max="65535"></div>
-                <div class="field"><label for="ssh-user" data-i18n="ssh.user"></label><input id="ssh-user" type="text"></div>
-                <div class="field"><label for="ssh-remote-root" data-i18n="ssh.remote.root"></label><input id="ssh-remote-root" type="text"></div>
-              </div>
-              <div class="field">
-                <label for="ssh-key" data-i18n="ssh.key"></label>
-                <div class="input-action">
-                  <input id="ssh-key" type="text" spellcheck="false">
-                  <button type="button" class="secondary" data-browse="ssh-key" data-i18n="action.browse"></button>
-                </div>
-              </div>
-              <div class="fingerprint-row">
-                <button id="ssh-probe" type="button" class="secondary" data-i18n="ssh.probe"></button>
-                <code id="ssh-fingerprint" data-i18n="ssh.not.checked"></code>
-              </div>
+            <div class="field">
+              <label for="dds-enclave" data-i18n="dds.enclave"></label>
+              <input id="dds-enclave" type="text" spellcheck="false">
             </div>
           </div>
+
+          <details class="subsection">
+            <summary data-i18n="ssh.admin.title"></summary>
+            <small data-i18n="ssh.admin.help"></small>
+            <div class="form-grid">
+              <div class="field"><label for="ssh-host" data-i18n="ssh.host"></label><input id="ssh-host" type="text"></div>
+              <div class="field"><label for="ssh-port" data-i18n="ssh.port"></label><input id="ssh-port" type="number" value="22" min="1" max="65535"></div>
+              <div class="field"><label for="ssh-user" data-i18n="ssh.user"></label><input id="ssh-user" type="text"></div>
+              <div class="field"><label for="ssh-remote-root" data-i18n="ssh.remote.root"></label><input id="ssh-remote-root" type="text"></div>
+            </div>
+            <div class="field">
+              <label for="ssh-key" data-i18n="ssh.key"></label>
+              <div class="input-action">
+                <input id="ssh-key" type="text" spellcheck="false">
+                <button type="button" class="secondary" data-browse="ssh-key" data-i18n="action.browse"></button>
+              </div>
+            </div>
+            <div class="fingerprint-row">
+              <button id="ssh-probe" type="button" class="secondary" data-i18n="ssh.probe"></button>
+              <code id="ssh-fingerprint" data-i18n="ssh.not.checked"></code>
+            </div>
+          </details>
 
           <fieldset id="turn-section">
             <legend data-i18n="turn.title"></legend>
@@ -241,6 +258,15 @@
               <div class="field wide"><label for="turn-url" data-i18n="turn.url"></label><input id="turn-url" type="text" spellcheck="false"></div>
               <div id="turn-realm-row" class="field"><label for="turn-realm" data-i18n="turn.realm"></label><input id="turn-realm" type="text"></div>
               <div id="turn-public-row" class="field"><label for="turn-public-host" data-i18n="turn.public"></label><input id="turn-public-host" type="text"></div>
+              <div id="turn-secret-row" class="field"><label for="turn-secret-file" data-i18n="turn.secret"></label><input id="turn-secret-file" type="text"></div>
+              <div id="turn-credential-row" class="field wide" hidden>
+                <label for="turn-credential-file" data-i18n="turn.credential"></label>
+                <div class="input-action">
+                  <input id="turn-credential-file" type="text" spellcheck="false">
+                  <button type="button" class="secondary" data-browse="turn-credential-file" data-i18n="action.browse"></button>
+                </div>
+                <small data-i18n="turn.credential.help"></small>
+              </div>
             </div>
           </fieldset>
         </section>

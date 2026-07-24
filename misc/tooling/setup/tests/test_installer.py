@@ -8,14 +8,14 @@ from elesim_setup.state import ComputeSettings
 
 
 def test_install_plan_exposes_tools_roles_network_wrappers_and_state(local_state) -> None:
-    state = local_state(roles=("router", "ui"))
+    state = local_state(roles=("ui",))
     actions = build_install_plan(state)
     titles = [action.title for action in actions]
-    assert titles == ["도구", "router", "ui", "네트워크", "명령", "상태"]
+    assert titles == ["도구", "ui", "DDS", "명령", "상태"]
 
 
 def test_dry_run_validates_and_reports_without_writing(local_state) -> None:
-    state = local_state(roles=("router",))
+    state = local_state(roles=("ui",))
     logs: list[str] = []
 
     Installer(state, dry_run=True, log=logs.append).run()
@@ -27,7 +27,7 @@ def test_dry_run_validates_and_reports_without_writing(local_state) -> None:
 def test_role_commands_point_only_to_owned_install_directory(local_state) -> None:
     state = local_state(
         profile="local-sim",
-        roles=("router", "simulator", "controller", "ui", "robot"),
+        roles=("simulator", "controller", "ui", "robot"),
     )
     installer = Installer(state, dry_run=True)
     for role in state.roles:
@@ -67,12 +67,11 @@ def test_compute_wrappers_inherit_pin_or_disable_cuda(local_state) -> None:
 
     cpu = Installer(
         local_state(
-            roles=("router", "controller", "simulator"),
+            roles=("controller", "simulator"),
             compute=ComputeSettings(gpu_mode="cpu"),
         ),
         dry_run=True,
     )
-    assert cpu._role_environment("router") == {}
     assert cpu._role_environment("controller") == {"CUDA_VISIBLE_DEVICES": ""}
     assert cpu._role_environment("simulator") == {"CUDA_VISIBLE_DEVICES": ""}
 
@@ -90,6 +89,8 @@ def test_written_wrapper_preserves_external_cuda_unless_policy_overrides_it(loca
     Installer(pinned_state, dry_run=True)._write_wrappers()
     pinned = (pinned_state.bin_path / "elesim-controller").read_text(encoding="utf-8")
     assert "export CUDA_VISIBLE_DEVICES=1" in pinned
+    assert "source /opt/ros/humble/setup.bash" in pinned
+    assert "ROS_DOMAIN_ID=0" in pinned
 
 
 def test_preflight_calls_out_external_system_requirements() -> None:

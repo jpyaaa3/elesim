@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[4]
 @pytest.mark.parametrize(
     ("script_name", "source_root", "module"),
     [
-        ("run_laptop_stack.sh", "router/src", "elesim_router.main"),
         ("run_laptop_stack.sh", "controller/src", "elesim_controller.main"),
         ("run_laptop_stack.sh", "ui/src", "elesim_ui.main"),
         ("run_sim_worker.sh", "simulator/src", "elesim_simulator.main"),

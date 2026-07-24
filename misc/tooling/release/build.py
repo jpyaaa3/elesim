@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from misc.tooling.release.verify import verify_release_tree
 
 
-RELEASE_PROJECTS = ("router", "controller", "ui", "robot", "simulator")
+RELEASE_PROJECTS = ("controller", "ui", "robot", "simulator")
 
 
 def build_wheel(project: Path, wheel_dir: Path) -> Path:
@@ -92,11 +92,35 @@ def copy_simulator_bundle(model_root: Path, release: Path) -> None:
     copy_tree(source, release / "model/bundles/default")
 
 
+def copy_interfaces(source: Path, release: Path) -> None:
+    required = (
+        source / "package.xml",
+        source / "CMakeLists.txt",
+        source / "msg/RgbdFrame.msg",
+    )
+    missing = [path for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "ROS interface package is incomplete: "
+            + ", ".join(str(path) for path in missing)
+        )
+    copy_tree(
+        source,
+        release / "interfaces/elesim_interfaces",
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            ".pytest_cache",
+            "build",
+            "install",
+            "log",
+        ),
+    )
+
+
 def copy_infrastructure(source: Path, release_root: Path) -> None:
     destination = release_root / "infra"
     destination.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source / "bootstrap_security.py", destination / "bootstrap_security.py")
-    copy_tree(source / "coturn", destination / "coturn")
     copy_tree(source / "development", destination / "development")
     setup_destination = destination / "setup"
     setup_destination.mkdir(parents=True, exist_ok=True)
@@ -157,6 +181,7 @@ def main() -> None:
             shutil.copy2(project / "install.sh", release / "install.sh")
         if name == "simulator":
             copy_simulator_bundle(ROOT / "model", release)
+        copy_interfaces(ROOT / "packages/elesim_interfaces", release)
         (release / "WHEELS.env").write_text(
             f"PROTOCOL_WHEEL={protocol_wheel.name}\nAPP_WHEEL={app_wheel.name}\n",
             encoding="utf-8",

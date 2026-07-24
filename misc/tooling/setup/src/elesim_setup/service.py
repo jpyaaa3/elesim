@@ -7,7 +7,6 @@ from typing import Callable
 
 from .capabilities import HostCapabilities
 from .container_installer import ContainerInstaller
-from .credentials import provision_credentials
 from .developer import DeveloperInstaller
 from .installer import Installer
 from .request import SetupRequest
@@ -43,7 +42,6 @@ class SetupService:
                 log=self.log,
             ).run()
         else:
-            provision_credentials(request, log=self.log)
             state = request.to_install_state()
             installer_type = (
                 ContainerInstaller if state.install_mode == "container" else Installer

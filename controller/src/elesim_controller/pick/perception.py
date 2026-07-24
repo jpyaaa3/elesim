@@ -47,100 +47,30 @@ class PerceptionActions:
             self._pick_frozen_world_xyz = tuple(p_world)
         return p_world
 
-    def _remote_preview_endpoint(self) -> str:
-        endpoint = str(getattr(self._perception_cfg, "preview_endpoint", "")).strip()
-        if endpoint:
-            return endpoint
-        host = self.current_host_state()
-        if host is not None:
-            endpoint = str(getattr(host, "perception_preview_endpoint", "")).strip()
-        return endpoint
-
     def _start_remote_preview(self) -> None:
-        if not bool(getattr(self._perception_cfg, "show_preview", True)):
-            print("[perception] remote preview disabled by config")
-            return
-        if self._remote_preview_thread is not None and self._remote_preview_thread.is_alive():
-            print("[perception] remote preview already running")
-            return
-        endpoint = self._remote_preview_endpoint()
-        if not endpoint:
-            self.state.set_perception_status(
-                running=bool(self.state.perception_running),
-                failed=True,
-                msg="remote preview endpoint missing",
-            )
-            return
-        print(f"[perception] remote preview connecting: {endpoint}")
-        self._remote_preview_stop.clear()
-
-        def _worker() -> None:
-            try:
-                from elesim_controller.vision.perception.preview import close_preview, show_preview
-                from elesim_controller.vision.perception.preview_stream import PreviewFrameSubscriber
-            except Exception as exc:
-                self.state.set_perception_status(
-                    running=bool(self.state.perception_running),
-                    failed=True,
-                    msg=f"remote preview import failed: {exc}",
-                )
-                return
-            sub = PreviewFrameSubscriber(endpoint)
-            got_first = False
-            last_wait_log_s = 0.0
-            try:
-                while not self._remote_preview_stop.is_set():
-                    frame = sub.recv_latest(timeout_ms=250)
-                    if frame is None:
-                        now = time.time()
-                        if now - last_wait_log_s >= 3.0:
-                            print(f"[perception] remote preview waiting for frames: {endpoint}")
-                            last_wait_log_s = now
-                        continue
-                    if not got_first:
-                        got_first = True
-                        print(
-                            "[perception] remote preview first frame: %dx%d"
-                            % (int(frame.image_bgr.shape[1]), int(frame.image_bgr.shape[0]))
-                        )
-                    key = show_preview("elesim_remote_perception", frame.image_bgr)
-                    if key in (ord("q"), 27):
-                        break
-            finally:
-                try:
-                    sub.close()
-                except Exception:
-                    pass
-                try:
-                    close_preview("elesim_remote_perception")
-                except Exception:
-                    pass
-
-        self._remote_preview_thread = threading.Thread(
-            target=_worker,
-            name="remote-preview",
-            daemon=True,
+        self.state.set_perception_status(
+            running=False,
+            failed=True,
+            msg=(
+                "remote perception preview was removed with the legacy media "
+                "transport; Robot publishes RGB-D and Controller owns perception"
+            ),
         )
-        self._remote_preview_thread.start()
 
     def _stop_remote_preview(self) -> None:
-        self._remote_preview_stop.set()
-        thread = self._remote_preview_thread
-        if thread is not None:
-            thread.join(timeout=1.0)
-        self._remote_preview_thread = None
+        return
 
     def start_perception_capture(self, *, config: Optional[PerceptionConfig] = None) -> None:
         if config is not None:
             self.update_perception_config(config)
         if not self._perception_run_local:
-            if self.client is not None and hasattr(self.client, "send_perception_start"):
-                self.client.send_perception_start(config=self._perception_cfg)
-                self._start_remote_preview()
             self.state.set_perception_status(
-                running=True,
-                failed=False,
-                msg="remote: starting Jetson perception",
+                running=False,
+                failed=True,
+                msg=(
+                    "remote Robot perception is unsupported; select its DDS "
+                    "RGB-D stream and run perception in Controller"
+                ),
             )
             return
         old = self._perception_capture
@@ -237,16 +167,11 @@ class PerceptionActions:
             self.state.set_perception_status(running=False, failed=True, msg="refresh rejected")
 
     def _observer_camera_config(self) -> Optional[SimConfig]:
-        cfg_path = self._config_path or str(Path(__file__).resolve().parents[3] / "config/default.yaml")
-        try:
-            cfg = load_app_config(str(cfg_path)).sim_config
-        except Exception as exc:
-            print(f"[perception] observer camera config load failed: {exc}")
-            return None
-        endpoint = str(getattr(cfg, "sim_observer_camera_port", "")).strip()
-        if not bool(getattr(cfg, "sim_observer_camera_enable", False)) or not endpoint:
-            return None
-        return cfg
+        print(
+            "[perception] Controller-side observer capture is unavailable: "
+            "observer pixels are owned by the UI WebRTC session"
+        )
+        return None
 
     @staticmethod
     def _observer_record_path_for(record_path: str | Path) -> Path:
@@ -278,7 +203,7 @@ class PerceptionActions:
             return None
         out_path = self._observer_record_path_for(record_path)
         rec = SimCameraVideoRecorder(
-            str(cfg.sim_observer_camera_port),
+            str(cfg.sim_observer_camera_stream),
             out_path=out_path,
             fps=float(getattr(cfg, "sim_observer_camera_record_fps", 30.0)),
             use_jpeg=bool(cfg.sim_observer_camera_jpeg),
@@ -321,7 +246,7 @@ class PerceptionActions:
             return None
         try:
             frame = capture_sim_camera_snapshot(
-                str(cfg.sim_observer_camera_port),
+                str(cfg.sim_observer_camera_stream),
                 use_jpeg=bool(cfg.sim_observer_camera_jpeg),
                 timeout_s=1.5,
             )
@@ -336,7 +261,7 @@ class PerceptionActions:
                 stem=stem,
                 meta={
                     "paired_capture": str(paired.resolve()),
-                    "endpoint": str(cfg.sim_observer_camera_port),
+                    "stream": str(cfg.sim_observer_camera_stream),
                 },
             )
             print(f"[perception] observer snapshot saved {observer_path.resolve()}")
@@ -521,11 +446,10 @@ class PerceptionActions:
         cfg = self._perception_cfg
         try:
             with SimRenderedCamera(
-                endpoint=str(cfg.sim_camera_port),
-                use_jpeg=bool(cfg.sim_camera_jpeg),
-                curve_client_secret_file=str(cfg.sim_camera_curve_client_secret_file),
-                curve_server_key=str(cfg.sim_camera_curve_server_key),
-                allow_insecure_remote=bool(cfg.sim_camera_allow_insecure_remote),
+                topic=str(cfg.sim_camera_topic),
+                dds_settings=cfg.sim_camera_dds_settings,
+                expected_source_id=str(cfg.sim_camera_source_id),
+                expected_boot_id=str(cfg.sim_camera_source_boot_id),
             ) as cam:
                 frame = cam.capture(retries=60)
             return save_perception_frame_bundle(

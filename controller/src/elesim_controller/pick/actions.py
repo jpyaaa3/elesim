@@ -177,8 +177,6 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         self._perception_hz: float = 0.0
         self._observer_camera_recorder: Optional[Any] = None
         self._observer_camera_record_path: Optional[Path] = None
-        self._remote_preview_stop = threading.Event()
-        self._remote_preview_thread: Optional[threading.Thread] = None
         self._last_pick_profile: Optional[PickPhaseProfile] = None
         self._pick_worker: Optional[threading.Thread] = None
         self._pick_e2e_worker: Optional[threading.Thread] = None

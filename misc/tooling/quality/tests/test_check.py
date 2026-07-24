@@ -13,7 +13,6 @@ class QualityMatrixTests(unittest.TestCase):
             names,
             {
                 "protocol",
-                "router",
                 "robot",
                 "controller",
                 "simulator",
@@ -21,13 +20,13 @@ class QualityMatrixTests(unittest.TestCase):
                 "model-builder",
                 "setup-tools",
                 "topology",
-                "secure-media",
+                "dds-rgbd",
                 "webrtc-media",
             },
         )
 
     def test_each_deployment_gets_only_its_own_source_root(self) -> None:
-        deployment_names = {"router", "robot", "controller", "simulator", "ui"}
+        deployment_names = {"robot", "controller", "simulator", "ui"}
         for check in CHECKS:
             if check.name not in deployment_names:
                 continue
@@ -44,7 +43,7 @@ class QualityMatrixTests(unittest.TestCase):
         self.assertEqual([check.name for check in selected], ["robot", "protocol"])
 
     def test_python_path_prepends_matrix_and_deduplicates(self) -> None:
-        check = next(check for check in CHECKS if check.name == "router")
+        check = next(check for check in CHECKS if check.name == "controller")
         inherited = os.pathsep.join(("/tmp/external", "/tmp/external"))
         entries = python_path(check, inherited).split(os.pathsep)
         self.assertEqual(entries[-1], "/tmp/external")

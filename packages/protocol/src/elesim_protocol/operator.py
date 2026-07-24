@@ -1,4 +1,4 @@
-"""Typed operator/controller intent surface carried over protocol v4."""
+"""Typed operator/controller intent surface carried over protocol v5 DDS."""
 
 OPERATOR_VIEW_SCHEMA_VERSION = 1
 

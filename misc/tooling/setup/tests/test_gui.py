@@ -38,8 +38,11 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "mode.developer" in catalog["ko"]
 
     script = (root / "app.js").read_text(encoding="utf-8")
-    assert 'byId("router-host").value = context.defaults.router_host;' in script
-    assert 'byId("advertise-host").value = context.defaults.advertise_host;' in script
+    assert 'byId("dds-domain-id").value = context.defaults.dds_domain_id;' in script
+    assert '"dds-security-profile"' in script
+    assert 'const roleOrder = ["simulator", "controller", "ui", "robot"];' in script
+    assert '"turn-credential-file"' in script
+    assert "router-host" not in script
 
 
 def test_context_defaults_to_original_invocation_directory(tmp_path: Path) -> None:
@@ -104,15 +107,13 @@ def test_gui_request_cannot_replace_bootstrap_source_root(tmp_path: Path) -> Non
     payload = {
         "language": "ko",
         "edition": "general",
-        "roles": ["router"],
+        "roles": ["simulator"],
         "prefix": str(tmp_path / "install"),
         "bin_dir": str(tmp_path / "install/bin"),
         "source_root": "/attacker/source",
         "gpu_mode": "cpu",
-        "router_host": "127.0.0.1",
-        "advertise_host": "127.0.0.1",
-        "security_mode": "loopback",
-        "credential_source": "unused",
+        "dds_domain_id": 3,
+        "dds_security_profile": "trusted-network",
         "turn_mode": "none",
     }
 
@@ -144,14 +145,12 @@ def test_running_install_can_be_cooperatively_cancelled(tmp_path: Path) -> None:
     payload = {
         "language": "ko",
         "edition": "general",
-        "roles": ["router"],
+        "roles": ["simulator"],
         "prefix": str(tmp_path / "install"),
         "bin_dir": str(tmp_path / "install/bin"),
         "gpu_mode": "cpu",
-        "router_host": "127.0.0.1",
-        "advertise_host": "127.0.0.1",
-        "security_mode": "loopback",
-        "credential_source": "unused",
+        "dds_domain_id": 3,
+        "dds_security_profile": "trusted-network",
         "turn_mode": "none",
     }
 
@@ -196,15 +195,13 @@ def test_gui_rejects_credential_and_identity_paths_outside_mounted_roots(
         "prefix": str(home / "install"),
         "bin_dir": str(home / "install/bin"),
         "gpu_mode": "cpu",
-        "router_host": "sim.example.com",
-        "advertise_host": "laptop.example.com",
-        "security_mode": "curve",
-        "credentials_root": str(outside / "secrets"),
-        "credential_source": "ssh",
+        "dds_security_profile": "sros2",
+        "dds_keystore": str(outside / "sros2"),
+        "dds_enclave": "/elesim",
         "turn_mode": "none",
         "ssh": {
             "host": "sim.example.com",
-            "port": 22,
+            "port": 2222,
             "user": "operator",
             "remote_root": "/srv/elesim/secrets",
             "identity_file": str(identity),
@@ -212,5 +209,53 @@ def test_gui_rejects_credential_and_identity_paths_outside_mounted_roots(
         },
     }
 
+    with pytest.raises(PermissionError):
+        app.build_request(payload)
+
+
+def test_gui_external_turn_credential_is_simulator_only_and_path_contained(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / "source"
+    source.mkdir()
+    credentials = home / "turn.credentials.json"
+    credentials.write_text(
+        '{"username":"lab-user","credential":"lab-password"}\n',
+        encoding="utf-8",
+    )
+    app = WizardApplication(
+        source_root=source,
+        invocation_dir=home,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        allowed_roots=(home,),
+        runner=lambda _request, _log: None,
+    )
+    payload = {
+        "language": "ko",
+        "edition": "general",
+        "roles": ["simulator"],
+        "prefix": str(home / "install"),
+        "bin_dir": str(home / "install/bin"),
+        "gpu_mode": "cpu",
+        "dds_security_profile": "trusted-network",
+        "turn_mode": "external",
+        "turn_url": "turn:relay.example.com:3478?transport=udp",
+        "turn_credential_file": str(credentials),
+    }
+
+    request = app.build_request(payload)
+    assert request.turn.credential_path == credentials.resolve()
+
+    outside = tmp_path / "outside.credentials.json"
+    outside.write_text(
+        '{"username":"other","credential":"secret"}\n',
+        encoding="utf-8",
+    )
+    payload["turn_credential_file"] = str(outside)
     with pytest.raises(PermissionError):
         app.build_request(payload)

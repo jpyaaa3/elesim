@@ -1,6 +1,5 @@
 numpy==1.26.4
 scipy==1.15.3
-pyzmq==27.1.0
 PyYAML==6.0.2
 genesis-world==1.2.0
 torch==2.12.1

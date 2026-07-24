@@ -33,7 +33,7 @@ class ArmSnapshot:
 
 
 class RobotRuntime:
-    """Own physical actuation state; never delegates local safety to the router."""
+    """Own physical actuation state and enforce safety locally."""
 
     def __init__(
         self,
@@ -58,9 +58,7 @@ class RobotRuntime:
         self.controller_id = ""
         self.last_seq = -1
         self.safety_fault = ""
-        self.communication_fault = ""
 
-        self._router_last_seen: Optional[float] = None
         self._go2_command_at: Optional[float] = None
         self._go2_motion_active = False
         self._last_monitor_at: Optional[float] = None
@@ -85,16 +83,11 @@ class RobotRuntime:
         if self.hw is not None:
             self.hw.close()
 
-    def mark_router_alive(self) -> None:
-        self._router_last_seen = self.clock()
-        self.communication_fault = ""
-
     def grant_lease(self, controller_id: str, lease_id: str) -> None:
         self.stop_motion()
         self.controller_id = str(controller_id)
         self.active_lease = str(lease_id)
         self.last_seq = -1
-        self.mark_router_alive()
 
     def revoke_lease(self) -> None:
         self.stop_motion()
@@ -143,20 +136,10 @@ class RobotRuntime:
 
     def tick(self) -> None:
         now = self.clock()
-        self._enforce_router_liveness(now)
         self._enforce_go2_deadman(now)
         self._monitor_hardware(now)
         if self.go2 is not None:
             self.go2.tick_cmd(now)
-
-    def _enforce_router_liveness(self, now: float) -> None:
-        if not self.active_lease or self._router_last_seen is None:
-            return
-        if now - self._router_last_seen <= float(self.safety.router_liveness_s):
-            return
-        self.stop_motion()
-        self._clear_lease()
-        self.communication_fault = "router_liveness_timeout"
 
     def _enforce_go2_deadman(self, now: float) -> None:
         if not self._go2_motion_active or self._go2_command_at is None:
@@ -402,7 +385,6 @@ class RobotRuntime:
             "device": self.device,
             "torque_enabled": self.torque_enabled,
             "safety_fault": self.safety_fault,
-            "communication_fault": self.communication_fault,
             "lease_active": bool(self.active_lease),
             "hardware_read_failures": self._read_failures,
         }

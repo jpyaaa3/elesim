@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import sys
-import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -10,8 +9,6 @@ from unittest.mock import MagicMock
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-sys.modules.setdefault("zmq", types.ModuleType("zmq"))
 
 from elesim_controller.pick import ControlService, PanelState
 from elesim_controller.config import PerceptionConfig

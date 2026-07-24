@@ -29,9 +29,6 @@ class Endpoint:
     def heartbeat(self) -> None:
         pass
 
-    def server_alive(self) -> bool:
-        return True
-
     def send(self, message_type: str, **kwargs: object) -> Envelope:
         envelope = make_envelope(
             message_type,
@@ -63,7 +60,6 @@ def result(request_id: str, value: object = None, *, ok: bool = True) -> Envelop
 
 def session(clock: Clock) -> OperatorSession:
     return OperatorSession(
-        "inproc://unused",
         ui_id="ui-a",
         controller_id="controller-a",
         clock=clock,
@@ -161,7 +157,7 @@ def test_unsent_high_rate_updates_are_coalesced_to_the_latest_value() -> None:
     assert matching[0][1]["payload"]["kwargs"] == {"value": 0.25}
 
 
-def test_router_error_retires_the_exact_request_immediately() -> None:
+def test_peer_error_retires_the_exact_request_immediately() -> None:
     clock = Clock()
     value = session(clock)
     endpoint = Endpoint()
@@ -171,7 +167,7 @@ def test_router_error_retires_the_exact_request_immediately() -> None:
     endpoint.inbox.append(
         make_envelope(
             "error",
-            "server",
+            "controller-a",
             target_id="ui-a",
             payload={
                 "reply_to": sent[2].message_id,

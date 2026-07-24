@@ -10,7 +10,7 @@ import numpy as np
 
 
 class SimCameraVideoRecorder:
-    """Record a sim-camera PUB stream to MP4 with wall-clock pacing."""
+    """Record a DDS RGB-D topic to MP4 with wall-clock pacing."""
 
     def __init__(
         self,
@@ -120,7 +120,7 @@ class SimCameraVideoRecorder:
         max_writes_per_tick = max(1, int(float(self.fps) * 2.0))
         next_write_t = time.monotonic()
         try:
-            sub = SimCameraSubscriber(self.endpoint, use_jpeg=self.use_jpeg)
+            sub = SimCameraSubscriber(self.endpoint)
             while not self._stop_event.is_set():
                 now = time.monotonic()
                 wait_s = max(0.0, min(0.05, next_write_t - now))
@@ -199,7 +199,7 @@ def capture_sim_camera_snapshot(
     from elesim_controller.vision.sim_camera.subscriber import SimCameraSubscriber
 
     deadline = time.monotonic() + max(float(timeout_s), 0.1)
-    sub = SimCameraSubscriber(str(endpoint), use_jpeg=bool(use_jpeg))
+    sub = SimCameraSubscriber(str(endpoint))
     try:
         while time.monotonic() < deadline:
             frame = sub.recv_latest(timeout_ms=100)

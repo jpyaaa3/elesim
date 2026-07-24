@@ -82,11 +82,11 @@ class TrialEyeCameraVideoRecorder:
         if self._subscriber is None:
             from elesim_controller.vision.sim_camera.subscriber import SimCameraSubscriber
 
-            self._subscriber = SimCameraSubscriber(self._endpoint, use_jpeg=self._use_jpeg)
+            self._subscriber = SimCameraSubscriber(self._endpoint)
             self._subscriber.connect()
 
     def flush_stale(self, *, max_frames: int = 120) -> int:
-        """Drop buffered ZMQ frames so the next write is fresh."""
+        """Drain already available DDS samples so the next write is fresh."""
         self._ensure_subscriber()
         assert self._subscriber is not None
         drained = 0

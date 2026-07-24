@@ -58,8 +58,14 @@ def _fmt_age(now_s: float, last_s: float) -> str:
 class UnitreeRos2Bridge:
     """Jetson-side bridge: elesim go2_vel -> unitree_ros2 Sport API; pose topic -> base state."""
 
-    def __init__(self, cfg: Go2HardwareConfig) -> None:
+    def __init__(
+        self,
+        cfg: Go2HardwareConfig,
+        *,
+        ros_args: tuple[str, ...] = (),
+    ) -> None:
         self._cfg = cfg
+        self._ros_args = tuple(str(value) for value in ros_args)
         self._pose_source = str(cfg.pose_source).strip().lower()
         self._lock = threading.Lock()
         self._latest: Optional[OdomSample] = None
@@ -99,14 +105,20 @@ class UnitreeRos2Bridge:
         self._last_api_parameter = ""
         self._spin_ok = False
         self._spin_error = ""
-        self._we_inited_rclpy = False
+        self._context: Any = None
+        self._executor: Any = None
 
     def start(self) -> None:
         if self._started:
             return
         self._import_ros()
-        self._ensure_rclpy_init()
-        self._node = self._RosNode("elesim_go2_bridge")
+        self._init_ros_context()
+        self._node = self._RosNode(
+            "elesim_go2_bridge",
+            context=self._context,
+        )
+        self._executor = self._SingleThreadedExecutor(context=self._context)
+        self._executor.add_node(self._node)
         self._pub = self._node.create_publisher(self._Request, self._sport_request_topic, 10)
         self._obstacles_pub = self._node.create_publisher(self._Request, self._obstacles_request_topic, 10)
         if self._pose_source == "sportmodestate":
@@ -170,6 +182,11 @@ class UnitreeRos2Bridge:
             self._spin_thread.join(timeout=2.0)
             self._spin_thread = None
         try:
+            if self._executor is not None and self._node is not None:
+                self._executor.remove_node(self._node)
+        except Exception:
+            pass
+        try:
             if self._node is not None:
                 self._node.destroy_node()
         except Exception:
@@ -178,13 +195,19 @@ class UnitreeRos2Bridge:
         self._pub = None
         self._obstacles_pub = None
         self._started = False
-        if self._we_inited_rclpy:
+        if self._executor is not None:
             try:
-                if self._rclpy.ok():
-                    self._rclpy.shutdown()
+                self._executor.shutdown(timeout_sec=1.0)
             except Exception:
                 pass
-            self._we_inited_rclpy = False
+            self._executor = None
+        if self._context is not None:
+            try:
+                if self._context.ok():
+                    self._context.shutdown()
+            except Exception:
+                pass
+            self._context = None
         print("[go2_bridge] stopped")
 
     @sampled_traced("go2.set_velocity", sample_key="go2.set_velocity", every=10, kind="producer")
@@ -547,29 +570,52 @@ class UnitreeRos2Bridge:
         try:
             import rclpy
             from nav_msgs.msg import Odometry
+            from rclpy.context import Context
+            from rclpy.executors import SingleThreadedExecutor
             from rclpy.node import Node
             from unitree_api.msg import Request
             from unitree_go.msg import LowState, SportModeState
         except ImportError as exc:
             raise RuntimeError(ros_import_hint(config_workspace=str(self._cfg.ros_workspace))) from exc
         self._rclpy = rclpy
+        self._RosContext = Context
+        self._SingleThreadedExecutor = SingleThreadedExecutor
         self._Odometry = Odometry
         self._SportModeState = SportModeState
         self._LowState = LowState
         self._Request = Request
         self._RosNode = Node
 
-    def _ensure_rclpy_init(self) -> None:
-        if self._rclpy.ok():
-            return
-        self._rclpy.init()
-        self._we_inited_rclpy = True
+    def _init_ros_context(self) -> None:
+        self._context = self._RosContext()
+        domain_id = self._cfg.ros_domain_id
+        try:
+            if domain_id is None:
+                self._context.init(args=list(self._ros_args))
+            else:
+                self._context.init(
+                    args=list(self._ros_args),
+                    domain_id=int(domain_id),
+                )
+        except TypeError:
+            # Older Humble patch releases only read ROS_DOMAIN_ID. Refuse to
+            # pretend an explicitly different Unitree domain was selected.
+            if domain_id is not None:
+                raise RuntimeError(
+                    "this rclpy build cannot create the explicit Unitree ROS "
+                    "domain; upgrade ROS 2 or use the Elesim DDS domain"
+                )
+            self._context.init(args=list(self._ros_args))
 
     def _spin_loop(self) -> None:
         try:
             self._spin_ok = True
-            while not self._stop_event.is_set() and self._rclpy.ok():
-                self._rclpy.spin_once(self._node, timeout_sec=0.05)
+            while (
+                not self._stop_event.is_set()
+                and self._context is not None
+                and self._context.ok()
+            ):
+                self._executor.spin_once(timeout_sec=0.05)
         except Exception as exc:
             self._spin_error = str(exc)
             print(f"[go2_bridge] spin failed: {exc}")
@@ -581,7 +627,8 @@ def create_go2_bridge_if_enabled(
     cfg: Go2HardwareConfig,
     *,
     use_go2: bool,
+    ros_args: tuple[str, ...] = (),
 ) -> Optional[UnitreeRos2Bridge]:
     if not cfg.is_active(use_go2=use_go2):
         return None
-    return UnitreeRos2Bridge(cfg)
+    return UnitreeRos2Bridge(cfg, ros_args=ros_args)

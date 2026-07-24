@@ -17,7 +17,8 @@ def _request(tmp_path: Path, *, jaeger: bool = False, gpu_mode: str = "inherit")
     (workspace / ".git").mkdir(parents=True)
     for relative in (
         "packages/protocol/pyproject.toml",
-        "router/pyproject.toml",
+        "packages/elesim_interfaces/package.xml",
+        "packages/elesim_interfaces/CMakeLists.txt",
         "controller/pyproject.toml",
         "ui/pyproject.toml",
         "simulator/pyproject.toml",
@@ -36,10 +37,7 @@ def _request(tmp_path: Path, *, jaeger: bool = False, gpu_mode: str = "inherit")
             "source_root": str(ROOT),
             "gpu_mode": gpu_mode,
             "gpu_device": "",
-            "router_host": "127.0.0.1",
-            "advertise_host": "127.0.0.1",
-            "security_mode": "loopback",
-            "credential_source": "unused",
+            "dds_domain_id": 7,
             "turn_mode": "none",
             "jaeger": jaeger,
         }
@@ -60,6 +58,12 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert dev["privileged"] is True
     assert dev["network_mode"] == "host"
     assert dev["gpus"] == "all"
+    assert dev["environment"]["ROS_DOMAIN_ID"] == "7"
+    assert dev["environment"]["RMW_IMPLEMENTATION"] == "rmw_cyclonedds_cpp"
+    assert any(
+        value.endswith(":/opt/elesim/config/cyclonedds.xml:ro")
+        for value in dev["volumes"]
+    )
     assert dev["volumes"][0] == f"{request.prefix}:{request.prefix}:rw"
     assert compose["services"]["jaeger"]["profiles"] == ["observability"]
     assert (request.bin_dir / "elesim-dev").is_file()
@@ -95,10 +99,7 @@ def test_specific_gpu_developer_install_reserves_only_selected_device(
             "source_root": str(request.source_root),
             "gpu_mode": "specific",
             "gpu_device": "GPU-deadbeef",
-            "router_host": "127.0.0.1",
-            "advertise_host": "127.0.0.1",
-            "security_mode": "loopback",
-            "credential_source": "unused",
+            "dds_domain_id": request.dds.domain_id,
             "turn_mode": "none",
         }
     )
@@ -184,7 +185,8 @@ def test_empty_existing_workspace_is_populated_without_removing_mountpoint(
         (target / ".git").mkdir(parents=True)
         for relative in (
             "packages/protocol/pyproject.toml",
-            "router/pyproject.toml",
+            "packages/elesim_interfaces/package.xml",
+            "packages/elesim_interfaces/CMakeLists.txt",
             "controller/pyproject.toml",
             "ui/pyproject.toml",
             "simulator/pyproject.toml",
@@ -216,3 +218,5 @@ def test_development_entrypoint_uses_persistent_virtual_environment() -> None:
     assert "--system-site-packages" in entrypoint
     assert '"$venv/bin/python" -m pip install' in entrypoint
     assert "python3-venv" in dockerfile
+    assert "colcon" in entrypoint
+    assert "packages/elesim_interfaces" in entrypoint

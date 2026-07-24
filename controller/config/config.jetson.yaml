@@ -12,11 +12,6 @@ simulation:
   cameras:
     hand_eye:
       enable: false
-transport:
-  host:
-    control_endpoint: tcp://0.0.0.0:5558
-    feedback_endpoint: tcp://0.0.0.0:5567
-    simulation_endpoint: tcp://0.0.0.0:5566
 robot:
   arm:
     hardware:
@@ -48,8 +43,6 @@ robot:
       - 0.08
 vision:
   perception:
-    publishing:
-      preview_bind: tcp://0.0.0.0:5570
     detector:
       detector_config: perception/detector.real_green_hsv.json
       target_label: sports ball

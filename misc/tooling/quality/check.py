@@ -41,13 +41,7 @@ CHECKS: tuple[Check, ...] = (
         "protocol",
         ("packages/protocol/tests",),
         (PROTOCOL_SRC,),
-        description="Protocol v4 contracts, media sessions and secure transport",
-    ),
-    Check(
-        "router",
-        ("router/tests",),
-        (PROTOCOL_SRC, "router/src"),
-        description="Router registry, lease and forwarding behavior",
+        description="Protocol v5 DDS contracts, peer authority and media sessions",
     ),
     Check(
         "robot",
@@ -82,15 +76,15 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "topology",
         ("misc/integration/smoke_topology.py",),
-        (PROTOCOL_SRC, "router/src"),
+        (PROTOCOL_SRC,),
         module="script",
-        description="Protocol-level multi-process topology smoke test",
+        description="Router-free four-process DDS topology smoke test",
     ),
     Check(
-        "secure-media",
-        ("misc/integration/test_secure_media.py",),
+        "dds-rgbd",
+        ("misc/integration/test_dds_rgbd.py",),
         (PROTOCOL_SRC, "controller/src", "simulator/src"),
-        description="Authenticated direct Simulator RGBD media plane",
+        description="Typed latest-frame DDS RGBD contract and peer fencing",
     ),
     Check(
         "webrtc-media",

@@ -72,7 +72,7 @@ class RemoteState:
         self.stale_after_s = max(0.1, float(stale_after_s))
         self.clock = clock
         self._lock = threading.RLock()
-        self._router_connected = False
+        self._peer_transport_ready = False
         self._target_id = ""
         self._last_rx_at: Optional[float] = None
         self._data: dict[str, Any] = {}
@@ -83,9 +83,9 @@ class RemoteState:
         self._reply_ok = True
         self._reply_reason = ""
 
-    def router_connected(self, connected: bool) -> None:
+    def peer_connected(self, connected: bool) -> None:
         with self._lock:
-            self._router_connected = bool(connected)
+            self._peer_transport_ready = bool(connected)
 
     def target_changed(self, target_id: str) -> None:
         target = str(target_id)
@@ -169,7 +169,7 @@ class RemoteState:
             has_rx = self._last_rx_at is not None
             age = -1.0 if not has_rx else max(0.0, float(self.clock() - self._last_rx_at))
             connected = bool(
-                self._router_connected
+                self._peer_transport_ready
                 and self._target_id
                 and has_rx
                 and age <= self.stale_after_s
@@ -217,7 +217,6 @@ class RemoteState:
                 perception_failed=bool(data.get("perception_failed", False)),
                 perception_status=str(data.get("perception_status", "")),
                 perception_source=str(data.get("perception_source", "")),
-                perception_preview_endpoint=str(data.get("perception_preview_endpoint", "")),
                 perception_recording=bool(data.get("perception_recording", False)),
                 perception_record_with_overlay=bool(data.get("perception_record_with_overlay", False)),
                 perception_last_record_path=str(data.get("perception_last_record_path", "")),

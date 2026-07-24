@@ -1,231 +1,175 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
 
-from conftest import copy_role_configs
 from elesim_setup.configuration import (
+    dds_enclave,
+    dds_node_key,
     generate_role_configs,
     generated_app_config_path,
-    host_is_loopback,
-    missing_credentials,
-    tcp_endpoint,
+    generated_dds_config_path,
+    rgbd_topic,
 )
-from elesim_setup.state import (
-    ComputeSettings,
-    NetworkSettings,
-    SecuritySettings,
-    TurnSettings,
-)
+from elesim_setup.state import DdsSettings, NetworkSettings, TurnSettings
+
+from conftest import copy_role_configs
 
 
 def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def test_local_profile_generates_loopback_configs_without_touching_sources(local_state) -> None:
-    state = local_state(
-        profile="local-sim",
-        roles=("router", "simulator", "controller", "ui"),
-    )
+def test_generated_configs_use_dds_and_remove_router_tcp_fields(local_state) -> None:
+    state = local_state(roles=("simulator", "controller", "ui"))
     copy_role_configs(state)
-    source_default = state.source_path / "router/config/default.yaml"
-    before = source_default.read_bytes()
 
     written = generate_role_configs(state)
 
-    router = _load(written["router"])
-    simulator = _load(written["simulator"])
     controller = _load(written["controller"])
-    ui = _load(written["ui"])
-    assert router["router"]["bind_endpoint"] == "tcp://127.0.0.1:5558"
-    assert simulator["runtime"]["streams"]["rgbd_bind"] == "tcp://127.0.0.1:5568"
-    assert controller["runtime"]["server_endpoint"] == "tcp://127.0.0.1:5558"
-    assert ui["runtime"]["simulator_id"] == "sim-default"
-    assert all(not payload["security"]["allow_insecure_remote"] for payload in (router, simulator, controller, ui))
-    assert source_default.read_bytes() == before
-
-
-def test_curve_configs_use_role_specific_credentials(local_state, tmp_path: Path) -> None:
-    credentials = tmp_path / "secrets"
-    state = local_state(
-        profile="compute",
-        roles=("router", "simulator"),
-        network=NetworkSettings(
-            router_host="sim.example.com",
-            advertise_host="sim.example.com",
-            turn_urls=("turn:sim.example.com:3478?transport=udp",),
-        ),
-        security=SecuritySettings(mode="curve", credentials_root=str(credentials)),
-        turn=TurnSettings(mode="external"),
-    )
-    copy_role_configs(state)
-
-    written = generate_role_configs(state)
-    router = _load(written["router"])
     simulator = _load(written["simulator"])
-
-    assert router["router"]["bind_endpoint"] == "tcp://0.0.0.0:5558"
-    assert router["security"]["curve_server_secret_file"].endswith("curve/router/router.key_secret")
-    assert router["turn"]["static_auth_secret_file"].endswith("turn.secret")
-    assert simulator["runtime"]["streams"]["rgbd_bind"] == "tcp://0.0.0.0:5568"
-    assert simulator["runtime"]["streams"]["rgbd_advertise"] == "tcp://sim.example.com:5568"
-    assert simulator["security"]["media_server_secret_file"].endswith("simulator-media.key_secret")
-    assert not simulator["security"]["allow_insecure_remote"]
-
-
-def test_insecure_lan_is_explicit_in_every_generated_config(local_state) -> None:
-    state = local_state(
-        roles=("controller", "ui", "robot"),
-        network=NetworkSettings(router_host="192.0.2.10", advertise_host="192.0.2.30"),
-        security=SecuritySettings(mode="insecure-lan"),
-    )
-    copy_role_configs(state)
-    written = generate_role_configs(state)
-    assert all(_load(path)["security"]["allow_insecure_remote"] for path in written.values())
+    ui = _load(written["ui"])
+    for payload in (controller, simulator, ui):
+        assert payload["dds"]["domain_id"] == 0
+        assert payload["dds"]["rmw_implementation"] == "rmw_cyclonedds_cpp"
+        assert payload["dds"]["network_interface"] == ""
+        assert payload["dds"]["vendor_config"].endswith("cyclonedds.xml")
+        assert "security" not in payload
+        assert "server_endpoint" not in payload.get("runtime", {})
+    streams = simulator["runtime"]["streams"]
+    assert streams["rgbd_topic"] == "/elesim/sim_default/rgbd/frame"
+    assert "rgbd_bind" not in streams
+    assert "rgbd_advertise" not in streams
+    assert ui["runtime"]["controller_id"] == "controller-main"
 
 
-def test_missing_credentials_lists_doctor_and_role_files(local_state, tmp_path: Path) -> None:
-    state = local_state(
-        roles=("ui",),
-        network=NetworkSettings(router_host="server", advertise_host="laptop"),
-        security=SecuritySettings(mode="curve", credentials_root=str(tmp_path / "keys")),
-    )
-    missing = {path.name for path in missing_credentials(state)}
-    assert {"ui-main.key_secret", "router.key"}.issubset(missing)
-    assert "doctor-main.key_secret" not in missing
-
-
-def test_custom_controller_identity_is_used_for_router_and_media_keys(local_state, tmp_path: Path) -> None:
-    state = local_state(
-        roles=("controller",),
-        network=NetworkSettings(
-            router_host="server",
-            advertise_host="laptop",
-            controller_id="controller-lab",
-        ),
-        security=SecuritySettings(mode="curve", credentials_root=str(tmp_path / "keys")),
-    )
-    copy_role_configs(state)
-    payload = _load(generate_role_configs(state)["controller"])
-    assert payload["security"]["router_client_secret_file"].endswith(
-        "controller-lab.key_secret"
-    )
-    assert payload["security"]["media_client_secret_file"].endswith(
-        "controller-lab.key_secret"
-    )
-
-
-def test_endpoint_helpers_cover_ipv4_ipv6_and_loopback() -> None:
-    assert tcp_endpoint("192.0.2.1", 5558) == "tcp://192.0.2.1:5558"
-    assert tcp_endpoint("2001:db8::1", 5558) == "tcp://[2001:db8::1]:5558"
-    assert host_is_loopback("::1")
-    assert host_is_loopback("[::1]")
-    assert host_is_loopback("localhost")
-    assert not host_is_loopback("example.com")
-
-
-def test_simulator_application_config_selects_gpu_or_cpu_without_editing_defaults(
+def test_cyclonedds_xml_contains_interface_and_static_peers(
     local_state,
 ) -> None:
-    cpu_state = local_state(
-        profile="compute",
-        roles=("simulator",),
-        compute=ComputeSettings(gpu_mode="cpu"),
-    )
-    copy_role_configs(cpu_state)
-    generate_role_configs(cpu_state)
-    cpu_bundle = _load(generated_app_config_path(cpu_state, "simulator"))
-    assert cpu_bundle["extends"] == "config.remote.yaml"
-    assert cpu_bundle["simulation"]["runtime"]["use_gpu"] is False
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = os.pathsep.join(
-        (
-            str(cpu_state.source_path / "packages/protocol/src"),
-            str(cpu_state.source_path / "simulator/src"),
-        )
-    )
-    subprocess.run(
-        (
-            sys.executable,
-            "-c",
-            "from elesim_simulator.config import load_app_config as f; "
-            f"assert not f({str(generated_app_config_path(cpu_state, 'simulator'))!r})"
-            ".sim_config.use_gpu",
-        ),
-        cwd=cpu_state.source_path,
-        env=environment,
-        check=True,
-    )
-
-    gpu_state = local_state(
-        profile="local-sim",
-        roles=("simulator",),
-        compute=ComputeSettings(gpu_mode="specific", gpu_device="1"),
-    )
-    copy_role_configs(gpu_state)
-    generate_role_configs(gpu_state)
-    gpu_bundle = _load(generated_app_config_path(gpu_state, "simulator"))
-    assert gpu_bundle["extends"] == "config.pc.yaml"
-    assert gpu_bundle["simulation"]["runtime"]["use_gpu"] is True
-
-    container_state = local_state(
-        profile="local-sim",
-        roles=("simulator",),
-        install_mode="container",
-    )
-    copy_role_configs(container_state)
-    generate_role_configs(container_state)
-    container_bundle = _load(generated_app_config_path(container_state, "simulator"))
-    assert container_bundle["extends"] == "config.remote.yaml"
-
-
-def test_generated_configs_load_in_each_owning_deployment(local_state) -> None:
     state = local_state(
-        profile="local-sim",
-        roles=("router", "simulator", "controller", "ui", "robot"),
+        roles=("controller",),
+        dds=DdsSettings(
+            domain_id=27,
+            discovery_mode="static",
+            static_peers=("192.0.2.10", "sim.example.com"),
+            interface="eth1",
+        ),
     )
     copy_role_configs(state)
-    written = generate_role_configs(state)
-    probes = {
-        "router": "from elesim_router.config import load_config as f",
-        "controller": "from elesim_controller.config import load_runtime_role_config as f",
-        "ui": "from elesim_ui.config import load_config as f",
-        "simulator": "from elesim_simulator.config import load_runtime_role_config as f",
-        "robot": "from elesim_robot.config import load_config as f",
-    }
-    root = state.source_path
-    for role, statement in probes.items():
-        environment = os.environ.copy()
-        environment["PYTHONPATH"] = os.pathsep.join(
-            (str(root / "packages/protocol/src"), str(root / role / "src"))
-        )
-        subprocess.run(
-            (
-                sys.executable,
-                "-c",
-                f"{statement}; f({str(written[role])!r})",
-            ),
-            cwd=root,
-            env=environment,
-            check=True,
-        )
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = os.pathsep.join(
-        (str(root / "packages/protocol/src"), str(root / "simulator/src"))
-    )
-    subprocess.run(
-        (
-            sys.executable,
-            "-c",
-            "from elesim_simulator.config import load_app_config as f; "
-            f"f({str(generated_app_config_path(state, 'simulator'))!r})",
+
+    generate_role_configs(state)
+    root = ET.parse(generated_dds_config_path(state, "controller")).getroot()
+
+    domain = root.find("Domain")
+    assert domain is not None
+    assert domain.attrib["id"] == "27"
+    assert domain.findtext("General/AllowMulticast") == "false"
+    interface = domain.find("General/Interfaces/NetworkInterface")
+    assert interface is not None and interface.attrib["name"] == "eth1"
+    assert [
+        peer.attrib["Address"]
+        for peer in domain.findall("Discovery/Peers/Peer")
+    ] == ["192.0.2.10", "sim.example.com"]
+
+
+def test_container_managed_turn_uses_simulator_owned_secret_mount_path(
+    local_state,
+    tmp_path,
+) -> None:
+    state = local_state(
+        roles=("simulator",),
+        install_mode="container",
+        network=NetworkSettings(
+            turn_urls=("turn:turn.example.com:3478?transport=udp",),
         ),
-        cwd=root,
-        env=environment,
-        check=True,
+        dds=DdsSettings(
+            security_profile="sros2",
+            keystore=str(tmp_path / "sros2"),
+            enclave="/lab",
+        ),
+        turn=TurnSettings(
+            mode="managed",
+            realm="lab.example",
+            public_host="turn.example.com",
+            secret_file=str(tmp_path / "turn.secret"),
+        ),
     )
+    copy_role_configs(state)
+
+    simulator = _load(generate_role_configs(state)["simulator"])
+
+    assert simulator["turn"] == {
+        "urls": ["turn:turn.example.com:3478?transport=udp"],
+        "realm": "lab.example",
+        "static_auth_secret_file": "/run/secrets/turn.secret",
+    }
+    assert simulator["dds"]["vendor_config"] == "/opt/elesim/config/cyclonedds.xml"
+    assert simulator["dds"]["enclave"] == "/lab/sim_default"
+
+
+def test_container_external_turn_mounts_credentials_only_into_simulator(
+    local_state,
+    tmp_path,
+) -> None:
+    credentials = tmp_path / "turn.credentials.json"
+    state = local_state(
+        roles=("simulator",),
+        install_mode="container",
+        network=NetworkSettings(
+            turn_urls=("turn:relay.example.com:3478?transport=udp",),
+        ),
+        turn=TurnSettings(
+            mode="external",
+            credential_file=str(credentials),
+        ),
+    )
+    copy_role_configs(state)
+
+    simulator = _load(generate_role_configs(state)["simulator"])
+
+    assert simulator["turn"] == {
+        "urls": ["turn:relay.example.com:3478?transport=udp"],
+        "credential_file": "/run/secrets/turn.credentials.json",
+    }
+
+
+def test_custom_endpoint_ids_drive_node_keys_and_rgbd_topics(local_state) -> None:
+    state = local_state(
+        roles=("simulator", "controller"),
+        network=NetworkSettings(
+            simulator_id="Sim West-2",
+            controller_id="Controller.A",
+        ),
+    )
+
+    assert dds_node_key(state, "simulator") == "sim_west_2"
+    assert dds_node_key(state, "controller") == "controller_a"
+    assert rgbd_topic(state, "simulator") == "/elesim/sim_west_2/rgbd/frame"
+
+
+def test_sros2_enclave_is_role_specific(local_state, tmp_path) -> None:
+    state = local_state(
+        roles=("ui",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            keystore=str(tmp_path / "sros2"),
+            enclave="/elesim/prod",
+        ),
+    )
+
+    assert dds_enclave(state, "ui") == "/elesim/prod/ui_main"
+    assert dds_enclave(state, "doctor") == "/elesim/prod/doctor_main"
+
+
+def test_generation_does_not_mutate_source_defaults(local_state) -> None:
+    state = local_state(roles=("simulator",), profile="local-sim")
+    source = state.source_path / "simulator/config/runtime.yaml"
+    before = source.read_bytes()
+    copy_role_configs(state)
+
+    generate_role_configs(state)
+
+    assert source.read_bytes() == before
+    assert generated_app_config_path(state, "simulator").is_file()

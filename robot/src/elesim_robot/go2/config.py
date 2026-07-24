@@ -43,6 +43,9 @@ class Go2HardwareConfig:
     world_frame_yaw_deg: float = 0.0
     # Path to unitree_ros2 workspace root (optional; also UNITREE_ROS2_WS env).
     ros_workspace: str = ""
+    # None shares Elesim's process domain; set an explicit domain when the
+    # Unitree graph intentionally runs separately.
+    ros_domain_id: int | None = None
     obstacles_avoid_request_topic: str = "/api/obstacles_avoid/request"
     obstacles_avoid_api_id: int = 1001
     # Periodic ROS2 link diagnostics on Jetson (0 = disabled).

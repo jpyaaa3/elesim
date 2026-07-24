@@ -1,0 +1,13 @@
+elesim_interfaces/PeerRef source
+uint64 frame_sequence
+std_msgs/Header header
+sensor_msgs/Image color
+sensor_msgs/Image depth
+sensor_msgs/CameraInfo camera_info
+float32 depth_scale
+bool has_arm_q
+float64[4] arm_q
+bool has_camera_pose
+float64[3] camera_world_origin
+float64[3] camera_world_look
+float64[3] camera_world_right

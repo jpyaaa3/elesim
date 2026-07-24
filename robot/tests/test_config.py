@@ -21,15 +21,19 @@ def _load_document(document: dict) -> object:
 
 def test_checked_in_default_config_is_valid() -> None:
     config = load_config(ROOT / "robot/config/default.yaml")
-    assert config.safety.router_liveness_s > config.safety.command_deadman_s
+    assert config.dds.security_profile == "trusted-network"
+    assert config.camera.topic.startswith("/")
+    assert config.safety.command_deadman_s > 0.0
 
 
-def test_public_config_requires_controller_media_allowlist_path() -> None:
+def test_public_config_uses_sros2_and_static_vpn_discovery() -> None:
     config = load_config(ROOT / "robot/config/public.example.yaml")
 
-    assert config.camera.bind == "tcp://0.0.0.0:5568"
-    assert config.security.media_server_secret_file.endswith("robot-media.key_secret")
-    assert config.security.media_client_public_keys_dir.endswith("media-authorized")
+    assert config.dds.security_profile == "sros2"
+    assert config.dds.discovery_mode == "static"
+    assert config.dds.static_peers == ("10.8.0.1",)
+    assert config.dds.network_interface == "wg0"
+    assert config.camera.topic == "/elesim/robot_go2/rgbd/frame"
 
 
 def test_unknown_top_level_section_is_rejected() -> None:
@@ -39,20 +43,20 @@ def test_unknown_top_level_section_is_rejected() -> None:
 
 def test_unknown_nested_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown arm config keys"):
-        _load_document({"schema_version": 2, "arm": {"typo_current_limit": 10}})
+        _load_document({"schema_version": 3, "arm": {"typo_current_limit": 10}})
 
 
-@pytest.mark.parametrize("schema", (None, 0, 1, 3, "2"))
-def test_schema_version_must_be_exactly_two(schema: object) -> None:
+@pytest.mark.parametrize("schema", (None, 0, 1, 2, 4, "3"))
+def test_schema_version_must_be_exactly_three(schema: object) -> None:
     with pytest.raises(ValueError, match="schema_version"):
         _load_document({"schema_version": schema})
 
 
 def test_invalid_safety_bounds_are_rejected() -> None:
-    with pytest.raises(ValueError, match="router_liveness_s"):
+    with pytest.raises(ValueError, match="command_deadman_s"):
         _load_document(
             {
-                "schema_version": 2,
-                "safety": {"command_deadman_s": 1.0, "router_liveness_s": 0.5},
+                "schema_version": 3,
+                "safety": {"command_deadman_s": 0.0},
             }
         )

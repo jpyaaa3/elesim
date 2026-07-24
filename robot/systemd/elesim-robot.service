@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=elesim
 WorkingDirectory=/opt/elesim-robot
-ExecStart=/opt/elesim-robot/venv/bin/elesim-robot --config /etc/elesim/robot.yaml
+ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source /opt/elesim-robot/ros/install/setup.bash && exec /opt/elesim-robot/venv/bin/elesim-robot --config /etc/elesim/robot.yaml'
 Restart=on-failure
 RestartSec=2
 

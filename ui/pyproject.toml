@@ -4,13 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elesim-ui"
-version = "0.2.1"
+version = "0.3.0"
 requires-python = ">=3.10"
 dependencies = [
-  "elesim-protocol==0.2.1",
+  "elesim-protocol==0.3.0",
   "PyYAML>=6,<7",
   "numpy>=1.26,<3",
-  "pyzmq>=27,<28",
   "glfw>=2.8",
   "imgui[glfw]>=2.0",
   "PyOpenGL>=3.1",

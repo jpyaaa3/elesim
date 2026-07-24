@@ -1,0 +1,8 @@
+string<=128 request_id
+elesim_interfaces/LeaseFence fence
+uint32 requested_ttl_ms
+---
+bool accepted
+string<=512 reason
+elesim_interfaces/SimulationSession session
+elesim_interfaces/TurnCredentials ui_turn

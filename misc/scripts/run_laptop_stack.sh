@@ -14,8 +14,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/router/src${PYTHONPATH:+:${PYTHONPATH}}" \
-  python3 -m elesim_router.main --bind tcp://0.0.0.0:5558 & pids+=("$!")
 PYTHONPATH="${ROOT}/packages/protocol/src:${ROOT}/controller/src${PYTHONPATH:+:${PYTHONPATH}}" \
   python3 -m elesim_controller.main \
     --config "$CONFIG" \
