@@ -2,7 +2,7 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-07-24
+- Updated: 2026-07-26
 - Branch: `refactoring`; all Router-free ROS 2/DDS changes below are currently
   uncommitted.
 - Goal: Replace every ZMQ transport and the Router deployment with direct ROS
@@ -11,6 +11,10 @@
 - Phase: Implementation and software-only validation are complete. Real
   multi-host networking, SROS2 enforcement, NAT/TURN relay selection, GPU
   rendering, Jetson, and physical hardware behavior remain manual gates.
+- Handoff boundary: do **not** restart or broaden the Router/ZMQ-to-DDS
+  refactor. There is no remaining software implementation task unless a new
+  request explicitly targets one of the manual gates or the not-yet-wired typed
+  ROS service/action surface.
 - Locked decisions:
   - General mode uses Docker for Simulator, Controller, and UI. Robot is
     native-only and selectable only on detected Jetson/JetPack hosts. There is
@@ -102,6 +106,79 @@
     `PYTHONNOUSERSITE=1`, but the generated `urop` Developer environment has
     system NumPy 1.26.4 under the same isolation setting. There,
     `release/verify.py dist/releases` verified all four isolated releases.
+- Last transport correction (keep this invariant): a real CycloneDDS smoke
+  exposed an asymmetric startup-discovery race. A peer must not accept traffic
+  until it has the exact source endpoint ID **and boot ID**, but it must also
+  not silently lose a valid first request while that descriptor/heartbeat is
+  still arriving. `DdsPeerNode` therefore holds at most 512 parsed inbound
+  envelopes for one heartbeat timeout and releases them only after the exact
+  source identity becomes live. Controller repeats `select_target` once per
+  discovery interval until `target_selected`. Do not weaken source validation,
+  turn the control QoS transient-local, or replace this with an unbounded queue.
+- Current source-of-truth implementation points:
+  - `packages/protocol/src/elesim_protocol/dds_transport.py`: DDS peer node,
+    direct addressed carrier, discovery, source-boot startup queue, motion and
+    simulation authority.
+  - `packages/protocol/src/elesim_protocol/rgbd.py`: typed latest-only RGBD
+    DDS publisher/subscriber; `packages/elesim_interfaces` owns ROSIDL types.
+  - `simulator/src/elesim_simulator/turn.py`: managed/external TURN credential
+    handling; WebRTC pixels remain outside DDS.
+  - `misc/tooling/setup/src/elesim_setup/`: state schema v5, role-specific DDS
+    generation, GUI, network doctor, and external TURN credential validation.
+  - `misc/integration/smoke_topology.py`: the canonical four-process real-RMW
+    topology smoke; it is not an NAT, GPU, WebRTC-media, or hardware proof.
+- Test environment and exact successful commands:
+  - The host shell deliberately lacks much of the scientific/ROS test stack;
+    do not install it into host Python merely to make a test pass.
+  - `urop` is the usable ROS Humble Developer container. Its workspace mount is
+    `/home/user/ws` -> `/home/dev/ws`; this repository is
+    `/home/dev/ws/elesim` inside it. It has system NumPy 1.26.4, including with
+    `PYTHONNOUSERSITE=1`.
+  - A temporary ROSIDL overlay was built at
+    `/tmp/elesim-rosidl.VfHZXo/install` in `urop`. It is container-local and
+    may disappear after recreation; rebuild/source a new overlay before running
+    real DDS tests if that path no longer exists.
+  - The last passing topology invocation was:
+
+    ```bash
+    docker exec urop bash -lc '
+      source /opt/ros/humble/setup.bash
+      source /tmp/elesim-rosidl.VfHZXo/install/setup.bash
+      export PYTHONPATH=/home/dev/ws/elesim/packages/protocol/src:${PYTHONPATH:-}
+      cd /home/dev/ws/elesim
+      python3 misc/integration/smoke_topology.py
+    '
+    ```
+
+  - The last passing isolated-release verification invocation was:
+
+    ```bash
+    docker exec urop bash -lc '
+      source /opt/ros/humble/setup.bash
+      source /tmp/elesim-rosidl.VfHZXo/install/setup.bash
+      cd /home/dev/ws/elesim
+      python3 misc/tooling/release/verify.py dist/releases
+    '
+    ```
+
+  - `dist/releases/` contains four application trees (`controller`, `ui`,
+    `robot`, `simulator`) and a separate `infra` tree. `infra` is not a fifth
+    runtime application and must not be mistaken for a Router release.
+- Operator-facing installation/run facts:
+  - Bootstrap defaults to the local web wizard. Installation only writes the
+    prefix/configuration/Compose contexts; it does not build or start images.
+    After installation, `source ~/.bashrc` once, then use `elesim-up`,
+    `elesim-status`, `elesim-logs`, and `elesim-down` on the machine owning the
+    selected role.
+  - SSH port forwarding such as `ssh -L 8765:127.0.0.1:8765 -p 2222 ...` is
+    only for reaching the loopback-bound installer GUI. Port 2222 has no DDS or
+    WebRTC runtime meaning.
+  - All participating roles must share compatible DDS `system_id`, domain,
+    RMW, discovery mode, interface, and security profile. Static peers seed
+    DDS discovery only; neither they nor TURN traverse NAT for DDS.
+  - For an owned LAN/routed VPN use `trusted-network` only with an explicit
+    interface/firewall boundary. For shared or observable infrastructure use
+    role-scoped SROS2 enforce mode. WebRTC remains DTLS/SRTP in both cases.
 - Remaining manual validation:
   - Validate discovery and control/RGBD topic interoperability with the pinned RMW
     on one host, L2 LAN, routed LAN/static peers, routed VPN and global IPv6.

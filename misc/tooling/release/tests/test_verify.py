@@ -7,7 +7,9 @@ import pytest
 
 from misc.tooling.release.verify import (
     ReleaseVerificationError,
+    assert_release_entries,
     assert_wheel_boundary,
+    expected_release_entries,
     read_wheel_environment,
     verify_release_layout,
 )
@@ -29,6 +31,25 @@ def test_wheel_boundary_accepts_only_the_owned_package(tmp_path: Path) -> None:
     )
 
     assert_wheel_boundary(wheel, "elesim_controller")
+
+
+def test_role_release_manifest_declares_only_contractual_shared_material(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "controller"
+    release.mkdir()
+    for name in expected_release_entries("controller"):
+        path = release / name
+        if "." in name:
+            path.write_text("", encoding="utf-8")
+        else:
+            path.mkdir()
+
+    assert_release_entries(release, "controller")
+    (release / "tests").mkdir()
+
+    with pytest.raises(ReleaseVerificationError, match="unexpected=tests"):
+        assert_release_entries(release, "controller")
 
 
 def test_wheel_boundary_rejects_a_sibling_deployment(tmp_path: Path) -> None:
@@ -87,6 +108,7 @@ def test_controller_release_requires_the_generated_arm_model(tmp_path: Path) -> 
     release = tmp_path / "controller"
     (release / "config").mkdir(parents=True)
     (release / "wheels").mkdir()
+    (release / "interfaces").mkdir()
     for relative in (
         "config/default.yaml",
         "config/runtime.yaml",

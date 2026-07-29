@@ -34,10 +34,44 @@ ROLE_SPECS: Mapping[str, RoleSpec] = {
 }
 WHEEL_ENV_KEYS = frozenset(("PROTOCOL_WHEEL", "APP_WHEEL"))
 WHEEL_NAME = re.compile(r"^[A-Za-z0-9_.+-]+\.whl$")
+COMMON_ROLE_ENTRIES = frozenset(
+    ("WHEELS.env", "config", "interfaces", "requirements.lock", "wheels")
+)
 
 
 class ReleaseVerificationError(RuntimeError):
     """A generated deployment context is incomplete or not isolated."""
+
+
+def expected_release_entries(role: str) -> frozenset[str]:
+    """Return the complete top-level manifest for one deployable role.
+
+    The only runtime material shared by every role is the protocol wheel and
+    ROSIDL interface source, held below ``wheels`` and ``interfaces``.  Every
+    other entry is either role-owned or deliberately absent.
+    """
+    if role not in ROLE_SPECS:
+        raise ReleaseVerificationError(f"unknown release role: {role}")
+    entries = set(COMMON_ROLE_ENTRIES)
+    if role == "robot":
+        entries.update(("install.sh", "systemd"))
+    else:
+        entries.add("Dockerfile")
+    if role == "simulator":
+        entries.add("model")
+    return frozenset(entries)
+
+
+def assert_release_entries(release: Path, role: str) -> None:
+    expected = expected_release_entries(role)
+    actual = frozenset(path.name for path in release.iterdir())
+    if actual != expected:
+        missing = ", ".join(sorted(expected - actual)) or "<none>"
+        unexpected = ", ".join(sorted(actual - expected)) or "<none>"
+        raise ReleaseVerificationError(
+            f"unexpected release manifest for {role}: "
+            f"missing={missing}; unexpected={unexpected}"
+        )
 
 
 def read_wheel_environment(path: Path) -> dict[str, str]:
@@ -109,6 +143,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
     if role not in ROLE_SPECS:
         raise ReleaseVerificationError(f"unknown release role: {role}")
     _require_path(release, kind="directory")
+    assert_release_entries(release, role)
     _require_path(release / "config", kind="directory")
     _require_path(release / "config/default.yaml")
     _require_path(release / "requirements.lock")

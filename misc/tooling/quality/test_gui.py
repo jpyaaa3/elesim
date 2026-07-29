@@ -38,9 +38,9 @@ TEST_ROOTS = (
     ROOT / "simulator/tests",
     ROOT / "ui/tests",
     ROOT / "misc/tooling/model_builder/tests",
-    ROOT / "misc/tooling/analysis/tests",
-    ROOT / "misc/tooling/debug/tests",
-    ROOT / "misc/tooling/experiments/tests",
+    ROOT / "misc/research/analysis/tests",
+    ROOT / "misc/research/debug/tests",
+    ROOT / "misc/research/experiments/tests",
 )
 SOURCE_ROOTS = (
     ROOT / "packages/protocol/src",
@@ -73,7 +73,7 @@ def _existing(paths: Sequence[str]) -> tuple[str, ...]:
     for raw in paths:
         path = raw
         if raw.startswith("tests/"):
-            path = "controller/tests/legacy/" + raw[len("tests/"):]
+            path = "controller/tests/regression/" + raw[len("tests/"):]
         if (ROOT / path).exists():
             resolved.append(path)
     return tuple(resolved)
@@ -93,7 +93,7 @@ _ALL_TESTS = _all_tests()
 
 def _under(prefix: str) -> tuple[str, ...]:
     if prefix.startswith("tests/"):
-        prefix = "controller/tests/legacy/" + prefix[len("tests/"):]
+        prefix = "controller/tests/regression/" + prefix[len("tests/"):]
     return tuple(p for p in _ALL_TESTS if p.startswith(prefix))
 
 

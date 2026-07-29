@@ -84,7 +84,7 @@ Before comparing this mode with `uv` or `uv_ff`, verify:
 3. No trial is compared across mismatched run IDs or different sim lifetimes.
 
 The historical positive/negative sign-sweep runner remains under
-`misc/tooling/experiments/run_preview_b_pitch_sign.sh`.
+`misc/research/experiments/run_preview_b_pitch_sign.sh`.
 
 ## Limitations
 

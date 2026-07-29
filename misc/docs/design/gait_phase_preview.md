@@ -78,7 +78,7 @@ Suggested ownership under the current hierarchy:
 
 - `controller/src/elesim_controller/gaze/gait_phase_preview.py`: load, validate, interpolate, and compute
   preview deltas.
-- `misc/tooling/analysis/build_gait_phase_template.py`: merge runs and build template
+- `misc/research/analysis/build_gait_phase_template.py`: merge runs and build template
   artifacts.
 - `controller/src/elesim_controller/gaze/gaze_service.py`: an explicit gait-preview runtime branch with
   per-tick UV fallback and provenance.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from elesim_controller.observability.pick_replay import analyze_pick_log
+from .pick_replay import analyze_pick_log
 
 
 FIXTURES = Path(__file__).with_name("fixtures")

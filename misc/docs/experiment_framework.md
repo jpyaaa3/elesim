@@ -1,8 +1,8 @@
 # Experiment Framework
 
 Experiments are repository tooling, not runtime applications. Canonical runners
-live under `misc/tooling/experiments`; analysis-only commands live under
-`misc/tooling/analysis`.
+live under `misc/research/experiments`; analysis-only commands live under
+`misc/research/analysis`.
 
 ## Runtime Prerequisites
 
@@ -24,7 +24,7 @@ Installed release artifacts use the `elesim-controller` and
 
 ## Evidence
 
-Experiment outputs remain under `misc/results/` and runtime traces under `logs/`.
+Experiment outputs remain under `misc/research/results/` and runtime traces under `logs/`.
 These are evidence, not deployment inputs. Preserve a run's effective config
 and run ID with its output so later analysis does not depend on current
 defaults.

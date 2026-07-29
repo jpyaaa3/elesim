@@ -59,7 +59,7 @@ CASES: tuple[MutationCase, ...] = (
         source_file="elesim_robot/runtime.py",
         original="if envelope.seq <= self.last_seq:",
         mutant="if False:",
-        tests=("robot/tests/legacy/scenarios/go2/test_12_agent_bridge.py",),
+        tests=("robot/tests/regression/scenarios/go2/test_12_agent_bridge.py",),
         python_paths=("packages/protocol/src",),
     ),
     MutationCase(
