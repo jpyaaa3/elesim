@@ -142,8 +142,6 @@ class SimulatorView:
             texture,
             float(width),
             draw_height,
-            uv0=(0.0, 1.0),
-            uv1=(1.0, 0.0),
         )
         hovered = bool(imgui.is_item_hovered())
         if hovered and stream == "observer":
