@@ -8,7 +8,7 @@
 
 이 파일은 우선순위가 더 높은 작업을 진행하는 동안 알려진 미해결/보류 이슈가 묻히지 않도록 추적한다.
 
-## 현재 상태 (2026-07-24)
+## 현재 상태 (2026-08-03)
 
 이 절이 deployment 기반 현 구조의 기준이다. 아래의 긴 절들은 refactor 이전
 근거를 보존한 기록이며, 여기에서 다시 언급하지 않은 경로와 테스트 수치는 과거
@@ -81,18 +81,42 @@
 ### P1. DDS 보안과 원격 설치는 live 검증이 필요함
 
 - 상태: open, 사용자 설명서에 기록한 운영상 한계다.
-- 마법사는 모든 host에 일치하는 system/domain/RMW/discovery/interface 설정을
-  생성하고 `trusted-network`와 `sros2`를 구분하며 선택 역할의 SROS2 enclave만
-  검증해야 한다.
+- State schema v7, 비밀값 없는 connection topology, 분리된 DDS/SSH endpoint,
+  SROS2 Authority generation, host별 role bundle, pinned SSH host key,
+  all-host activation/rollback transaction은 구현하고 software test했다.
+  `external` keystore는 `managed` generation과 계속 구분된다.
+- `elesim-connections`는 전체 Authority를 조작 노트북에만 보관하고 각 host에는
+  공개 자료와 배정 역할 enclave만 전달해야 한다. 부분 배포는 시작 전에
+  fail-closed하거나 이전 generation으로 rollback해야 하며 SSH hostname/port에서
+  DDS locator를 추론하면 안 된다.
 - `trusted-network`는 DDS 암호화가 없고 명시적인 LAN/VPN interface 및 firewall
   경계 안에서만 허용된다. `ROS_DOMAIN_ID`는 보안이 아니다.
 - Managed Coturn은 REST HMAC secret을 Coturn과 같은 host의 Simulator에만
   mount하고, Simulator가 session-bound 단기 credential을 발급한다. UI에는
   secret을 절대 전달하지 않는다. External TURN은 별도 provisioned credential을
   사용할 수 있다.
-- 필요한 근거: 두 profile의 browser/CLI 생성, production RMW/SROS2 enforce,
-  기본값이 아닌 SSH GUI-forward port, managed/external Coturn lifecycle,
+- 이전 in-process `UnitreeRos2Bridge`의 security/context 충돌은 software에서
+  해결했다. 전용 `elesim-unitree-bridge` daemon이 분리된 private NIC/domain의
+  stock local/plaintext Unitree DDS를 소유하고, Robot은 credential을 확인하는
+  bounded Unix IPC만 사용하면서 유일한 inter-host SROS2 participant로 남는다.
+  Unitree topic은 Elesim policy에 추가하지 않았다. 남은 근거는 실제
+  Jetson/GO2에서 NIC 격리, 계정/ACL 설정과 bridge 단절·잘못된 packet 시 stop
+  deadline을 검증하는 것이다.
+- 필요한 live 근거: 실제 host browser flow, 무권한 publish/subscribe 거부를
+  포함한 production RMW/SROS2 enforce, 기본값이 아닌 SSH 관리 port와 pinned-key
+  실패, 전체 generation rotation/rollback, managed/external Coturn lifecycle,
   정확한 cleanup 명령이다.
+
+### P1. 고정 self-hosted container의 host/GPU 검증이 필요함
+
+- 상태: live Docker 검증에 대해 open이다. generator와 ownership guard는
+  구현했다.
+- 일반판은 고정 `elesim-runtime` role container를 쓰고 개발자판은 상시
+  `elesim-dev`와 선택적 `elesim-jaeger`만 사용한다. 외부 개인 Compose 환경은
+  공식 test path가 아니다.
+- 필요한 근거: Ubuntu/WSL clean install/build/start/down, 반복 `elesim-dev`
+  shell에서 임시 container가 늘지 않음, 고정 이름 충돌 진단, NVIDIA/CPU variant,
+  GUI forwarding과 Jaeger다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 

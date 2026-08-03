@@ -40,6 +40,10 @@ def _payload(tmp_path: Path) -> dict[str, object]:
         "dds_security_profile": "trusted-network",
         "dds_keystore": "",
         "dds_enclave": "",
+        "simulator_id": "sim-west",
+        "controller_id": "controller-west",
+        "ui_id": "ui-west",
+        "robot_id": "robot-west",
         "turn_mode": "none",
         "turn_url": "",
         "register_path": False,
@@ -55,6 +59,24 @@ def test_general_request_translates_to_router_free_state(tmp_path: Path) -> None
     assert state.roles == ("simulator", "controller", "ui")
     assert state.dds.domain_id == 11
     assert state.turn.mode == "none"
+    assert state.runtime_text_logs.enabled is True
+    assert state.network.ui_id == "ui-west"
+    assert state.network.robot_id == "robot-west"
+
+
+def test_general_request_defaults_use_connection_manager_endpoint_ids(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    for name in ("simulator_id", "controller_id", "ui_id", "robot_id"):
+        payload.pop(name)
+
+    state = SetupRequest.from_dict(payload).validate(_capabilities()).to_install_state()
+
+    assert state.network.simulator_id == "sim-default"
+    assert state.network.controller_id == "controller-main"
+    assert state.network.ui_id == "ui-main"
+    assert state.network.robot_id == "robot-go2"
 
 
 def test_robot_is_native_only_exclusive_and_requires_jetson(tmp_path: Path) -> None:
@@ -84,10 +106,38 @@ def test_developer_mode_requires_supported_host_and_has_no_runtime_roles(
     request = SetupRequest.from_dict(payload)
 
     assert request.validate(_capabilities()).jaeger is True
+    assert request.runtime_text_logs.enabled is False
     with pytest.raises(ValueError, match="amd64"):
         request.validate(_capabilities(jetson=True))
     with pytest.raises(ValueError, match="runtime InstallState"):
         request.to_install_state()
+
+
+def test_general_request_accepts_structured_runtime_text_log_opt_out(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    payload["runtime_text_logs"] = {"enabled": False}
+
+    state = SetupRequest.from_dict(payload).validate(_capabilities()).to_install_state()
+
+    assert state.runtime_text_logs.enabled is False
+
+
+def test_developer_request_rejects_runtime_text_archive_enablement(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    payload.update(
+        {
+            "edition": "developer",
+            "roles": [],
+            "runtime_text_logs": {"enabled": True},
+        }
+    )
+
+    with pytest.raises(ValueError, match="archive"):
+        SetupRequest.from_dict(payload).validate(_capabilities())
 
 
 def test_sros2_requires_keystore_and_enclave(tmp_path: Path) -> None:
@@ -101,6 +151,26 @@ def test_sros2_requires_keystore_and_enclave(tmp_path: Path) -> None:
     payload["dds_enclave"] = "/elesim"
     request = SetupRequest.from_dict(payload).validate(_capabilities())
     assert request.dds.security_profile == "sros2"
+
+
+def test_managed_sros2_request_can_start_pending_but_not_in_developer(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    payload.update(
+        {
+            "dds_security_profile": "sros2",
+            "dds_security_provisioning": "managed",
+        }
+    )
+
+    request = SetupRequest.from_dict(payload).validate(_capabilities())
+    state = request.to_install_state()
+    assert state.dds.managed_security_pending is True
+
+    payload.update({"edition": "developer", "roles": []})
+    with pytest.raises(ValueError, match="Developer|개발자"):
+        SetupRequest.from_dict(payload).validate(_capabilities())
 
 
 def test_static_discovery_requires_explicit_peer(tmp_path: Path) -> None:
@@ -134,12 +204,23 @@ def test_managed_turn_is_simulator_owned_and_requires_sros2(tmp_path: Path) -> N
         (tmp_path / "install/secrets/turn.secret").resolve()
     )
 
+    payload.update(
+        {
+            "dds_security_provisioning": "managed",
+            "dds_keystore": "",
+            "dds_enclave": "",
+        }
+    )
+    managed = SetupRequest.from_dict(payload).validate(_capabilities())
+    assert managed.dds.managed_security_pending is True
+
     payload["roles"] = ["controller"]
     with pytest.raises(ValueError, match="Simulator"):
         SetupRequest.from_dict(payload).validate(_capabilities())
 
     payload["roles"] = ["simulator"]
     payload["dds_security_profile"] = "trusted-network"
+    payload["dds_security_provisioning"] = "none"
     payload["dds_keystore"] = ""
     payload["dds_enclave"] = ""
     with pytest.raises(ValueError, match="sros2"):

@@ -21,12 +21,24 @@ test = ["pytest>=8,<9"]
 [project.scripts]
 elesim-setup = "elesim_setup.cli:main"
 elesim-net = "elesim_setup.network:main"
+elesim-connections = "elesim_setup.connections:main"
+elesim-uninstall = "elesim_setup.uninstall:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-elesim_setup = ["web/*.html", "web/*.css", "web/*.js", "web/*.json", "web/fonts/*.otf"]
+elesim_setup = [
+  "web/*.html",
+  "web/*.css",
+  "web/*.js",
+  "web/*.json",
+  "web/fonts/*.otf",
+  "connection_web/*.html",
+  "connection_web/*.css",
+  "connection_web/*.js",
+  "connection_web/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

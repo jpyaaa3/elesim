@@ -45,9 +45,13 @@ class FakeArm:
         self.torque_off_count = 0
         self.torque_on_count = 0
         self.position_mode_count = 0
+        self.close_count = 0
         self.positions = {motor_id: deg_to_tick_0_360(180.0) for motor_id in self.ids}
         self.currents_raw = {motor_id: 0 for motor_id in self.ids}
         self.read_error: Exception | None = None
+        self.safe_hold_error: Exception | None = None
+        self.torque_off_error: Exception | None = None
+        self.close_error: Exception | None = None
 
     def command_4dof_deg(self, *target: float) -> None:
         self.target = tuple(target)
@@ -57,9 +61,13 @@ class FakeArm:
 
     def safe_hold_arm(self) -> None:
         self.safe_hold_count += 1
+        if self.safe_hold_error is not None:
+            raise self.safe_hold_error
 
     def torque_off_all(self) -> None:
         self.torque_off_count += 1
+        if self.torque_off_error is not None:
+            raise self.torque_off_error
 
     def torque_on_all(self) -> None:
         self.torque_on_count += 1
@@ -69,6 +77,11 @@ class FakeArm:
 
     def set_profiles(self) -> None:
         pass
+
+    def close(self) -> None:
+        self.close_count += 1
+        if self.close_error is not None:
+            raise self.close_error
 
     def get_present_positions(self) -> dict[int, int]:
         if self.read_error is not None:
@@ -85,12 +98,25 @@ class FakeGo2:
     def __init__(self) -> None:
         self.velocities: list[tuple[float, float, float]] = []
         self.tick_times: list[float | None] = []
+        self.stop_count = 0
+        self.velocity_error: Exception | None = None
+        self.tick_error: Exception | None = None
+        self.stop_error: Exception | None = None
 
     def set_velocity(self, vx: float, vy: float, wz: float) -> None:
         self.velocities.append((float(vx), float(vy), float(wz)))
+        if self.velocity_error is not None:
+            raise self.velocity_error
 
     def tick_cmd(self, now: float | None = None) -> None:
         self.tick_times.append(now)
+        if self.tick_error is not None:
+            raise self.tick_error
+
+    def stop(self) -> None:
+        self.stop_count += 1
+        if self.stop_error is not None:
+            raise self.stop_error
 
     def latest_state(self):
         return None
@@ -281,3 +307,53 @@ def test_invalid_go2_velocity_is_rejected_atomically(velocity: tuple[float, floa
 
     assert ok is False
     assert go2.velocities == []
+
+
+def test_close_continues_arm_hold_and_hardware_close_after_go2_failure() -> None:
+    go2 = FakeGo2()
+    value, arm = runtime(go2=go2)
+    value.torque_enabled = True
+    value._go2_motion_active = True
+    value._go2_command_at = value.clock()
+    go2.velocity_error = RuntimeError("bridge unavailable")
+
+    with pytest.raises(RuntimeError, match="bridge unavailable"):
+        value.close()
+
+    assert arm.safe_hold_count == 1
+    assert arm.close_count == 1
+    assert go2.stop_count == 1
+    assert value._go2_motion_active is False
+    assert value._go2_command_at is None
+
+
+def test_emergency_stop_disables_arm_torque_after_go2_failure() -> None:
+    go2 = FakeGo2()
+    value, arm = runtime(go2=go2)
+    value.torque_enabled = True
+    go2.tick_error = RuntimeError("bridge disconnected")
+
+    with pytest.raises(RuntimeError, match="bridge disconnected"):
+        value.emergency_stop()
+
+    assert arm.torque_off_count == 1
+    assert value.torque_enabled is False
+
+
+def test_safety_fault_records_all_shutdown_failures_without_raising() -> None:
+    go2 = FakeGo2()
+    value, arm = runtime(go2=go2)
+    value.torque_enabled = True
+    go2.velocity_error = RuntimeError("bridge unavailable")
+    arm.torque_off_error = RuntimeError("arm bus unavailable")
+
+    value._trip_safety_fault("motor overcurrent")
+
+    assert value.torque_enabled is False
+    assert go2.velocities[-1] == (0.0, 0.0, 0.0)
+    assert arm.torque_off_count == 1
+    assert "motor overcurrent" in value.safety_fault
+    assert "GO2 stop" in value.safety_fault
+    assert "bridge unavailable" in value.safety_fault
+    assert "arm torque disable" in value.safety_fault
+    assert "arm bus unavailable" in value.safety_fault

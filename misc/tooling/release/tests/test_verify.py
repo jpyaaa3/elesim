@@ -8,6 +8,8 @@ import pytest
 from misc.tooling.release.verify import (
     ReleaseVerificationError,
     assert_release_entries,
+    assert_robot_systemd_units,
+    assert_robot_wheel_runtime,
     assert_wheel_boundary,
     expected_release_entries,
     read_wheel_environment,
@@ -125,3 +127,52 @@ def test_controller_release_requires_the_generated_arm_model(tmp_path: Path) -> 
 
     with pytest.raises(ReleaseVerificationError, match="arm_model.json"):
         verify_release_layout(release, "controller")
+
+
+def _robot_wheel(path: Path, *, bridge_entrypoint: bool = True) -> Path:
+    scripts = "elesim-robot = elesim_robot.main:main\n"
+    if bridge_entrypoint:
+        scripts += (
+            "elesim-unitree-bridge = "
+            "elesim_robot.go2.unitree_bridge_daemon:main\n"
+        )
+    with zipfile.ZipFile(path, "w") as archive:
+        for member in (
+            "elesim_robot/__init__.py",
+            "elesim_robot/main.py",
+            "elesim_robot/go2/unitree_bridge_daemon.py",
+            "elesim_robot/go2/unitree_ipc.py",
+            "elesim_robot/go2/unitree_ipc_protocol.py",
+        ):
+            archive.writestr(member, "")
+        archive.writestr(
+            "elesim_robot-0.3.0.dist-info/entry_points.txt",
+            "[console_scripts]\n" + scripts,
+        )
+    return path
+
+
+def test_robot_wheel_requires_bridge_modules_and_both_entrypoints(
+    tmp_path: Path,
+) -> None:
+    assert_robot_wheel_runtime(_robot_wheel(tmp_path / "robot.whl"))
+
+    without_entrypoint = _robot_wheel(
+        tmp_path / "without-entrypoint.whl", bridge_entrypoint=False
+    )
+    with pytest.raises(ReleaseVerificationError, match="elesim-unitree-bridge"):
+        assert_robot_wheel_runtime(without_entrypoint)
+
+
+def test_robot_systemd_manifest_is_exactly_two_units(tmp_path: Path) -> None:
+    systemd = tmp_path / "systemd"
+    systemd.mkdir()
+    (systemd / "elesim-robot.service").write_text("unit", encoding="utf-8")
+
+    with pytest.raises(ReleaseVerificationError, match="elesim-unitree-bridge"):
+        assert_robot_systemd_units(systemd)
+
+    (systemd / "elesim-unitree-bridge.service").write_text(
+        "unit", encoding="utf-8"
+    )
+    assert_robot_systemd_units(systemd)

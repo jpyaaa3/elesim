@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -34,10 +35,12 @@ class SetupService:
             f"[setup] edition={request.edition} prefix={request.prefix} "
             f"gpu={request.compute.gpu_mode}"
         )
+        shell_bashrc = _operator_home() / ".bashrc" if request.register_path else None
         if request.edition == "developer":
             DeveloperInstaller(
                 request,
                 capabilities=self.capabilities,
+                shell_bashrc=shell_bashrc,
                 dry_run=self.dry_run,
                 log=self.log,
             ).run()
@@ -49,14 +52,27 @@ class SetupService:
             installer_type(
                 state,
                 state_path=state.state_path,
+                shell_bashrc=shell_bashrc,
                 dry_run=self.dry_run,
                 log=self.log,
             ).run()
         if request.register_path and not self.dry_run:
-            result = register_bash_path(request.bin_dir)
+            assert shell_bashrc is not None
+            result = register_bash_path(request.bin_dir, bashrc=shell_bashrc)
             status = "updated" if result.changed else "already current"
             self.log(f"[shell] {result.bashrc} {status}")
             self.log("[shell] current terminal: source ~/.bashrc")
+
+
+
+def _operator_home() -> Path:
+    configured = os.environ.get("ELESIM_OPERATOR_HOME", "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            raise ValueError("ELESIM_OPERATOR_HOME must be an absolute path")
+        return path.resolve()
+    return Path.home().resolve()
 
 
 __all__ = ["SetupService"]

@@ -41,11 +41,15 @@ class Go2HardwareConfig:
     shutdown_mode: str = "damp"
     world_frame_offset_xyz: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     world_frame_yaw_deg: float = 0.0
-    # Path to unitree_ros2 workspace root (optional; also UNITREE_ROS2_WS env).
+    # Absolute path to the unitree_ros2 workspace root.
     ros_workspace: str = ""
-    # None shares Elesim's process domain; set an explicit domain when the
-    # Unitree graph intentionally runs separately.
+    # Unitree DDS is confined to a dedicated physical interface and domain.
+    network_interface: str = ""
     ros_domain_id: int | None = None
+    ipc_socket_path: str = "/run/elesim-unitree/bridge.sock"
+    ipc_robot_user: str = "elesim"
+    ipc_bridge_user: str = "elesim-unitree"
+    ipc_heartbeat_interval_s: float = 0.1
     obstacles_avoid_request_topic: str = "/api/obstacles_avoid/request"
     obstacles_avoid_api_id: int = 1001
     # Periodic ROS2 link diagnostics on Jetson (0 = disabled).

@@ -15,10 +15,10 @@ Laptop                                      Compute PC
            | ROS 2 / DDS                              || WebRTC
            |                                          ||
            |        Robot Jetson                      ||
-           |        +-------------------+             ||
-           +=======>| Robot             |             ||
-             RGBD   | local I/O + safety|             ||
-                    +-------------------+             ||
+           |        +-------------+  UDS  +---------+
+           +=======>| Robot       |<=====>| Unitree |----> private GO2 DDS/NIC
+             RGBD   | I/O + safety|       | bridge  |
+                    +-------------+       +---------+
            <=========== observer + hand-eye WebRTC ====+
 ```
 
@@ -53,6 +53,24 @@ Simulator is the only authority for its UI session. DDS discovery does not
 grant either authority, and `ROS_DOMAIN_ID` does not identify or authenticate
 an owner.
 
+### Local Unitree boundary
+
+Stock Unitree DDS is not part of the inter-host Elesim graph. On Jetson, the
+`elesim-unitree-bridge` daemon is the only process that loads Unitree ROS 2 and
+binds CycloneDDS to the private Jetson-to-GO2 NIC/domain. It runs without the
+Elesim SROS2 environment. The Robot application remains the only inter-host
+participant and communicates with the bridge through bounded Unix
+`SOCK_SEQPACKET` messages.
+
+The socket directory is `0750`, the socket is `0660`, and Robot receives only
+the bridge group as a supplementary group. Both sides verify `SO_PEERCRED`, a
+UUID boot identity and monotonic sequence. Command names and finite parameter
+ranges are allowlisted. Disconnect, parse failure, stale/replayed traffic and
+keepalive expiry trigger the bridge-side stop; GO2 failure must not prevent the
+Robot process from continuing arm safe-hold, torque-off and hardware cleanup.
+This daemon is a local hardware adapter, not a fifth deployable application and
+not a Router.
+
 ## Dependency Rule
 
 ```text
@@ -72,6 +90,14 @@ a documented media stream.
 The developer container deliberately co-locates all source projects for coding
 and tests, but it does not weaken release ownership: no deployment wheel or
 general-user role image may import a sibling deployment.
+
+General installations use one fixed `elesim-runtime` Compose project. Selected
+container roles are named `elesim-pilot`, `elesim-ui`, and
+`elesim-sim`; Robot stays a native Jetson service. Developer installation
+uses the separate fixed `elesim-dev-stack` project with one persistent
+`elesim-dev` container and optional `elesim-jaeger`. It does not also create the
+three general-role containers. Managed WebRTC relay adds `elesim-coturn` only
+to the Simulator host's general project.
 
 ## Model Lifecycle
 
@@ -152,6 +178,39 @@ The operator selects exactly one DDS security profile:
   access control, and encryption. Permissions must restrict roles to the DDS
   topics they need.
 
+The SROS2 policy distinguishes three names that must not be conflated. Direct
+control/motion carrier topics use the protocol's collision-resistant hashed
+peer key. Enclave paths and configured RGBD topics use the stable endpoint key
+shown to the operator. The local active network doctor currently reuses the
+first installed role identity rather than receiving a super-user enclave. To
+allow that diagnostic on any role host, every role policy has read-only access
+to the Robot and Simulator RGBD topics; it receives no additional RGBD publish
+permission. This is an explicit operational tradeoff: role credentials are not
+isolated from RGBD observation.
+
+State schema v7 distinguishes two SROS2 provisioning models. `external` points
+at a keystore/enclave supplied and maintained outside Elesim. `managed` records
+an Elesim security generation and the local host's role bundle. In managed mode
+the operator laptop holds the complete SROS2 Authority. A runtime host receives
+the shared public trust material and only the enclaves for roles assigned to
+that host; it never receives CA private keys or another host's role keys.
+
+Regardless of provisioning owner, each application sees only the stable
+`<prefix>/security/roles/<role>` keystore root. External setup copies common
+public material plus that role's enclave into this view; it never mounts the
+operator's aggregate keystore into an application container. Managed activation
+refreshes only the `public/` and `enclaves/` children while services are stopped,
+so the mounted role-root inode remains stable. The aggregate generation tree is
+an administrative connection-manager input, not an application mount.
+
+Managed rotation is deliberately system-wide. The connection manager creates a
+new generation through the ROS 2 security CLI, validates SHA-256 bundle
+manifests, stages every host through authenticated SSH/SFTP, stops affected
+roles, atomically activates the generation, restarts and verifies them. Any
+partial failure restores the previous generation across the hosts already
+touched. The Authority is an administrative asset, not a fifth runtime service
+and not a peer-discovery broker.
+
 There is no ZMQ, CurveZMQ, CURVE key, ZAP allowlist, or plaintext-ZMQ exception
 in the final architecture. WebRTC media always uses DTLS/SRTP independently of
 the DDS profile. Coturn relays those encrypted packets when ICE needs a relay.
@@ -167,6 +226,26 @@ assumption; use SROS2 on a shared or observable network.
 
 The local installation GUI remains bound to loopback. Remote administration
 uses SSH local forwarding, and its SSH port has no relationship to DDS or TURN.
+
+## Connection Topology Ownership
+
+`elesim-connections` runs on the operator laptop and persists only non-secret
+topology. Schema v2 records an explicit `topology_mode`:
+
+- `full` assigns Controller, UI, Simulator, and Robot exactly once across two to
+  four active hosts; Robot remains constrained to a native Jetson host.
+- `simulation-only` assigns Controller, UI, and Simulator exactly once across
+  one to three container/Compose hosts and contains no Robot/Jetson placeholder.
+
+Both modes mark exactly one host local and allow a host to own multiple roles.
+Schema-v1 documents load as `full` and are normalized on save.
+
+Every host has a DDS address and interface used for runtime UDP. A remote host
+separately has an SSH hostname, port, user, selected identity-file path or agent
+choice, and pinned SHA-256 host-key fingerprint for administration. The values
+may happen to name the same machine, but no DDS locator is derived from SSH and
+an SSH port such as `2222` is never a DDS or WebRTC port. Static peers are
+derived from the active hosts' DDS addresses only.
 
 ## Verification Matrix
 
@@ -203,8 +282,10 @@ Release artifacts have a separate isolation gate. Building release contexts
 builds the ROSIDL interface package, installs each transport-neutral
 support/application wheel pair into a clean temporary target, loads deployment
 configuration, validates the simulator bundle, checks that no sibling
-deployment is visible, and invokes the packaged console entry point with
-`--help`:
+deployment is visible, and invokes each role's primary packaged console entry
+point with `--help`. Robot verification additionally requires both Robot and
+Unitree-bridge console-script metadata, the bridge/IPC modules, and exactly the
+two systemd units:
 
 ```bash
 python3 misc/tooling/release/build.py
@@ -251,5 +332,10 @@ dependency:
 python3 misc/tooling/quality/line_coverage.py controller
 ```
 
-Use the development container when scientific or graphics dependencies are not
-installed on the host.
+Use the setup-generated environment instead of installing scientific or ROS
+dependencies on the host:
+
+```bash
+elesim-dev python3 misc/tooling/quality/check.py --group required
+elesim-dev python3 misc/tooling/quality/check.py --group extended
+```

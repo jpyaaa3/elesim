@@ -8,7 +8,7 @@
 
 This file tracks known unresolved or deferred issues so they do not get lost while higher-priority work continues.
 
-## Current Status (2026-07-24)
+## Current Status (2026-08-03)
 
 This section is authoritative for the deployment-based architecture. The long
 sections below it are retained as pre-refactor evidence; paths and test counts
@@ -85,9 +85,15 @@ there are historical unless repeated here.
 ### P1. DDS Security And Remote Setup Need Live Validation
 
 - Status: open; documented operational limitation.
-- The wizard must generate consistent system/domain/RMW/discovery/interface
-  settings on every host, distinguish `trusted-network` from `sros2`, and
-  validate only the selected role's SROS2 enclave.
+- State schema v7, the non-secret connection topology, separate DDS/SSH
+  endpoints, SROS2 Authority generations, per-host role bundles, pinned SSH
+  host keys and transactional all-host activation/rollback are implemented and
+  software-tested. `external` keystores remain distinct from `managed`
+  generations.
+- `elesim-connections` must keep the complete Authority on the operator laptop,
+  distribute public material plus only each host's assigned enclaves, and fail
+  closed before or roll back after a partial deployment. It must never infer a
+  DDS locator from an SSH hostname/port.
 - `trusted-network` has no DDS encryption and is acceptable only behind a
   deliberate LAN/VPN interface and firewall boundary. `ROS_DOMAIN_ID` is not
   security.
@@ -95,9 +101,29 @@ there are historical unless repeated here.
   co-located Simulator, which issues short-lived session-bound credentials.
   UI must never receive that secret. External TURN can use independently
   provisioned credentials.
-- Required evidence: browser and CLI generation for both profiles, production
-  RMW/SROS2 enforce mode, a non-default SSH GUI-forward port, managed/external
-  Coturn lifecycle, and exact cleanup commands.
+- The previous in-process `UnitreeRos2Bridge` security/context conflict is
+  resolved in software: a dedicated `elesim-unitree-bridge` daemon owns stock
+  local/plaintext Unitree DDS on a distinct private NIC/domain, while Robot
+  uses bounded credential-checked Unix IPC and remains the only inter-host
+  SROS2 participant. Unitree topics are not added to the Elesim policy.
+  Remaining evidence is physical Jetson/GO2 validation of NIC confinement,
+  account/ACL setup and stop deadlines under bridge loss or malformed traffic.
+- Required live evidence: the browser flow on real hosts, production
+  RMW/SROS2 enforce mode including unauthorized publish/subscribe denial, a
+  non-default SSH management port and pinned-key failure, full generation
+  rotation/rollback, managed/external Coturn lifecycle, and exact cleanup
+  commands.
+
+### P1. Fixed Self-Hosted Containers Need Host/GPU Validation
+
+- Status: open for live Docker validation; generators and ownership guards are
+  implemented.
+- General mode uses fixed `elesim-runtime` role containers and Developer mode
+  uses one persistent `elesim-dev` plus optional `elesim-jaeger`; no external
+  personal Compose environment is part of the supported test path.
+- Required evidence: clean install/build/start/down on Ubuntu and WSL, repeated
+  `elesim-dev` shells proving no temporary container proliferation, fixed-name
+  collision diagnostics, NVIDIA/CPU variants, GUI forwarding and Jaeger.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 

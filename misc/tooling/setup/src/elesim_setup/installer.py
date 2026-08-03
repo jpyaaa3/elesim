@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import pwd
 import shlex
 import shutil
 import subprocess
@@ -10,18 +12,66 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-from .configuration import dds_enclave, generate_role_configs, role_directory
+from .configuration import (
+    RobotHostSettings,
+    dds_enclave,
+    generate_role_configs,
+    role_keystore_path,
+    role_directory,
+)
 from .credentials import validate_external_turn_credentials
+from .ownership import (
+    HostUninstallerBundle,
+    OwnershipManifest,
+    OwnershipRefresh,
+    SystemdUnitOwnership,
+    install_host_uninstaller_bundle,
+    ownership_install_uuid,
+    prepare_ownership_refresh,
+    sha256_file,
+    write_ownership_manifest,
+)
+from .security_provisioning import (
+    launch_guard,
+    provisioning_required_path,
+    sync_provisioning_required,
+)
+from .security_views import prepare_role_keystore_views
 from .state import InstallState
 
 
 GO2_MPC_PACKAGE = "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git"
+ROBOT_SYSTEMD_UNIT = "elesim-robot.service"
+UNITREE_BRIDGE_SYSTEMD_UNIT = "elesim-unitree-bridge.service"
+NATIVE_RUNTIME_LOG_RETENTION = 5
+NATIVE_RUNTIME_LOG_BYTES = 10 * 1024 * 1024
+UNITREE_BRIDGE_USER = "elesim-unitree"
 
 
 @dataclass(frozen=True)
 class InstallAction:
     title: str
     detail: str
+
+
+@dataclass(frozen=True)
+class NativeRobotHost:
+    robot_user: str
+    robot_home: Path
+    bridge_user: str
+    unitree_ros_workspace: Path
+    unitree_interface: str
+    unitree_domain_id: int
+
+    @property
+    def config_settings(self) -> RobotHostSettings:
+        return RobotHostSettings(
+            robot_user=self.robot_user,
+            bridge_user=self.bridge_user,
+            ros_workspace=self.unitree_ros_workspace,
+            unitree_interface=self.unitree_interface,
+            unitree_domain_id=self.unitree_domain_id,
+        ).validate()
 
 
 def build_install_plan(state: InstallState) -> tuple[InstallAction, ...]:
@@ -63,6 +113,7 @@ class Installer:
         state: InstallState,
         *,
         state_path: Path | None = None,
+        shell_bashrc: Path | None = None,
         dry_run: bool = False,
         log: Callable[[str], None] = print,
     ) -> None:
@@ -72,10 +123,17 @@ class Installer:
         self.state_path = self.state.state_path if state_path is None else state_path.expanduser().resolve()
         self.dry_run = bool(dry_run)
         self.log = log
+        self._install_uuid = ""
+        self.shell_bashrc = (
+            None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
+        )
+        self.robot_host = _resolve_native_robot_host()
 
     def run(self) -> None:
         self._validate_source()
-        self.state.require_runnable_dds()
+        self.state.require_installable_dds()
+        self._validate_robot_network_boundary()
+        self._validate_unitree_workspace()
         if self.state.turn.mode == "external" and "simulator" in self.state.roles:
             credentials = self.state.turn.credential_path
             if credentials is None:
@@ -86,6 +144,15 @@ class Installer:
                 credentials,
                 urls=self.state.network.turn_urls,
             )
+        ownership_refresh = prepare_ownership_refresh(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+            edition="general",
+            claimed_paths=self._claimed_paths(),
+        )
+        self._install_uuid = ownership_install_uuid(ownership_refresh)
+        prefix_created = not os.path.lexists(self.state.prefix_path)
+        bin_created = not os.path.lexists(self.state.bin_path)
         self._show_plan()
         if self.dry_run:
             self.log("[DRY-RUN] 파일이나 패키지를 변경하지 않았습니다.")
@@ -93,15 +160,149 @@ class Installer:
 
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        prepare_role_keystore_views(self.state)
+        if self.state.dds.managed_security_pending:
+            sync_provisioning_required(self.state)
         self._install_ros_interfaces()
         self._install_tools()
         for role in self.state.roles:
             self._install_role(role)
-        generate_role_configs(self.state)
+        generate_role_configs(
+            self.state,
+            robot_host=self.robot_host.config_settings,
+        )
         self._write_wrappers()
+        robot_services = self._write_robot_service_units()
         state_path = self.state.save(self.state_path)
+        if not self.state.dds.managed_security_pending:
+            sync_provisioning_required(self.state)
+        bundle = install_host_uninstaller_bundle(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+        )
+        manifest = self._write_ownership_manifest(
+            bundle=bundle,
+            services=robot_services,
+            refresh=ownership_refresh,
+            prefix_created=prefix_created,
+            bin_created=bin_created,
+        )
         self.log(f"[완료] 설치 상태: {state_path}")
+        self.log(f"[완료] 제거 소유권: {manifest.path}")
         self.log(f"[다음] 연결 점검: {self.state.bin_path / 'elesim-net'} doctor")
+        self._log_robot_service_registration(robot_services)
+
+    def _claimed_paths(self) -> tuple[Path, ...]:
+        claims = [
+            self.state.prefix_path / "roles",
+            self.state.prefix_path / "ros",
+            self.state.prefix_path / "tools",
+            self.state.prefix_path / "security",
+            self.state.prefix_path / "connections",
+            self.state.prefix_path / "secrets",
+            self.state.prefix_path / "maintenance",
+            *self._wrapper_paths(include_uninstaller=True),
+        ]
+        if _is_within(self.state_path, self.state.prefix_path):
+            claims.append(self.state_path)
+        return tuple(claims)
+
+    def _write_ownership_manifest(
+        self,
+        *,
+        bundle: HostUninstallerBundle,
+        services: Sequence[Path],
+        refresh: OwnershipRefresh | None,
+        prefix_created: bool,
+        bin_created: bool,
+    ) -> OwnershipManifest:
+        inventory_roots: list[Path] = [
+            self.state.prefix_path / "roles",
+            self.state.prefix_path / "ros",
+            self.state.prefix_path / "tools",
+            bundle.root,
+        ]
+        external_paths: list[Path] = []
+        if _is_within(self.state_path, self.state.prefix_path):
+            inventory_roots.append(self.state_path)
+        else:
+            external_paths.append(self.state_path)
+        if (
+            self.state.dds.security_profile == "sros2"
+            and self.state.dds.security_provisioning == "external"
+            and self.state.dds.keystore_path is not None
+        ):
+            external_paths.append(self.state.dds.keystore_path)
+        service_paths = tuple(services)
+        if len(service_paths) != 2:
+            raise ValueError("native Robot install must own exactly two systemd units")
+        units = tuple(
+            SystemdUnitOwnership(
+                name=service.name,
+                destination=f"/etc/systemd/system/{service.name}",
+                sha256=sha256_file(service),
+            )
+            for service in service_paths
+        )
+        created_roots = tuple(
+            path
+            for path, created in (
+                (self.state.prefix_path, prefix_created),
+                (self.state.bin_path, bin_created),
+            )
+            if created
+        )
+        return write_ownership_manifest(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+            edition="general",
+            inventory_roots=inventory_roots,
+            managed_roots=(
+                self.state.prefix_path / "roles",
+                self.state.prefix_path / "ros",
+                self.state.prefix_path / "tools",
+                self.state.prefix_path / "connections",
+                self.state.prefix_path / "security",
+                self.state.prefix_path / "secrets",
+            ),
+            created_roots=created_roots,
+            wrapper_paths=self._wrapper_paths(include_uninstaller=True),
+            log_roots=(self.state.prefix_path / "logs",),
+            authority_roots=(self.state.prefix_path / "authority",),
+            external_paths=external_paths,
+            shell_bashrc=self.shell_bashrc,
+            systemd_units=units,
+            install_uuid=self._install_uuid,
+            refresh=refresh,
+        )
+
+    def _validate_unitree_workspace(self) -> None:
+        if self.dry_run:
+            return
+        setup = self.robot_host.unitree_ros_workspace / "install/setup.bash"
+        if not setup.is_file():
+            raise FileNotFoundError(
+                "Unitree ROS 2 workspace overlay가 없습니다: "
+                f"{setup}. 설치 전에 UNITREE_ROS2_WS 또는 "
+                "ELESIM_UNITREE_ROS2_WS를 실제 workspace로 지정하십시오."
+            )
+
+    def _validate_robot_network_boundary(self) -> None:
+        elesim_interface = self.state.dds.interface.strip()
+        if not elesim_interface:
+            raise ValueError(
+                "Robot 설치는 inter-host Elesim DDS interface를 명시해야 합니다"
+            )
+        if elesim_interface == self.robot_host.unitree_interface:
+            raise ValueError(
+                "Elesim DDS interface와 private Unitree interface가 같습니다. "
+                "ELESIM_UNITREE_INTERFACE 또는 설치 DDS interface를 분리하십시오."
+            )
+        if self.state.dds.domain_id == self.robot_host.unitree_domain_id:
+            raise ValueError(
+                "Elesim ROS domain과 private Unitree domain이 같습니다. "
+                "ELESIM_UNITREE_DOMAIN_ID 또는 설치 DDS domain을 분리하십시오."
+            )
 
     def _show_plan(self) -> None:
         self.log("\n설치 계획")
@@ -167,11 +368,6 @@ class Installer:
         _copy_tree(source / "config", target / "config")
         if role == "simulator":
             _copy_tree(root / "model/bundles/default", target / "model/bundles/default")
-        if role == "robot":
-            _copy_tree(source / "systemd", target / "systemd")
-            if (source / "install.sh").is_file():
-                shutil.copy2(source / "install.sh", target / "install.sh")
-
         python = self._ensure_venv(
             target / "venv",
             system_site_packages=role == "robot",
@@ -255,7 +451,10 @@ class Installer:
                 tool_venv / "elesim-setup",
                 ("--state", str(state_path)),
                 source_ros=self.state.prefix_path / "ros/install/setup.bash",
-                environment=self._dds_environment("doctor"),
+                environment=self._dds_environment(
+                    "doctor",
+                    enclave_override=True,
+                ),
             ),
         )
         _write_executable(
@@ -264,7 +463,10 @@ class Installer:
                 tool_venv / "elesim-net",
                 ("--state", str(state_path)),
                 source_ros=self.state.prefix_path / "ros/install/setup.bash",
-                environment=self._dds_environment("doctor"),
+                environment=self._dds_environment(
+                    "doctor",
+                    enclave_override=True,
+                ),
             ),
         )
         for role in self.state.roles:
@@ -279,12 +481,207 @@ class Installer:
                         **self._dds_environment(role),
                     },
                     source_ros=self.state.prefix_path / "ros/install/setup.bash",
-                    source_unitree=role == "robot",
+                    guard=launch_guard(provisioning_required_path(self.state)),
+                ),
+            )
+        if self.state.roles == ("robot",):
+            role_root = role_directory(self.state, "robot")
+            _write_executable(
+                self.state.bin_path / "elesim-unitree-bridge",
+                _exec_script(
+                    role_root / "venv/bin/elesim-unitree-bridge",
+                    ("--config", str(role_root / "config/installed.yaml")),
+                    source_ros=self.state.prefix_path / "ros/install/setup.bash",
+                    guard=launch_guard(provisioning_required_path(self.state)),
+                ),
+            )
+            _write_executable(
+                self.state.bin_path / "elesim-up",
+                _native_systemctl_wrapper("start"),
+            )
+            _write_executable(
+                self.state.bin_path / "elesim-logs",
+                _native_logs_wrapper(
+                    logs_root=self.state.prefix_path / "logs",
+                    archive_enabled=self.state.runtime_text_logs.enabled,
+                ),
+            )
+            _write_executable(
+                self.state.bin_path / "elesim-down",
+                _native_down_wrapper(
+                    logs_root=self.state.prefix_path / "logs",
+                    archive_enabled=self.state.runtime_text_logs.enabled,
                 ),
             )
 
-    def _dds_environment(self, role: str) -> Mapping[str, str]:
+    def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
+        names = [
+            "elesim-setup",
+            "elesim-net",
+            "elesim-robot",
+            "elesim-unitree-bridge",
+            "elesim-up",
+            "elesim-logs",
+            "elesim-down",
+        ]
+        if include_uninstaller:
+            names.append("elesim-uninstall")
+        return tuple(self.state.bin_path / name for name in names)
+
+    def _write_robot_service_units(self) -> tuple[Path, Path]:
+        """Generate the two native units from this install's exact paths."""
+
+        if self.state.roles != ("robot",):
+            raise ValueError("native installer is reserved for a Robot-only host")
+        role_root = role_directory(self.state, "robot")
+        systemd_root = role_root / "systemd"
+        robot_service = systemd_root / ROBOT_SYSTEMD_UNIT
+        bridge_service = systemd_root / UNITREE_BRIDGE_SYSTEMD_UNIT
+        robot_wrapper = self.state.bin_path / "elesim-robot"
+        bridge_wrapper = self.state.bin_path / "elesim-unitree-bridge"
+        marker = provisioning_required_path(self.state)
+        robot_content = (
+            "[Unit]\n"
+            "Description=Elesim robot hardware endpoint\n"
+            f"After=network-online.target {UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
+            "Wants=network-online.target\n"
+            f"BindsTo={UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
+            f"ConditionPathExists=!{_systemd_quote(marker)}\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f"User={self.robot_host.robot_user}\n"
+            f"SupplementaryGroups={self.robot_host.bridge_user}\n"
+            f"Environment={_systemd_quote(f'HOME={self.robot_host.robot_home}')}\n"
+            f"WorkingDirectory={_systemd_quote(role_root)}\n"
+            f"ExecStart={_systemd_quote(robot_wrapper)}\n"
+            "Restart=on-failure\n"
+            "RestartPreventExitStatus=78\n"
+            "RestartSec=2\n"
+            "TimeoutStopSec=10\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+        )
+        bridge_content = (
+            "[Unit]\n"
+            "Description=Elesim local Unitree DDS bridge\n"
+            "After=network-online.target\n"
+            "Wants=network-online.target\n"
+            f"PartOf={ROBOT_SYSTEMD_UNIT}\n"
+            f"ConditionPathExists=!{_systemd_quote(marker)}\n"
+            "\n"
+            "[Service]\n"
+            "Type=simple\n"
+            f"User={self.robot_host.bridge_user}\n"
+            f"Group={self.robot_host.bridge_user}\n"
+            "UMask=0007\n"
+            "RuntimeDirectory=elesim-unitree\n"
+            "RuntimeDirectoryMode=0750\n"
+            f"WorkingDirectory={_systemd_quote(role_root)}\n"
+            'Environment="ROS_LOG_DIR=/run/elesim-unitree/ros-log"\n'
+            f"ExecStart={_systemd_quote(bridge_wrapper)}\n"
+            "Restart=on-failure\n"
+            "RestartPreventExitStatus=78\n"
+            "RestartSec=2\n"
+            "TimeoutStopSec=10\n"
+            "NoNewPrivileges=true\n"
+            "PrivateTmp=true\n"
+            "ProtectSystem=strict\n"
+            "ProtectHome=read-only\n"
+            "DevicePolicy=closed\n"
+            "InaccessiblePaths=-/etc/elesim/keystore -/etc/elesim/security "
+            f"-{self.state.prefix_path / 'security'} -/dev/ttyUSB0 -/dev/video0\n"
+            "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
+        )
+        _write_regular_file(robot_service, robot_content, mode=0o644)
+        _write_regular_file(bridge_service, bridge_content, mode=0o644)
+        return robot_service, bridge_service
+
+    def _write_robot_service_unit(self) -> Path:
+        """Compatibility helper for callers that only need the Robot unit path."""
+
+        return self._write_robot_service_units()[0]
+
+    def _log_robot_service_registration(self, services: Sequence[Path]) -> None:
+        robot_service, bridge_service = tuple(services)
+        self.log("[Robot systemd] 설치기는 sudo/systemd 상태를 변경하지 않았습니다.")
+        self.log(
+            "$ sudo groupadd --force --system "
+            + shlex.quote(self.robot_host.bridge_user)
+        )
+        self.log(
+            "$ id -u "
+            + shlex.quote(self.robot_host.bridge_user)
+            + " >/dev/null 2>&1 || sudo useradd --system --gid "
+            + shlex.quote(self.robot_host.bridge_user)
+            + " --home-dir /nonexistent --shell /usr/sbin/nologin "
+            + shlex.quote(self.robot_host.bridge_user)
+        )
+        self.log(
+            "$ sudo usermod --append --groups "
+            + shlex.quote(self.robot_host.bridge_user)
+            + " "
+            + shlex.quote(self.robot_host.robot_user)
+        )
+        access_roots = (
+            role_directory(self.state, "robot"),
+            self.state.prefix_path / "ros",
+            self.robot_host.unitree_ros_workspace,
+        )
+        ancestors = _access_ancestors(
+            (*access_roots, self.state.bin_path / "elesim-unitree-bridge")
+        )
+        if ancestors:
+            self.log(
+                "$ sudo setfacl -m u:"
+                + self.robot_host.bridge_user
+                + ":x -- "
+                + " ".join(shlex.quote(str(path)) for path in ancestors)
+            )
+        self.log(
+            "$ sudo setfacl -R -m u:"
+            + self.robot_host.bridge_user
+            + ":rX -- "
+            + " ".join(shlex.quote(str(path)) for path in access_roots)
+        )
+        self.log(
+            "$ sudo setfacl -m u:"
+            + self.robot_host.bridge_user
+            + ":rx -- "
+            + shlex.quote(str(self.state.bin_path / "elesim-unitree-bridge"))
+        )
+        self.log(
+            "$ sudo install -m 0644 -- "
+            + shlex.quote(str(bridge_service))
+            + f" /etc/systemd/system/{UNITREE_BRIDGE_SYSTEMD_UNIT}"
+        )
+        self.log(
+            "$ sudo install -m 0644 -- "
+            + shlex.quote(str(robot_service))
+            + f" /etc/systemd/system/{ROBOT_SYSTEMD_UNIT}"
+        )
+        self.log("$ sudo systemctl daemon-reload")
+        if self.state.dds.managed_security_pending:
+            self.log(f"$ sudo systemctl enable {ROBOT_SYSTEMD_UNIT}")
+            self.log(
+                "[Robot systemd] elesim-connections provisioning이 끝나기 전에는 "
+                "서비스를 시작하지 마십시오."
+            )
+        else:
+            self.log(f"$ sudo systemctl enable --now {ROBOT_SYSTEMD_UNIT}")
+
+    def _dds_environment(
+        self,
+        role: str,
+        *,
+        enclave_override: bool = False,
+    ) -> Mapping[str, str]:
         config_role = role if role in self.state.roles else self.state.roles[0]
+        identity_role = role if role in self.state.roles else self.state.roles[0]
         environment = {
             "ELESIM_SYSTEM_ID": self.state.dds.system_id,
             "ELESIM_DDS_DISCOVERY_MODE": self.state.dds.discovery_mode,
@@ -307,14 +704,20 @@ class Installer:
                 {
                     "ROS_SECURITY_ENABLE": "true",
                     "ROS_SECURITY_STRATEGY": "Enforce",
-                    "ROS_SECURITY_KEYSTORE": self.state.dds.keystore,
-                    "ROS_SECURITY_ENCLAVE_OVERRIDE": dds_enclave(
-                        self.state,
-                        role,
+                    "ROS_SECURITY_KEYSTORE": str(
+                        role_keystore_path(self.state, identity_role)
                     ),
-                    "ELESIM_DDS_ENCLAVE": dds_enclave(self.state, role),
+                    "ELESIM_DDS_ENCLAVE": dds_enclave(
+                        self.state,
+                        identity_role,
+                    ),
                 }
             )
+            if enclave_override:
+                environment["ROS_SECURITY_ENCLAVE_OVERRIDE"] = dds_enclave(
+                    self.state,
+                    identity_role,
+                )
         else:
             environment["ROS_SECURITY_ENABLE"] = "false"
         return environment
@@ -358,7 +761,7 @@ class Installer:
 def preflight_notes(
     roles: Iterable[str],
     *,
-    install_mode: str = "native",
+    install_mode: str = "container",
 ) -> tuple[str, ...]:
     selected = set(roles)
     notes: list[str] = []
@@ -380,6 +783,71 @@ def preflight_notes(
     return tuple(notes)
 
 
+def _resolve_native_robot_host() -> NativeRobotHost:
+    configured_user = os.environ.get("ELESIM_HOST_USER", "").strip()
+    account = None
+    try:
+        account = pwd.getpwuid(os.getuid())
+    except KeyError:
+        pass
+    robot_user = configured_user or (account.pw_name if account is not None else "")
+    configured_home = (
+        os.environ.get("ELESIM_OPERATOR_HOME", "").strip()
+        or os.environ.get("HOME", "").strip()
+        or (account.pw_dir if account is not None else "")
+    )
+    if not configured_home:
+        raise ValueError("native Robot 설치의 host home을 확인할 수 없습니다")
+    robot_home = Path(configured_home).expanduser()
+    if not robot_home.is_absolute():
+        raise ValueError("native Robot host home은 절대 경로여야 합니다")
+    workspace_value = os.environ.get("ELESIM_UNITREE_ROS2_WS", "").strip()
+    if not workspace_value:
+        workspace_value = os.environ.get("UNITREE_ROS2_WS", "").strip()
+    unitree_workspace = (
+        Path(workspace_value).expanduser()
+        if workspace_value
+        else robot_home / "ros2_ws"
+    )
+    unitree_interface = os.environ.get("ELESIM_UNITREE_INTERFACE", "eth0").strip()
+    domain_value = os.environ.get("ELESIM_UNITREE_DOMAIN_ID", "1").strip()
+    try:
+        unitree_domain_id = int(domain_value)
+    except ValueError as exc:
+        raise ValueError("ELESIM_UNITREE_DOMAIN_ID는 0..232 정수여야 합니다") from exc
+    host = NativeRobotHost(
+        robot_user=robot_user,
+        robot_home=robot_home.resolve(),
+        bridge_user=UNITREE_BRIDGE_USER,
+        unitree_ros_workspace=unitree_workspace.resolve(),
+        unitree_interface=unitree_interface,
+        unitree_domain_id=unitree_domain_id,
+    )
+    host.config_settings.validate()
+    return host
+
+
+def _access_ancestors(paths: Iterable[Path]) -> tuple[Path, ...]:
+    """Return exact parent directories that a service account must traverse."""
+
+    result: set[Path] = set()
+    for raw in paths:
+        path = raw.expanduser().resolve()
+        parent = path.parent
+        while parent != parent.parent:
+            result.add(parent)
+            parent = parent.parent
+    return tuple(sorted(result, key=lambda value: (len(value.parts), str(value))))
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.expanduser().resolve().relative_to(root.expanduser().resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def _copy_tree(source: Path, destination: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(source)
@@ -393,10 +861,12 @@ def _exec_script(
     *,
     environment: Mapping[str, str] | None = None,
     source_ros: Path | None = None,
-    source_unitree: bool = False,
+    guard: str = "",
 ) -> str:
     command = shlex.join((str(executable), *(str(value) for value in arguments)))
     lines = ["#!/usr/bin/env bash", "set -euo pipefail"]
+    if guard:
+        lines.extend(guard.rstrip("\n").splitlines())
     if source_ros is not None:
         lines.extend(
             (
@@ -404,15 +874,6 @@ def _exec_script(
                 "source /opt/ros/humble/setup.bash",
             )
         )
-        if source_unitree:
-            lines.extend(
-                (
-                    'unitree_ws="${UNITREE_ROS2_WS:-$HOME/ros2_ws}"',
-                    'if [[ -f "$unitree_ws/install/setup.bash" ]]; then',
-                    '  source "$unitree_ws/install/setup.bash"',
-                    "fi",
-                )
-            )
         lines.append(f"source {shlex.quote(str(source_ros))}")
         lines.append("set -u")
     for name, value in (environment or {}).items():
@@ -429,10 +890,191 @@ def _write_executable(path: Path, content: str) -> None:
     temporary.replace(path)
 
 
+def _write_regular_file(path: Path, content: str, *, mode: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.chmod(mode)
+    temporary.replace(path)
+
+
+def _systemd_quote(value: object) -> str:
+    text = str(value)
+    if "\x00" in text or "\n" in text or "\r" in text:
+        raise ValueError("systemd unit values must be single-line text")
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    return f'"{escaped}"'
+
+
+def _native_systemctl_wrapper(action: str) -> str:
+    if action not in {"start", "stop"}:
+        raise ValueError(f"unsupported Robot systemd action: {action}")
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "if (( $# != 0 )); then\n"
+        f"  printf '사용법: elesim-{'up' if action == 'start' else 'down'}\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        f"exec sudo -n systemctl {action} {ROBOT_SYSTEMD_UNIT}\n"
+    )
+
+
+def _native_archive_function(logs_root: Path) -> str:
+    """Render a bounded journald export for the two native Robot units."""
+
+    return (
+        "archive_path_has_no_symlink_ancestor() {\n"
+        "  local target=$1\n"
+        "  local probe=$target\n"
+        "  local resolved\n"
+        "  while [[ ! -e \"$probe\" && ! -L \"$probe\" ]]; do\n"
+        "    [[ $probe == / ]] && break\n"
+        "    probe=${probe%/*}\n"
+        "    [[ -n $probe ]] || probe=/\n"
+        "  done\n"
+        "  [[ ! -L \"$probe\" ]] || return 1\n"
+        "  resolved=\"$(realpath -e -- \"$probe\")\" || return 1\n"
+        "  [[ $resolved == \"$probe\" ]]\n"
+        "}\n"
+        "archive_runtime_logs() {\n"
+        f"  local logs_root={shlex.quote(str(logs_root))}\n"
+        '  local runs_root="$logs_root/runs"\n'
+        '  if ! archive_path_has_no_symlink_ancestor "$logs_root"; then\n'
+        "    printf '로그 archive 경로에 symlink가 포함될 수 없습니다: %s\\n' "
+        '"$logs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! mkdir -p -- "$runs_root" || '
+        '! archive_path_has_no_symlink_ancestor "$logs_root" || '
+        '! archive_path_has_no_symlink_ancestor "$runs_root" || '
+        '[[ ! -d "$logs_root" || ! -d "$runs_root" ]]; then\n'
+        "    printf '로그 archive 디렉터리를 안전하게 만들 수 없습니다: %s\\n' "
+        '"$runs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! chmod 0700 -- "$logs_root" "$runs_root"; then\n'
+        "    printf '로그 archive 디렉터리 권한 설정 실패: %s\\n' "
+        '"$runs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        "  local timestamp\n"
+        '  if ! timestamp="$(date -u +%Y%m%dT%H%M%S.%NZ)"; then\n'
+        "    printf 'UTC 로그 archive timestamp 생성 실패.\\n' >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        '  local run_dir="$runs_root/$timestamp"\n'
+        '  if [[ -e "$run_dir" || -L "$run_dir" ]] || '
+        '! mkdir -- "$run_dir"; then\n'
+        "    printf '고유 로그 archive 디렉터리 생성 실패: %s\\n' "
+        '"$run_dir" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  chmod 0700 -- "$run_dir" || return 74\n'
+        '  local destination="$run_dir/robot.log"\n'
+        "  local archive_status=0\n"
+        "  if ! sudo -n journalctl --no-pager --output=short-iso-precise "
+        f"--unit={ROBOT_SYSTEMD_UNIT} --unit={UNITREE_BRIDGE_SYSTEMD_UNIT} "
+        f"2>&1 | tail -c {NATIVE_RUNTIME_LOG_BYTES} >\"$destination\"; then\n"
+        "    printf 'Robot journald 로그 저장 실패: %s\\n' "
+        '"$destination" >&2\n'
+        "    archive_status=74\n"
+        "  fi\n"
+        '  chmod 0600 -- "$destination" || archive_status=74\n'
+        "  local -a generations=()\n"
+        "  local candidate name\n"
+        "  shopt -s nullglob\n"
+        '  for candidate in "$runs_root"/*; do\n'
+        '    [[ -d "$candidate" && ! -L "$candidate" ]] || continue\n'
+        '    name="${candidate##*/}"\n'
+        "    [[ $name =~ ^[0-9]{8}T[0-9]{6}\\.[0-9]{9}Z$ ]] || continue\n"
+        '    generations+=("$candidate")\n'
+        "  done\n"
+        f"  if (( ${{#generations[@]}} > {NATIVE_RUNTIME_LOG_RETENTION} )); then\n"
+        "    mapfile -t generations < <(printf '%s\\n' "
+        '"${generations[@]}" | LC_ALL=C sort)\n'
+        f"    local remove_count=$((${{#generations[@]}} - {NATIVE_RUNTIME_LOG_RETENTION}))\n"
+        "    local index\n"
+        "    for ((index = 0; index < remove_count; index++)); do\n"
+        '      candidate="${generations[index]}"\n'
+        '      if [[ -L "$candidate" || ! -d "$candidate" || '
+        '"$candidate" != "$runs_root/"* ]]; then\n'
+        "        printf '안전하지 않은 archive 삭제 대상을 건너뜁니다: %s\\n' "
+        '"$candidate" >&2\n'
+        "        archive_status=74\n"
+        "        continue\n"
+        "      fi\n"
+        '      rm -rf -- "$candidate" || archive_status=74\n'
+        "    done\n"
+        "  fi\n"
+        "  printf '로그 archive: %s\\n' \"$run_dir\"\n"
+        '  return "$archive_status"\n'
+        "}\n"
+    )
+
+
+def _native_logs_wrapper(*, logs_root: Path, archive_enabled: bool) -> str:
+    archive = _native_archive_function(logs_root) if archive_enabled else ""
+    save = (
+        "  archive_runtime_logs\n"
+        if archive_enabled
+        else (
+            "  printf '이 설치에서는 runtime text log archive가 비활성화되어 "
+            "있습니다.\\n' >&2\n"
+            "  exit 64\n"
+        )
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "umask 077\n"
+        + archive
+        + "if (( $# == 0 )); then\n"
+        + "  exec sudo -n journalctl --follow "
+        + f"--unit={ROBOT_SYSTEMD_UNIT} --unit={UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
+        + "fi\n"
+        + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
+        + save
+        + "  exit $?\n"
+        + "fi\n"
+        + "printf '사용법: elesim-logs [--save]\\n' >&2\n"
+        + "exit 64\n"
+    )
+
+
+def _native_down_wrapper(*, logs_root: Path, archive_enabled: bool) -> str:
+    if not archive_enabled:
+        return _native_systemctl_wrapper("stop")
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "umask 077\n"
+        "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-down\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        + _native_archive_function(logs_root)
+        + "archive_status=0\n"
+        + "archive_runtime_logs || archive_status=$?\n"
+        + "stop_status=0\n"
+        + f"sudo -n systemctl stop {ROBOT_SYSTEMD_UNIT} || stop_status=$?\n"
+        + "if (( stop_status != 0 )); then\n"
+        + '  exit "$stop_status"\n'
+        + "fi\n"
+        + 'exit "$archive_status"\n'
+    )
+
+
 __all__ = [
     "GO2_MPC_PACKAGE",
     "InstallAction",
     "Installer",
+    "NativeRobotHost",
+    "NATIVE_RUNTIME_LOG_BYTES",
+    "NATIVE_RUNTIME_LOG_RETENTION",
+    "ROBOT_SYSTEMD_UNIT",
+    "UNITREE_BRIDGE_SYSTEMD_UNIT",
+    "UNITREE_BRIDGE_USER",
     "build_install_plan",
     "preflight_notes",
 ]

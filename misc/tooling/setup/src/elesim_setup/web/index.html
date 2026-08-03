@@ -71,6 +71,7 @@
               <small data-i18n="mode.jaeger.help"></small>
             </span>
           </label>
+          <button id="open-uninstall" type="button" class="secondary danger-button" data-i18n="uninstall.open"></button>
         </section>
 
         <section class="page" data-step="roles">
@@ -79,12 +80,6 @@
             <p data-i18n="roles.subtitle"></p>
           </header>
           <div id="general-roles">
-            <div class="preset-bar" role="group" aria-label="Role presets">
-              <button type="button" data-preset="local" data-i18n="roles.preset.local"></button>
-              <button type="button" data-preset="laptop" data-i18n="roles.preset.laptop"></button>
-              <button type="button" data-preset="compute" data-i18n="roles.preset.compute"></button>
-              <button type="button" data-preset="custom" data-i18n="roles.preset.custom"></button>
-            </div>
             <div id="role-options" class="role-grid"></div>
           </div>
           <div id="developer-roles" class="included-panel" hidden>
@@ -124,6 +119,13 @@
             <span>
               <strong data-i18n="paths.register"></strong>
               <small data-i18n="paths.register.help"></small>
+            </span>
+          </label>
+          <label id="runtime-text-logs-row" class="check-row">
+            <input id="runtime-text-logs" type="checkbox" checked>
+            <span>
+              <strong data-i18n="paths.logs"></strong>
+              <small data-i18n="paths.logs.help"></small>
             </span>
           </label>
         </section>
@@ -212,16 +214,31 @@
           </fieldset>
 
           <div id="sros2-fields" class="subsection" hidden>
-            <div class="field">
-              <label for="dds-keystore" data-i18n="dds.keystore"></label>
-              <div class="input-action">
-                <input id="dds-keystore" type="text" spellcheck="false">
-                <button type="button" class="secondary" data-browse="dds-keystore" data-i18n="action.browse"></button>
+            <fieldset>
+              <legend data-i18n="dds.provisioning"></legend>
+              <div class="choice-list">
+                <label class="choice">
+                  <input type="radio" name="dds-security-provisioning" value="managed" checked>
+                  <span><strong data-i18n="dds.provisioning.managed"></strong><small data-i18n="dds.provisioning.managed.help"></small></span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="dds-security-provisioning" value="external">
+                  <span><strong data-i18n="dds.provisioning.external"></strong><small data-i18n="dds.provisioning.external.help"></small></span>
+                </label>
               </div>
-            </div>
-            <div class="field">
-              <label for="dds-enclave" data-i18n="dds.enclave"></label>
-              <input id="dds-enclave" type="text" spellcheck="false">
+            </fieldset>
+            <div id="sros2-external-fields" hidden>
+              <div class="field">
+                <label for="dds-keystore" data-i18n="dds.keystore"></label>
+                <div class="input-action">
+                  <input id="dds-keystore" type="text" spellcheck="false">
+                  <button type="button" class="secondary" data-browse="dds-keystore" data-i18n="action.browse"></button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="dds-enclave" data-i18n="dds.enclave"></label>
+                <input id="dds-enclave" type="text" spellcheck="false">
+              </div>
             </div>
           </div>
 
@@ -331,6 +348,43 @@
       <button id="browse-cancel" type="button" class="secondary" data-i18n="action.cancel"></button>
       <button id="browse-select" type="button" data-i18n="browse.select"></button>
     </footer>
+  </dialog>
+
+  <dialog id="uninstall-dialog">
+    <header>
+      <h2 data-i18n="uninstall.title"></h2>
+      <button id="uninstall-close" type="button" class="close-button" aria-label="Close">×</button>
+    </header>
+    <p data-i18n="uninstall.help"></p>
+    <div class="field">
+      <label for="uninstall-prefix" data-i18n="uninstall.prefix"></label>
+      <input id="uninstall-prefix" type="text" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="uninstall-confirm-prefix" data-i18n="uninstall.confirm"></label>
+      <input id="uninstall-confirm-prefix" type="text" spellcheck="false" autocomplete="off">
+      <small data-i18n="uninstall.confirm.help"></small>
+    </div>
+    <label class="check-row warning-row">
+      <input id="uninstall-purge-logs" type="checkbox">
+      <span><strong data-i18n="uninstall.purge.logs"></strong><small data-i18n="uninstall.purge.logs.help"></small></span>
+    </label>
+    <label class="check-row warning-row">
+      <input id="uninstall-purge-authority" type="checkbox">
+      <span><strong data-i18n="uninstall.purge.authority"></strong><small data-i18n="uninstall.purge.authority.help"></small></span>
+    </label>
+    <button id="build-uninstall-guide" type="button" class="danger-button" data-i18n="uninstall.generate"></button>
+    <div id="uninstall-commands" hidden>
+      <p data-i18n="uninstall.terminal.help"></p>
+      <div class="command-row">
+        <code id="uninstall-plan-command"></code>
+        <button type="button" class="secondary copy-command" data-copy-target="uninstall-plan-command" data-i18n="action.copy"></button>
+      </div>
+      <div class="command-row">
+        <code id="uninstall-execute-command"></code>
+        <button type="button" class="secondary copy-command" data-copy-target="uninstall-execute-command" data-i18n="action.copy"></button>
+      </div>
+    </div>
   </dialog>
 
   <script src="/app.js" defer></script>

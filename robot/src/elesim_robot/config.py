@@ -13,7 +13,7 @@ from elesim_protocol import DdsRuntimeSettings, SimMappingConfig
 from elesim_robot.go2.config import Go2HardwareConfig
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -152,7 +152,13 @@ def _validate_mapping(config: SimMappingConfig) -> None:
         raise ValueError("mapping.linear_u_limit must lie inside linear_u bounds")
 
 
-def _validate_go2(config: Go2HardwareConfig) -> None:
+def _validate_go2(
+    config: Go2HardwareConfig,
+    *,
+    dds: DdsRuntimeSettings,
+    active: bool,
+    safety: SafetyConfig,
+) -> None:
     if str(config.backend).strip().lower() != "unitree_ros2":
         raise ValueError("go2.backend must be 'unitree_ros2'")
     if str(config.pose_source).strip().lower() not in {"odom", "sportmodestate"}:
@@ -171,6 +177,64 @@ def _validate_go2(config: Go2HardwareConfig) -> None:
             or int(config.ros_domain_id) > 232
         ):
             raise ValueError("go2.ros_domain_id must be in 0..232")
+    socket_path = str(config.ipc_socket_path).strip()
+    if not socket_path or not Path(socket_path).is_absolute():
+        raise ValueError("go2.ipc_socket_path must be an absolute path")
+    if len(socket_path.encode("utf-8")) > 100:
+        raise ValueError("go2.ipc_socket_path is too long for a Unix socket")
+    ipc_users: list[str] = []
+    for name in ("ipc_robot_user", "ipc_bridge_user"):
+        value = str(getattr(config, name)).strip()
+        if (
+            not value
+            or len(value) > 64
+            or any(character.isspace() or character in ":/" for character in value)
+        ):
+            raise ValueError(f"go2.{name} must be a safe local account name")
+        ipc_users.append(value)
+    if ipc_users[0] == ipc_users[1]:
+        raise ValueError("go2 Robot and bridge IPC users must differ")
+    heartbeat = _positive(
+        config.ipc_heartbeat_interval_s,
+        name="go2.ipc_heartbeat_interval_s",
+    )
+    if heartbeat >= float(safety.command_deadman_s):
+        raise ValueError(
+            "go2.ipc_heartbeat_interval_s must be less than "
+            "safety.command_deadman_s"
+        )
+    if not active:
+        return
+    workspace = str(config.ros_workspace).strip()
+    if not workspace or not Path(workspace).is_absolute():
+        raise ValueError(
+            "go2.ros_workspace must be an absolute path when GO2 is enabled"
+        )
+    unitree_interface = str(config.network_interface).strip()
+    elesim_interface = str(dds.network_interface).strip()
+    if not unitree_interface:
+        raise ValueError("go2.network_interface is required when GO2 is enabled")
+    if (
+        len(unitree_interface) > 128
+        or any(
+            character.isspace() or character == "/"
+            for character in unitree_interface
+        )
+    ):
+        raise ValueError("go2.network_interface must be one interface name")
+    if not elesim_interface:
+        raise ValueError(
+            "dds.network_interface is required when GO2 is enabled so the "
+            "Unitree and Elesim graphs cannot overlap"
+        )
+    if unitree_interface == elesim_interface:
+        raise ValueError(
+            "go2.network_interface must differ from dds.network_interface"
+        )
+    if config.ros_domain_id is None:
+        raise ValueError("go2.ros_domain_id is required when GO2 is enabled")
+    if int(config.ros_domain_id) == int(dds.domain_id):
+        raise ValueError("go2.ros_domain_id must differ from dds.domain_id")
 
 
 def _validate_camera(config: CameraConfig) -> None:
@@ -256,9 +320,14 @@ def load_config(path: str | Path) -> RobotConfig:
 
     _validate_arm(arm)
     _validate_mapping(mapping)
-    _validate_go2(go2)
     _validate_camera(camera)
     _validate_safety(safety)
+    _validate_go2(
+        go2,
+        dds=dds,
+        active=go2.is_active(use_go2=use_go2),
+        safety=safety,
+    )
     return RobotConfig(
         endpoint_id=endpoint_id,
         dds=dds,

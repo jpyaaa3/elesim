@@ -2,10 +2,13 @@
 Description=Elesim robot hardware endpoint
 After=network-online.target
 Wants=network-online.target
+BindsTo=elesim-unitree-bridge.service
+After=elesim-unitree-bridge.service
 
 [Service]
 Type=simple
 User=elesim
+SupplementaryGroups=elesim-unitree
 WorkingDirectory=/opt/elesim-robot
 ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source /opt/elesim-robot/ros/install/setup.bash && exec /opt/elesim-robot/venv/bin/elesim-robot --config /etc/elesim/robot.yaml'
 Restart=on-failure

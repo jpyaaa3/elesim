@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.shell import managed_path_block, register_bash_path
+from elesim_setup.shell import (
+    inspect_bash_path,
+    managed_path_block,
+    register_bash_path,
+    unregister_bash_path,
+)
 
 
 def test_managed_path_block_quotes_literal_install_path() -> None:
@@ -42,6 +47,36 @@ def test_register_replaces_previous_managed_path(tmp_path: Path) -> None:
     content = bashrc.read_text(encoding="utf-8")
     assert "/old/bin" not in content
     assert "/new/bin" in content
+
+
+def test_unregister_removes_only_exact_block_and_preserves_other_content(
+    tmp_path: Path,
+) -> None:
+    bashrc = tmp_path / ".bashrc"
+    bashrc.write_text(
+        "export EDITOR=vim\n" + managed_path_block(Path("/opt/elesim/bin")),
+        encoding="utf-8",
+    )
+
+    result = unregister_bash_path(Path("/opt/elesim/bin"), bashrc=bashrc)
+
+    assert result.changed is True
+    assert result.matched is True
+    assert bashrc.read_text(encoding="utf-8") == "export EDITOR=vim\n"
+    assert result.backup is not None
+
+
+def test_unregister_preserves_foreign_or_newer_path_block(tmp_path: Path) -> None:
+    bashrc = tmp_path / ".bashrc"
+    original = managed_path_block(Path("/newer/bin"))
+    bashrc.write_text(original, encoding="utf-8")
+
+    assert inspect_bash_path(Path("/old/bin"), bashrc=bashrc) == "foreign"
+    result = unregister_bash_path(Path("/old/bin"), bashrc=bashrc)
+
+    assert result.changed is False
+    assert result.matched is False
+    assert bashrc.read_text(encoding="utf-8") == original
 
 
 @pytest.mark.parametrize("value", ["/tmp/bad\npath", "/tmp/bad\rpath"])

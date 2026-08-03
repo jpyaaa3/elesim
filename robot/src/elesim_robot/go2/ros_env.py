@@ -93,13 +93,12 @@ def bootstrap_ros_python_path(*, config_workspace: str = "") -> List[str]:
 
 
 def ros_import_hint(*, config_workspace: str = "") -> str:
-    ws = str(config_workspace).strip() or "~/unitree_ros2"
+    ws = str(config_workspace).strip() or "/opt/unitree_ros2"
     return (
         "GO2 ROS2 Python packages were not found. On Jetson, source ROS2 + unitree_ros2, then retry:\n"
         "  source /opt/ros/humble/setup.bash\n"
         f"  source {ws}/install/setup.bash\n"
         "  export UNITREE_ROS2_WS=" + ws + "\n"
-        "  elesim-robot --config /etc/elesim/robot.yaml\n"
-        "Or use: bash misc/scripts/run_robot_jetson.sh\n"
+        "  elesim-unitree-bridge --config /etc/elesim/robot.yaml\n"
         "Verify: python3 -c \"from unitree_api.msg import Request; print('ok')\""
     )

@@ -10,6 +10,7 @@ from elesim_setup.state import (
     DdsSettings,
     InstallState,
     NetworkSettings,
+    RuntimeTextLogSettings,
     STATE_SCHEMA_VERSION,
     TurnSettings,
 )
@@ -24,7 +25,32 @@ def test_profiles_are_router_free() -> None:
         normalize_roles(("router",))
 
 
-def test_state_round_trip_persists_dds_v5(local_state, tmp_path) -> None:
+def test_install_mode_is_centralized_by_runtime_topology(local_state) -> None:
+    assert local_state(roles=("controller", "ui")).validate().install_mode == (
+        "container"
+    )
+    assert local_state(roles=("robot",)).validate().install_mode == "native"
+
+    with pytest.raises(ValueError, match="Docker/Compose"):
+        local_state(
+            roles=("simulator",),
+            install_mode="native",
+        ).validate()
+    with pytest.raises(ValueError, match="generic Ubuntu"):
+        local_state(
+            roles=("robot",),
+            install_mode="container",
+        ).validate()
+    with pytest.raises(ValueError, match="Robot 단독"):
+        local_state(
+            roles=("controller", "robot"),
+            install_mode="native",
+        ).validate()
+
+
+def test_state_round_trip_persists_dds_v7_and_runtime_text_logs(
+    local_state, tmp_path
+) -> None:
     state = local_state(
         roles=("controller", "ui"),
         dds=DdsSettings(
@@ -34,6 +60,7 @@ def test_state_round_trip_persists_dds_v5(local_state, tmp_path) -> None:
             static_peers=("192.0.2.10", "sim.example.com"),
             interface="eth1",
             security_profile="sros2",
+            security_provisioning="external",
             keystore=str(tmp_path / "sros2"),
             enclave="/lab_a",
         ),
@@ -41,13 +68,67 @@ def test_state_round_trip_persists_dds_v5(local_state, tmp_path) -> None:
     path = state.save()
     loaded = InstallState.load(path)
 
-    assert loaded.schema_version == STATE_SCHEMA_VERSION == 5
+    assert loaded.schema_version == STATE_SCHEMA_VERSION == 7
     assert loaded.dds == state.dds
+    assert loaded.runtime_text_logs == RuntimeTextLogSettings(enabled=True)
+    assert loaded.to_dict()["runtime_text_logs"] == {"enabled": True}
     assert loaded.to_dict()["dds"]["static_peers"] == [
         "192.0.2.10",
         "sim.example.com",
     ]
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("source_schema", range(1, 7))
+def test_pre_v7_state_migration_keeps_runtime_text_archive_disabled(
+    local_state,
+    source_schema: int,
+) -> None:
+    raw = local_state(roles=("controller",)).to_dict()
+    raw["schema_version"] = source_schema
+
+    migrated = InstallState.from_dict(raw)
+
+    assert migrated.schema_version == STATE_SCHEMA_VERSION
+    assert migrated.runtime_text_logs.enabled is False
+
+
+def test_runtime_text_log_setting_requires_a_boolean(local_state) -> None:
+    invalid = replace(
+        local_state(),
+        runtime_text_logs=RuntimeTextLogSettings(enabled="yes"),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="boolean"):
+        invalid.validate()
+
+
+def test_state_round_trip_persists_all_runtime_endpoint_ids(local_state) -> None:
+    state = local_state(
+        roles=("controller", "ui"),
+        network=NetworkSettings(
+            simulator_id="sim-west",
+            controller_id="controller-west",
+            ui_id="ui-west",
+            robot_id="robot-west",
+        ),
+    )
+
+    restored = InstallState.from_dict(state.to_dict())
+
+    assert restored.network == state.network
+
+
+def test_pre_v6_state_gets_stable_ui_and_robot_endpoint_defaults(local_state) -> None:
+    raw = local_state(roles=("controller",)).to_dict()
+    raw["schema_version"] = 5
+    raw["network"].pop("ui_id")
+    raw["network"].pop("robot_id")
+
+    restored = InstallState.from_dict(raw)
+
+    assert restored.network.ui_id == "ui-main"
+    assert restored.network.robot_id == "robot-go2"
 
 
 def test_v3_migration_never_invents_static_peer(local_state) -> None:
@@ -113,6 +194,61 @@ def test_v4_external_turn_migration_requires_simulator_credentials(
         migrated.require_runnable_dds()
 
 
+def test_v5_sros2_migrates_to_external_provisioning(local_state, tmp_path) -> None:
+    raw = local_state(
+        roles=("controller",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="external",
+            keystore=str(tmp_path / "sros2"),
+            enclave="/elesim",
+        ),
+    ).to_dict()
+    raw["schema_version"] = 5
+    raw["dds"].pop("security_provisioning")
+    raw["dds"].pop("security_generation")
+    raw["dds"].pop("security_bundle")
+
+    migrated = InstallState.from_dict(raw)
+
+    assert migrated.dds.security_provisioning == "external"
+    assert migrated.dds.security_generation == ""
+    assert migrated.dds.security_bundle == ""
+
+
+def test_managed_sros2_requires_matching_versioned_bundle(tmp_path) -> None:
+    bundle = tmp_path / "security/current"
+    DdsSettings(
+        security_profile="sros2",
+        security_provisioning="managed",
+        security_generation="gen-3",
+        security_bundle=str(bundle),
+        keystore=str(bundle),
+        enclave="/elesim/lab",
+    ).validate()
+
+    with pytest.raises(ValueError, match="generation/bundle"):
+        DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+            keystore=str(bundle),
+            enclave="/elesim/lab",
+        ).validate()
+
+
+def test_pending_managed_sros2_is_installable_but_not_runnable(local_state) -> None:
+    dds = DdsSettings(
+        security_profile="sros2",
+        security_provisioning="managed",
+    ).validate()
+    state = local_state(dds=dds)
+
+    assert dds.managed_security_pending is True
+    assert state.require_installable_dds() is state
+    with pytest.raises(ValueError, match="elesim-connections"):
+        state.require_runnable_dds()
+
+
 def test_external_turn_credentials_are_simulator_only(local_state, tmp_path) -> None:
     network = NetworkSettings(
         turn_urls=("turn:relay.example.com:3478?transport=udp",),
@@ -152,6 +288,7 @@ def test_managed_turn_is_owned_by_simulator_and_requires_sros2(
 ) -> None:
     dds = DdsSettings(
         security_profile="sros2",
+        security_provisioning="external",
         keystore=str(tmp_path / "sros2"),
         enclave="/elesim",
     )

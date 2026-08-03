@@ -30,7 +30,7 @@ from elesim_robot.go2.sport_api import (
 )
 from elesim_robot.go2.sport_state_parser import sportmodestate_to_sample
 from elesim_robot.go2.odom_parser import OdomSample
-from elesim_robot.go2.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic, create_go2_bridge_if_enabled
+from elesim_robot.go2.unitree_ros2_bridge import UnitreeRos2Bridge, _ros_topic
 
 
 class TestSportApi(unittest.TestCase):
@@ -239,11 +239,6 @@ class TestBridgeMock(unittest.TestCase):
         bridge.call_sport_pose("recovery_stand")
         self.assertEqual(published[0][0], API_STOP_MOVE)
         self.assertEqual(published[-1][0], API_RECOVERY_STAND)
-
-    def test_create_bridge_if_disabled(self) -> None:
-        cfg = Go2HardwareConfig(enabled=False)
-        self.assertIsNone(create_go2_bridge_if_enabled(cfg, use_go2=True))
-
 
 if __name__ == "__main__":
     unittest.main()

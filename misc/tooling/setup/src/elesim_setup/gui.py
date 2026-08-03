@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import json
 import secrets
+import shlex
 import threading
 import time
 import urllib.parse
@@ -20,6 +21,7 @@ from .credentials import (
     validate_external_turn_credentials,
 )
 from .request import SetupRequest
+from .ownership import OwnershipManifest, sha256_file
 
 
 InstallRunner = Callable[[SetupRequest, Callable[[str], None]], None]
@@ -93,6 +95,7 @@ class WizardApplication:
                 "dds_static_peers": "",
                 "dds_interface": "",
                 "dds_security_profile": "trusted-network",
+                "dds_security_provisioning": "managed",
                 "dds_keystore": "",
                 "dds_enclave": "",
             },
@@ -174,9 +177,99 @@ class WizardApplication:
             "bin_dir": str(request.bin_dir),
             "gpu_mode": request.compute.gpu_mode,
             "security_profile": request.dds.security_profile,
+            "security_provisioning": request.dds.security_provisioning,
             "turn_mode": request.turn.mode,
+            "runtime_text_logs": request.runtime_text_logs.enabled,
             "register_path": request.register_path,
             "jaeger": request.jaeger,
+        }
+
+    def uninstall_guide(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        """Validate an installed ownership record and render host-only commands.
+
+        The disposable bootstrap GUI intentionally has neither the Docker
+        socket nor a host command channel.  It can therefore guide a clean
+        uninstall without turning a loopback web token into deletion authority.
+        The generated host command performs the complete pre-mutation checks
+        again immediately before removal.
+        """
+
+        prefix_value = payload.get("prefix")
+        confirm_value = payload.get("confirm_prefix")
+        if not isinstance(prefix_value, str) or not prefix_value.strip():
+            raise ValueError("제거할 설치 prefix가 필요합니다")
+        if not isinstance(confirm_value, str):
+            raise ValueError("exact prefix 확인 값이 필요합니다")
+        prefix = Path(prefix_value).expanduser().resolve()
+        self._require_allowed(prefix)
+        manifest_candidates = (
+            prefix / "install-ownership.json",
+            prefix / ".elesim/development/install-ownership.json",
+        )
+        for candidate in manifest_candidates:
+            self._require_allowed(candidate)
+        present = tuple(
+            candidate
+            for candidate in manifest_candidates
+            if candidate.exists() or candidate.is_symlink()
+        )
+        if len(present) != 1:
+            rendered = ", ".join(str(path) for path in manifest_candidates)
+            raise ValueError(
+                "선택한 prefix에서 ownership manifest를 정확히 하나 찾을 수 "
+                f"없습니다: {rendered}"
+            )
+        manifest_path = present[0]
+        manifest = OwnershipManifest.load(manifest_path)
+        if manifest.prefix_path != prefix:
+            raise ValueError(
+                "선택한 prefix와 ownership manifest의 prefix가 다릅니다: "
+                f"{manifest.prefix}"
+            )
+        if confirm_value != manifest.prefix:
+            raise ValueError("확인란에 표시된 exact absolute prefix를 그대로 입력하십시오")
+        uninstaller = manifest.bin_path / "elesim-uninstall"
+        self._require_allowed(uninstaller)
+        wrapper = next(
+            (entry for entry in manifest.wrappers if entry.path == str(uninstaller)),
+            None,
+        )
+        if (
+            wrapper is None
+            or uninstaller.is_symlink()
+            or not uninstaller.is_file()
+            or sha256_file(uninstaller) != wrapper.sha256
+        ):
+            raise ValueError(
+                "ownership manifest가 현재 elesim-uninstall wrapper를 소유하지 "
+                "않거나 파일이 변경되었습니다"
+            )
+        flags: list[str] = []
+        purge_logs = payload.get("purge_logs")
+        if purge_logs is True:
+            flags.append("--purge-logs")
+        elif purge_logs is not None and purge_logs is not False:
+            raise ValueError("purge_logs는 boolean이어야 합니다")
+        purge_authority = payload.get("purge_authority")
+        if purge_authority is True:
+            flags.append("--purge-authority")
+        elif purge_authority is not None and purge_authority is not False:
+            raise ValueError("purge_authority는 boolean이어야 합니다")
+        base = (
+            str(uninstaller),
+            "--manifest",
+            str(manifest.path),
+            *flags,
+        )
+        return {
+            "install_uuid": manifest.install_uuid,
+            "prefix": manifest.prefix,
+            "plan_command": shlex.join((*base, "--plan")),
+            "execute_command": shlex.join(
+                (*base, "--confirm-prefix", manifest.prefix)
+            ),
+            "preserves_logs": "--purge-logs" not in flags,
+            "preserves_authority": "--purge-authority" not in flags,
         }
 
     def start_install(self, payload: Mapping[str, Any]) -> dict[str, object]:
@@ -296,6 +389,11 @@ class WizardRequestHandler(BaseHTTPRequestHandler):
             self._call(
                 lambda: self.server.application.start_install(self._body()),
                 status=HTTPStatus.ACCEPTED,
+            )
+            return
+        if parsed.path == "/api/uninstall/guide":
+            self._call(
+                lambda: self.server.application.uninstall_guide(self._body())
             )
             return
         if parsed.path == "/api/cancel":

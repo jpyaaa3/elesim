@@ -603,7 +603,8 @@ class UnitreeRos2Bridge:
             if domain_id is not None:
                 raise RuntimeError(
                     "this rclpy build cannot create the explicit Unitree ROS "
-                    "domain; upgrade ROS 2 or use the Elesim DDS domain"
+                    "domain; upgrade ROS 2 because sharing the Elesim DDS "
+                    "domain is forbidden"
                 )
             self._context.init(args=list(self._ros_args))
 
@@ -621,14 +622,3 @@ class UnitreeRos2Bridge:
             print(f"[go2_bridge] spin failed: {exc}")
         finally:
             self._spin_ok = False
-
-
-def create_go2_bridge_if_enabled(
-    cfg: Go2HardwareConfig,
-    *,
-    use_go2: bool,
-    ros_args: tuple[str, ...] = (),
-) -> Optional[UnitreeRos2Bridge]:
-    if not cfg.is_active(use_go2=use_go2):
-        return None
-    return UnitreeRos2Bridge(cfg, ros_args=ros_args)

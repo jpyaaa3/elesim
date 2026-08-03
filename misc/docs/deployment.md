@@ -14,15 +14,19 @@ transport-neutral Python support wheel, ROSIDL source at
 `interfaces/elesim_interfaces/`, configuration, direct dependency pins and
 deployment metadata.
 The simulator context additionally contains the prebuilt model bundle.
-`dist/releases/infra` contains the security bootstrap and optional Coturn
-compose files. It also contains the standard-library download bootstrap and
-the independently installable setup/doctor package; these are infrastructure,
-not a fifth runtime deployment.
+`dist/releases/infra` contains the General/development container inputs, the
+standard-library download bootstrap, and the independently installable
+setup/doctor/connection-manager package. These are infrastructure, not a fifth
+runtime deployment. The source-only `misc/infra/coturn` project remains an
+external-relay operator input and is not copied into `dist/releases`.
 
 The build command verifies every generated context by default. It performs a
 clean `--no-deps` temporary install, checks wheel ownership, parses the shipped
-configuration, validates the simulator model bundle, and runs the installed
-entry point with `--help`. To re-run only this verification:
+configuration, validates the simulator model bundle, and runs each role's
+primary installed entry point with `--help`. For Robot it also requires both
+console-script declarations, all bridge/IPC modules, and exactly
+`elesim-robot.service` plus `elesim-unitree-bridge.service`. To re-run only this
+verification:
 
 ```bash
 python3 misc/tooling/release/verify.py dist/releases
@@ -73,6 +77,22 @@ Choose one security profile:
   enforce mode. Install only each deployment's enclave on that host. Keep the
   certificate authority and unrelated role private keys off runtime hosts.
 
+For SROS2, choose one provisioning owner. `external` means the operator supplies
+and rotates the local keystore/enclave outside Elesim. `managed` means
+`elesim-connections` on the operator laptop owns the Authority generation and
+deploys a common-public-plus-assigned-enclaves bundle to each host. Never copy
+the Authority's `private/` tree to a runtime host.
+
+An initial General installation may select `managed` before any key exists.
+That host is deliberately pending: setup writes its runtime/Compose artifacts
+and `<install-root>/security/provisioning-required`, while `elesim-up` and role
+launchers refuse to start. After every role host has been installed, run
+`elesim-connections` on the operator laptop and activate one generation across
+all hosts. The configuration transaction removes the marker only after a
+runnable managed bundle (or an explicit trusted-network configuration) is in
+place; rollback restores the prior marker. External SROS2 installation retains
+the existing requirement for a ready local keystore and enclave.
+
 `ROS_DOMAIN_ID` is not authentication, authorization or isolation. Do not use a
 domain number as the sole protection on shared compute.
 
@@ -87,7 +107,7 @@ For `sros2`, the generated launcher must apply the equivalent of:
 export ROS_SECURITY_ENABLE=true
 export ROS_SECURITY_STRATEGY=Enforce
 export ROS_SECURITY_KEYSTORE=/etc/elesim/keystore
-exec <role-command> --ros-args --enclave /elesim/<role>
+exec <role-command> --ros-args --enclave <configured-role-enclave>
 ```
 
 The UI enclave may publish to Controller operator and Simulator
@@ -99,9 +119,48 @@ least-privilege matrix; a keystore that gives every role wildcard
 publish/subscribe rights defeats the profile.
 
 Ordinary IPv4 NAT, CGNAT and symmetric NAT are unsupported by this peer-to-peer
-topology. Port forwarding on the compute server alone does not make the
-laptop's DDS locators reachable. Use a routed VPN or mutually reachable global
+topology. Port forwarding on one compute host alone does not make another
+host's DDS locators reachable. Use a routed VPN or mutually reachable global
 IPv6. Neither static peers nor TURN change this limit.
+
+### Connection-managed rollout
+
+`elesim-connections` keeps a non-secret topology on the operator laptop. Select
+one explicit mode before assigning roles:
+
+- `full`: assign Controller, Simulator, UI, and Robot exactly once across two to
+  four hosts; Robot is native/Jetson/systemd-only.
+- `simulation-only`: assign Controller, Simulator, and UI exactly once across
+  one to three container/Compose hosts; no Robot or Jetson host is created.
+
+Both modes mark exactly one host local. For each host, record a DDS
+address/interface independently from its optional SSH management
+hostname/port/user/identity path/pinned SHA-256 host fingerprint. Static discovery
+peers come from DDS addresses, never SSH values. Schema-v1 topology files are
+loaded as `full` and saved in schema v2 with the explicit mode.
+
+While the physical Robot host is unavailable, the connection-manager GUI offers
+an ephemeral two-host preflight for exactly two active COM cards. It accepts the
+current mutable DDS hostname/IP without a port, the selected interface (for
+example `tailscale0`), and the remote SSH management host/user/actual sshd port
+(normally 22). It does not save a topology, provision keys, or claim that an
+SSH host-key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
+reachability test such as `python3 -m http.server 8080` is outside the runtime
+topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
+requires the Robot role; `simulation-only` deployment intentionally starts the
+three simulation roles without a physical Robot.
+
+Managed SROS2 rotation creates a complete new generation through the ROS 2
+security CLI. Per-host manifests bind the system, host, generation, assigned
+enclaves and SHA-256 file digests. Deployment performs all-host preflight and
+staging before stopping roles, atomically switches each host's
+`<install-root>/security/current`, restarts and verifies the matching generation.
+If any phase fails, hosts already touched restore their captured configuration
+and their previous role views. Applications do not mount `current` or the
+aggregate generation keystore. They mount only
+`<install-root>/security/roles/<role>`; activation replaces that stable root's
+`public/` and `enclaves/` children while the application is stopped.
+Offline hosts therefore stop the rotation before a mixed live graph is created.
 
 Coturn is optional on a flat LAN. The setup GUI's **managed** option places a
 pinned Coturn service in the Simulator host's generated Compose project. In
@@ -114,9 +173,14 @@ operated outside the generated Elesim project:
 
 ```bash
 docker compose \
-  --env-file dist/releases/infra/coturn/.env \
-  -f dist/releases/infra/coturn/compose.yaml up -d
+  --env-file misc/infra/coturn/.env \
+  -f misc/infra/coturn/compose.yaml up -d
 ```
+
+The four application release contexts intentionally do not copy this standalone
+Coturn project. Managed Coturn is generated into the Simulator host's runtime
+Compose project; an external relay remains independently operated from the
+source infrastructure directory above.
 
 Managed Coturn's REST HMAC secret is mounted into Coturn and the co-located
 Simulator only. Simulator issues bounded-lifetime credentials for itself and
@@ -154,6 +218,15 @@ driver. UI defaults to Mesa software GL inside the X11 container; set
 `ELESIM_UI_SOFTWARE_GL=0` only after validating host/container graphics driver
 compatibility.
 
+The Compose project name is fixed as `elesim-runtime`. Selected long-running
+containers are `elesim-pilot`, `elesim-ui`, and `elesim-sim`, using
+images `elesim/<role>:local`; managed TURN adds `elesim-coturn`. Robot is not a
+generic container. Because names are fixed, a second general installation on
+the same host is rejected rather than assigned an opaque hash-derived name.
+These are container aliases only; the `controller`/`simulator` role keys and
+their `elesim-controller`/`elesim-simulator` application commands remain
+unchanged.
+
 Build a role by loading the generated wheel names:
 
 ```bash
@@ -164,7 +237,7 @@ set +a
 docker build \
   --build-arg PROTOCOL_WHEEL="$PROTOCOL_WHEEL" \
   --build-arg APP_WHEEL="$APP_WHEEL" \
-  -t elesim-simulator .
+  -t elesim/simulator:local .
 ```
 
 Use the same command in `controller` or `ui`, changing only the image tag.
@@ -193,9 +266,35 @@ the selected ref. The image includes all role dependencies and uses a persistent
 container and `elesim-dev` opens a shell. Optional Jaeger is profile-gated and
 starts only through `elesim-jaeger-up`.
 
+The project is `elesim-dev-stack`, its image is `elesim/dev:local`, and its
+only persistent coding container is `elesim-dev`; optional tracing adds the
+separate `elesim-jaeger`. The `elesim-dev` command uses Compose `exec` into that
+container, so repeated shells do not create randomly named temporary
+containers. It contains the project-owned ROS/scientific test stack and is the
+canonical replacement for external personal development Compose environments.
+The connection GUI runs, when requested, in a removable `elesim-manager`
+one-shot container. That tool alone receives the Docker socket; it does not
+become a fifth persistent development/runtime application.
+
 This mode mounts `/dev`, uses host network/IPC, and is privileged. Use it only
 on an owned Ubuntu/WSL amd64 workstation. WSLg mounts are generated only when
 the outer bootstrap detected WSLg on the host.
+
+## Per-Host Ownership And Removal
+
+Every installed machine owns and removes only its local role selection. Run
+that machine's `elesim-uninstall --plan` locally; neither
+`elesim-connections` nor SSH forwarding is a fleet-wide deletion mechanism.
+The manifest binds the install UUID to exact Compose metadata, local image
+labels, wrapper hashes and—on Robot—both generated systemd unit hashes. A
+foreign container, modified wrapper, nested mount or same-name foreign unit
+aborts before any mutation.
+
+Text log snapshots and the operator laptop's SROS2 Authority are preserved by
+default. Runtime configuration, managed host role keys and generated secrets
+are removed. External credentials/keystores and Developer source checkout are
+always outside the deletion boundary. Label commands with the host that owns
+them and never substitute a remote prefix into a laptop uninstaller command.
 
 ## Remote Compute Server
 
@@ -239,19 +338,52 @@ SSH's port is unrelated to DDS, RGBD, or TURN ports.
 
 ## Robot Jetson
 
-Copy only `dist/releases/robot` to the Jetson, then run:
+For a connection-manager-owned topology, run the setup wizard on the Jetson and
+select **Robot only**. Setup generates `elesim-robot.service` and
+`elesim-unitree-bridge.service` and prints exact account/group, ACL, unit
+registration and enable commands without running `sudo`. The Robot unit runs as
+the invoking account and owns the Elesim DDS/SROS2 participant, hardware and
+local safety. The bridge runs as the dedicated `elesim-unitree` account and
+owns only stock local/plaintext Unitree DDS.
+
+Bind the bridge to the private Jetson-to-GO2 physical NIC and a domain distinct
+from the Elesim graph. Bind Elesim DDS to its LAN/VPN interface. The two
+interfaces must differ; never expose Unitree topics on Tailscale or the shared
+lab LAN. The only process boundary between them is the credential-checked,
+bounded `/run/elesim-unitree/bridge.sock`. A disconnect, malformed packet or
+keepalive expiry commands a GO2 stop within the configured deadman/tick bound,
+while Robot continues the arm safe-hold/torque-off path independently.
+
+The generated wrappers preserve saved DDS configuration, role-scoped SROS2
+keys, provisioning guards and later rotations. The bridge wrapper does not
+receive the Elesim SROS2 enclave and Unitree topics are absent from the Elesim
+security policy. Set `UNITREE_ROS2_WS` or `ELESIM_UNITREE_ROS2_WS` before
+bootstrap if the workspace is not `$HOME/ros2_ws`. Override the private-link
+defaults (`eth0`, domain `1`) with `ELESIM_UNITREE_INTERFACE` and
+`ELESIM_UNITREE_DOMAIN_ID` before bootstrap when required.
+
+`dist/releases/robot` is a separate standalone/manual artifact. Its fixed
+`/opt/elesim-robot` unit and `/etc/elesim/robot.yaml` layout do **not** expose an
+`install-state.json`, `elesim-net`, stable role-key views, or the managed
+connection-manager lifecycle. Do not register that release tree as a managed
+Robot host. If a deliberately standalone, non-managed deployment is required,
+its legacy layout is:
 
 ```bash
 cd /opt/elesim-robot
 bash install.sh
-sudo cp systemd/elesim-robot.service /etc/systemd/system/
-sudo cp config/default.yaml /etc/elesim/robot.yaml
-sudo systemctl daemon-reload
-sudo systemctl enable --now elesim-robot
 ```
 
-The Jetson artifact contains no UI, controller workflow, Genesis, source
-assets or model builder.
+The script builds the overlay and venv, verifies both service artifacts, and
+then prints the remaining administrator prerequisites. It does not create the
+`elesim`/`elesim-unitree` accounts or group, copy `/etc/elesim/robot.yaml`,
+register either unit, or start systemd. Complete all printed prerequisites and
+make the config's IPC users, Unitree workspace, private interface and domain
+match the two fixed units before enabling `elesim-robot.service`.
+
+The standalone Jetson artifact contains no UI, controller workflow, Genesis,
+source assets or model builder. Adapting it to a managed topology is future
+release-packaging work, not an automatic setup fallback.
 
 ## Development Model Rebuild
 

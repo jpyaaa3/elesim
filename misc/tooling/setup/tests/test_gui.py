@@ -9,6 +9,10 @@ import pytest
 
 from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.gui import WizardApplication, web_root
+from elesim_setup.ownership import (
+    install_host_uninstaller_bundle,
+    write_ownership_manifest,
+)
 
 
 def _capabilities() -> HostCapabilities:
@@ -40,8 +44,16 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     script = (root / "app.js").read_text(encoding="utf-8")
     assert 'byId("dds-domain-id").value = context.defaults.dds_domain_id;' in script
     assert '"dds-security-profile"' in script
+    assert '"dds-security-provisioning"' in script
     assert 'const roleOrder = ["simulator", "controller", "ui", "robot"];' in script
+    assert 'const defaultGeneralRoles = ["simulator", "controller", "ui"];' in script
+    assert "data-preset" not in script
+    assert "applyPreset" not in script
+    assert "preset-bar" not in (root / "index.html").read_text(encoding="utf-8")
+    assert not any(key.startswith("roles.preset.") for key in catalog["ko"])
     assert '"turn-credential-file"' in script
+    assert 'runtime_text_logs: {' in script
+    assert 'byId("runtime-text-logs").checked' in script
     assert "router-host" not in script
 
 
@@ -64,9 +76,137 @@ def test_context_defaults_to_original_invocation_directory(tmp_path: Path) -> No
 
     assert context["defaults"]["prefix"] == str(invocation)
     assert context["defaults"]["bin_dir"] == str(invocation / "bin")
+    assert context["defaults"]["dds_security_provisioning"] == "managed"
     assert context["repository"] == "owner/repo"
     assert context["ref"] == "feature"
     assert context["capabilities"]["robot_installable"] is False
+
+
+def test_gui_validation_reports_runtime_text_log_choice(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    app = WizardApplication(
+        source_root=source,
+        invocation_dir=tmp_path,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        runner=lambda _request, _log: None,
+    )
+    payload = {
+        "language": "ko",
+        "edition": "general",
+        "roles": ["simulator"],
+        "prefix": str(tmp_path / "install"),
+        "bin_dir": str(tmp_path / "install/bin"),
+        "gpu_mode": "cpu",
+        "dds_security_profile": "trusted-network",
+        "turn_mode": "none",
+        "runtime_text_logs": {"enabled": False},
+    }
+
+    assert app.validate_request(payload)["runtime_text_logs"] is False
+
+
+def test_gui_uninstall_guide_validates_manifest_and_emits_host_commands(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    prefix = tmp_path / "install"
+    bin_dir = tmp_path / "bin"
+    prefix.mkdir()
+    bin_dir.mkdir()
+    generated = prefix / "install-state.json"
+    generated.write_text("{}\n", encoding="utf-8")
+    bundle = install_host_uninstaller_bundle(prefix=prefix, bin_dir=bin_dir)
+    manifest = write_ownership_manifest(
+        prefix=prefix,
+        bin_dir=bin_dir,
+        edition="general",
+        inventory_roots=(generated, bundle.root),
+        managed_roots=(),
+        created_roots=(prefix, bin_dir),
+        wrapper_paths=(bundle.wrapper,),
+    )
+    app = WizardApplication(
+        source_root=source,
+        invocation_dir=tmp_path,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        allowed_roots=(tmp_path,),
+        runner=lambda _request, _log: None,
+    )
+
+    guide = app.uninstall_guide(
+        {
+            "prefix": str(prefix),
+            "confirm_prefix": str(prefix),
+            "purge_logs": False,
+            "purge_authority": False,
+        }
+    )
+
+    assert guide["install_uuid"] == manifest.install_uuid
+    assert f"--manifest {manifest.path}" in guide["plan_command"]
+    assert guide["plan_command"].endswith("--plan")
+    assert f"--confirm-prefix {prefix}" in guide["execute_command"]
+    assert guide["preserves_logs"] is True
+    assert guide["preserves_authority"] is True
+
+    bundle.wrapper.write_text("foreign\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="변경"):
+        app.uninstall_guide(
+            {"prefix": str(prefix), "confirm_prefix": str(prefix)}
+        )
+
+
+def test_gui_uninstall_guide_finds_developer_nested_manifest(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    workspace = tmp_path / "workspace"
+    bin_dir = tmp_path / "bin"
+    generated = workspace / ".elesim/development"
+    workspace.mkdir()
+    bin_dir.mkdir()
+    generated.mkdir(parents=True)
+    manifest_path = generated / "install-ownership.json"
+    bundle = install_host_uninstaller_bundle(
+        prefix=workspace,
+        bin_dir=bin_dir,
+        manifest_path=manifest_path,
+        bundle_root=generated / "maintenance",
+    )
+    manifest = write_ownership_manifest(
+        prefix=workspace,
+        bin_dir=bin_dir,
+        edition="developer",
+        inventory_roots=(bundle.root,),
+        managed_roots=(generated,),
+        created_roots=(),
+        wrapper_paths=(bundle.wrapper,),
+        manifest_path=manifest_path,
+    )
+    app = WizardApplication(
+        source_root=source,
+        invocation_dir=tmp_path,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        allowed_roots=(tmp_path,),
+        runner=lambda _request, _log: None,
+    )
+
+    guide = app.uninstall_guide(
+        {"prefix": str(workspace), "confirm_prefix": str(workspace)}
+    )
+
+    assert guide["install_uuid"] == manifest.install_uuid
+    assert f"--manifest {manifest_path}" in guide["plan_command"]
 
 
 def test_directory_browser_cannot_escape_mounted_roots(tmp_path: Path) -> None:

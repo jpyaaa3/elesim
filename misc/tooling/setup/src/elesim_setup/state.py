@@ -13,18 +13,20 @@ from typing import Any, Mapping
 from .profiles import normalize_roles
 
 
-STATE_SCHEMA_VERSION = 5
-SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, 3, 4, STATE_SCHEMA_VERSION})
+STATE_SCHEMA_VERSION = 7
+SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6, STATE_SCHEMA_VERSION})
 GPU_MODES = frozenset({"inherit", "specific", "cpu"})
 INSTALL_MODES = frozenset({"native", "container"})
 TURN_MODES = frozenset({"none", "managed", "external"})
 DDS_DISCOVERY_MODES = frozenset({"multicast", "static"})
 DDS_SECURITY_PROFILES = frozenset({"trusted-network", "sros2"})
+DDS_SECURITY_PROVISIONING = frozenset({"none", "external", "managed"})
 DDS_RMW_IMPLEMENTATIONS = frozenset({"rmw_cyclonedds_cpp"})
 DEFAULT_PREFIX = Path("~/.local/share/elesim").expanduser()
 DEFAULT_BIN_DIR = Path("~/.local/bin").expanduser()
 _ROS_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _RMW_NAME = re.compile(r"^rmw_[a-z0-9_]{1,120}$")
+_SECURITY_GENERATION = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,95}$")
 
 
 @dataclass(frozen=True)
@@ -34,10 +36,14 @@ class NetworkSettings:
     turn_urls: tuple[str, ...] = ()
     simulator_id: str = "sim-default"
     controller_id: str = "controller-main"
+    ui_id: str = "ui-main"
+    robot_id: str = "robot-go2"
 
     def validate(self) -> "NetworkSettings":
         _validate_identifier(self.simulator_id, name="simulator_id")
         _validate_identifier(self.controller_id, name="controller_id")
+        _validate_identifier(self.ui_id, name="ui_id")
+        _validate_identifier(self.robot_id, name="robot_id")
         for value in self.turn_urls:
             url = str(value).strip()
             if (
@@ -60,6 +66,9 @@ class DdsSettings:
     static_peers: tuple[str, ...] = ()
     interface: str = ""
     security_profile: str = "trusted-network"
+    security_provisioning: str = "none"
+    security_generation: str = ""
+    security_bundle: str = ""
     keystore: str = ""
     enclave: str = ""
 
@@ -97,14 +106,55 @@ class DdsSettings:
             raise ValueError(
                 f"지원하지 않는 DDS security profile: {self.security_profile!r}"
             )
+        if self.security_provisioning not in DDS_SECURITY_PROVISIONING:
+            raise ValueError(
+                "지원하지 않는 DDS security provisioning: "
+                f"{self.security_provisioning!r}"
+            )
+        if not isinstance(self.security_generation, str):
+            raise ValueError("DDS security generation은 문자열 식별자여야 합니다")
+        generation = self.security_generation.strip()
+        if generation and not _SECURITY_GENERATION.fullmatch(generation):
+            raise ValueError(
+                "DDS security generation은 소문자/숫자로 시작하는 안전한 식별자여야 합니다"
+            )
+        bundle = str(self.security_bundle).strip()
         keystore = str(self.keystore).strip()
         enclave = str(self.enclave).strip()
         if bool(keystore) != bool(enclave):
             raise ValueError("SROS2 keystore와 enclave는 함께 지정해야 합니다")
-        if self.security_profile == "trusted-network" and (keystore or enclave):
+        if self.security_profile == "trusted-network" and (
+            self.security_provisioning != "none"
+            or generation
+            or bundle
+            or keystore
+            or enclave
+        ):
             raise ValueError(
-                "trusted-network profile에는 SROS2 keystore/enclave를 지정할 수 없습니다"
+                "trusted-network profile에는 SROS2 provisioning/generation/"
+                "bundle/keystore/enclave를 지정할 수 없습니다"
             )
+        if self.security_profile == "sros2":
+            if self.security_provisioning == "none":
+                raise ValueError("sros2 profile에는 security provisioning이 필요합니다")
+            if self.security_provisioning == "external" and (generation or bundle):
+                raise ValueError(
+                    "external SROS2 provisioning에는 managed generation/bundle을 "
+                    "지정할 수 없습니다"
+                )
+            if self.security_provisioning == "managed":
+                managed_values = (generation, bundle, keystore, enclave)
+                if any(managed_values) and not all(managed_values):
+                    raise ValueError(
+                        "managed SROS2 provisioning은 아직 provision되지 않은 all-empty "
+                        "상태이거나 generation/bundle/keystore/enclave가 모두 필요합니다"
+                    )
+                if bundle and Path(bundle).expanduser().resolve() != Path(
+                    keystore
+                ).expanduser().resolve():
+                    raise ValueError(
+                        "managed SROS2 keystore는 role bundle 경로와 같아야 합니다"
+                    )
         if enclave and (not enclave.startswith("/") or ".." in Path(enclave).parts):
             raise ValueError("SROS2 enclave는 '..'이 없는 절대 ROS 경로여야 합니다")
         return self
@@ -115,11 +165,34 @@ class DdsSettings:
         return None if not value else Path(value).expanduser().resolve()
 
     @property
+    def security_bundle_path(self) -> Path | None:
+        value = str(self.security_bundle).strip()
+        return None if not value else Path(value).expanduser().resolve()
+
+    @property
     def migrated_security_needs_configuration(self) -> bool:
         return (
             self.security_profile == "sros2"
+            and self.security_provisioning == "external"
             and not self.keystore.strip()
             and not self.enclave.strip()
+        )
+
+    @property
+    def managed_security_pending(self) -> bool:
+        """Whether a managed profile is installable but has no runtime bundle yet."""
+
+        return self.security_profile == "sros2" and (
+            self.security_provisioning == "managed"
+            and not any(
+                str(value).strip()
+                for value in (
+                    self.security_generation,
+                    self.security_bundle,
+                    self.keystore,
+                    self.enclave,
+                )
+            )
         )
 
 
@@ -146,6 +219,18 @@ class ComputeSettings:
                 raise ValueError("GPU index는 0 이상이어야 합니다")
         elif device:
             raise ValueError("gpu_device는 specific GPU 모드에서만 지정할 수 있습니다")
+        return self
+
+
+@dataclass(frozen=True)
+class RuntimeTextLogSettings:
+    """Local plain-text snapshots of this install's managed runtime logs."""
+
+    enabled: bool = True
+
+    def validate(self) -> "RuntimeTextLogSettings":
+        if not isinstance(self.enabled, bool):
+            raise ValueError("runtime text log enabled 값은 boolean이어야 합니다")
         return self
 
 
@@ -214,7 +299,10 @@ class InstallState:
     dds: DdsSettings = field(default_factory=DdsSettings)
     compute: ComputeSettings = field(default_factory=ComputeSettings)
     turn: TurnSettings = field(default_factory=TurnSettings)
-    install_mode: str = "native"
+    runtime_text_logs: RuntimeTextLogSettings = field(
+        default_factory=RuntimeTextLogSettings
+    )
+    install_mode: str = "container"
     install_go2_mpc: bool = True
     schema_version: int = STATE_SCHEMA_VERSION
 
@@ -240,19 +328,30 @@ class InstallState:
                 f"설치 상태 schema {self.schema_version!r}는 지원되지 않습니다; "
                 f"expected {STATE_SCHEMA_VERSION}"
             )
-        normalize_roles(self.roles)
+        roles = normalize_roles(self.roles)
         if not self.prefix.strip() or not self.bin_dir.strip() or not self.source_root.strip():
             raise ValueError("prefix, bin_dir와 source_root가 필요합니다")
         self.network.validate()
         self.dds.validate()
         self.compute.validate()
         self.turn.validate()
+        self.runtime_text_logs.validate()
         if self.install_mode not in INSTALL_MODES:
             raise ValueError(f"지원하지 않는 설치 방식: {self.install_mode!r}")
-        if self.install_mode == "container" and "robot" in self.roles:
+        if "robot" in roles and roles != ("robot",):
+            raise ValueError(
+                "Robot native 설치는 다른 역할과 분리한 Robot 단독 "
+                "설치여야 합니다"
+            )
+        if roles == ("robot",) and self.install_mode != "native":
             raise ValueError(
                 "Robot Jetson은 generic Ubuntu 컨테이너로 설치할 수 없습니다. "
                 "JetPack/L4T, ROS2와 unitree_ros2가 준비된 Jetson에서 native 설치를 사용하십시오"
+            )
+        if roles != ("robot",) and self.install_mode != "container":
+            raise ValueError(
+                "Simulator, Controller와 UI는 일반 Docker/Compose 설치만 "
+                "지원합니다; native 설치는 Robot Jetson 단독 전용입니다"
             )
         has_turn_urls = bool(self.network.turn_urls)
         if self.turn.mode == "none" and has_turn_urls:
@@ -280,7 +379,9 @@ class InstallState:
             )
         return self
 
-    def require_runnable_dds(self) -> "InstallState":
+    def require_installable_dds(self) -> "InstallState":
+        """Validate artifacts that can be generated before managed provisioning."""
+
         self.validate()
         if self.dds.discovery_mode == "static" and not self.dds.static_peers:
             raise ValueError(
@@ -303,6 +404,17 @@ class InstallState:
             )
         return self
 
+    def require_runnable_dds(self) -> "InstallState":
+        """Fail closed unless this state has usable DDS runtime credentials."""
+
+        self.require_installable_dds()
+        if self.dds.managed_security_pending:
+            raise ValueError(
+                "managed SROS2 role bundle이 아직 provision되지 않았습니다. "
+                "operator laptop에서 elesim-connections를 실행하십시오"
+            )
+        return self
+
     def to_dict(self) -> dict[str, Any]:
         raw = asdict(self)
         raw["roles"] = list(self.roles)
@@ -322,11 +434,21 @@ class InstallState:
         compute_raw = raw.get("compute", {})
         turn_raw = raw.get("turn", {})
         dds_raw = raw.get("dds", {})
+        runtime_text_logs_raw = raw.get("runtime_text_logs", {})
         if not all(
             isinstance(value, Mapping)
-            for value in (network_raw, compute_raw, turn_raw, dds_raw)
+            for value in (
+                network_raw,
+                compute_raw,
+                turn_raw,
+                dds_raw,
+                runtime_text_logs_raw,
+            )
         ):
-            raise ValueError("설치 상태의 network/dds/compute/turn이 object가 아닙니다")
+            raise ValueError(
+                "설치 상태의 network/dds/compute/turn/runtime_text_logs가 "
+                "object가 아닙니다"
+            )
 
         network_values = dict(network_raw)
         network_values["turn_urls"] = tuple(network_values.get("turn_urls", ()))
@@ -334,6 +456,8 @@ class InstallState:
             turn_urls=network_values["turn_urls"],
             simulator_id=str(network_values.get("simulator_id", "sim-default")),
             controller_id=str(network_values.get("controller_id", "controller-main")),
+            ui_id=str(network_values.get("ui_id", "ui-main")),
+            robot_id=str(network_values.get("robot_id", "robot-go2")),
         )
         if source_schema < 3:
             turn_raw = {
@@ -351,10 +475,23 @@ class InstallState:
                 security_profile=(
                     "sros2" if legacy_security == "curve" else "trusted-network"
                 ),
+                security_provisioning=(
+                    "external" if legacy_security == "curve" else "none"
+                ),
             )
         else:
             dds_values = dict(dds_raw)
             dds_values["static_peers"] = tuple(dds_values.get("static_peers", ()))
+            if source_schema < 6:
+                dds_values.setdefault(
+                    "security_provisioning",
+                    "external"
+                    if str(dds_values.get("security_profile", "trusted-network"))
+                    == "sros2"
+                    else "none",
+                )
+                dds_values.setdefault("security_generation", "")
+                dds_values.setdefault("security_bundle", "")
             dds = DdsSettings(**dds_values)
 
         turn_values = dict(turn_raw)
@@ -379,13 +516,20 @@ class InstallState:
                     Path(legacy_root).expanduser().resolve() / "turn.secret"
                 )
 
+        roles = tuple(
+            role
+            for role in (str(value) for value in raw.get("roles", ()))
+            if role != "router"
+        )
+        install_mode = str(
+            raw.get(
+                "install_mode",
+                "native" if normalize_roles(roles) == ("robot",) else "container",
+            )
+        )
         return cls(
             profile=str(raw.get("profile", "custom")),
-            roles=tuple(
-                role
-                for role in (str(value) for value in raw.get("roles", ()))
-                if role != "router"
-            ),
+            roles=roles,
             prefix=str(raw.get("prefix", "")),
             bin_dir=str(raw.get("bin_dir", "")),
             source_root=str(raw.get("source_root", "")),
@@ -393,7 +537,14 @@ class InstallState:
             dds=dds,
             compute=ComputeSettings(**dict(compute_raw)),
             turn=TurnSettings(**turn_values),
-            install_mode=str(raw.get("install_mode", "native")),
+            # Existing installations did not opt into persistent plain-text
+            # archives. Migration therefore preserves their previous behavior.
+            runtime_text_logs=(
+                RuntimeTextLogSettings(enabled=False)
+                if source_schema < 7
+                else RuntimeTextLogSettings(**dict(runtime_text_logs_raw))
+            ),
+            install_mode=install_mode,
             install_go2_mpc=bool(raw.get("install_go2_mpc", True)),
             schema_version=STATE_SCHEMA_VERSION,
         ).validate()
@@ -464,6 +615,7 @@ __all__ = [
     "DDS_DISCOVERY_MODES",
     "DDS_RMW_IMPLEMENTATIONS",
     "DDS_SECURITY_PROFILES",
+    "DDS_SECURITY_PROVISIONING",
     "DEFAULT_BIN_DIR",
     "DEFAULT_PREFIX",
     "ComputeSettings",
@@ -472,6 +624,7 @@ __all__ = [
     "INSTALL_MODES",
     "InstallState",
     "NetworkSettings",
+    "RuntimeTextLogSettings",
     "STATE_SCHEMA_VERSION",
     "TURN_MODES",
     "TurnSettings",

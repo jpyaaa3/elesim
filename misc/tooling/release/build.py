@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from misc.tooling.release.verify import verify_release_tree
+from misc.tooling.release.verify import ROBOT_SYSTEMD_UNITS, verify_release_tree
 
 
 RELEASE_PROJECTS = ("controller", "ui", "robot", "simulator")
@@ -118,6 +118,29 @@ def copy_interfaces(source: Path, release: Path) -> None:
     )
 
 
+def copy_robot_runtime(project: Path, release: Path) -> None:
+    """Copy the complete, exact standalone Robot service surface."""
+    install_script = project / "install.sh"
+    if not install_script.is_file():
+        raise FileNotFoundError(f"Robot install script is missing: {install_script}")
+    units = project / "systemd"
+    missing = [
+        units / name
+        for name in ROBOT_SYSTEMD_UNITS
+        if not (units / name).is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(
+            "Robot systemd service set is incomplete: "
+            + ", ".join(str(path) for path in missing)
+        )
+    shutil.copy2(install_script, release / "install.sh")
+    destination = release / "systemd"
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in sorted(ROBOT_SYSTEMD_UNITS):
+        shutil.copy2(units / name, destination / name)
+
+
 def copy_infrastructure(source: Path, release_root: Path) -> None:
     destination = release_root / "infra"
     destination.mkdir(parents=True, exist_ok=True)
@@ -177,8 +200,7 @@ def main() -> None:
         if (project / "Dockerfile").is_file():
             shutil.copy2(project / "Dockerfile", release / "Dockerfile")
         if name == "robot":
-            copy_tree(project / "systemd", release / "systemd")
-            shutil.copy2(project / "install.sh", release / "install.sh")
+            copy_robot_runtime(project, release)
         if name == "simulator":
             copy_simulator_bundle(ROOT / "model", release)
         copy_interfaces(ROOT / "packages/elesim_interfaces", release)

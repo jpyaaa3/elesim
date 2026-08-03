@@ -9,12 +9,9 @@ if (query.get("token")) {
 const token = sessionStorage.getItem("elesimSetupToken") || "";
 const steps = ["mode", "roles", "paths", "compute", "network", "review", "install"];
 const roleOrder = ["simulator", "controller", "ui", "robot"];
-const presets = {
-  local: ["simulator", "controller", "ui"],
-  laptop: ["controller", "ui"],
-  compute: ["simulator"],
-  custom: []
-};
+// The initial selection is only a convenience; every role remains an explicit
+// checkbox and can be changed independently by the operator.
+const defaultGeneralRoles = ["simulator", "controller", "ui"];
 
 let catalog = {};
 let language = "ko";
@@ -84,7 +81,7 @@ function renderRoles() {
     roleOrder.filter((role) => byId(`role-${role}`)?.checked)
   );
   if (!selected.size && !byId("role-options").children.length) {
-    presets.local.forEach((role) => selected.add(role));
+    defaultGeneralRoles.forEach((role) => selected.add(role));
   }
   const container = byId("role-options");
   container.replaceChildren();
@@ -106,7 +103,6 @@ function renderRoles() {
       } else if (input.checked && byId("role-robot")) {
         byId("role-robot").checked = false;
       }
-      document.querySelectorAll("[data-preset]").forEach((button) => button.classList.remove("active"));
       updateConditionalControls();
     });
     const text = document.createElement("span");
@@ -120,29 +116,12 @@ function renderRoles() {
   });
 }
 
-function applyPreset(name) {
-  if (name === "custom") {
-    roleOrder.forEach((role) => {
-      const input = byId(`role-${role}`);
-      if (input) input.checked = false;
-    });
-  } else {
-    const roles = new Set(presets[name] || []);
-    roleOrder.forEach((role) => {
-      const input = byId(`role-${role}`);
-      if (input && !input.disabled) input.checked = roles.has(role);
-    });
-  }
-  document.querySelectorAll("[data-preset]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.preset === name);
-  });
-  updateConditionalControls();
-}
-
 function updateMode() {
   const developer = checkedValue("edition") === "developer";
   byId("privileged-confirm-row").hidden = !developer;
   byId("jaeger-row").hidden = !developer;
+  byId("runtime-text-logs-row").hidden = developer;
+  byId("runtime-text-logs").disabled = developer;
   byId("general-roles").hidden = developer;
   byId("developer-roles").hidden = !developer;
   if (developer) {
@@ -155,6 +134,7 @@ function updateMode() {
     byId("dds-interface").value = "";
     byId("dds-keystore").value = "";
     byId("dds-enclave").value = "";
+    document.querySelector('input[name="dds-security-provisioning"][value="external"]').checked = true;
     document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
     acceptedFingerprint = "";
   }
@@ -172,8 +152,29 @@ function updateConditionalControls() {
 
   const staticDiscovery = checkedValue("dds-discovery-mode") === "static";
   byId("dds-static-fields").hidden = !staticDiscovery;
+  const turnMode = checkedValue("turn-mode");
+  if (turnMode === "managed") {
+    document.querySelector(
+      'input[name="dds-security-profile"][value="sros2"]'
+    ).checked = true;
+    document.querySelector(
+      'input[name="dds-security-provisioning"][value="managed"]'
+    ).checked = true;
+  }
   const sros2 = checkedValue("dds-security-profile") === "sros2";
   byId("sros2-fields").hidden = !sros2;
+  const developer = checkedValue("edition") === "developer";
+  const managedProvisioning = document.querySelector(
+    'input[name="dds-security-provisioning"][value="managed"]'
+  );
+  managedProvisioning.disabled = developer;
+  if (developer && managedProvisioning.checked) {
+    document.querySelector(
+      'input[name="dds-security-provisioning"][value="external"]'
+    ).checked = true;
+  }
+  const provisioning = checkedValue("dds-security-provisioning") || "managed";
+  byId("sros2-external-fields").hidden = !sros2 || provisioning !== "external";
 
   const turnManaged = document.querySelector('input[name="turn-mode"][value="managed"]');
   const simulator = hasSimulator();
@@ -183,7 +184,6 @@ function updateConditionalControls() {
   if (!simulator && checkedValue("turn-mode") === "managed") {
     document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
   }
-  const turnMode = checkedValue("turn-mode");
   byId("turn-fields").hidden = turnMode === "none";
   byId("turn-realm-row").hidden = turnMode !== "managed";
   byId("turn-public-row").hidden = turnMode !== "managed";
@@ -203,6 +203,9 @@ function updateConditionalControls() {
 function payload() {
   const edition = checkedValue("edition") || "general";
   const securityProfile = checkedValue("dds-security-profile") || "trusted-network";
+  const securityProvisioning = securityProfile === "sros2"
+    ? (checkedValue("dds-security-provisioning") || "managed")
+    : "none";
   const turnMode = edition === "general" ? (checkedValue("turn-mode") || "none") : "none";
   return {
     language,
@@ -222,8 +225,11 @@ function payload() {
       : "",
     dds_interface: byId("dds-interface").value.trim(),
     dds_security_profile: securityProfile,
-    dds_keystore: securityProfile === "sros2" ? byId("dds-keystore").value.trim() : "",
-    dds_enclave: securityProfile === "sros2" ? byId("dds-enclave").value.trim() : "",
+    dds_security_provisioning: securityProvisioning,
+    dds_keystore: securityProfile === "sros2" && securityProvisioning === "external"
+      ? byId("dds-keystore").value.trim() : "",
+    dds_enclave: securityProfile === "sros2" && securityProvisioning === "external"
+      ? byId("dds-enclave").value.trim() : "",
     ssh: {
       host: byId("ssh-host").value.trim(),
       port: Number(byId("ssh-port").value),
@@ -241,6 +247,9 @@ function payload() {
       ? byId("turn-credential-file").value.trim()
       : "",
     register_path: byId("register-path").checked,
+    runtime_text_logs: {
+      enabled: edition === "general" && byId("runtime-text-logs").checked
+    },
     jaeger: edition === "developer" && byId("jaeger").checked,
     repository: context.repository,
     ref: context.ref
@@ -271,9 +280,12 @@ async function prepareReview() {
     ["review.prefix", summary.prefix],
     ["review.bin", summary.bin_dir],
     ["review.gpu", summary.gpu_mode],
-    ["review.security", summary.security_profile],
+    ["review.security", summary.security_profile === "sros2"
+      ? `${summary.security_profile} (${summary.security_provisioning})`
+      : summary.security_profile],
     ["review.turn", summary.turn_mode],
     ["review.path", summary.register_path ? t("value.yes") : t("value.no")],
+    ["review.logs", summary.runtime_text_logs ? t("value.yes") : t("value.no")],
     ["review.jaeger", summary.jaeger ? t("value.yes") : t("value.no")]
   ];
   const list = byId("review-list");
@@ -378,7 +390,12 @@ async function pollJob() {
       byId("close-installer").hidden = false;
       byId("install-status").textContent = t("install.completed");
       byId("completion").hidden = false;
-      byId("start-command").textContent = `${byId("bin-dir").value.trim()}/elesim-up`;
+      const pendingManaged = checkedValue("edition") === "general"
+        && checkedValue("dds-security-profile") === "sros2"
+        && checkedValue("dds-security-provisioning") === "managed";
+      byId("start-command").textContent = `${byId("bin-dir").value.trim()}/${
+        pendingManaged ? "elesim-connections" : "elesim-up"
+      }`;
       byId("source-command-row").hidden = !byId("register-path").checked;
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);
@@ -476,16 +493,43 @@ async function probeSsh() {
   }
 }
 
+function openUninstallGuide() {
+  const prefix = byId("prefix").value.trim() || context.defaults.prefix;
+  byId("uninstall-prefix").value = prefix;
+  byId("uninstall-confirm-prefix").value = "";
+  byId("uninstall-purge-logs").checked = false;
+  byId("uninstall-purge-authority").checked = false;
+  byId("uninstall-commands").hidden = true;
+  byId("uninstall-dialog").showModal();
+}
+
+async function buildUninstallGuide() {
+  try {
+    setError("");
+    const guide = await api("/api/uninstall/guide", {
+      method: "POST",
+      body: JSON.stringify({
+        prefix: byId("uninstall-prefix").value.trim(),
+        confirm_prefix: byId("uninstall-confirm-prefix").value,
+        purge_logs: byId("uninstall-purge-logs").checked,
+        purge_authority: byId("uninstall-purge-authority").checked
+      })
+    });
+    byId("uninstall-plan-command").textContent = guide.plan_command;
+    byId("uninstall-execute-command").textContent = guide.execute_command;
+    byId("uninstall-commands").hidden = false;
+  } catch (error) {
+    setError(error);
+  }
+}
+
 function initializeEvents() {
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.addEventListener("click", () => applyLanguage(button.dataset.language));
   });
   document.querySelectorAll('input[name="edition"]').forEach((input) => input.addEventListener("change", updateMode));
-  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="turn-mode"]')
+  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="dds-security-provisioning"], input[name="turn-mode"]')
     .forEach((input) => input.addEventListener("change", updateConditionalControls));
-  document.querySelectorAll("[data-preset]").forEach((button) => {
-    button.addEventListener("click", () => applyPreset(button.dataset.preset));
-  });
   document.querySelectorAll("[data-browse]").forEach((button) => {
     button.addEventListener("click", () => openBrowser(button.dataset.browse));
   });
@@ -506,6 +550,9 @@ function initializeEvents() {
     button.addEventListener("click", () => copyText(byId(button.dataset.copyTarget).textContent));
   });
   byId("ssh-probe").addEventListener("click", probeSsh);
+  byId("open-uninstall").addEventListener("click", openUninstallGuide);
+  byId("uninstall-close").addEventListener("click", () => byId("uninstall-dialog").close());
+  byId("build-uninstall-guide").addEventListener("click", buildUninstallGuide);
   byId("turn-public-host").addEventListener("input", () => {
     if (checkedValue("turn-mode") === "managed") {
       byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
@@ -541,6 +588,9 @@ async function initialize() {
     byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
     byId("dds-interface").value = context.defaults.dds_interface;
     byId("dds-static-peers").value = context.defaults.dds_static_peers;
+    document.querySelector(
+      `input[name="dds-security-provisioning"][value="${context.defaults.dds_security_provisioning}"]`
+    ).checked = true;
     byId("dds-keystore").value = context.defaults.dds_keystore;
     byId("dds-enclave").value = context.defaults.dds_enclave;
     byId("ssh-remote-root").value = context.defaults.prefix;
@@ -561,7 +611,6 @@ async function initialize() {
     }
     initializeEvents();
     renderRoles();
-    applyPreset("local");
     applyLanguage(language);
     updateMode();
   } catch (error) {

@@ -3,8 +3,8 @@ from __future__ import annotations
 __all__ = [
     "Go2HardwareConfig",
     "OdomSample",
-    "UnitreeRos2Bridge",
-    "create_go2_bridge_if_enabled",
+    "UnitreeIpcClient",
+    "create_go2_client_if_enabled",
 ]
 
 
@@ -17,8 +17,8 @@ def __getattr__(name: str):
         from elesim_robot.go2.odom_parser import OdomSample
 
         return OdomSample
-    if name in {"UnitreeRos2Bridge", "create_go2_bridge_if_enabled"}:
-        from elesim_robot.go2 import unitree_ros2_bridge
+    if name in {"UnitreeIpcClient", "create_go2_client_if_enabled"}:
+        from elesim_robot.go2 import unitree_ipc
 
-        return getattr(unitree_ros2_bridge, name)
+        return getattr(unitree_ipc, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

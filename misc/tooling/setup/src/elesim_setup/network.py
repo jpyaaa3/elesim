@@ -4,13 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
-from .configuration import generate_role_configs
+from .configuration import (
+    generate_role_configs,
+    generated_app_config_path,
+    generated_config_path,
+    generated_dds_config_path,
+)
 from .doctor import NetworkDoctor
+from .security_provisioning import (
+    provisioning_required_path,
+    sync_provisioning_required,
+)
 from .state import DdsSettings, InstallState, NetworkSettings, TurnSettings, default_state_path
 
 
@@ -22,6 +34,10 @@ def _prompt(label: str, current: str) -> str:
 def _configure_interactive(state: InstallState) -> InstallState:
     print("\nElesim ROS 2/DDS 설정")
     system_id = _prompt("Elesim system ID", state.dds.system_id)
+    simulator_id = _prompt("Simulator endpoint ID", state.network.simulator_id)
+    controller_id = _prompt("Controller endpoint ID", state.network.controller_id)
+    ui_id = _prompt("UI endpoint ID", state.network.ui_id)
+    robot_id = _prompt("Robot endpoint ID", state.network.robot_id)
     domain_id = int(_prompt("ROS_DOMAIN_ID", str(state.dds.domain_id)))
     discovery_mode = _prompt(
         "DDS discovery (multicast/static)",
@@ -44,13 +60,28 @@ def _configure_interactive(state: InstallState) -> InstallState:
     )
     keystore = state.dds.keystore
     enclave = state.dds.enclave
+    security_provisioning = state.dds.security_provisioning
+    security_generation = state.dds.security_generation
+    security_bundle = state.dds.security_bundle
     if security_profile == "sros2":
-        keystore = _prompt(
-            "SROS2 keystore",
-            keystore or str(state.prefix_path / "sros2"),
-        )
-        enclave = _prompt("SROS2 base enclave", enclave or "/elesim")
+        if (
+            state.dds.security_profile == "sros2"
+            and state.dds.security_provisioning == "managed"
+        ):
+            print("SROS2 managed bundle은 elesim-connections에서 교체하십시오.")
+        else:
+            security_provisioning = "external"
+            security_generation = ""
+            security_bundle = ""
+            keystore = _prompt(
+                "SROS2 keystore",
+                keystore or str(state.prefix_path / "sros2"),
+            )
+            enclave = _prompt("SROS2 base enclave", enclave or "/elesim")
     else:
+        security_provisioning = "none"
+        security_generation = ""
+        security_bundle = ""
         keystore = ""
         enclave = ""
     turn_raw = _prompt(
@@ -74,7 +105,14 @@ def _configure_interactive(state: InstallState) -> InstallState:
         )
     return replace(
         state,
-        network=replace(state.network, turn_urls=turn_urls),
+        network=replace(
+            state.network,
+            turn_urls=turn_urls,
+            simulator_id=simulator_id,
+            controller_id=controller_id,
+            ui_id=ui_id,
+            robot_id=robot_id,
+        ),
         dds=DdsSettings(
             system_id=system_id,
             domain_id=domain_id,
@@ -83,6 +121,9 @@ def _configure_interactive(state: InstallState) -> InstallState:
             static_peers=static_peers,
             interface=interface,
             security_profile=security_profile,
+            security_provisioning=security_provisioning,
+            security_generation=security_generation,
+            security_bundle=security_bundle,
             keystore=keystore,
             enclave=enclave,
         ),
@@ -96,6 +137,46 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
         peers = ()
     elif args.dds_static_peer is not None:
         peers = tuple(args.dds_static_peer)
+    security_profile = args.dds_security_profile or state.dds.security_profile
+    requested_provisioning = args.dds_security_provisioning
+    security_provisioning = (
+        requested_provisioning
+        or state.dds.security_provisioning
+        if state.dds.security_profile == "sros2"
+        else requested_provisioning or "external"
+    )
+    security_generation = (
+        args.dds_security_generation
+        if args.dds_security_generation is not None
+        else state.dds.security_generation
+    )
+    security_bundle = (
+        args.dds_security_bundle
+        if args.dds_security_bundle is not None
+        else state.dds.security_bundle
+    )
+    if security_profile == "trusted-network":
+        security_provisioning = "none"
+        security_generation = ""
+        security_bundle = ""
+    elif security_provisioning == "external":
+        security_generation = ""
+        security_bundle = ""
+    if (
+        security_profile == "sros2"
+        and state.dds.security_provisioning == "managed"
+        and not requested_provisioning
+        and (args.dds_keystore is not None or args.dds_enclave is not None)
+    ):
+        raise ValueError(
+            "managed SROS2 bundle은 elesim-connections에서만 교체할 수 있습니다"
+        )
+    keystore = (
+        state.dds.keystore if args.dds_keystore is None else args.dds_keystore
+    )
+    enclave = state.dds.enclave if args.dds_enclave is None else args.dds_enclave
+    if security_provisioning == "managed" and not keystore and security_bundle:
+        keystore = security_bundle
     dds = replace(
         state.dds,
         system_id=args.dds_system_id or state.dds.system_id,
@@ -112,15 +193,12 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
             if args.dds_interface is None
             else args.dds_interface
         ),
-        security_profile=(
-            args.dds_security_profile or state.dds.security_profile
-        ),
-        keystore=(
-            state.dds.keystore if args.dds_keystore is None else args.dds_keystore
-        ),
-        enclave=(
-            state.dds.enclave if args.dds_enclave is None else args.dds_enclave
-        ),
+        security_profile=security_profile,
+        security_provisioning=security_provisioning,
+        security_generation=security_generation,
+        security_bundle=security_bundle,
+        keystore=keystore,
+        enclave=enclave,
     )
     if dds.security_profile == "trusted-network":
         dds = replace(dds, keystore="", enclave="")
@@ -137,6 +215,8 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
         turn_urls=turn_urls,
         simulator_id=args.simulator_id or state.network.simulator_id,
         controller_id=args.controller_id or state.network.controller_id,
+        ui_id=args.ui_id or state.network.ui_id,
+        robot_id=args.robot_id or state.network.robot_id,
     )
     if not turn_urls:
         turn = TurnSettings()
@@ -200,6 +280,20 @@ def _parser() -> argparse.ArgumentParser:
         choices=("trusted-network", "sros2"),
         default="",
     )
+    configure.add_argument(
+        "--dds-security-provisioning",
+        choices=("external", "managed"),
+        default="",
+        help=argparse.SUPPRESS,
+    )
+    configure.add_argument(
+        "--dds-security-generation",
+        help=argparse.SUPPRESS,
+    )
+    configure.add_argument(
+        "--dds-security-bundle",
+        help=argparse.SUPPRESS,
+    )
     configure.add_argument("--dds-keystore")
     configure.add_argument("--dds-enclave")
     configure.add_argument("--turn-url", action="append")
@@ -215,6 +309,8 @@ def _parser() -> argparse.ArgumentParser:
     configure.add_argument("--turn-credential-file")
     configure.add_argument("--simulator-id", default="")
     configure.add_argument("--controller-id", default="")
+    configure.add_argument("--ui-id", default="")
+    configure.add_argument("--robot-id", default="")
     configure.add_argument("--non-interactive", action="store_true")
 
     doctor = subparsers.add_parser(
@@ -245,6 +341,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "clear_dds_static_peers",
                 "dds_interface",
                 "dds_security_profile",
+                "dds_security_provisioning",
+                "dds_security_generation",
+                "dds_security_bundle",
                 "dds_keystore",
                 "dds_enclave",
                 "turn_url",
@@ -256,6 +355,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "turn_credential_file",
                 "simulator_id",
                 "controller_id",
+                "ui_id",
+                "robot_id",
             )
             has_override = any(
                 getattr(args, name) not in (None, "", False, [])
@@ -266,8 +367,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.non_interactive or has_override
                 else _configure_interactive(state)
             )
-            written = generate_role_configs(updated)
-            updated.save(state_path)
+            written = _apply_configuration_transaction(state_path, updated)
             print("갱신된 설정:")
             for role, path in written.items():
                 print(f"  {role}: {path}")
@@ -289,6 +389,91 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"오류: {exc}", file=sys.stderr)
         return 2
     return 2
+
+
+def _apply_configuration_transaction(
+    state_path: Path, updated: InstallState
+) -> dict[str, Path]:
+    """Regenerate runtime files and state as one locally recoverable update."""
+
+    current = InstallState.load(state_path)
+    if updated.dds.security_profile == "sros2" and (
+        updated.dds.security_provisioning == "external"
+    ):
+        before = (
+            current.dds.security_profile,
+            current.dds.security_provisioning,
+            current.dds.keystore,
+            current.dds.enclave,
+            current.network.controller_id,
+            current.network.ui_id,
+            current.network.simulator_id,
+            current.network.robot_id,
+        )
+        after = (
+            updated.dds.security_profile,
+            updated.dds.security_provisioning,
+            updated.dds.keystore,
+            updated.dds.enclave,
+            updated.network.controller_id,
+            updated.network.ui_id,
+            updated.network.simulator_id,
+            updated.network.robot_id,
+        )
+        if before != after:
+            raise ValueError(
+                "external SROS2 keystore/enclave 변경은 역할별 key view를 "
+                "안전하게 다시 만들기 위해 재설치가 필요합니다"
+            )
+
+    targets = {state_path}
+    targets.add(provisioning_required_path(updated))
+    for role in updated.roles:
+        targets.add(generated_config_path(updated, role))
+        targets.add(generated_dds_config_path(updated, role))
+        if role == "simulator":
+            targets.add(generated_app_config_path(updated, role))
+    snapshots = {path: _snapshot(path) for path in targets}
+    try:
+        written = generate_role_configs(updated)
+        sync_provisioning_required(updated)
+        updated.save(state_path)
+        return written
+    except BaseException:
+        for path, snapshot in snapshots.items():
+            _restore_snapshot(path, snapshot)
+        raise
+
+
+def _snapshot(path: Path) -> tuple[bytes, int] | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"설정 transaction 대상이 일반 파일이 아닙니다: {path}")
+    return path.read_bytes(), stat.S_IMODE(path.stat().st_mode)
+
+
+def _restore_snapshot(path: Path, snapshot: tuple[bytes, int] | None) -> None:
+    if snapshot is None:
+        if path.exists() and path.is_file() and not path.is_symlink():
+            path.unlink()
+        return
+    payload, mode = snapshot
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.rollback-"
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 if __name__ == "__main__":

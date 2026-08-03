@@ -21,6 +21,16 @@ class PathRegistration:
     backup: Path | None
 
 
+@dataclass(frozen=True)
+class PathUnregistration:
+    """Result of conservatively removing one exact Elesim PATH block."""
+
+    changed: bool
+    matched: bool
+    bashrc: Path
+    backup: Path | None
+
+
 def managed_path_block(bin_dir: Path) -> str:
     value = str(bin_dir.expanduser().resolve())
     if "\n" in value or "\r" in value:
@@ -58,6 +68,69 @@ def register_bash_path(
     return PathRegistration(True, destination, backup)
 
 
+def inspect_bash_path(
+    bin_dir: Path,
+    *,
+    bashrc: Path | None = None,
+) -> str:
+    """Return ``exact``, ``absent`` or ``foreign`` for the managed block.
+
+    An uninstall must never remove a block registered by a newer/different
+    installation.  The complete block, including the resolved bin directory,
+    therefore has to match byte-for-byte.
+    """
+
+    destination = (
+        Path.home() / ".bashrc"
+        if bashrc is None
+        else bashrc.expanduser().resolve()
+    )
+    if not destination.exists():
+        return "absent"
+    content = destination.read_text(encoding="utf-8")
+    spans = _managed_spans(content)
+    if not spans:
+        return "absent"
+    if len(spans) != 1:
+        return "foreign"
+    start, end = spans[0]
+    return "exact" if content[start:end] == managed_path_block(bin_dir) else "foreign"
+
+
+def unregister_bash_path(
+    bin_dir: Path,
+    *,
+    bashrc: Path | None = None,
+) -> PathUnregistration:
+    """Remove only the exact block produced for ``bin_dir``.
+
+    Missing or modified blocks are deliberately preserved.  Callers can use
+    ``matched`` to distinguish an absent/foreign block from a successful
+    removal without guessing from file contents.
+    """
+
+    destination = (
+        Path.home() / ".bashrc"
+        if bashrc is None
+        else bashrc.expanduser().resolve()
+    )
+    if not destination.exists():
+        return PathUnregistration(False, False, destination, None)
+    original = destination.read_text(encoding="utf-8")
+    spans = _managed_spans(original)
+    if len(spans) != 1:
+        return PathUnregistration(False, False, destination, None)
+    start, end = spans[0]
+    if original[start:end] != managed_path_block(bin_dir):
+        return PathUnregistration(False, False, destination, None)
+    updated = original[:start] + original[end:]
+    backup = destination.with_name(f"{destination.name}.elesim-uninstall.bak")
+    if not backup.exists():
+        shutil.copy2(destination, backup)
+    _atomic_write(destination, updated)
+    return PathUnregistration(True, True, destination, backup)
+
+
 def _replace_block(content: str, block: str) -> str:
     start = content.find(_START)
     end = content.find(_END, start + len(_START)) if start >= 0 else -1
@@ -72,6 +145,24 @@ def _replace_block(content: str, block: str) -> str:
     if prefix and not prefix.endswith("\n\n"):
         prefix += "\n"
     return prefix + block
+
+
+def _managed_spans(content: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    while True:
+        start = content.find(_START, offset)
+        if start < 0:
+            return spans
+        end = content.find(_END, start + len(_START))
+        if end < 0:
+            # A malformed/partial block is foreign and must be preserved.
+            return [*spans, (start, len(content))]
+        end += len(_END)
+        if end < len(content) and content[end] == "\n":
+            end += 1
+        spans.append((start, end))
+        offset = end
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -89,4 +180,11 @@ def _atomic_write(path: Path, content: str) -> None:
     os.replace(temporary, path)
 
 
-__all__ = ["PathRegistration", "managed_path_block", "register_bash_path"]
+__all__ = [
+    "PathRegistration",
+    "PathUnregistration",
+    "inspect_bash_path",
+    "managed_path_block",
+    "register_bash_path",
+    "unregister_bash_path",
+]

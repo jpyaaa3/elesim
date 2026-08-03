@@ -10,7 +10,12 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Mapping
 from urllib.parse import parse_qs, urlsplit
 
-from .configuration import generated_dds_config_path, rgbd_topic
+from .configuration import (
+    dds_enclave,
+    generated_dds_config_path,
+    rgbd_topic,
+    role_keystore_path,
+)
 from .state import InstallState
 
 
@@ -177,7 +182,12 @@ def _prepare_dds_environment(state: InstallState) -> None:
     if state.dds.security_profile == "sros2":
         os.environ["ROS_SECURITY_ENABLE"] = "true"
         os.environ["ROS_SECURITY_STRATEGY"] = "Enforce"
-        os.environ["ROS_SECURITY_KEYSTORE"] = state.dds.keystore
+        os.environ["ROS_SECURITY_KEYSTORE"] = str(
+            role_keystore_path(state, state.roles[0])
+        )
+        os.environ["ROS_SECURITY_ENCLAVE_OVERRIDE"] = dds_enclave(
+            state, state.roles[0]
+        )
     else:
         os.environ["ROS_SECURITY_ENABLE"] = "false"
         os.environ.pop("ROS_SECURITY_KEYSTORE", None)
@@ -206,7 +216,7 @@ def probe_dds_graph(
     try:
         node = rclpy.create_node(
             "elesim_doctor",
-            namespace=f"/{state.dds.system_id}",
+            namespace=f"/{state.dds.system_id}/v5",
             context=context,
             use_global_arguments=True,
         )
@@ -265,7 +275,7 @@ def probe_rgbd_frame(
     try:
         node = rclpy.create_node(
             "elesim_rgbd_doctor",
-            namespace=f"/{state.dds.system_id}",
+            namespace=f"/{state.dds.system_id}/v5",
             context=context,
             use_global_arguments=True,
         )

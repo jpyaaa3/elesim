@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shlex
 import shutil
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -16,6 +17,17 @@ import yaml
 
 from .capabilities import HostCapabilities
 from .configuration import write_cyclonedds_config
+from .ownership import (
+    DOCKER_INSTALL_UUID_LABEL,
+    DockerOwnership,
+    HostUninstallerBundle,
+    OwnershipManifest,
+    OwnershipRefresh,
+    install_host_uninstaller_bundle,
+    ownership_install_uuid,
+    prepare_ownership_refresh,
+    write_ownership_manifest,
+)
 from .request import SetupRequest
 
 
@@ -29,6 +41,7 @@ _REQUIRED_PROJECTS = (
     ("simulator", "pyproject.toml"),
     ("robot", "pyproject.toml"),
 )
+DEVELOPER_COMPOSE_PROJECT = "elesim-dev-stack"
 
 
 @dataclass(frozen=True)
@@ -44,12 +57,47 @@ class DeveloperInstallState:
     dds: dict[str, object]
 
 
+def _is_valid_developer_uninstall_tombstone(
+    payload: object,
+    *,
+    install_uuid: str,
+    workspace: Path,
+) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    preserved_paths = payload.get("preserved_paths")
+    if (
+        type(payload.get("schema_version")) is not int
+        or payload.get("schema_version") != 1
+        or payload.get("install_uuid") != install_uuid
+        or payload.get("edition") != "developer"
+        or payload.get("prefix") != str(workspace)
+        or type(payload.get("purged_logs")) is not bool
+        or type(payload.get("purged_authority")) is not bool
+        or not isinstance(preserved_paths, list)
+        or any(
+            not isinstance(value, str) or not Path(value).is_absolute()
+            for value in preserved_paths
+        )
+    ):
+        return False
+    completed_at = payload.get("completed_at")
+    if not isinstance(completed_at, str):
+        return False
+    try:
+        completed = datetime.fromisoformat(completed_at)
+    except ValueError:
+        return False
+    return completed.tzinfo is not None and completed.utcoffset() is not None
+
+
 class DeveloperInstaller:
     def __init__(
         self,
         request: SetupRequest,
         *,
         capabilities: HostCapabilities | None = None,
+        shell_bashrc: Path | None = None,
         dry_run: bool = False,
         log: Log = print,
     ) -> None:
@@ -59,6 +107,10 @@ class DeveloperInstaller:
         self.capabilities = capabilities
         self.dry_run = bool(dry_run)
         self.log = log
+        self.shell_bashrc = (
+            None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
+        )
+        self._install_uuid = ""
 
     @property
     def workspace(self) -> Path:
@@ -69,11 +121,20 @@ class DeveloperInstaller:
         return self.workspace / ".elesim/development"
 
     @property
-    def installation_id(self) -> str:
-        digest = hashlib.sha256(str(self.workspace).encode("utf-8")).hexdigest()
-        return digest[:10]
+    def ownership_manifest_path(self) -> Path:
+        return self.generated_root / "install-ownership.json"
 
     def run(self) -> None:
+        ownership_refresh = prepare_ownership_refresh(
+            prefix=self.workspace,
+            bin_dir=self.request.bin_dir,
+            edition="developer",
+            manifest_path=self.ownership_manifest_path,
+            claimed_paths=self._claimed_paths(),
+        )
+        self._install_uuid = ownership_install_uuid(ownership_refresh)
+        prefix_created = not os.path.lexists(self.workspace)
+        bin_created = not os.path.lexists(self.request.bin_dir)
         self.log("\n개발자 환경 생성 계획")
         self.log(f"  [workspace] {self.workspace}")
         self.log("  [container] privileged ROS2/Genesis full development image")
@@ -94,10 +155,117 @@ class DeveloperInstaller:
         self._write_compose()
         self.log("[4/5] 실행 명령 생성")
         self._write_wrappers()
-        self.log("[5/5] 설치 상태 저장")
+        self.log("[5/5] 설치 상태와 제거 소유권 저장")
         self._write_state()
+        bundle = install_host_uninstaller_bundle(
+            prefix=self.workspace,
+            bin_dir=self.request.bin_dir,
+            manifest_path=self.ownership_manifest_path,
+            bundle_root=self.generated_root / "maintenance",
+        )
+        manifest = self._write_ownership_manifest(
+            bundle=bundle,
+            refresh=ownership_refresh,
+            prefix_created=prefix_created,
+            bin_created=bin_created,
+        )
         self.log(f"[완료] 개발 Compose: {self.generated_root / 'compose.yaml'}")
+        self.log(f"[완료] 제거 소유권: {manifest.path}")
         self.log(f"[다음] {self.request.bin_dir / 'elesim-up'}")
+
+    def _write_ownership_manifest(
+        self,
+        *,
+        bundle: HostUninstallerBundle,
+        refresh: OwnershipRefresh | None,
+        prefix_created: bool,
+        bin_created: bool,
+    ) -> OwnershipManifest:
+        external_paths: list[Path] = []
+        external_paths.extend(self._existing_uninstall_tombstones())
+        if (
+            self.request.dds.security_profile == "sros2"
+            and self.request.dds.keystore_path is not None
+        ):
+            external_paths.append(self.request.dds.keystore_path)
+        containers = ["elesim-dev", "elesim-manager"]
+        if self.request.jaeger:
+            containers.append("elesim-jaeger")
+        created_roots = tuple(
+            path
+            for path, created in (
+                (self.workspace, prefix_created),
+                (self.request.bin_dir, bin_created),
+            )
+            if created
+        )
+        return write_ownership_manifest(
+            prefix=self.workspace,
+            bin_dir=self.request.bin_dir,
+            edition="developer",
+            inventory_roots=(bundle.root,),
+            managed_roots=(
+                self.generated_root,
+                self.workspace / ".elesim/connections",
+            ),
+            created_roots=created_roots,
+            wrapper_paths=self._wrapper_paths(include_uninstaller=True),
+            authority_roots=(self.workspace / ".elesim/authority",),
+            external_paths=external_paths,
+            shell_bashrc=self.shell_bashrc,
+            docker=DockerOwnership(
+                install_uuid=self._install_uuid,
+                compose_file=str(self.generated_root / "compose.yaml"),
+                project=DEVELOPER_COMPOSE_PROJECT,
+                containers=tuple(containers),
+                local_images=("elesim/dev:local",),
+            ),
+            manifest_path=self.ownership_manifest_path,
+            install_uuid=self._install_uuid,
+            refresh=refresh,
+        )
+
+    def _claimed_paths(self) -> tuple[Path, ...]:
+        claims = [
+            self.workspace / ".elesim/connections",
+            *self._wrapper_paths(include_uninstaller=True),
+        ]
+        root = self.generated_root
+        if os.path.lexists(root):
+            if root.is_symlink() or not root.is_dir():
+                claims.append(root)
+            else:
+                preserved = set(self._existing_uninstall_tombstones())
+                claims.extend(path for path in root.iterdir() if path not in preserved)
+        return tuple(claims)
+
+    def _existing_uninstall_tombstones(self) -> tuple[Path, ...]:
+        root = self.generated_root
+        if not root.is_dir() or root.is_symlink():
+            return ()
+        accepted: list[Path] = []
+        for path in root.iterdir():
+            if path.is_symlink() or not path.is_file():
+                continue
+            prefix = "uninstall-tombstone-"
+            if not path.name.startswith(prefix) or not path.name.endswith(".json"):
+                continue
+            identifier = path.name[len(prefix) : -len(".json")]
+            try:
+                parsed_uuid = str(uuid.UUID(identifier))
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if (
+                parsed_uuid == identifier
+                and _is_valid_developer_uninstall_tombstone(
+                    payload,
+                    install_uuid=identifier,
+                    workspace=self.workspace,
+                )
+            ):
+                accepted.append(path)
+        return tuple(sorted(accepted))
 
     def _prepare_workspace(self) -> None:
         workspace = self.workspace
@@ -143,6 +311,7 @@ class DeveloperInstaller:
             source / "Dockerfile",
             source / "requirements.lock",
             source / "entrypoint.sh",
+            source / "dev-env.sh",
             self.request.source_root / "misc/infra/containers/robotpkg.asc",
         )
         missing = [path for path in required if not path.is_file()]
@@ -153,7 +322,12 @@ class DeveloperInstaller:
         if context.exists():
             shutil.rmtree(context)
         context.mkdir(parents=True)
-        for name in ("Dockerfile", "requirements.lock", "entrypoint.sh"):
+        for name in (
+            "Dockerfile",
+            "requirements.lock",
+            "entrypoint.sh",
+            "dev-env.sh",
+        ):
             shutil.copy2(source / name, context / name)
         shutil.copy2(
             self.request.source_root / "misc/infra/containers/robotpkg.asc",
@@ -205,9 +379,11 @@ class DeveloperInstaller:
                 }
             )
         service: dict[str, object] = {
-            "image": f"elesim-managed/{self.installation_id}-dev:local",
+            "image": "elesim/dev:local",
+            "container_name": "elesim-dev",
             "build": {
                 "context": str(context),
+                "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
                 "args": {
                     "USERNAME": (
                         os.environ.get("ELESIM_HOST_USER", "").strip()
@@ -216,9 +392,11 @@ class DeveloperInstaller:
                     ),
                     "UID": str(os.getuid()),
                     "GID": str(os.getgid()),
+                    "COMPUTE_MODE": self.request.compute.gpu_mode,
                 },
             },
             "privileged": True,
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "network_mode": "host",
             "ipc": "host",
             "shm_size": "4gb",
@@ -275,14 +453,39 @@ class DeveloperInstaller:
             )
 
         services: dict[str, object] = {"dev": service}
+        services["manager"] = {
+            "image": "elesim/dev:local",
+            "build": service["build"],
+            "network_mode": "host",
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "profiles": ("manager",),
+            "working_dir": str(self.workspace),
+            "environment": {
+                "HOME": str(home),
+                "ELESIM_OPERATOR_HOME": str(_operator_home()),
+                "ELESIM_WORKSPACE": str(self.workspace),
+                "PYTHONUNBUFFERED": "1",
+                "PYTHONNOUSERSITE": "1",
+            },
+            "group_add": ("${ELESIM_DOCKER_GID:-0}",),
+            "volumes": [
+                f"{self.workspace}:{self.workspace}:rw",
+                f"{home}:{home}:rw",
+                f"{cache}:{cache}:rw",
+                f"{_operator_home()}:{_operator_home()}:ro",
+                "/var/run/docker.sock:/var/run/docker.sock:rw",
+            ],
+        }
         if self.request.jaeger:
             services["jaeger"] = {
                 "image": "jaegertracing/jaeger:2.19.0",
+                "container_name": "elesim-jaeger",
+                "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
                 "network_mode": "host",
                 "profiles": ("observability",),
                 "restart": "unless-stopped",
             }
-        payload = {"name": f"elesim-dev-{self.installation_id}", "services": services}
+        payload = {"name": DEVELOPER_COMPOSE_PROJECT, "services": services}
         destination = self.generated_root / "compose.yaml"
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
@@ -293,18 +496,25 @@ class DeveloperInstaller:
     def _write_wrappers(self) -> None:
         compose = self.generated_root / "compose.yaml"
         command = f"docker compose -f {shlex.quote(str(compose))}"
+        guard = _compose_owner_guard(
+            compose,
+            project=DEVELOPER_COMPOSE_PROJECT,
+            containers=("elesim-dev", "elesim-jaeger", "elesim-manager"),
+        )
         wrappers: dict[str, str] = {
             "elesim-build": f"{command} build dev",
-            "elesim-up": f"{command} up -d --build dev",
-            "elesim-down": f"{command} --profile observability down",
+            "elesim-up": f"{command} up -d --build --remove-orphans dev",
+            "elesim-down": (
+                f"{command} --profile observability down --remove-orphans"
+            ),
             "elesim-logs": f"{command} --profile observability logs -f",
-            "elesim-dev": f"{command} run --rm --build dev bash",
         }
         if self.request.jaeger:
             wrappers.update(
                 {
                     "elesim-jaeger-up": (
-                        f"{command} --profile observability up -d jaeger"
+                        f"{command} --profile observability up -d "
+                        "--remove-orphans jaeger"
                     ),
                     "elesim-jaeger-down": (
                         f"{command} --profile observability stop jaeger"
@@ -314,8 +524,54 @@ class DeveloperInstaller:
         for name, body in wrappers.items():
             _write_executable(
                 self.request.bin_dir / name,
-                "#!/usr/bin/env bash\nset -euo pipefail\nexec " + body + ' "$@"\n',
+                "#!/usr/bin/env bash\nset -euo pipefail\n"
+                + guard
+                + "exec "
+                + body
+                + ' "$@"\n',
             )
+        _write_executable(
+            self.request.bin_dir / "elesim-dev",
+            (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                + guard
+                + f"{command} up -d --build --remove-orphans dev\n"
+                "if [[ $# -eq 0 ]]; then\n"
+                "  set -- bash\n"
+                "fi\n"
+                f"exec {command} exec dev /usr/local/bin/elesim-dev-env \"$@\"\n"
+            ),
+        )
+        _write_executable(
+            self.request.bin_dir / "elesim-connections",
+            _development_manager_wrapper(
+                compose=compose,
+                state_path=self.workspace / ".elesim/connections/topology.json",
+                authority_root=self.workspace / ".elesim/authority",
+                default_local_install_root=Path(
+                    "~/.local/share/elesim"
+                ).expanduser(),
+                default_local_bin_dir=Path("~/.local/bin").expanduser(),
+                operator_home=_operator_home(),
+                guard=guard,
+            ),
+        )
+
+    def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
+        names = [
+            "elesim-build",
+            "elesim-up",
+            "elesim-down",
+            "elesim-logs",
+            "elesim-dev",
+            "elesim-connections",
+        ]
+        if self.request.jaeger:
+            names.extend(("elesim-jaeger-up", "elesim-jaeger-down"))
+        if include_uninstaller:
+            names.append("elesim-uninstall")
+        return tuple(self.request.bin_dir / name for name in names)
 
     def _write_state(self) -> None:
         state = DeveloperInstallState(
@@ -362,12 +618,119 @@ def _valid_workspace(workspace: Path) -> bool:
     )
 
 
+def _operator_home() -> Path:
+    configured = os.environ.get("ELESIM_OPERATOR_HOME", "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            raise ValueError("ELESIM_OPERATOR_HOME must be an absolute path")
+        return path.resolve()
+    return Path.home().resolve()
+
+
 def _write_executable(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(content, encoding="utf-8")
     temporary.chmod(0o755)
     temporary.replace(path)
+
+
+def _compose_owner_guard(
+    compose: Path,
+    *,
+    project: str,
+    containers: tuple[str, ...],
+) -> str:
+    rendered_containers = " ".join(shlex.quote(name) for name in containers)
+    return (
+        f"expected_compose={shlex.quote(str(compose))}\n"
+        f"expected_project={shlex.quote(project)}\n"
+        f"for container in {rendered_containers}; do\n"
+        "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
+        "    continue\n"
+        "  fi\n"
+        "  metadata=\"$(docker container inspect --format "
+        "'{{ index .Config.Labels \"com.docker.compose.project\" }}|"
+        "{{ index .Config.Labels \"com.docker.compose.project.config_files\" }}' "
+        "\"$container\")\"\n"
+        "  actual_project=\"${metadata%%|*}\"\n"
+        "  actual_compose=\"${metadata#*|}\"\n"
+        "  if [[ \"$actual_project\" != \"$expected_project\" || "
+        "\"$actual_compose\" != \"$expected_compose\" ]]; then\n"
+        "    printf 'Elesim 고정 컨테이너 이름 충돌: %s\\n' \"$container\" >&2\n"
+        "    printf '  기존 소유자: project=%s compose=%s\\n' "
+        "\"$actual_project\" \"$actual_compose\" >&2\n"
+        "    printf '  현재 설치: project=%s compose=%s\\n' "
+        "\"$expected_project\" \"$expected_compose\" >&2\n"
+        "    printf '기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오.\\n' >&2\n"
+        "    exit 73\n"
+        "  fi\n"
+        "done\n"
+    )
+
+
+def _development_manager_wrapper(
+    *,
+    compose: Path,
+    state_path: Path,
+    authority_root: Path,
+    default_local_install_root: Path,
+    default_local_bin_dir: Path,
+    operator_home: Path,
+    guard: str,
+) -> str:
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + "if [[ ! -S /var/run/docker.sock ]]; then\n"
+        "  printf 'Docker socket을 찾을 수 없습니다: /var/run/docker.sock\\n' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "export ELESIM_DOCKER_GID=\"$(stat -c %g /var/run/docker.sock)\"\n"
+        "local_install_root=${ELESIM_LOCAL_INSTALL_ROOT:-"
+        + shlex.quote(str(default_local_install_root))
+        + "}\n"
+        "local_bin_dir=${ELESIM_LOCAL_BIN_DIR:-"
+        + shlex.quote(str(default_local_bin_dir))
+        + "}\n"
+        "if [[ $local_install_root != /* || ! -d $local_install_root ]]; then\n"
+        "  printf '로컬 Elesim install root가 없거나 절대경로가 아닙니다: %s\\n' "
+        "\"$local_install_root\" >&2\n"
+        "  printf 'ELESIM_LOCAL_INSTALL_ROOT로 일반 설치 prefix를 지정하십시오.\\n' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "if [[ $local_bin_dir != /* || ! -d $local_bin_dir ]]; then\n"
+        "  printf '로컬 Elesim bin dir가 없거나 절대경로가 아닙니다: %s\\n' "
+        "\"$local_bin_dir\" >&2\n"
+        "  printf 'ELESIM_LOCAL_BIN_DIR로 일반 설치 명령 디렉터리를 지정하십시오.\\n' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "manager_options=(\n"
+        "  -v \"$local_install_root:$local_install_root:rw\"\n"
+        "  -v \"$local_bin_dir:$local_bin_dir:ro\"\n"
+        "  -e "
+        + shlex.quote(f"ELESIM_OPERATOR_HOME={operator_home.resolve()}")
+        + "\n"
+        ")\n"
+        "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
+        "  manager_options+=(\n"
+        "    -e \"SSH_AUTH_SOCK=$SSH_AUTH_SOCK\"\n"
+        "    -v \"$SSH_AUTH_SOCK:$SSH_AUTH_SOCK\"\n"
+        "  )\n"
+        "fi\n"
+        "exec docker compose -f "
+        + shlex.quote(str(compose))
+        + " run --rm --build --name elesim-manager "
+        + '"${manager_options[@]}" manager elesim-connections --state '
+        + shlex.quote(str(state_path))
+        + " --authority-root "
+        + shlex.quote(str(authority_root))
+        + " --local-install-root \"$local_install_root\""
+        + " --local-bin-dir \"$local_bin_dir\""
+        + ' "$@"\n'
+    )
 
 
 __all__ = ["DeveloperInstallState", "DeveloperInstaller"]

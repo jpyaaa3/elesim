@@ -13,6 +13,7 @@ from .state import (
     DdsSettings,
     InstallState,
     NetworkSettings,
+    RuntimeTextLogSettings,
     TurnSettings,
 )
 
@@ -56,6 +57,9 @@ class SetupRequest:
     network: NetworkSettings
     dds: DdsSettings
     turn: TurnSettings
+    runtime_text_logs: RuntimeTextLogSettings = field(
+        default_factory=RuntimeTextLogSettings
+    )
     ssh: SshCredentialSource = field(default_factory=SshCredentialSource)
     register_path: bool = False
     jaeger: bool = False
@@ -64,6 +68,7 @@ class SetupRequest:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "SetupRequest":
+        edition = str(raw.get("edition", "general"))
         turn_url = str(raw.get("turn_url", "")).strip()
         roles_raw = raw.get("roles", ())
         if not isinstance(roles_raw, (list, tuple)):
@@ -81,11 +86,24 @@ class SetupRequest:
         turn_mode = str(raw.get("turn_mode", "none"))
         secret_file = str(raw.get("turn_secret_file", "")).strip()
         credential_file = str(raw.get("turn_credential_file", "")).strip()
+        security_profile = str(
+            raw.get("dds_security_profile", "trusted-network")
+        )
+        security_bundle = str(raw.get("dds_security_bundle", "")).strip()
+        security_provisioning = str(
+            raw.get(
+                "dds_security_provisioning",
+                "external" if security_profile == "sros2" else "none",
+            )
+        )
+        keystore = str(raw.get("dds_keystore", "")).strip()
+        if security_provisioning == "managed" and security_bundle and not keystore:
+            keystore = security_bundle
         if turn_mode == "managed" and not secret_file:
             secret_file = str(prefix / "secrets/turn.secret")
         return cls(
             language=str(raw.get("language", "ko")),
-            edition=str(raw.get("edition", "general")),
+            edition=edition,
             roles=tuple(str(value) for value in roles_raw),
             prefix=prefix,
             bin_dir=_required_path(raw, "bin_dir"),
@@ -98,6 +116,8 @@ class SetupRequest:
                 turn_urls=(turn_url,) if turn_url else (),
                 simulator_id=str(raw.get("simulator_id", "sim-default")),
                 controller_id=str(raw.get("controller_id", "controller-main")),
+                ui_id=str(raw.get("ui_id", "ui-main")),
+                robot_id=str(raw.get("robot_id", "robot-go2")),
             ),
             dds=DdsSettings(
                 system_id=str(raw.get("dds_system_id", "elesim")),
@@ -108,10 +128,11 @@ class SetupRequest:
                 discovery_mode=str(raw.get("dds_discovery_mode", "multicast")),
                 static_peers=peers,
                 interface=str(raw.get("dds_interface", "")),
-                security_profile=str(
-                    raw.get("dds_security_profile", "trusted-network")
-                ),
-                keystore=str(raw.get("dds_keystore", "")),
+                security_profile=security_profile,
+                security_provisioning=security_provisioning,
+                security_generation=str(raw.get("dds_security_generation", "")),
+                security_bundle=security_bundle,
+                keystore=keystore,
                 enclave=str(raw.get("dds_enclave", "")),
             ),
             turn=TurnSettings(
@@ -121,6 +142,7 @@ class SetupRequest:
                 secret_file=secret_file,
                 credential_file=credential_file,
             ),
+            runtime_text_logs=_runtime_text_log_settings(raw, edition=edition),
             ssh=SshCredentialSource.from_dict(
                 raw.get("ssh") if isinstance(raw.get("ssh"), Mapping) else None
             ),
@@ -141,10 +163,13 @@ class SetupRequest:
         self.network.validate()
         self.dds.validate()
         self.turn.validate()
+        self.runtime_text_logs.validate()
         if self.dds.discovery_mode == "static" and not self.dds.static_peers:
             raise ValueError("static DDS discovery에는 peer가 하나 이상 필요합니다")
-        if self.dds.security_profile == "sros2" and (
-            not self.dds.keystore.strip() or not self.dds.enclave.strip()
+        if (
+            self.dds.security_profile == "sros2"
+            and self.dds.security_provisioning == "external"
+            and (not self.dds.keystore.strip() or not self.dds.enclave.strip())
         ):
             raise ValueError("SROS2 profile에는 keystore와 enclave가 필요합니다")
         if self.edition == "developer":
@@ -154,6 +179,16 @@ class SetupRequest:
                 raise ValueError("개발자 환경은 역할을 고르지 않고 전체 workspace를 설치합니다")
             if self.turn.mode != "none":
                 raise ValueError("개발자 환경의 TURN은 runtime 설치에서 별도로 구성하십시오")
+            if self.dds.security_provisioning == "managed":
+                raise ValueError(
+                    "개발자 환경은 connection-managed SROS2 provisioning을 지원하지 "
+                    "않습니다. trusted-network 또는 external SROS2를 사용하십시오"
+                )
+            if self.runtime_text_logs.enabled:
+                raise ValueError(
+                    "개발자 환경은 기존 Compose log follow만 사용하며 runtime text "
+                    "archive를 생성하지 않습니다"
+                )
         else:
             roles = normalize_roles(self.roles)
             if "robot" in roles:
@@ -179,7 +214,7 @@ class SetupRequest:
     def to_install_state(self) -> InstallState:
         if self.edition != "general":
             raise ValueError("developer request는 runtime InstallState로 변환할 수 없습니다")
-        return self._state().require_runnable_dds()
+        return self._state().require_installable_dds()
 
     def _state(self) -> InstallState:
         roles = (
@@ -198,6 +233,7 @@ class SetupRequest:
             dds=self.dds,
             compute=self.compute,
             turn=self.turn,
+            runtime_text_logs=self.runtime_text_logs,
             install_mode=install_mode,
         )
 
@@ -207,6 +243,26 @@ def _required_path(raw: Mapping[str, Any], name: str) -> Path:
     if not value:
         raise ValueError(f"{name} 경로가 필요합니다")
     return Path(value).expanduser().resolve()
+
+
+def _runtime_text_log_settings(
+    raw: Mapping[str, Any],
+    *,
+    edition: str,
+) -> RuntimeTextLogSettings:
+    value = raw.get("runtime_text_logs")
+    default_enabled = edition == "general"
+    if value is None:
+        return RuntimeTextLogSettings(enabled=default_enabled)
+    if not isinstance(value, Mapping):
+        raise ValueError("runtime_text_logs는 object여야 합니다")
+    unexpected = set(value).difference({"enabled"})
+    if unexpected:
+        rendered = ", ".join(sorted(str(name) for name in unexpected))
+        raise ValueError(f"runtime_text_logs에 알 수 없는 field가 있습니다: {rendered}")
+    return RuntimeTextLogSettings(
+        enabled=value.get("enabled", default_enabled),
+    ).validate()
 
 
 __all__ = [

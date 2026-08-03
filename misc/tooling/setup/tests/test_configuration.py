@@ -86,6 +86,7 @@ def test_container_managed_turn_uses_simulator_owned_secret_mount_path(
         ),
         dds=DdsSettings(
             security_profile="sros2",
+            security_provisioning="external",
             keystore=str(tmp_path / "sros2"),
             enclave="/lab",
         ),
@@ -107,6 +108,9 @@ def test_container_managed_turn_uses_simulator_owned_secret_mount_path(
     }
     assert simulator["dds"]["vendor_config"] == "/opt/elesim/config/cyclonedds.xml"
     assert simulator["dds"]["enclave"] == "/lab/sim_default"
+    assert simulator["dds"]["keystore"] == str(
+        state.prefix_path / "security/roles/simulator"
+    )
 
 
 def test_container_external_turn_mounts_credentials_only_into_simulator(
@@ -141,12 +145,33 @@ def test_custom_endpoint_ids_drive_node_keys_and_rgbd_topics(local_state) -> Non
         network=NetworkSettings(
             simulator_id="Sim West-2",
             controller_id="Controller.A",
+            ui_id="UI West-2",
+            robot_id="Robot West-2",
         ),
     )
 
     assert dds_node_key(state, "simulator") == "sim_west_2"
     assert dds_node_key(state, "controller") == "controller_a"
+    assert dds_node_key(state, "ui") == "ui_west_2"
+    assert dds_node_key(state, "robot") == "robot_west_2"
     assert rgbd_topic(state, "simulator") == "/elesim/sim_west_2/rgbd/frame"
+
+
+def test_ui_and_robot_runtime_configs_use_configured_endpoint_ids(local_state) -> None:
+    network = NetworkSettings(ui_id="ui-field", robot_id="robot-field")
+    ui_state = local_state(roles=("ui",), network=network)
+    robot_state = local_state(roles=("robot",), network=network)
+    copy_role_configs(ui_state)
+    copy_role_configs(robot_state)
+
+    ui_written = generate_role_configs(ui_state)
+    robot_written = generate_role_configs(robot_state)
+
+    assert _load(ui_written["ui"])["runtime"]["endpoint_id"] == "ui-field"
+    assert _load(robot_written["robot"])["runtime"]["endpoint_id"] == "robot-field"
+    assert _load(robot_written["robot"])["camera"]["topic"] == (
+        "/elesim/robot_field/rgbd/frame"
+    )
 
 
 def test_sros2_enclave_is_role_specific(local_state, tmp_path) -> None:
@@ -154,6 +179,7 @@ def test_sros2_enclave_is_role_specific(local_state, tmp_path) -> None:
         roles=("ui",),
         dds=DdsSettings(
             security_profile="sros2",
+            security_provisioning="external",
             keystore=str(tmp_path / "sros2"),
             enclave="/elesim/prod",
         ),
@@ -161,6 +187,27 @@ def test_sros2_enclave_is_role_specific(local_state, tmp_path) -> None:
 
     assert dds_enclave(state, "ui") == "/elesim/prod/ui_main"
     assert dds_enclave(state, "doctor") == "/elesim/prod/doctor_main"
+
+
+def test_managed_sros2_enclave_matches_authority_role_path(
+    local_state, tmp_path
+) -> None:
+    bundle = tmp_path / "security" / "current" / "keystore"
+    state = local_state(
+        roles=("controller", "ui"),
+        dds=DdsSettings(
+            system_id="prod",
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation="gen-7",
+            security_bundle=str(bundle),
+            keystore=str(bundle),
+            enclave="/elesim/prod",
+        ),
+    )
+
+    assert dds_enclave(state, "controller") == "/elesim/prod/controller/controller_main"
+    assert dds_enclave(state, "ui") == "/elesim/prod/ui/ui_main"
 
 
 def test_generation_does_not_mutate_source_defaults(local_state) -> None:

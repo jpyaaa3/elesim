@@ -7,6 +7,7 @@ import argparse
 import os
 import queue
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -59,6 +60,12 @@ MAX_LOG_LINES = 4000
 PYTEST_LOCATION_RE = re.compile(
     r"^(?:packages|controller|robot|simulator|ui|misc/tooling)/.+\.py:\d+(?::|$)"
 )
+DEVELOPER_PROJECT = "elesim-dev-stack"
+DEVELOPER_CONTAINER = "elesim-dev"
+
+
+class DockerOwnerConflict(RuntimeError):
+    """A fixed Elesim container name belongs to another Compose context."""
 
 
 @dataclass(frozen=True)
@@ -416,22 +423,74 @@ class TestGui:
     def _command_for(self, group: TestCaseGroup) -> list[str]:
         paths = list(group.paths)
         if self.runner == "docker":
-            joined = " ".join(paths)
             source_path = ":".join(str(path.relative_to(ROOT)) for path in SOURCE_ROOTS)
-            inner = f"cd /home/dev/ws/elesim && PYTHONPATH={source_path} python3 -m pytest {joined}"
+            inner = (
+                f"cd {shlex.quote(str(ROOT))} && "
+                f"PYTHONPATH={shlex.quote(source_path)} "
+                f"python3 -m pytest {shlex.join(paths)}"
+            )
             return [
                 "docker",
                 "compose",
                 "-f",
                 self.docker_compose,
-                "run",
-                "--rm",
-                "urop",
+                "exec",
+                "-T",
+                "dev",
+                "/usr/local/bin/elesim-dev-env",
                 "bash",
                 "-lc",
                 inner,
             ]
         return [sys.executable, "-m", "pytest", *paths]
+
+    def _docker_up_command(self) -> list[str]:
+        return [
+            "docker",
+            "compose",
+            "-f",
+            self.docker_compose,
+            "up",
+            "-d",
+            "--build",
+            "dev",
+        ]
+
+    def _require_docker_owner(self) -> None:
+        expected_compose = str(Path(self.docker_compose).expanduser().resolve())
+        result = subprocess.run(
+            [
+                "docker",
+                "container",
+                "inspect",
+                "--format",
+                (
+                    '{{ index .Config.Labels "com.docker.compose.project" }}|'
+                    '{{ index .Config.Labels "com.docker.compose.project.config_files" }}'
+                ),
+                DEVELOPER_CONTAINER,
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return
+        actual_project, separator, actual_compose = result.stdout.strip().partition("|")
+        if (
+            separator
+            and actual_project == DEVELOPER_PROJECT
+            and actual_compose == expected_compose
+        ):
+            return
+        raise DockerOwnerConflict(
+            "Elesim 고정 컨테이너 이름 충돌: "
+            f"{DEVELOPER_CONTAINER}\n"
+            f"  기존 소유자: project={actual_project} compose={actual_compose}\n"
+            f"  현재 설치: project={DEVELOPER_PROJECT} compose={expected_compose}\n"
+            "기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오."
+        )
 
     def _run_group(self, group: TestCaseGroup) -> None:
         if self._proc is not None:
@@ -444,8 +503,12 @@ class TestGui:
         self.exit_code = None
         self.status = f"{group.label} 실행 중"
         command = self._command_for(group)
+        commands = (
+            (self._docker_up_command(), command)
+            if self.runner == "docker"
+            else (command,)
+        )
         self._append_log("")
-        self._append_log(f"$ {' '.join(command)}")
         env = os.environ.copy()
         source_path = os.pathsep.join(str(path) for path in SOURCE_ROOTS)
         env["PYTHONPATH"] = source_path + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
@@ -453,19 +516,28 @@ class TestGui:
         def worker() -> None:
             code = -1
             try:
-                self._proc = subprocess.Popen(
-                    command,
-                    cwd=str(ROOT),
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-                assert self._proc.stdout is not None
-                for line in self._proc.stdout:
-                    self._queue.put(line.rstrip("\n"))
-                code = int(self._proc.wait())
+                if self.runner == "docker":
+                    self._require_docker_owner()
+                for current in commands:
+                    self._queue.put(f"$ {shlex.join(current)}")
+                    self._proc = subprocess.Popen(
+                        current,
+                        cwd=str(ROOT),
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    assert self._proc.stdout is not None
+                    for line in self._proc.stdout:
+                        self._queue.put(line.rstrip("\n"))
+                    code = int(self._proc.wait())
+                    if code != 0:
+                        break
+            except DockerOwnerConflict as exc:
+                self._queue.put(f"[runner] {exc}")
+                code = 73
             except Exception as exc:
                 self._queue.put(f"[runner] 실행 시작 실패: {exc}")
                 code = -1
@@ -674,12 +746,12 @@ def main() -> int:
         "--runner",
         choices=("local", "docker"),
         default="local",
-        help="pytest를 로컬 또는 repo docker-compose 서비스로 실행합니다",
+        help="pytest를 로컬 또는 Elesim Developer 컨테이너로 실행합니다",
     )
     ap.add_argument(
         "--docker-compose",
-        default="/home/user/docker/docker-compose.yml",
-        help="--runner=docker일 때 사용할 docker compose 파일",
+        default=str(ROOT / ".elesim/development/compose.yaml"),
+        help="--runner=docker일 때 사용할 Elesim Developer compose 파일",
     )
     args = ap.parse_args()
     TestGui(runner=args.runner, docker_compose=args.docker_compose).run()

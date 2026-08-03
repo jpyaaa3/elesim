@@ -87,19 +87,31 @@ GUI 포트는 외부 방화벽에 공개할 필요가 없다.
 
 ### 일반 사용자용
 
-네 프로그램 중 이 컴퓨터에 필요한 역할을 체크한다.
+설치 GUI의 역할 화면에서 이 컴퓨터에 둘 역할을 필요한 만큼 체크한다. 한
+컴퓨터에 여러 역할을 함께 둘 수 있으며, 별도의 "컴퓨터 종류" 프리셋은 없다.
 
-| 기본 선택 | 역할 |
+| 체크할 역할 | 책임 |
 | --- | --- |
-| 한 PC 시뮬레이션 | Simulator, Controller, UI |
-| 조작 노트북 | Controller, UI |
-| 시뮬레이션 서버 | Simulator |
-| 사용자 지정 | 필요한 역할 직접 선택 |
-| Robot Jetson | Robot 단독 |
+| Simulator | Genesis 시뮬레이션, 가상 RGBD와 WebRTC 송신 |
+| Controller | 인식, IK, Pick/Gaze와 목표 생성 |
+| UI | 운영자 화면과 원격 조작 |
+| Robot | Jetson의 실제 장치와 로컬 안전 제어 (단독) |
 
 Simulator, Controller, UI는 역할별 Docker 이미지와 하나의 Compose project로
 구성된다. Robot은 Jetson/JetPack이 감지된 호스트에서만 선택할 수
 있으며 현재 native 단독 설치만 지원한다.
+
+터미널 자동화에서는 `install --role simulator --role controller`처럼 역할을
+반복해서 지정한다. 예전 `--profile` 인자는 기존 스크립트 호환을 위해 숨겨져
+있지만 새 설치 흐름의 사용자 선택지는 역할 목록이다.
+
+일반 Compose project 이름은 `elesim-runtime`으로 고정된다. 선택한 역할에 따라
+`elesim-pilot`, `elesim-ui`, `elesim-sim`이 생기고, managed TURN을
+선택한 Simulator 호스트에만 `elesim-coturn`이 추가된다. Robot은
+`elesim-robot` 컨테이너가 아니라 Jetson의 native/systemd 서비스다. 같은
+호스트에 두 번째 일반 설치를 만들면 임의 이름을 붙이지 않고 충돌을 알려준다.
+컨테이너 이름만 바뀐 것이므로 역할 키와 실행 명령
+`elesim-controller`/`elesim-simulator`, 그리고 해당 이미지 태그는 그대로다.
 
 ### 개발자용
 
@@ -114,6 +126,14 @@ Genesis, Torch, Pinocchio, RealSense, Dynamixel, WebRTC, OpenTelemetry,
 - Ubuntu/WSL `amd64`에서만 지원한다.
 - `/dev`, host network, host IPC와 GUI socket을 사용하는 privileged
   컨테이너임을 확인해야 설치할 수 있다.
+
+개발자판은 일반 역할 컨테이너를 함께 만들지 않는다. 고정된
+`elesim-dev-stack` project의 `elesim-dev` 하나에 네 프로그램과 개발/테스트
+의존성을 모두 넣고, tracing을 선택했을 때만 별도 `elesim-jaeger`를 추가한다.
+여러 터미널에서 `elesim-dev`를 실행해도 같은 상시 컨테이너에 `exec`하며 새
+랜덤 이름 컨테이너를 만들지 않는다.
+연결 GUI를 열 때만 Docker socket을 받은 `elesim-manager` one-shot 도구가
+생겼다가 종료되며, 이는 상시 애플리케이션이나 다섯 번째 역할이 아니다.
 
 ## GUI 입력 항목
 
@@ -135,7 +155,8 @@ source ~/.bashrc
 - `inherit`: 실행 시점의 `CUDA_VISIBLE_DEVICES`와 scheduler 할당을 따른다.
 - `specific`: `nvidia-smi -L`에 나온 index 또는 UUID 하나만 컨테이너에
   노출한다. 컨테이너 안에서는 보통 논리 `cuda:0`으로 보인다.
-- `cpu`: 컨테이너 GPU 요청을 제거하고 Genesis GPU backend도 끈다.
+- `cpu`: 컨테이너 GPU 요청을 제거하고 Genesis GPU backend도 끈다. 개발
+  이미지도 CUDA wheel 대신 CPU PyTorch wheel을 선택한다.
 
 공용 연구 서버에서는 `inherit`가 기본이다. 한 번만 GPU 0을 사용하려면:
 
@@ -162,12 +183,68 @@ CUDA_VISIBLE_DEVICES=0 elesim-up
 - `sros2`: 공유 compute나 신뢰하지 않는 network에서 사용한다. 역할마다 별도
   keystore enclave를 배치하고 DDS Security 인증·권한·암호화를 enforce한다.
 
+SROS2 key를 관리하는 방식은 두 가지다.
+
+- `external`: 사용자가 기존 keystore와 base enclave를 직접 공급하고 교체한다.
+- `managed`: 조작 노트북의 `elesim-connections`가 전체 Authority를 보관하고,
+  각 host에는 공통 공개자료와 그 host에 배정된 역할 enclave만 전달한다.
+
+일반 설치 GUI에서 `managed`를 고를 때에는 아직 keystore 경로를 입력하지 않는다.
+설치기는 실행 파일과 Compose를 만들되 `<설치 위치>/security/provisioning-required`
+표시를 남긴다. 조작 노트북의 `elesim-connections`가 모든 host에 한 generation을
+성공적으로 적용하기 전까지 `elesim-up`과 역할 실행 명령은 안전하게 거부된다.
+기존 keystore를 직접 운영할 때에만 `external`을 선택한다.
+
+Managed mode에서 모든 컴퓨터가 서로의 공개키 목록과 CA 개인키를 통째로 들고
+있을 필요는 없다. 모두 같은 공개 CA를 신뢰하고 각자 발급받은 역할 인증서와
+개인키만 가진다. CA 개인키와 다른 host의 역할 key는 조작 노트북을 떠나지
+않는다. key 교체는 새 generation을 모든 host에 먼저 staging한 뒤 한꺼번에
+활성화하며, 중간 실패 시 이전 generation으로 되돌린다.
+
 `ROS_DOMAIN_ID`는 우연한 graph 충돌을 줄일 뿐 인증, 접근 통제, 암호화 또는
 tenant 격리를 제공하지 않는다. 최종 구조에는 ZMQ, CurveZMQ, CURVE key와 ZAP
 allowlist가 없다.
 
 설치 GUI는 계속 loopback에만 열린다. 원격 GUI를 위한 SSH `-p 2222` 같은 값은
 SSH server의 포트일 뿐 DDS 설정에 들어가지 않는다.
+
+### 연결 관리자
+
+역할 설치가 끝난 뒤 조작 노트북에서 실행한다.
+
+```bash
+elesim-connections
+```
+
+연결 관리자는 두 가지 명시적 topology mode를 제공한다.
+
+- `full`: Controller, UI, Simulator, Robot을 각각 한 번씩 2~4개 host에 배치한다.
+  Robot은 Jetson native/systemd 역할로 고정된다.
+- `simulation-only`: 물리 Robot/Jetson 없이 Controller, UI, Simulator를 각각
+  한 번씩 1~3개 host에 배치한다. 세 역할을 한 컴퓨터에 함께 둘 수도 있다.
+
+두 mode 모두 한 컴퓨터가 여러 역할을 맡을 수 있으며 local host는 정확히 하나다.
+
+각 host에는 서로 독립적인 두 주소를 입력한다.
+
+- `DDS 주소/interface`: 프로그램이 UDP P2P로 실제 통신하고 static peer를 만드는
+  runtime 경로
+- `SSH host/port/user`: fingerprint 확인, 설치 상태 확인, SROS2 bundle 전송,
+  재시작 같은 관리 경로
+
+같은 IP를 쓸 수는 있지만 자동으로 서로 변환하지 않는다. SSH `2222`를 입력해도
+DDS port가 `2222`가 되는 것이 아니다. 연결 설정에는 SSH password, 개인키 본문,
+SROS2 private key, TURN secret을 저장하지 않는다.
+
+Jetson을 당장 사용할 수 없으면 GUI에서 `simulation-only` mode로 저장·배포할 수
+있다. 저장하지 않고 endpoint 형식만 확인하려면 활성 COM 호스트를 정확히 두 대만
+남긴 뒤 `두 호스트 점검`을 먼저 실행할 수도 있다. 이 점검은 DDS 주소
+(IP/hostname만, 포트 없음), DDS interface(`tailscale0` 등), 원격 SSH 관리
+host/user/port 형식과 선택적인 host-key probe만 확인한다. 일반 SSH over Tailscale의
+포트는 해당 호스트의 실제 `sshd` 포트이며 보통 22이다. `python3 -m http.server
+8080`은 경로 확인용 임시 HTTP일 뿐 DDS/SSH 설정이 아니다. 이 점검은 DDS 양방향
+통신, RGBD, WebRTC, SROS2, NAT traversal을 증명하지 않는다. `full` mode의
+정식 저장·배포에만 Robot을 포함한 네 역할 topology가 필요하다.
 
 ### TURN/Coturn
 
@@ -196,24 +273,38 @@ SROS2를 사용한다.
 ## 설치 후 명령
 
 설치 완료 화면의 절대경로 명령을 먼저 사용하면 PATH 등록 여부와 관계없이
-실행할 수 있다. 설치기는 파일만 생성했으므로 첫 `elesim-up`에서 이미지를
-빌드한다.
+실행할 수 있다. Container 역할은 설치기가 build context만 생성하므로 첫
+`elesim-up`에서 이미지를 빌드한다. Native Robot은 설치 중 전용 venv를 만들고
+`elesim-up`은 등록된 systemd unit을 시작한다. 단, managed SROS2 설치는 먼저
+조작 노트북에서 `elesim-connections`로 전체 host generation을 적용해야 한다.
 
 ### 일반 사용자용
 
 ```bash
-elesim-build                 # 선택한 이미지 build
-elesim-up                    # build 후 detached 실행
+elesim-build                 # Container 역할에서 선택한 이미지 build
+elesim-up                    # Container는 build/detach, Robot은 systemd start
 elesim-logs                  # 로그 follow; Ctrl+C는 서비스가 아니라 follow만 종료
+elesim-logs --save           # 선택한 runtime의 bounded text snapshot 저장
 elesim-net doctor            # DDS graph/QoS/TURN/WebRTC 광고 진단
 elesim-net doctor --active   # 실제 RGBD sample까지 진단
-elesim-down                  # 생성 Compose project 종료
+elesim-connections           # 조작 호스트의 multi-host 배치·managed SROS2 관리
+elesim-down                  # 선택한 runtime 종료
 elesim-setup status          # 설치 상태 확인
 ```
 
 `elesim-<role>`은 선택한 역할 하나를 foreground로 실행한다. 설치 상태는
-`<설치 위치>/install-state.json`, Compose 파일은
-`<설치 위치>/containers/compose.yaml`에 있다.
+`<설치 위치>/install-state.json`에 있다. Container 설치의 Compose 파일은
+`<설치 위치>/containers/compose.yaml`이다. Native Robot은 설치 과정에서 venv를
+직접 만들므로 `elesim-build`가 없고, 연결 관리는 조작 노트북에서 수행하므로
+Jetson에 `elesim-connections`를 만들지 않는다. 대신 아래에서 설명하는 두
+systemd unit을 `elesim-up`/`elesim-down`이 제어한다.
+
+일반 설치의 `runtime text log archive`는 기본으로 켜져 있다. Docker 자체
+`json-file` 로그는 서비스마다 `10 MiB × 4`로 제한되고, `--save` 또는
+`elesim-down`은 `<설치 위치>/logs/runs/<UTC timestamp>/`에 서비스별 text
+snapshot을 남긴다. 최근 5회만 보존하며 디렉터리는 `0700`, 파일은 `0600`이다.
+필요 없으면 설치 화면에서 끌 수 있다. `elesim-down`은 snapshot 실패 여부와
+상관없이 종료를 시도하고, 저장 실패는 non-zero status로 알린다.
 
 ### 개발자용
 
@@ -234,10 +325,16 @@ elesim-jaeger-down
 
 Jaeger UI 기본 주소는 `http://127.0.0.1:16686`이다. 개발 컨테이너 시작 시
 `$HOME/.venv`에 저장소 패키지를 editable로 연결하므로 소스 수정은 즉시 반영된다.
+호스트에 pytest, ROS2 또는 과학 패키지를 별도 설치하지 말고 다음처럼 실행한다.
+
+```bash
+elesim-dev python3 misc/tooling/quality/check.py --group required
+```
 
 ## 단일 컴퓨터 시뮬레이션
 
-일반 사용자용에서 `한 PC 시뮬레이션`을 선택하고 loopback 보안을 유지한다.
+일반 사용자용에서 Simulator, Controller, UI 역할을 체크하고 loopback
+interface로 제한한 `trusted-network` profile을 사용한다.
 
 ```bash
 elesim-up
@@ -254,22 +351,23 @@ reset, speed, reset-view와 debug marker 명령도 Simulator로 보낸다. 전�
 것은 Genesis 운영체제 Viewer의 화면 캡처가 아니라 Simulator가 별도로 렌더링한
 WebRTC stream이다.
 
-## 원격 시뮬레이션 서버
+## 원격 시뮬레이션 호스트
 
-### 서버 컴퓨터
+### Simulator를 실행하는 호스트
 
-1. 일반 사용자용 `시뮬레이션 서버`를 선택한다.
-2. 노트북과 서버를 같은 LAN 또는 routed VPN에 놓는다.
+1. 일반 사용자용에서 Simulator 역할을 체크한다.
+2. 조작 호스트와 이 호스트를 같은 LAN 또는 routed VPN에 놓는다.
 3. 두 호스트에 같은 system/domain ID를 넣고, DDS가 사용할 LAN/VPN interface를
    선택한다.
-4. L2 multicast가 불가능하면 노트북의 reachable 주소를 static peer로 넣는다.
+4. L2 multicast가 불가능하면 조작 호스트의 reachable 주소를 static peer로 넣는다.
 5. 신뢰 network면 `trusted-network`, 공유 network면 `sros2`를 선택한다.
 6. WebRTC direct ICE가 불가능하면 Coturn을 선택한다. Managed mode를 쓰려면
    `sros2` profile을 선택한다.
-7. 설치 후 `elesim-up`을 실행한다.
+7. Managed SROS2이면 먼저 조작 호스트의 `elesim-connections`에서 모든 host에
+   generation을 적용한 뒤 `elesim-up`을 실행한다.
 
 ```bash
-# [서버]
+# [Simulator 호스트]
 elesim-up
 elesim-logs
 ```
@@ -277,14 +375,17 @@ elesim-logs
 원격 Simulator profile은 native Genesis Viewer를 끄지만 observer와 hand-eye
 렌더링은 유지한다.
 
-### 조작 노트북
+### 조작 호스트 (노트북 등)
 
-1. 일반 사용자용 `조작 노트북`을 선택한다.
-2. 서버와 같은 system/domain ID를 넣고 LAN/VPN interface를 선택한다.
-3. routed network이면 서버의 reachable 주소를 static peer로 넣는다.
-4. 서버와 같은 security profile을 고른다. `sros2`이면 노트북 역할의 enclave만
-   설치한다.
-5. 설치 후 `elesim-up`을 실행한다.
+1. 일반 사용자용에서 Controller와 UI 역할을 체크한다.
+2. Simulator 호스트와 같은 system/domain ID를 넣고 LAN/VPN interface를 선택한다.
+3. routed network이면 Simulator 호스트의 reachable 주소를 static peer로 넣는다.
+4. Simulator 호스트와 같은 security profile을 고른다. 외부 keystore를 쓸 때에는 조작 호스트
+   역할 enclave만 설치한다.
+5. `elesim-connections`에서 조작 호스트를 local host로 두고 Simulator 호스트/Jetson의 DDS 주소와
+   별도 SSH 관리 주소를 입력한다. Managed SROS2를 선택했다면 여기서 모든 host의
+   role bundle을 같은 generation으로 provision한다.
+6. Provision이 성공한 뒤 각 host에서 `elesim-up`을 실행한다.
 
 필수 네트워크 경로:
 
@@ -295,8 +396,8 @@ elesim-logs
 | 직접 WebRTC ICE | 환경이 선택한 UDP candidate |
 
 방화벽 변경은 연구실 정책과 관리자 권한이 관련되므로 설치기가 자동으로 하지
-않는다. 공인 서버 `123.123.123.123`과 NAT 뒤 노트북처럼 서로 직접 라우팅되지
-않는 구성은 서버 port forwarding만으로 지원되지 않는다. 이 경우 routed VPN을
+않는다. 공인 주소 `123.123.123.123`과 NAT 뒤 노트북처럼 서로 직접 라우팅되지
+않는 구성은 한 호스트의 port forwarding만으로 지원되지 않는다. 이 경우 routed VPN을
 사용한다. TURN이나 SSH `2222` port forwarding은 DDS 경로를 대신하지 않는다.
 
 ## 실제 Robot Jetson
@@ -305,6 +406,29 @@ Jetson에서 일반 사용자용 `Robot`만 선택한다. Robot은 다른 역할
 JetPack/L4T, ROS2 Humble, `unitree_ros2`, 장치 권한과 로컬 안전 설정이 준비된
 호스트를 전제로 native 설치한다. 실제 모터를 연결하기 전에 deadman, 제한값과
 feedback 방향을 별도 검증한다.
+
+설치기는 현재 계정·설치 경로를 반영한 두 unit을 만든다.
+
+- `elesim-robot.service`: Elesim DDS/SROS2, 팔·카메라와 로컬 안전을 소유한다.
+- `elesim-unitree-bridge.service`: 전용 `elesim-unitree` 계정으로 GO2의
+  local/plaintext DDS만 소유한다.
+
+두 process는 `/run/elesim-unitree/bridge.sock`의 bounded
+`SOCK_SEQPACKET` IPC로만 통신한다. Robot 사용자는 `elesim-unitree` 그룹을
+통해 socket에 접근하고 양쪽은 `SO_PEERCRED`로 상대 UID를 확인한다. GO2 DDS
+interface/domain은 Elesim DDS interface/domain과 달라야 하며, Unitree 전용
+물리 NIC에만 묶어야 한다. Tailscale/LAN interface에 Unitree topic을 노출하면
+안 된다. Unitree 기본값은 `eth0`/domain `1`이며 필요하면 bootstrap 전에
+`ELESIM_UNITREE_INTERFACE`와 `ELESIM_UNITREE_DOMAIN_ID`를 지정한다.
+`UNITREE_ROS2_WS` 또는 `ELESIM_UNITREE_ROS2_WS`로 실제 `unitree_ros2`
+workspace를 지정할 수 있으며 기본은 `$HOME/ros2_ws`다.
+
+설치기는 전용 계정·그룹, ACL과 두 unit을 등록하는 정확한 명령을 출력할 뿐
+`sudo`나 서비스 시작은 자동 실행하지 않는다. Managed SROS2라면 먼저 unit을
+등록·enable만 하고 `elesim-connections`가 전체 호스트에 키를 배포할 때까지
+시작하지 않는다. Robot의 `elesim-logs`는 두 unit의 journald를 함께 follow하고
+일반 설치와 같은 bounded snapshot을 지원한다. `dist/releases/robot`은 독립
+수동 배포용이며 현재 연결관리자 호스트로 쓸 수 없다.
 
 ## 네트워크 진단
 
@@ -333,11 +457,12 @@ elesim-down
 
 Git에 올리면 안 되는 파일:
 
-- SROS2 keystore의 private key
+- 조작 노트북의 SROS2 Authority와 모든 CA/역할 private key
+- host별 managed SROS2 bundle과 generation 활성화 상태
 - `turn.secret`
 - 외부 TURN `turn.credentials.json`
 - 생성된 SROS2 keystore와 credential root
-- 설치된 원격 host 설정
+- 설치된 원격 host 설정과 연결 관리자 topology
 - `misc/infra/generated/`
 
 서버에서 임시 X11 권한을 열었다면 종료 후 반드시 회수한다.
@@ -348,25 +473,31 @@ xhost -si:localuser:root
 
 ## 제거와 재설치
 
-먼저 제거할 설치 위치를 정확히 확인한다. 아래의
-`/exact/elesim/prefix`를 실제 한 설치만 가리키는 절대경로로 바꾼다.
+설치 GUI의 `기존 설치 클린 제거`는 ownership manifest를 확인하고 host
+터미널에서 실행할 정확한 명령만 출력한다. GUI 자체는 Docker나 파일을 삭제하지
+않는다. 설치가 만든 host 전용 `elesim-uninstall`로 먼저 plan만 확인하고 같은
+exact prefix를 재입력해야 실제 제거가 시작된다.
 
 ```bash
-/exact/elesim/prefix/bin/elesim-down
-docker compose -f /exact/elesim/prefix/containers/compose.yaml down \
-  --remove-orphans --volumes --rmi local
-rm -rf /exact/elesim/prefix
+elesim-uninstall --plan
+elesim-uninstall --confirm-prefix /exact/elesim/prefix
 ```
 
-공용 서버에서 `docker system prune`, `docker builder prune`, 전역 CUDA 변경을
-사용하지 않는다. 다른 프로젝트와 사용자의 자원까지 제거할 수 있다.
+제거기는 설치 UUID, exact wrapper hash, Compose project/config path와 Docker
+label을 모두 다시 확인한 뒤 이 설치가 소유한 고정 container와
+`elesim/*:local` image만 제거한다. 외부 image, 외부 TURN credential, 외부
+SROS2 keystore와 source checkout은 제거하지 않는다. runtime 설정·키·secret은
+제거하지만 text log와 조작 노트북의 SROS2 Authority는 기본 보존한다. 정말
+삭제하려는 경우에만 각각 `--purge-logs`, `--purge-authority`를 붙인다.
 
-PATH 등록을 제거하려면 `~/.bashrc`에서 아래 두 marker 사이만 삭제한다.
+native Robot의 두 systemd unit이 설치되어 있거나 실행 중이면 제거기는 아무
+것도 바꾸기 전에 중단하고, hash가 일치하는 unit에 한해 정확한
+`disable --now`/unit 삭제 명령을 안내한다. 그 명령을 실행한 뒤 plan부터 다시
+실행한다.
 
-```text
-# >>> Elesim managed PATH >>>
-# <<< Elesim managed PATH <<<
-```
+공용 서버에서 `docker system prune`, `docker builder prune`, wildcard 삭제,
+전역 CUDA 변경을 사용하지 않는다. PATH 관리 block도 manifest와 정확히
+일치할 때 제거기가 원자적으로 정리한다.
 
 삭제한 디렉터리 안에 현재 shell이 있었다면 `getcwd: cannot access parent
 directories`가 나타날 수 있다. `cd ~` 또는 새 터미널로 이동한다.
@@ -414,10 +545,10 @@ stream을 사용한다.
 개발자용 설치를 사용하거나 준비된 Python 환경에서 canonical gate를 실행한다.
 
 ```bash
-python3 misc/tooling/quality/check.py --group required
-python3 misc/tooling/quality/check.py --group extended
-python3 misc/tooling/release/build.py
-python3 misc/tooling/release/verify.py dist/releases
+elesim-dev python3 misc/tooling/quality/check.py --group required
+elesim-dev python3 misc/tooling/quality/check.py --group extended
+elesim-dev python3 misc/tooling/release/build.py
+elesim-dev python3 misc/tooling/release/verify.py dist/releases
 ```
 
 자동 테스트는 실제 DDS multicast/static-peer discovery, SROS2 enforce,
@@ -437,7 +568,7 @@ model/bundles/default/      Simulator 완성 모델
 misc/model/source/          원본 geometry와 blueprint
 misc/tooling/model_builder/ 오프라인 모델 생성
 misc/tooling/release/       역할별 릴리스 생성과 검증
-misc/tooling/setup/         GUI 설치기와 네트워크 진단
+misc/tooling/setup/         GUI 설치기, 연결/SROS2 관리자와 네트워크 진단
 misc/tooling/quality/       자동 테스트와 테스트 GUI
 misc/integration/           멀티프로세스 통합 테스트
 misc/infra/                 보안, 일반/개발 컨테이너 입력
@@ -451,4 +582,5 @@ misc/docs/                  아키텍처와 배포 문서
 - [설정 체계](misc/docs/configuration.md)
 - [설치기 내부와 네트워크 진단](misc/docs/setup.md)
 - [릴리스와 멀티호스트 배포](misc/docs/deployment.md)
+- [마일스톤과 남은 인수시험](misc/docs/MILESTONES.md)
 - [미해결 문제](misc/docs/OPEN_ISSUES_KR.md)

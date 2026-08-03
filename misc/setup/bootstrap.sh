@@ -147,6 +147,7 @@ if ((gui_mode)); then
   fi
 fi
 no_open="${ELESIM_NO_OPEN:-0}"
+unitree_ros2_ws="${ELESIM_UNITREE_ROS2_WS:-${UNITREE_ROS2_WS:-$HOME/ros2_ws}}"
 for argument in "$@"; do
   if [[ "$argument" == "--no-open" ]]; then
     no_open=1
@@ -158,6 +159,10 @@ docker_args=(
   --user "$(id -u):$(id -g)"
   --workdir "$invocation_dir"
   --env "HOME=$HOME"
+  --env "ELESIM_OPERATOR_HOME=$HOME"
+  --env "ELESIM_UNITREE_ROS2_WS=$unitree_ros2_ws"
+  --env "ELESIM_UNITREE_INTERFACE=${ELESIM_UNITREE_INTERFACE:-eth0}"
+  --env "ELESIM_UNITREE_DOMAIN_ID=${ELESIM_UNITREE_DOMAIN_ID:-1}"
   --env "ELESIM_REPOSITORY=$repository"
   --env "ELESIM_REF=$ref"
   --env "ELESIM_CACHE_DIR=$cache_dir"
@@ -189,6 +194,14 @@ fi
 case "$invocation_dir/" in
   "$HOME/"*) ;;
   *) docker_args+=(--volume "$invocation_dir:$invocation_dir") ;;
+esac
+case "$unitree_ros2_ws/" in
+  "$HOME/"*|"$invocation_dir/"*) ;;
+  *)
+    if [[ "$unitree_ros2_ws" == /* && -d "$unitree_ros2_ws" ]]; then
+      docker_args+=(--volume "$unitree_ros2_ws:$unitree_ros2_ws:ro")
+    fi
+    ;;
 esac
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   docker_args+=(

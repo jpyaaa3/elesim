@@ -1,4 +1,4 @@
-schema_version: 3
+schema_version: 4
 runtime:
   endpoint_id: robot-go2
   device: /dev/ttyUSB0
@@ -19,8 +19,13 @@ go2:
   enabled: true
   backend: unitree_ros2
   pose_source: sportmodestate
-  ros_workspace: ~/ros2_ws
-  ros_domain_id: 0
+  ros_workspace: /opt/unitree_ros2
+  network_interface: eth0
+  ros_domain_id: 1
+  ipc_socket_path: /run/elesim-unitree/bridge.sock
+  ipc_robot_user: elesim
+  ipc_bridge_user: elesim-unitree
+  ipc_heartbeat_interval_s: 0.1
 camera:
   enabled: true
   topic: /elesim/robot_go2/rgbd/frame

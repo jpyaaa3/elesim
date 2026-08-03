@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import struct
 
 import pytest
@@ -12,12 +13,13 @@ from elesim_setup.doctor import (
     DdsGraphSnapshot,
     DoctorReport,
     NetworkDoctor,
+    _prepare_dds_environment,
     build_stun_binding_request,
     parse_tcp_endpoint,
     parse_turn_url,
     validate_stun_response,
 )
-from elesim_setup.state import NetworkSettings, TurnSettings
+from elesim_setup.state import DdsSettings, NetworkSettings, TurnSettings
 
 
 def test_parse_tcp_endpoint_supports_ipv4_hostname_and_ipv6() -> None:
@@ -108,6 +110,29 @@ def test_doctor_dds_failure_skips_dependent_checks(
     assert by_name["DDS graph"] == FAIL
     assert by_name["RGBD topic"] == SKIP
     assert by_name["WebRTC signaling"] == SKIP
+
+
+def test_doctor_reuses_an_installed_role_enclave(
+    local_state,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keystore = tmp_path / "sros2"
+    keystore.mkdir()
+    state = local_state(
+        roles=("ui",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="external",
+            keystore=str(keystore),
+            enclave="/lab",
+        ),
+    )
+    monkeypatch.delenv("ROS_SECURITY_ENCLAVE_OVERRIDE", raising=False)
+
+    _prepare_dds_environment(state)
+
+    assert os.environ["ROS_SECURITY_ENCLAVE_OVERRIDE"] == "/lab/ui_main"
 
 
 def test_turn_probe_remains_independent_of_dds(

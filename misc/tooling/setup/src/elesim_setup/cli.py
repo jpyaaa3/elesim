@@ -12,7 +12,7 @@ from typing import Callable, Sequence
 
 from .container_installer import ContainerInstaller
 from .installer import Installer, preflight_notes
-from .profiles import PROFILES, ROLE_ORDER, roles_for_profile
+from .profiles import PROFILES, ROLE_ORDER, normalize_roles, roles_for_profile
 from .state import (
     ComputeSettings,
     DEFAULT_BIN_DIR,
@@ -20,6 +20,7 @@ from .state import (
     DdsSettings,
     InstallState,
     NetworkSettings,
+    RuntimeTextLogSettings,
     TurnSettings,
     default_state_path,
 )
@@ -45,6 +46,47 @@ def _yes_no(prompt: str, default: bool = True, *, input_fn: Input = input) -> bo
         if value in {"n", "no", "아니오", "ㄴ"}:
             return False
         print("y 또는 n을 입력하십시오.")
+
+
+def _ask_roles(*, input_fn: Input = input) -> tuple[str, ...]:
+    """Collect the general-install roles without exposing role presets.
+
+    ``--profile`` remains a hidden compatibility input for old automation, but
+    the interactive wizard has one source of truth: the roles selected here.
+    The Robot constraint mirrors the web checkboxes so a mixed native/container
+    request is rejected before any installation work starts.
+    """
+
+    print("\n설치할 프로그램을 필요한 만큼 선택하십시오 (쉼표로 구분).")
+    print("  simulator  Genesis 시뮬레이션과 RGBD/WebRTC 송신")
+    print("  controller 인식, IK, Pick/Gaze와 목표 생성")
+    print("  ui         운영자 화면과 원격 조작")
+    print("  robot      Jetson의 실제 장치와 로컬 안전 제어 (단독 설치)")
+    while True:
+        selected = _ask(
+            "역할 (simulator, controller, ui, robot)",
+            "simulator,controller,ui",
+            input_fn=input_fn,
+        )
+        try:
+            roles = normalize_roles(value.strip() for value in selected.split(","))
+        except ValueError as exc:
+            print(f"오류: {exc}")
+            continue
+        if "robot" in roles and roles != ("robot",):
+            print("오류: robot은 다른 역할과 함께 설치할 수 없습니다.")
+            continue
+        return roles
+
+
+def _ask_runtime_text_logs(*, input_fn: Input = input) -> RuntimeTextLogSettings:
+    return RuntimeTextLogSettings(
+        enabled=_yes_no(
+            "실행 로그를 종료 시와 요청 시 평문 archive로 보관합니까?",
+            default=True,
+            input_fn=input_fn,
+        )
+    )
 
 
 def _menu(
@@ -75,37 +117,18 @@ def run_wizard(
 ) -> int:
     print("\nElesim 설치 마법사")
     print("선택한 실행 역할과 ROS 2/DDS 구성을 격리된 환경에 설치합니다.")
-    profile_name = _menu(
-        "이 컴퓨터는 무엇을 합니까?",
-        tuple(
-            (name, f"{profile.title} - {profile.description}")
-            for name, profile in PROFILES.items()
-        ),
-        input_fn=input_fn,
-    )
-    custom_roles: tuple[str, ...] = ()
-    if profile_name == "custom":
-        selected = _ask(
-            "역할을 쉼표로 구분 (simulator, controller, ui, robot)",
-            "controller,ui",
-            input_fn=input_fn,
-        )
-        custom_roles = tuple(value.strip() for value in selected.split(","))
-    roles = roles_for_profile(profile_name, custom_roles)
+    profile_name = "custom"
+    roles = _ask_roles(input_fn=input_fn)
 
-    install_mode = _menu(
-        "어떻게 격리해서 설치합니까?",
-        (
-            ("container", "Docker Compose - 기존 호스트 환경 보존용 (권장)"),
-            ("native", "역할별 Python venv - 준비된 ROS 2/Jetson 환경용"),
-        ),
-        input_fn=input_fn,
-    )
-    if install_mode == "container" and "robot" in roles:
-        raise ValueError(
-            "Robot Jetson은 generic Ubuntu 컨테이너 대상이 아닙니다. "
-            "native를 선택하고 JetPack/L4T 환경에 설치하십시오"
+    install_mode = "native" if roles == ("robot",) else "container"
+    print(
+        "\n설치 방식: "
+        + (
+            "Robot Jetson native/systemd"
+            if install_mode == "native"
+            else "Docker Compose (호스트 환경 보존)"
         )
+    )
 
     prefix = Path(
         _ask("설치 위치", str(DEFAULT_PREFIX), input_fn=input_fn)
@@ -113,6 +136,7 @@ def run_wizard(
     bin_dir = Path(
         _ask("터미널 명령을 둘 위치", str(DEFAULT_BIN_DIR), input_fn=input_fn)
     ).expanduser().resolve()
+    runtime_text_logs = _ask_runtime_text_logs(input_fn=input_fn)
 
     compute = ComputeSettings()
     if {"controller", "simulator"}.intersection(roles):
@@ -163,23 +187,34 @@ def run_wizard(
     )
     keystore = ""
     enclave = ""
+    security_provisioning = "none"
     if security_profile == "sros2":
-        keystore = str(
-            Path(
-                _ask(
-                    "SROS2 keystore 경로",
-                    str(prefix / "sros2"),
-                    input_fn=input_fn,
-                )
-            ).expanduser().resolve()
+        security_provisioning = _menu(
+            "SROS2 provisioning",
+            (
+                ("managed", "elesim-connections가 role bundle 생성·배포 (권장)"),
+                ("external", "이미 존재하는 외부 keystore 사용"),
+            ),
+            input_fn=input_fn,
         )
-        enclave = _ask("SROS2 base enclave", "/elesim", input_fn=input_fn)
+        if security_provisioning == "external":
+            keystore = str(
+                Path(
+                    _ask(
+                        "SROS2 keystore 경로",
+                        str(prefix / "sros2"),
+                        input_fn=input_fn,
+                    )
+                ).expanduser().resolve()
+            )
+            enclave = _ask("SROS2 base enclave", "/elesim", input_fn=input_fn)
     dds = DdsSettings(
         domain_id=domain_id,
         discovery_mode=discovery_mode,
         static_peers=static_peers,
         interface=interface,
         security_profile=security_profile,
+        security_provisioning=security_provisioning,
         keystore=keystore,
         enclave=enclave,
     ).validate()
@@ -243,8 +278,9 @@ def run_wizard(
         dds=dds,
         compute=compute,
         turn=turn,
+        runtime_text_logs=runtime_text_logs,
         install_mode=install_mode,
-    ).require_runnable_dds()
+    ).require_installable_dds()
 
     print("\n사전 확인")
     for note in preflight_notes(roles, install_mode=install_mode):
@@ -287,7 +323,19 @@ def _source_root(explicit: str, state_path: Path) -> Path:
 
 
 def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
-    roles = roles_for_profile(args.profile, args.role or ())
+    if args.role:
+        roles = normalize_roles(args.role)
+        profile_name = "custom"
+    else:
+        # ``--profile`` is retained as a hidden compatibility path for old
+        # scripts. New callers should use one or more ``--role`` arguments.
+        roles = roles_for_profile(args.profile, ())
+        profile_name = args.profile
+    install_mode = (
+        ("native" if roles == ("robot",) else "container")
+        if args.mode == "auto"
+        else args.mode
+    )
     peers = tuple(args.dds_static_peer or ())
     turn_urls = tuple(args.turn_url or ())
     turn_mode = (
@@ -299,7 +347,7 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
     if turn_mode == "managed" and not secret_file:
         secret_file = str(Path(args.prefix).expanduser().resolve() / "secrets/turn.secret")
     return InstallState(
-        profile=args.profile,
+        profile=profile_name,
         roles=roles,
         prefix=str(Path(args.prefix).expanduser().resolve()),
         bin_dir=str(Path(args.bin_dir).expanduser().resolve()),
@@ -308,6 +356,8 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
             turn_urls=turn_urls,
             simulator_id=args.simulator_id,
             controller_id=args.controller_id,
+            ui_id=args.ui_id,
+            robot_id=args.robot_id,
         ),
         dds=DdsSettings(
             system_id=args.dds_system_id,
@@ -317,6 +367,11 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
             static_peers=peers,
             interface=args.dds_interface,
             security_profile=args.dds_security_profile,
+            security_provisioning=(
+                args.dds_security_provisioning
+                if args.dds_security_profile == "sros2"
+                else "none"
+            ),
             keystore=args.dds_keystore,
             enclave=args.dds_enclave,
         ),
@@ -331,9 +386,12 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
             secret_file=secret_file,
             credential_file=args.turn_credential_file,
         ),
-        install_mode=args.mode,
+        runtime_text_logs=RuntimeTextLogSettings(
+            enabled=args.runtime_text_logs,
+        ),
+        install_mode=install_mode,
         install_go2_mpc=not args.skip_go2_mpc,
-    ).require_runnable_dds()
+    ).require_installable_dds()
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -359,18 +417,25 @@ def _parser() -> argparse.ArgumentParser:
     gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", "main"))
 
     install = subparsers.add_parser("install", help="자동화용 비대화형 설치")
-    install.add_argument("--profile", choices=tuple(PROFILES), default="local-sim")
+    install.add_argument(
+        "--profile",
+        choices=tuple(PROFILES),
+        default="local-sim",
+        help=argparse.SUPPRESS,
+    )
     install.add_argument(
         "--mode",
-        choices=("native", "container"),
-        default="native",
-        help="host venv 또는 Docker Compose 격리 설치",
+        choices=("auto", "native", "container"),
+        default="auto",
+        help="auto는 Robot 단독만 native, 나머지는 Docker Compose로 설치",
     )
     install.add_argument("--role", action="append", choices=ROLE_ORDER)
     install.add_argument("--prefix", default=str(DEFAULT_PREFIX))
     install.add_argument("--bin-dir", default=str(DEFAULT_BIN_DIR))
     install.add_argument("--simulator-id", default="sim-default")
     install.add_argument("--controller-id", default="controller-main")
+    install.add_argument("--ui-id", default="ui-main")
+    install.add_argument("--robot-id", default="robot-go2")
     install.add_argument("--dds-system-id", default="elesim")
     install.add_argument("--dds-domain-id", type=int, default=0)
     install.add_argument(
@@ -389,6 +454,12 @@ def _parser() -> argparse.ArgumentParser:
         "--dds-security-profile",
         choices=("trusted-network", "sros2"),
         default="trusted-network",
+    )
+    install.add_argument(
+        "--dds-security-provisioning",
+        choices=("external", "managed"),
+        default="external",
+        help="SROS2 key owner; managed starts pending until elesim-connections deploys",
     )
     install.add_argument("--dds-keystore", default="")
     install.add_argument("--dds-enclave", default="")
@@ -409,6 +480,12 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--turn-secret-file", default="")
     install.add_argument("--turn-credential-file", default="")
     install.add_argument("--skip-go2-mpc", action="store_true")
+    install.add_argument(
+        "--runtime-text-logs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="종료 시와 elesim-logs --save에서 로컬 평문 로그 archive 저장",
+    )
     install.add_argument("--dry-run", action="store_true")
 
     subparsers.add_parser("status", help="현재 설치 상태 출력")

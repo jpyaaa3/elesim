@@ -1,8 +1,9 @@
 # GUI 연결관리자 설계 메모
 
-> 상태: 논의 정리용 초안. 아직 구현 계획이나 확정된 제품 요구사항은 아니다.
+> 상태: software 구현 완료. 실제 다중 host, SROS2 enforce, VPN/LAN 및 Jetson
+> 검증은 수동 gate다.
 >
-> 작성일: 2026-07-27
+> 갱신일: 2026-08-03
 
 ## 1. 배경과 목표
 
@@ -49,6 +50,11 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 
 이는 **논리 endpoint 수**이지 컴퓨터 수가 아니다.
 
+설치기와 연결관리자는 이 네 논리 ID를 기본값으로 사용한다. 컴퓨터 배치는
+고정된 컴퓨터 유형 프리셋이 아니라 host 카드와 role assignment를 직접 선택하는
+방식이다. 따라서 한 host에 여러 role을 둘 수 있고, endpoint ID를 바꾸는
+경우에도 설치 구성과 연결 topology 양쪽에 같은 값을 명시적으로 반영해야 한다.
+
 - 시뮬레이션 전용 구성은 UI+Controller+Simulator를 한 host에 두면 1대도 가능하다.
 - 실물 Robot을 포함하면 최소 구성은 Robot Jetson 1대와 나머지 역할을 실행하는
   host 1대, 즉 2대다.
@@ -57,6 +63,22 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 - 미래에는 Robot이나 Simulator를 복수로 둘 수 있으므로 protocol 내부의 최대
   endpoint 수를 4로 고정하면 안 된다. 다만 첫 GUI의 host slot을 4개로 제한하는
   것은 현재 범위에서 합리적이다.
+
+### 2.1 명시적 topology mode
+
+연결 상태 파일 schema v2에는 `topology_mode`가 들어간다. schema v1 파일은
+하위 호환을 위해 `full`로 해석한 뒤 v2로 정규화한다.
+
+| mode | 허용 role | host 수 | 설치 제약 |
+| --- | --- | --- | --- |
+| `full` | Controller, Simulator, UI, Robot 각 1회 | 2~4 | Robot host만 native/Jetson/systemd |
+| `simulation-only` | Controller, Simulator, UI 각 1회 | 1~3 | 모든 host container/Compose, Robot/Jetson 금지 |
+
+`simulation-only`는 물리 Robot이 없다는 사실을 모델에 명시하는 실행 경로다.
+Robot을 빈 endpoint로 남겨 두거나 가짜 Jetson host를 만들어 full topology처럼
+저장하지 않는다. 따라서 설치기와 배포기는 해당 host의 세 역할만 생성·시작하며,
+SROS2 정책도 활성 role 집합만 권한에 포함한다. `full`의 Robot safety와 native
+systemd 규칙은 이 mode에서도 완전히 그대로 유지된다.
 
 Simulator 내부의 렌더러, Robot/Simulator의 RGBD publisher, UI 내부의 session
 thread 등은 독립 배포 client가 아니다. 예를 들어 UI의 operator 채널과 simulator
@@ -82,11 +104,11 @@ thread 등은 독립 배포 client가 아니다. 예를 들어 UI의 operator �
 
 ### 4.1 이전 Router/ZMQ 구조
 
-이전에는 노트북, 서버, Jetson이 모두 중앙 Router에 outbound ZMQ 연결을
+이전에는 각 호스트(노트북, compute host, Jetson)가 중앙 Router에 outbound ZMQ 연결을
 유지했다.
 
 ```text
-Laptop ── outbound connection ──> Router <── outbound connection ── Server/Jetson
+Laptop ── outbound connection ──> Router <── outbound connection ── Compute host/Jetson
 ```
 
 따라서 NAT 뒤 노트북은 Router로 나가는 연결만 만들 수 있으면 되었고, Router는
@@ -121,8 +143,8 @@ DDS P2P에서는 필요한 모든 peer 쌍이 양방향 UDP로 서로 도달 가
 노트북이 NAT 뒤라서 아래처럼 outbound만 가능한 경우는 지원되는 topology가 아니다.
 
 ```text
-Laptop -> Server/Jetson : 가능
-Server/Jetson -> Laptop : 불가능
+Operator host -> Compute host/Jetson : 가능
+Compute host/Jetson -> Operator host : 불가능
 ```
 
 노트북이 UDP packet 하나를 outbound로 보낸다고 해도 그것만으로는 충분하지 않다.
@@ -133,7 +155,7 @@ mapping을 달리할 수 있다. 현재 Elesim DDS에는 STUN/ICE/hole-punching/
 
 다음은 DDS NAT traversal 해결책이 아니다.
 
-- 서버만 포트포워딩하기
+- 한 호스트만 포트포워딩하기
 - SSH `-L` 또는 `-R` tunnel 하나 만들기
 - TURN만 켜기
 - static peer만 입력하기
@@ -143,12 +165,12 @@ relay하며 DDS discovery, control, RGBD, signaling을 relay하지 않는다.
 
 ## 6. 권장 네트워크: Tailscale mesh VPN
 
-현재 조건에서는 노트북, Simulator server, Robot Jetson을 같은 Tailscale tailnet에
+현재 조건에서는 조작 호스트, Simulator host, Robot Jetson을 같은 Tailscale tailnet에
 참여시키는 것이 가장 단순한 권장 경로다.
 
 ```text
 Laptop (UI + Controller) ─┐
-Server (Simulator)        ├─ Tailscale mesh VPN
+Simulator host             ├─ Tailscale mesh VPN
 Jetson (Robot)            ┘
 ```
 
@@ -166,12 +188,12 @@ Tailscale은 transport reachability를 제공할 뿐 DDS role authorization을 �
 `trusted-network`를 검토할 수 있지만, shared/observable tailnet 또는 shared compute
 network에서는 role-scoped SROS2 enforce mode가 필요하다.
 
-Tailscale을 모든 DDS host에 설치할 수 없다면 server를 subnet/VPN gateway로 두는
+Tailscale을 모든 DDS host에 설치할 수 없다면 한 host를 subnet/VPN gateway로 두는
 고급 경로가 있다. 그러나 Jetson의 반환 route, source NAT, DDS locator advertisement,
 static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesim이 자동 생성하거나
 지원한다고 주장하면 안 되는 수동 네트워크 과제다.
 
-## 7. GUI 연결관리자 제안
+## 7. GUI 연결관리자
 
 ### 7.1 Canvas
 
@@ -185,11 +207,14 @@ static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesi
   [Robot]  # 고정
 ```
 
-- `Host A`, `Host B`, `Host C`는 이름을 변경할 수 있다. `COM1` 같은 이름은
-  serial port로 오해될 수 있으므로 피한다.
+- 첫 화면은 요청한 `COM1`, `COM2`, `COM3`, `Robot` slot을 사용하며 각 host의
+  표시 이름과 안정적인 host ID는 별도로 변경할 수 있다.
 - Controller, Simulator, UI 블록은 일반 Host 카드에 drag & drop 한다.
-- Robot 블록은 Robot/Jetson 카드에 고정한다. 현재 Robot은 Jetson/JetPack native
-  단독 설치만 허용하므로 일반 container role과 섞지 않는다.
+- `full` mode에서는 Robot 블록을 Robot/Jetson 카드에 고정한다. 현재 Robot은
+  Jetson/JetPack native 단독 설치만 허용하므로 일반 container role과 섞지 않는다.
+- `simulation-only` mode에서는 Robot 카드를 숨기고 COM1~COM3만 사용한다. COM
+  카드는 1~3개까지 활성화할 수 있고, Controller/Simulator/UI 세 블록은 각 한
+  번씩만 배치한다.
 - 각 Host에는 `unused` 토글이 있으며, unused host는 어둡게 표시하고 생성/검사
   대상에서 제외한다.
 - 각 role block에는 endpoint ID를 표시하고 필요하면 수정한다.
@@ -204,7 +229,7 @@ static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesi
 | Host label | `Laptop`, `Compute` | 화면 표시용 |
 | role assignment | UI, Controller | 해당 host에 설치/실행할 역할 |
 | DDS interface | `eth0`, `wlan0`, `wg0`, `tailscale0` | DDS가 사용할 NIC |
-| DDS static peer | `100.x.y.z` | multicast 불가 시 discovery seed |
+| DDS 광고 주소 | `100.x.y.z` (포트 없음) | static mode에서 다른 host의 discovery seed로 자동 파생 |
 | SSH management address/port | `server.example:2222` | installer/로그/관리용 |
 | WebRTC/TURN | managed/external TURN | Simulator media 구성용 |
 | security profile | trusted-network/SROS2 | graph 보안 profile |
@@ -213,7 +238,33 @@ DDS UDP port forwarding은 일반 입력란으로 노출하지 않는다. 실제
 RMW/DDS가 선택·광고하며 고정된 app port 모델이 아니다. 연결관리자는 runtime에서
 발견된 locator를 진단 정보로 보여 줄 수는 있다.
 
-### 7.3 Global graph 설정
+### 7.3 Jetson 없는 두 호스트 사전 점검 (M2-A)
+
+Jetson을 실제로 켤 수 없는 동안에는 `COM` 카드에서 활성 상태인 **정확히 두
+호스트**만 골라 `두 호스트 점검`을 실행할 수 있다. 이 점검은 저장·배포하지 않는
+role-neutral 문서로 다음만 확인한다.
+
+- 각 호스트의 DDS 광고 주소가 hostname/IP이고 포트를 붙이지 않았는가
+- 각 호스트의 DDS 인터페이스가 `tailscale0`처럼 한 개의 NIC 이름인가
+- local 호스트는 SSH endpoint가 없고, remote 호스트는 명시적인 SSH host/user/port를
+  갖는가
+- 요청한 경우 remote SSH host-key probe가 그 host와 port에 도달하는가
+
+사전 점검의 SSH 포트는 Tailscale의 별도 “DDS 포트”가 아니다. 현재 Elesim은
+일반 OpenSSH/Paramiko 경로를 사용하므로 실제 `sshd` 포트를 입력한다. 기본 sshd가
+22이면 22를 쓰고, 다른 포트를 쓰면 그 값을 그대로 입력한다. SSH fingerprint는
+정식 저장/배포 topology에서 다시 고정해야 하며, 사전 점검 결과는 저장하지 않는다.
+
+`python3 -m http.server 8080` 같은 임시 HTTP 확인은 사람이 tailnet 경로를 확인하는
+데 사용할 수 있지만 연결관리자 topology에는 입력하지 않는다. 8080은 DDS, SSH,
+WebRTC의 runtime 포트가 아니다.
+
+이 점검은 DDS participant discovery, control/RGBD sample, SROS2 권한, WebRTC media,
+NAT traversal을 증명하지 않는다. Robot이 필요하면 `full` mode의 Robot role을
+포함한 2~4 host topology를 사용하고, 물리 장비가 없으면 `simulation-only` mode로
+1~3 host topology를 저장·배포한다.
+
+### 7.4 Global graph 설정
 
 모든 참여 host가 호환되어야 하는 값은 canvas 밖의 공통 graph profile로 둔다.
 
@@ -228,7 +279,7 @@ DDS security profile
 연결관리자는 각 role별 endpoint ID와 host assignment를 저장하되, boot ID나 실제
 UDP locator를 설정값으로 저장하지 않는다.
 
-## 8. 연결 검사 UX
+## 8. 연결 검사 UX와 현재 범위
 
 단순 ICMP ping은 보조 정보일 뿐 DDS 성공을 보장하지 않는다. GUI의 “연결 점검”은
 다음 계층으로 보여 주는 것이 좋다.
@@ -240,14 +291,16 @@ UDP locator를 설정값으로 저장하지 않는다.
 5. active RGBD frame 하나 수신 확인
 6. UI의 실제 WebRTC offer/answer/decoded-frame 검증은 별도 live test로 표시
 
-기존 `elesim-net doctor`와 `elesim-net doctor --active`는 3~5 단계의 기반이다.
-GUI는 결과를 host 간 edge matrix로 표시해야 한다.
+현재 배포 transaction은 각 host에서 `elesim-net doctor --json`을 실행해 설정,
+graph, topic 표면을 검증한다. `--active`의 RGBD sample 검사는 별도 운영 명령이다.
+아래 edge matrix와 directed control/motion round-trip은 아직 실제 다중 host 수동
+검증 항목이며 GUI가 성공했다고 추정해서는 안 된다.
 
 ```text
-Laptop <-> Server: DDS discovery / control / RGBD / WebRTC signaling
+Operator host <-> Simulator host: DDS discovery / control / RGBD / WebRTC signaling
 Laptop <-> Jetson: DDS discovery / control / RGBD
-Server  <-> Jetson: 필요한 역할 조합에 따른 DDS reachability
-Laptop <-> Server: WebRTC media는 별도 상태
+Simulator host <-> Jetson: 필요한 역할 조합에 따른 DDS reachability
+Operator host <-> Simulator host: WebRTC media는 별도 상태
 ```
 
 실패 원인은 최소한 다음으로 구분한다.
@@ -270,24 +323,23 @@ Laptop <-> Server: WebRTC media는 별도 상태
 - 중앙 logger/observability collector는 유용하지만 이후 과제로 둔다. 추가하더라도
   DDS broker나 connection manager authority가 아니라, OTLP 같은 단방향 관측 sink여야
   한다. Collector 장애가 control/RGBD/WebRTC를 멈추게 하면 안 된다.
-- Tailscale OAuth/auth key, SROS2 private key/keystore root, TURN static secret은
-  GUI state/소스 저장소에 넣지 않는다.
+- Tailscale OAuth/auth key, Authority private key, TURN static secret은 GUI
+  topology/소스 저장소에 넣지 않는다. Authority는 운영 컴퓨터의 mode-0700
+  경로에만 남고, 각 host에는 자기 역할 enclave가 든 제한 bundle만 전달한다.
 
-## 10. 단계적 구현 제안
+## 10. 구현된 범위와 남은 gate
 
-이 문서는 구현 지시가 아니다. 실제 구현을 시작할 때에는 다음 순서를 별도 계획으로
-승인받는다.
+`elesim-connections`는 loopback/token GUI, role placement, mode-0600 topology,
+SSH host-key pinning, trusted-network 전체 배포, managed SROS2 발급·전체 generation
+전환·rollback을 구현한다. DDS static peer는 활성 host의 광고 주소에서 파생한다.
 
-1. 읽기 전용 topology viewer: 현재 설치 state와 runtime discovery를 host/role로
-   시각화한다.
-2. role placement editor: Host A/B/C + Robot canvas에서 설치 request를 생성한다.
-3. generated configuration review: host별 DDS interface/static peer/security 설정을
-   diff와 함께 검토한다.
-4. host별 preflight/doctor orchestration: SSH는 선택적 관리 채널로만 사용한다.
-5. 선택적 Tailscale helper: 우선 `tailscale status --json`, `tailscale ip`,
-   `tailscale ping` 감지까지만 지원한다. daemon 설치/로그인/OAuth device provisioning은
-   별도 권한·credential 설계가 승인된 뒤에만 추가한다.
+다음은 구현 성공으로 간주하지 않는다.
 
-구현 전에는 `misc/docs/architecture.md`, `misc/docs/setup.md`,
-`misc/docs/deployment.md`를 다시 읽고 protocol schema/version 결정과
-multi-process integration test를 함께 갱신해야 한다.
+1. 실제 LAN/VPN에서의 양방향 DDS discovery/control/RGBD
+2. SROS2 enforce에서 허가·거부가 의도대로 작동한다는 실 RMW 증명
+3. 작업 중 process/host 장애를 포함한 다중 host rollback 실증
+4. Jetson native Robot와 물리 안전 deadline
+5. Tailscale 설치·로그인·OAuth provisioning 자동화
+
+이 gate의 구체적인 절차와 판정 기준은 `misc/docs/setup.md`,
+`misc/docs/deployment.md`, `misc/docs/OPEN_ISSUES_KR.md`가 관리한다.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import tempfile
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,6 +19,46 @@ GENERATED_RUNTIME = "runtime.installed.yaml"
 GENERATED_APP = "app.installed.yaml"
 GENERATED_DDS = "cyclonedds.xml"
 _INVALID_ROS_NAME = re.compile(r"[^a-z0-9_]+")
+
+
+@dataclass(frozen=True)
+class RobotHostSettings:
+    """Host-owned values that cannot be inferred from a portable Robot config."""
+
+    robot_user: str
+    bridge_user: str
+    ros_workspace: Path
+    unitree_interface: str = "eth0"
+    unitree_domain_id: int = 1
+
+    def validate(self) -> "RobotHostSettings":
+        for name, value in (
+            ("robot_user", self.robot_user),
+            ("bridge_user", self.bridge_user),
+        ):
+            text = str(value).strip()
+            if (
+                not text
+                or len(text) > 64
+                or any(character.isspace() or character in ":/" for character in text)
+            ):
+                raise ValueError(f"{name} cannot form a safe local account name")
+        workspace = self.ros_workspace.expanduser()
+        if not workspace.is_absolute():
+            raise ValueError("Unitree ROS 2 workspace must be an absolute path")
+        interface = str(self.unitree_interface).strip()
+        if (
+            not interface
+            or len(interface) > 128
+            or any(character.isspace() or character == "/" for character in interface)
+        ):
+            raise ValueError("Unitree network interface must be one interface name")
+        if (
+            isinstance(self.unitree_domain_id, bool)
+            or not 0 <= int(self.unitree_domain_id) <= 232
+        ):
+            raise ValueError("Unitree ROS domain ID must be in 0..232")
+        return self
 
 
 def role_directory(state: InstallState, role: str) -> Path:
@@ -43,8 +84,8 @@ def dds_node_key(state: InstallState, role: str) -> str:
     values = {
         "controller": state.network.controller_id,
         "simulator": state.network.simulator_id,
-        "ui": "ui-main",
-        "robot": "robot-go2",
+        "ui": state.network.ui_id,
+        "robot": state.network.robot_id,
         "doctor": "doctor-main",
     }
     try:
@@ -64,17 +105,34 @@ def dds_enclave(state: InstallState, role: str) -> str:
     base = state.dds.enclave.rstrip("/")
     if not base:
         return ""
+    if state.dds.security_provisioning == "managed":
+        return f"{base}/{role}/{dds_node_key(state, role)}"
     return f"{base}/{dds_node_key(state, role)}"
+
+
+def role_keystore_path(state: InstallState, role: str) -> Path:
+    """Return the stable, single-role runtime keystore view."""
+
+    if role not in state.roles:
+        raise ValueError(f"role is not installed on this host: {role!r}")
+    return state.prefix_path / "security" / "roles" / role
 
 
 def rgbd_topic(state: InstallState, role: str) -> str:
     return f"/{state.dds.system_id}/{dds_node_key(state, role)}/rgbd/frame"
 
 
-def generate_role_configs(state: InstallState) -> dict[str, Path]:
+def generate_role_configs(
+    state: InstallState,
+    *,
+    robot_host: RobotHostSettings | None = None,
+) -> dict[str, Path]:
     """Write only installed copies; source-tree defaults remain untouched."""
 
-    state.require_runnable_dds()
+    # A connection-managed SROS2 installation deliberately starts with no
+    # keystore.  Its generated files are inert until the provisioning marker
+    # is cleared by an all-host connection-manager transaction.
+    state.require_installable_dds()
     written: dict[str, Path] = {}
     for role in state.roles:
         destination = generated_config_path(state, role)
@@ -89,7 +147,11 @@ def generate_role_configs(state: InstallState) -> dict[str, Path]:
                 _simulator_app_config(state),
             )
         elif role == "robot":
-            payload = _robot_config(state, destination.parent / "default.yaml")
+            payload = _robot_config(
+                state,
+                destination.parent / "default.yaml",
+                robot_host=robot_host,
+            )
         else:
             raise ValueError(f"unknown role: {role}")
         _write_yaml(destination, payload)
@@ -146,7 +208,13 @@ def _dds_payload(state: InstallState, role: str) -> dict[str, Any]:
         "network_interface": state.dds.interface,
         "vendor_config": vendor_config,
         "security_profile": state.dds.security_profile,
-        "keystore": state.dds.keystore,
+        "security_provisioning": state.dds.security_provisioning,
+        "security_generation": state.dds.security_generation,
+        "keystore": (
+            str(role_keystore_path(state, role))
+            if state.dds.security_profile == "sros2"
+            else ""
+        ),
         "enclave": dds_enclave(state, role),
     }
 
@@ -174,7 +242,7 @@ def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
     runtime.pop("server_endpoint", None)
     runtime.update(
         {
-            "endpoint_id": "ui-main",
+            "endpoint_id": state.network.ui_id,
             "controller_id": state.network.controller_id,
             "simulator_id": state.network.simulator_id,
         }
@@ -263,17 +331,35 @@ def _simulator_app_config(state: InstallState) -> dict[str, Any]:
     }
 
 
-def _robot_config(state: InstallState, source: Path) -> dict[str, Any]:
+def _robot_config(
+    state: InstallState,
+    source: Path,
+    *,
+    robot_host: RobotHostSettings | None = None,
+) -> dict[str, Any]:
     raw = _read_yaml(source)
     runtime = dict(raw.get("runtime") or {})
     runtime.pop("server_endpoint", None)
-    runtime.update({"endpoint_id": "robot-go2"})
+    runtime.update({"endpoint_id": state.network.robot_id})
     raw["runtime"] = runtime
     camera = dict(raw.get("camera") or {})
     camera.pop("bind", None)
     camera.pop("advertise", None)
     camera["topic"] = rgbd_topic(state, "robot")
     raw["camera"] = camera
+    if robot_host is not None:
+        host = robot_host.validate()
+        go2 = dict(raw.get("go2") or {})
+        go2.update(
+            {
+                "ros_workspace": str(host.ros_workspace.resolve()),
+                "ipc_robot_user": host.robot_user,
+                "ipc_bridge_user": host.bridge_user,
+                "network_interface": host.unitree_interface,
+                "ros_domain_id": int(host.unitree_domain_id),
+            }
+        )
+        raw["go2"] = go2
     raw["dds"] = _dds_payload(state, "robot")
     raw.pop("security", None)
     return raw
@@ -317,6 +403,7 @@ __all__ = [
     "GENERATED_CONFIG",
     "GENERATED_DDS",
     "GENERATED_RUNTIME",
+    "RobotHostSettings",
     "dds_enclave",
     "dds_node_key",
     "generate_role_configs",
@@ -324,6 +411,7 @@ __all__ = [
     "generated_config_path",
     "generated_dds_config_path",
     "rgbd_topic",
+    "role_keystore_path",
     "role_directory",
     "write_cyclonedds_config",
 ]

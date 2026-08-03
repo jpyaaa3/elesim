@@ -51,7 +51,15 @@ def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> Non
     assert "elesim_setup/web/app.js" in members
     assert "elesim_setup/web/i18n.json" in members
     assert "elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf" in members
+    assert "elesim_setup/connection_web/index.html" in members
+    assert "elesim_setup/connection_web/app.js" in members
+    assert "elesim_setup/connection_web/i18n.json" in members
+    assert "elesim_setup/ownership.py" in members
+    assert "elesim_setup/uninstall.py" in members
+    assert "elesim_setup/shell.py" in members
     assert "elesim-setup = elesim_setup.cli:main" in entry_points
+    assert "elesim-connections = elesim_setup.connections:main" in entry_points
+    assert "elesim-uninstall = elesim_setup.uninstall:main" in entry_points
 
     environment = os.environ.copy()
     environment["PYTHONPATH"] = os.pathsep.join(

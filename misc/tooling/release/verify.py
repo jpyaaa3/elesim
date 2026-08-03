@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import configparser
 import os
 import re
 import subprocess
@@ -37,6 +38,20 @@ WHEEL_NAME = re.compile(r"^[A-Za-z0-9_.+-]+\.whl$")
 COMMON_ROLE_ENTRIES = frozenset(
     ("WHEELS.env", "config", "interfaces", "requirements.lock", "wheels")
 )
+ROBOT_SYSTEMD_UNITS = frozenset(
+    ("elesim-robot.service", "elesim-unitree-bridge.service")
+)
+ROBOT_WHEEL_MODULES = frozenset(
+    (
+        "elesim_robot/go2/unitree_bridge_daemon.py",
+        "elesim_robot/go2/unitree_ipc.py",
+        "elesim_robot/go2/unitree_ipc_protocol.py",
+    )
+)
+ROBOT_CONSOLE_SCRIPTS = {
+    "elesim-robot": "elesim_robot.main:main",
+    "elesim-unitree-bridge": "elesim_robot.go2.unitree_bridge_daemon:main",
+}
 
 
 class ReleaseVerificationError(RuntimeError):
@@ -121,6 +136,69 @@ def assert_wheel_boundary(wheel: Path, expected_package: str) -> None:
         )
 
 
+def assert_robot_wheel_runtime(wheel: Path) -> None:
+    """Require the local Unitree bridge implementation and both executables."""
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            members = frozenset(archive.namelist())
+            entrypoint_files = tuple(
+                name
+                for name in members
+                if name.endswith(".dist-info/entry_points.txt")
+            )
+            if len(entrypoint_files) != 1:
+                raise ReleaseVerificationError(
+                    f"{wheel.name} has {len(entrypoint_files)} entry_points.txt files"
+                )
+            entrypoints = archive.read(entrypoint_files[0]).decode("utf-8")
+    except ReleaseVerificationError:
+        raise
+    except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+        raise ReleaseVerificationError(
+            f"cannot inspect Robot runtime wheel {wheel}: {exc}"
+        ) from exc
+
+    missing_modules = ROBOT_WHEEL_MODULES - members
+    if missing_modules:
+        raise ReleaseVerificationError(
+            "Robot wheel is missing Unitree bridge modules: "
+            + ", ".join(sorted(missing_modules))
+        )
+
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    try:
+        parser.read_string(entrypoints)
+    except configparser.Error as exc:
+        raise ReleaseVerificationError(
+            f"invalid Robot wheel entry points: {exc}"
+        ) from exc
+    console_scripts = (
+        dict(parser.items("console_scripts"))
+        if parser.has_section("console_scripts")
+        else {}
+    )
+    for name, target in ROBOT_CONSOLE_SCRIPTS.items():
+        if console_scripts.get(name, "").strip() != target:
+            raise ReleaseVerificationError(
+                f"Robot wheel console script {name!r} must target {target!r}"
+            )
+
+
+def assert_robot_systemd_units(systemd: Path) -> None:
+    _require_path(systemd, kind="directory")
+    actual = frozenset(path.name for path in systemd.iterdir())
+    if actual != ROBOT_SYSTEMD_UNITS:
+        missing = ", ".join(sorted(ROBOT_SYSTEMD_UNITS - actual)) or "<none>"
+        unexpected = ", ".join(sorted(actual - ROBOT_SYSTEMD_UNITS)) or "<none>"
+        raise ReleaseVerificationError(
+            "unexpected Robot systemd manifest: "
+            f"missing={missing}; unexpected={unexpected}"
+        )
+    for unit in ROBOT_SYSTEMD_UNITS:
+        _require_path(systemd / unit)
+
+
 def _require_path(path: Path, *, kind: str = "file") -> None:
     exists = path.is_dir() if kind == "directory" else path.is_file()
     if not exists:
@@ -136,6 +214,8 @@ def _release_wheels(release: Path, role: str) -> tuple[Path, Path]:
     _require_path(app_wheel)
     assert_wheel_boundary(protocol_wheel, "elesim_protocol")
     assert_wheel_boundary(app_wheel, ROLE_SPECS[role].package)
+    if role == "robot":
+        assert_robot_wheel_runtime(app_wheel)
     return protocol_wheel, app_wheel
 
 
@@ -153,7 +233,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "config/arm_model.json")
     if role == "robot":
         _require_path(release / "install.sh")
-        _require_path(release / "systemd/elesim-robot.service")
+        assert_robot_systemd_units(release / "systemd")
     else:
         _require_path(release / "Dockerfile")
     if role == "simulator":
@@ -174,6 +254,7 @@ import importlib
 import importlib.util
 import pathlib
 import sys
+import sysconfig
 
 target = pathlib.Path(sys.argv[1]).resolve()
 release = pathlib.Path(sys.argv[2]).resolve()
@@ -181,6 +262,18 @@ role = sys.argv[3]
 owned_package = sys.argv[4]
 main_module = sys.argv[5]
 entrypoint = sys.argv[6]
+
+# The developer container intentionally installs all Elesim projects editable
+# into one venv.  ``PYTHONNOUSERSITE`` does not hide that venv site directory,
+# so a normal interpreter would report every sibling application as visible
+# even though the release target itself is isolated.  ``-S`` skips venv site
+# initialization; add only the interpreter's base site directories explicitly
+# so third-party runtime dependencies remain available while editable .pth
+# files cannot reintroduce source-tree applications.
+for key in ("purelib", "platlib"):
+    base_site = sysconfig.get_path(key)
+    if base_site and base_site not in sys.path:
+        sys.path.append(base_site)
 
 def require_installed(name):
     module = importlib.import_module(name)
@@ -288,6 +381,7 @@ def verify_release_context(
         _run_checked(
             (
                 python,
+                "-S",
                 "-c",
                 _probe_source(),
                 str(target),

@@ -77,11 +77,23 @@ class RobotRuntime:
             self.go2.start()
 
     def close(self) -> None:
-        self.stop_motion()
+        failures: list[tuple[str, Exception]] = []
+        try:
+            self.stop_motion()
+        except Exception as exc:
+            failures.append(("stop motion", exc))
         if self.go2 is not None:
-            self.go2.stop()
+            try:
+                self.go2.stop()
+            except Exception as exc:
+                failures.append(("GO2 bridge close", exc))
         if self.hw is not None:
-            self.hw.close()
+            try:
+                self.hw.close()
+            except Exception as exc:
+                failures.append(("arm hardware close", exc))
+        if failures:
+            self._raise_failures("robot runtime close", failures)
 
     def grant_lease(self, controller_id: str, lease_id: str) -> None:
         self.stop_motion()
@@ -101,38 +113,90 @@ class RobotRuntime:
     def _stop_go2(self) -> None:
         if self.go2 is None:
             return
-        self.go2.set_velocity(0.0, 0.0, 0.0)
-        self.go2.tick_cmd()
-        self._go2_motion_active = False
+        failures: list[tuple[str, Exception]] = []
+        try:
+            self.go2.set_velocity(0.0, 0.0, 0.0)
+        except Exception as exc:
+            failures.append(("set zero velocity", exc))
+        try:
+            self.go2.tick_cmd()
+        except Exception as exc:
+            failures.append(("flush command", exc))
+        finally:
+            self._go2_motion_active = False
+            self._go2_command_at = None
+        if failures:
+            self._raise_failures("GO2 stop", failures)
 
     def stop_motion(self) -> None:
-        self._stop_go2()
+        go2_failure: Optional[Exception] = None
+        try:
+            self._stop_go2()
+        except Exception as exc:
+            go2_failure = exc
         if self.hw is None or not self.torque_enabled:
+            if go2_failure is not None:
+                raise go2_failure
             return
         try:
             self.hw.safe_hold_arm()
         except Exception as exc:
             self._trip_safety_fault(f"arm safe hold failed: {exc!r}")
+        if go2_failure is not None:
+            raise go2_failure
 
     def emergency_stop(self) -> None:
-        self._stop_go2()
+        failures: list[tuple[str, Exception]] = []
+        try:
+            self._stop_go2()
+        except Exception as exc:
+            failures.append(("GO2 stop", exc))
         if self.hw is not None:
             try:
                 self.hw.torque_off_all()
+            except Exception as exc:
+                failures.append(("arm torque disable", exc))
             finally:
                 self.torque_enabled = False
+        else:
+            self.torque_enabled = False
+        if failures:
+            self._raise_failures("emergency stop", failures)
 
     def _trip_safety_fault(self, reason: str) -> None:
         if self.safety_fault:
             return
         self.safety_fault = str(reason)
-        self._stop_go2()
+        failures: list[tuple[str, Exception]] = []
+        try:
+            self._stop_go2()
+        except Exception as exc:
+            failures.append(("GO2 stop", exc))
         if self.hw is not None:
             try:
                 self.hw.torque_off_all()
             except Exception as exc:
-                self.safety_fault += f"; torque off failed: {exc!r}"
+                failures.append(("arm torque disable", exc))
         self.torque_enabled = False
+        if failures:
+            self.safety_fault += "; safety shutdown incomplete: " + self._format_failures(
+                failures
+            )
+
+    @staticmethod
+    def _format_failures(failures: Sequence[tuple[str, Exception]]) -> str:
+        return "; ".join(f"{operation}: {exc!r}" for operation, exc in failures)
+
+    @classmethod
+    def _raise_failures(
+        cls,
+        context: str,
+        failures: Sequence[tuple[str, Exception]],
+    ) -> None:
+        if not failures:
+            return
+        message = f"{context} failed: {cls._format_failures(failures)}"
+        raise RuntimeError(message) from failures[0][1]
 
     def tick(self) -> None:
         now = self.clock()
@@ -250,10 +314,7 @@ class RobotRuntime:
             self.torque_enabled = True
             return True, "torque_on"
         if command == "torque_off":
-            self._stop_go2()
-            if self.hw is not None:
-                self.hw.torque_off_all()
-            self.torque_enabled = False
+            self.emergency_stop()
             return True, "torque_off"
         if command == "clear_fault":
             if self.torque_enabled:
