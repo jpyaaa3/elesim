@@ -5,7 +5,7 @@
 From the repository root:
 
 ```bash
-python3 tools/release/build.py
+python3 misc/tools/release/build.py
 ```
 
 This writes one self-contained build context per role under
@@ -29,7 +29,7 @@ console-script declarations, all bridge/IPC modules, and exactly
 verification:
 
 ```bash
-python3 tools/release/verify.py dist/releases
+python3 misc/tools/release/verify.py dist/releases
 ```
 
 `--no-verify` exists only for diagnosing an incomplete build; an artifact made

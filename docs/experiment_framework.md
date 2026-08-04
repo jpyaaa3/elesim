@@ -1,8 +1,8 @@
 # Experiment Framework
 
 Experiments are repository tooling, not runtime applications. Canonical runners
-live under `research/experiments`; analysis-only commands live under
-`research/analysis`.
+live under `misc/research/experiments`; analysis-only commands live under
+`misc/research/analysis`.
 
 ## Runtime Prerequisites
 
@@ -24,13 +24,13 @@ Installed release artifacts use the `elesim-pilot` and
 
 ## Evidence
 
-Experiment outputs remain under `research/results/` and runtime traces under `logs/`.
+Experiment outputs remain under `misc/research/results/` and runtime traces under `logs/`.
 These are evidence, not deployment inputs. Preserve a run's effective config
 and run ID with its output so later analysis does not depend on current
 defaults.
 
 ## Test GUI
 
-`python3 tools/quality/test_gui.py` discovers tests across ROS interfaces,
+`python3 misc/tools/quality/test_gui.py` discovers tests across ROS interfaces,
 release projects and tooling. Its buttons reflect ownership rather than a
 single root `tests/` hierarchy.

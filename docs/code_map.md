@@ -7,10 +7,10 @@
 | --- | --- | --- |
 | `pilot/`, `ui/`, `sim/`, `robot/`의 `src/`, `config/` | 네 런타임 프로그램 | 해당 역할만 포함 |
 | `packages/protocol/`, `packages/elesim_interfaces/` | DDS 계약·공용 전송 기반 | 역할별 릴리스에 필요한 범위 포함 |
-| `installer/package/`, `environment/`, `tools/release/` | 설치·배포 도구 | 설치/릴리스 산출물에 필요한 범위만 포함 |
-| `tools/quality/`, `system_tests/` | 자동 검증 | 포함하지 않음 |
-| `research/analysis/`, `research/experiments/`, `research/debug/` | 오프라인 분석, 재현 실험, 수동 디버그 | 포함하지 않음 |
-| `research/results/` | 실험 결과·재현 근거 | 포함하지 않음 |
+| `installer/package/`, `environment/`, `misc/tools/release/` | 설치·배포 도구 | 설치/릴리스 산출물에 필요한 범위만 포함 |
+| `misc/tools/quality/`, `misc/system_tests/` | 자동 검증 | 포함하지 않음 |
+| `misc/research/analysis/`, `misc/research/experiments/`, `misc/research/debug/` | 오프라인 분석, 재현 실험, 수동 디버그 | 포함하지 않음 |
+| `misc/research/results/` | 실험 결과·재현 근거 | 포함하지 않음 |
 | `dist/`, `build/`, `*.egg-info/`, `__pycache__/`, `.pytest_cache/` | 생성 산출물·캐시 | Git 추적 대상 아님 |
 
 ## 배포 공통물: 고정 목록

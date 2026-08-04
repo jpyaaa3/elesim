@@ -76,11 +76,11 @@ not a Router.
 ```text
 {pilot,ui,robot,sim} -> elesim_interfaces + third-party packages
 model/builder -> model/source + pilot model schema
-tools/release -> top-level release projects + ROS interface project
+misc/tools/release -> top-level release projects + ROS interface project
 installer/package -> environment configuration and artifacts on disk
 environment/containers -> setup-generated isolated role image contexts
 environment/development -> setup-generated all-in-one coding environment only
-system_tests -> cross-process DDS/RGBD/WebRTC validation only
+misc/system_tests -> cross-process DDS/RGBD/WebRTC validation only
 ```
 
 A release project must not import a sibling project or a repository-root legacy
@@ -258,7 +258,7 @@ derived from the active hosts' DDS addresses only.
 The canonical entry point runs this matrix with package-specific import paths:
 
 ```bash
-python3 tools/quality/check.py --group required
+python3 misc/tools/quality/check.py --group required
 ```
 
 The required gate covers ROS interfaces, all four release projects,
@@ -268,7 +268,7 @@ observer/hand-eye WebRTC tracks. The extended
 gate covers offline tools, readability budgets, and focused mutation checks:
 
 ```bash
-python3 tools/quality/check.py --group extended
+python3 misc/tools/quality/check.py --group extended
 ```
 
 The equivalent individual commands are:
@@ -281,7 +281,7 @@ python3 -m pytest sim/tests
 python3 -m pytest ui/tests
 PYTHONPATH=model/builder/src:pilot/src python3 -m pytest model/builder/tests
 PYTHONPATH=installer/package/src python3 -m pytest installer/package/tests
-python3 system_tests/smoke_topology.py
+python3 misc/system_tests/smoke_topology.py
 ```
 
 Release artifacts have a separate isolation gate. Building release contexts
@@ -294,8 +294,8 @@ Unitree-bridge console-script metadata, the bridge/IPC modules, and exactly the
 two systemd units:
 
 ```bash
-python3 tools/release/build.py
-python3 tools/release/verify.py dist/releases
+python3 misc/tools/release/build.py
+python3 misc/tools/release/verify.py dist/releases
 ```
 
 ## Test Layers
@@ -335,13 +335,13 @@ Generate a role-specific line-execution report without adding a production
 dependency:
 
 ```bash
-python3 tools/quality/line_coverage.py pilot
+python3 misc/tools/quality/line_coverage.py pilot
 ```
 
 Use the setup-generated environment instead of installing scientific or ROS
 dependencies on the host:
 
 ```bash
-elesim-dev python3 tools/quality/check.py --group required
-elesim-dev python3 tools/quality/check.py --group extended
+elesim-dev python3 misc/tools/quality/check.py --group required
+elesim-dev python3 misc/tools/quality/check.py --group extended
 ```

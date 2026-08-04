@@ -337,7 +337,7 @@ Jaeger UI 기본 주소는 `http://127.0.0.1:16686`이다. 개발 컨테이너 �
 호스트에 pytest, ROS2 또는 과학 패키지를 별도 설치하지 말고 다음처럼 실행한다.
 
 ```bash
-elesim-dev python3 tools/quality/check.py --group required
+elesim-dev python3 misc/tools/quality/check.py --group required
 ```
 
 ## 단일 컴퓨터 시뮬레이션
@@ -554,10 +554,10 @@ stream을 사용한다.
 개발자용 설치를 사용하거나 준비된 Python 환경에서 canonical gate를 실행한다.
 
 ```bash
-elesim-dev python3 tools/quality/check.py --group required
-elesim-dev python3 tools/quality/check.py --group extended
-elesim-dev python3 tools/release/build.py
-elesim-dev python3 tools/release/verify.py dist/releases
+elesim-dev python3 misc/tools/quality/check.py --group required
+elesim-dev python3 misc/tools/quality/check.py --group extended
+elesim-dev python3 misc/tools/release/build.py
+elesim-dev python3 misc/tools/release/verify.py dist/releases
 ```
 
 자동 테스트는 실제 DDS multicast/static-peer discovery, SROS2 enforce,
@@ -580,10 +580,9 @@ model/bundles/default/         Sim 완성 모델
 environment/                  Docker·Compose·TURN·개발환경 입력
 installer/bootstrap/           git clone 없는 bootstrap
 installer/package/             GUI 설치기·연결/SROS2 관리자
-system_tests/                 멀티프로세스 시스템 검증
-research/                     분석·실험·디버그·결과
-tools/                        품질·릴리스·개발 도구
-scripts/                      소스 체크아웃용 실행 스크립트
+misc/system_tests/            멀티프로세스 시스템 검증
+misc/research/                분석·실험·디버그·결과
+misc/tools/                   품질·릴리스·개발 도구
 docs/                         아키텍처·설치·배포 문서
 ```
 
