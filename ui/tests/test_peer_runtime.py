@@ -35,16 +35,16 @@ class Client:
         self.closed = True
 
 
-def test_one_ui_peer_demultiplexes_operator_and_simulator_messages() -> None:
+def test_one_ui_peer_demultiplexes_operator_and_sim_messages() -> None:
     client = Client()
     hub = UiPeerHub(endpoint_id="ui-a", client=client, autostart=False)
     operator = hub.channel("operator")
-    simulator = hub.channel("simulator")
+    sim = hub.channel("sim")
 
     hub._dispatch(
         make_envelope(
             "operator_result",
-            "controller-a",
+            "pilot-a",
             target_id="ui-a",
             payload={"request_id": "one", "ok": True},
             seq=1,
@@ -61,7 +61,7 @@ def test_one_ui_peer_demultiplexes_operator_and_simulator_messages() -> None:
     )
 
     assert [item.message_type for item in operator.receive()] == ["operator_result"]
-    assert [item.message_type for item in simulator.receive()] == ["simulation_status"]
+    assert [item.message_type for item in sim.receive()] == ["simulation_status"]
     hub.close()
     assert client.closed is True
 
@@ -69,8 +69,8 @@ def test_one_ui_peer_demultiplexes_operator_and_simulator_messages() -> None:
 def test_peer_error_returns_to_the_channel_that_sent_the_request() -> None:
     client = Client()
     hub = UiPeerHub(endpoint_id="ui-a", client=client, autostart=False)
-    simulator = hub.channel("simulator")
-    sent = simulator.send("open_simulation_session", payload={})
+    sim = hub.channel("sim")
+    sent = sim.send("open_simulation_session", payload={})
     hub._dispatch(
         make_envelope(
             "error",
@@ -81,6 +81,6 @@ def test_peer_error_returns_to_the_channel_that_sent_the_request() -> None:
         )
     )
 
-    assert [item.message_type for item in simulator.receive()] == ["error"]
+    assert [item.message_type for item in sim.receive()] == ["error"]
     assert tuple(hub.channel("operator").receive()) == ()
     hub.close()

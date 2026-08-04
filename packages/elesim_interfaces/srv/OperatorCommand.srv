@@ -3,7 +3,7 @@ uint32 MAX_RESULT_JSON_CHARS=524288
 
 string<=128 request_id
 elesim_interfaces/PeerRef ui
-elesim_interfaces/PeerRef controller
+elesim_interfaces/PeerRef pilot
 string<=64 operation
 string<=128 name
 string<=262144 arguments_json

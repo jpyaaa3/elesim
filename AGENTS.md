@@ -2,25 +2,30 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-08-03
+- Updated: 2026-08-05
 - Branch: `refactoring`; all Router-free ROS 2/DDS changes below are currently
   uncommitted.
-- Goal: Maintain the Router-free ROS 2/DDS architecture while completing the
-  bounded M1 software/operator-readiness layer: optional local log archives,
-  ownership-based safe uninstall, and an isolated local Unitree bridge.
+- Goal: Maintain the Router-free ROS 2/DDS architecture while keeping the
+  bounded M1 operator-readiness layer and the explicit contract/connection/UI
+  follow-up implemented below. Real network, security, GPU and hardware gates
+  remain manual; do not confuse the software layer with those acceptance tests.
 - Phase: Router-free transport, M2-A preflight, M2-B simulation-only topology,
   and M1 software/operator readiness are implemented and software-validated.
   Real multi-host networking, SROS2 enforcement, NAT/TURN relay selection, GPU
   rendering, Jetson, and physical hardware behavior remain manual gates.
 - Handoff boundary: do **not** restart or broaden the Router/ZMQ-to-DDS
   refactor. M2-B is complete: the connection manager now has an explicit
-  `full`/`simulation-only` topology mode, schema-v1 compatibility, and role-aware
-  deployment/security generation. M1 is also complete; do not keep extending
-  logging, uninstall, or Unitree IPC by default. There is no remaining software
-  implementation task unless a new request explicitly targets a manual gate or
-  the not-yet-wired typed ROS service/action surface.
+  `full`/`simulation-only` topology mode, schema-v1/v2 compatibility, role-aware
+  deployment and security generation, read-only Tailscale hinting, and explicit
+  lifecycle status/actions. M1 is also complete. New protocol work must first
+  update the DDS contract registry and tests; typed ROS service/action runtime
+  wiring remains a separate follow-up.
 - Locked decisions:
-  - General mode uses Docker for Simulator, Controller, and UI. Robot is
+  - The deployable source trees and runtime role keys are canonically named
+    `pilot/`, `sim/`, `ui/`, and `robot/`. Python packages, console commands,
+    SROS2 enclaves, Compose service keys, endpoint identifiers and image tags
+    use `pilot`/`sim` directly. There is no source-layout alias layer.
+  - General mode uses Docker for Pilot, Sim, and UI. Robot is
     native-only and selectable only on detected Jetson/JetPack hosts. There is
     no Router role.
   - Developer mode creates one privileged Ubuntu/WSL amd64 development
@@ -29,9 +34,8 @@
     development Compose project.
   - General Compose uses the fixed project name `elesim-runtime`, images
     `elesim/<role>:local`, and containers `elesim-pilot`, `elesim-ui`, and
-    `elesim-sim` for the selected roles. The internal role key remains
-    `controller`; the image remains `elesim/controller:local` until the planned
-    semantic pilot migration. Robot remains native-only.
+    `elesim-sim` for the selected roles. Pilot and Sim are the actual role
+    keys and application names, not aliases. Robot remains native-only.
   - The GUI binds to host loopback only. Remote use goes through SSH forwarding.
   - Installation generates files and Compose contexts but does not build or
     start images.
@@ -47,10 +51,10 @@
   - The setup GUI has no Docker socket or deletion channel. It may validate a
     manifest and emit exact plan/execute commands, but only the host
     `elesim-uninstall` CLI mutates resources.
-  - Managed Coturn may join the Simulator Compose lifecycle, but it carries
+  - Managed Coturn may join the Sim Compose lifecycle, but it carries
     WebRTC media only and never DDS traffic.
   - External TURN credentials are a bounded JSON file mounted only into
-    Simulator. Controller/UI-only installations receive no TURN private file.
+    Sim. Pilot/UI-only installations receive no TURN private file.
   - DDS runtime configuration contains `system_id`, `domain_id`,
     `rmw_implementation`, discovery mode/static peers, bound interface,
     security profile, and optional SROS2 keystore/enclave.
@@ -62,31 +66,36 @@
     NIC/domain. `elesim-unitree-bridge` is the only Unitree participant;
     inter-host `elesim-robot` talks to it over bounded credential-checked Unix
     `SOCK_SEQPACKET` IPC. It is not a fifth application or a Router.
-  - Connection topology schema v2 has an explicit `topology_mode`: `full` uses
+  - Connection topology schema v3 has an explicit `topology_mode`: `full` uses
     all four roles across 2..4 hosts, while `simulation-only` uses only
-    Controller/Simulator/UI across 1..3 container/Compose hosts and contains no
+    Pilot/Sim/UI across 1..3 container/Compose hosts and contains no
     Robot or Jetson placeholder. Schema v1 is loaded as `full` and normalized.
-  - Robot/Simulator own their motion leases; Simulator separately owns its UI
+  - Robot/Sim own their motion leases; Sim separately owns its UI
     simulation session. DDS discovery grants neither.
   - RGBD is a latest-only coherent DDS sample. WebRTC signaling is a
-    Simulator-owned reliable DDS request/reply exchange; pixels remain
+    Sim-owned reliable DDS request/reply exchange; pixels remain
     DTLS/SRTP WebRTC.
 - Implemented:
-  - ROS contracts live in `packages/elesim_interfaces`; protocol major 5 uses a
+  - ROS contracts live in `packages/elesim_interfaces`; protocol major 6 uses a
     bounded `PeerEnvelope` DDS carrier for current control/signaling and a typed
     `RgbdFrame` for RGBD. The additional typed services/actions are generated
     but are not runtime-wired.
-  - Router and its release were removed. Controller, UI, Simulator, and Robot
+  - `packages/protocol/src/elesim_protocol/contracts.py` and
+    `docs/dds_contracts.md` enumerate every PeerEnvelope message, sender /
+    receiver role, QoS, authority and payload policy. Empty lease renewals and
+    acknowledgement/error surfaces are structurally validated against the v6
+    wire shapes.
+  - Router and its release were removed. Pilot, UI, Sim, and Robot
     use direct DDS peers; runtime code, configuration, and dependencies contain
     no ZMQ, CurveZMQ, CURVE, or ZAP surface.
   - A boot identity, lease/session epoch plus opaque token, and monotonic
     sequence prevent commands from a previous process or authority from being
     accepted.
-  - Robot/Simulator own motion authority; Simulator separately owns the UI
+  - Robot/Sim own motion authority; Sim separately owns the UI
     simulation session. A bounded startup queue retains traffic only until the
-    exact source boot descriptor/heartbeat is known, and Controller target
+    exact source boot descriptor/heartbeat is known, and Pilot target
     selection retries at the discovery interval until acknowledged.
-  - Robot and Simulator publish coherent latest-only RGBD over DDS. Observer and
+  - Robot and Sim publish coherent latest-only RGBD over DDS. Observer and
     hand-eye pixels remain WebRTC DTLS/SRTP, with signaling carried directly by
     DDS.
   - Robot safety remains local. Lease expiry and command deadman must stop
@@ -96,17 +105,21 @@
     uses a 64 KiB-bounded JSON Unix packet protocol with `SO_PEERCRED`, boot
     IDs, monotonic sequences, command/parameter allowlists and deadman stop.
     GO2 IPC failure cannot skip arm safe-hold, torque-off or hardware cleanup.
-  - Installer state schema v7 distinguishes externally supplied SROS2
+  - Installer state schema v8 distinguishes externally supplied SROS2
     keystores from connection-manager-owned generation/bundle state, while
     retaining managed/external TURN inputs and optional runtime text logging.
-    Migrations from v1-v6 disable new log retention. SSH remains setup-only and
+    Migrations from v1-v7 disable new log retention. SSH remains setup-only and
     respects non-default ports.
   - `elesim-connections` owns the non-secret multi-host topology. DDS
     address/interface and SSH management host/port are separate fields; one is
     never inferred from the other.
+  - The connection manager performs a read-only `tailscale0` address hint (no
+    installation, login or ACL mutation) and exposes bounded `check`, `start`,
+    `stop` and `restart` host-lifecycle jobs. These report Compose/systemd
+    management state only; they do not claim DDS discovery or WebRTC media.
   - `elesim-connections` exposes the two topology modes above. In
     `simulation-only`, the GUI hides the fixed Robot card, allows one to three
-    active COM cards, and serializes exactly one Controller, Simulator, and UI.
+    active COM cards, and serializes exactly one Pilot, Sim, and UI.
     Deployment, lifecycle rollback, and SROS2 policy generation use only those
     active roles; no `robot_id` is emitted for simulation-only rollback.
   - `TwoHostPreflight` and the loopback `/api/preflight` endpoint are ephemeral
@@ -123,6 +136,12 @@
     and protocol wheels; no Router tree is emitted. The Robot wheel and release
     require both Robot and Unitree-bridge entrypoints plus exactly two systemd
     units.
+  - The observer camera uses the pinned Genesis 1.2.0 trackball semantics
+    (left orbit, middle pan, right/scroll zoom and ±89° pole clamp). The UI
+    renders observer and hand-eye streams in one separate resizable native
+    camera window; closing it hides it and the main panel can reopen it.
+    Canonical Roll display direction is positive while raw Robot motor polarity
+    remains independently configured.
   - Every completed install emits a stdlib-only host uninstaller and an exact
     ownership manifest. General/native use `<prefix>/install-ownership.json`;
     Developer keeps it inside `.elesim/development/` and never owns the source
@@ -159,11 +178,11 @@
     contain the complete setup and connection-manager web packages and ROSIDL
     source.
 - Verification:
-  - Canonical required gate passed: Protocol `82`, Robot `98`, Controller
-    `350`, Simulator `75`, UI `32`, model/release `34`, DDS RGBD `2`, encoded
-    two-stream WebRTC `1`, and setup `312`.
+  - Canonical required gate passed: Protocol `87`, Robot `98`, Pilot
+    `350`, Sim `77`, UI `34`, model/release `34`, DDS RGBD `2`, encoded
+    two-stream WebRTC `1`, and setup `315`.
   - Generated ROSIDL built successfully and the Router-free four-process
-    CycloneDDS topology smoke passed with Controller, Robot, Simulator, and UI
+    CycloneDDS topology smoke passed with Pilot, Robot, Sim, and UI
     in separate OS processes.
   - The extended gate passed: quality `24`, analysis `6`, debug `4`, experiment
     `3`, and all eight focused critical mutations.
@@ -186,7 +205,7 @@
   not silently lose a valid first request while that descriptor/heartbeat is
   still arriving. `DdsPeerNode` therefore holds at most 512 parsed inbound
   envelopes for one heartbeat timeout and releases them only after the exact
-  source identity becomes live. Controller repeats `select_target` once per
+  source identity becomes live. Pilot repeats `select_target` once per
   discovery interval until `target_selected`. Do not weaken source validation,
   turn the control QoS transient-local, or replace this with an unbounded queue.
 - Current source-of-truth implementation points:
@@ -195,21 +214,24 @@
     simulation authority.
   - `packages/protocol/src/elesim_protocol/rgbd.py`: typed latest-only RGBD
     DDS publisher/subscriber; `packages/elesim_interfaces` owns ROSIDL types.
-  - `simulator/src/elesim_simulator/turn.py`: managed/external TURN credential
+  - `sim/src/elesim_sim/turn.py`: managed/external TURN credential
     handling; WebRTC pixels remain outside DDS.
   - `robot/src/elesim_robot/go2/unitree_ipc*.py` and
     `unitree_bridge_daemon.py`: local bounded UDS boundary, peer credentials,
     replay fencing and bridge-side GO2 deadman stop.
-  - `misc/tooling/setup/src/elesim_setup/`: state schema v7, role-specific DDS
+  - `installer/package/src/elesim_setup/`: state schema v8, role-specific DDS
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
     the ephemeral `TwoHostPreflight` contract/API. `connection_manager.py` owns
-    topology schema v2 and its `full`/`simulation-only` invariants;
+    topology schema v3 and its `full`/`simulation-only` invariants;
     `security_policy.py` and `secure_deployment.py` filter SROS2/lifecycle
     operations to the active role set.
+    Runtime role keys and source trees are the same names (`pilot` and `sim`).
+    Old `controller`/`simulator` values are accepted only while reading legacy
+    state/topology files; old container names are inspected only for cleanup.
   - `ownership.py` and `uninstall.py`: exact install manifests, host-only
     pre-mutation validation, preserve-by-default cleanup and tombstones.
-  - `misc/integration/smoke_topology.py`: the canonical four-process real-RMW
+  - `system_tests/smoke_topology.py`: the canonical four-process real-RMW
     topology smoke; it is not an NAT, GPU, WebRTC-media, or hardware proof.
 - Canonical test environment and commands:
   - The host shell deliberately lacks much of the scientific/ROS test stack;
@@ -222,17 +244,17 @@
     is:
 
     ```bash
-    elesim-dev python3 misc/integration/smoke_topology.py
+    elesim-dev python3 system_tests/smoke_topology.py
     ```
 
   - The isolated-release verification invocation is:
 
     ```bash
-    elesim-dev python3 misc/tooling/release/verify.py dist/releases
+    elesim-dev python3 tools/release/verify.py dist/releases
     ```
 
-  - `dist/releases/` contains four application trees (`controller`, `ui`,
-    `robot`, `simulator`) and a separate `infra` tree. `infra` is not a fifth
+  - `dist/releases/` contains four application trees (`pilot`, `ui`,
+    `robot`, `sim`) and a separate `infra` tree. `infra` is not a fifth
     runtime application and must not be mistaken for a Router release.
 - Operator-facing installation/run facts:
   - Bootstrap defaults to the local web wizard. Installation only writes the
@@ -242,7 +264,7 @@
     `elesim-down` on the machine owning the selected role.
   - General installations expose fixed role container names; Developer
     installations expose only `elesim-dev` and optional `elesim-jaeger`.
-    Managed TURN adds `elesim-coturn` on the Simulator host.
+    Managed TURN adds `elesim-coturn` on the Sim host.
   - Use `elesim-uninstall --plan`, then retype the exact prefix with
     `--confirm-prefix`. Logs and operator Authority remain unless their purge
     flags are supplied. On Robot, remove the exact two installed systemd units
@@ -253,7 +275,7 @@
     Unitree link are `eth0`, domain `1`, and `$HOME/ros2_ws`; bootstrap accepts
     explicit `ELESIM_UNITREE_*` overrides.
   - Use `elesim-connections` on the operator laptop to select `full` (all four
-    roles, 2..4 hosts) or `simulation-only` (Controller/Simulator/UI, 1..3
+    roles, 2..4 hosts) or `simulation-only` (Pilot/Sim/UI, 1..3
     hosts), validate independent DDS/SSH endpoints, provision or rotate managed
     SROS2 bundles, and deploy them transactionally.
   - Before Jetson is available, use the GUI's `두 호스트 점검`/`Two-host endpoint
@@ -276,7 +298,7 @@
   - Confirm ordinary IPv4 NAT, CGNAT and symmetric NAT fail with an actionable
     diagnostic; TURN and static peers must not be presented as DDS NAT
     traversal.
-  - Kill Controller/UI/target processes under loss and confirm lease expiry,
+  - Kill Pilot/UI/target processes under loss and confirm lease expiry,
     session expiry, stale-sequence rejection and Robot stop deadlines.
   - Measure RGBD bandwidth, fragmentation, loss and p95 frame age;
     prove no subscriber backlog.
@@ -298,23 +320,23 @@
     NIC/domain confinement, UDS peer credentials, bridge loss/malformed packet
     stop deadlines, arm cleanup despite IPC failure, and physical safety.
 - Next commands in the generated Developer environment:
-  - `elesim-dev python3 misc/tooling/quality/check.py --group required`
-  - `elesim-dev python3 misc/tooling/quality/check.py --group extended`
-  - `elesim-dev python3 misc/tooling/release/build.py`
-  - `elesim-dev python3 misc/tooling/release/verify.py dist/releases`
+  - `elesim-dev python3 tools/quality/check.py --group required`
+  - `elesim-dev python3 tools/quality/check.py --group extended`
+  - `elesim-dev python3 tools/release/build.py`
+  - `elesim-dev python3 tools/release/verify.py dist/releases`
 
-Read `misc/docs/architecture.md` before changing behavior that crosses a process,
+Read `docs/architecture.md` before changing behavior that crosses a process,
 protocol, media, configuration, model, or deployment boundary. Read
-`misc/docs/setup.md` before changing the installer and `misc/docs/deployment.md`
+`docs/setup.md` before changing the installer and `docs/deployment.md`
 before changing release or multi-host behavior.
 
 ## Runtime Topology
 
 Elesim has four independently deployable applications:
 
-- `controller`: perception, IK, Pick, Gaze, Vision, and target generation
+- `pilot`: perception, IK, Pick, Gaze, Vision, and target generation
 - `ui`: operator presentation, intent, remote video, and simulation controls
-- `simulator`: Genesis, virtual telemetry, RGBD, observer and hand-eye rendering
+- `sim`: Genesis, virtual telemetry, RGBD, observer and hand-eye rendering
 - `robot`: physical I/O, device feedback, deadman, limits, and local safety
 
 Applications communicate through ROS 2/DDS contracts in
@@ -329,10 +351,10 @@ fifth application and not part of inter-host DDS.
 ## Dependency Rules
 
 - A deployment must not import a sibling deployment.
-- UI uses operator and simulation ROS interfaces, never controller workflow code.
+- UI uses operator and simulation ROS interfaces, never pilot workflow code.
 - Robot must not know about IK, Pick, Genesis, builders, model source, or UI.
-- Controller must not import Robot or Simulator implementations.
-- Simulator consumes `model/bundles/default`; it rebuilds models only when
+- Pilot must not import Robot or Sim implementations.
+- Sim consumes `model/bundles/default`; it rebuilds models only when
   `ELESIM_SIM_DEV_REBUILD=1` is explicitly set for development.
 - Share ROS wire contracts through `packages/elesim_interfaces`; payload
   validation and transport primitives may live in `packages/protocol`.
@@ -347,10 +369,10 @@ fifth application and not part of inter-host DDS.
 - Installed configuration is generated under the selected installation prefix;
   do not mutate source defaults during installation.
 - A top-level deployment `config/` directory is runtime data, but a directory such
-  as `src/elesim_simulator/config/` is Python application code. Never filter files
+  as `src/elesim_sim/config/` is Python application code. Never filter files
   recursively by basename when preparing build contexts.
-- The Controller arm model and Simulator model bundle are immutable runtime inputs.
-  Regenerate them with `misc/tooling/model_builder`, not inside a runtime process.
+- The Pilot arm model and Sim model bundle are immutable runtime inputs.
+  Regenerate them with `model/builder`, not inside a runtime process.
 - Installer output, release contexts, and wheels are products that require their
   own isolation checks. A source-tree import test is not a substitute for checking
   the generated context or installed wheel.
@@ -374,10 +396,10 @@ fifth application and not part of inter-host DDS.
 - `inherit` GPU mode forwards `CUDA_VISIBLE_DEVICES`; `specific` persists one GPU
   index or UUID; `cpu` must disable both container GPU access and the Genesis GPU
   backend.
-- The remote Simulator profile is headless but keeps observer and hand-eye render
+- The remote Sim profile is headless but keeps observer and hand-eye render
   streams enabled. A native Genesis Viewer requires an explicit display/X11
   attachment and must not silently become the server default.
-- Managed TURN selection may include Coturn in the Simulator's generated
+- Managed TURN selection may include Coturn in the Sim's generated
   Compose project, so `elesim-up`, `elesim-down`, and `elesim-logs` own its
   lifecycle. External TURN remains independently operated. TURN does not carry
   DDS signaling or data. Managed TURN requires SROS2.
@@ -406,12 +428,12 @@ fifth application and not part of inter-host DDS.
 - `ROS_DOMAIN_ID`, a namespace and an obscure multicast group are not
   authentication or tenant isolation.
 - Never commit SROS2 private keys, TURN secrets, generated keystores, or copied
-  remote host configuration. `misc/infra/generated/` is the source-workspace
+  remote host configuration. `environment/generated/` is the source-workspace
   scratch area.
 - WebRTC uses DTLS/SRTP. In managed mode, only Coturn and the co-located
-  Simulator hold the static HMAC secret; Simulator issues short-lived
+  Sim hold the static HMAC secret; Sim issues short-lived
   session-bound credentials and UI receives no static secret. External TURN
-  uses a private JSON credential file mounted only into Simulator; UI receives
+  uses a private JSON credential file mounted only into Sim; UI receives
   the usable value through the active DDS session grant.
 - SSH/`scp` is only a credential transfer mechanism and is not part of Elesim media
   or control transport. Respect non-default SSH ports.
@@ -438,20 +460,20 @@ fifth application and not part of inter-host DDS.
 For normal changes, run the canonical gate:
 
 ```bash
-python3 misc/tooling/quality/check.py --group required
+python3 tools/quality/check.py --group required
 ```
 
 For structural, installer, protocol, or release changes also run:
 
 ```bash
-python3 misc/tooling/quality/check.py --group extended
-python3 misc/tooling/release/build.py
-python3 misc/tooling/release/verify.py dist/releases
+python3 tools/quality/check.py --group extended
+python3 tools/release/build.py
+python3 tools/release/verify.py dist/releases
 ```
 
-The detailed per-package matrix is in `misc/docs/architecture.md`. At minimum,
+The detailed per-package matrix is in `docs/architecture.md`. At minimum,
 changes must test the owning package. Cross-process changes also require
-`misc/integration/smoke_topology.py`. Installer copy/filter changes must assert the
+`system_tests/smoke_topology.py`. Installer copy/filter changes must assert the
 contents of generated contexts and built wheels, including nested Python packages.
 
 Automated tests do not establish production-RMW discovery on a LAN/VPN,
@@ -463,10 +485,15 @@ as hardware proof.
 
 ## Documentation
 
+- Repository auxiliary ownership is explicit: `environment/` contains execution
+  environment inputs, `installer/` contains bootstrap/setup sources,
+  `system_tests/` contains cross-process validation, `model/` owns model source
+  and builders, `research/` owns offline work, and `tools/` owns developer/CI
+  helpers. No legacy compatibility source tree remains.
 - `README.md` is the Korean operator guide and must match commands generated by the
   current installer.
-- `misc/docs/architecture.md` owns system boundaries and ROS interface invariants.
-- `misc/docs/setup.md` owns installer internals and network-doctor interpretation.
-- `misc/docs/deployment.md` owns release and multi-host deployment detail.
-- Update both `misc/docs/OPEN_ISSUES.md` and `misc/docs/OPEN_ISSUES_KR.md` when a
+- `docs/architecture.md` owns system boundaries and ROS interface invariants.
+- `docs/setup.md` owns installer internals and network-doctor interpretation.
+- `docs/deployment.md` owns release and multi-host deployment detail.
+- Update both `docs/OPEN_ISSUES.md` and `docs/OPEN_ISSUES_KR.md` when a
   newly discovered limitation remains unfixed.

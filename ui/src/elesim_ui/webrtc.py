@@ -1,4 +1,4 @@
-"""Optional aiortc receiver for direct simulator video streams."""
+"""Optional aiortc receiver for direct sim video streams."""
 
 from __future__ import annotations
 
@@ -57,6 +57,7 @@ class WebRtcVideoReceiver:
         self.thread.start()
         self.peer: Any = None
         self.latest_bgr: Optional[np.ndarray] = None
+        self._frame_lock = threading.Lock()
         self._closed = False
 
     def create_offer(self, *, turn: Optional[TurnCredentials] = None) -> dict[str, str]:
@@ -92,7 +93,15 @@ class WebRtcVideoReceiver:
                 frame = await track.recv()
             except Exception:
                 return
-            self.latest_bgr = frame.to_ndarray(format="bgr24")
+            value = frame.to_ndarray(format="bgr24")
+            with self._frame_lock:
+                self.latest_bgr = np.ascontiguousarray(value)
+
+    def latest_frame(self) -> Optional[np.ndarray]:
+        """Return a stable latest-only copy for the rendering thread."""
+
+        with self._frame_lock:
+            return None if self.latest_bgr is None else self.latest_bgr.copy()
 
     def accept_answer(self, sdp: str, answer_type: str = "answer") -> None:
         if self.peer is None:

@@ -97,7 +97,7 @@ class _Node:
     @staticmethod
     def _discovered(node: "_Node") -> DiscoveredPeer:
         key = peer_node_key(node.identity.endpoint_id)
-        prefix = f"/elesim/v5/peers/{key}/{node.identity.boot_id}"
+        prefix = f"/elesim/v6/peers/{key}/{node.identity.boot_id}"
         return DiscoveredPeer(
             descriptor=node.descriptor,
             identity=node.identity,
@@ -121,7 +121,7 @@ def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
     node._pending_inbound = deque()
     node._inbox_lock = threading.Lock()
 
-    source = PeerIdentity("controller-a", "boot-a")
+    source = PeerIdentity("pilot-a", "boot-a")
     message = make_envelope(
         "ack",
         source.endpoint_id,
@@ -133,7 +133,7 @@ def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
     assert list(node._inbox) == []
 
     node.directory.announce(
-        PeerDescriptor(source, role="controller"),
+        PeerDescriptor(source, role="pilot"),
         now=now[0],
     )
     node.directory.heartbeat(
@@ -152,8 +152,8 @@ def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
 
 def test_direct_discovery_motion_lease_and_fenced_command() -> None:
     bus = _Bus()
-    controller = PeerClient(
-        EndpointDescriptor("controller-a", "controller"),
+    pilot = PeerClient(
+        EndpointDescriptor("pilot-a", "pilot"),
         node_factory=bus.factory,
     )
     robot = PeerClient(
@@ -161,20 +161,20 @@ def test_direct_discovery_motion_lease_and_fenced_command() -> None:
         node_factory=bus.factory,
     )
 
-    controller.send("discover", payload={"role": "robot"})
-    endpoint_list = _messages(controller)
+    pilot.send("discover", payload={"role": "robot"})
+    endpoint_list = _messages(pilot)
     assert endpoint_list[0].message_type == "endpoint_list"
     assert endpoint_list[0].payload["endpoints"][0]["endpoint_id"] == "robot-a"
 
-    controller.send("select_target", payload={"target_id": "robot-a"})
+    pilot.send("select_target", payload={"target_id": "robot-a"})
     grants = _messages(robot)
     assert [message.message_type for message in grants] == ["lease_granted"]
     lease_id = grants[0].lease_id
-    selected = _messages(controller)
+    selected = _messages(pilot)
     assert selected[0].message_type == "target_selected"
     assert selected[0].lease_id == lease_id
 
-    controller.send(
+    pilot.send(
         "motion_command",
         target_id="robot-a",
         payload={"command": "torque_off"},
@@ -183,31 +183,31 @@ def test_direct_discovery_motion_lease_and_fenced_command() -> None:
     motion = _messages(robot)
     assert [message.message_type for message in motion] == ["motion_command"]
 
-    controller.send("release_target", payload={})
+    pilot.send("release_target", payload={})
     revoked = _messages(robot)
     assert [message.message_type for message in revoked] == ["lease_revoked"]
-    released = _messages(controller)
+    released = _messages(pilot)
     assert [message.message_type for message in released] == ["target_released"]
 
 
-def test_simulator_owns_ui_session_and_webrtc_signaling_fence() -> None:
+def test_sim_owns_ui_session_and_webrtc_signaling_fence() -> None:
     bus = _Bus()
     ui = PeerClient(
         EndpointDescriptor("ui-a", "ui"),
         node_factory=bus.factory,
     )
-    simulator = PeerClient(
-        EndpointDescriptor("sim-a", "simulator"),
+    sim = PeerClient(
+        EndpointDescriptor("sim-a", "sim"),
         node_factory=bus.factory,
     )
     open_payload = {
         "schema_version": 1,
         "request_id": "open-1",
-        "simulator_id": "sim-a",
+        "sim_id": "sim-a",
         "streams": ["observer"],
     }
     ui.send("open_simulation_session", payload=open_payload)
-    local = _messages(simulator)
+    local = _messages(sim)
     assert [message.message_type for message in local] == [
         "simulation_session_granted"
     ]
@@ -229,7 +229,7 @@ def test_simulator_owns_ui_session_and_webrtc_signaling_fence() -> None:
             "type": "offer",
         },
     )
-    assert [message.message_type for message in _messages(simulator)] == [
+    assert [message.message_type for message in _messages(sim)] == [
         "webrtc_signal"
     ]
 
@@ -242,7 +242,7 @@ def test_simulator_owns_ui_session_and_webrtc_signaling_fence() -> None:
             "session_id": session_id,
         },
     )
-    assert [message.message_type for message in _messages(simulator)] == [
+    assert [message.message_type for message in _messages(sim)] == [
         "simulation_session_revoked"
     ]
     assert [message.message_type for message in _messages(ui)] == [
@@ -250,14 +250,14 @@ def test_simulator_owns_ui_session_and_webrtc_signaling_fence() -> None:
     ]
 
 
-def test_second_controller_cannot_take_busy_target() -> None:
+def test_second_pilot_cannot_take_busy_target() -> None:
     bus = _Bus()
     first = PeerClient(
-        EndpointDescriptor("controller-a", "controller"),
+        EndpointDescriptor("pilot-a", "pilot"),
         node_factory=bus.factory,
     )
     second = PeerClient(
-        EndpointDescriptor("controller-b", "controller"),
+        EndpointDescriptor("pilot-b", "pilot"),
         node_factory=bus.factory,
     )
     robot = PeerClient(

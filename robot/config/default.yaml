@@ -16,7 +16,7 @@ dds:
   keystore: ""
   enclave: ""
 arm:
-  command_direction: [1, -1, 1, -1]
+  command_direction: [1, 1, 1, -1]
   motor_direction: [1, -1, 1, -1]
   baudrate: 1000000
   current_limit_ma: 2500

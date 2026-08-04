@@ -1,0 +1,598 @@
+schema_version: 1
+extends: null
+simulation:
+  physics:
+    bend_rate: .inf
+    dt: 0.02
+    gravity:
+    - 0.0
+    - 0.0
+    - 0.0
+    realtime: true
+    realtime_factor: 1.0
+    roll_rate: .inf
+    substeps: 1
+    queue_depth: 1
+  runtime:
+    enable_viewer: true
+    floor: true
+    show_all_ports: false
+    use_go2: true
+    use_gpu: true
+    use_hardware: false
+  assembly:
+    arm_urdf_name: arm.urdf
+    assy_build_json: blueprint.json
+    build_dir: .model-build
+    rebuild_assembly: true
+    urdf_name: robot.urdf
+  trajectory:
+    default:
+      angular_scale_rad: 0.35
+      duration_s: 0.8
+      enable: true
+      linear_scale_m: 0.05
+      max_s: 1.5
+      min_s: 0.15
+    lji:
+      duration_s: 0.14
+      enable: true
+      max_s: 0.35
+      min_s: 0.07
+  cameras:
+    hand_eye:
+      config: calibration/hand_eye.camera.json
+      auto_disable_unused: true
+      depth: true
+      enable: true
+      fov_deg: 60.0
+      height: 480
+      jpeg: true
+      jpeg_quality: 75
+      max_hz: 30.0
+      topic: /elesim/sim/rgbd/frame
+      rgb: true
+      width: 640
+    observer:
+      enable: true
+      fov_deg: 60.0
+      height: 480
+      jpeg: true
+      jpeg_quality: 85
+      lookat:
+      - 0.45
+      - 0.0
+      - 0.25
+      max_hz: 20.0
+      stream: webrtc://elesim/sim-default/observer
+      pos:
+      - 0.45
+      - -1.8
+      - 1.8
+      record_fps: 30.0
+      width: 640
+  performance:
+    log_enable: false
+    log_interval_s: 2.0
+    log_path: ''
+robot:
+  arm:
+    hardware:
+      arm_latency_log_enable: false
+      arm_latency_log_interval_s: 1.0
+      arm_latency_log_path: ''
+      arm_servo_thread_enable: false
+      arm_servo_thread_hz: 120.0
+      baudrate: 57600
+      command_direction:
+      - 1
+      - 1
+      - 1
+      - -1
+      current_limit_ma: 2500
+      current_read_hz: 20.0
+      current_yellow_ma: 1800
+      host_hw_cmd_hz: 30.0
+      host_hw_read_hz: 20.0
+      linear_u_limit_deg: 250.0
+      linear_u_max_deg: 250.0
+      lji_velocity_accel_limit_deg_s2: 350.0
+      lji_velocity_deadman_s: 3.0
+      lji_velocity_hold_max_s: 1.2
+      lji_velocity_hold_s: 0.2
+      lji_velocity_max_deg_s: 70.0
+      lji_velocity_max_linear_deg_s: 30.0
+      lji_velocity_max_roll_deg_s: 70.0
+      lji_velocity_max_s1_deg_s: 60.0
+      lji_velocity_max_s2_deg_s: 60.0
+      lji_velocity_min_linear_deg_s: 0.0
+      lji_velocity_min_roll_deg_s: 0.0
+      lji_velocity_min_s1_deg_s: 0.0
+      lji_velocity_min_s2_deg_s: 0.0
+      lji_velocity_mode_enable: false
+      motor_direction:
+      - 1
+      - -1
+      - 1
+      - -1
+      profile_acc_claw: 5
+      profile_acc_linear: 10
+      profile_acc_roll: 10
+      profile_acc_seg1: 6
+      profile_acc_seg2: 6
+      profile_vel_claw: 80
+      profile_vel_linear: 240
+      profile_vel_roll: 240
+      profile_vel_seg1: 60
+      profile_vel_seg2: 60
+      u_offset_linear: 0.0
+      u_offset_roll: 0.0
+      u_offset_s1: 0.0
+      u_offset_s2: 0.0
+    model:
+      bend_deg: 36.0
+      roll_max_deg: 90.0
+      roll_min_deg: -90.0
+    spawn:
+      n_seg: null
+      pitch: 0.05
+      euler_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+      xyz:
+      - 0.0
+      - 0.0
+      - 0.0
+    urdf:
+      default_effort: 200.0
+      default_velocity: 3.0
+      mesh_basename_only: false
+      colors:
+        go2_base:
+        - 0.4392156862745098
+        - 0.4392156862745098
+        - 0.4392156862745098
+        - 1.0
+        go2_hip:
+        - 0.4392156862745098
+        - 0.4392156862745098
+        - 0.4392156862745098
+        - 1.0
+        go2_thigh:
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 1.0
+        go2_calf:
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 1.0
+        go2_foot:
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 1.0
+        plate:
+        - 0.18823529411764706
+        - 0.18823529411764706
+        - 0.18823529411764706
+        - 1.0
+        housing:
+        - 0.06274509803921569
+        - 0.06274509803921569
+        - 0.06274509803921569
+        - 1.0
+        wedge:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node0:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node1:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node2:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node3:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node4:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node5:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node6:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node7:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node8:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        node9:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        gripper_base:
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 0.3137254901960784
+        - 1.0
+        gripper_claw_left:
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 1.0
+        gripper_claw_right:
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 0.6901960784313725
+        - 1.0
+      prismatic_damping: 60.0
+      prismatic_effort: null
+      prismatic_friction: 20.0
+      prismatic_velocity: null
+      revolute_damping: 0.12
+      revolute_effort: null
+      revolute_friction: 0.06
+      revolute_velocity: null
+      robot_name: Robot
+    ik:
+      damping_down: 0.7
+      damping_init: 0.01
+      damping_max: 100.0
+      damping_min: 1.0e-06
+      damping_up: 10.0
+      direction_tol_deg: 1.0
+      direction_weight: 0.1
+      fd_eps: 0.0001
+      line_search_shrink: 0.5
+      line_search_steps: 4
+      max_iters: 200
+      orientation_tie_eps_m: 0.001
+      prefer_tip_plus_x: true
+      stall_limit: 40
+      step_scale: 1.0
+      tol: 0.0001
+  go2:
+    spawn:
+      mount_offset_m:
+      - 0.1
+      - 0.0
+      - 0.07
+      spawn_euler_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+      spawn_height: 0.32
+    teleop:
+      vx_mps: 0.45
+      vy_mps: 0.6
+      wz_radps: 0.8
+world:
+  target:
+    collision: true
+    color_rgba:
+    - 0.85
+    - 0.15
+    - 0.15
+    - 1.0
+    enable: true
+    gravity: false
+    radius: 0.025
+    xyz:
+    - 0.8
+    - 0.0
+    - 0.2
+  debug:
+    markers: true
+vision:
+  perception:
+    tracking:
+      aux_csrt: true
+      bbox_shrink_ratio: 0.55
+      bbox_smooth_alpha: 0.85
+      coast_max_frames: 12
+      csrt_histogram_lr: 0.002
+      csrt_padding: 0.0
+      csrt_psr_threshold: 0.045
+      csrt_scale_lr: 0.003
+      csrt_scale_step: 1.0
+      init_bbox_padding: 1.0
+      lost_frames: 15
+      proximity_mask_erode_px: 0
+      proximity_scale: 0.12
+      redetect_grow_ratio: 1.12
+      redetect_grow_ratio_stale: 1.03
+      redetect_stale_frames: 20
+      scale_min: 0.05
+      scale_stale_eps: 0.002
+      watchdog_min_frames: 8
+      reacquire_on_lost: true
+    publishing:
+      publish_hz: 60.0
+      sim_camera_topic: /elesim/sim/rgbd/frame
+    detector:
+      detector: config
+      detector_config: perception/detector.sim_hsv.json
+      pipeline: yolo_seg
+      target_label: sim_sphere
+      yolo_device: auto
+    runtime:
+      autostart: false
+      enabled: true
+      mode: sim
+      provider: local
+      run_local: true
+      show_preview: true
+      tracker: csrt
+behaviors:
+  pick:
+    ready:
+      align_mode: full
+      align_skip_under_deg: 3.0
+      align_top_k: 3
+      corrected_max_dir_error_deg: 3.0
+      height_offsets_m:
+      - 0.0
+      - 0.05
+      - 0.1
+      lateral_offsets_m:
+      - -0.05
+      - 0.0
+      - 0.05
+      look_dot_min: 0.85
+      max_dir_error_deg: 3.0
+      resolve_dir: true
+      skip_search_under_deg: 5.0
+      standoff_m: 0.2
+    approach:
+      extend_m: 0.09
+      extend_step_m: 0.09
+      loose_center_tol: 0.1
+      min_scale: 0.09
+      min_steps: 50
+      scale_plateau_eps: 0.004
+      scale_plateau_iters: 25
+    grasp:
+      approach_filter_alpha: 0.2
+      blind_approach_m: 0.1
+      blind_start_m: 0.1
+      blind_uv_only: true
+      close_tol_m: 0.003
+      guided_enabled: true
+      guided_handoff_m: 0.04
+      max_waypoints: 2000
+      object_filter_alpha: 0.25
+      online_sag_enabled: true
+      online_sag_max_step_deg: 2.0
+      skip_aim_recover_in_mock: true
+      standoff_m: 0.0
+      uv_center_tol: 0.0
+      waypoint_max_approach_drift_deg: 12.0
+      waypoint_max_dir_error_deg: 5.0
+      waypoint_settle_s: 0.1
+      waypoint_settle_timeout_s: 1.0
+      waypoint_step_m: 0.05
+    sag:
+      drift_axial_only: true
+      drift_max_dir_error_deg: 18.0
+      drift_max_lateral_m: 0.1
+    lji:
+      approach_bias_gain: 0.3
+      approach_bias_uv_gate: 0.25
+      approach_seed_mode: config
+      approach_seed_q_delta:
+      - 0.0
+      - 0.0
+      - 0.01
+      - 0.01
+      approach_seed_travel_m: 0.003
+      bad_motion_reacquire_steps: 0
+      command_horizon: 1.0
+      condition_max: 100.0
+      damping: 0.05
+      depth_invalid_frames: 3
+      depth_settled_remain_delta_m: 0.005
+      depth_std_max_m: 0.012
+      depth_unstable_threshold_m: 0.06
+      depth_valid_ratio_min: 0.6
+      dq_smooth_alpha: 0.3
+      far_linear_cap_m: 0.006
+      far_z_gain: 0.2
+      gain_scale_min: 0.12
+      gain_scale_ref_m: 0.3
+      gain_u: 0.35
+      gain_v: 0.35
+      gain_z: 0.45
+      joint_limit_margin_m: 0.001
+      joint_limit_margin_rad: 0.002
+      max_dq_angle: 0.006
+      max_dq_linear: 0.002
+      max_dq_roll: 0.006
+      max_dq_theta1: 0.004
+      measured_v_row_blend: 0.0
+      measured_v_row_norm_max: 120.0
+      min_samples: 4
+      obs_camera_jump_m: 0.0
+      obs_max_camera_z_m: 0.0
+      obs_remain_jump_m: 0.0
+      pipelined_motion: false
+      probing_enabled: false
+      probing_epsilon_angle: 0.01
+      probing_epsilon_linear: 0.001
+      reacquire_aim_after_steps: 4
+      reacquire_axial_step_m: 0.012
+      reacquire_max_steps: 8
+      reacquire_remain_fail_m: 0.08
+      reacquire_retrace_gain: 1.0
+      reacquire_v_err_m: 0.45
+      sag_min_lateral_m: 0.015
+      sample_cmd_meas_cos_min: -1.0
+      sample_meas_cmd_ratio_max: 0.0
+      sample_meas_cmd_ratio_min: 0.0
+      sample_min_dq_norm: 0.0005
+      seg1_jacobian_scale: 1.0
+      seg2_jacobian_scale: 1.0
+      settle_dwell_s: 0.02
+      settle_timeout_s: 0.35
+      stall_remain_eps_m: 0.005
+      stall_steps: 8
+      step_period_s: 0.1
+      uv_align_tol: 0.04
+      uv_handoff_m: 0.1
+      uv_priority_cap_scale: 1.0
+      uv_priority_err: 0.35
+      uv_priority_z_scale: 0.15
+      window_size: 8
+      z_bend_gain: 0.2
+      enabled: true
+    look:
+      pose_align_top_k: 3
+      pose_height_offsets_m:
+      - 0.0
+      - 0.05
+      - 0.1
+      pose_lateral_offsets_m:
+      - -0.05
+      - 0.0
+      - 0.05
+      pose_look_dot_min: 0.85
+      pose_max_dir_error_deg: 10.0
+      pose_resolve_dir: true
+      pose_skip_search_under_deg: 5.0
+      pose_standoff_m: 0.2
+      post_sag_trim_enabled: true
+      post_uv_acquire_s: 2.5
+      post_uv_center_tol: 0.05
+      post_uv_max_steps: 30
+      post_uv_recover_enabled: true
+      pre_aim_awful_tol: 0.45
+      pre_aim_enabled: true
+      pre_aim_max_steps: 8
+      pre_aim_step_scale: 0.35
+      pre_aim_target_uv_u: 0.1
+      pre_aim_target_uv_v: 0.0
+      pre_aim_tol: 0.12
+    alignment:
+      mode: lite
+      rounds: 4
+      skip_under_deg: 10.0
+    mobile:
+      approach_timeout_s: 300.0
+      approach_vx_mps: 0.18
+      gaze_mode: pitch_preview
+      handoff_distance_m: 0.3
+      handoff_timeout_slack_m: 0.05
+      stop_settle_s: 0.4
+    general:
+      acquire_timeout_s: 30.0
+      aim_center_tol: 0.02
+      auto_grasp_after_aim: false
+      axial_micro_max_total_m: 0.025
+      axial_micro_remain_margin_m: 0.005
+      axial_micro_remain_max_m: 0.06
+      axial_micro_step_m: 0.005
+      blind_micro_start_m: 0.1
+      center_error_scale_max: 3.5
+      center_roll_max: 6.0
+      center_seg_max: 6.0
+      center_stuck_iters: 30
+      center_stuck_max_uv: 0.14
+      center_tol: 0.16
+      center_u_gain: 12.0
+      center_v_gain: 12.0
+      enabled: true
+      grid_cols: 2
+      grid_rows: 2
+      linear_gain: 40.0
+      linear_step_u: 2.0
+      max_iters: 200
+      quadrant_fill_min: 0.8
+      require_track_frames: 3
+      scale_stuck_iters: 40
+      scale_stuck_ratio: 0.5
+      scale_tol: 0.02
+      target_grid_col: 1
+      target_grid_row: 0
+      target_scale: 0.16
+      target_uv_u: 0.0
+      target_uv_v: 0.0
+  gaze:
+    preview:
+      b_pitch: 0.05
+      enable: true
+      lowpass_alpha: 0.35
+      max_du_roll: 1.0
+      max_du_seg: 1.5
+      q_u: 1.0
+      q_v: 1.0
+      r_roll: 0.01
+      r_s1: 0.01
+      r_s2: 0.01
+      tau_s: 0.08
+    centering:
+      d_seg_max: 2.5
+      roll_max: 8.0
+      seg_max: 2.5
+      tol: 0.08
+      u_gain: 12.0
+      u_kd: 0.0
+      u_seg_s1_scale: 0.35
+      u_seg_s2_scale: 0.55
+      v_gain: 12.0
+      v_kd: 5.0
+      fine_err_max: 0.11
+      fine_settle_scale: 0.35
+      step_scale: 1.0
+      uv_gain: 1.5
+    command_reference:
+      enable: false
+      max_lead: 40.0
+    general:
+      base_ff_gain_pitch: 0.05
+      base_ff_gain_roll: 0.0
+      base_ff_gain_yaw: 0.0
+      clamp_go2_vel_on_large_error: false
+      cmd_settle_s: 0.06
+      d_filter_alpha: 0.25
+      enable_base_ff: false
+      enable_feedback: true
+      enable_roll: false
+      fov_margin: 0.08
+      hz: 15.0
+      jacobian_damping: 0.03
+      max_du_roll: 1.0
+      max_du_s1: 1.0
+      max_du_s2: 1.0
+      max_seg_du_per_tick: 1.5
+      walking_gaze_mode: pitch_preview
+experiment:
+  ownership_enable: false
+  preview_fallback_uv_ff: false

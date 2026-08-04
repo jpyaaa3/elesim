@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-sim"
+version = "0.3.0"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.3.0",
+  "numpy>=1.26,<2",
+  "scipy>=1.11",
+  "PyYAML>=6,<7",
+  "genesis-world>=0.4.7",
+  "aiortc>=1.9,<2",
+  "av>=12,<16",
+]
+
+[project.optional-dependencies]
+mpc = ["casadi>=3.6", "pin>=3.0"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+elesim-sim = "elesim_sim.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

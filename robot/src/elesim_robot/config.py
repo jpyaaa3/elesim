@@ -18,7 +18,7 @@ SCHEMA_VERSION = 4
 
 @dataclass(frozen=True)
 class HardwareConfig:
-    command_direction: tuple[int, int, int, int] = (1, -1, 1, -1)
+    command_direction: tuple[int, int, int, int] = (1, 1, 1, -1)
     motor_direction: tuple[int, int, int, int] = (1, -1, 1, -1)
     baudrate: int = 1_000_000
     linear_u_max_deg: float = 250.0

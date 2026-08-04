@@ -19,7 +19,7 @@ from elesim_ui.models import (
     gaze_config_to_dict,
 )
 from elesim_ui.helpers import scaled, set_panel_header_font
-from elesim_ui.simulator_view import SimulatorView
+from elesim_ui.sim_view import SimView
 from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_font_with_korean_ranges
 from elesim_ui import file_dialog
 
@@ -85,13 +85,13 @@ class ControlPanel:
         perception_cfg: PerceptionConfig | None = None,
         pick_cfg: PickConfig | None = None,
         gaze_cfg: GazeStabilizerConfig | None = None,
-        simulator_session: Optional[object] = None,
+        sim_session: Optional[object] = None,
         endpoint_select: Optional[Callable[[str, str], None]] = None,
     ):
         self.state = state
         self.service = service
-        self._simulator_view = (
-            None if simulator_session is None else SimulatorView(simulator_session)
+        self._sim_view = (
+            None if sim_session is None else SimView(sim_session)
         )
         self._endpoint_select = endpoint_select
         self._endpoint_cache: list[object] = []
@@ -161,6 +161,12 @@ class ControlPanel:
         self._go2_obstacles_avoid_enabled = False
         self._resolution_header_init_open = False
         self._glfw_window = None
+        self._camera_window = None
+        self._camera_visible = False
+        self._main_imgui_context = None
+        self._camera_imgui_context = None
+        self._main_imgui_impl = None
+        self._camera_imgui_impl = None
         self._ui_resolution_requested_scale = 1.0
         self._ui_resolution_scale = 1.0
         self._ui_resolution_base_w = _INITIAL_WINDOW_W
@@ -205,8 +211,75 @@ class ControlPanel:
 
     def _draw_sim_video(self) -> None:
         self._draw_endpoint_selector()
-        if self._simulator_view is not None:
-            self._simulator_view.draw()
+        if self._sim_view is None:
+            return
+        snapshot = self._sim_view.session.snapshot
+        connected = len(snapshot.connected_streams)
+        imgui.text(f"SIM CAMERA  {connected}/2 streams")
+        if self._camera_visible:
+            imgui.text_disabled("Sim Camera 창이 별도로 열려 있습니다.")
+            return
+        if imgui.button("Open Sim Camera##open-sim-camera"):
+            self._show_camera_window()
+
+    def _draw_camera_contents(self) -> None:
+        if self._sim_view is None:
+            imgui.text_disabled("Sim session is not configured")
+            return
+        self._draw_endpoint_selector()
+        self._sim_view.draw()
+
+    @staticmethod
+    def _set_imgui_context(context: object | None) -> None:
+        setter = getattr(imgui, "set_current_context", None)
+        if context is not None and setter is not None:
+            setter(context)
+
+    def _show_camera_window(self) -> None:
+        window = self._camera_window
+        if window is None:
+            return
+        self._camera_visible = True
+        try:
+            glfw.show_window(window)
+            glfw.focus_window(window)
+        except Exception:
+            pass
+
+    def _hide_camera_window(self) -> None:
+        window = self._camera_window
+        if window is None:
+            return
+        self._camera_visible = False
+        try:
+            glfw.hide_window(window)
+            glfw.set_window_should_close(window, glfw.FALSE)
+        except Exception:
+            pass
+
+    def _draw_camera_window(self) -> None:
+        window = self._camera_window
+        context = self._camera_imgui_context
+        if window is None or context is None or not self._camera_visible:
+            return
+        glfw.make_context_current(window)
+        self._set_imgui_context(context)
+        impl = self._camera_imgui_impl
+        if impl is None:
+            return
+        impl.process_inputs()
+        imgui.new_frame()
+        flags = getattr(imgui, "WINDOW_NO_COLLAPSE", 0)
+        opened = imgui.begin("Sim Camera###sim_camera_window", True, flags=flags)
+        visible = opened[0] if isinstance(opened, tuple) else bool(opened)
+        if visible:
+            self._draw_camera_contents()
+        imgui.end()
+        imgui.render()
+        impl.render(imgui.get_draw_data())
+        glfw.swap_buffers(window)
+        if isinstance(opened, tuple) and len(opened) > 1 and not opened[1]:
+            self._hide_camera_window()
 
     def request_file_browse(self, *, kind: str, initial_path: str) -> None:
         self._pending_file_browse = (str(kind), str(initial_path))
@@ -626,10 +699,40 @@ class ControlPanel:
 
         glfw.make_context_current(window)
 
-        imgui.create_context()
+        self._main_imgui_context = imgui.create_context()
         self._install_ui_font()
         self._install_ui_style()
-        impl = GlfwRenderer(window)
+        main_impl = GlfwRenderer(window)
+        self._main_imgui_impl = main_impl
+
+        # Keep both RGB streams in one independently resizable native window.
+        # The contexts are separate, while the OpenGL share context keeps the
+        # lifecycle explicit and avoids embedding video in the control layout.
+        camera_impl = None
+        if self._sim_view is not None:
+            glfw.window_hint(glfw.RESIZABLE, glfw.TRUE)
+            camera_window = glfw.create_window(
+                960,
+                720,
+                "Sim Camera",
+                None,
+                window,
+            )
+            glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
+            if camera_window:
+                self._camera_window = camera_window
+                self._camera_visible = True
+                glfw.make_context_current(camera_window)
+                self._camera_imgui_context = imgui.create_context()
+                self._set_imgui_context(self._camera_imgui_context)
+                camera_impl = GlfwRenderer(camera_window)
+                self._camera_imgui_impl = camera_impl
+                # Camera controls intentionally retain the independent
+                # context's default style; all stream textures belong to this
+                # context.  Do not call _install_ui_style here because that
+                # method stores the main-window scaling baseline on ``self``.
+                glfw.make_context_current(window)
+                self._set_imgui_context(self._main_imgui_context)
 
         try:
             while not glfw.window_should_close(window) and not self._stop:
@@ -637,19 +740,36 @@ class ControlPanel:
                 self._host_state = self.service.current_host_state()
                 self.sync_offset_drafts()
                 glfw.poll_events()
+                if self._camera_window is not None and glfw.window_should_close(self._camera_window):
+                    self._hide_camera_window()
                 self._process_pending_file_browse()
-                impl.process_inputs()
+                glfw.make_context_current(window)
+                self._set_imgui_context(self._main_imgui_context)
+                main_impl.process_inputs()
                 self._sync_ui_resolution_scale_to_window()
 
                 imgui.new_frame()
                 self._draw_controls_window()
                 imgui.render()
 
-                impl.render(imgui.get_draw_data())
+                main_impl.render(imgui.get_draw_data())
                 glfw.swap_buffers(window)
+                self._draw_camera_window()
                 time.sleep(0.01)
         finally:
-            if self._simulator_view is not None:
-                self._simulator_view.close()
-            impl.shutdown()
+            if self._camera_window is not None:
+                try:
+                    glfw.make_context_current(self._camera_window)
+                    self._set_imgui_context(self._camera_imgui_context)
+                    if self._sim_view is not None:
+                        self._sim_view.close()
+                    if camera_impl is not None:
+                        camera_impl.shutdown()
+                    glfw.destroy_window(self._camera_window)
+                except Exception:
+                    pass
+                self._camera_window = None
+            glfw.make_context_current(window)
+            self._set_imgui_context(self._main_imgui_context)
+            main_impl.shutdown()
             glfw.terminate()

@@ -35,7 +35,7 @@ _COALESCED_SERVICE_CALLS = frozenset(
 @dataclass(frozen=True)
 class OperatorStatus:
     dds_online: bool
-    controller_online: bool
+    pilot_online: bool
     pending_count: int
     last_error: str
     last_snapshot_age_s: float
@@ -63,10 +63,10 @@ class OperatorSession:
         self,
         *,
         ui_id: str,
-        controller_id: str,
+        pilot_id: str,
         request_timeout_s: float = 1.5,
         snapshot_period_s: float = 0.10,
-        controller_stale_s: float = 1.0,
+        pilot_stale_s: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
         settings: Optional[DdsRuntimeSettings] = None,
         peer: Any = None,
@@ -75,10 +75,10 @@ class OperatorSession:
         autostart: bool = True,
     ) -> None:
         self.ui_id = str(ui_id)
-        self.controller_id = str(controller_id)
+        self.pilot_id = str(pilot_id)
         self.request_timeout_s = max(0.05, float(request_timeout_s))
         self.snapshot_period_s = max(0.02, float(snapshot_period_s))
-        self.controller_stale_s = max(self.snapshot_period_s * 2.0, float(controller_stale_s))
+        self.pilot_stale_s = max(self.snapshot_period_s * 2.0, float(pilot_stale_s))
         self.clock = clock
         self.settings = settings
         self.peer = peer
@@ -157,7 +157,7 @@ class OperatorSession:
             )
             return OperatorStatus(
                 dds_online=self._dds_online,
-                controller_online=age <= self.controller_stale_s,
+                pilot_online=age <= self.pilot_stale_s,
                 pending_count=len(self._requests),
                 last_error=self._last_error,
                 last_snapshot_age_s=age,
@@ -292,12 +292,12 @@ class OperatorSession:
             try:
                 envelope = endpoint.send(
                     "operator_intent",
-                    target_id=self.controller_id,
+                    target_id=self.pilot_id,
                     payload=payload,
                 )
             except Exception:
                 # Discovery can report a graph as ready immediately before the
-                # selected Controller boot disappears. Preserve the unsent
+                # selected Pilot boot disappears. Preserve the unsent
                 # request so the next cycle can retry it or expire it normally.
                 with self._lock:
                     live = self._requests.get(request_id)

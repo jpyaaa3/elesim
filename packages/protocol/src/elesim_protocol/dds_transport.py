@@ -272,7 +272,7 @@ class DdsRuntimeSettings:
             component = "elesim"
         if component[0].isdigit():
             component = "n_" + component
-        return f"/{component}/v5"
+        return f"/{component}/v6"
 
     def apply_environment(self) -> tuple[str, ...]:
         """Apply process-wide RMW/security settings before importing rclpy."""
@@ -654,7 +654,7 @@ class DdsPeerNode:
         message.descriptor_revision = 1
         message.service_prefix = self.service_prefix
         message.topic_prefix = self.topic_prefix
-        message.interface_hash = "elesim-v5"
+        message.interface_hash = "elesim-v6"
         streams = []
         for name, descriptor in sorted((self.descriptor.streams or {}).items()):
             stream = self._RosStreamDescriptor()
@@ -912,14 +912,14 @@ class PeerClient:
         self._owned_motion: Optional[MotionLease] = None
         self._owned_session: Optional[SimulationSession] = None
         self._session_ui_turn: Any = None
-        self._session_simulator_turn: Any = None
+        self._session_sim_turn: Any = None
         self._local_queue: deque[Envelope] = deque()
         self._motion_authority = (
             MotionLeaseAuthority(
                 self.node.identity,
                 lease_ttl_s=max(3.5, self.heartbeat_s * 3.5),
             )
-            if self.descriptor.role in {"robot", "simulator"}
+            if self.descriptor.role in {"robot", "sim"}
             else None
         )
         self._session_authority = (
@@ -927,7 +927,7 @@ class PeerClient:
                 self.node.identity,
                 lease_ttl_s=max(3.5, self.heartbeat_s * 3.5),
             )
-            if self.descriptor.role == "simulator"
+            if self.descriptor.role == "sim"
             else None
         )
 
@@ -975,7 +975,7 @@ class PeerClient:
         elif message_type == "open_simulation_session":
             target_id = OpenSimulationSessionRequest.from_payload(
                 body
-            ).simulator_id
+            ).sim_id
         elif message_type == "close_simulation_session":
             target_id = (
                 ""
@@ -1142,7 +1142,7 @@ class PeerClient:
         if self._owned_motion is not None:
             recipients.append(
                 (
-                    self._owned_motion.controller,
+                    self._owned_motion.pilot,
                     _authority_id(
                         self._owned_motion.epoch,
                         self._owned_motion.token,
@@ -1236,12 +1236,20 @@ class PeerClient:
             raise AuthorityError(f"request requires source role: {expected}")
         return peer
 
+    def _request_fence(self, request: Envelope, source: PeerIdentity) -> LeaseFence:
+        return _authority_fence(
+            request.lease_id,
+            resource=self.node.identity,
+            owner=source,
+            sequence=request.seq,
+        )
+
     def _handle_select_target(
         self,
         request: Envelope,
         source: PeerIdentity,
     ) -> None:
-        self._require_source_role(source, {"controller"})
+        self._require_source_role(source, {"pilot"})
         if self._motion_authority is None:
             raise AuthorityError("this peer does not own a motion target")
         parsed = SelectTargetRequest.from_payload(request.payload or {})
@@ -1249,7 +1257,7 @@ class PeerClient:
             raise AuthorityError("select_target addressed the wrong target")
         now = self.clock()
         active = self._motion_authority.active(now=now)
-        if active is not None and active.controller == source:
+        if active is not None and active.pilot == source:
             fence = active.fence(request.seq)
             decision = self._motion_authority.renew(
                 source,
@@ -1270,13 +1278,13 @@ class PeerClient:
         changed = (
             self._owned_motion is None
             or self._owned_motion.epoch != lease.epoch
-            or self._owned_motion.controller != lease.controller
+            or self._owned_motion.pilot != lease.pilot
         )
         self._owned_motion = lease
         if changed:
             self._local_envelope(
                 "lease_granted",
-                payload={"controller_id": source.endpoint_id},
+                payload={"pilot_id": source.endpoint_id},
                 lease_id=lease_id,
                 source_id=self.descriptor.endpoint_id,
                 trace_context=request.trace_context,
@@ -1298,15 +1306,10 @@ class PeerClient:
         request: Envelope,
         source: PeerIdentity,
     ) -> None:
-        self._require_source_role(source, {"controller"})
+        self._require_source_role(source, {"pilot"})
         if self._motion_authority is None:
             raise AuthorityError("this peer does not own a motion target")
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._motion_authority.renew(
             source,
             fence,
@@ -1322,15 +1325,10 @@ class PeerClient:
         request: Envelope,
         source: PeerIdentity,
     ) -> None:
-        self._require_source_role(source, {"controller"})
+        self._require_source_role(source, {"pilot"})
         if self._motion_authority is None:
             raise AuthorityError("this peer does not own a motion target")
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._motion_authority.release(
             source,
             fence,
@@ -1347,18 +1345,13 @@ class PeerClient:
         request: Envelope,
         source: PeerIdentity,
     ) -> tuple[Envelope, ...]:
-        self._require_source_role(source, {"controller"})
+        self._require_source_role(source, {"pilot"})
         if self._motion_authority is None:
             raise AuthorityError("this peer does not accept motion commands")
         command = MotionCommandRequest.from_payload(request.payload or {}).command
         if command == "estop":
             return (request,)
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._motion_authority.accept_command(
             fence,
             now=self.clock(),
@@ -1377,8 +1370,8 @@ class PeerClient:
         if self._session_authority is None:
             raise AuthorityError("this peer does not own simulation sessions")
         parsed = OpenSimulationSessionRequest.from_payload(request.payload or {})
-        if parsed.simulator_id != self.descriptor.endpoint_id:
-            raise AuthorityError("simulation session addressed the wrong simulator")
+        if parsed.sim_id != self.descriptor.endpoint_id:
+            raise AuthorityError("simulation session addressed the wrong sim")
         decision = self._session_authority.open(
             source,
             parsed.streams,
@@ -1410,12 +1403,7 @@ class PeerClient:
         self._require_source_role(source, {"ui"})
         if self._session_authority is None:
             raise AuthorityError("this peer does not own simulation sessions")
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._session_authority.renew(
             source,
             fence,
@@ -1447,12 +1435,7 @@ class PeerClient:
         parsed = CloseSimulationSessionRequest.from_payload(request.payload or {})
         if parsed.session_id != request.lease_id:
             raise AuthorityError("simulation close session token mismatch")
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._session_authority.close(
             source,
             fence,
@@ -1469,8 +1452,8 @@ class PeerClient:
         request: Envelope,
         source: PeerIdentity,
     ) -> tuple[Envelope, ...]:
-        # Answers flow simulator -> UI and are validated by the UI session.
-        if self.descriptor.role != "simulator":
+        # Answers flow sim -> UI and are validated by the UI session.
+        if self.descriptor.role != "sim":
             return (request,)
         self._require_source_role(source, {"ui"})
         if self._session_authority is None:
@@ -1479,14 +1462,9 @@ class PeerClient:
         if request.message_type == "webrtc_signal":
             signal = WebRtcSignalPayload.from_payload(request.payload or {})
             if signal.signal != "offer":
-                raise AuthorityError("simulator accepts only WebRTC offers from UI peers")
+                raise AuthorityError("sim accepts only WebRTC offers from UI peers")
             channel = f"webrtc:{signal.stream}"
-        fence = _authority_fence(
-            request.lease_id,
-            resource=self.node.identity,
-            owner=source,
-            sequence=request.seq,
-        )
+        fence = self._request_fence(request, source)
         decision = self._session_authority.accept(
             fence,
             channel,
@@ -1504,7 +1482,7 @@ class PeerClient:
         response: Envelope,
         source: PeerIdentity,
     ) -> None:
-        self._require_source_role(source, {"robot", "simulator"})
+        self._require_source_role(source, {"robot", "sim"})
         payload = dict(response.payload or {})
         target_id = str(payload.get("target_id", ""))
         lease_id = str(payload.get("lease_id", response.lease_id))
@@ -1527,10 +1505,10 @@ class PeerClient:
         response: Envelope,
         source: PeerIdentity,
     ) -> None:
-        self._require_source_role(source, {"simulator"})
+        self._require_source_role(source, {"sim"})
         opened = SimulationSessionOpenedPayload.from_payload(response.payload or {})
         if (
-            opened.simulator_id != source.endpoint_id
+            opened.sim_id != source.endpoint_id
             or opened.session_id != response.lease_id
         ):
             raise AuthorityError("invalid simulation_session_opened response")
@@ -1570,7 +1548,7 @@ class PeerClient:
         session = self._remote_session
         if session is not None and now >= session.next_renew_at:
             if self.node.describe(session.resource) is None:
-                self._lose_remote_session("simulator_peer_lost")
+                self._lose_remote_session("sim_peer_lost")
             else:
                 envelope = self._envelope(
                     "renew_simulation_session",
@@ -1581,7 +1559,7 @@ class PeerClient:
                 try:
                     self.node.publish(envelope)
                 except DdsTransportError:
-                    self._lose_remote_session("simulator_peer_lost")
+                    self._lose_remote_session("sim_peer_lost")
                 else:
                     self._remote_session = replace(
                         session,
@@ -1595,7 +1573,7 @@ class PeerClient:
             self._lose_remote_motion("target_peer_lost")
         session = self._remote_session
         if session is not None and self.node.describe(session.resource) is None:
-            self._lose_remote_session("simulator_peer_lost")
+            self._lose_remote_session("sim_peer_lost")
 
     def _expire_owned_authorities(self, *, now: float) -> None:
         if self._motion_authority is not None and self._owned_motion is not None:
@@ -1633,7 +1611,7 @@ class PeerClient:
             return
         payload = SimulationSessionRevokedPayload(
             session_id=remote.lease_id,
-            simulator_id=remote.resource.endpoint_id,
+            sim_id=remote.resource.endpoint_id,
             reason=str(reason),
         )
         self._local_envelope(
@@ -1651,10 +1629,10 @@ class PeerClient:
             lease_id=lease_id,
             source_id=self.descriptor.endpoint_id,
         )
-        if self.node.describe(lease.controller) is not None:
+        if self.node.describe(lease.pilot) is not None:
             response = self._envelope(
                 "target_released",
-                target_id=lease.controller.endpoint_id,
+                target_id=lease.pilot.endpoint_id,
                 payload={
                     "target_id": self.descriptor.endpoint_id,
                     "reason": str(reason),
@@ -1671,7 +1649,7 @@ class PeerClient:
         session_id = _authority_id(session.epoch, session.token)
         payload = SimulationSessionRevokedPayload(
             session_id=session_id,
-            simulator_id=self.descriptor.endpoint_id,
+            sim_id=self.descriptor.endpoint_id,
             reason=str(reason),
         )
         self._local_envelope(
@@ -1689,7 +1667,7 @@ class PeerClient:
             )
             self.node.publish(response)
         self._session_ui_turn = None
-        self._session_simulator_turn = None
+        self._session_sim_turn = None
 
     def _ensure_turn_credentials(
         self,
@@ -1701,15 +1679,15 @@ class PeerClient:
         if provider is None:
             changed = force and (
                 self._session_ui_turn is not None
-                or self._session_simulator_turn is not None
+                or self._session_sim_turn is not None
             )
             self._session_ui_turn = None
-            self._session_simulator_turn = None
+            self._session_sim_turn = None
             return changed
         now = self.wall_clock()
         expires_at = min(
             float(getattr(self._session_ui_turn, "expires_at", 0.0)),
-            float(getattr(self._session_simulator_turn, "expires_at", 0.0)),
+            float(getattr(self._session_sim_turn, "expires_at", 0.0)),
         )
         if not force and expires_at - now > 120.0:
             return False
@@ -1719,7 +1697,7 @@ class PeerClient:
             session_id,
             now,
         )
-        self._session_simulator_turn = provider(
+        self._session_sim_turn = provider(
             self.descriptor.endpoint_id,
             session_id,
             now,
@@ -1739,10 +1717,10 @@ class PeerClient:
             local = SimulationSessionGrantedPayload(
                 request_id=request_id,
                 session_id=session_id,
-                simulator_id=self.descriptor.endpoint_id,
+                sim_id=self.descriptor.endpoint_id,
                 ui_id=session.ui.endpoint_id,
                 streams=session.streams,
-                turn=self._session_simulator_turn,
+                turn=self._session_sim_turn,
             )
             self._local_envelope(
                 "simulation_session_granted",
@@ -1754,7 +1732,7 @@ class PeerClient:
         opened = SimulationSessionOpenedPayload(
             request_id=request_id,
             session_id=session_id,
-            simulator_id=self.descriptor.endpoint_id,
+            sim_id=self.descriptor.endpoint_id,
             streams=session.streams,
             turn=self._session_ui_turn,
         )

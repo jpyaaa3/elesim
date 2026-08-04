@@ -51,7 +51,7 @@ class Endpoint:
 def result(request_id: str, value: object = None, *, ok: bool = True) -> Envelope:
     return make_envelope(
         "operator_result",
-        "controller-a",
+        "pilot-a",
         target_id="ui-a",
         payload={"request_id": request_id, "ok": ok, "result": encode_value(value)},
         seq=1,
@@ -61,7 +61,7 @@ def result(request_id: str, value: object = None, *, ok: bool = True) -> Envelop
 def session(clock: Clock) -> OperatorSession:
     return OperatorSession(
         ui_id="ui-a",
-        controller_id="controller-a",
+        pilot_id="pilot-a",
         clock=clock,
         request_timeout_s=1.0,
         snapshot_period_s=100.0,
@@ -69,7 +69,7 @@ def session(clock: Clock) -> OperatorSession:
     )
 
 
-def test_construction_and_submission_do_not_wait_for_a_controller() -> None:
+def test_construction_and_submission_do_not_wait_for_a_pilot() -> None:
     clock = Clock()
     value = session(clock)
 
@@ -77,7 +77,7 @@ def test_construction_and_submission_do_not_wait_for_a_controller() -> None:
 
     assert request_id
     assert value.pending_count == 1
-    assert value.status.controller_online is False
+    assert value.status.pilot_online is False
 
 
 def test_state_set_is_committed_only_after_the_matching_ack() -> None:
@@ -120,7 +120,7 @@ def test_view_snapshot_atomically_replaces_ui_read_caches() -> None:
 
     assert value.state_value("pick_phase") == "aim"
     assert value.service_value("active_endpoint") == "sim-a"
-    assert value.status.controller_online is True
+    assert value.status.pilot_online is True
 
 
 def test_timed_out_requests_are_retired_without_blocking_the_ui() -> None:
@@ -167,11 +167,11 @@ def test_peer_error_retires_the_exact_request_immediately() -> None:
     endpoint.inbox.append(
         make_envelope(
             "error",
-            "controller-a",
+            "pilot-a",
             target_id="ui-a",
             payload={
                 "reply_to": sent[2].message_id,
-                "reason": "operator controller is unavailable",
+                "reason": "operator pilot is unavailable",
             },
             seq=2,
         )
@@ -179,7 +179,7 @@ def test_peer_error_retires_the_exact_request_immediately() -> None:
 
     value.run_cycle(endpoint, now=clock.now)
 
-    assert "controller is unavailable" in value.status.last_error
+    assert "pilot is unavailable" in value.status.last_error
     assert all(
         request[1]["payload"].get("name") != "torque_on"
         for request in endpoint.sent[1:]

@@ -253,9 +253,9 @@ def loads_msg(buf: bytes) -> Dict[str, Any]:
     return json.loads(buf.decode("utf-8"))
 
 
-PROTOCOL_VERSION = 5
+PROTOCOL_VERSION = 6
 MAX_ENVELOPE_BYTES = 1_048_576
-ENDPOINT_ROLES = frozenset({"controller", "robot", "simulator", "ui"})
+ENDPOINT_ROLES = frozenset({"pilot", "robot", "sim", "ui"})
 
 CAPABILITY_OPERATOR_CONTROL = "operator_control"
 CAPABILITY_MOTION_ARM = "motion.arm"

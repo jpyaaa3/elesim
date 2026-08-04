@@ -9,7 +9,7 @@ from elesim_ui.control_panel import ControlPanel
 from elesim_ui.operator import RemoteControlService, RemotePanelState
 from elesim_ui.operator_session import OperatorSession
 from elesim_ui.peer_runtime import UiPeerHub
-from elesim_ui.simulator_session import UiSimulatorSession
+from elesim_ui.sim_session import UiSimSession
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -18,18 +18,18 @@ _ROOT = Path(__file__).resolve().parents[2]
 def main() -> None:
     parser = argparse.ArgumentParser(description="Elesim desktop operator UI")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
-    parser.add_argument("--controller-id", default="")
+    parser.add_argument("--pilot-id", default="")
     parser.add_argument("--sim-id", default="")
     parser.add_argument("--no-webrtc", action="store_true")
     args = parser.parse_args()
     config = load_config(args.config)
-    controller_id = str(args.controller_id).strip() or config.controller_id
-    sim_id = str(args.sim_id).strip() or config.simulator_id
+    pilot_id = str(args.pilot_id).strip() or config.pilot_id
+    sim_id = str(args.sim_id).strip() or config.sim_id
     peer_hub = UiPeerHub(endpoint_id=config.endpoint_id, settings=config.dds)
 
     session = OperatorSession(
         ui_id=config.endpoint_id,
-        controller_id=controller_id,
+        pilot_id=pilot_id,
         peer=peer_hub.channel("operator"),
     )
     state = RemotePanelState(
@@ -46,21 +46,21 @@ def main() -> None:
         },
     )
     service = RemoteControlService(session, state)
-    simulator_session = None
+    sim_session = None
     if not args.no_webrtc:
         try:
-            simulator_session = UiSimulatorSession(
+            sim_session = UiSimSession(
                 ui_id=config.endpoint_id,
                 sim_id=sim_id,
-                peer=peer_hub.channel("simulator"),
+                peer=peer_hub.channel("sim"),
             )
         except Exception as exc:
             print(f"[ui] WebRTC unavailable: {exc}")
 
     def select_endpoint(endpoint_id: str, endpoint_role: str) -> None:
         service.select_endpoint(endpoint_id)
-        if simulator_session is not None and endpoint_role == "simulator":
-            simulator_session.switch_target(endpoint_id)
+        if sim_session is not None and endpoint_role == "sim":
+            sim_session.switch_target(endpoint_id)
 
     panel = ControlPanel(
         state,
@@ -74,14 +74,14 @@ def main() -> None:
         perception_cfg=config.perception,
         pick_cfg=config.pick,
         gaze_cfg=config.gaze,
-        simulator_session=simulator_session,
+        sim_session=sim_session,
         endpoint_select=select_endpoint,
     )
     try:
         panel.run()
     finally:
-        if simulator_session is not None:
-            simulator_session.close()
+        if sim_session is not None:
+            sim_session.close()
         service.close()
         peer_hub.close()
 

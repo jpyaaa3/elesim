@@ -1,4 +1,4 @@
-"""Public protocol-v5 ROS 2/DDS peer transport."""
+"""Public protocol-v6 ROS 2/DDS peer transport."""
 
 from .dds_transport import (
     DdsPeerNode,

@@ -1,6 +1,6 @@
 string<=128 request_id
 elesim_interfaces/PeerRef ui
-elesim_interfaces/PeerRef simulator
+elesim_interfaces/PeerRef sim
 string<=128[<=8] streams
 uint32 requested_ttl_ms
 ---

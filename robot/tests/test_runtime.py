@@ -131,7 +131,7 @@ class FakeGo2:
 def command(payload: dict[str, object], *, seq: int = 2, lease: str = "lease-a") -> Envelope:
     return make_envelope(
         "motion_command",
-        "controller-a",
+        "pilot-a",
         target_id="robot-a",
         payload=payload,
         seq=seq,
@@ -159,7 +159,7 @@ def runtime(
 
 def test_runtime_accepts_only_canonical_q_target() -> None:
     value, arm = runtime()
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
 
     ok, reason = value.apply(command({"command": "target", "q": [-0.1, 0.0, 0.1, -0.1]}))
     assert (ok, reason) == (True, "target")
@@ -186,7 +186,7 @@ def test_runtime_rejects_nonfinite_or_out_of_range_q_without_hardware_write(
     q: list[float], reason: str
 ) -> None:
     value, arm = runtime()
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
 
     assert value.apply(command({"command": "target", "q": q})) == (False, reason)
     assert arm.target is None
@@ -194,7 +194,7 @@ def test_runtime_rejects_nonfinite_or_out_of_range_q_without_hardware_write(
 
 def test_runtime_rejects_wrong_lease_without_touching_hardware() -> None:
     value, arm = runtime()
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
     ok, reason = value.apply(command({"command": "target", "q": [0, 0, 0, 0]}, lease="wrong"))
     assert (ok, reason) == (False, "lease_mismatch")
     assert arm.target is None
@@ -202,7 +202,7 @@ def test_runtime_rejects_wrong_lease_without_touching_hardware() -> None:
 
 def test_lease_revoke_holds_position_mode_arm_instead_of_writing_velocity_register() -> None:
     value, arm = runtime()
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
     value.torque_enabled = True
 
     value.revoke_lease()
@@ -263,7 +263,7 @@ def test_repeated_hardware_read_failure_is_fail_safe_without_lease() -> None:
 
 def test_safety_fault_is_latched_and_blocks_torque_on() -> None:
     value, arm = runtime(safety=replace(SafetyConfig(), monitor_period_s=0.0))
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
     value.torque_enabled = True
     arm.currents_raw[1] = int(math.ceil(3000.0 / DXL_CURRENT_UNIT_MA))
     value.tick()
@@ -277,7 +277,7 @@ def test_go2_velocity_deadman_is_not_extended_by_unrelated_arm_commands() -> Non
     go2 = FakeGo2()
     safety = replace(SafetyConfig(), command_deadman_s=0.5, monitor_period_s=10.0)
     value, _arm = runtime(clock=clock, safety=safety, go2=go2)
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
     go2.velocities.clear()
     assert value.apply(command({"command": "go2_velocity", "vx": 0.2, "vy": 0.0, "wz": 0.0}))[0]
     clock.advance(0.4)
@@ -296,7 +296,7 @@ def test_go2_velocity_deadman_is_not_extended_by_unrelated_arm_commands() -> Non
 def test_invalid_go2_velocity_is_rejected_atomically(velocity: tuple[float, float, float]) -> None:
     go2 = FakeGo2()
     value, _arm = runtime(go2=go2)
-    value.grant_lease("controller-a", "lease-a")
+    value.grant_lease("pilot-a", "lease-a")
     go2.velocities.clear()
 
     ok, _reason = value.apply(

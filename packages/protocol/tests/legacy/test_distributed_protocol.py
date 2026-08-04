@@ -11,10 +11,10 @@ from elesim_protocol import (
 )
 
 
-def test_v5_envelope_round_trip() -> None:
+def test_v6_envelope_round_trip() -> None:
     envelope = make_envelope(
         "motion_command",
-        "controller-a",
+        "pilot-a",
         target_id="robot-a",
         payload={"command": "target", "q": [0.0, 0.1, 0.2, 0.3]},
         seq=7,
@@ -22,7 +22,7 @@ def test_v5_envelope_round_trip() -> None:
     )
     restored = loads_envelope(dumps_envelope(envelope))
     assert restored.message_type == "motion_command"
-    assert restored.source_id == "controller-a"
+    assert restored.source_id == "pilot-a"
     assert restored.target_id == "robot-a"
     assert restored.seq == 7
     assert restored.lease_id == "lease-a"

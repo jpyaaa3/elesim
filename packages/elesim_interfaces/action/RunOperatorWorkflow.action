@@ -2,7 +2,7 @@ uint32 MAX_ARGUMENTS_JSON_CHARS=262144
 
 string<=128 request_id
 elesim_interfaces/PeerRef ui
-elesim_interfaces/PeerRef controller
+elesim_interfaces/PeerRef pilot
 string<=128 workflow
 string<=262144 arguments_json
 ---

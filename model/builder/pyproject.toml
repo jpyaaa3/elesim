@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-model-builder"
+version = "0.3.0"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.3.0",
+  "elesim-pilot==0.3.0",
+  "numpy>=1.26,<2",
+  "scipy>=1.11",
+  "PyYAML>=6,<7",
+]
+
+[project.scripts]
+elesim-build-arm-model = "elesim_model_builder.cli:arm_model_main"
+elesim-build-sim-bundle = "elesim_model_builder.cli:sim_bundle_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -106,7 +106,24 @@ def _start_server(socket_path: Path, *, deadman: float = 0.2):
     )
     thread = threading.Thread(target=server.serve_forever, args=(stop,), daemon=True)
     thread.start()
-    _wait(lambda: socket_path.exists())
+
+    def listener_accepts_connections() -> bool:
+        if not socket_path.exists():
+            return False
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        probe.settimeout(0.05)
+        try:
+            probe.connect(str(socket_path))
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
+
+    # bind(2) creates the pathname before listen(2) completes.  Waiting only
+    # for path.exists() therefore races the first raw client under a busy
+    # test process; probe the actual listener instead.
+    _wait(listener_accepts_connections)
     return config, safety, backend, stop, thread
 
 

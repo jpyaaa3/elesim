@@ -26,9 +26,9 @@ def descriptor(
         role=role,
         capabilities=(CAPABILITY_MOTION_ARM,),
         descriptor_revision=revision,
-        service_prefix=f"/elesim/v5/{endpoint_id}/{boot_id}",
-        topic_prefix=f"/elesim/v5/{endpoint_id}/{boot_id}",
-        interface_hash="sha256:interface-v5",
+        service_prefix=f"/elesim/v6/{endpoint_id}/{boot_id}",
+        topic_prefix=f"/elesim/v6/{endpoint_id}/{boot_id}",
+        interface_hash="sha256:interface-v6",
     )
 
 

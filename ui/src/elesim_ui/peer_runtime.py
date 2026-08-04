@@ -23,7 +23,7 @@ _SIMULATION_MESSAGES = frozenset(
         "webrtc_signal",
     }
 )
-_CHANNELS = frozenset({"operator", "simulator"})
+_CHANNELS = frozenset({"operator", "sim"})
 
 
 class UiPeerChannel:
@@ -175,7 +175,7 @@ class UiPeerHub:
 
     def _dispatch(self, message: Envelope) -> None:
         destination = (
-            "simulator"
+            "sim"
             if message.message_type in _SIMULATION_MESSAGES
             else "operator"
         )

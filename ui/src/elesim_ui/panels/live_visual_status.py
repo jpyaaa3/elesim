@@ -5,7 +5,7 @@ import time
 
 import imgui
 
-from elesim_ui.helpers import begin_collapsible_section, end_collapsible_section, panel_header, scaled, section_title
+from elesim_ui.helpers import _color_u32, _draw_line, _draw_text, _imgui_scale, _xy, begin_collapsible_section, end_collapsible_section, panel_header, scaled, section_title
 
 
 _HOST_STALE_S = 2.0
@@ -30,13 +30,6 @@ _GO2_LEG_TORQUE_INDEX = {
     ("RR", "Thigh"): 10,
     ("RR", "Calf"): 11,
 }
-
-
-def _imgui_scale() -> float:
-    try:
-        return max(0.1, float(getattr(imgui.get_io(), "font_global_scale", 1.0) or 1.0))
-    except Exception:
-        return 1.0
 
 
 def _scaled_px(value: float) -> float:
@@ -93,12 +86,6 @@ def _calc_text_size(text: str) -> tuple[float, float]:
     return float(len(str(text)) * _scaled_px(8.0)), _scaled_px(14.0)
 
 
-def _xy(pos) -> tuple[float, float]:
-    if hasattr(pos, "x") and hasattr(pos, "y"):
-        return float(pos.x), float(pos.y)
-    return float(pos[0]), float(pos[1])
-
-
 def _content_region_available_size() -> tuple[float, float] | None:
     getter = getattr(imgui, "get_content_region_available", None)
     if not callable(getter):
@@ -107,43 +94,6 @@ def _content_region_available_size() -> tuple[float, float] | None:
         return _xy(getter())
     except Exception:
         return None
-
-
-def _color_u32(r: float, g: float, b: float, a: float = 1.0) -> int:
-    getter = getattr(imgui, "get_color_u32_rgba", None)
-    if callable(getter):
-        return int(getter(float(r), float(g), float(b), float(a)))
-    ri = max(0, min(255, int(float(r) * 255.0)))
-    gi = max(0, min(255, int(float(g) * 255.0)))
-    bi = max(0, min(255, int(float(b) * 255.0)))
-    ai = max(0, min(255, int(float(a) * 255.0)))
-    return (ai << 24) | (bi << 16) | (gi << 8) | ri
-
-
-def _draw_line(draw_list, x1: float, y1: float, x2: float, y2: float, color: int, thickness: float = 1.0) -> None:
-    for args in (
-        ((x1, y1), (x2, y2), color, float(thickness)),
-        (x1, y1, x2, y2, color, float(thickness)),
-        ((x1, y1), (x2, y2), color),
-        (x1, y1, x2, y2, color),
-    ):
-        try:
-            draw_list.add_line(*args)
-            return
-        except TypeError:
-            continue
-
-
-def _draw_text(draw_list, x: float, y: float, color: int, text: str) -> None:
-    for args in (
-        ((x, y), color, str(text)),
-        (x, y, color, str(text)),
-    ):
-        try:
-            draw_list.add_text(*args)
-            return
-        except TypeError:
-            continue
 
 
 def _style_text_color_u32() -> int:

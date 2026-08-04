@@ -128,7 +128,7 @@ def test_simulation_session_open_and_close_contracts_are_bounded() -> None:
         {
             "schema_version": 1,
             "request_id": "open-1",
-            "simulator_id": "sim-a",
+            "sim_id": "sim-a",
             "streams": ["observer", "hand_eye_preview"],
         }
     )
@@ -142,7 +142,7 @@ def test_simulation_session_open_and_close_contracts_are_bounded() -> None:
             {
                 "schema_version": 1,
                 "request_id": "open-2",
-                "simulator_id": "sim-a",
+                "sim_id": "sim-a",
                 "streams": ["native_viewer"],
             }
         )
@@ -256,7 +256,7 @@ def test_session_and_status_payloads_round_trip_their_typed_shape() -> None:
         "schema_version": 1,
         "request_id": "open-1",
         "session_id": "session-a",
-        "simulator_id": "sim-a",
+        "sim_id": "sim-a",
         "streams": ["observer", "hand_eye_preview"],
         "turn": turn.to_payload(),
     }
@@ -268,7 +268,7 @@ def test_session_and_status_payloads_round_trip_their_typed_shape() -> None:
         {
             "schema_version": 1,
             "session_id": "session-a",
-            "simulator_id": "sim-a",
+            "sim_id": "sim-a",
             "reason": "closed",
         }
     ).reason == "closed"

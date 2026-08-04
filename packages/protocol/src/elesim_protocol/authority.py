@@ -141,7 +141,7 @@ class FenceDecision:
 @dataclass(frozen=True)
 class MotionLease:
     target: PeerIdentity
-    controller: PeerIdentity
+    pilot: PeerIdentity
     epoch: int
     token: str
     expires_at: float
@@ -150,7 +150,7 @@ class MotionLease:
     def fence(self, sequence: int) -> LeaseFence:
         return LeaseFence(
             resource=self.target,
-            owner=self.controller,
+            owner=self.pilot,
             epoch=self.epoch,
             token=self.token,
             sequence=sequence,
@@ -167,7 +167,7 @@ class LeaseDecision:
 
 @dataclass(frozen=True)
 class SimulationSession:
-    simulator: PeerIdentity
+    sim: PeerIdentity
     ui: PeerIdentity
     epoch: int
     token: str
@@ -176,7 +176,7 @@ class SimulationSession:
 
     def fence(self, sequence: int) -> LeaseFence:
         return LeaseFence(
-            resource=self.simulator,
+            resource=self.sim,
             owner=self.ui,
             epoch=self.epoch,
             token=self.token,
@@ -289,7 +289,7 @@ def _fence_reason(
 
 
 class MotionLeaseAuthority(_AuthorityBase):
-    """The target-owned, single-controller motion lease."""
+    """The target-owned, single-pilot motion lease."""
 
     def __init__(
         self,
@@ -319,12 +319,12 @@ class MotionLeaseAuthority(_AuthorityBase):
         now: float,
         requested_ttl_s: Optional[float] = None,
     ) -> LeaseDecision:
-        controller = self._peer(owner, name="motion lease owner")
+        pilot = self._peer(owner, name="motion lease owner")
         request = self._request_id(request_id)
         current = _time(now)
         ttl = self._ttl(requested_ttl_s)
-        key = ("motion.acquire", controller, request)
-        fingerprint = (controller, ttl)
+        key = ("motion.acquire", pilot, request)
+        fingerprint = (pilot, ttl)
         replay = self._recall_lease(key, fingerprint, now=current)
         if replay is not None:
             return replay
@@ -337,7 +337,7 @@ class MotionLeaseAuthority(_AuthorityBase):
                 "granted",
                 MotionLease(
                     target=self.resource,
-                    controller=controller,
+                    pilot=pilot,
                     epoch=self._next_epoch(),
                     token=self._token(),
                     expires_at=current + ttl,
@@ -356,12 +356,12 @@ class MotionLeaseAuthority(_AuthorityBase):
         now: float,
         requested_ttl_s: Optional[float] = None,
     ) -> LeaseDecision:
-        controller = self._peer(owner, name="motion lease owner")
+        pilot = self._peer(owner, name="motion lease owner")
         request = self._request_id(request_id)
         current = _time(now)
         ttl = self._ttl(requested_ttl_s)
-        key = ("motion.renew", controller, request)
-        fingerprint = (controller, fence, ttl)
+        key = ("motion.renew", pilot, request)
+        fingerprint = (pilot, fence, ttl)
         replay = self._recall_lease(key, fingerprint, now=current)
         if replay is not None:
             return replay
@@ -369,7 +369,7 @@ class MotionLeaseAuthority(_AuthorityBase):
         if expired is not None:
             decision = LeaseDecision(False, "lease_expired")
         else:
-            reason = self._match(fence, owner=controller)
+            reason = self._match(fence, owner=pilot)
             if reason:
                 decision = LeaseDecision(False, reason, self._lease)
             else:
@@ -387,11 +387,11 @@ class MotionLeaseAuthority(_AuthorityBase):
         *,
         now: float,
     ) -> LeaseDecision:
-        controller = self._peer(owner, name="motion lease owner")
+        pilot = self._peer(owner, name="motion lease owner")
         request = self._request_id(request_id)
         current = _time(now)
-        key = ("motion.release", controller, request)
-        fingerprint = (controller, fence)
+        key = ("motion.release", pilot, request)
+        fingerprint = (pilot, fence)
         replay = self._recall_lease(key, fingerprint, now=current, allow_stale=True)
         if replay is not None:
             return replay
@@ -399,7 +399,7 @@ class MotionLeaseAuthority(_AuthorityBase):
         if expired is not None:
             decision = LeaseDecision(False, "lease_expired")
         else:
-            reason = self._match(fence, owner=controller)
+            reason = self._match(fence, owner=pilot)
             if reason:
                 decision = LeaseDecision(False, reason, self._lease)
             else:
@@ -445,12 +445,12 @@ class MotionLeaseAuthority(_AuthorityBase):
     def _match(self, fence: LeaseFence, *, owner: PeerIdentity) -> str:
         if self._lease is None:
             return "no_active_lease"
-        if owner != self._lease.controller:
+        if owner != self._lease.pilot:
             return "owner_mismatch"
         return _fence_reason(
             fence,
             resource=self.resource,
-            owner=self._lease.controller,
+            owner=self._lease.pilot,
             epoch=self._lease.epoch,
             token=self._lease.token,
         )
@@ -499,11 +499,11 @@ class MotionLeaseAuthority(_AuthorityBase):
 
 
 class SimulationSessionAuthority(_AuthorityBase):
-    """The simulator-owned, single-UI simulation and signaling session."""
+    """The sim-owned, single-UI simulation and signaling session."""
 
     def __init__(
         self,
-        simulator: PeerIdentity,
+        sim: PeerIdentity,
         *,
         allowed_streams: tuple[str, ...] = ("observer", "hand_eye_preview"),
         lease_ttl_s: float = 3.5,
@@ -513,7 +513,7 @@ class SimulationSessionAuthority(_AuthorityBase):
         idempotency_entries: int = 256,
     ) -> None:
         super().__init__(
-            simulator,
+            sim,
             lease_ttl_s=lease_ttl_s,
             min_ttl_s=min_ttl_s,
             max_ttl_s=max_ttl_s,
@@ -566,7 +566,7 @@ class SimulationSessionAuthority(_AuthorityBase):
                 decision = SessionDecision(False, "busy", self._session)
         else:
             self._session = SimulationSession(
-                simulator=self.resource,
+                sim=self.resource,
                 ui=owner,
                 epoch=self._next_epoch(),
                 token=self._token(),

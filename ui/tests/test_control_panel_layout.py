@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from elesim_ui import control_panel
-from elesim_ui.simulator_view import SimulatorViewState
+from elesim_ui.sim_view import SimViewState
 
 
 def test_sim_video_drawer_uses_the_panel_drawer_calling_convention() -> None:
@@ -14,8 +14,8 @@ def test_sim_video_drawer_uses_the_panel_drawer_calling_convention() -> None:
     assert calls == [panel]
 
 
-def test_simulator_preview_swap_is_explicit_and_reversible() -> None:
-    state = SimulatorViewState()
+def test_sim_preview_swap_is_explicit_and_reversible() -> None:
+    state = SimViewState()
 
     state.swap_streams()
     assert state.main_stream == "hand_eye_preview"

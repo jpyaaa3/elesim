@@ -2,7 +2,7 @@
 <package format="3">
   <name>elesim_interfaces</name>
   <version>0.3.0</version>
-  <description>ROS 2 protocol-v5 interfaces for peer-to-peer Elesim deployments.</description>
+  <description>ROS 2 protocol-v6 interfaces for peer-to-peer Elesim deployments.</description>
   <maintainer email="maintainers@elesim.invalid">Elesim maintainers</maintainer>
   <license>Apache-2.0</license>
 

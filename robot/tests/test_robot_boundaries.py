@@ -6,7 +6,7 @@ from pathlib import Path
 
 def test_robot_has_no_monolith_or_sibling_imports() -> None:
     root = Path(__file__).parents[1] / "src"
-    forbidden = ("engine", "apps", "builders", "elesim_controller", "elesim_simulator", "elesim_ui")
+    forbidden = ("engine", "apps", "builders", "elesim_pilot", "elesim_sim", "elesim_ui")
     violations: list[str] = []
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

@@ -1,6 +1,6 @@
-# Bounded protocol-v5 carrier for direct peer control and signaling.
+# Bounded protocol-v6 carrier for direct peer control and signaling.
 # JSON payload schemas are versioned and validated by elesim_protocol.
-uint16 PROTOCOL_MAJOR=5
+uint16 PROTOCOL_MAJOR=6
 uint16 MAX_MESSAGE_ID_CHARS=128
 uint16 MAX_TYPE_CHARS=64
 uint16 MAX_PEER_ID_CHARS=128

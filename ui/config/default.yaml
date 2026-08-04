@@ -1,8 +1,8 @@
 schema_version: 2
 runtime:
   endpoint_id: ui-main
-  controller_id: controller-main
-  simulator_id: sim-default
+  pilot_id: pilot-main
+  sim_id: sim-default
 dds:
   system_id: elesim
   domain_id: 0

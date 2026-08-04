@@ -4,8 +4,8 @@
     "source_assets_sha256": "24247e69995ea41e9670a5b1eeb4172d73563b2160c75bd16b3a6a3247c15cdf",
     "use_go2": true
   },
-  "bundle_id": "47def37fa85ed3a3aeadb929f822b2e3b29423453e142d9dfffe0eb5b6b7e51d",
-  "bundle_type": "elesim.simulator-model",
+  "bundle_id": "1276d76481569e68c01e76b917354668bf64c84f3d5461a25482ecdb29e996d1",
+  "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
     "blueprint": "blueprint.json",

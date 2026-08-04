@@ -10,14 +10,14 @@ from elesim_protocol import EndpointDescriptor, SimMappingConfig, make_envelope
 def _runtime(*, hardware=None, go2=None) -> RobotRuntime:
     runtime = RobotRuntime(mapping=SimMappingConfig(), hardware_config=SimpleNamespace(), go2_bridge=go2)
     runtime.hw = hardware
-    runtime.grant_lease("controller-a", "lease-a")
+    runtime.grant_lease("pilot-a", "lease-a")
     return runtime
 
 
 def _command(seq: int, payload: dict):
     return make_envelope(
         "motion_command",
-        "controller-a",
+        "pilot-a",
         target_id="robot-a",
         payload=payload,
         seq=seq,
@@ -74,7 +74,7 @@ def test_stale_sequence_and_wrong_lease_are_rejected() -> None:
     assert runtime.apply(_command(2, {"command": "target"}))[0]
     assert runtime.apply(_command(2, {"command": "target"})) == (False, "stale_sequence")
     wrong = make_envelope(
-        "motion_command", "controller-a", target_id="robot-a", payload={"command": "target"}, seq=3, lease_id="wrong"
+        "motion_command", "pilot-a", target_id="robot-a", payload={"command": "target"}, seq=3, lease_id="wrong"
     )
     assert runtime.apply(wrong) == (False, "lease_mismatch")
 
@@ -93,7 +93,7 @@ def test_estop_bypasses_lease_and_disables_torque() -> None:
     runtime.torque_enabled = True
     estop = make_envelope(
         "motion_command",
-        "controller-other",
+        "pilot-other",
         target_id="robot-a",
         payload={"command": "estop"},
         seq=1,

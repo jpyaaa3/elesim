@@ -1,0 +1,26 @@
+schema_version: 2
+runtime:
+  role: sim
+  endpoint_id: sim-default
+  streams:
+    rgbd_topic: /elesim/sim_default/rgbd/frame
+    observer: webrtc://sim-default/observer
+    hand_eye_preview: webrtc://sim-default/hand_eye_preview
+dds:
+  system_id: elesim
+  domain_id: 42
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: static
+  static_peers:
+    - 10.10.0.2
+  network_interface: wg0
+  vendor_config: /etc/elesim/sim/cyclonedds.xml
+  security_profile: sros2
+  keystore: /etc/elesim/sros2
+  enclave: /elesim/sim
+turn:
+  urls:
+    - turn:sim.example.com:3478?transport=udp
+  realm: sim.example.com
+  static_auth_secret_file: /run/secrets/turn.secret
+  credential_file: ""

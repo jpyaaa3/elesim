@@ -14,6 +14,7 @@ from .authority import (
     SimulationSessionAuthority,
 )
 from .messages import *  # noqa: F401,F403
+from .contracts import DDS_CONTRACTS, DdsContract, contract_for, validate_registry
 from .payloads import (
     CloseSimulationSessionRequest,
     DiscoverRequest,

@@ -55,7 +55,7 @@ class RobotRuntime:
 
         self.torque_enabled = False
         self.active_lease = ""
-        self.controller_id = ""
+        self.pilot_id = ""
         self.last_seq = -1
         self.safety_fault = ""
 
@@ -95,9 +95,9 @@ class RobotRuntime:
         if failures:
             self._raise_failures("robot runtime close", failures)
 
-    def grant_lease(self, controller_id: str, lease_id: str) -> None:
+    def grant_lease(self, pilot_id: str, lease_id: str) -> None:
         self.stop_motion()
-        self.controller_id = str(controller_id)
+        self.pilot_id = str(pilot_id)
         self.active_lease = str(lease_id)
         self.last_seq = -1
 
@@ -106,7 +106,7 @@ class RobotRuntime:
         self._clear_lease()
 
     def _clear_lease(self) -> None:
-        self.controller_id = ""
+        self.pilot_id = ""
         self.active_lease = ""
         self.last_seq = -1
 
@@ -146,27 +146,13 @@ class RobotRuntime:
             raise go2_failure
 
     def emergency_stop(self) -> None:
-        failures: list[tuple[str, Exception]] = []
-        try:
-            self._stop_go2()
-        except Exception as exc:
-            failures.append(("GO2 stop", exc))
-        if self.hw is not None:
-            try:
-                self.hw.torque_off_all()
-            except Exception as exc:
-                failures.append(("arm torque disable", exc))
-            finally:
-                self.torque_enabled = False
-        else:
-            self.torque_enabled = False
+        failures = self._stop_safety_components()
         if failures:
             self._raise_failures("emergency stop", failures)
 
-    def _trip_safety_fault(self, reason: str) -> None:
-        if self.safety_fault:
-            return
-        self.safety_fault = str(reason)
+    def _stop_safety_components(self) -> list[tuple[str, Exception]]:
+        """Stop GO2 and disable arm torque while collecting all failures."""
+
         failures: list[tuple[str, Exception]] = []
         try:
             self._stop_go2()
@@ -178,6 +164,13 @@ class RobotRuntime:
             except Exception as exc:
                 failures.append(("arm torque disable", exc))
         self.torque_enabled = False
+        return failures
+
+    def _trip_safety_fault(self, reason: str) -> None:
+        if self.safety_fault:
+            return
+        self.safety_fault = str(reason)
+        failures = self._stop_safety_components()
         if failures:
             self.safety_fault += "; safety shutdown incomplete: " + self._format_failures(
                 failures
@@ -289,7 +282,7 @@ class RobotRuntime:
         if command == "estop":
             self.emergency_stop()
             return True, "estop"
-        if envelope.lease_id != self.active_lease or envelope.source_id != self.controller_id:
+        if envelope.lease_id != self.active_lease or envelope.source_id != self.pilot_id:
             return False, "lease_mismatch"
         if envelope.seq <= self.last_seq:
             return False, "stale_sequence"

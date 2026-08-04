@@ -1,4 +1,4 @@
-"""JSON-safe values shared by the UI and controller wire contract."""
+"""JSON-safe values shared by the UI and pilot wire contract."""
 
 from __future__ import annotations
 

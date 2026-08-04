@@ -65,7 +65,7 @@ class GazeStabilizerConfig:
 
 @dataclass(frozen=True)
 class PanelStateDefaults:
-    """Offline-safe values rendered before the first controller snapshot."""
+    """Offline-safe values rendered before the first pilot snapshot."""
 
     linear: float = 0.0
     roll: float = 0.0

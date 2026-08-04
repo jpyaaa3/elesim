@@ -14,8 +14,8 @@ from elesim_protocol import (
 
 
 TARGET = PeerIdentity("robot-a", "robot-boot-a")
-CONTROLLER_A = PeerIdentity("controller-a", "controller-boot-a")
-CONTROLLER_B = PeerIdentity("controller-b", "controller-boot-b")
+PILOT_A = PeerIdentity("pilot-a", "pilot-boot-a")
+PILOT_B = PeerIdentity("pilot-b", "pilot-boot-b")
 SIMULATOR = PeerIdentity("sim-a", "sim-boot-a")
 UI_A = PeerIdentity("ui-a", "ui-boot-a")
 UI_B = PeerIdentity("ui-b", "ui-boot-b")
@@ -58,9 +58,9 @@ def test_idempotency_cache_replays_exact_input_and_rejects_key_reuse() -> None:
 def test_motion_target_grants_one_owner_and_replays_acquire_idempotently() -> None:
     authority = motion_authority()
 
-    first = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
-    replay = authority.acquire(CONTROLLER_A, "acquire-a", now=1.1)
-    busy = authority.acquire(CONTROLLER_B, "acquire-b", now=1.2)
+    first = authority.acquire(PILOT_A, "acquire-a", now=1.0)
+    replay = authority.acquire(PILOT_A, "acquire-a", now=1.1)
+    busy = authority.acquire(PILOT_B, "acquire-b", now=1.2)
 
     assert first.accepted is True
     assert first.lease is not None
@@ -78,13 +78,13 @@ def test_motion_target_grants_one_owner_and_replays_acquire_idempotently() -> No
 def test_motion_request_id_conflict_does_not_change_active_lease() -> None:
     authority = motion_authority()
     granted = authority.acquire(
-        CONTROLLER_A,
+        PILOT_A,
         "same-request",
         now=1.0,
         requested_ttl_s=2.0,
     )
     conflict = authority.acquire(
-        CONTROLLER_A,
+        PILOT_A,
         "same-request",
         now=1.1,
         requested_ttl_s=4.0,
@@ -99,7 +99,7 @@ def test_motion_request_id_conflict_does_not_change_active_lease() -> None:
     ("fence_change", "reason"),
     (
         ({"resource": PeerIdentity("robot-a", "other-boot")}, "resource_mismatch"),
-        ({"owner": CONTROLLER_B}, "owner_mismatch"),
+        ({"owner": PILOT_B}, "owner_mismatch"),
         ({"epoch": 999}, "epoch_mismatch"),
         ({"token": "wrong-token"}, "token_mismatch"),
     ),
@@ -109,11 +109,11 @@ def test_motion_fence_rejects_wrong_generation_owner_epoch_or_token(
     reason: str,
 ) -> None:
     authority = motion_authority()
-    granted = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
+    granted = authority.acquire(PILOT_A, "acquire-a", now=1.0)
     assert granted.lease is not None
     raw = {
         "resource": granted.lease.target,
-        "owner": granted.lease.controller,
+        "owner": granted.lease.pilot,
         "epoch": granted.lease.epoch,
         "token": granted.lease.token,
         "sequence": 1,
@@ -128,7 +128,7 @@ def test_motion_fence_rejects_wrong_generation_owner_epoch_or_token(
 
 def test_motion_sequence_is_monotonic_inside_one_fence() -> None:
     authority = motion_authority()
-    granted = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
+    granted = authority.acquire(PILOT_A, "acquire-a", now=1.0)
     assert granted.lease is not None
 
     assert authority.accept_command(granted.lease.fence(7), now=1.1).accepted
@@ -140,7 +140,7 @@ def test_motion_sequence_is_monotonic_inside_one_fence() -> None:
 def test_motion_expiry_revokes_locally_and_old_request_cannot_resurrect() -> None:
     authority = motion_authority()
     granted = authority.acquire(
-        CONTROLLER_A,
+        PILOT_A,
         "acquire-a",
         now=1.0,
         requested_ttl_s=1.0,
@@ -149,7 +149,7 @@ def test_motion_expiry_revokes_locally_and_old_request_cannot_resurrect() -> Non
 
     expired = authority.accept_command(granted.lease.fence(1), now=2.0)
     replay = authority.acquire(
-        CONTROLLER_A,
+        PILOT_A,
         "acquire-a",
         now=2.1,
         requested_ttl_s=1.0,
@@ -163,19 +163,19 @@ def test_motion_expiry_revokes_locally_and_old_request_cannot_resurrect() -> Non
 
 def test_motion_renew_extends_only_exact_fence_and_is_idempotent() -> None:
     authority = motion_authority()
-    granted = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
+    granted = authority.acquire(PILOT_A, "acquire-a", now=1.0)
     assert granted.lease is not None
     fence = granted.lease.fence(0)
 
     renewed = authority.renew(
-        CONTROLLER_A,
+        PILOT_A,
         fence,
         "renew-a",
         now=2.0,
         requested_ttl_s=5.0,
     )
     replay = authority.renew(
-        CONTROLLER_A,
+        PILOT_A,
         fence,
         "renew-a",
         now=2.5,
@@ -189,17 +189,17 @@ def test_motion_renew_extends_only_exact_fence_and_is_idempotent() -> None:
     assert replay.replayed is True
 
 
-def test_release_invalidates_before_next_grant_and_fences_old_controller() -> None:
+def test_release_invalidates_before_next_grant_and_fences_old_pilot() -> None:
     authority = motion_authority()
-    first = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
+    first = authority.acquire(PILOT_A, "acquire-a", now=1.0)
     assert first.lease is not None
     released = authority.release(
-        CONTROLLER_A,
+        PILOT_A,
         first.lease.fence(0),
         "release-a",
         now=1.1,
     )
-    second = authority.acquire(CONTROLLER_B, "acquire-b", now=1.2)
+    second = authority.acquire(PILOT_B, "acquire-b", now=1.2)
 
     assert released.accepted is True
     assert second.accepted is True
@@ -214,17 +214,17 @@ def test_release_invalidates_before_next_grant_and_fences_old_controller() -> No
 
 def test_replayed_release_cannot_revoke_a_new_owner() -> None:
     authority = motion_authority()
-    first = authority.acquire(CONTROLLER_A, "acquire-a", now=1.0)
+    first = authority.acquire(PILOT_A, "acquire-a", now=1.0)
     assert first.lease is not None
     released = authority.release(
-        CONTROLLER_A,
+        PILOT_A,
         first.lease.fence(0),
         "release-a",
         now=1.1,
     )
-    second = authority.acquire(CONTROLLER_B, "acquire-b", now=1.2)
+    second = authority.acquire(PILOT_B, "acquire-b", now=1.2)
     replay = authority.release(
-        CONTROLLER_A,
+        PILOT_A,
         first.lease.fence(0),
         "release-a",
         now=1.3,
@@ -246,7 +246,7 @@ def test_ttl_is_bounded_by_target_policy() -> None:
     )
 
     short = authority.acquire(
-        CONTROLLER_A,
+        PILOT_A,
         "short",
         now=10.0,
         requested_ttl_s=0.1,
@@ -255,7 +255,7 @@ def test_ttl_is_bounded_by_target_policy() -> None:
     assert short.lease.expires_at == 11.0
 
 
-def test_simulator_grants_one_ui_and_validates_stream_allowlist() -> None:
+def test_sim_grants_one_ui_and_validates_stream_allowlist() -> None:
     authority = session_authority()
     opened = authority.open(
         UI_A,

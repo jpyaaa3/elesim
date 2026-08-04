@@ -40,7 +40,7 @@ def test_ros_interface_package_declares_all_phase_one_surfaces() -> None:
 def test_peer_envelope_exports_exact_wire_bounds() -> None:
     source = (INTERFACES / "msg/PeerEnvelope.msg").read_text(encoding="utf-8")
 
-    assert "uint16 PROTOCOL_MAJOR=5" in source
+    assert "uint16 PROTOCOL_MAJOR=6" in source
     assert "string<=128 message_id" in source
     assert "string<=64 type" in source
     assert "string<=128 source_id" in source

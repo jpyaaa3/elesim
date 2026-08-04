@@ -28,6 +28,17 @@ def scaled(panel, value: float) -> float:
     return float(value) * ui_scale(panel)
 
 
+def _imgui_scale() -> float:
+    try:
+        return max(0.1, float(getattr(imgui.get_io(), "font_global_scale", 1.0) or 1.0))
+    except Exception:
+        return 1.0
+
+
+def _button(panel, label: str, width: float, height: float = 26.0) -> bool:
+    return bool(imgui.button(label, scaled(panel, width), scaled(panel, height)))
+
+
 def _xy(value) -> tuple[float, float]:
     if hasattr(value, "x") and hasattr(value, "y"):
         return float(value.x), float(value.y)
@@ -62,6 +73,57 @@ def _draw_rect_filled(
     ):
         try:
             draw_list.add_rect_filled(*args)
+            return
+        except TypeError:
+            continue
+
+
+def _draw_line(
+    draw_list,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    color: int,
+    thickness: float = 1.0,
+) -> None:
+    for args in (
+        ((x1, y1), (x2, y2), color, float(thickness)),
+        (x1, y1, x2, y2, color, float(thickness)),
+        ((x1, y1), (x2, y2), color),
+        (x1, y1, x2, y2, color),
+    ):
+        try:
+            draw_list.add_line(*args)
+            return
+        except TypeError:
+            continue
+
+
+def _draw_triangle_filled(
+    draw_list,
+    points: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+    color: int,
+) -> None:
+    p1, p2, p3 = points
+    for args in (
+        (p1, p2, p3, color),
+        (p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], color),
+    ):
+        try:
+            draw_list.add_triangle_filled(*args)
+            return
+        except TypeError:
+            continue
+
+
+def _draw_text(draw_list, x: float, y: float, color: int, text: str) -> None:
+    for args in (
+        ((x, y), color, str(text)),
+        (x, y, color, str(text)),
+    ):
+        try:
+            draw_list.add_text(*args)
             return
         except TypeError:
             continue

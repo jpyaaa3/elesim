@@ -9,10 +9,16 @@ import imgui
 from elesim_ui.models import PerceptionConfig, gaze_config_to_dict
 from elesim_ui.file_dialog import browse_open_file_path
 from elesim_ui.helpers import (
+    _button,
     begin_collapsible_section,
     begin_disabled_ui,
     end_collapsible_section,
     end_disabled_ui,
+    _color_u32,
+    _draw_line,
+    _draw_rect_filled,
+    _draw_triangle_filled,
+    _xy,
     panel_header,
     scaled,
     toggle_switch,
@@ -217,10 +223,6 @@ def _draw_gaze_tuning_controls(panel) -> None:
 def _checkbox(panel, label: str, identifier: str, value: bool) -> tuple[bool, bool]:
     _control_label(panel, label)
     return imgui.checkbox(f"##{identifier}", bool(value))
-
-
-def _button(panel, label: str, width: float, height: float = _BUTTON_H) -> bool:
-    return bool(imgui.button(label, scaled(panel, width), scaled(panel, height)))
 
 
 def _mode_button(
@@ -481,64 +483,6 @@ def _draw_ball_dir_row(panel) -> None:
             float(values[1]),
             float(values[2]),
         )
-
-
-def _xy(value) -> tuple[float, float]:
-    if hasattr(value, "x") and hasattr(value, "y"):
-        return float(value.x), float(value.y)
-    return float(value[0]), float(value[1])
-
-
-def _color_u32(r: float, g: float, b: float, a: float = 1.0) -> int:
-    getter = getattr(imgui, "get_color_u32_rgba", None)
-    if callable(getter):
-        return int(getter(float(r), float(g), float(b), float(a)))
-    ri = max(0, min(255, int(float(r) * 255.0)))
-    gi = max(0, min(255, int(float(g) * 255.0)))
-    bi = max(0, min(255, int(float(b) * 255.0)))
-    ai = max(0, min(255, int(float(a) * 255.0)))
-    return (ai << 24) | (bi << 16) | (gi << 8) | ri
-
-
-def _draw_rect_filled(draw_list, x1: float, y1: float, x2: float, y2: float, color: int, rounding: float = 0.0) -> None:
-    for args in (
-        ((x1, y1), (x2, y2), color, float(rounding)),
-        (x1, y1, x2, y2, color, float(rounding)),
-        ((x1, y1), (x2, y2), color),
-        (x1, y1, x2, y2, color),
-    ):
-        try:
-            draw_list.add_rect_filled(*args)
-            return
-        except TypeError:
-            continue
-
-
-def _draw_line(draw_list, x1: float, y1: float, x2: float, y2: float, color: int, thickness: float = 1.0) -> None:
-    for args in (
-        ((x1, y1), (x2, y2), color, float(thickness)),
-        (x1, y1, x2, y2, color, float(thickness)),
-        ((x1, y1), (x2, y2), color),
-        (x1, y1, x2, y2, color),
-    ):
-        try:
-            draw_list.add_line(*args)
-            return
-        except TypeError:
-            continue
-
-
-def _draw_triangle_filled(draw_list, points: tuple[tuple[float, float], tuple[float, float], tuple[float, float]], color: int) -> None:
-    p1, p2, p3 = points
-    for args in (
-        (p1, p2, p3, color),
-        (p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], color),
-    ):
-        try:
-            draw_list.add_triangle_filled(*args)
-            return
-        except TypeError:
-            continue
 
 
 def _draw_circle_filled(draw_list, x: float, y: float, radius: float, color: int) -> None:

@@ -4,13 +4,13 @@ Elesim은 한 프로그램이 아니라 독립 배포 가능한 네 프로그램
 
 | 프로그램 | 책임 |
 | --- | --- |
-| Controller | Vision, IK, Look/Aim/Grasp, Gaze, 목표값 계산 |
-| UI | 사용자 입력, 상태 표시, observer/hand-eye 영상, Simulator 조작 |
-| Simulator | Genesis, 가상 telemetry, observer/hand-eye 렌더링 |
+| Pilot | Vision, IK, Look/Aim/Grasp, Gaze, 목표값 계산 |
+| UI | 사용자 입력, 상태 표시, observer/hand-eye 영상, Sim 조작 |
+| Sim | Genesis, 가상 telemetry, observer/hand-eye 렌더링 |
 | Robot | 실제 모터·카메라 I/O, feedback, deadman, 로컬 안전 제한 |
 
 프로그램끼리는 ROS 2/DDS로 직접 통신한다. 현재 discovery와 RGBD는 typed ROS
-message이고, 제어·WebRTC signaling은 bounded protocol-v5 DDS message를
+message이고, 제어·WebRTC signaling은 bounded protocol-v6 DDS message를
 사용한다. observer/hand-eye 영상만 WebRTC를 사용한다. 중앙 Router와
 ZMQ/CURVE transport는 없다. 서로 다른 컴퓨터에 설치해도 되지만 DDS
 participant 사이에 양방향 UDP 경로가 있어야 한다.
@@ -20,13 +20,13 @@ participant 사이에 양방향 UDP 경로가 있어야 한다.
 Ubuntu 또는 WSL 터미널에서 설치할 디렉터리로 이동한 뒤 실행한다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh | bash
 ```
 
 `main`이 아닌 브랜치를 시험할 때는 URL과 `ELESIM_REF`를 같은 브랜치로 맞춘다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
   | ELESIM_REF=refactoring bash
 ```
 
@@ -42,7 +42,7 @@ snapshot으로 재사용한다. 터미널에는 실제 revision 또는 archive d
 전체 archive를 다시 확인하려면 다음처럼 `--refresh`를 `bash` 인자로 전달한다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/misc/setup/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
   | ELESIM_REF=refactoring bash -s -- --refresh
 ```
 
@@ -68,7 +68,7 @@ GUI는 호스트 loopback에만 공개된다.
 
 ```bash
 # [서버]
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/misc/setup/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh \
   | ELESIM_NO_OPEN=1 bash
 ```
 
@@ -92,26 +92,28 @@ GUI 포트는 외부 방화벽에 공개할 필요가 없다.
 
 | 체크할 역할 | 책임 |
 | --- | --- |
-| Simulator | Genesis 시뮬레이션, 가상 RGBD와 WebRTC 송신 |
-| Controller | 인식, IK, Pick/Gaze와 목표 생성 |
+| Sim | Genesis 시뮬레이션, 가상 RGBD와 WebRTC 송신 |
+| Pilot | 인식, IK, Pick/Gaze와 목표 생성 |
 | UI | 운영자 화면과 원격 조작 |
 | Robot | Jetson의 실제 장치와 로컬 안전 제어 (단독) |
 
-Simulator, Controller, UI는 역할별 Docker 이미지와 하나의 Compose project로
+Sim, Pilot, UI는 역할별 Docker 이미지와 하나의 Compose project로
 구성된다. Robot은 Jetson/JetPack이 감지된 호스트에서만 선택할 수
 있으며 현재 native 단독 설치만 지원한다.
 
-터미널 자동화에서는 `install --role simulator --role controller`처럼 역할을
+터미널 자동화에서는 `install --role sim --role pilot`처럼 역할을
 반복해서 지정한다. 예전 `--profile` 인자는 기존 스크립트 호환을 위해 숨겨져
 있지만 새 설치 흐름의 사용자 선택지는 역할 목록이다.
 
 일반 Compose project 이름은 `elesim-runtime`으로 고정된다. 선택한 역할에 따라
 `elesim-pilot`, `elesim-ui`, `elesim-sim`이 생기고, managed TURN을
-선택한 Simulator 호스트에만 `elesim-coturn`이 추가된다. Robot은
+선택한 Sim 호스트에만 `elesim-coturn`이 추가된다. Robot은
 `elesim-robot` 컨테이너가 아니라 Jetson의 native/systemd 서비스다. 같은
 호스트에 두 번째 일반 설치를 만들면 임의 이름을 붙이지 않고 충돌을 알려준다.
-컨테이너 이름만 바뀐 것이므로 역할 키와 실행 명령
-`elesim-controller`/`elesim-simulator`, 그리고 해당 이미지 태그는 그대로다.
+소스 디렉터리, DDS/설치 역할 키, Python 패키지(`elesim_pilot`·`elesim_sim`),
+실행 명령(`elesim-pilot`·`elesim-sim`), 이미지 태그가 모두 같은 이름 체계를
+사용한다. `controller`/`simulator`는 런타임 이름이 아니며, 구버전 상태를
+읽을 때만 마이그레이션 입력으로 인정한다.
 
 ### 개발자용
 
@@ -218,9 +220,9 @@ elesim-connections
 
 연결 관리자는 두 가지 명시적 topology mode를 제공한다.
 
-- `full`: Controller, UI, Simulator, Robot을 각각 한 번씩 2~4개 host에 배치한다.
+- `full`: Pilot, UI, Sim, Robot을 각각 한 번씩 2~4개 host에 배치한다.
   Robot은 Jetson native/systemd 역할로 고정된다.
-- `simulation-only`: 물리 Robot/Jetson 없이 Controller, UI, Simulator를 각각
+- `simulation-only`: 물리 Robot/Jetson 없이 Pilot, UI, Sim를 각각
   한 번씩 1~3개 host에 배치한다. 세 역할을 한 컴퓨터에 함께 둘 수도 있다.
 
 두 mode 모두 한 컴퓨터가 여러 역할을 맡을 수 있으며 local host는 정확히 하나다.
@@ -246,28 +248,35 @@ host/user/port 형식과 선택적인 host-key probe만 확인한다. 일반 SSH
 통신, RGBD, WebRTC, SROS2, NAT traversal을 증명하지 않는다. `full` mode의
 정식 저장·배포에만 Robot을 포함한 네 역할 topology가 필요하다.
 
+연결 관리자에는 저장된 topology를 기준으로 `호스트 상태 확인`, `전체 시작`,
+`전체 정지`, `전체 재시작`이 있다. 이는 SSH/로컬 Compose 또는 Robot systemd의
+관리 상태만 읽고 조작하며, DDS discovery나 WebRTC 영상이 살아 있다고 추정하지
+않는다. 로컬에 `tailscale0`가 있으면 현재 주소를 읽기 전용으로 자동 제안하지만
+Tailscale 설치·로그인·ACL 변경은 하지 않는다. 재연결 뒤 주소가 바뀌었는지 확인한
+뒤 저장한다.
+
 ### TURN/Coturn
 
 - `미사용`: 같은 LAN 또는 직접 ICE가 가능한 환경.
-- `이 Simulator와 Coturn 실행`: Simulator 호스트의 생성 Compose에 Coturn을
+- `이 Sim와 Coturn 실행`: Sim 호스트의 생성 Compose에 Coturn을
   넣는다.
 - `기존 relay 사용`: 별도로 운영 중인 TURN URL을 사용한다.
 
 Managed Coturn은 public hostname/IP, realm과 credential 정책이 필요하다.
-REST HMAC을 쓰면 static secret은 Coturn과 같은 호스트의 Simulator만 갖고,
-Simulator가 활성 session에 묶인 단기 ICE credential을 UI에 발급한다. UI에는
+REST HMAC을 쓰면 static secret은 Coturn과 같은 호스트의 Sim만 갖고,
+Sim가 활성 session에 묶인 단기 ICE credential을 UI에 발급한다. UI에는
 static secret을 전달하지 않는다. 선택하면 `elesim-up`,
 `elesim-down`, `elesim-logs`가 Coturn까지 함께 관리한다. 필요한 방화벽 경로는
 TCP/UDP `3478`과 UDP `49160-49200`이다. TURN은 WebRTC media relay이며 DDS
 topic이나 signaling을 연결해 주지 않는다. Managed TURN credential과 signaling은
 DDS로 전달되므로 managed mode는 `sros2` profile을 요구한다.
 
-외부 TURN을 Simulator 호스트에 설치할 때에는 relay가 발급한 자격증명 JSON도
+외부 TURN을 Sim 호스트에 설치할 때에는 relay가 발급한 자격증명 JSON도
 선택한다. 파일 형식은
 `{"username":"...","credential":"...","expires_at":4102444800}`이며
-`expires_at`은 장기 credential이면 생략할 수 있다. 이 파일은 Simulator
-컨테이너에만 read-only로 mount되고, Controller/UI 전용 노트북에는 복사되지
-않는다. Simulator가 활성 UI session에 필요한 값을 DDS로 전달하므로 공유망에서는
+`expires_at`은 장기 credential이면 생략할 수 있다. 이 파일은 Sim
+컨테이너에만 read-only로 mount되고, Pilot/UI 전용 노트북에는 복사되지
+않는다. Sim가 활성 UI session에 필요한 값을 DDS로 전달하므로 공유망에서는
 SROS2를 사용한다.
 
 ## 설치 후 명령
@@ -328,12 +337,12 @@ Jaeger UI 기본 주소는 `http://127.0.0.1:16686`이다. 개발 컨테이너 �
 호스트에 pytest, ROS2 또는 과학 패키지를 별도 설치하지 말고 다음처럼 실행한다.
 
 ```bash
-elesim-dev python3 misc/tooling/quality/check.py --group required
+elesim-dev python3 tools/quality/check.py --group required
 ```
 
 ## 단일 컴퓨터 시뮬레이션
 
-일반 사용자용에서 Simulator, Controller, UI 역할을 체크하고 loopback
+일반 사용자용에서 Sim, Pilot, UI 역할을 체크하고 loopback
 interface로 제한한 `trusted-network` profile을 사용한다.
 
 ```bash
@@ -347,15 +356,15 @@ UI에서 endpoint ID `sim-default`를 선택하면 다음 영상을 받는다.
 - `hand-eye`: 로봇 손끝 카메라
 
 Observer에서 orbit, pan, zoom을 조작할 수 있고 pause/resume, single-step,
-reset, speed, reset-view와 debug marker 명령도 Simulator로 보낸다. 전달되는
-것은 Genesis 운영체제 Viewer의 화면 캡처가 아니라 Simulator가 별도로 렌더링한
+reset, speed, reset-view와 debug marker 명령도 Sim로 보낸다. 전달되는
+것은 Genesis 운영체제 Viewer의 화면 캡처가 아니라 Sim가 별도로 렌더링한
 WebRTC stream이다.
 
 ## 원격 시뮬레이션 호스트
 
-### Simulator를 실행하는 호스트
+### Sim를 실행하는 호스트
 
-1. 일반 사용자용에서 Simulator 역할을 체크한다.
+1. 일반 사용자용에서 Sim 역할을 체크한다.
 2. 조작 호스트와 이 호스트를 같은 LAN 또는 routed VPN에 놓는다.
 3. 두 호스트에 같은 system/domain ID를 넣고, DDS가 사용할 LAN/VPN interface를
    선택한다.
@@ -367,22 +376,22 @@ WebRTC stream이다.
    generation을 적용한 뒤 `elesim-up`을 실행한다.
 
 ```bash
-# [Simulator 호스트]
+# [Sim 호스트]
 elesim-up
 elesim-logs
 ```
 
-원격 Simulator profile은 native Genesis Viewer를 끄지만 observer와 hand-eye
+원격 Sim profile은 native Genesis Viewer를 끄지만 observer와 hand-eye
 렌더링은 유지한다.
 
 ### 조작 호스트 (노트북 등)
 
-1. 일반 사용자용에서 Controller와 UI 역할을 체크한다.
-2. Simulator 호스트와 같은 system/domain ID를 넣고 LAN/VPN interface를 선택한다.
-3. routed network이면 Simulator 호스트의 reachable 주소를 static peer로 넣는다.
-4. Simulator 호스트와 같은 security profile을 고른다. 외부 keystore를 쓸 때에는 조작 호스트
+1. 일반 사용자용에서 Pilot와 UI 역할을 체크한다.
+2. Sim 호스트와 같은 system/domain ID를 넣고 LAN/VPN interface를 선택한다.
+3. routed network이면 Sim 호스트의 reachable 주소를 static peer로 넣는다.
+4. Sim 호스트와 같은 security profile을 고른다. 외부 keystore를 쓸 때에는 조작 호스트
    역할 enclave만 설치한다.
-5. `elesim-connections`에서 조작 호스트를 local host로 두고 Simulator 호스트/Jetson의 DDS 주소와
+5. `elesim-connections`에서 조작 호스트를 local host로 두고 Sim 호스트/Jetson의 DDS 주소와
    별도 SSH 관리 주소를 입력한다. Managed SROS2를 선택했다면 여기서 모든 host의
    role bundle을 같은 generation으로 provision한다.
 6. Provision이 성공한 뒤 각 host에서 `elesim-up`을 실행한다.
@@ -437,7 +446,7 @@ elesim-net doctor
 ```
 
 기본 진단은 DDS participant discovery, endpoint descriptor/heartbeat,
-control/RGBD topic, TURN 연결과 Simulator signaling carrier를 확인한다.
+control/RGBD topic, TURN 연결과 Sim signaling carrier를 확인한다.
 
 ```bash
 elesim-net doctor --active --timeout 8
@@ -463,7 +472,7 @@ Git에 올리면 안 되는 파일:
 - 외부 TURN `turn.credentials.json`
 - 생성된 SROS2 keystore와 credential root
 - 설치된 원격 host 설정과 연결 관리자 topology
-- `misc/infra/generated/`
+- `environment/generated/`
 
 서버에서 임시 X11 권한을 열었다면 종료 후 반드시 회수한다.
 
@@ -510,14 +519,14 @@ directories`가 나타날 수 있다. `cd ~` 또는 새 터미널로 이동한�
 확인한다. routed network에서는 양쪽이 서로 도달 가능한 static peer를 사용해야
 한다. static peer 설정은 NAT를 우회하지 않는다.
 
-### `simulator is unavailable`
+### `sim is unavailable`
 
-Simulator heartbeat가 만료됐거나 process가 재시작 중이다. 같은 endpoint ID를
+Sim heartbeat가 만료됐거나 process가 재시작 중이다. 같은 endpoint ID를
 주장하는 복수 boot가 탐지돼도 안전을 위해 선택이 거부된다.
 
 ```bash
 docker compose -f /설치/위치/containers/compose.yaml ps
-docker compose -f /설치/위치/containers/compose.yaml logs --tail=200 simulator
+docker compose -f /설치/위치/containers/compose.yaml logs --tail=200 sim
 ```
 
 ### `command not found: elesim-up`
@@ -536,7 +545,7 @@ UDP, TURN `3478`은 서로 다른 용도이다. 작동 중인 SSH 포트 대신 
 
 ### `Viewer closed`
 
-Native Genesis Viewer를 닫으면 Viewer-enabled Simulator가 종료될 수 있다.
+Native Genesis Viewer를 닫으면 Viewer-enabled Sim가 종료될 수 있다.
 장시간 원격 실행은 installer가 생성한 headless remote profile과 UI observer
 stream을 사용한다.
 
@@ -545,10 +554,10 @@ stream을 사용한다.
 개발자용 설치를 사용하거나 준비된 Python 환경에서 canonical gate를 실행한다.
 
 ```bash
-elesim-dev python3 misc/tooling/quality/check.py --group required
-elesim-dev python3 misc/tooling/quality/check.py --group extended
-elesim-dev python3 misc/tooling/release/build.py
-elesim-dev python3 misc/tooling/release/verify.py dist/releases
+elesim-dev python3 tools/quality/check.py --group required
+elesim-dev python3 tools/quality/check.py --group extended
+elesim-dev python3 tools/release/build.py
+elesim-dev python3 tools/release/verify.py dist/releases
 ```
 
 자동 테스트는 실제 DDS multicast/static-peer discovery, SROS2 enforce,
@@ -559,28 +568,30 @@ packet loss와 Wi-Fi/VPN reconnect, Genesis GPU 렌더링, 실제 NAT의 TURN re
 ## 저장소 구조
 
 ```text
-controller/                 Controller 배포 프로젝트
-ui/                         UI 배포 프로젝트
-robot/                      Robot 배포 프로젝트
-simulator/                  Simulator 배포 프로젝트
-packages/elesim_interfaces/ ROS 2 msg/srv/action 계약
-model/bundles/default/      Simulator 완성 모델
-misc/model/source/          원본 geometry와 blueprint
-misc/tooling/model_builder/ 오프라인 모델 생성
-misc/tooling/release/       역할별 릴리스 생성과 검증
-misc/tooling/setup/         GUI 설치기, 연결/SROS2 관리자와 네트워크 진단
-misc/tooling/quality/       자동 테스트와 테스트 GUI
-misc/integration/           멀티프로세스 통합 테스트
-misc/infra/                 보안, 일반/개발 컨테이너 입력
-misc/setup/                 git clone 없는 bootstrap
-misc/docs/                  아키텍처와 배포 문서
+pilot/                         Pilot 배포 프로젝트
+ui/                            UI 배포 프로젝트
+robot/                         Robot 배포 프로젝트
+sim/                           Sim 배포 프로젝트
+packages/elesim_interfaces/    ROS 2 msg/srv/action 계약
+packages/protocol/             DDS 계약·공용 전송 기반
+model/source/                  원본 geometry와 blueprint
+model/builder/                 오프라인 모델 생성기
+model/bundles/default/         Sim 완성 모델
+environment/                  Docker·Compose·TURN·개발환경 입력
+installer/bootstrap/           git clone 없는 bootstrap
+installer/package/             GUI 설치기·연결/SROS2 관리자
+system_tests/                 멀티프로세스 시스템 검증
+research/                     분석·실험·디버그·결과
+tools/                        품질·릴리스·개발 도구
+scripts/                      소스 체크아웃용 실행 스크립트
+docs/                         아키텍처·설치·배포 문서
 ```
 
 세부 문서:
 
-- [아키텍처](misc/docs/architecture.md)
-- [설정 체계](misc/docs/configuration.md)
-- [설치기 내부와 네트워크 진단](misc/docs/setup.md)
-- [릴리스와 멀티호스트 배포](misc/docs/deployment.md)
-- [마일스톤과 남은 인수시험](misc/docs/MILESTONES.md)
-- [미해결 문제](misc/docs/OPEN_ISSUES_KR.md)
+- [아키텍처](docs/architecture.md)
+- [설정 체계](docs/configuration.md)
+- [설치기 내부와 네트워크 진단](docs/setup.md)
+- [릴리스와 멀티호스트 배포](docs/deployment.md)
+- [마일스톤과 남은 인수시험](docs/MILESTONES.md)
+- [미해결 문제](docs/OPEN_ISSUES_KR.md)

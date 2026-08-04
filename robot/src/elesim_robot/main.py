@@ -141,7 +141,7 @@ def _run() -> None:
             for message in messages:
                 if message.message_type == "lease_granted":
                     runtime.grant_lease(
-                        str((message.payload or {}).get("controller_id", "")),
+                        str((message.payload or {}).get("pilot_id", "")),
                         message.lease_id,
                     )
                 elif message.message_type == "lease_revoked":
@@ -156,14 +156,14 @@ def _run() -> None:
                     )
             runtime.tick()
             now = time.monotonic()
-            if runtime.controller_id and now - last_state >= config.safety.telemetry_period_s:
+            if runtime.pilot_id and now - last_state >= config.safety.telemetry_period_s:
                 last_state = now
                 state = runtime.state()
                 if camera is not None:
                     state["camera"] = camera.status()
                 client.send(
                     "telemetry",
-                    target_id=runtime.controller_id,
+                    target_id=runtime.pilot_id,
                     payload=state,
                     lease_id=runtime.active_lease,
                 )

@@ -37,8 +37,6 @@ update/
 elesim_wip_save.txt
 
 # Local helper scripts.
-u
-j
 /bin/
 /.elesim/
 /cache/
@@ -48,6 +46,6 @@ j
 /infra/coturn.env
 /install-state.json
 
-# Generated deployment credentials.
-misc/infra/generated/
-misc/infra/coturn/.env
+# Generated environment credentials.
+environment/generated/
+environment/coturn/.env

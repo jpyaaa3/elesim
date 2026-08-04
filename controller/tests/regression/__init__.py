@@ -1,1 +1,0 @@
-"""Migrated controller regression contracts."""

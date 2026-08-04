@@ -1,7 +1,7 @@
 uint16 MAX_REQUEST_ID_CHARS=128
 
 string<=128 request_id
-elesim_interfaces/PeerRef controller
+elesim_interfaces/PeerRef pilot
 elesim_interfaces/PeerRef target
 uint64 selection_epoch
 uint32 requested_ttl_ms

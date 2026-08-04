@@ -13,8 +13,8 @@ from elesim_ui.models import GazeStabilizerConfig, HardwareConfig, PerceptionCon
 @dataclass(frozen=True)
 class UiConfig:
     endpoint_id: str
-    controller_id: str
-    simulator_id: str
+    pilot_id: str
+    sim_id: str
     dds: DdsRuntimeSettings
     use_hardware: bool
     use_go2: bool
@@ -60,8 +60,8 @@ def load_config(path: str | Path) -> UiConfig:
 
     return UiConfig(
         endpoint_id=endpoint_id,
-        controller_id=str(runtime.get("controller_id", "controller-main")),
-        simulator_id=str(runtime.get("simulator_id", "sim-default")),
+        pilot_id=str(runtime.get("pilot_id", "pilot-main")),
+        sim_id=str(runtime.get("sim_id", "sim-default")),
         dds=DdsRuntimeSettings.from_mapping(dds_raw, endpoint_id=endpoint_id),
         use_hardware=bool(presentation.get("use_hardware", False)),
         use_go2=bool(presentation.get("use_go2", True)),

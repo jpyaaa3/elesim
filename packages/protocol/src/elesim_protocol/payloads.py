@@ -1,4 +1,4 @@
-"""Typed protocol-v5 application payload contracts.
+"""Typed protocol-v6 application payload contracts.
 
 These small DTOs define the bounded fields that peer code may rely on before
 touching domain state.
@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from numbers import Real
 from typing import Any, Mapping, Optional
 
-from .messages import ENDPOINT_ROLES, ProtocolError
+from .contracts import contract_for
+from .messages import ENDPOINT_ROLES, EndpointDescriptor, ProtocolError
 from .operator import OPERATOR_OPERATIONS, OPERATOR_VIEW_SCHEMA_VERSION
 
 
@@ -178,7 +179,7 @@ class OperatorIntentRequest:
 
 @dataclass(frozen=True)
 class OperatorViewSnapshot:
-    """Versioned, read-only UI model returned by a controller."""
+    """Versioned, read-only UI model returned by a pilot."""
 
     state: dict[str, Any]
     service: dict[str, Any]
@@ -231,7 +232,7 @@ class MotionCommandRequest:
         if not command or len(command) > 128 or any(character.isspace() for character in command):
             raise ProtocolError("motion command must contain 1..128 non-whitespace characters")
         if "u" in raw:
-            raise ProtocolError("legacy u motor targets are not supported by protocol v5")
+            raise ProtocolError("legacy u motor targets are not supported by protocol v6")
         q: Optional[tuple[float, float, float, float]] = None
         if "q" in raw:
             q_values = _vector(raw["q"], 4, name="motion q")
@@ -307,7 +308,7 @@ class TurnCredentials:
 @dataclass(frozen=True)
 class OpenSimulationSessionRequest:
     request_id: str
-    simulator_id: str
+    sim_id: str
     streams: tuple[str, ...]
     schema_version: int = SIMULATION_SCHEMA_VERSION
 
@@ -316,13 +317,13 @@ class OpenSimulationSessionRequest:
         raw = _object(payload, context="open_simulation_session")
         _unknown(
             raw,
-            {"schema_version", "request_id", "simulator_id", "streams"},
+            {"schema_version", "request_id", "sim_id", "streams"},
             context="open_simulation_session",
         )
         _schema(raw, context="simulation session")
         return cls(
             request_id=_identifier(raw.get("request_id"), name="simulation request_id"),
-            simulator_id=_identifier(raw.get("simulator_id"), name="simulator_id"),
+            sim_id=_identifier(raw.get("sim_id"), name="sim_id"),
             streams=_simulation_streams(raw.get("streams")),
         )
 
@@ -330,7 +331,7 @@ class OpenSimulationSessionRequest:
         return {
             "schema_version": self.schema_version,
             "request_id": self.request_id,
-            "simulator_id": self.simulator_id,
+            "sim_id": self.sim_id,
             "streams": list(self.streams),
         }
 
@@ -373,7 +374,7 @@ def _optional_turn(raw: object) -> Optional[TurnCredentials]:
 class SimulationSessionOpenedPayload:
     request_id: str
     session_id: str
-    simulator_id: str
+    sim_id: str
     streams: tuple[str, ...]
     turn: Optional[TurnCredentials] = None
     schema_version: int = SIMULATION_SCHEMA_VERSION
@@ -383,14 +384,14 @@ class SimulationSessionOpenedPayload:
         raw = _object(payload, context="simulation_session_opened")
         _unknown(
             raw,
-            {"schema_version", "request_id", "session_id", "simulator_id", "streams", "turn"},
+            {"schema_version", "request_id", "session_id", "sim_id", "streams", "turn"},
             context="simulation_session_opened",
         )
         _schema(raw, context="simulation session")
         return cls(
             request_id=_identifier(raw.get("request_id"), name="simulation request_id"),
             session_id=_identifier(raw.get("session_id"), name="simulation session_id"),
-            simulator_id=_identifier(raw.get("simulator_id"), name="simulator_id"),
+            sim_id=_identifier(raw.get("sim_id"), name="sim_id"),
             streams=_simulation_streams(raw.get("streams")),
             turn=_optional_turn(raw.get("turn")),
         )
@@ -400,7 +401,7 @@ class SimulationSessionOpenedPayload:
             "schema_version": self.schema_version,
             "request_id": self.request_id,
             "session_id": self.session_id,
-            "simulator_id": self.simulator_id,
+            "sim_id": self.sim_id,
             "streams": list(self.streams),
             "turn": None if self.turn is None else self.turn.to_payload(),
         }
@@ -410,7 +411,7 @@ class SimulationSessionOpenedPayload:
 class SimulationSessionGrantedPayload:
     request_id: str
     session_id: str
-    simulator_id: str
+    sim_id: str
     ui_id: str
     streams: tuple[str, ...]
     turn: Optional[TurnCredentials] = None
@@ -425,7 +426,7 @@ class SimulationSessionGrantedPayload:
                 "schema_version",
                 "request_id",
                 "session_id",
-                "simulator_id",
+                "sim_id",
                 "ui_id",
                 "streams",
                 "turn",
@@ -436,7 +437,7 @@ class SimulationSessionGrantedPayload:
         return cls(
             request_id=_identifier(raw.get("request_id"), name="simulation request_id"),
             session_id=_identifier(raw.get("session_id"), name="simulation session_id"),
-            simulator_id=_identifier(raw.get("simulator_id"), name="simulator_id"),
+            sim_id=_identifier(raw.get("sim_id"), name="sim_id"),
             ui_id=_identifier(raw.get("ui_id"), name="ui_id"),
             streams=_simulation_streams(raw.get("streams")),
             turn=_optional_turn(raw.get("turn")),
@@ -447,7 +448,7 @@ class SimulationSessionGrantedPayload:
             "schema_version": self.schema_version,
             "request_id": self.request_id,
             "session_id": self.session_id,
-            "simulator_id": self.simulator_id,
+            "sim_id": self.sim_id,
             "ui_id": self.ui_id,
             "streams": list(self.streams),
             "turn": None if self.turn is None else self.turn.to_payload(),
@@ -457,7 +458,7 @@ class SimulationSessionGrantedPayload:
 @dataclass(frozen=True)
 class SimulationSessionRevokedPayload:
     session_id: str
-    simulator_id: str
+    sim_id: str
     reason: str
     schema_version: int = SIMULATION_SCHEMA_VERSION
 
@@ -466,13 +467,13 @@ class SimulationSessionRevokedPayload:
         raw = _object(payload, context="simulation_session_revoked")
         _unknown(
             raw,
-            {"schema_version", "session_id", "simulator_id", "reason"},
+            {"schema_version", "session_id", "sim_id", "reason"},
             context="simulation_session_revoked",
         )
         _schema(raw, context="simulation session")
         return cls(
             session_id=_identifier(raw.get("session_id"), name="simulation session_id"),
-            simulator_id=_identifier(raw.get("simulator_id"), name="simulator_id"),
+            sim_id=_identifier(raw.get("sim_id"), name="sim_id"),
             reason=_text(raw.get("reason"), name="simulation revocation reason", maximum=512),
         )
 
@@ -480,7 +481,7 @@ class SimulationSessionRevokedPayload:
         return {
             "schema_version": self.schema_version,
             "session_id": self.session_id,
-            "simulator_id": self.simulator_id,
+            "sim_id": self.sim_id,
             "reason": self.reason,
         }
 
@@ -688,42 +689,92 @@ class WebRtcSignalPayload:
         }
 
 
+def _validate_registered_payload(message_type: str, payload: object) -> dict[str, Any]:
+    """Apply the registry's structural policy to a non-DTO payload.
+
+    Domain DTOs retain ownership of their own nested validation.  For the
+    small acknowledgement/error family the registry is intentionally strict,
+    so a typo cannot silently become a second wire field.  Telemetry and
+    operator results remain additive maps, but still pass through the common
+    object and JSON-boundary checks in :class:`Envelope`.
+    """
+
+    raw = _object(payload, context=message_type)
+    contract = contract_for(message_type)
+    if contract.strict_fields and contract.payload_fields is not None:
+        _unknown(raw, set(contract.payload_fields), context=message_type)
+    if message_type == "endpoint_list":
+        endpoints = raw.get("endpoints")
+        if not isinstance(endpoints, (list, tuple)) or len(endpoints) > 64:
+            raise ProtocolError("endpoint_list endpoints must contain 0..64 entries")
+        for endpoint in endpoints:
+            if not isinstance(endpoint, Mapping):
+                raise ProtocolError("endpoint_list entries must be objects")
+            EndpointDescriptor.from_dict(endpoint)
+    if message_type in {"target_selected", "target_released", "target_lost"}:
+        _identifier(raw.get("target_id"), name=f"{message_type} target_id")
+        if "lease_id" in raw:
+            _identifier(raw.get("lease_id"), name=f"{message_type} lease_id")
+        if "reason" in raw:
+            _text(raw.get("reason"), name=f"{message_type} reason", maximum=512)
+    if message_type == "lease_granted":
+        _identifier(raw.get("pilot_id"), name="lease_granted pilot_id")
+    if message_type in {"lease_revoked", "error"} and "reason" in raw:
+        _text(raw.get("reason"), name=f"{message_type} reason", maximum=1024)
+    if message_type == "ack":
+        if "reply_to" in raw:
+            _identifier(raw.get("reply_to"), name="ack reply_to")
+        if "ok" in raw:
+            _boolean(raw.get("ok"), name="ack ok")
+        if "reason" in raw:
+            _text(raw.get("reason"), name="ack reason", maximum=512)
+    if message_type == "error":
+        _identifier(raw.get("reply_to"), name="error reply_to")
+        if "reason" not in raw:
+            raise ProtocolError("error reason is required")
+    if message_type == "operator_result":
+        _identifier(raw.get("request_id"), name="operator result request_id")
+        _boolean(raw.get("ok"), name="operator result ok")
+        if "error" in raw:
+            _text(raw.get("error"), name="operator result error", maximum=2048)
+    return raw
+
+
+_ROUTED_PAYLOAD_PARSERS = {
+    "discover": DiscoverRequest.from_payload,
+    "select_target": SelectTargetRequest.from_payload,
+    "operator_intent": OperatorIntentRequest.from_payload,
+    "motion_command": MotionCommandRequest.from_payload,
+    "telemetry": TelemetryPayload.from_payload,
+    "open_simulation_session": OpenSimulationSessionRequest.from_payload,
+    "close_simulation_session": CloseSimulationSessionRequest.from_payload,
+    "simulation_session_opened": SimulationSessionOpenedPayload.from_payload,
+    "simulation_session_granted": SimulationSessionGrantedPayload.from_payload,
+    "simulation_session_revoked": SimulationSessionRevokedPayload.from_payload,
+    "simulation_command": SimulationCommandRequest.from_payload,
+    "simulation_result": SimulationResultPayload.from_payload,
+    "simulation_status": SimulationStatusPayload.from_payload,
+    "webrtc_signal": WebRtcSignalPayload.from_payload,
+}
+_EMPTY_PAYLOAD_TYPES = frozenset(
+    {"release_target", "renew_target", "renew_simulation_session"}
+)
+
+
 def validate_routed_payload(message_type: str, payload: object) -> object:
     """Parse payloads whose fields affect peer authority or motion safety."""
 
-    if message_type == "discover":
-        return DiscoverRequest.from_payload(payload)
-    if message_type == "select_target":
-        return SelectTargetRequest.from_payload(payload)
-    if message_type == "operator_intent":
-        return OperatorIntentRequest.from_payload(payload)
-    if message_type == "motion_command":
-        return MotionCommandRequest.from_payload(payload)
-    if message_type == "telemetry":
-        return TelemetryPayload.from_payload(payload)
-    if message_type == "open_simulation_session":
-        return OpenSimulationSessionRequest.from_payload(payload)
-    if message_type == "close_simulation_session":
-        return CloseSimulationSessionRequest.from_payload(payload)
-    if message_type == "simulation_session_opened":
-        return SimulationSessionOpenedPayload.from_payload(payload)
-    if message_type == "simulation_session_granted":
-        return SimulationSessionGrantedPayload.from_payload(payload)
-    if message_type == "simulation_session_revoked":
-        return SimulationSessionRevokedPayload.from_payload(payload)
-    if message_type == "simulation_command":
-        return SimulationCommandRequest.from_payload(payload)
-    if message_type == "simulation_result":
-        return SimulationResultPayload.from_payload(payload)
-    if message_type == "simulation_status":
-        return SimulationStatusPayload.from_payload(payload)
-    if message_type == "webrtc_signal":
-        return WebRtcSignalPayload.from_payload(payload)
-    if message_type == "release_target":
+    parser = _ROUTED_PAYLOAD_PARSERS.get(message_type)
+    if parser is not None:
+        return parser(payload)
+    # Empty lease renewals and releases are explicit contracts, not an
+    # untyped catch-all.  This prevents accidental command parameters from
+    # leaking into authority methods.
+    if message_type in _EMPTY_PAYLOAD_TYPES:
         raw = _object(payload, context=message_type)
         _unknown(raw, set(), context=message_type)
         return raw
-    return _object(payload, context=message_type)
+    return _validate_registered_payload(message_type, payload)
 
 
 __all__ = [
@@ -746,5 +797,6 @@ __all__ = [
     "TelemetryPayload",
     "TurnCredentials",
     "WebRtcSignalPayload",
+    "_validate_registered_payload",
     "validate_routed_payload",
 ]
