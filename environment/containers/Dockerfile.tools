@@ -25,7 +25,7 @@ RUN . /opt/ros/humble/setup.sh && \
       --install-base /opt/elesim/ros/install && \
     rm -rf /tmp/elesim/ros_ws/build /tmp/elesim/ros_ws/log
 COPY requirements.lock /tmp/elesim/
-RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<81" wheel && \
+RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80" wheel && \
     python -m pip install --no-cache-dir -r /tmp/elesim/requirements.lock
 COPY protocol/ /tmp/elesim/protocol/
 COPY setup/ /tmp/elesim/setup/

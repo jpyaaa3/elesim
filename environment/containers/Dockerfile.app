@@ -43,7 +43,7 @@ RUN if [ "$ROLE" = sim ]; then \
     fi
 
 COPY requirements.lock /opt/elesim/requirements.lock
-RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<81" wheel && \
+RUN python -m pip install --no-cache-dir --upgrade "pip<26" "setuptools>=68,<80" wheel && \
     if [ "$ROLE" = pilot ] || [ "$ROLE" = sim ]; then \
       if [ "$COMPUTE_MODE" = cpu ]; then \
         torch_index="https://download.pytorch.org/whl/cpu"; \

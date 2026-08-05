@@ -1,6 +1,11 @@
 # Elesim 사용자 설명서
 
-Elesim은 한 프로그램이 아니라 독립 배포 가능한 네 프로그램으로 구성된다.
+> **운영자용 한 줄 요약**<br>
+> 설치기는 설정 파일과 실행 환경을 만들고, 실제 실행은 `elesim-up`이 담당한다.
+> 여러 컴퓨터를 연결할 때는 `elesim-connections`를 별도로 실행한다.
+
+Elesim은 하나의 거대한 프로그램이 아니라, 서로 독립적으로 배포할 수 있는 네
+가지 애플리케이션으로 구성된다.
 
 | 프로그램 | 책임 |
 | --- | --- |
@@ -14,6 +19,37 @@ message이고, 제어·WebRTC signaling은 bounded protocol-v6 DDS message를
 사용한다. observer/hand-eye 영상만 WebRTC를 사용한다. 중앙 Router와
 ZMQ/CURVE transport는 없다. 서로 다른 컴퓨터에 설치해도 되지만 DDS
 participant 사이에 양방향 UDP 경로가 있어야 한다.
+
+## 이 문서에서 먼저 볼 것
+
+| 목적 | 먼저 읽을 섹션 | 핵심 명령 |
+| --- | --- | --- |
+| 처음 설치 | [빠른 설치](#빠른-설치) · [설치 종류](#설치-종류) | `curl ... \| bash` |
+| 한 컴퓨터에서 시뮬레이션 | [단일 컴퓨터 시뮬레이션](#단일-컴퓨터-시뮬레이션) | `elesim-up` |
+| 여러 컴퓨터 연결 | [연결 관리자](#연결-관리자) · [원격 시뮬레이션 호스트](#원격-시뮬레이션-호스트) | `elesim-connections` |
+| 로그·진단 | [설치 후 명령](#설치-후-명령) · [네트워크 진단](#네트워크-진단) | `elesim-logs`, `elesim-net doctor` |
+| 제거·재설치 | [제거와 재설치](#제거와-재설치) | `elesim-uninstall --plan` |
+
+### 목차
+
+- [빠른 설치](#빠른-설치)
+- [설치 종류](#설치-종류)
+- [GUI 입력 항목](#gui-입력-항목)
+- [설치 후 명령](#설치-후-명령)
+- [단일 컴퓨터 시뮬레이션](#단일-컴퓨터-시뮬레이션)
+- [원격 시뮬레이션 호스트](#원격-시뮬레이션-호스트)
+- [실제 Robot Jetson](#실제-robot-jetson)
+- [네트워크 진단](#네트워크-진단)
+- [종료와 보안](#종료와-보안)
+- [제거와 재설치](#제거와-재설치)
+- [문제 해결](#문제-해결)
+- [개발과 검증](#개발과-검증)
+- [저장소 구조](#저장소-구조)
+
+> [!WARNING]
+> DDS의 `trusted-network` 프로파일은 DDS 자체 인증·암호화를 사용하지 않는다.
+> 소유한 LAN 또는 접근이 제한된 VPN에서만 사용하고, 공유망에서는 `sros2`를
+> 선택한다. Tailscale은 네트워크 터널이지 DDS 참가자 인증을 대신하지 않는다.
 
 ## 빠른 설치
 
@@ -287,6 +323,10 @@ SROS2를 사용한다.
 `elesim-up`은 등록된 systemd unit을 시작한다. 단, managed SROS2 설치는 먼저
 조작 노트북에서 `elesim-connections`로 전체 host generation을 적용해야 한다.
 
+> **실행 순서**<br>
+> 설치 완료 → `source ~/.bashrc`(PATH 등록을 선택한 경우) →
+> `elesim-up` → 필요할 때 `elesim-connections`.
+
 ### 일반 사용자용
 
 ```bash
@@ -317,12 +357,17 @@ snapshot을 남긴다. 최근 5회만 보존하며 디렉터리는 `0700`, 파�
 
 ### 개발자용
 
+개발자용 `elesim-up`은 애플리케이션 역할이 아니라 상시 개발 컨테이너
+`elesim-dev`를 시작한다. 연결 관리자는 자동으로 실행되지 않으며, 필요할 때
+다음 명령을 별도로 실행한다.
+
 ```bash
 elesim-build                 # 통짜 개발 이미지 build
 elesim-up                    # 개발 컨테이너 detached 실행
 elesim-logs                  # 개발 컨테이너와 선택한 Jaeger 로그
 elesim-dev                   # 개발 shell
 elesim-down                  # 개발 환경 종료
+elesim-connections           # 멀티호스트 topology·보안 연결 관리자
 ```
 
 Jaeger를 선택했다면:
