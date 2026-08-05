@@ -398,7 +398,6 @@ async function pollJob() {
       byId("start-command").textContent = `${byId("bin-dir").value.trim()}/${
         pendingManaged ? "elesim-connections" : "elesim-up"
       }`;
-      byId("source-command-row").hidden = !byId("register-path").checked;
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
