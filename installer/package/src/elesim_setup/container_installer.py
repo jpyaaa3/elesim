@@ -557,7 +557,10 @@ class ContainerInstaller:
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "profiles": ("manager",),
             "user": f"{os.getuid()}:{os.getgid()}",
-            "group_add": ("${ELESIM_DOCKER_GID:-0}",),
+            "group_add": (
+                "${ELESIM_DOCKER_GID:-0}",
+                "${ELESIM_TAILSCALE_GID:-0}",
+            ),
             "environment": {
                 "HOME": str(home),
                 "ELESIM_OPERATOR_HOME": str(home),
@@ -872,6 +875,7 @@ def _manager_wrapper(
         "  exit 2\n"
         "fi\n"
         "export ELESIM_DOCKER_GID=\"$(stat -c %g /var/run/docker.sock)\"\n"
+        "export ELESIM_TAILSCALE_GID=\"$ELESIM_DOCKER_GID\"\n"
         + manager_lifecycle_fragment(install_uuid)
         + "manager_port=8766\n"
         "manager_args=(\"$@\")\n"
@@ -904,7 +908,7 @@ def _manager_wrapper(
         "done\n"
         "if [[ -n $tailscale_bin && -n $tailscale_socket ]]; then\n"
         "  tailscale_gid=\"$(stat -c %g \"$tailscale_socket\" 2>/dev/null || true)\"\n"
-        "  if [[ $tailscale_gid =~ ^[0-9]+$ ]]; then manager_options+=(--group-add \"$tailscale_gid\"); fi\n"
+        "  if [[ $tailscale_gid =~ ^[0-9]+$ ]]; then export ELESIM_TAILSCALE_GID=\"$tailscale_gid\"; fi\n"
         "  manager_options+=(\n"
         "    -e ELESIM_TAILSCALE_PROXY=1\n"
         "    -e ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale\n"

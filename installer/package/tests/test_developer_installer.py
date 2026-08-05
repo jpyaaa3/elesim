@@ -105,6 +105,8 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "trap manager_cleanup EXIT" in manager_wrapper
     assert "docker rm elesim-manager" in manager_wrapper
     assert "manager_status=$?" in manager_wrapper
+    assert "ELESIM_TAILSCALE_GID" in manager_wrapper
+    assert "--group-add" not in manager_wrapper
 
 
 def test_developer_install_records_nested_manifest_and_docker_uuid(
