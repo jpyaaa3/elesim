@@ -1197,6 +1197,31 @@ class GenerationRollout:
             raise ValueError("HostOperations must be supplied exactly once for every host")
         self._operations = dict(operations)
 
+    def _prepare_hosts(
+        self,
+        *,
+        progress: ProgressCallback | None = None,
+    ) -> dict[str, HostActivationState]:
+        """Validate every host before any new security generation is issued."""
+
+        previous: dict[str, HostActivationState] = {}
+        phase = "preflight"
+        try:
+            for host in self._topology.hosts:
+                _notify_progress(progress, phase, host.host_id)
+                capabilities = self._operations[host.host_id].preflight(host)
+                capabilities.require_for(host)
+            phase = "capture-current-state"
+            for host in self._topology.hosts:
+                _notify_progress(progress, phase, host.host_id)
+                previous[host.host_id] = self._operations[
+                    host.host_id
+                ].capture_state(host)
+        except BaseException as exc:
+            # No runtime was stopped and no Authority generation exists yet.
+            raise RolloutError(phase, exc) from exc
+        return previous
+
     def apply(
         self,
         generation: str,
@@ -1205,6 +1230,7 @@ class GenerationRollout:
         commit: Callable[[], object] | None = None,
         rollback_commit: Callable[[], object] | None = None,
         progress: ProgressCallback | None = None,
+        prepared_previous: Mapping[str, HostActivationState] | None = None,
     ) -> RolloutResult:
         _safe_generation(generation)
         if self._topology.security_profile != "sros2":
@@ -1220,22 +1246,19 @@ class GenerationRollout:
             if bundle.host_id != host.host_id or bundle.generation != generation:
                 raise ValueError(f"bundle target/generation mismatch for {host.host_id}")
 
-        previous: dict[str, HostActivationState] = {}
+        if prepared_previous is None:
+            previous = self._prepare_hosts(progress=progress)
+        else:
+            host_ids = {host.host_id for host in hosts}
+            if set(prepared_previous) != host_ids:
+                raise ValueError(
+                    "prepared host state must be supplied exactly once for every host"
+                )
+            previous = dict(prepared_previous)
         stopped: list[ManagedHost] = []
         switched: list[ManagedHost] = []
-        phase = "preflight"
+        phase = "stage"
         try:
-            for host in hosts:
-                _notify_progress(progress, phase, host.host_id)
-                capabilities = self._operations[host.host_id].preflight(host)
-                capabilities.require_for(host)
-            phase = "capture-current-state"
-            for host in hosts:
-                _notify_progress(progress, phase, host.host_id)
-                previous[host.host_id] = self._operations[
-                    host.host_id
-                ].capture_state(host)
-            phase = "stage"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
                 self._operations[host.host_id].stage(host, bundles[host.host_id])
@@ -1283,16 +1306,21 @@ class GenerationRollout:
         *,
         progress: ProgressCallback | None = None,
     ) -> RolloutResult:
+        previous = self._prepare_hosts(progress=progress)
         _notify_progress(progress, "issue", None)
-        issued = issuer.issue(self._topology, generation)
-        if issued.generation != generation:
-            raise ValueError("issuer returned a different security generation")
+        try:
+            issued = issuer.issue(self._topology, generation)
+            if issued.generation != generation:
+                raise ValueError("issuer returned a different security generation")
+        except BaseException as exc:
+            raise RolloutError("issue", exc) from exc
         return self.apply(
             generation,
             issued.bundles,
             commit=issued.activate_authority,
             rollback_commit=issued.rollback_authority,
             progress=progress,
+            prepared_previous=previous,
         )
 
     def _restore_previous(

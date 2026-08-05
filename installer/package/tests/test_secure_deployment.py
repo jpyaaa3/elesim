@@ -606,6 +606,53 @@ def _rollout_parts(*, fail_host: str = "", fail_once: str = ""):
     return topology, events, operations, bundles
 
 
+def test_issue_and_apply_preflights_before_issuing_generation() -> None:
+    topology, events, operations, _bundles = _rollout_parts(
+        fail_host="laptop", fail_once="preflight"
+    )
+
+    class Issuer:
+        called = False
+
+        def issue(self, _topology, _generation):
+            self.called = True
+            raise AssertionError("generation issuance must follow preflight")
+
+    issuer = Issuer()
+    with pytest.raises(RolloutError, match="during preflight"):
+        GenerationRollout(topology, operations).issue_and_apply(issuer, "g2")
+
+    assert issuer.called is False
+    assert events == ["preflight:laptop"]
+
+
+def test_issue_and_apply_captures_every_host_before_issuing_generation() -> None:
+    topology, events, operations, bundles = _rollout_parts()
+
+    class Issuer:
+        def issue(self, _topology, _generation):
+            assert events == [
+                "preflight:laptop",
+                "preflight:server",
+                "preflight:robot",
+                "current:laptop",
+                "current:server",
+                "current:robot",
+            ]
+            events.append("issue")
+            return SimpleNamespace(
+                generation="g2",
+                bundles=bundles,
+                activate_authority=lambda: None,
+                rollback_authority=lambda: None,
+            )
+
+    result = GenerationRollout(topology, operations).issue_and_apply(Issuer(), "g2")
+
+    assert result.generation == "g2"
+    assert events[6] == "issue"
+
+
 def test_simulation_only_trusted_rollout_accepts_one_compose_host() -> None:
     topology = ConnectionTopology(
         "lab_sim",

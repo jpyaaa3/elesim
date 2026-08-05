@@ -591,11 +591,6 @@ class ContainerInstaller:
                 f"--state {shlex.quote(str(self.state_path))}",
                 False,
             ),
-            "elesim-net": (
-                f"{command} run --rm --build tools elesim-net "
-                f"--state {shlex.quote(str(self.state_path))}",
-                False,
-            ),
         }
         for role in self.state.roles:
             wrappers[f"elesim-{role}"] = (
@@ -612,6 +607,20 @@ class ContainerInstaller:
                 + body
                 + ' "$@"\n',
             )
+        # ``elesim-net show`` is consumed as a machine-readable JSON document
+        # by the connection manager.  Compose's ``run --build`` writes build
+        # progress to stdout before the tool starts, which corrupts that
+        # contract.  Build quietly as a separate command, then leave the
+        # one-off container's stdout exclusively to ``elesim-net``.
+        write_executable(
+            self.state.bin_path / "elesim-net",
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            + guard
+            + f"{command} build --quiet tools >/dev/null\n"
+            + f"exec {command} run --rm -T tools elesim-net "
+            + f"--state {shlex.quote(str(self.state_path))}"
+            + ' "$@"\n',
+        )
         managed_services = (*self.state.roles,)
         if self.state.turn.managed:
             managed_services = (*managed_services, "coturn")

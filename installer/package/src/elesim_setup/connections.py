@@ -121,8 +121,8 @@ class ConnectionDeploymentRunner:
 
             generation = new_generation_id()
             log(
-                f"SROS2 {generation} generation을 발급하고 전체 호스트에 "
-                "원자적으로 적용합니다."
+                f"SROS2 {generation} generation을 전체 호스트 사전 점검 후 "
+                "발급하고 원자적으로 적용합니다."
             )
             rollout = GenerationRollout(topology, operations)
             rollout.issue_and_apply(

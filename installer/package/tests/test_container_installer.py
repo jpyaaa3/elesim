@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from dataclasses import replace
@@ -35,6 +36,14 @@ def _fake_docker(path: Path) -> Path:
         "  exit 1\n"
         "fi\n"
         "arguments=\" $* \"\n"
+        "if [[ $arguments == *' build --quiet tools '* ]]; then\n"
+        "  printf 'build progress that must not reach stdout\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [[ $arguments == *' run --rm -T tools elesim-net '* ]]; then\n"
+        "  printf '{\"schema_version\":1}\\n'\n"
+        "  exit 0\n"
+        "fi\n"
         "if [[ $arguments == *' logs --no-color --timestamps '* ]]; then\n"
         "  service=${!#}\n"
         "  printf 'saved log for %s\\n' \"$service\"\n"
@@ -151,6 +160,33 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "down --remove-orphans" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+
+
+def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+
+    fake_bin = tmp_path / "fake-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+
+    result = subprocess.run(
+        (state.bin_path / "elesim-net", "show"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"schema_version": 1}
+    assert "build progress" not in result.stdout
+    wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    assert "build --quiet tools >/dev/null" in wrapper
+    assert "run --rm -T tools elesim-net" in wrapper
+    assert "run --rm --build tools elesim-net" not in wrapper
 
 
 def test_container_install_records_host_uninstaller_and_docker_uuid(
