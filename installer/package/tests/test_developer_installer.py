@@ -101,6 +101,10 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "manager_args+=(--host 0.0.0.0)" in manager_wrapper
     assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale" in manager_wrapper
     assert "/var/run/tailscale/tailscaled.sock" in manager_wrapper
+    assert "manager_started=0" in manager_wrapper
+    assert "trap manager_cleanup EXIT" in manager_wrapper
+    assert "docker rm elesim-manager" in manager_wrapper
+    assert "manager_status=$?" in manager_wrapper
 
 
 def test_developer_install_records_nested_manifest_and_docker_uuid(

@@ -323,6 +323,13 @@
               <code id="source-command">source ~/.bashrc</code>
               <button type="button" class="secondary copy-command" data-copy-target="source-command" data-i18n="action.copy"></button>
             </div>
+            <div id="manager-cleanup-command-row" class="command-row">
+              <div>
+                <code id="manager-cleanup-command">if [ "$(docker inspect -f '{{.State.Running}}' elesim-manager 2&gt;/dev/null)" = false ]; then docker rm elesim-manager; fi</code>
+                <small data-i18n="complete.manager.cleanup.help"></small>
+              </div>
+              <button type="button" class="secondary copy-command" data-copy-target="manager-cleanup-command" data-i18n="action.copy"></button>
+            </div>
           </div>
         </section>
       </form>

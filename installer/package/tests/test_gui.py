@@ -49,6 +49,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert 'const roleOrder = ["sim", "pilot", "ui", "robot"];' in script
     assert 'id="connection-manager-fields" hidden' in html
     assert 'data-i18n="network.manager.help"' in html
+    assert 'id="manager-cleanup-command"' in html
+    assert "complete.manager.cleanup.help" in html
+    assert "complete.manager.cleanup.help" in catalog["ko"]
     assert 'const defaultGeneralRoles = ["sim", "pilot", "ui"];' in script
     assert "data-preset" not in script
     assert "applyPreset" not in script

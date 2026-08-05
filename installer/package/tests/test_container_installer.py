@@ -157,6 +157,10 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "/var/run/tailscale/tailscaled.sock" in wrapper
     assert "existing_manager=\"$(docker ps -aq" in wrapper
     assert "manager_running=\"$(docker inspect" in wrapper
+    assert "manager_started=0" in wrapper
+    assert "trap manager_cleanup EXIT" in wrapper
+    assert "docker rm elesim-manager" in wrapper
+    assert "manager_status=$?" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")

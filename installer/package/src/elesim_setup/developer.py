@@ -17,6 +17,7 @@ import yaml
 
 from .capabilities import HostCapabilities
 from .configuration import write_cyclonedds_config
+from .manager_lifecycle import manager_lifecycle_fragment
 from .ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
@@ -691,23 +692,8 @@ def _development_manager_wrapper(
         "  printf 'ELESIM_LOCAL_BIN_DIR로 일반 설치 명령 디렉터리를 지정하십시오.\\n' >&2\n"
         "  exit 2\n"
         "fi\n"
-        "existing_manager=\"$(docker ps -aq --filter 'name=^/elesim-manager$')\"\n"
-        "if [[ -n $existing_manager ]]; then\n"
-        "  manager_owner=\"$(docker inspect -f '{{index .Config.Labels \"io.elesim.install_uuid\"}}' \"$existing_manager\")\"\n"
-        + "  if [[ $manager_owner != "
-        + shlex.quote(install_uuid)
-        + " ]]; then\n"
-        "    printf 'elesim-manager가 다른 Elesim 설치에 속합니다. 기존 설치를 먼저 종료하십시오.\\n' >&2\n"
-        "    exit 73\n"
-        "  fi\n"
-        "  manager_running=\"$(docker inspect -f '{{.State.Running}}' \"$existing_manager\")\"\n"
-        "  if [[ $manager_running == true ]]; then\n"
-        "    printf 'elesim-manager가 이미 실행 중입니다. 기존 연결관리자를 종료하거나 다른 터미널을 사용하십시오.\\n' >&2\n"
-        "    exit 73\n"
-        "  fi\n"
-        "  docker rm \"$existing_manager\" >/dev/null\n"
-        "fi\n"
-        "manager_port=8766\n"
+        + manager_lifecycle_fragment(install_uuid)
+        + "manager_port=8766\n"
         "manager_args=(\"$@\")\n"
         "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
         "  case \"${manager_args[$manager_index]}\" in\n"
@@ -759,7 +745,9 @@ def _development_manager_wrapper(
         "    -v \"$SSH_AUTH_SOCK:$SSH_AUTH_SOCK\"\n"
         "  )\n"
         "fi\n"
-        "exec docker compose -f "
+        "manager_started=1\n"
+        "set +e\n"
+        "docker compose -f "
         + shlex.quote(str(compose))
         + " run --rm --build --name elesim-manager --publish "
         + '"127.0.0.1:${manager_port}:${manager_port}" '
@@ -770,6 +758,8 @@ def _development_manager_wrapper(
         + " --local-install-root \"$local_install_root\""
         + " --local-bin-dir \"$local_bin_dir\""
         + ' "${manager_args[@]}"\n'
+        + "manager_status=$?\n"
+        + "exit \"$manager_status\"\n"
     )
 
 
