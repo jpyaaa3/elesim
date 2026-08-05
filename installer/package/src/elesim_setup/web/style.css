@@ -117,7 +117,8 @@ label.choice:has(input:focus-visible) {
 
 .brand-mark {
   display: inline-grid;
-  width: 36px;
+  min-width: 36px;
+  padding: 0 8px;
   height: 36px;
   place-items: center;
   border-radius: 4px;
