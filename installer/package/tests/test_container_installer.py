@@ -150,6 +150,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
     wrapper = (state.bin_path / "elesim-connections").read_text(encoding="utf-8")
     assert "--name elesim-manager" in wrapper
+    assert "existing_manager=\"$(docker ps -aq" in wrapper
+    assert "manager_running=\"$(docker inspect" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
