@@ -362,7 +362,7 @@ function previousStep() {
 async function startInstall() {
   byId("install-status").textContent = t("install.running");
   byId("cancel-install").disabled = false;
-  byId("close-installer").hidden = true;
+  byId("close-installer").disabled = true;
   byId("completion").hidden = true;
   byId("install-log").textContent = "";
   try {
@@ -372,7 +372,7 @@ async function startInstall() {
   } catch (error) {
     setError(error);
     byId("cancel-install").disabled = true;
-    byId("close-installer").hidden = false;
+    byId("close-installer").disabled = false;
     byId("install-status").textContent = t("install.failed");
   }
 }
@@ -387,7 +387,7 @@ async function pollJob() {
     if (job.status === "completed") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
-      byId("close-installer").hidden = false;
+      byId("close-installer").disabled = false;
       byId("install-status").textContent = t("install.completed");
       byId("completion").hidden = false;
       const pendingManaged = checkedValue("edition") === "general"
@@ -400,7 +400,7 @@ async function pollJob() {
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
-      byId("close-installer").hidden = false;
+      byId("close-installer").disabled = false;
       byId("install-status").textContent = t("install.failed");
       setError(job.error || t("error.generic"));
     } else if (job.status === "cancelling") {
@@ -409,12 +409,12 @@ async function pollJob() {
     } else if (job.status === "cancelled") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
-      byId("close-installer").hidden = false;
+      byId("close-installer").disabled = false;
       byId("install-status").textContent = t("install.cancelled");
     }
   } catch (error) {
     window.clearInterval(pollTimer);
-    byId("close-installer").hidden = false;
+    byId("close-installer").disabled = false;
     setError(error);
   }
 }
