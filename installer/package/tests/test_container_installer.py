@@ -166,6 +166,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "manager_override=\"$(mktemp" in wrapper
     assert "manager_compose_args+=(-f \"$manager_override\")" in wrapper
     assert "--group-add" not in wrapper
+    assert "IFS=',' read -r -a compose_files" in wrapper
+    assert "compose_match != 1" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")

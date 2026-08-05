@@ -109,6 +109,8 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "manager_override=\"$(mktemp" in manager_wrapper
     assert "manager_compose_args+=(-f \"$manager_override\")" in manager_wrapper
     assert "--group-add" not in manager_wrapper
+    assert "IFS=',' read -r -a compose_files" in manager_wrapper
+    assert "compose_match != 1" in manager_wrapper
 
 
 def test_developer_install_records_nested_manifest_and_docker_uuid(
