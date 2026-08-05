@@ -560,6 +560,10 @@ class ContainerInstaller:
             "environment": {
                 "HOME": str(home),
                 "ELESIM_OPERATOR_HOME": str(home),
+                # The manager mounts the operator home read-only.  Keep
+                # Docker/Buildx metadata in the manager's disposable /tmp
+                # instead of trying to write ~/.docker on that mount.
+                "DOCKER_CONFIG": "/tmp/elesim-docker-config",
                 "PYTHONUNBUFFERED": "1",
             },
             "volumes": volumes,

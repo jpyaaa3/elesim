@@ -465,6 +465,7 @@ class DeveloperInstaller:
                 "HOME": str(home),
                 "ELESIM_OPERATOR_HOME": str(operator_home()),
                 "ELESIM_WORKSPACE": str(self.workspace),
+                "DOCKER_CONFIG": "/tmp/elesim-docker-config",
                 "PYTHONUNBUFFERED": "1",
                 "PYTHONNOUSERSITE": "1",
             },

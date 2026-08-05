@@ -149,6 +149,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "container_name" not in manager
     assert "network_mode" not in manager
     assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
+    assert manager["environment"]["DOCKER_CONFIG"] == "/tmp/elesim-docker-config"
     assert "group_add" not in manager
     wrapper = (state.bin_path / "elesim-connections").read_text(encoding="utf-8")
     assert "--name elesim-manager" in wrapper

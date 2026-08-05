@@ -86,6 +86,7 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert manager["environment"]["ELESIM_OPERATOR_HOME"] == str(
         Path.home().resolve()
     )
+    assert manager["environment"]["DOCKER_CONFIG"] == "/tmp/elesim-docker-config"
     assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
     assert (request.bin_dir / "elesim-dev").is_file()
     assert (request.bin_dir / "elesim-connections").is_file()
