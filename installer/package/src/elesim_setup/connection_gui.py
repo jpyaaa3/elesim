@@ -41,7 +41,16 @@ _MAX_BODY_BYTES = 1_048_576
 _MAX_JOB_LOGS = 2_048
 _MAX_LOG_LINE = 4_096
 _JOB_ACTIONS = frozenset(
-    {"provision", "deploy", "rotate", "start", "stop", "restart", "check"}
+    {
+        "provision",
+        "deploy",
+        "rotate",
+        "recover",
+        "start",
+        "stop",
+        "restart",
+        "check",
+    }
 )
 _SSH_FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 _PEM_LOG = re.compile(r"-----BEGIN|-----END", re.IGNORECASE)
@@ -268,7 +277,7 @@ class ConnectionManagerApplication:
             target=self._run_job,
             args=(topology, action),
             name=f"elesim-connection-{action}",
-            daemon=False,
+            daemon=True,
         )
         self._job_thread = thread
         thread.start()
@@ -316,7 +325,7 @@ class ConnectionManagerApplication:
                 self._cancel_event.set()
                 self.job.status = "cancelling"
         if thread is not None and thread.is_alive():
-            thread.join()
+            thread.join(timeout=30.0)
 
     def _run_job(self, topology: ConnectionTopology, action: str) -> None:
         def log(message: str) -> None:

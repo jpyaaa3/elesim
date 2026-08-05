@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import ipaddress
 import json
 import os
@@ -12,7 +13,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 from .configuration import (
     generate_role_configs,
@@ -357,6 +358,8 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
+    restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
+    restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
         "configure",
         help="DDS/TURN 설정을 바꾸고 역할별 YAML/XML을 재생성",
@@ -431,6 +434,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = InstallState.load(state_path)
         if args.command == "show":
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "restore-snapshot":
+            try:
+                encoded = str(args.payload).encode("ascii")
+                if len(encoded) > 128 * 1024:
+                    raise ValueError("rollback snapshot payload가 너무 큽니다")
+                decoded = base64.urlsafe_b64decode(encoded)
+                if len(decoded) > 64 * 1024:
+                    raise ValueError("rollback snapshot payload가 너무 큽니다")
+                raw = json.loads(decoded.decode("utf-8"))
+            except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError("rollback snapshot payload가 유효하지 않습니다") from exc
+            if not isinstance(raw, Mapping):
+                raise ValueError("rollback snapshot은 object여야 합니다")
+            restored = InstallState.from_dict(raw).require_installable_dds()
+            immutable_before = (
+                state.profile,
+                state.roles,
+                state.prefix,
+                state.bin_dir,
+                state.source_root,
+                state.install_mode,
+            )
+            immutable_after = (
+                restored.profile,
+                restored.roles,
+                restored.prefix,
+                restored.bin_dir,
+                restored.source_root,
+                restored.install_mode,
+            )
+            if immutable_after != immutable_before:
+                raise ValueError("rollback snapshot이 설치 경계를 변경하려고 합니다")
+            _apply_configuration_transaction(state_path, restored)
+            print("rollback snapshot restored")
             return 0
         if args.command == "configure":
             override_names = (

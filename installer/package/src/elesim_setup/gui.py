@@ -195,11 +195,8 @@ class WizardApplication:
         """
 
         prefix_value = payload.get("prefix")
-        confirm_value = payload.get("confirm_prefix")
         if not isinstance(prefix_value, str) or not prefix_value.strip():
             raise ValueError("제거할 설치 prefix가 필요합니다")
-        if not isinstance(confirm_value, str):
-            raise ValueError("exact prefix 확인 값이 필요합니다")
         prefix = Path(prefix_value).expanduser().resolve()
         self._require_allowed(prefix)
         manifest_candidates = (
@@ -226,8 +223,6 @@ class WizardApplication:
                 "선택한 prefix와 ownership manifest의 prefix가 다릅니다: "
                 f"{manifest.prefix}"
             )
-        if confirm_value != manifest.prefix:
-            raise ValueError("확인란에 표시된 exact absolute prefix를 그대로 입력하십시오")
         uninstaller = manifest.bin_path / "elesim-uninstall"
         self._require_allowed(uninstaller)
         wrapper = next(
@@ -245,16 +240,16 @@ class WizardApplication:
                 "않거나 파일이 변경되었습니다"
             )
         flags: list[str] = []
-        purge_logs = payload.get("purge_logs")
-        if purge_logs is True:
-            flags.append("--purge-logs")
-        elif purge_logs is not None and purge_logs is not False:
-            raise ValueError("purge_logs는 boolean이어야 합니다")
-        purge_authority = payload.get("purge_authority")
-        if purge_authority is True:
-            flags.append("--purge-authority")
-        elif purge_authority is not None and purge_authority is not False:
-            raise ValueError("purge_authority는 boolean이어야 합니다")
+        keep_logs = payload.get("keep_logs")
+        if keep_logs is True:
+            flags.append("--keep-logs")
+        elif keep_logs is not None and keep_logs is not False:
+            raise ValueError("keep_logs는 boolean이어야 합니다")
+        keep_authority = payload.get("keep_authority")
+        if keep_authority is True:
+            flags.append("--keep-authority")
+        elif keep_authority is not None and keep_authority is not False:
+            raise ValueError("keep_authority는 boolean이어야 합니다")
         base = (
             str(uninstaller),
             "--manifest",
@@ -265,11 +260,9 @@ class WizardApplication:
             "install_uuid": manifest.install_uuid,
             "prefix": manifest.prefix,
             "plan_command": shlex.join((*base, "--plan")),
-            "execute_command": shlex.join(
-                (*base, "--confirm-prefix", manifest.prefix)
-            ),
-            "preserves_logs": "--purge-logs" not in flags,
-            "preserves_authority": "--purge-authority" not in flags,
+            "execute_command": shlex.join(base),
+            "preserves_logs": "--keep-logs" in flags,
+            "preserves_authority": "--keep-authority" in flags,
         }
 
     def start_install(self, payload: Mapping[str, Any]) -> dict[str, object]:

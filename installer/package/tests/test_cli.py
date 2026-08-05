@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -397,6 +398,46 @@ def test_network_configure_accepts_manager_owned_sros2_generation(
         "/elesim/elesim/pilot/pilot_main"
     )
     assert not (state.prefix_path / "security/provisioning-required").exists()
+
+
+def test_network_restore_snapshot_can_return_active_managed_state_to_pending(
+    local_state, tmp_path: Path
+) -> None:
+    pending = local_state(
+        roles=("pilot",),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+    )
+    copy_role_configs(pending)
+    state_path = tmp_path / "state.json"
+    active = replace(
+        pending,
+        dds=replace(
+            pending.dds,
+            security_generation="g-active",
+            security_bundle=str(pending.prefix_path / "security/current/keystore"),
+            keystore=str(pending.prefix_path / "security/current/keystore"),
+            enclave="/elesim/elesim",
+        ),
+    )
+    generate_role_configs(active)
+    sync_provisioning_required(active)
+    active.save(state_path)
+    payload = base64.urlsafe_b64encode(
+        json.dumps(pending.to_dict()).encode("utf-8")
+    ).decode("ascii")
+
+    result = network.main(
+        ("--state", str(state_path), "restore-snapshot", "--payload", payload)
+    )
+
+    restored = InstallState.load(state_path)
+    assert result == 0
+    assert restored.dds.security_generation == ""
+    assert restored.dds.keystore == ""
+    assert (pending.prefix_path / "security/provisioning-required").is_file()
 
 
 def test_network_configure_rejects_external_keystore_change_without_reinstall(

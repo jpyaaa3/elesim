@@ -497,9 +497,8 @@ async function probeSsh() {
 function openUninstallGuide() {
   const prefix = byId("prefix").value.trim() || context.defaults.prefix;
   byId("uninstall-prefix").value = prefix;
-  byId("uninstall-confirm-prefix").value = "";
-  byId("uninstall-purge-logs").checked = false;
-  byId("uninstall-purge-authority").checked = false;
+  byId("uninstall-keep-logs").checked = false;
+  byId("uninstall-keep-authority").checked = false;
   byId("uninstall-commands").hidden = true;
   byId("uninstall-dialog").showModal();
 }
@@ -511,9 +510,8 @@ async function buildUninstallGuide() {
       method: "POST",
       body: JSON.stringify({
         prefix: byId("uninstall-prefix").value.trim(),
-        confirm_prefix: byId("uninstall-confirm-prefix").value,
-        purge_logs: byId("uninstall-purge-logs").checked,
-        purge_authority: byId("uninstall-purge-authority").checked
+        keep_logs: byId("uninstall-keep-logs").checked,
+        keep_authority: byId("uninstall-keep-authority").checked
       })
     });
     byId("uninstall-plan-command").textContent = guide.plan_command;

@@ -304,8 +304,10 @@ adds `elesim-jaeger`. The `elesim-dev` wrapper starts the persistent container
 when necessary and enters it with Compose `exec`, so opening more terminals
 does not create randomly named `run --rm` development containers.
 `elesim-connections` uses an explicit, removable `elesim-manager` one-shot
-container with the Docker socket; it is a management tool, not another
-persistent development service. In Developer mode it targets the ordinary
+container. A short-lived private host helper allows only the generated Elesim
+Compose/network operations and optional `tailscale nc`; the manager receives
+neither the Docker daemon socket nor the tailscaled local API socket. It is a
+management tool, not another persistent development service. In Developer mode it targets the ordinary
 local installation at `~/.local/share/elesim` by default; override
 `ELESIM_LOCAL_INSTALL_ROOT` and `ELESIM_LOCAL_BIN_DIR` together when needed.
 
@@ -382,11 +384,13 @@ deletion channel. The host CLI always plans and revalidates before mutation:
 
 ```bash
 elesim-uninstall --plan
-elesim-uninstall --confirm-prefix /exact/install/prefix
+elesim-uninstall
 ```
 
-The default preserves runtime text logs and the operator SROS2 Authority.
-`--purge-logs` and `--purge-authority` are explicit irreversible opt-ins.
+The default removes runtime text logs and the operator SROS2 Authority owned by
+that installation. `--keep-logs` and `--keep-authority` are explicit retention
+options. The completion tombstone lives outside the removed prefix under
+`${XDG_STATE_HOME:-~/.local/state}/elesim/uninstall/`.
 External source, TURN credentials and SROS2 keystores are always preserved.
 Only exact `elesim/*:local` images and containers whose Compose metadata and
 install UUID label match are eligible; there is no prune or wildcard deletion.
@@ -511,10 +515,16 @@ part of the non-secret connection topology.
 
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of
-them. Rotation then captures current state, stops all affected roles, switches
-each host's `security/current` link atomically, restarts and runs the network
-doctor. A failure restores the previous generation/configuration and restarts
-every host already stopped. Partially mixed live generations are not accepted.
+them. Uploaded files are checked against their bundle SHA-256 values. Rotation
+captures the exact running-role set, stops only that set, switches each host's
+`security/current`, resumes existing containers without building or recreating
+them, and verifies the generation. A host that was stopped before provisioning
+remains stopped. A failure restores the complete captured configuration,
+including empty managed-pending fields, restarts only the roles that were
+previously running, and removes an inactive failed generation. A bounded
+transaction journal remains under the operator Authority. The recovery action
+converges an interrupted graph to the Authority's active generation, or to
+managed-pending when no Authority generation is active.
 
 ## TURN Ownership
 

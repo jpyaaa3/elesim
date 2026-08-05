@@ -18,6 +18,8 @@ import socket
 import stat
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
 from .connection_manager import (
+    canonical_endpoint_key,
     ConnectionTopology,
     ManagedHost,
     SshEndpoint,
@@ -215,10 +218,11 @@ class RemoteCapabilities:
 
 @dataclass(frozen=True)
 class HostActivationState:
-    """Previous symlink and non-secret install state needed for rollback."""
+    """Previous security/configuration and exact runtime state for rollback."""
 
     generation: str | None
     runtime_configuration: Mapping[str, Any]
+    running_roles: tuple[str, ...] = ()
 
 
 class SshSession(Protocol):
@@ -263,16 +267,28 @@ class RemoteLifecycle(Protocol):
         configuration: Mapping[str, Any],
     ) -> None: ...
 
-    def stop(self, session: SshSession, host: ManagedHost) -> None: ...
+    def stop(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None: ...
 
-    def start(self, session: SshSession, host: ManagedHost) -> None: ...
+    def start(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None: ...
+
+    def build(self, session: SshSession, host: ManagedHost) -> None: ...
+
+    def launch(self, session: SshSession, host: ManagedHost) -> None: ...
 
     def status(
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]: ...
 
     def verify(
-        self, session: SshSession, host: ManagedHost, generation: str | None
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        generation: str | None,
+        running_roles: Sequence[str],
     ) -> None: ...
 
 
@@ -283,21 +299,36 @@ class HostOperations(Protocol):
 
     def stage(self, host: ManagedHost, bundle: SecurityBundle) -> None: ...
 
-    def stop(self, host: ManagedHost) -> None: ...
+    def discard_generation(self, host: ManagedHost, generation: str) -> None: ...
+
+    def stop(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None: ...
 
     def activate(self, host: ManagedHost, generation: str) -> None: ...
 
     def configure_topology(self, host: ManagedHost) -> None: ...
 
-    def start(self, host: ManagedHost) -> None: ...
+    def start(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None: ...
+
+    def build(self, host: ManagedHost) -> None: ...
+
+    def launch(self, host: ManagedHost) -> None: ...
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]: ...
 
-    def verify(self, host: ManagedHost, generation: str) -> None: ...
+    def verify(
+        self,
+        host: ManagedHost,
+        generation: str,
+        running_roles: Sequence[str] = (),
+    ) -> None: ...
 
-    def verify_topology(self, host: ManagedHost) -> None: ...
+    def verify_topology(
+        self, host: ManagedHost, running_roles: Sequence[str] = ()
+    ) -> None: ...
 
     def rollback(self, host: ManagedHost, previous: HostActivationState) -> None: ...
+
+    def close(self) -> None: ...
 
 
 class ParamikoConnector:
@@ -341,6 +372,7 @@ class ParamikoConnector:
             )
         try:
             client.connect(**arguments)
+            _enable_ssh_keepalive(client)
         except BaseException:
             client.close()
             raise
@@ -420,6 +452,7 @@ class ParamikoConnector:
             # path.  This is the only private Paramiko attribute we rely on;
             # it has been stable since Paramiko's Transport split.
             client._transport = transport  # type: ignore[attr-defined]
+            transport.set_keepalive(15)  # type: ignore[attr-defined]
             transport = None
             # The Transport now owns the socket/proxy process.  Clearing both
             # local references prevents the cleanup block from closing the
@@ -504,21 +537,44 @@ class _ParamikoSession:
         if not argv or any("\x00" in str(value) for value in argv):
             raise ValueError("remote command argv must be non-empty and contain no NUL")
         command = shlex.join([str(value) for value in argv])
+        timeout_s = self._command_timeout_s
+        if "docker" in argv and "build" in argv:
+            timeout_s = max(timeout_s, 30 * 60)
         _stdin, stdout, stderr = self._client.exec_command(  # type: ignore[attr-defined]
             command,
-            timeout=self._command_timeout_s,
+            timeout=timeout_s,
         )
-        stdout_raw = stdout.read(MAX_REMOTE_OUTPUT_BYTES + 1)
-        stderr_raw = stderr.read(MAX_REMOTE_OUTPUT_BYTES + 1)
-        if len(stdout_raw) > MAX_REMOTE_OUTPUT_BYTES or len(stderr_raw) > MAX_REMOTE_OUTPUT_BYTES:
-            raise RemoteCommandError(
-                tuple(argv),
-                RemoteCommandResult(1, stderr="remote command output exceeded limit"),
+        streams: dict[str, tuple[bytes, bool]] = {}
+        failures: list[BaseException] = []
+
+        def drain(name: str, stream: object) -> None:
+            try:
+                streams[name] = _read_stream_tail(stream)
+            except BaseException as exc:
+                failures.append(exc)
+
+        workers = [
+            threading.Thread(target=drain, args=("stdout", stdout), daemon=True),
+            threading.Thread(target=drain, args=("stderr", stderr), daemon=True),
+        ]
+        for worker in workers:
+            worker.start()
+        deadline = time.monotonic() + timeout_s
+        for worker in workers:
+            worker.join(max(0.0, deadline - time.monotonic()))
+        if any(worker.is_alive() for worker in workers):
+            self._client.close()  # type: ignore[attr-defined]
+            raise TimeoutError(
+                f"remote command timed out after {timeout_s:.1f} seconds: {command}"
             )
+        if failures:
+            raise failures[0]
+        stdout_raw, stdout_truncated = streams["stdout"]
+        stderr_raw, stderr_truncated = streams["stderr"]
         result = RemoteCommandResult(
             exit_status=int(stdout.channel.recv_exit_status()),
-            stdout=stdout_raw.decode("utf-8", errors="replace"),
-            stderr=stderr_raw.decode("utf-8", errors="replace"),
+            stdout=_decode_remote_output(stdout_raw, stdout_truncated),
+            stderr=_decode_remote_output(stderr_raw, stderr_truncated),
         )
         if check and result.exit_status != 0:
             raise RemoteCommandError(argv, result)
@@ -545,6 +601,38 @@ class _ParamikoSession:
         return self._sftp
 
 
+def _enable_ssh_keepalive(client: object) -> None:
+    getter = getattr(client, "get_transport", None)
+    if getter is None:
+        # Structurally typed test clients may omit Paramiko's transport API.
+        return
+    transport = getter()
+    if transport is None:
+        raise SshConnectionError("SSH connection has no active transport")
+    transport.set_keepalive(15)  # type: ignore[attr-defined]
+
+
+def _read_stream_tail(stream: object) -> tuple[bytes, bool]:
+    retained = bytearray()
+    truncated = False
+    while True:
+        chunk = stream.read(32 * 1024)  # type: ignore[attr-defined]
+        if not chunk:
+            break
+        retained.extend(chunk)
+        if len(retained) > MAX_REMOTE_OUTPUT_BYTES:
+            del retained[: len(retained) - MAX_REMOTE_OUTPUT_BYTES]
+            truncated = True
+    return bytes(retained), truncated
+
+
+def _decode_remote_output(content: bytes, truncated: bool) -> str:
+    rendered = content.decode("utf-8", errors="replace")
+    if not truncated:
+        return rendered
+    return "[earlier remote output truncated]\n" + rendered
+
+
 class SshHostOperations:
     """Deploy one host bundle through a role-specific remote lifecycle."""
 
@@ -562,6 +650,7 @@ class SshHostOperations:
         self._security_root_override = (
             None if security_root is None else _safe_remote_root(security_root)
         )
+        self._session: SshSession | None = None
 
     def preflight(self, host: ManagedHost) -> RemoteCapabilities:
         security_root = self._security_root_for(host)
@@ -575,11 +664,16 @@ class SshHostOperations:
                 ("readlink", str(security_root / "current")), check=False
             )
             configuration = dict(self._lifecycle.snapshot(session, host))
+            status = dict(self._lifecycle.status(session, host))
         generation: str | None = None
         if result.exit_status == 0 and result.stdout.strip():
             generation = PurePosixPath(result.stdout.strip()).name
             _safe_generation(generation)
-        return HostActivationState(generation, configuration)
+        running_raw = status.get("running_roles", ())
+        running_roles = tuple(
+            role for role in host.roles if role in set(str(value) for value in running_raw)
+        )
+        return HostActivationState(generation, configuration, running_roles)
 
     def stage(self, host: ManagedHost, bundle: SecurityBundle) -> None:
         _check_bundle_target(host, bundle)
@@ -608,17 +702,53 @@ class SshHostOperations:
                         file.content,
                         file.mode,
                     )
-                session.upload_bytes(
-                    stage_root / "manifest.json", bundle.manifest_bytes(), 0o600
-                )
+                manifest_bytes = bundle.manifest_bytes()
+                session.upload_bytes(stage_root / "manifest.json", manifest_bytes, 0o600)
+                expected_digests = {
+                    file.relative_path: hashlib.sha256(file.content).hexdigest()
+                    for file in bundle.files
+                }
+                expected_digests["manifest.json"] = hashlib.sha256(
+                    manifest_bytes
+                ).hexdigest()
+                for relative_path, expected_digest in expected_digests.items():
+                    result = session.run(
+                        ("sha256sum", "--", str(stage_root / relative_path))
+                    )
+                    actual = result.stdout.partition(" ")[0].strip().lower()
+                    if not hmac.compare_digest(actual, expected_digest):
+                        raise RuntimeError(
+                            f"staged security file digest mismatch on {host.host_id}: "
+                            f"{relative_path}"
+                        )
                 session.run(("mv", str(stage_root), str(final_root)))
             except BaseException:
                 session.run(("rm", "-rf", "--", str(stage_root)), check=False)
                 raise
 
-    def stop(self, host: ManagedHost) -> None:
+    def discard_generation(self, host: ManagedHost, generation: str) -> None:
+        _safe_generation(generation)
+        security_root = self._security_root_for(host)
+        target = security_root / "generations" / generation
         with self._connect(host) as session:
-            self._lifecycle.stop(session, host)
+            current = session.run(
+                ("readlink", str(security_root / "current")), check=False
+            )
+            if current.exit_status == 0 and (
+                PurePosixPath(current.stdout.strip()).name == generation
+            ):
+                raise RuntimeError(
+                    f"refusing to discard active generation on {host.host_id}: "
+                    f"{generation}"
+                )
+            session.run(("rm", "-rf", "--", str(target)), check=False)
+
+    def stop(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None:
+        selected = _selected_roles(host, roles)
+        if not selected:
+            return
+        with self._connect(host) as session:
+            self._lifecycle.stop(session, host, selected)
 
     def activate(self, host: ManagedHost, generation: str) -> None:
         _safe_generation(generation)
@@ -651,9 +781,20 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.configure(session, host, None, security_root)
 
-    def start(self, host: ManagedHost) -> None:
+    def start(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None:
+        selected = _selected_roles(host, roles)
+        if not selected:
+            return
         with self._connect(host) as session:
-            self._lifecycle.start(session, host)
+            self._lifecycle.start(session, host, selected)
+
+    def build(self, host: ManagedHost) -> None:
+        with self._connect(host) as session:
+            self._lifecycle.build(session, host)
+
+    def launch(self, host: ManagedHost) -> None:
+        with self._connect(host) as session:
+            self._lifecycle.launch(session, host)
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]:
         with self._connect(host) as session:
@@ -662,14 +803,21 @@ class SshHostOperations:
         result.setdefault("roles", list(host.roles))
         return result
 
-    def verify(self, host: ManagedHost, generation: str) -> None:
+    def verify(
+        self,
+        host: ManagedHost,
+        generation: str,
+        running_roles: Sequence[str] = (),
+    ) -> None:
         _safe_generation(generation)
         with self._connect(host) as session:
-            self._lifecycle.verify(session, host, generation)
+            self._lifecycle.verify(session, host, generation, running_roles)
 
-    def verify_topology(self, host: ManagedHost) -> None:
+    def verify_topology(
+        self, host: ManagedHost, running_roles: Sequence[str] = ()
+    ) -> None:
         with self._connect(host) as session:
-            self._lifecycle.verify(session, host, None)
+            self._lifecycle.verify(session, host, None, running_roles)
 
     def rollback(self, host: ManagedHost, previous: HostActivationState) -> None:
         security_root = self._security_root_for(host)
@@ -795,7 +943,15 @@ class SshHostOperations:
                 f"SshHostOperations cannot operate local host {host.host_id!r}; "
                 "inject local HostOperations instead"
             )
-        return self._connector.connect(host.ssh)
+        if self._session is None:
+            self._session = self._connector.connect(host.ssh)
+            self._session.__enter__()
+        return _BorrowedSession(self._session)
+
+    def close(self) -> None:
+        session, self._session = self._session, None
+        if session is not None:
+            session.__exit__(None, None, None)
 
 
 class LocalHostOperations(SshHostOperations):
@@ -827,6 +983,19 @@ class LocalHostOperations(SshHostOperations):
         return _LocalSession(timeout_s=self._local_timeout_s)
 
 
+class _BorrowedSession:
+    """Expose one job-scoped SSH session through the existing `with` sites."""
+
+    def __init__(self, session: SshSession) -> None:
+        self._session = session
+
+    def __enter__(self) -> SshSession:
+        return self._session
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        return None
+
+
 class _UnavailableConnector:
     def connect(self, _endpoint: SshEndpoint) -> SshSession:
         raise AssertionError("LocalHostOperations must not use an SSH connector")
@@ -848,6 +1017,22 @@ class _LocalSession:
         values = tuple(str(value) for value in argv)
         if not values or any("\x00" in value for value in values):
             raise ValueError("local command argv must be non-empty and contain no NUL")
+        helper_socket = os.environ.get("ELESIM_HOST_HELPER_SOCKET", "").strip()
+        if helper_socket and (
+            values[0] == "docker" or Path(values[0]).name == "elesim-net"
+        ):
+            result = _run_through_host_helper(
+                values,
+                socket_path=helper_socket,
+                timeout_s=(
+                    max(self._timeout_s, 30 * 60)
+                    if "build" in values
+                    else self._timeout_s
+                ),
+            )
+            if check and result.exit_status != 0:
+                raise RemoteCommandError(values, result)
+            return result
         completed = subprocess.run(
             values,
             check=False,
@@ -896,6 +1081,45 @@ class _LocalSession:
                 temporary.unlink()
 
 
+def _run_through_host_helper(
+    argv: Sequence[str], *, socket_path: str, timeout_s: float
+) -> RemoteCommandResult:
+    path = Path(socket_path)
+    if not path.is_absolute() or "\x00" in socket_path:
+        raise ValueError("host-helper socket path must be absolute")
+    request = json.dumps(
+        {"operation": "run", "argv": [str(value) for value in argv]},
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(float(timeout_s))
+        connection.connect(socket_path)
+        connection.sendall(request)
+        with connection.makefile("rb") as response:
+            line = response.readline(256 * 1024 + 1)
+    if not line or len(line) > 256 * 1024:
+        raise RuntimeError("host-helper returned an invalid response")
+    payload = json.loads(line.decode("utf-8"))
+    if not isinstance(payload, Mapping) or payload.get("ok") is not True:
+        detail = (
+            payload.get("error", "request refused")
+            if isinstance(payload, Mapping)
+            else "invalid response"
+        )
+        raise RuntimeError(f"host-helper failed: {detail}")
+    try:
+        stdout = base64.b64decode(str(payload.get("stdout", "")), validate=True)
+        stderr = base64.b64decode(str(payload.get("stderr", "")), validate=True)
+        exit_status = int(payload["returncode"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("host-helper response is malformed") from exc
+    return RemoteCommandResult(
+        exit_status,
+        _decode_remote_output(stdout, bool(payload.get("stdout_truncated"))),
+        _decode_remote_output(stderr, bool(payload.get("stderr_truncated"))),
+    )
+
+
 class InstalledElesimLifecycle:
     """Concrete lifecycle for fixed Compose hosts and the native Robot service."""
 
@@ -918,6 +1142,12 @@ class InstalledElesimLifecycle:
             raise RuntimeError(f"bin_dir mismatch on {host.host_id!r}")
         if str(state.get("install_mode", "")) != host.install_mode:
             raise RuntimeError(f"install_mode mismatch on {host.host_id!r}")
+        self._validate_managed_security_state(
+            session,
+            host,
+            security_root,
+            state,
+        )
 
         writable = session.run(
             ("test", "-w", str(PurePosixPath(host.install_root))), check=False
@@ -969,6 +1199,58 @@ class InstalledElesimLifecycle:
             security_root_writable=writable,
             architecture=architecture_result.stdout.strip(),
         )
+
+    def _validate_managed_security_state(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        security_root: PurePosixPath,
+        state: Mapping[str, Any],
+    ) -> None:
+        dds = state.get("dds")
+        if not isinstance(dds, Mapping):
+            raise RuntimeError(f"DDS state is missing on {host.host_id!r}")
+        if (
+            str(dds.get("security_profile", "")) != "sros2"
+            or str(dds.get("security_provisioning", "")) != "managed"
+        ):
+            return
+        values = tuple(
+            str(dds.get(name, "")).strip()
+            for name in (
+                "security_generation",
+                "security_bundle",
+                "keystore",
+                "enclave",
+            )
+        )
+        marker = security_root / "provisioning-required"
+        marker_exists = session.run(("test", "-f", str(marker)), check=False).exit_status == 0
+        current = session.run(("readlink", str(security_root / "current")), check=False)
+        current_generation = (
+            PurePosixPath(current.stdout.strip()).name
+            if current.exit_status == 0 and current.stdout.strip()
+            else ""
+        )
+        if not any(values):
+            if not marker_exists or current_generation:
+                raise RuntimeError(
+                    f"managed SROS2 pending state is inconsistent on {host.host_id!r}; "
+                    "run connection-manager recovery"
+                )
+            return
+        if not all(values):
+            raise RuntimeError(
+                f"managed SROS2 fields are partially populated on {host.host_id!r}; "
+                "run connection-manager recovery"
+            )
+        generation = values[0]
+        if marker_exists or current_generation != generation:
+            raise RuntimeError(
+                f"managed SROS2 generation/current marker mismatch on {host.host_id!r}; "
+                "run connection-manager recovery"
+            )
+        session.run(("test", "-f", str(security_root / "current/manifest.json")))
 
     def snapshot(
         self, session: SshSession, host: ManagedHost
@@ -1049,33 +1331,41 @@ class InstalledElesimLifecycle:
         configuration: Mapping[str, Any],
     ) -> None:
         dds = configuration.get("dds")
-        network = configuration.get("network", {})
+        network = configuration.get("network")
         if not isinstance(dds, Mapping) or not isinstance(network, Mapping):
             raise RuntimeError(f"rollback state is malformed for {host.host_id!r}")
+        payload = base64.urlsafe_b64encode(
+            json.dumps(
+                dict(configuration),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).decode("ascii")
         session.run(
-            _configuration_command(
-                host,
-                dds,
-                sim_id=str(network.get("sim_id", "")),
-                pilot_id=str(network.get("pilot_id", "")),
-                ui_id=str(network.get("ui_id", "ui-main")),
-                # A simulation-only rollback must not resurrect a stale Robot
-                # endpoint from an older installed state.  Full topologies
-                # retain the historical fallback for backwards-compatible
-                # rollback of Robot hosts.
-                robot_id=(
-                    ""
-                    if self._topology.topology_mode == "simulation-only"
-                    else str(network.get("robot_id", "robot-go2"))
-                ),
+            (
+                str(_net_command(host)),
+                "restore-snapshot",
+                "--payload",
+                payload,
             )
         )
 
-    def stop(self, session: SshSession, host: ManagedHost) -> None:
-        session.run(_lifecycle_command(host, action="stop"))
+    def stop(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None:
+        session.run(_lifecycle_command(host, action="stop", roles=roles))
 
-    def start(self, session: SshSession, host: ManagedHost) -> None:
-        session.run(_lifecycle_command(host, action="start"))
+    def start(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None:
+        session.run(_lifecycle_command(host, action="start", roles=roles))
+
+    def build(self, session: SshSession, host: ManagedHost) -> None:
+        session.run(_lifecycle_command(host, action="build", roles=host.roles))
+
+    def launch(self, session: SshSession, host: ManagedHost) -> None:
+        session.run(_lifecycle_command(host, action="launch", roles=host.roles))
 
     def status(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
         """Return a bounded lifecycle snapshot without changing host state."""
@@ -1112,19 +1402,24 @@ class InstalledElesimLifecycle:
         }
 
     def verify(
-        self, session: SshSession, host: ManagedHost, generation: str | None
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        generation: str | None,
+        running_roles: Sequence[str],
     ) -> None:
-        if host.lifecycle == "compose":
+        selected = _selected_roles(host, running_roles)
+        if selected and host.lifecycle == "compose":
             result = session.run(
                 (*_compose_command(host), "ps", "--status", "running", "--services")
             )
             running = set(result.stdout.split())
-            missing = sorted(set(host.roles) - running)
+            missing = sorted(set(selected) - running)
             if missing:
                 raise RuntimeError(
                     f"roles are not running on {host.host_id!r}: {', '.join(missing)}"
                 )
-        else:
+        elif selected:
             session.run(("sudo", "-n", "systemctl", "is-active", "--quiet", _robot_service(host)))
         state = self.snapshot(session, host)
         dds = state.get("dds")
@@ -1150,7 +1445,35 @@ class InstalledElesimLifecycle:
                 )
         if generation is not None and str(dds.get("security_generation", "")) != generation:
             raise RuntimeError(f"security generation did not activate on {host.host_id!r}")
-        session.run((str(_net_command(host)), "doctor", "--json"))
+        if generation is not None:
+            security_root = PurePosixPath(host.install_root) / "security"
+            current = session.run(("readlink", str(security_root / "current")))
+            if PurePosixPath(current.stdout.strip()).name != generation:
+                raise RuntimeError(
+                    f"security/current does not select {generation!r} on {host.host_id!r}"
+                )
+            session.run(("test", "-f", str(security_root / "current/manifest.json")))
+            for role in host.roles:
+                endpoint_id = next(
+                    assignment.endpoint_id
+                    for managed_host in self._topology.hosts
+                    for assignment in managed_host.assignments
+                    if assignment.role == role
+                )
+                role_key = (
+                    security_root
+                    / "roles"
+                    / role
+                    / "enclaves"
+                    / "elesim"
+                    / self._topology.system_id
+                    / role
+                    / canonical_endpoint_key(endpoint_id)
+                    / "key.pem"
+                )
+                session.run(("test", "-f", str(role_key)))
+        if selected:
+            session.run((str(_net_command(host)), "doctor", "--json"))
 
 
 @dataclass(frozen=True)
@@ -1286,22 +1609,29 @@ class TopologyRollout:
                 ].capture_state(host)
             phase = "stop"
             for host in hosts:
+                running = previous[host.host_id].running_roles
+                if not running:
+                    continue
                 _notify_progress(progress, phase, host.host_id)
                 stopped.append(host)
-                self._operations[host.host_id].stop(host)
+                self._operations[host.host_id].stop(host, running)
             phase = "configure"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
                 configured.append(host)
                 self._operations[host.host_id].configure_topology(host)
             phase = "start"
-            for host in hosts:
+            for host in stopped:
                 _notify_progress(progress, phase, host.host_id)
-                self._operations[host.host_id].start(host)
+                self._operations[host.host_id].start(
+                    host, previous[host.host_id].running_roles
+                )
             phase = "verify"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
-                self._operations[host.host_id].verify_topology(host)
+                self._operations[host.host_id].verify_topology(
+                    host, previous[host.host_id].running_roles
+                )
         except BaseException as exc:
             rollback_errors = _restore_hosts(
                 self._operations,
@@ -1388,30 +1718,39 @@ class GenerationRollout:
                 )
             previous = dict(prepared_previous)
         stopped: list[ManagedHost] = []
+        staged: list[ManagedHost] = []
         switched: list[ManagedHost] = []
         phase = "stage"
         try:
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
                 self._operations[host.host_id].stage(host, bundles[host.host_id])
+                staged.append(host)
             phase = "stop"
             for host in hosts:
+                running = previous[host.host_id].running_roles
+                if not running:
+                    continue
                 _notify_progress(progress, phase, host.host_id)
                 stopped.append(host)
-                self._operations[host.host_id].stop(host)
+                self._operations[host.host_id].stop(host, running)
             phase = "switch"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
                 switched.append(host)
                 self._operations[host.host_id].activate(host, generation)
             phase = "start"
-            for host in hosts:
+            for host in stopped:
                 _notify_progress(progress, phase, host.host_id)
-                self._operations[host.host_id].start(host)
+                self._operations[host.host_id].start(
+                    host, previous[host.host_id].running_roles
+                )
             phase = "verify"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
-                self._operations[host.host_id].verify(host, generation)
+                self._operations[host.host_id].verify(
+                    host, generation, previous[host.host_id].running_roles
+                )
             if commit is not None:
                 phase = "commit-authority"
                 _notify_progress(progress, phase, None)
@@ -1423,6 +1762,11 @@ class GenerationRollout:
             if phase == "commit-authority" and rollback_commit is not None:
                 try:
                     rollback_commit()
+                except BaseException as rollback_exc:
+                    rollback_errors.append(rollback_exc)
+            for host in reversed(staged):
+                try:
+                    self._operations[host.host_id].discard_generation(host, generation)
                 except BaseException as rollback_exc:
                     rollback_errors.append(rollback_exc)
             raise RolloutError(phase, exc, rollback_errors) from exc
@@ -1488,12 +1832,10 @@ def _restore_hosts(
     changed: Sequence[ManagedHost],
     previous: Mapping[str, HostActivationState],
 ) -> tuple[BaseException, ...]:
-    if not stopped:
-        return ()
     errors: list[BaseException] = []
     for host in reversed(stopped):
         try:
-            operations[host.host_id].stop(host)
+            operations[host.host_id].stop(host, previous[host.host_id].running_roles)
         except BaseException as exc:
             errors.append(exc)
     for host in reversed(changed):
@@ -1505,7 +1847,7 @@ def _restore_hosts(
         return tuple(errors)
     for host in stopped:
         try:
-            operations[host.host_id].start(host)
+            operations[host.host_id].start(host, previous[host.host_id].running_roles)
         except BaseException as exc:
             errors.append(exc)
     return tuple(errors)
@@ -1533,22 +1875,44 @@ def _robot_service(host: ManagedHost) -> str:
     return "elesim-robot.service"
 
 
-def _lifecycle_command(host: ManagedHost, *, action: str) -> tuple[str, ...]:
-    if action not in {"start", "stop"}:
+def _selected_roles(
+    host: ManagedHost, roles: Sequence[str] | None
+) -> tuple[str, ...]:
+    selected = host.roles if roles is None else tuple(str(role) for role in roles)
+    if len(set(selected)) != len(selected) or not set(selected).issubset(host.roles):
+        raise ValueError(f"runtime role selection escapes {host.host_id!r}: {selected!r}")
+    return tuple(role for role in host.roles if role in set(selected))
+
+
+def _lifecycle_command(
+    host: ManagedHost,
+    *,
+    action: str,
+    roles: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    if action not in {"start", "stop", "build", "launch"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
+    selected = _selected_roles(host, roles)
     if host.lifecycle == "compose":
         if action == "stop":
-            return (*_compose_command(host), "down", "--remove-orphans")
-        # Installation only writes the Compose context; it deliberately does
-        # not build images.  Keep the connection-manager start action
-        # equivalent to the generated ``elesim-up`` wrapper.
+            return (*_compose_command(host), "stop", *selected)
+        if action == "start":
+            # Security/topology transactions resume the exact containers that
+            # were running before the switch.  They never build or recreate.
+            return (*_compose_command(host), "start", *selected)
+        if action == "build":
+            return (*_compose_command(host), "build", *selected)
         return (
             *_compose_command(host),
             "up",
             "-d",
-            "--build",
+            "--no-build",
             "--remove-orphans",
         )
+    if action in {"build", "launch"}:
+        if action == "build":
+            return ("true",)
+        action = "start"
     return ("sudo", "-n", "systemctl", action, _robot_service(host))
 
 

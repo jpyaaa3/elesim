@@ -153,24 +153,23 @@ def test_gui_uninstall_guide_validates_manifest_and_emits_host_commands(
     guide = app.uninstall_guide(
         {
             "prefix": str(prefix),
-            "confirm_prefix": str(prefix),
-            "purge_logs": False,
-            "purge_authority": False,
+            "keep_logs": True,
+            "keep_authority": True,
         }
     )
 
     assert guide["install_uuid"] == manifest.install_uuid
     assert f"--manifest {manifest.path}" in guide["plan_command"]
     assert guide["plan_command"].endswith("--plan")
-    assert f"--confirm-prefix {prefix}" in guide["execute_command"]
+    assert "--confirm-prefix" not in guide["execute_command"]
+    assert "--keep-logs" in guide["execute_command"]
+    assert "--keep-authority" in guide["execute_command"]
     assert guide["preserves_logs"] is True
     assert guide["preserves_authority"] is True
 
     bundle.wrapper.write_text("foreign\n", encoding="utf-8")
     with pytest.raises(ValueError, match="변경"):
-        app.uninstall_guide(
-            {"prefix": str(prefix), "confirm_prefix": str(prefix)}
-        )
+        app.uninstall_guide({"prefix": str(prefix)})
 
 
 def test_gui_uninstall_guide_finds_developer_nested_manifest(tmp_path: Path) -> None:
@@ -210,9 +209,7 @@ def test_gui_uninstall_guide_finds_developer_nested_manifest(tmp_path: Path) -> 
         runner=lambda _request, _log: None,
     )
 
-    guide = app.uninstall_guide(
-        {"prefix": str(workspace), "confirm_prefix": str(workspace)}
-    )
+    guide = app.uninstall_guide({"prefix": str(workspace)})
 
     assert guide["install_uuid"] == manifest.install_uuid
     assert f"--manifest {manifest_path}" in guide["plan_command"]

@@ -148,24 +148,25 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert manager["profiles"] == ["manager"]
     assert "container_name" not in manager
     assert "network_mode" not in manager
-    assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
+    assert "/var/run/docker.sock:/var/run/docker.sock:rw" not in manager["volumes"]
     assert manager["environment"]["DOCKER_CONFIG"] == "/tmp/elesim-docker-config"
     assert "group_add" not in manager
     wrapper = (state.bin_path / "elesim-connections").read_text(encoding="utf-8")
     assert "--name elesim-manager" in wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in wrapper
     assert "manager_args+=(--host 0.0.0.0)" in wrapper
-    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale" in wrapper
-    assert "/var/run/tailscale/tailscaled.sock" in wrapper
+    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-host-proxy" in wrapper
+    assert "/var/run/tailscale/tailscaled.sock" not in wrapper
+    assert "elesim_setup.host_helper" in wrapper
+    assert "ELESIM_HOST_HELPER_SOCKET=/run/elesim-host-helper/helper.sock" in wrapper
     assert "existing_manager=\"$(docker ps -aq" in wrapper
     assert "manager_running=\"$(docker inspect" in wrapper
     assert "manager_started=0" in wrapper
-    assert "trap manager_cleanup EXIT" in wrapper
+    assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in wrapper
     assert "docker rm elesim-manager" in wrapper
     assert "manager_status=$?" in wrapper
-    assert "manager_gids=(\"$ELESIM_DOCKER_GID\")" in wrapper
-    assert "manager_override=\"$(mktemp" in wrapper
-    assert "manager_compose_args+=(-f \"$manager_override\")" in wrapper
+    assert "ELESIM_DOCKER_GID" not in wrapper
+    assert "elesim-manager-compose" not in wrapper
     assert "--group-add" not in wrapper
     assert "IFS=',' read -r -a compose_files" in wrapper
     assert "compose_match != 1" in wrapper

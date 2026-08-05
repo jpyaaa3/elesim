@@ -408,6 +408,11 @@ SSH도 호스트키 fingerprint pinning은 필요하다.
 10. `호스트 상태 확인`으로 관리 경로와 Compose 상태를 확인한 뒤 `전체 시작`을
     누른다. 또는 각 host에서 `elesim-up`을 실행한다.
 
+초기 보안 배포는 키와 설정만 맞추며, 원래 꺼져 있던 역할을 켜지 않는다.
+`전체 시작`은 모든 host의 image build를 먼저 끝낸 뒤 역할을 시작한다. 이전 작업이
+중간에 끊겨 세대/marker 불일치가 표시되면 다른 배포 버튼을 반복하지 말고
+`중단된 보안 작업 복구`를 먼저 누른다.
+
 ### 6.2 `trusted-network`를 선택한 경우
 
 `trusted-network`에서는 SROS2 generation을 만들지 않는다.
@@ -431,7 +436,7 @@ SSH도 호스트키 fingerprint pinning은 필요하다.
 | 버튼 | 하는 일 | 하지 않는 일 |
 | --- | --- | --- |
 | 호스트 상태 확인 | 로컬/SSH Compose 또는 Robot systemd 상태 조회 | DDS discovery/WebRTC 성공 판정 |
-| 전체 시작 | 각 host의 `elesim-up`/lifecycle 시작 | NAT를 뚫거나 Tailscale 설치 |
+| 전체 시작 | 모든 host image 준비 후 각 lifecycle 시작 | NAT를 뚫거나 Tailscale 설치 |
 | 전체 정지 | 각 host의 runtime 정지 | Authority/토폴로지 삭제 |
 | 전체 재시작 | 정지 후 다시 시작 | 새 SROS2 generation 생성 |
 
@@ -611,12 +616,12 @@ elesim-down
 
 ```bash
 elesim-uninstall --plan
-elesim-uninstall --confirm-prefix /정확한/설치/prefix
+elesim-uninstall
 ```
 
-로그와 조작 컴퓨터의 SROS2 Authority는 기본 보존된다. 정말 삭제할 때만
-`--purge-logs`, `--purge-authority`를 추가한다. `docker system prune`이나
-wildcard 삭제는 사용하지 않는다.
+로그와 조작 컴퓨터의 이 설치 소유 SROS2 Authority도 기본 삭제된다. 남길 때만
+`--keep-logs`, `--keep-authority`를 추가한다. 외부 source/credential/keystore는
+항상 보존한다. `docker system prune`이나 wildcard 삭제는 사용하지 않는다.
 
 ---
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from misc.tools.release.verify import (
+    _probe_environment,
     ReleaseVerificationError,
     assert_release_entries,
     assert_robot_systemd_units,
@@ -33,6 +34,15 @@ def test_wheel_boundary_accepts_only_the_owned_package(tmp_path: Path) -> None:
     )
 
     assert_wheel_boundary(wheel, "elesim_pilot")
+
+
+def test_release_probe_disables_inherited_runtime_tracing(tmp_path: Path) -> None:
+    environment = _probe_environment(
+        {"ELESIM_TRACE": "1", "PYTHONPATH": "foreign"}, tmp_path / "site"
+    )
+
+    assert environment["ELESIM_TRACE"] == "0"
+    assert environment["PYTHONPATH"] == str(tmp_path / "site")
 
 
 def test_role_release_manifest_declares_only_contractual_shared_material(

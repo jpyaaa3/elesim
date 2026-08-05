@@ -156,20 +156,28 @@ three simulation roles without a physical Robot.
 
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`
-run the existing pinned local/SSH lifecycle commands. Compose `start` includes
-`--build`, matching the generated `elesim-up` wrapper because installation does
-not build images. Their badges describe
+run the existing pinned local/SSH lifecycle commands. A user-requested full
+start first builds every selected host and only then launches roles with
+`--no-build`. Security deployment and rotation never build or recreate
+containers; they resume exactly the role containers that were running before
+the switch. Their badges describe
 management reachability and process state only; DDS discovery and WebRTC media
 are not inferred from a successful SSH command. The UI polls the read-only
 status while open and keeps deployment and rotation jobs separate from that poll.
 
 Managed SROS2 rotation creates a complete new generation through the ROS 2
 security CLI. Per-host manifests bind the system, host, generation, assigned
-enclaves and SHA-256 file digests. Deployment performs all-host preflight and
-staging before stopping roles, atomically switches each host's
+enclaves and SHA-256 file digests. Deployment performs all-host preflight,
+digest-verified staging, and captures the exact running-role set before stopping
+roles. It switches each host's
 `<install-root>/security/current`, restarts and verifies the matching generation.
 If any phase fails, hosts already touched restore their captured configuration
-and their previous role views. Applications do not mount `current` or the
+and their previous role views; inactive failed generation directories are
+removed. Empty managed-pending fields are restored as empty rather than being
+retained from a failed generation. A private transaction journal under the
+operator Authority records the last phase, and the explicit recovery action
+converges interrupted hosts to the Authority-active generation or managed-pending.
+Applications do not mount `current` or the
 aggregate generation keystore. They mount only
 `<install-root>/security/roles/<role>`; activation replaces that stable root's
 `public/` and `enclaves/` children while the application is stopped.
@@ -287,8 +295,10 @@ container, so repeated shells do not create randomly named temporary
 containers. It contains the project-owned ROS/scientific test stack and is the
 canonical replacement for external personal development Compose environments.
 The connection GUI runs, when requested, in a removable `elesim-manager`
-one-shot container. That tool alone receives the Docker socket; it does not
-become a fifth persistent development/runtime application.
+one-shot container. A private host-side helper exposes only allowlisted Elesim
+Compose/network commands and optional `tailscale nc`; the manager receives no
+Docker or tailscaled daemon socket. It does not become a fifth persistent
+development/runtime application.
 
 This mode mounts `/dev`, uses host network/IPC, and is privileged. Use it only
 on an owned Ubuntu/WSL amd64 workstation. WSLg mounts are generated only when

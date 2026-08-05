@@ -23,6 +23,7 @@ elesim-setup = "elesim_setup.cli:main"
 elesim-net = "elesim_setup.network:main"
 elesim-connections = "elesim_setup.connections:main"
 elesim-uninstall = "elesim_setup.uninstall:main"
+elesim-host-proxy = "elesim_setup.host_proxy:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

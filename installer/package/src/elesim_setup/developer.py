@@ -17,7 +17,7 @@ import yaml
 
 from .capabilities import HostCapabilities
 from .configuration import write_cyclonedds_config
-from .manager_lifecycle import manager_lifecycle_fragment
+from .manager_lifecycle import host_helper_fragment, manager_lifecycle_fragment
 from .ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
@@ -474,7 +474,6 @@ class DeveloperInstaller:
                 f"{home}:{home}:rw",
                 f"{cache}:{cache}:rw",
                 f"{operator_home()}:{operator_home()}:ro",
-                "/var/run/docker.sock:/var/run/docker.sock:rw",
             ],
         }
         if self.request.jaeger:
@@ -555,6 +554,7 @@ class DeveloperInstaller:
                 ).expanduser(),
                 default_local_bin_dir=Path("~/.local/bin").expanduser(),
                 operator_home=operator_home(),
+                maintenance_root=self.generated_root / "maintenance",
                 install_uuid=self._install_uuid,
                 guard=guard,
             ),
@@ -669,6 +669,7 @@ def _development_manager_wrapper(
     default_local_install_root: Path,
     default_local_bin_dir: Path,
     operator_home: Path,
+    maintenance_root: Path,
     install_uuid: str,
     guard: str,
 ) -> str:
@@ -676,12 +677,7 @@ def _development_manager_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         + guard
-        + "if [[ ! -S /var/run/docker.sock ]]; then\n"
-        "  printf 'Docker socket을 찾을 수 없습니다: /var/run/docker.sock\\n' >&2\n"
-        "  exit 2\n"
-        "fi\n"
-        "export ELESIM_DOCKER_GID=\"$(stat -c %g /var/run/docker.sock)\"\n"
-        "local_install_root=${ELESIM_LOCAL_INSTALL_ROOT:-"
+        + "local_install_root=${ELESIM_LOCAL_INSTALL_ROOT:-"
         + shlex.quote(str(default_local_install_root))
         + "}\n"
         "local_bin_dir=${ELESIM_LOCAL_BIN_DIR:-"
@@ -703,12 +699,6 @@ def _development_manager_wrapper(
         + "manager_compose_args=(-f "
         + shlex.quote(str(compose))
         + ")\n"
-        "manager_gids=(\"$ELESIM_DOCKER_GID\")\n"
-        "manager_override=\"\"\n"
-        "manager_cleanup_override() {\n"
-        "  if [[ -n $manager_override ]]; then rm -f -- \"$manager_override\"; fi\n"
-        "}\n"
-        "trap 'manager_cleanup_override; manager_cleanup' EXIT\n"
         + "manager_port=8766\n"
         "manager_args=(\"$@\")\n"
         "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
@@ -739,38 +729,18 @@ def _development_manager_wrapper(
         + shlex.quote(f"ELESIM_OPERATOR_HOME={operator_home.resolve()}")
         + "\n"
         ")\n"
-        "tailscale_bin=\"$(command -v tailscale 2>/dev/null || true)\"\n"
-        "tailscale_socket=\"\"\n"
-        "for candidate in /var/run/tailscale/tailscaled.sock /run/tailscale/tailscaled.sock; do\n"
-        "  if [[ -S $candidate ]]; then tailscale_socket=$candidate; break; fi\n"
-        "done\n"
-        "if [[ -n $tailscale_bin && -n $tailscale_socket ]]; then\n"
-        "  tailscale_gid=\"$(stat -c %g \"$tailscale_socket\" 2>/dev/null || true)\"\n"
-        "  if [[ $tailscale_gid =~ ^[0-9]+$ && $tailscale_gid != \"$ELESIM_DOCKER_GID\" ]]; then\n"
-        "    manager_gids+=(\"$tailscale_gid\")\n"
-        "  fi\n"
-        "  manager_options+=(\n"
-        "    -e ELESIM_TAILSCALE_PROXY=1\n"
-        "    -e ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale\n"
-        "    -e ELESIM_TAILSCALE_PROXY_SOCKET=/var/run/tailscale/tailscaled.sock\n"
-        "    -v \"$tailscale_bin:/usr/local/bin/elesim-tailscale:ro\"\n"
-        "    -v \"$tailscale_socket:/var/run/tailscale/tailscaled.sock:rw\"\n"
-        "  )\n"
-        "fi\n"
-        "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
+        + host_helper_fragment(
+            maintenance_root=maintenance_root,
+            compose_argument='"$local_install_root/containers/compose.yaml"',
+            bin_dir_argument='"$local_bin_dir"',
+            project="elesim-runtime",
+        )
+        + "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
         "  manager_options+=(\n"
         "    -e \"SSH_AUTH_SOCK=$SSH_AUTH_SOCK\"\n"
         "    -v \"$SSH_AUTH_SOCK:$SSH_AUTH_SOCK\"\n"
         "  )\n"
         "fi\n"
-        "manager_override=\"$(mktemp \"${TMPDIR:-/tmp}/elesim-manager-compose.XXXXXX.yaml\")\"\n"
-        "{\n"
-        "  printf '%s\\n' 'services:' '  manager:' '    group_add:'\n"
-        "  for manager_gid in \"${manager_gids[@]}\"; do\n"
-        "    printf '      - \"%s\"\\n' \"$manager_gid\"\n"
-        "  done\n"
-        "} >\"$manager_override\"\n"
-        "manager_compose_args+=(-f \"$manager_override\")\n"
         "manager_started=1\n"
         "set +e\n"
         "docker compose \"${manager_compose_args[@]}\" run --rm --build --name elesim-manager --publish "

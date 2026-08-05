@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import json
+import io
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -30,6 +31,7 @@ from elesim_setup.secure_deployment import (
     SshHostOperations,
     TopologyRollout,
     _lifecycle_command,
+    _ParamikoSession,
     ssh_sha256_fingerprint,
 )
 
@@ -115,7 +117,7 @@ def _bundle(host_id: str, generation: str = "g2") -> SecurityBundle:
     ).validate()
 
 
-def test_compose_start_builds_missing_images_like_elesim_up() -> None:
+def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     host = _topology().host("server")
 
     assert _lifecycle_command(host, action="start") == (
@@ -125,9 +127,14 @@ def test_compose_start_builds_missing_images_like_elesim_up() -> None:
         "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
+        "start",
+        "sim",
+    )
+    assert _lifecycle_command(host, action="build")[-2:] == ("build", "sim")
+    assert _lifecycle_command(host, action="launch")[-4:] == (
         "up",
         "-d",
-        "--build",
+        "--no-build",
         "--remove-orphans",
     )
 
@@ -287,6 +294,36 @@ def test_paramiko_connector_agent_mode_does_not_search_key_files(
     session.__exit__(None, None, None)
 
 
+def test_paramiko_session_drains_and_bounds_verbose_remote_output() -> None:
+    class Channel:
+        @staticmethod
+        def recv_exit_status() -> int:
+            return 0
+
+    class Stream(io.BytesIO):
+        channel = Channel()
+
+    class Client:
+        closed = False
+
+        @staticmethod
+        def exec_command(_command, timeout):
+            assert timeout == 1800
+            return None, Stream(b"out\n"), Stream(b"x" * (96 * 1024))
+
+        def close(self) -> None:
+            self.closed = True
+
+    result = _ParamikoSession(Client(), command_timeout_s=2).run(
+        ("docker", "compose", "build", "sim")
+    )
+
+    assert result.exit_status == 0
+    assert result.stdout == "out\n"
+    assert result.stderr.startswith("[earlier remote output truncated]\n")
+    assert result.stderr.endswith("x" * (64 * 1024))
+
+
 def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -341,6 +378,9 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
         def is_authenticated(self) -> bool:
             return self.authenticated
 
+        def set_keepalive(self, seconds: int) -> None:
+            self.keepalive = seconds
+
         def close(self) -> None:
             self.closed = True
             self.connection.close()
@@ -374,6 +414,7 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
     assert transport.username == "operator"
     assert transport.authenticated is True
     assert transport.auth_timeout == 4
+    assert transport.keepalive == 15
     assert raw_socket.closed is False
     session.__exit__(None, None, None)
     assert transport.closed is True
@@ -456,6 +497,16 @@ class FakeSession:
             return RemoteCommandResult(0, self.readlink)
         if values[:2] in {("test", "-e"), ("test", "-L")}:
             return RemoteCommandResult(1)
+        if values[:2] == ("sha256sum", "--"):
+            path = PurePosixPath(values[2])
+            content = next(
+                uploaded
+                for uploaded_path, uploaded, _mode in self.uploads
+                if uploaded_path == path
+            )
+            import hashlib
+
+            return RemoteCommandResult(0, f"{hashlib.sha256(content).hexdigest()}  {path}\n")
         return RemoteCommandResult(0)
 
     def upload_bytes(self, path, content, mode) -> None:
@@ -485,13 +536,22 @@ class FakeLifecycle:
     def restore(self, _session, _host, _configuration) -> None:
         pass
 
-    def stop(self, _session, _host) -> None:
+    def stop(self, _session, _host, _roles) -> None:
         pass
 
-    def start(self, _session, _host) -> None:
+    def start(self, _session, _host, _roles) -> None:
         pass
 
-    def verify(self, _session, _host, _generation) -> None:
+    def build(self, _session, _host) -> None:
+        pass
+
+    def launch(self, _session, _host) -> None:
+        pass
+
+    def status(self, _session, host):
+        return {"running_roles": list(host.roles)}
+
+    def verify(self, _session, _host, _generation, _running_roles) -> None:
         pass
 
 
@@ -499,8 +559,9 @@ def test_ssh_host_operations_stage_manifest_then_atomically_activate() -> None:
     host = _topology().host("server")
     topology = _topology()
     session = FakeSession()
+    connector = FakeConnector(session)
     operations = SshHostOperations(
-        FakeConnector(session), FakeLifecycle(), topology
+        connector, FakeLifecycle(), topology
     )
 
     operations.stage(host, _bundle("server"))
@@ -515,6 +576,8 @@ def test_ssh_host_operations_stage_manifest_then_atomically_activate() -> None:
         argv for argv, _check in session.commands if argv[:2] == ("mv", "-Tf")
     ]
     assert activation[0][-1] == "/opt/elesim/security/current"
+    assert len(connector.endpoints) == 1
+    operations.close()
 
 
 def test_local_host_operations_use_install_root_security_directory(
@@ -631,8 +694,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     lifecycle.configure(
         session, host, "g2", PurePosixPath("/opt/elesim/security")
     )
-    lifecycle.stop(session, host)
-    lifecycle.start(session, host)
+    lifecycle.stop(session, host, host.roles)
+    lifecycle.start(session, host, host.roles)
 
     assert capabilities.docker
     assert capabilities.security_root_writable
@@ -659,8 +722,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
-        "down",
-        "--remove-orphans",
+        "stop",
+        "sim",
     ) in compose_commands
     assert (
         "docker",
@@ -669,10 +732,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "elesim-runtime",
         "-f",
         "/opt/elesim/containers/compose.yaml",
-        "up",
-        "-d",
-        "--build",
-        "--remove-orphans",
+        "start",
+        "sim",
     ) in compose_commands
 
 
@@ -745,14 +806,17 @@ class FakeOperations:
             security_root_writable=True,
         )
 
-    def capture_state(self, _host):
+    def capture_state(self, host):
         self._event("current")
-        return HostActivationState("g1", {"dds": {}})
+        return HostActivationState("g1", {"dds": {}}, host.roles)
 
     def stage(self, _host, _bundle):
         self._event("stage")
 
-    def stop(self, _host):
+    def discard_generation(self, _host, _generation):
+        self._event("discard")
+
+    def stop(self, _host, _roles=None):
         self._event("stop")
 
     def activate(self, _host, _generation):
@@ -761,13 +825,22 @@ class FakeOperations:
     def configure_topology(self, _host):
         self._event("configure")
 
-    def start(self, _host):
+    def start(self, _host, _roles=None):
         self._event("start")
 
-    def verify(self, _host, _generation):
+    def build(self, _host):
+        self._event("build")
+
+    def launch(self, _host):
+        self._event("launch")
+
+    def status(self, host):
+        return {"running_roles": list(host.roles)}
+
+    def verify(self, _host, _generation, _running_roles=()):
         self._event("verify")
 
-    def verify_topology(self, _host):
+    def verify_topology(self, _host, _running_roles=()):
         self._event("verify-topology")
 
     def rollback(self, _host, _previous):
@@ -881,6 +954,40 @@ def test_rollout_stages_every_host_before_stopping_any_runtime() -> None:
     assert events[-3:] == ["verify:laptop", "verify:server", "verify:robot"]
 
 
+def test_initial_security_rollout_does_not_start_roles_that_were_stopped() -> None:
+    topology, events, _operations, bundles = _rollout_parts()
+
+    class StoppedOperations(FakeOperations):
+        def capture_state(self, host):
+            self._event("current")
+            return HostActivationState(
+                None,
+                {
+                    "roles": list(host.roles),
+                    "prefix": host.install_root,
+                    "bin_dir": host.bin_dir,
+                    "install_mode": host.install_mode,
+                    "dds": {},
+                },
+                (),
+            )
+
+    stopped_operations = {
+        host.host_id: StoppedOperations(host.host_id, events)
+        for host in topology.hosts
+    }
+
+    GenerationRollout(topology, stopped_operations).apply("g2", bundles)
+
+    assert not any(event.startswith("stop:") for event in events)
+    assert not any(event.startswith("start:") for event in events)
+    assert [event for event in events if event.startswith("verify:")] == [
+        "verify:laptop",
+        "verify:server",
+        "verify:robot",
+    ]
+
+
 def test_rollout_failure_restores_every_switched_host_before_restart() -> None:
     topology, events, operations, bundles = _rollout_parts(
         fail_host="server", fail_once="verify"
@@ -905,6 +1012,34 @@ def test_rollout_failure_restores_every_switched_host_before_restart() -> None:
     ]
     assert recovery_start_positions
     assert min(recovery_start_positions) > max(rollback_positions)
+
+
+def test_rollout_failure_restores_switched_hosts_when_every_role_was_stopped() -> None:
+    topology, events, _operations, bundles = _rollout_parts()
+
+    class StoppedOperations(FakeOperations):
+        def capture_state(self, host):
+            self._event("current")
+            return HostActivationState("g1", {"dds": {}}, ())
+
+    operations = {
+        host.host_id: StoppedOperations(
+            host.host_id,
+            events,
+            fail_once="verify" if host.host_id == "server" else "",
+        )
+        for host in topology.hosts
+    }
+
+    with pytest.raises(RolloutError, match="during verify"):
+        GenerationRollout(topology, operations).apply("g2", bundles)
+
+    assert [event for event in events if event.startswith("rollback:")] == [
+        "rollback:robot",
+        "rollback:server",
+        "rollback:laptop",
+    ]
+    assert not any(event.startswith("start:") for event in events)
 
 
 def test_stage_failure_never_stops_a_runtime() -> None:

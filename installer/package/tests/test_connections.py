@@ -139,6 +139,49 @@ def test_trusted_network_rejects_security_actions(tmp_path: Path) -> None:
         runner(topology, "rotate", lambda _message: None)
 
 
+def test_runtime_start_builds_every_host_before_launching_any_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations:
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def build(self, _host) -> None:
+            events.append(f"build:{self.host_id}")
+
+        def launch(self, _host) -> None:
+            events.append(f"launch:{self.host_id}")
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner(topology, "start", lambda _message: None)
+
+    assert events == [
+        "build:operator",
+        "build:jetson",
+        "launch:operator",
+        "launch:jetson",
+    ]
+
+
 def test_sros2_provision_rejects_an_existing_active_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -809,7 +809,7 @@ def install_host_uninstaller_bundle(
     init = package_root / "__init__.py"
     _atomic_text(init, '"""Elesim host-only uninstall maintenance bundle."""\n', mode=0o644)
     files.append(init)
-    for name in ("ownership.py", "shell.py", "uninstall.py"):
+    for name in ("ownership.py", "shell.py", "uninstall.py", "host_helper.py"):
         source_file = source / name
         if not source_file.is_file():
             raise OwnershipError(f"host uninstaller source가 없습니다: {source_file}")

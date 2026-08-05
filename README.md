@@ -172,8 +172,10 @@ Genesis, Torch, Pinocchio, RealSense, Dynamixel, WebRTC, OpenTelemetry,
 의존성을 모두 넣고, tracing을 선택했을 때만 별도 `elesim-jaeger`를 추가한다.
 여러 터미널에서 `elesim-dev`를 실행해도 같은 상시 컨테이너에 `exec`하며 새
 랜덤 이름 컨테이너를 만들지 않는다.
-연결 GUI를 열 때만 Docker socket을 받은 `elesim-manager` one-shot 도구가
-생겼다가 종료되며, 이는 상시 애플리케이션이나 다섯 번째 역할이 아니다.
+연결 GUI를 열 때만 `elesim-manager` one-shot 도구가 생겼다가 종료된다.
+Docker 및 선택적 Tailscale 접근은 호스트의 단기 헬퍼가 허용된 Elesim
+명령만 중계하며, manager에는 Docker/tailscaled socket을 넘기지 않는다.
+이는 상시 애플리케이션이나 다섯 번째 역할이 아니다.
 
 ## GUI 입력 항목
 
@@ -298,7 +300,11 @@ Tailscale를 선택한 경우에만 해당 호스트의 실제 `sshd` 포트를 
 관리 상태만 읽고 조작하며, DDS discovery나 WebRTC 영상이 살아 있다고 추정하지
 않는다. 로컬에 `tailscale0`가 있으면 현재 주소를 읽기 전용으로 자동 제안하지만
 Tailscale 설치·로그인·ACL 변경은 하지 않는다. 재연결 뒤 주소가 바뀌었는지 확인한
-뒤 저장한다.
+뒤 저장한다. `전체 시작`은 모든 호스트의 이미지를 먼저 완성한 뒤 역할을
+시작한다. 보안 초기 배포와 회전은 원래 실행 중이던 역할만 다시 시작하며,
+처음부터 꺼져 있던 역할을 임의로 켜지 않는다. 중단된 managed SROS2 세대가
+감지되면 `중단된 보안 작업 복구`로 Authority의 활성 세대 또는 명시적인 미발급
+상태 하나로 수렴시킨 뒤 다시 배포한다.
 
 ### TURN/Coturn
 
@@ -538,20 +544,22 @@ xhost -si:localuser:root
 
 설치 GUI의 `기존 설치 클린 제거`는 ownership manifest를 확인하고 host
 터미널에서 실행할 정확한 명령만 출력한다. GUI 자체는 Docker나 파일을 삭제하지
-않는다. 설치가 만든 host 전용 `elesim-uninstall`로 먼저 plan만 확인하고 같은
-exact prefix를 재입력해야 실제 제거가 시작된다.
+않는다. 설치가 만든 host 전용 `elesim-uninstall`로 plan을 확인하거나 곧바로
+제거할 수 있다.
 
 ```bash
 elesim-uninstall --plan
-elesim-uninstall --confirm-prefix /exact/elesim/prefix
+elesim-uninstall
 ```
 
 제거기는 설치 UUID, exact wrapper hash, Compose project/config path와 Docker
 label을 모두 다시 확인한 뒤 이 설치가 소유한 고정 container와
 `elesim/*:local` image만 제거한다. 외부 image, 외부 TURN credential, 외부
-SROS2 keystore와 source checkout은 제거하지 않는다. runtime 설정·키·secret은
-제거하지만 text log와 조작 노트북의 SROS2 Authority는 기본 보존한다. 정말
-삭제하려는 경우에만 각각 `--purge-logs`, `--purge-authority`를 붙인다.
+SROS2 keystore와 source checkout은 제거하지 않는다. runtime 설정·키·secret,
+text log와 이 설치가 소유한 조작 노트북 SROS2 Authority는 기본 삭제한다. 로그나
+Authority를 남겨야 할 때만 각각 `--keep-logs`, `--keep-authority`를 붙인다.
+완료 기록은 삭제되는 prefix 밖의
+`${XDG_STATE_HOME:-~/.local/state}/elesim/uninstall/`에 남는다.
 
 native Robot의 두 systemd unit이 설치되어 있거나 실행 중이면 제거기는 아무
 것도 바꾸기 전에 중단하고, hash가 일치하는 unit에 한해 정확한

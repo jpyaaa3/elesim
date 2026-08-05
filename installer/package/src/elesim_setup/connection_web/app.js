@@ -14,6 +14,7 @@ const movableRoles = ["pilot", "sim", "ui"];
 
 let catalog = {};
 let language = "ko";
+let runtimePollInFlight = false;
 let schemaVersion = 3;
 let topologyMode = "full";
 let roleLocations = {
@@ -504,15 +505,19 @@ function renderRuntimeStatus(result) {
 }
 
 async function pollRuntimeStatus() {
+  if (runtimePollInFlight || ["running", "cancelling"].includes(byId("job-status").dataset.status)) return;
+  runtimePollInFlight = true;
   try {
     renderRuntimeStatus(await api("/api/runtime"));
   } catch (error) {
     byId("runtime-status").textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    runtimePollInFlight = false;
   }
 }
 
 function setJobRunning(running) {
-  ["save", "preflight", "apply", "topology-mode", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
+  ["save", "preflight", "apply", "topology-mode", "rotate", "recover", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
   updateSecurityWarning();
   byId("cancel").disabled = !running;
 }
@@ -594,6 +599,7 @@ function bindEvents() {
   byId("preflight").addEventListener("click", () => runPreflight().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("rotate").addEventListener("click", () => startJob("rotate").catch(showError));
+  byId("recover").addEventListener("click", () => startJob("recover").catch(showError));
   byId("runtime-check").addEventListener("click", () => pollRuntimeStatus().catch(showError));
   ["start", "stop", "restart"].forEach((action) => {
     byId(`runtime-${action}`).addEventListener("click", () => startJob(action).catch(showError));

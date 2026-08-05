@@ -62,8 +62,8 @@ class UninstallPlan:
 def plan_uninstall(
     manifest_path: Path | None = None,
     *,
-    purge_logs: bool = False,
-    purge_authority: bool = False,
+    purge_logs: bool = True,
+    purge_authority: bool = True,
     runner: CommandRunner | None = None,
 ) -> UninstallPlan:
     """Validate every deletion boundary and return an immutable plan."""
@@ -125,9 +125,7 @@ def plan_uninstall(
         remove_paths=remove_paths,
     )
 
-    tombstone = manifest.path.parent / (
-        f"uninstall-tombstone-{manifest.install_uuid}.json"
-    )
+    tombstone = _uninstall_state_root() / f"{manifest.install_uuid}.json"
     if _lexists(tombstone):
         raise UninstallSafetyError(f"uninstall tombstone이 이미 존재합니다: {tombstone}")
     return UninstallPlan(
@@ -149,12 +147,18 @@ def plan_uninstall(
 def execute_uninstall(
     plan: UninstallPlan,
     *,
-    confirm_prefix: str,
+    confirm_prefix: str | None = None,
     runner: CommandRunner | None = None,
 ) -> Path:
-    """Execute a prevalidated plan after an exact prefix confirmation."""
+    """Execute a prevalidated ownership plan.
 
-    if confirm_prefix != plan.manifest.prefix:
+    ``confirm_prefix`` remains an internal compatibility guard for callers
+    that already supply it.  The host CLI deliberately needs no memorized
+    confirmation: locating and validating the exact manifest is the safety
+    boundary.
+    """
+
+    if confirm_prefix is not None and confirm_prefix != plan.manifest.prefix:
         raise UninstallSafetyError(
             "--confirm-prefix가 ownership manifest의 정확한 prefix와 다릅니다: "
             f"expected={plan.manifest.prefix}"
@@ -264,8 +268,7 @@ def render_plan(plan: UninstallPlan) -> str:
     if plan.warnings:
         lines.append("  경고:")
         lines.extend(f"    - {warning}" for warning in plan.warnings)
-    lines.append("실행하려면 다음 exact prefix 확인이 필요합니다:")
-    lines.append(f"  --confirm-prefix {plan.manifest.prefix}")
+    lines.append("실행 시 위 ownership 경계를 다시 검증한 뒤 즉시 제거합니다.")
     return "\n".join(lines)
 
 
@@ -285,19 +288,14 @@ def _parser() -> argparse.ArgumentParser:
         help="검증된 제거 계획만 출력하고 변경하지 않음",
     )
     parser.add_argument(
-        "--confirm-prefix",
-        default="",
-        help="실행 시 manifest의 exact absolute prefix를 재입력",
+        "--keep-logs",
+        action="store_true",
+        help="기본 삭제되는 runtime text logs를 보존",
     )
     parser.add_argument(
-        "--purge-logs",
+        "--keep-authority",
         action="store_true",
-        help="기본 보존되는 runtime text logs도 명시적으로 삭제",
-    )
-    parser.add_argument(
-        "--purge-authority",
-        action="store_true",
-        help="기본 보존되는 operator SROS2 Authority도 명시적으로 삭제",
+        help="기본 삭제되는 operator SROS2 Authority를 보존",
     )
     return parser
 
@@ -307,20 +305,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         plan = plan_uninstall(
             Path(args.manifest),
-            purge_logs=bool(args.purge_logs),
-            purge_authority=bool(args.purge_authority),
+            purge_logs=not bool(args.keep_logs),
+            purge_authority=not bool(args.keep_authority),
         )
         print(render_plan(plan))
         if args.plan:
             return 0
-        if not args.confirm_prefix:
-            raise UninstallSafetyError(
-                "실행에는 --confirm-prefix와 manifest의 exact absolute prefix가 필요합니다"
-            )
-        tombstone = execute_uninstall(
-            plan,
-            confirm_prefix=args.confirm_prefix,
-        )
+        tombstone = execute_uninstall(plan)
         print(f"Elesim 제거 완료. tombstone: {tombstone}")
         return 0
     except (OSError, UninstallSafetyError) as exc:
@@ -688,6 +679,12 @@ def _write_tombstone_temporary(
         temporary = Path(handle.name)
     temporary.chmod(0o600)
     return temporary
+
+
+def _uninstall_state_root() -> Path:
+    configured = os.environ.get("XDG_STATE_HOME", "").strip()
+    base = Path(configured).expanduser() if configured else Path.home() / ".local/state"
+    return _canonical(base / "elesim/uninstall")
 
 
 def _rmdir_if_empty(path: Path) -> None:

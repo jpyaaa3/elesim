@@ -87,7 +87,7 @@ def test_developer_install_generates_one_privileged_workspace_service(
         Path.home().resolve()
     )
     assert manager["environment"]["DOCKER_CONFIG"] == "/tmp/elesim-docker-config"
-    assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
+    assert "/var/run/docker.sock:/var/run/docker.sock:rw" not in manager["volumes"]
     assert (request.bin_dir / "elesim-dev").is_file()
     assert (request.bin_dir / "elesim-connections").is_file()
     assert (request.bin_dir / "elesim-jaeger-up").is_file()
@@ -100,15 +100,15 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert f'ELESIM_OPERATOR_HOME={Path.home().resolve()}' in manager_wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in manager_wrapper
     assert "manager_args+=(--host 0.0.0.0)" in manager_wrapper
-    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale" in manager_wrapper
-    assert "/var/run/tailscale/tailscaled.sock" in manager_wrapper
+    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-host-proxy" in manager_wrapper
+    assert "/var/run/tailscale/tailscaled.sock" not in manager_wrapper
+    assert "elesim_setup.host_helper" in manager_wrapper
     assert "manager_started=0" in manager_wrapper
-    assert "trap manager_cleanup EXIT" in manager_wrapper
+    assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in manager_wrapper
     assert "docker rm elesim-manager" in manager_wrapper
     assert "manager_status=$?" in manager_wrapper
-    assert "manager_gids=(\"$ELESIM_DOCKER_GID\")" in manager_wrapper
-    assert "manager_override=\"$(mktemp" in manager_wrapper
-    assert "manager_compose_args+=(-f \"$manager_override\")" in manager_wrapper
+    assert "ELESIM_DOCKER_GID" not in manager_wrapper
+    assert "elesim-manager-compose" not in manager_wrapper
     assert "--group-add" not in manager_wrapper
     assert "IFS=',' read -r -a compose_files" in manager_wrapper
     assert "compose_match != 1" in manager_wrapper

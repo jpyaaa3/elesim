@@ -46,8 +46,9 @@
     retain five private snapshots. Developer logging is unchanged.
   - Clean uninstall is host-only and ownership-manifest based. It validates an
     install UUID, exact wrapper/systemd hashes and Docker metadata/labels before
-    mutation. Logs and operator Authority are preserved unless explicitly
-    purged; external source/credentials/keystores are never owned.
+    mutation. It executes directly after validation and removes owned logs and
+    operator Authority by default; `--keep-logs`/`--keep-authority` retain them.
+    External source/credentials/keystores are never owned.
   - The setup GUI has no Docker socket or deletion channel. It may validate a
     manifest and emit exact plan/execute commands, but only the host
     `elesim-uninstall` CLI mutates resources.
@@ -116,16 +117,22 @@
     never inferred from the other.
   - The connection manager performs a read-only `tailscale0` address hint (no
     installation, login or ACL mutation) and exposes bounded `check`, `start`,
-    `stop` and `restart` host-lifecycle jobs. Compose `start` builds missing
-    images just like `elesim-up`; these report Compose/systemd management state
+    `stop` and `restart` host-lifecycle jobs. Full `start` builds every host
+    before launching any role; these report Compose/systemd management state
     only and do not claim DDS discovery or WebRTC media.
   - The generated connection-manager wrapper publishes its selected GUI port
-    on host loopback instead of relying on container host networking. When the
-    host exposes `/var/run/tailscale/tailscaled.sock` (or `/run/...`) and a
-    `tailscale` CLI, the wrapper mounts them through the local API and gives
-    the manager a bounded `tailscale nc` proxy for Tailscale CGNAT addresses.
-    This is a route fallback for Docker Desktop/WSL; it does not install
+    on host loopback instead of relying on container host networking. It starts
+    a short-lived, private host helper that accepts only the installed Elesim
+    Compose/network commands and an optional bounded `tailscale nc` stream.
+    The manager receives neither `docker.sock` nor the tailscaled local API
+    socket. This is a route fallback for Docker Desktop/WSL; it does not install
     Tailscale or change its ACLs.
+  - Full runtime start builds every selected host first, then launches with
+    `--no-build`. Security provisioning/rotation never builds or recreates
+    containers and resumes only the exact roles that were previously running.
+    Managed rollout verifies staged file digests, restores empty pending fields,
+    removes inactive failed generations, records a transaction journal, and has
+    an explicit interrupted-state recovery action.
   - `elesim-connections` exposes the two topology modes above. In
     `simulation-only`, the GUI hides the fixed Robot card, allows one to three
     active COM cards, and serializes exactly one Pilot, Sim, and UI.
@@ -239,7 +246,8 @@
     Old `controller`/`simulator` values are accepted only while reading legacy
     state/topology files; old container names are inspected only for cleanup.
   - `ownership.py` and `uninstall.py`: exact install manifests, host-only
-    pre-mutation validation, preserve-by-default cleanup and tombstones.
+    pre-mutation validation, delete-by-default owned cleanup and tombstones kept
+    outside the removed prefix.
   - `misc/system_tests/smoke_topology.py`: the canonical four-process real-RMW
     topology smoke; it is not an NAT, GPU, WebRTC-media, or hardware proof.
 - Canonical test environment and commands:
@@ -274,9 +282,9 @@
   - General installations expose fixed role container names; Developer
     installations expose only `elesim-dev` and optional `elesim-jaeger`.
     Managed TURN adds `elesim-coturn` on the Sim host.
-  - Use `elesim-uninstall --plan`, then retype the exact prefix with
-    `--confirm-prefix`. Logs and operator Authority remain unless their purge
-    flags are supplied. On Robot, remove the exact two installed systemd units
+  - Use `elesim-uninstall --plan` to inspect or `elesim-uninstall` to validate
+    again and remove immediately. Logs and owned operator Authority are removed
+    unless their `--keep-*` flags are supplied. On Robot, remove the exact two installed systemd units
     using the refusal message before rerunning the plan.
   - Native Robot setup generates `elesim-robot.service` plus
     `elesim-unitree-bridge.service`; it prints but never executes account/group,

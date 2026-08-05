@@ -376,8 +376,7 @@ def verify_release_context(
             cwd=release_path,
             env=clean_env,
         )
-        probe_env = clean_env.copy()
-        probe_env["PYTHONPATH"] = str(target)
+        probe_env = _probe_environment(clean_env, target)
         _run_checked(
             (
                 python,
@@ -394,6 +393,18 @@ def verify_release_context(
             cwd=release_path,
             env=probe_env,
         )
+
+
+def _probe_environment(
+    clean_env: Mapping[str, str], target: Path
+) -> dict[str, str]:
+    result = dict(clean_env)
+    result["PYTHONPATH"] = str(target)
+    # Verification must be read-only with respect to the release tree. The
+    # persistent developer environment enables tracing globally, while
+    # Pilot/Sim resolve a relative trace directory from their working tree.
+    result["ELESIM_TRACE"] = "0"
+    return result
 
 
 def verify_release_tree(

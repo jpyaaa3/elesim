@@ -77,10 +77,11 @@ def tailscale_proxy_command(
 
     Docker Desktop/WSL may place the manager in a network namespace that cannot
     see the WSL ``tailscale0`` interface.  The generated wrapper optionally
-    mounts the host Tailscale CLI and local API socket; using ``tailscale nc``
-    keeps the actual WireGuard path on the host while the manager still owns
-    SSH host-key pinning and Paramiko authentication.  No proxy is selected for
-    ordinary addresses or when the wrapper did not explicitly provide it.
+    exposes a private, allowlisted host-helper socket; using its ``tailscale
+    nc`` operation keeps the actual WireGuard path on the host while the
+    manager still owns SSH host-key pinning and Paramiko authentication.  The
+    manager never receives the tailscaled local API socket.  No proxy is
+    selected for ordinary addresses or when the wrapper did not provide it.
     Callers that already selected explicit Tailscale SSH may set ``force`` for
     MagicDNS hostnames.
     """

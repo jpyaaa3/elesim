@@ -27,6 +27,13 @@ from elesim_setup.uninstall import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_uninstall_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+
 def _write(path: Path, value: str = "owned\n", *, executable: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding="utf-8")
@@ -85,7 +92,7 @@ def _manifest(
     return manifest, bashrc, external, logs, authority, static
 
 
-def test_default_uninstall_preserves_logs_authority_external_and_foreign_files(
+def test_default_uninstall_removes_logs_authority_but_preserves_external_and_foreign(
     tmp_path: Path,
 ) -> None:
     manifest, bashrc, external, logs, authority, static = _manifest(tmp_path)
@@ -100,8 +107,8 @@ def test_default_uninstall_preserves_logs_authority_external_and_foreign_files(
     assert tombstone.is_file()
     assert not manifest.path.exists()
     assert external.joinpath("do-not-delete.pem").is_file()
-    assert logs.joinpath("runs/one/pilot.log").is_file()
-    assert authority.joinpath("private/identity_ca.key.pem").is_file()
+    assert not logs.exists()
+    assert not authority.exists()
     assert foreign.read_text(encoding="utf-8") == "mine\n"
     assert not dynamic_runtime_key.exists()
     assert not static.joinpath("generated.txt").exists()
@@ -109,22 +116,22 @@ def test_default_uninstall_preserves_logs_authority_external_and_foreign_files(
     assert bashrc.read_text(encoding="utf-8") == "export EDITOR=vim\n"
     payload = json.loads(tombstone.read_text(encoding="utf-8"))
     assert payload["install_uuid"] == manifest.install_uuid
-    assert payload["purged_logs"] is False
-    assert payload["purged_authority"] is False
+    assert payload["purged_logs"] is True
+    assert payload["purged_authority"] is True
 
 
-def test_explicit_purge_flags_remove_logs_and_authority(tmp_path: Path) -> None:
+def test_explicit_keep_flags_preserve_logs_and_authority(tmp_path: Path) -> None:
     manifest, _bashrc, _external, logs, authority, _static = _manifest(tmp_path)
 
     plan = plan_uninstall(
         manifest.path,
-        purge_logs=True,
-        purge_authority=True,
+        purge_logs=False,
+        purge_authority=False,
     )
     execute_uninstall(plan, confirm_prefix=manifest.prefix)
 
-    assert not logs.exists()
-    assert not authority.exists()
+    assert logs.is_dir()
+    assert authority.is_dir()
 
 
 def test_changed_wrapper_aborts_before_any_mutation(tmp_path: Path) -> None:
@@ -614,11 +621,14 @@ def test_host_bundle_runs_plan_without_container_or_installed_package(
     assert not bundle.root.joinpath("elesim_setup/__pycache__").exists()
 
     removed = subprocess.run(
-        (str(bundle.wrapper), "--confirm-prefix", manifest.prefix),
+        (str(bundle.wrapper),),
         check=False,
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin"},
+        env={
+            "PATH": "/usr/bin:/bin",
+            "XDG_STATE_HOME": str(tmp_path / "standalone-state"),
+        },
     )
 
     assert removed.returncode == 0, removed.stderr
@@ -673,7 +683,7 @@ def test_developer_manifest_and_tombstone_stay_out_of_workspace_root(
     plan = plan_uninstall(manifest.path)
     tombstone = execute_uninstall(plan, confirm_prefix=manifest.prefix)
 
-    assert tombstone.parent == generated
+    assert tombstone.parent == tmp_path / "state/elesim/uninstall"
     assert tombstone.is_file()
     assert not workspace.joinpath("install-ownership.json").exists()
     assert not any(workspace.glob("uninstall-tombstone-*.json"))
