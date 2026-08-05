@@ -160,6 +160,8 @@
             <h1 data-i18n="network.title"></h1>
             <p data-i18n="network.subtitle"></p>
           </header>
+          <div class="inline-notice" data-i18n="network.manager.help"></div>
+          <div id="connection-manager-fields" hidden>
           <div class="form-grid">
             <div class="field">
               <label for="dds-system-id" data-i18n="dds.system"></label>
@@ -203,11 +205,11 @@
             <legend data-i18n="dds.security"></legend>
             <div class="choice-list">
               <label class="choice danger">
-                <input type="radio" name="dds-security-profile" value="trusted-network" checked>
+                <input type="radio" name="dds-security-profile" value="trusted-network">
                 <span><strong data-i18n="dds.security.trusted"></strong><small data-i18n="dds.security.trusted.help"></small></span>
               </label>
               <label class="choice">
-                <input type="radio" name="dds-security-profile" value="sros2">
+                <input type="radio" name="dds-security-profile" value="sros2" checked>
                 <span><strong data-i18n="dds.security.sros2"></strong><small data-i18n="dds.security.sros2.help"></small></span>
               </label>
             </div>
@@ -263,6 +265,7 @@
               <code id="ssh-fingerprint" data-i18n="ssh.not.checked"></code>
             </div>
           </details>
+          </div>
 
           <fieldset id="turn-section">
             <legend data-i18n="turn.title"></legend>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import stat
@@ -60,6 +61,26 @@ def detect_tailscale(
     minimal host and does not require the local user to have Tailscale admin
     privileges.  A missing binary/interface is a normal, actionable result.
     """
+
+    inherited_hint = os.environ.get("ELESIM_TAILSCALE_ADDRESS", "").strip()
+    if inherited_hint:
+        addresses: list[str] = []
+        for candidate in inherited_hint.split(","):
+            value = candidate.strip()
+            try:
+                address = ipaddress.ip_address(value)
+            except ValueError:
+                continue
+            if address.version == 4 and not address.is_unspecified and value not in addresses:
+                addresses.append(value)
+        if addresses:
+            return TailscaleDetection(
+                True,
+                interface=os.environ.get("ELESIM_TAILSCALE_INTERFACE", "tailscale0")
+                or "tailscale0",
+                addresses=tuple(addresses),
+                detail="read-only Tailscale address hint supplied by the host wrapper",
+            )
 
     probe = subprocess.run if runner is None else runner
     try:

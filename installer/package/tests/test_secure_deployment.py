@@ -359,6 +359,7 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
 
     assert transport.username == "operator"
     assert transport.authenticated is True
+    assert transport.auth_timeout == 4
     session.__exit__(None, None, None)
     assert transport.closed is True
 

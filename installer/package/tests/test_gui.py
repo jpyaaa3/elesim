@@ -42,10 +42,13 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "mode.developer" in catalog["ko"]
 
     script = (root / "app.js").read_text(encoding="utf-8")
+    html = (root / "index.html").read_text(encoding="utf-8")
     assert 'byId("dds-domain-id").value = context.defaults.dds_domain_id;' in script
     assert '"dds-security-profile"' in script
     assert '"dds-security-provisioning"' in script
     assert 'const roleOrder = ["sim", "pilot", "ui", "robot"];' in script
+    assert 'id="connection-manager-fields" hidden' in html
+    assert 'data-i18n="network.manager.help"' in html
     assert 'const defaultGeneralRoles = ["sim", "pilot", "ui"];' in script
     assert "data-preset" not in script
     assert "applyPreset" not in script
@@ -76,6 +79,7 @@ def test_context_defaults_to_original_invocation_directory(tmp_path: Path) -> No
 
     assert context["defaults"]["prefix"] == str(invocation)
     assert context["defaults"]["bin_dir"] == str(invocation / "bin")
+    assert context["defaults"]["dds_security_profile"] == "sros2"
     assert context["defaults"]["dds_security_provisioning"] == "managed"
     assert context["repository"] == "owner/repo"
     assert context["ref"] == "feature"

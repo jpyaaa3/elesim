@@ -129,7 +129,9 @@ function updateMode() {
     byId("dds-domain-id").value = context.defaults.dds_domain_id;
     byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
     document.querySelector('input[name="dds-discovery-mode"][value="multicast"]').checked = true;
-    document.querySelector('input[name="dds-security-profile"][value="trusted-network"]').checked = true;
+    document.querySelector(
+      `input[name="dds-security-profile"][value="${context.defaults.dds_security_profile}"]`
+    ).checked = true;
     byId("dds-static-peers").value = "";
     byId("dds-interface").value = "";
     byId("dds-keystore").value = "";
@@ -588,6 +590,10 @@ async function initialize() {
     byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
     byId("dds-interface").value = context.defaults.dds_interface;
     byId("dds-static-peers").value = context.defaults.dds_static_peers;
+    const securityProfile = document.querySelector(
+      `input[name="dds-security-profile"][value="${context.defaults.dds_security_profile}"]`
+    );
+    if (securityProfile) securityProfile.checked = true;
     document.querySelector(
       `input[name="dds-security-provisioning"][value="${context.defaults.dds_security_provisioning}"]`
     ).checked = true;

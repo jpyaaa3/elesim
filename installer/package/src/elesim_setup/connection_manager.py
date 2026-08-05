@@ -237,6 +237,7 @@ class PreflightSshEndpoint:
     host: str
     port: int
     user: str
+    auth_mode: str = "openssh"
 
     def validate(self) -> "PreflightSshEndpoint":
         _validate_network_host(self.host, name="preflight SSH host")
@@ -245,23 +246,35 @@ class PreflightSshEndpoint:
         user = _plain_text(self.user, name="preflight SSH user", maximum=128)
         if any(character.isspace() for character in user):
             raise ValueError("preflight SSH user must not contain whitespace")
+        if self.auth_mode not in SSH_AUTH_MODES:
+            raise ValueError(f"unsupported preflight SSH auth_mode: {self.auth_mode!r}")
+        if self.auth_mode == "tailscale" and int(self.port) != 22:
+            raise ValueError("Tailscale SSH preflight uses port 22")
         return self
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
-        return {"host": self.host, "port": int(self.port), "user": self.user}
+        result = {"host": self.host, "port": int(self.port), "user": self.user}
+        if self.auth_mode != "openssh":
+            result["auth_mode"] = self.auth_mode
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "PreflightSshEndpoint":
         values = _strict_object(
             raw,
             required={"host", "port", "user"},
+            optional={"auth_mode"},
             name="preflight ssh",
         )
         return cls(
             host=_required_string(values["host"], name="preflight.ssh.host"),
             port=_required_integer(values["port"], name="preflight.ssh.port"),
             user=_required_string(values["user"], name="preflight.ssh.user"),
+            auth_mode=_optional_string(
+                values.get("auth_mode", "openssh"), name="preflight.ssh.auth_mode"
+            )
+            or "openssh",
         ).validate()
 
 

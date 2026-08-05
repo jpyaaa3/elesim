@@ -27,6 +27,7 @@ participant 사이에 양방향 UDP 경로가 있어야 한다.
 | 처음 설치 | [빠른 설치](#빠른-설치) · [설치 종류](#설치-종류) | `curl ... \| bash` |
 | 한 컴퓨터에서 시뮬레이션 | [단일 컴퓨터 시뮬레이션](#단일-컴퓨터-시뮬레이션) | `elesim-up` |
 | 여러 컴퓨터 연결 | [연결 관리자](#연결-관리자) · [원격 시뮬레이션 호스트](#원격-시뮬레이션-호스트) | `elesim-connections` |
+| 설치 전 준비·빈칸 작성 | [Zero2Omega 사용자 안내서](docs/zero2omega.md) | 설치 전제지식·입력 예시 |
 | 로그·진단 | [설치 후 명령](#설치-후-명령) · [네트워크 진단](#네트워크-진단) | `elesim-logs`, `elesim-net doctor` |
 | 제거·재설치 | [제거와 재설치](#제거와-재설치) | `elesim-uninstall --plan` |
 
@@ -38,6 +39,7 @@ participant 사이에 양방향 UDP 경로가 있어야 한다.
 - [설치 후 명령](#설치-후-명령)
 - [단일 컴퓨터 시뮬레이션](#단일-컴퓨터-시뮬레이션)
 - [원격 시뮬레이션 호스트](#원격-시뮬레이션-호스트)
+- [Zero2Omega 사용자 안내서](docs/zero2omega.md)
 - [실제 Robot Jetson](#실제-robot-jetson)
 - [네트워크 진단](#네트워크-진단)
 - [종료와 보안](#종료와-보안)
@@ -253,6 +255,11 @@ SSH server의 포트일 뿐 DDS 설정에 들어가지 않는다.
 ```bash
 elesim-connections
 ```
+
+일반 설치기의 `통신과 보안` 단계는 이제 기본값과 TURN 선택만 보여준다.
+DDS 주소·인터페이스·SSH endpoint·SROS2 generation은 실행 시점에 바뀌는
+토폴로지이므로 연결 관리자에서 입력한다. 연결 관리자가 SROS2 자료를 생성·배포하므로
+사용자가 AES 값이나 개인키 본문을 설치기에 입력할 필요가 없다.
 
 연결 관리자는 두 가지 명시적 topology mode를 제공한다.
 
@@ -639,5 +646,6 @@ docs/                         아키텍처·설치·배포 문서
 - [설정 체계](docs/configuration.md)
 - [설치기 내부와 네트워크 진단](docs/setup.md)
 - [릴리스와 멀티호스트 배포](docs/deployment.md)
+- [Zero2Omega 사용자 안내서](docs/zero2omega.md)
 - [마일스톤과 남은 인수시험](docs/MILESTONES.md)
 - [미해결 문제](docs/OPEN_ISSUES_KR.md)

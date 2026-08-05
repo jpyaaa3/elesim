@@ -163,7 +163,7 @@ def test_sros2_provision_rejects_an_existing_active_generation(
         local_install_root=tmp_path / "install",
     )
 
-    with pytest.raises(ValueError, match="rotate 또는 deploy"):
+    with pytest.raises(ValueError, match="provision/deploy"):
         runner(topology, "provision", lambda _message: None)
 
 

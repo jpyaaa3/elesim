@@ -130,12 +130,14 @@ def _application(
     *,
     runner=lambda _topology, _action, _log: None,
     probe=None,
+    tailscale_probe=None,
 ) -> ConnectionManagerApplication:
     return ConnectionManagerApplication(
         state_path=tmp_path / "connections.json",
         token="test-session-token",
         runner=runner,
         fingerprint_probe=probe,
+        tailscale_fingerprint_probe=tailscale_probe,
     )
 
 
@@ -164,6 +166,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="unused"' in html
     assert 'id="topology-mode"' in html
     assert "simulation-only" in script
+    assert 'byId("deploy").hidden = sros2;' in script
+    assert 'byId("provision").hidden = !sros2;' in script
     assert 'data-drop-slot="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
     assert 'roleLocations.robot = "robot"' in script
@@ -206,6 +210,8 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     assert saved["saved"] is True and saved["mode"] == "0600"
     assert app.state_path.stat().st_mode & 0o777 == 0o600
     assert context["topology"] == topology.to_dict()
+    assert context["manager_transport"]["containerized"] is False
+    assert context["manager_transport"]["tailscale_proxy"] is False
     assert context["derived_static_peers"]["compute"] == [
         "100.64.0.10",
         "100.64.0.30",
@@ -256,6 +262,29 @@ def test_fingerprint_probe_uses_explicit_non_default_ssh_port(tmp_path: Path) ->
     invalid = _application(tmp_path, probe=lambda _host, _port: "SHA256:not-valid")
     with pytest.raises(RuntimeError, match="invalid host-key"):
         invalid.probe_fingerprint({"host": "compute.example", "port": 2222})
+
+
+def test_tailscale_probe_uses_keyless_probe_and_port_22(tmp_path: Path) -> None:
+    calls: list[tuple[str, int]] = []
+
+    def probe(host: str, port: int) -> str:
+        calls.append((host, port))
+        return FINGERPRINT
+
+    app = _application(
+        tmp_path,
+        probe=lambda _host, _port: pytest.fail("ordinary SSH probe must not run"),
+        tailscale_probe=probe,
+    )
+
+    assert app.probe_fingerprint(
+        {"host": "100.74.222.24", "port": 22, "auth_mode": "tailscale"}
+    ) == {"fingerprint": FINGERPRINT}
+    assert calls == [("100.74.222.24", 22)]
+    with pytest.raises(ValueError, match="port 22"):
+        app.probe_fingerprint(
+            {"host": "100.74.222.24", "port": 2222, "auth_mode": "tailscale"}
+        )
 
 
 def test_two_host_preflight_is_ephemeral_and_can_probe_ssh(tmp_path: Path) -> None:

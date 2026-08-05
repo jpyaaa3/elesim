@@ -238,6 +238,10 @@ meaning of loopback for generated runtime role containers. The transient
 connection-manager container is deliberately bridged and publishes only its
 selected GUI port on host loopback; this keeps the browser reachable on Docker
 Desktop/WSL where container host networking is a separate namespace. The
+wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
+host-key and deployment connections through `tailscale nc` when the bridge
+cannot directly route the WSL `tailscale0` interface. This is read-only with
+respect to Tailscale configuration and is only a path fallback.
 generated project name is `elesim-runtime`; images are `elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and
 `elesim-sim`. Managed TURN adds `elesim-coturn`. The tools service is
@@ -495,6 +499,15 @@ is only a convenience hint: it never installs Tailscale, logs in, changes ACLs,
 or hard-codes an address, and the operator must refresh the value after a
 Tailscale reconnect. A routed VPN is recommended for hosts on different
 networks; DDS still requires a bidirectional UDP path.
+
+The setup wizard intentionally keeps the shared DDS/security/SSH fields out of
+the normal interaction path. General installs start with a managed SROS2
+pending marker; the operator then enters the mutable host addresses, Tailscale
+interface, SSH mode/user and host-key confirmation in `elesim-connections`.
+The manager creates the SROS2 generation and role bundles itself, so an
+operator never types an AES value or private-key body into setup. The optional
+TURN section remains in setup because TURN ownership is Sim-specific and is not
+part of the non-secret connection topology.
 
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of

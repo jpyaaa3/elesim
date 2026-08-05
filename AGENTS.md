@@ -119,6 +119,13 @@
     `stop` and `restart` host-lifecycle jobs. Compose `start` builds missing
     images just like `elesim-up`; these report Compose/systemd management state
     only and do not claim DDS discovery or WebRTC media.
+  - The generated connection-manager wrapper publishes its selected GUI port
+    on host loopback instead of relying on container host networking. When the
+    host exposes `/var/run/tailscale/tailscaled.sock` (or `/run/...`) and a
+    `tailscale` CLI, the wrapper mounts them through the local API and gives
+    the manager a bounded `tailscale nc` proxy for Tailscale CGNAT addresses.
+    This is a route fallback for Docker Desktop/WSL; it does not install
+    Tailscale or change its ACLs.
   - `elesim-connections` exposes the two topology modes above. In
     `simulation-only`, the GUI hides the fixed Robot card, allows one to three
     active COM cards, and serializes exactly one Pilot, Sim, and UI.
@@ -280,6 +287,12 @@
     roles, 2..4 hosts) or `simulation-only` (Pilot/Sim/UI, 1..3
     hosts), validate independent DDS/SSH endpoints, provision or rotate managed
     SROS2 bundles, and deploy them transactionally.
+  - Managed SROS2 `provision` (or the first `deploy` alias) creates and applies
+    one generation atomically. Once a generation is active, repeating either
+    action is rejected; use `rotate` for an intentional replacement. The setup
+    wizard keeps mutable DDS/security/SSH fields at manager-owned defaults and
+    leaves endpoint/key work to this GUI. No AES value or private-key body is
+    entered into setup.
   - Before Jetson is available, use the GUI's `두 호스트 점검`/`Two-host endpoint
     preflight` with exactly two active COM cards. DDS addresses are mutable
     hostname/IP values without ports; `tailscale0` is an interface example.

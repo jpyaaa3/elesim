@@ -101,6 +101,83 @@ def test_ssh_fingerprint_uses_the_supplied_non_default_port(
     assert fingerprint.startswith("SHA256:")
 
 
+def test_ssh_fingerprint_uses_host_tailscale_proxy_for_cgnat_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Proxy:
+        def __init__(self, command: str) -> None:
+            calls.append(command)
+
+        def close(self) -> None:
+            pass
+
+    class Connection:
+        def close(self) -> None:
+            raise AssertionError("the direct socket path must not be used")
+
+    class Key:
+        @staticmethod
+        def asbytes() -> bytes:
+            return b"server-key"
+
+    class Transport:
+        def __init__(self, _connection):
+            pass
+
+        def start_client(self, *, timeout: float) -> None:
+            assert timeout == 3.0
+
+        @staticmethod
+        def get_remote_server_key() -> Key:
+            return Key()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY", "1")
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY_BIN", "/usr/local/bin/tailscale")
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_SOCKET", "/var/run/tailscale/tailscaled.sock"
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(
+            Transport=Transport,
+            proxy=SimpleNamespace(ProxyCommand=Proxy),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "paramiko.proxy", SimpleNamespace(ProxyCommand=Proxy))
+    monkeypatch.setattr(
+        "elesim_setup.credentials.socket.create_connection",
+        lambda *_args, **_kwargs: Connection(),
+    )
+
+    fingerprint = probe_ssh_fingerprint("100.74.222.24", 22, timeout_s=3.0)
+
+    assert fingerprint.startswith("SHA256:")
+    assert calls == [
+        "/usr/local/bin/tailscale --socket=/var/run/tailscale/tailscaled.sock nc 100.74.222.24 22"
+    ]
+
+
+def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ELESIM_CONNECTION_PUBLISHED", "1")
+    monkeypatch.setattr(
+        "elesim_setup.credentials.socket.create_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError()),
+    )
+    monkeypatch.setitem(sys.modules, "paramiko", SimpleNamespace(Transport=object))
+
+    with pytest.raises(RuntimeError, match="Docker 컨테이너") as error:
+        probe_ssh_fingerprint("100.74.222.24", 22)
+    assert "tailscale" in str(error.value).lower()
+
+
 def test_external_turn_credentials_use_strict_bounded_json(tmp_path: Path) -> None:
     credentials = tmp_path / "turn.credentials.json"
     credentials.write_text(

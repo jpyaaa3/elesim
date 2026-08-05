@@ -30,6 +30,7 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
+from .credentials import tailscale_proxy_command
 
 
 MAX_BUNDLE_FILES = 256
@@ -48,6 +49,10 @@ class HostKeyVerificationError(RuntimeError):
 
 class SshAuthenticationError(RuntimeError):
     """The selected SSH authentication method was not accepted by the host."""
+
+
+class SshConnectionError(RuntimeError):
+    """The manager could not reach an SSH endpoint before authentication."""
 
 
 class RemoteCommandError(RuntimeError):
@@ -359,10 +364,24 @@ class ParamikoConnector:
         connection: object | None = None
         transport: object | None = None
         try:
-            connection = socket.create_connection(
-                (endpoint.host, int(endpoint.port)), timeout=self._timeout_s
+            proxy_command = tailscale_proxy_command(
+                endpoint.host,
+                int(endpoint.port),
+                force=True,
             )
+            if proxy_command is None:
+                connection = socket.create_connection(
+                    (endpoint.host, int(endpoint.port)), timeout=self._timeout_s
+                )
+            else:
+                from paramiko.proxy import ProxyCommand
+
+                connection = ProxyCommand(proxy_command)
             transport = paramiko.Transport(connection)  # type: ignore[attr-defined]
+            # Paramiko's Transport defaults auth_timeout to None.  Tailscale
+            # ``action=check`` can otherwise leave a headless rollout waiting
+            # forever while the user has not approved the interactive check.
+            transport.auth_timeout = self._timeout_s  # type: ignore[attr-defined]
             transport.start_client(timeout=self._timeout_s)  # type: ignore[attr-defined]
             key = transport.get_remote_server_key()  # type: ignore[attr-defined]
             _verify_pinned_host_key(endpoint, key)
@@ -408,6 +427,19 @@ class ParamikoConnector:
             )
         except (HostKeyVerificationError, SshAuthenticationError):
             raise
+        except (TimeoutError, socket.timeout) as exc:
+            raise SshConnectionError(
+                f"SSH connection to {endpoint.host}:{endpoint.port} timed out. "
+                "Check the remote SSH service, Tailscale SSH/ACL, and the "
+                "connection-manager network path."
+            ) from exc
+        except OSError as exc:
+            detail = str(exc).strip() or exc.__class__.__name__
+            raise SshConnectionError(
+                f"SSH connection to {endpoint.host}:{endpoint.port} failed: {detail}. "
+                "Check the remote SSH service, Tailscale SSH/ACL, and the "
+                "connection-manager network path."
+            ) from exc
         finally:
             if transport is not None:
                 transport.close()  # type: ignore[attr-defined]
@@ -1692,6 +1724,7 @@ __all__ = [
     "SecurityFile",
     "Sros2BundleIssuer",
     "SshAuthenticationError",
+    "SshConnectionError",
     "SshConnector",
     "SshHostOperations",
     "SshSession",

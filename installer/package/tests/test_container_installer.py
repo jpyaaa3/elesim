@@ -153,6 +153,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "--name elesim-manager" in wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in wrapper
     assert "manager_args+=(--host 0.0.0.0)" in wrapper
+    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale" in wrapper
+    assert "/var/run/tailscale/tailscaled.sock" in wrapper
     assert "existing_manager=\"$(docker ps -aq" in wrapper
     assert "manager_running=\"$(docker inspect" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper

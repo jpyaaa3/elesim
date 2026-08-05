@@ -107,10 +107,10 @@ class ConnectionDeploymentRunner:
                 self.authority_root / topology.system_id
             )
             active = authority.active()
-            if action == "provision" and active is not None:
+            if action in {"provision", "deploy"} and active is not None:
                 raise ValueError(
-                    "이미 활성 SROS2 generation이 있습니다. rotate 또는 deploy를 "
-                    "사용하십시오."
+                    "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
+                    "rotate로 교체하십시오. provision/deploy를 반복하지 않습니다."
                 )
             if action == "rotate" and active is None:
                 raise ValueError(

@@ -94,7 +94,7 @@ class WizardApplication:
                 "dds_discovery_mode": "multicast",
                 "dds_static_peers": "",
                 "dds_interface": "",
-                "dds_security_profile": "trusted-network",
+                "dds_security_profile": "sros2",
                 "dds_security_provisioning": "managed",
                 "dds_keystore": "",
                 "dds_enclave": "",

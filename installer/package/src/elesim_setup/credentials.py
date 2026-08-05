@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
+import shlex
 import shutil
 import socket
 import time
@@ -19,10 +21,27 @@ from pathlib import Path
 from elesim_protocol import TurnCredentials
 
 
-def probe_ssh_fingerprint(host: str, port: int, *, timeout_s: float = 8.0) -> str:
+class SshProbeError(RuntimeError):
+    """A host-key probe failed before a fingerprint could be read."""
+
+
+def probe_ssh_fingerprint(
+    host: str,
+    port: int,
+    *,
+    timeout_s: float = 8.0,
+    force_tailscale_proxy: bool = False,
+) -> str:
     import paramiko
 
-    with socket.create_connection((host, int(port)), timeout=timeout_s) as connection:
+    connection = _open_probe_connection(
+        host,
+        int(port),
+        timeout_s,
+        force_tailscale_proxy=force_tailscale_proxy,
+    )
+    transport = None
+    try:
         transport = paramiko.Transport(connection)
         try:
             transport.start_client(timeout=timeout_s)
@@ -30,6 +49,121 @@ def probe_ssh_fingerprint(host: str, port: int, *, timeout_s: float = 8.0) -> st
             return _fingerprint(key.asbytes())
         finally:
             transport.close()
+    except (TimeoutError, socket.timeout) as exc:
+        raise SshProbeError(_probe_failure(host, port, "timed out")) from exc
+    except ConnectionRefusedError as exc:
+        raise SshProbeError(_probe_failure(host, port, "connection refused")) from exc
+    except OSError as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise SshProbeError(_probe_failure(host, port, detail)) from exc
+    except Exception as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise SshProbeError(_probe_failure(host, port, f"SSH handshake failed: {detail}")) from exc
+    finally:
+        if transport is None:
+            try:
+                connection.close()  # type: ignore[attr-defined]
+            except BaseException:
+                pass
+
+
+def tailscale_proxy_command(
+    host: str,
+    port: int,
+    *,
+    force: bool = False,
+) -> str | None:
+    """Return a host-Tailscale ``nc`` proxy command when the wrapper provides one.
+
+    Docker Desktop/WSL may place the manager in a network namespace that cannot
+    see the WSL ``tailscale0`` interface.  The generated wrapper optionally
+    mounts the host Tailscale CLI and local API socket; using ``tailscale nc``
+    keeps the actual WireGuard path on the host while the manager still owns
+    SSH host-key pinning and Paramiko authentication.  No proxy is selected for
+    ordinary addresses or when the wrapper did not explicitly provide it.
+    Callers that already selected explicit Tailscale SSH may set ``force`` for
+    MagicDNS hostnames.
+    """
+
+    if os.environ.get("ELESIM_TAILSCALE_PROXY") != "1":
+        return None
+    value = str(host).strip()
+    if not force:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return None
+        if address.version != 4 or address not in ipaddress.ip_network("100.64.0.0/10"):
+            return None
+    binary = os.environ.get("ELESIM_TAILSCALE_PROXY_BIN", "").strip()
+    socket_path = os.environ.get("ELESIM_TAILSCALE_PROXY_SOCKET", "").strip()
+    if (
+        not binary
+        or not socket_path
+        or not binary.startswith("/")
+        or not socket_path.startswith("/")
+    ):
+        return None
+    if any("\x00" in value for value in (binary, socket_path)):
+        return None
+    return (
+        f"{shlex.quote(binary)} --socket={shlex.quote(socket_path)} nc "
+        f"{shlex.quote(value)} {int(port)}"
+    )
+
+
+def _open_probe_connection(
+    host: str,
+    port: int,
+    timeout_s: float,
+    *,
+    force_tailscale_proxy: bool,
+) -> object:
+    proxy_command = tailscale_proxy_command(
+        host,
+        port,
+        force=force_tailscale_proxy,
+    )
+    if proxy_command is None:
+        try:
+            return socket.create_connection((host, port), timeout=timeout_s)
+        except (TimeoutError, socket.timeout) as exc:
+            raise SshProbeError(_probe_failure(host, port, "timed out")) from exc
+        except ConnectionRefusedError as exc:
+            raise SshProbeError(_probe_failure(host, port, "connection refused")) from exc
+        except OSError as exc:
+            detail = str(exc).strip() or exc.__class__.__name__
+            raise SshProbeError(_probe_failure(host, port, detail)) from exc
+
+    try:
+        from paramiko.proxy import ProxyCommand
+
+        return ProxyCommand(proxy_command)
+    except Exception as exc:
+        detail = str(exc).strip() or exc.__class__.__name__
+        raise SshProbeError(
+            _probe_failure(host, port, f"Tailscale host proxy could not start: {detail}")
+        ) from exc
+
+
+def _probe_failure(host: str, port: int, reason: str) -> str:
+    origin = "연결관리자 Docker 컨테이너"
+    if os.environ.get("ELESIM_CONNECTION_PUBLISHED") != "1":
+        origin = "연결관리자 실행 호스트"
+    tail = (
+        " Tailscale SSH라면 원격 호스트에서도 `sudo tailscale set --ssh`와 ACL의 "
+        "SSH 허용을 확인하고, Tailscale 주소는 22번을 사용하십시오."
+    )
+    container_hint = (
+        " 이 관리자는 Docker 컨테이너에서 실행 중입니다. 호스트 터미널의 "
+        "`nc -vz -w 8 HOST PORT`가 성공해도 컨테이너 경로가 막힐 수 있습니다."
+        if os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1"
+        else ""
+    )
+    return (
+        f"SSH host-key probe가 {origin}에서 {host}:{port}에 대해 {reason}되었습니다."
+        f"{container_hint}{tail}"
+    )
 
 
 def install_staged_credentials(
@@ -121,5 +255,7 @@ def _fingerprint(key_bytes: bytes) -> str:
 __all__ = [
     "install_staged_credentials",
     "probe_ssh_fingerprint",
+    "SshProbeError",
+    "tailscale_proxy_command",
     "validate_external_turn_credentials",
 ]

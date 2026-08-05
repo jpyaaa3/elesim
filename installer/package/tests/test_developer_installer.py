@@ -99,6 +99,8 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert f'ELESIM_OPERATOR_HOME={Path.home().resolve()}' in manager_wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in manager_wrapper
     assert "manager_args+=(--host 0.0.0.0)" in manager_wrapper
+    assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-tailscale" in manager_wrapper
+    assert "/var/run/tailscale/tailscaled.sock" in manager_wrapper
 
 
 def test_developer_install_records_nested_manifest_and_docker_uuid(

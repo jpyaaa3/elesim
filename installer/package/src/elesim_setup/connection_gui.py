@@ -92,6 +92,7 @@ class ConnectionManagerApplication:
         runner: ConnectionRunner,
         status_provider: StatusProvider | None = None,
         fingerprint_probe: FingerprintProbe | None = None,
+        tailscale_fingerprint_probe: FingerprintProbe | None = None,
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
     ) -> None:
@@ -102,6 +103,9 @@ class ConnectionManagerApplication:
         self.runner = runner
         self.status_provider = status_provider
         self.fingerprint_probe = fingerprint_probe or _default_fingerprint_probe
+        self.tailscale_fingerprint_probe = (
+            tailscale_fingerprint_probe or _default_tailscale_fingerprint_probe
+        )
         self.local_install_root = (
             "" if local_install_root is None else str(local_install_root.expanduser().resolve())
         )
@@ -128,6 +132,10 @@ class ConnectionManagerApplication:
             "local_defaults": {
                 "install_root": self.local_install_root,
                 "bin_dir": self.local_bin_dir,
+            },
+            "manager_transport": {
+                "containerized": os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1",
+                "tailscale_proxy": os.environ.get("ELESIM_TAILSCALE_PROXY") == "1",
             },
             "tailscale": tailscale,
         }
@@ -171,7 +179,11 @@ class ConnectionManagerApplication:
             }
             if probe_ssh:
                 result = self.probe_fingerprint(
-                    {"host": host.ssh.host, "port": host.ssh.port}
+                    {
+                        "host": host.ssh.host,
+                        "port": host.ssh.port,
+                        "auth_mode": host.ssh.auth_mode,
+                    }
                 )
                 check["checked"] = True
                 check["fingerprint"] = result["fingerprint"]
@@ -201,8 +213,13 @@ class ConnectionManagerApplication:
 
     def probe_fingerprint(self, payload: Mapping[str, Any]) -> dict[str, object]:
         keys = {str(key) for key in payload}
-        if keys != {"host", "port"}:
-            raise ValueError("SSH probe requires exactly host and port")
+        if not keys.issubset({"host", "port", "auth_mode"}) or not {
+            "host",
+            "port",
+        }.issubset(keys):
+            raise ValueError(
+                "SSH probe requires exactly host and port, plus optional auth_mode"
+            )
         host = payload["host"]
         port = payload["port"]
         if not isinstance(host, str) or not host.strip():
@@ -213,7 +230,15 @@ class ConnectionManagerApplication:
             or not 1 <= port <= 65535
         ):
             raise ValueError("SSH port must be in 1..65535")
-        fingerprint = self.fingerprint_probe(host.strip(), port)
+        auth_mode = payload.get("auth_mode", "openssh")
+        if auth_mode not in {"openssh", "tailscale"}:
+            raise ValueError("SSH probe auth_mode must be openssh or tailscale")
+        if auth_mode == "tailscale":
+            if port != 22:
+                raise ValueError("Tailscale SSH probe uses port 22")
+            fingerprint = self.tailscale_fingerprint_probe(host.strip(), port)
+        else:
+            fingerprint = self.fingerprint_probe(host.strip(), port)
         if not isinstance(fingerprint, str) or not _SSH_FINGERPRINT.fullmatch(
             fingerprint
         ):
@@ -577,6 +602,12 @@ def _default_fingerprint_probe(host: str, port: int) -> str:
     from .credentials import probe_ssh_fingerprint
 
     return probe_ssh_fingerprint(host, port)
+
+
+def _default_tailscale_fingerprint_probe(host: str, port: int) -> str:
+    from .credentials import probe_ssh_fingerprint
+
+    return probe_ssh_fingerprint(host, port, force_tailscale_proxy=True)
 
 
 def run_connection_gui(

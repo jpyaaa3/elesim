@@ -280,7 +280,8 @@ function preflightFromForm() {
         ssh: local ? null : {
           host: field(slot, "ssh-host").value.trim(),
           port: sshPort(slot),
-          user: field(slot, "ssh-user").value.trim()
+          user: field(slot, "ssh-user").value.trim(),
+          auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
         }
       };
     }),
@@ -368,12 +369,17 @@ function renderDerivedPeers() {
 }
 
 function updateSecurityWarning() {
-  byId("security-warning").textContent = byId("security").value === "sros2"
+  const sros2 = byId("security").value === "sros2";
+  byId("security-warning").textContent = sros2
     ? t("graph.sros2.help") : t("graph.trusted.warning");
-  byId("security-warning").classList.toggle("safe", byId("security").value === "sros2");
+  byId("security-warning").classList.toggle("safe", sros2);
   const running = ["running", "cancelling"].includes(byId("job-status").dataset.status || "");
-  byId("provision").disabled = running || byId("security").value !== "sros2";
-  byId("rotate").disabled = running || byId("security").value !== "sros2";
+  byId("provision").disabled = running || !sros2;
+  byId("provision").hidden = !sros2;
+  byId("deploy").disabled = running;
+  byId("deploy").hidden = sros2;
+  byId("rotate").disabled = running || !sros2;
+  byId("rotate").hidden = !sros2;
 }
 
 async function saveTopology({quiet = false} = {}) {
@@ -424,7 +430,11 @@ async function probeSsh(slot) {
   const port = sshPort(slot);
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
-    body: JSON.stringify({host, port})
+    body: JSON.stringify({
+      host,
+      port,
+      auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
+    })
   });
   const prompt = `${t("ssh.trust")}\n${host}:${port}\n${result.fingerprint}`;
   if (window.confirm(prompt)) {
@@ -467,8 +477,7 @@ async function pollRuntimeStatus() {
 
 function setJobRunning(running) {
   ["save", "preflight", "provision", "deploy", "topology-mode", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
-  byId("provision").disabled = running || byId("security").value !== "sros2";
-  byId("rotate").disabled = running || byId("security").value !== "sros2";
+  updateSecurityWarning();
   byId("cancel").disabled = !running;
 }
 
