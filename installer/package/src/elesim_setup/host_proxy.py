@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import threading
@@ -35,15 +36,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not payload.get("ok"):
         raise RuntimeError(str(payload.get("error", "host proxy refused")))
 
-    def upload() -> None:
-        while True:
-            content = sys.stdin.buffer.read(32 * 1024)
-            if not content:
-                break
-            connection.sendall(content)
-        connection.shutdown(socket.SHUT_WR)
-
-    worker = threading.Thread(target=upload, daemon=True)
+    worker = threading.Thread(
+        target=_upload_stdin,
+        args=(connection, sys.stdin.fileno()),
+        daemon=True,
+    )
     worker.start()
     while True:
         content = connection.recv(32 * 1024)
@@ -53,6 +50,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.buffer.flush()
     connection.close()
     return 0
+
+
+def _upload_stdin(connection: socket.socket, input_fd: int) -> None:
+    """Forward small SSH packets immediately instead of filling a read buffer."""
+
+    try:
+        while True:
+            content = os.read(input_fd, 32 * 1024)
+            if not content:
+                break
+            connection.sendall(content)
+    finally:
+        connection.shutdown(socket.SHUT_WR)
 
 
 def _read_line(connection: socket.socket) -> bytes:

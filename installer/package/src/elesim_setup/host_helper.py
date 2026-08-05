@@ -132,7 +132,10 @@ class _Handler(socketserver.StreamRequestHandler):
         assert process.stdout is not None
         try:
             while True:
-                data = process.stdout.read(32 * 1024)
+                # BufferedReader.read(size) may wait for the complete size.
+                # SSH starts with tiny, bidirectional banner/KEX packets, so
+                # forwarding must release whatever the pipe currently has.
+                data = os.read(process.stdout.fileno(), 32 * 1024)
                 if not data:
                     break
                 self.connection.sendall(data)
