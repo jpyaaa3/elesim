@@ -105,7 +105,9 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "trap manager_cleanup EXIT" in manager_wrapper
     assert "docker rm elesim-manager" in manager_wrapper
     assert "manager_status=$?" in manager_wrapper
-    assert "ELESIM_TAILSCALE_GID" in manager_wrapper
+    assert "manager_gids=(\"$ELESIM_DOCKER_GID\")" in manager_wrapper
+    assert "manager_override=\"$(mktemp" in manager_wrapper
+    assert "manager_compose_args+=(-f \"$manager_override\")" in manager_wrapper
     assert "--group-add" not in manager_wrapper
 
 

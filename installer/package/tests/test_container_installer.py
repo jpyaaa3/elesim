@@ -149,8 +149,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "container_name" not in manager
     assert "network_mode" not in manager
     assert "/var/run/docker.sock:/var/run/docker.sock:rw" in manager["volumes"]
-    assert "${ELESIM_DOCKER_GID:-0}" in manager["group_add"]
-    assert "${ELESIM_TAILSCALE_GID:-0}" in manager["group_add"]
+    assert "group_add" not in manager
     wrapper = (state.bin_path / "elesim-connections").read_text(encoding="utf-8")
     assert "--name elesim-manager" in wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in wrapper
@@ -163,7 +162,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "trap manager_cleanup EXIT" in wrapper
     assert "docker rm elesim-manager" in wrapper
     assert "manager_status=$?" in wrapper
-    assert "ELESIM_TAILSCALE_GID" in wrapper
+    assert "manager_gids=(\"$ELESIM_DOCKER_GID\")" in wrapper
+    assert "manager_override=\"$(mktemp" in wrapper
+    assert "manager_compose_args+=(-f \"$manager_override\")" in wrapper
     assert "--group-add" not in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
