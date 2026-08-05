@@ -61,7 +61,7 @@ def test_developer_install_generates_one_privileged_workspace_service(
 
     compose_path = request.prefix / ".elesim/development/compose.yaml"
     compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
-    assert compose["name"] == "elesim-dev-stack"
+    assert compose["name"] == "elesim-runtime-dev"
     assert set(compose["services"]) == {"dev", "manager", "jaeger"}
     dev = compose["services"]["dev"]
     assert dev["image"] == "elesim/dev:local"
@@ -116,7 +116,7 @@ def test_developer_install_records_nested_manifest_and_docker_uuid(
     assert not (request.prefix / "install-ownership.json").exists()
     assert manifest.docker is not None
     assert manifest.docker.install_uuid == manifest.install_uuid
-    assert manifest.docker.project == compose["name"] == "elesim-dev-stack"
+    assert manifest.docker.project == compose["name"] == "elesim-runtime-dev"
     assert manifest.docker.compose_file == str(
         request.prefix / ".elesim/development/compose.yaml"
     )

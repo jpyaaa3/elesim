@@ -384,7 +384,7 @@ fifth application and not part of inter-host DDS.
 - The setup wizard must preserve existing host Python, CUDA, ROS, and APT state
   when container mode is selected.
 - General and Developer Compose projects use the fixed names `elesim-runtime`
-  and `elesim-dev-stack` with predictable container/image names and host
+  and `elesim-runtime-dev` with predictable container/image names and host
   networking. Do not assume `127.0.0.1` refers to another computer.
 - DDS participants must be mutually routable over UDP. Static discovery peers
   seed discovery but do not cross NAT or relay application traffic. Support

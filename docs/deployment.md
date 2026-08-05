@@ -274,7 +274,7 @@ the selected ref. The image includes all role dependencies and uses a persistent
 container and `elesim-dev` opens a shell. Optional Jaeger is profile-gated and
 starts only through `elesim-jaeger-up`.
 
-The project is `elesim-dev-stack`, its image is `elesim/dev:local`, and its
+The project is `elesim-runtime-dev`, its image is `elesim/dev:local`, and its
 only persistent coding container is `elesim-dev`; optional tracing adds the
 separate `elesim-jaeger`. The `elesim-dev` command uses Compose `exec` into that
 container, so repeated shells do not create randomly named temporary

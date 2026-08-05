@@ -42,7 +42,7 @@ _REQUIRED_PROJECTS = (
     ("sim", "pyproject.toml"),
     ("robot", "pyproject.toml"),
 )
-DEVELOPER_COMPOSE_PROJECT = "elesim-dev-stack"
+DEVELOPER_COMPOSE_PROJECT = "elesim-runtime-dev"
 
 
 @dataclass(frozen=True)

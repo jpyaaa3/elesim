@@ -60,7 +60,7 @@ MAX_LOG_LINES = 4000
 PYTEST_LOCATION_RE = re.compile(
     r"^(?:packages|pilot|robot|sim|ui|model|misc|installer)/.+\.py:\d+(?::|$)"
 )
-DEVELOPER_PROJECT = "elesim-dev-stack"
+DEVELOPER_PROJECT = "elesim-runtime-dev"
 DEVELOPER_CONTAINER = "elesim-dev"
 
 

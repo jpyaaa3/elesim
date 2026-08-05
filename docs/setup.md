@@ -291,7 +291,7 @@ Optional Jaeger uses a separate Compose profile. The development service gets
 OTLP HTTP environment only when Jaeger was selected. `elesim-jaeger-up` starts
 the profile; ordinary `elesim-up` does not force observability overhead.
 
-The project and image are fixed as `elesim-dev-stack` and `elesim/dev:local`.
+The project and image are fixed as `elesim-runtime-dev` and `elesim/dev:local`.
 The only persistent development container is `elesim-dev`; optional tracing
 adds `elesim-jaeger`. The `elesim-dev` wrapper starts the persistent container
 when necessary and enters it with Compose `exec`, so opening more terminals

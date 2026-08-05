@@ -130,7 +130,7 @@ Genesis, Torch, Pinocchio, RealSense, Dynamixel, WebRTC, OpenTelemetry,
   컨테이너임을 확인해야 설치할 수 있다.
 
 개발자판은 일반 역할 컨테이너를 함께 만들지 않는다. 고정된
-`elesim-dev-stack` project의 `elesim-dev` 하나에 네 프로그램과 개발/테스트
+`elesim-runtime-dev` project의 `elesim-dev` 하나에 네 프로그램과 개발/테스트
 의존성을 모두 넣고, tracing을 선택했을 때만 별도 `elesim-jaeger`를 추가한다.
 여러 터미널에서 `elesim-dev`를 실행해도 같은 상시 컨테이너에 `exec`하며 새
 랜덤 이름 컨테이너를 만들지 않는다.

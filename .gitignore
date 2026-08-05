@@ -43,7 +43,6 @@ elesim_wip_save.txt
 /containers/
 /roles/
 /secrets/
-/infra/coturn.env
 /install-state.json
 
 # Generated environment credentials.

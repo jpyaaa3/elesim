@@ -94,7 +94,7 @@ general-user role image may import a sibling deployment.
 General installations use one fixed `elesim-runtime` Compose project. Selected
 container roles are named `elesim-pilot`, `elesim-ui`, and
 `elesim-sim`; Robot stays a native Jetson service. Developer installation
-uses the separate fixed `elesim-dev-stack` project with one persistent
+uses the separate fixed `elesim-runtime-dev` project with one persistent
 `elesim-dev` container and optional `elesim-jaeger`. It does not also create the
 three general-role containers. Managed WebRTC relay adds `elesim-coturn` only
 to the Sim host's general project.
