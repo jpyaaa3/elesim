@@ -1080,8 +1080,13 @@ class InstalledElesimLifecycle:
                 (*_compose_command(host), "ps", "--status", "running", "--services"),
                 check=False,
             )
-            running = tuple(sorted(value for value in result.stdout.split() if value))
             expected = set(host.roles)
+            # The manager/tools services may also be running in this Compose
+            # project, but they are not application roles and must not make a
+            # host look degraded before Pilot/Sim/UI have started.
+            running = tuple(
+                sorted(value for value in result.stdout.split() if value in expected)
+            )
             active = expected.issubset(set(running))
             state = "running" if active else ("stopped" if not running else "degraded")
             return {

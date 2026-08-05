@@ -628,6 +628,20 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     assert configure[configure.index("--dds-security-bundle") + 1] == (
         "/opt/elesim/security/current/keystore"
     )
+
+
+def test_lifecycle_status_ignores_manager_service() -> None:
+    class StatusSession:
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            return RemoteCommandResult(0, "manager\n")
+
+    topology = _topology()
+    status = InstalledElesimLifecycle(topology).status(
+        StatusSession(), topology.host("laptop")
+    )
+
+    assert status["state"] == "stopped"
+    assert status["running_roles"] == []
     assert configure[configure.index("--dds-enclave") + 1] == "/elesim/lab"
     assert configure[configure.index("--sim-id") + 1] == "sim-main"
     assert configure[configure.index("--pilot-id") + 1] == "pilot-main"

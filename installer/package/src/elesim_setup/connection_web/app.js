@@ -30,6 +30,8 @@ let endpointIds = {
 };
 let pollTimer = null;
 let runtimePollTimer = null;
+let workflowSaved = false;
+let workflowApplied = false;
 
 const byId = (id) => document.getElementById(id);
 const card = (slot) => document.querySelector(`.host-card[data-slot="${slot}"]`);
@@ -74,6 +76,7 @@ function applyLanguage(next) {
   });
   renderRoleBlocks();
   renderDerivedPeers();
+  updateSecurityWarning();
 }
 
 function isActive(slot) {
@@ -122,7 +125,10 @@ function renderRoleBlocks() {
     input.type = "text";
     input.value = endpointIds[role];
     input.spellcheck = false;
-    input.addEventListener("input", () => { endpointIds[role] = input.value; });
+    input.addEventListener("input", () => {
+      endpointIds[role] = input.value;
+      markWorkflowDirty();
+    });
     endpoint.append(label, input);
     block.append(title, endpoint);
     if (role !== "robot") {
@@ -140,6 +146,7 @@ function renderRoleBlocks() {
 function moveRole(role, target) {
   if (!movableRoles.includes(role) || target === "robot" || !isActive(target)) return;
   roleLocations[role] = target;
+  markWorkflowDirty();
   renderRoleBlocks();
 }
 
@@ -374,17 +381,35 @@ function updateSecurityWarning() {
     ? t("graph.sros2.help") : t("graph.trusted.warning");
   byId("security-warning").classList.toggle("safe", sros2);
   const running = ["running", "cancelling"].includes(byId("job-status").dataset.status || "");
-  byId("provision").disabled = running || !sros2;
-  byId("provision").hidden = !sros2;
-  byId("deploy").disabled = running;
-  byId("deploy").hidden = sros2;
+  byId("apply").textContent = t(sros2 ? "action.provision" : "action.deploy");
+  byId("apply").disabled = running;
   byId("rotate").disabled = running || !sros2;
-  byId("rotate").hidden = !sros2;
+  updateWorkflow(running);
 }
 
-async function saveTopology({quiet = false} = {}) {
+function updateWorkflow(running = false) {
+  const stage = byId("workflow-stage");
+  if (!stage) return;
+  const apply = byId("apply");
+  const sros2 = byId("security").value === "sros2";
+  apply.textContent = t(sros2 ? "action.provision" : "action.deploy");
+  apply.disabled = running;
+  byId("runtime-start").disabled = running || !workflowApplied;
+  stage.textContent = running
+    ? t("workflow.stage.running")
+    : workflowApplied
+      ? t("workflow.stage.ready")
+      : workflowSaved
+        ? t("workflow.stage.saved")
+        : t("workflow.stage.unsaved");
+}
+
+async function saveTopology({quiet = false, invalidate = true} = {}) {
   const topology = topologyFromForm();
   const result = await api("/api/save", {method: "POST", body: JSON.stringify(topology)});
+  workflowSaved = true;
+  if (invalidate) workflowApplied = false;
+  updateWorkflow();
   if (!quiet) showNotice("notice.saved");
   renderServerPeers(result.derived_static_peers);
   return result;
@@ -445,12 +470,23 @@ async function probeSsh(slot) {
 
 async function startJob(action) {
   if (action === "rotate" && !window.confirm(t("rotate.confirm"))) return;
-  await saveTopology({quiet: true});
+  await saveTopology({quiet: true, invalidate: !["start", "stop", "restart", "check"].includes(action)});
   await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify({})});
   setJobRunning(true);
   if (pollTimer) window.clearInterval(pollTimer);
   pollTimer = window.setInterval(pollJob, 500);
   await pollJob();
+}
+
+async function runApplyJob() {
+  const action = byId("security").value === "sros2" ? "provision" : "deploy";
+  await startJob(action);
+}
+
+function markWorkflowDirty() {
+  workflowSaved = false;
+  workflowApplied = false;
+  updateWorkflow();
 }
 
 function renderRuntimeStatus(result) {
@@ -476,7 +512,7 @@ async function pollRuntimeStatus() {
 }
 
 function setJobRunning(running) {
-  ["save", "preflight", "provision", "deploy", "topology-mode", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
+  ["save", "preflight", "apply", "topology-mode", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
   updateSecurityWarning();
   byId("cancel").disabled = !running;
 }
@@ -489,7 +525,12 @@ async function pollJob() {
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
+    if (job.status === "completed" && ["provision", "deploy"].includes(job.action)) {
+      workflowSaved = true;
+      workflowApplied = true;
+    }
     setJobRunning(running);
+    updateWorkflow(running);
     if (!running && pollTimer) {
       window.clearInterval(pollTimer);
       pollTimer = null;
@@ -537,6 +578,10 @@ function bindEvents() {
       field(slot, name).addEventListener("input", renderDerivedPeers);
     });
   });
+  document.querySelectorAll("input, select").forEach((control) => {
+    control.addEventListener("input", markWorkflowDirty);
+    control.addEventListener("change", markWorkflowDirty);
+  });
   document.querySelectorAll("[data-probe-slot]").forEach((button) => {
     button.addEventListener("click", () => probeSsh(button.dataset.probeSlot).catch(showError));
   });
@@ -547,8 +592,7 @@ function bindEvents() {
   byId("security").addEventListener("change", updateSecurityWarning);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("preflight").addEventListener("click", () => runPreflight().catch(showError));
-  byId("provision").addEventListener("click", () => startJob("provision").catch(showError));
-  byId("deploy").addEventListener("click", () => startJob("deploy").catch(showError));
+  byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("rotate").addEventListener("click", () => startJob("rotate").catch(showError));
   byId("runtime-check").addEventListener("click", () => pollRuntimeStatus().catch(showError));
   ["start", "stop", "restart"].forEach((action) => {
@@ -570,6 +614,7 @@ async function initialize() {
     schemaVersion = context.schema_version;
     applyTopologyMode(context.topology?.topology_mode || "full");
     if (context.topology) {
+      workflowSaved = true;
       applyTopology(context.topology);
     } else if (context.local_defaults) {
       if (context.local_defaults.install_root) {
@@ -582,6 +627,7 @@ async function initialize() {
     applyLocalTailscaleHint(context);
     updateSshVisibility();
     updateSecurityWarning();
+    updateWorkflow();
     renderRoleBlocks();
     renderDerivedPeers();
     await pollJob();

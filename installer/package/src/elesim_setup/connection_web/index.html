@@ -150,27 +150,41 @@
       <pre id="derived-peers">—</pre>
     </section>
 
-    <section class="panel preflight" aria-labelledby="preflight-heading">
-      <div><h2 id="preflight-heading" data-i18n="preflight.title"></h2><p data-i18n="preflight.help"></p></div>
-      <div class="action-row"><button id="preflight" type="button" class="secondary" data-i18n="action.preflight"></button></div>
-      <pre id="preflight-result">—</pre>
-    </section>
-
     <section class="panel actions" aria-labelledby="actions-heading">
-      <div><h2 id="actions-heading" data-i18n="actions.title"></h2><p data-i18n="actions.help"></p></div>
-      <div class="action-row">
-        <button id="save" type="button" data-i18n="action.save"></button>
-        <button id="provision" type="button" data-i18n="action.provision"></button>
-        <button id="deploy" type="button" data-i18n="action.deploy"></button>
-        <button id="rotate" type="button" class="warning-button" data-i18n="action.rotate"></button>
-        <button id="cancel" type="button" class="secondary" data-i18n="action.cancel" disabled></button>
+      <div><p class="eyebrow" data-i18n="workflow.eyebrow"></p><h2 id="actions-heading" data-i18n="actions.title"></h2><p data-i18n="actions.help"></p></div>
+      <div class="workflow-steps">
+        <article class="workflow-step" data-step="save">
+          <div class="step-number">1</div>
+          <div><h3 data-i18n="workflow.save.title"></h3><p data-i18n="workflow.save.help"></p></div>
+          <button id="save" type="button" data-i18n="action.save"></button>
+        </article>
+        <article class="workflow-step" data-step="apply">
+          <div class="step-number">2</div>
+          <div><h3 data-i18n="workflow.apply.title"></h3><p id="apply-help" data-i18n="workflow.apply.help"></p></div>
+          <button id="apply" type="button"></button>
+        </article>
+        <article class="workflow-step" data-step="start">
+          <div class="step-number">3</div>
+          <div><h3 data-i18n="workflow.start.title"></h3><p data-i18n="workflow.start.help"></p></div>
+          <button id="runtime-start" type="button" class="secondary" data-i18n="action.start" disabled></button>
+        </article>
       </div>
-      <div class="action-row runtime-actions">
-        <button id="runtime-check" type="button" class="secondary" data-i18n="action.check"></button>
-        <button id="runtime-start" type="button" class="secondary" data-i18n="action.start"></button>
-        <button id="runtime-stop" type="button" class="secondary" data-i18n="action.stop"></button>
-        <button id="runtime-restart" type="button" class="secondary" data-i18n="action.restart"></button>
+      <div class="workflow-status"><strong data-i18n="workflow.status"></strong><span id="workflow-stage">—</span></div>
+      <div class="advanced-actions">
+        <details>
+          <summary data-i18n="advanced.title"></summary>
+          <p data-i18n="advanced.help"></p>
+          <div class="action-row">
+            <button id="preflight" type="button" class="secondary" data-i18n="action.preflight"></button>
+            <button id="rotate" type="button" class="warning-button" data-i18n="action.rotate"></button>
+            <button id="runtime-check" type="button" class="secondary" data-i18n="action.check"></button>
+            <button id="runtime-stop" type="button" class="secondary" data-i18n="action.stop"></button>
+            <button id="runtime-restart" type="button" class="secondary" data-i18n="action.restart"></button>
+          </div>
+          <pre id="preflight-result">—</pre>
+        </details>
       </div>
+      <div class="job-actions"><button id="cancel" type="button" class="secondary" data-i18n="action.cancel" disabled></button></div>
       <pre id="runtime-status">—</pre>
       <div class="job-status"><strong id="job-status" data-i18n="job.idle"></strong><pre id="job-log"></pre></div>
     </section>

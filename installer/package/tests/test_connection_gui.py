@@ -166,8 +166,12 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="unused"' in html
     assert 'id="topology-mode"' in html
     assert "simulation-only" in script
-    assert 'byId("deploy").hidden = sros2;' in script
-    assert 'byId("provision").hidden = !sros2;' in script
+    assert 'id="apply"' in html
+    assert 'id="workflow-stage"' in html
+    assert 'data-i18n="advanced.title"' in html
+    assert 'function runApplyJob()' in script
+    assert 'apply.textContent = t(sros2 ? "action.provision" : "action.deploy")' in script
+    assert 'workflow.stage.ready' in script
     assert 'data-drop-slot="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
     assert 'roleLocations.robot = "robot"' in script

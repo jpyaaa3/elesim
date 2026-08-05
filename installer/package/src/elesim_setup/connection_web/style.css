@@ -142,6 +142,18 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 
 .derived, .actions { display: grid; grid-template-columns: minmax(240px, .7fr) minmax(300px, 1.3fr); gap: 24px; }
 .derived p, .actions p { color: var(--muted); }
+.workflow-steps { display: grid; gap: 10px; }
+.workflow-step { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--surface-2); }
+.workflow-step h3 { margin: 0 0 3px; font-size: 15px; }
+.workflow-step p { margin: 0; font-size: 12px; }
+.step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; }
+.workflow-status, .job-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.workflow-status span { color: var(--accent-dark); font-weight: 700; }
+.advanced-actions { grid-column: 1 / -1; margin-top: 8px; }
+.advanced-actions details { border-top: 1px solid var(--line); padding-top: 12px; }
+.advanced-actions summary { cursor: pointer; color: var(--accent-dark); font-weight: 800; }
+.advanced-actions details > p { margin: 8px 0; font-size: 12px; }
+.advanced-actions pre { margin-top: 10px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .action-row { display: flex; flex-wrap: wrap; gap: 8px; align-content: start; }
 .job-status { grid-column: 1 / -1; }
@@ -165,5 +177,7 @@ pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6
   .graph-grid, .host-grid { grid-template-columns: 1fr; }
   .derived pre { margin-top: 14px; }
   .action-row { margin-top: 14px; }
+  .workflow-step { grid-template-columns: 30px 1fr; }
+  .workflow-step button { grid-column: 2; justify-self: start; }
   .job-status { margin-top: 16px; }
 }
