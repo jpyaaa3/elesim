@@ -38,6 +38,8 @@ elesim_wip_save.txt
 
 # Local helper scripts.
 /bin/
+# Temporary backups of generated installer wrappers.
+/bin.legacy-*/
 /.elesim/
 /cache/
 /containers/

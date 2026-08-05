@@ -130,7 +130,7 @@
     "action.next": "다음",
     "action.install": "설치",
     "action.copy": "복사",
-    "action.close": "설치기 닫기",
+    "action.close": "설치기 종료",
     "action.cancel": "취소",
     "action.stop": "설치 중단",
     "browse.title": "디렉터리 선택",
