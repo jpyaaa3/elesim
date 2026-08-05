@@ -116,8 +116,9 @@
     never inferred from the other.
   - The connection manager performs a read-only `tailscale0` address hint (no
     installation, login or ACL mutation) and exposes bounded `check`, `start`,
-    `stop` and `restart` host-lifecycle jobs. These report Compose/systemd
-    management state only; they do not claim DDS discovery or WebRTC media.
+    `stop` and `restart` host-lifecycle jobs. Compose `start` builds missing
+    images just like `elesim-up`; these report Compose/systemd management state
+    only and do not claim DDS discovery or WebRTC media.
   - `elesim-connections` exposes the two topology modes above. In
     `simulation-only`, the GUI hides the fixed Robot card, allows one to three
     active COM cards, and serializes exactly one Pilot, Sim, and UI.

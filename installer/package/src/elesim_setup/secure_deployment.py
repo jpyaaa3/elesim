@@ -1497,7 +1497,16 @@ def _lifecycle_command(host: ManagedHost, *, action: str) -> tuple[str, ...]:
     if host.lifecycle == "compose":
         if action == "stop":
             return (*_compose_command(host), "down", "--remove-orphans")
-        return (*_compose_command(host), "up", "-d", "--remove-orphans")
+        # Installation only writes the Compose context; it deliberately does
+        # not build images.  Keep the connection-manager start action
+        # equivalent to the generated ``elesim-up`` wrapper.
+        return (
+            *_compose_command(host),
+            "up",
+            "-d",
+            "--build",
+            "--remove-orphans",
+        )
     return ("sudo", "-n", "systemctl", action, _robot_service(host))
 
 

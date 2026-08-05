@@ -156,7 +156,9 @@ three simulation roles without a physical Robot.
 
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`
-run the existing pinned local/SSH lifecycle commands. Their badges describe
+run the existing pinned local/SSH lifecycle commands. Compose `start` includes
+`--build`, matching the generated `elesim-up` wrapper because installation does
+not build images. Their badges describe
 management reachability and process state only; DDS discovery and WebRTC media
 are not inferred from a successful SSH command. The UI polls the read-only
 status while open and keeps deployment and rotation jobs separate from that poll.

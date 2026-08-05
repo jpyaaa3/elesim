@@ -29,6 +29,7 @@ from elesim_setup.secure_deployment import (
     SecurityFile,
     SshHostOperations,
     TopologyRollout,
+    _lifecycle_command,
     ssh_sha256_fingerprint,
 )
 
@@ -112,6 +113,23 @@ def _bundle(host_id: str, generation: str = "g2") -> SecurityBundle:
         generation=generation,
         files=tuple(files),
     ).validate()
+
+
+def test_compose_start_builds_missing_images_like_elesim_up() -> None:
+    host = _topology().host("server")
+
+    assert _lifecycle_command(host, action="start") == (
+        "docker",
+        "compose",
+        "-p",
+        "elesim-runtime",
+        "-f",
+        "/opt/elesim/containers/compose.yaml",
+        "up",
+        "-d",
+        "--build",
+        "--remove-orphans",
+    )
 
 
 def test_bundle_manifest_is_bounded_hashed_and_contains_no_payload() -> None:
@@ -633,11 +651,12 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "-p",
         "elesim-runtime",
         "-f",
-        "/opt/elesim/containers/compose.yaml",
-        "up",
-        "-d",
-        "--remove-orphans",
-    ) in compose_commands
+            "/opt/elesim/containers/compose.yaml",
+            "up",
+            "-d",
+            "--build",
+            "--remove-orphans",
+        ) in compose_commands
 
 
 def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
