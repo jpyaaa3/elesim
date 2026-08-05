@@ -421,6 +421,11 @@ class ParamikoConnector:
             # it has been stable since Paramiko's Transport split.
             client._transport = transport  # type: ignore[attr-defined]
             transport = None
+            # The Transport now owns the socket/proxy process.  Clearing both
+            # local references prevents the cleanup block from closing the
+            # live connection before the returned session opens its first
+            # command or SFTP channel.
+            connection = None
             return _ParamikoSession(
                 client,
                 command_timeout_s=self._command_timeout_s,

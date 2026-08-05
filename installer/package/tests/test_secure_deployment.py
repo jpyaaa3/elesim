@@ -290,15 +290,28 @@ def test_paramiko_connector_agent_mode_does_not_search_key_files(
 def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import elesim_setup.secure_deployment as secure_deployment
-
     key_bytes = b"tailscale-server-key"
     fingerprint = ssh_sha256_fingerprint(key_bytes)
-    raw_socket = SimpleNamespace(close=lambda: None)
-    monkeypatch.setattr(
-        secure_deployment.socket,
-        "create_connection",
-        lambda address, timeout: raw_socket,
+
+    class RawSocket:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    raw_socket = RawSocket()
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY", "1")
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_BIN", "/usr/local/bin/elesim-tailscale"
+    )
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_SOCKET", "/var/run/tailscale/tailscaled.sock"
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko.proxy",
+        SimpleNamespace(ProxyCommand=lambda _command: raw_socket),
     )
 
     class Key:
@@ -330,6 +343,7 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
 
         def close(self) -> None:
             self.closed = True
+            self.connection.close()
 
     class Client:
         def __init__(self) -> None:
@@ -360,8 +374,10 @@ def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
     assert transport.username == "operator"
     assert transport.authenticated is True
     assert transport.auth_timeout == 4
+    assert raw_socket.closed is False
     session.__exit__(None, None, None)
     assert transport.closed is True
+    assert raw_socket.closed is True
 
 
 def test_paramiko_connector_reports_tailscale_check_reauth_failure(
@@ -628,20 +644,6 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     assert configure[configure.index("--dds-security-bundle") + 1] == (
         "/opt/elesim/security/current/keystore"
     )
-
-
-def test_lifecycle_status_ignores_manager_service() -> None:
-    class StatusSession:
-        def run(self, argv, *, check=True) -> RemoteCommandResult:
-            return RemoteCommandResult(0, "manager\n")
-
-    topology = _topology()
-    status = InstalledElesimLifecycle(topology).status(
-        StatusSession(), topology.host("laptop")
-    )
-
-    assert status["state"] == "stopped"
-    assert status["running_roles"] == []
     assert configure[configure.index("--dds-enclave") + 1] == "/elesim/lab"
     assert configure[configure.index("--sim-id") + 1] == "sim-main"
     assert configure[configure.index("--pilot-id") + 1] == "pilot-main"
@@ -666,12 +668,26 @@ def test_lifecycle_status_ignores_manager_service() -> None:
         "-p",
         "elesim-runtime",
         "-f",
-            "/opt/elesim/containers/compose.yaml",
-            "up",
-            "-d",
-            "--build",
-            "--remove-orphans",
-        ) in compose_commands
+        "/opt/elesim/containers/compose.yaml",
+        "up",
+        "-d",
+        "--build",
+        "--remove-orphans",
+    ) in compose_commands
+
+
+def test_lifecycle_status_ignores_manager_service() -> None:
+    class StatusSession:
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            return RemoteCommandResult(0, "manager\n")
+
+    topology = _topology()
+    status = InstalledElesimLifecycle(topology).status(
+        StatusSession(), topology.host("laptop")
+    )
+
+    assert status["state"] == "stopped"
+    assert status["running_roles"] == []
 
 
 def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
