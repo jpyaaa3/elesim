@@ -168,6 +168,51 @@ def test_connection_topology_roundtrip_keeps_dds_and_ssh_distinct() -> None:
     assert restored.host("compute").ssh.port == 2222
 
 
+def test_tailscale_ssh_endpoint_is_keyless_and_defaults_old_files_to_openssh() -> None:
+    fingerprint = "SHA256:" + "B" * 43
+    endpoint = SshEndpoint(
+        "100.64.0.20", 22, "operator", "", fingerprint, auth_mode="tailscale"
+    )
+
+    assert endpoint.validate() is endpoint
+    assert endpoint.uses_tailscale_ssh is True
+    assert endpoint.uses_agent is False
+    restored = SshEndpoint.from_dict(endpoint.to_dict())
+    assert restored == endpoint
+    assert SshEndpoint.from_dict(
+        {
+            "host": "server.example",
+            "port": 2222,
+            "user": "operator",
+            "identity_file": "",
+            "pinned_fingerprint": FINGERPRINT,
+        }
+    ).auth_mode == "openssh"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"port": 2222},
+        {"identity_file": "~/.ssh/id_ed25519"},
+        {"auth_mode": "unknown"},
+    ],
+)
+def test_tailscale_ssh_rejects_non_keyless_or_nonstandard_settings(changes) -> None:
+    values = {
+        "host": "100.64.0.20",
+        "port": 22,
+        "user": "operator",
+        "identity_file": "",
+        "pinned_fingerprint": FINGERPRINT,
+        "auth_mode": "tailscale",
+    }
+    values.update(changes)
+
+    with pytest.raises(ValueError, match="Tailscale|auth_mode"):
+        SshEndpoint.from_dict(values)
+
+
 def test_simulation_only_topology_accepts_one_host_without_robot() -> None:
     topology = _simulation_topology()
     raw = topology.to_dict()

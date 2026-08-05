@@ -269,6 +269,139 @@ def test_paramiko_connector_agent_mode_does_not_search_key_files(
     session.__exit__(None, None, None)
 
 
+def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import elesim_setup.secure_deployment as secure_deployment
+
+    key_bytes = b"tailscale-server-key"
+    fingerprint = ssh_sha256_fingerprint(key_bytes)
+    raw_socket = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(
+        secure_deployment.socket,
+        "create_connection",
+        lambda address, timeout: raw_socket,
+    )
+
+    class Key:
+        def asbytes(self) -> bytes:
+            return key_bytes
+
+    class Transport:
+        instances = []
+
+        def __init__(self, connection) -> None:
+            self.connection = connection
+            self.authenticated = False
+            self.username = None
+            self.closed = False
+            self.__class__.instances.append(self)
+
+        def start_client(self, timeout) -> None:
+            self.timeout = timeout
+
+        def get_remote_server_key(self):
+            return Key()
+
+        def auth_none(self, username):
+            self.username = username
+            self.authenticated = True
+
+        def is_authenticated(self) -> bool:
+            return self.authenticated
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Client:
+        def __init__(self) -> None:
+            self._transport = None
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+            self._transport.close()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(Transport=Transport, SSHClient=Client),
+    )
+    endpoint = SshEndpoint(
+        "100.64.0.20",
+        22,
+        "operator",
+        "",
+        fingerprint,
+        auth_mode="tailscale",
+    )
+
+    session = ParamikoConnector(timeout_s=4).connect(endpoint)
+    transport = Transport.instances[0]
+
+    assert transport.username == "operator"
+    assert transport.authenticated is True
+    session.__exit__(None, None, None)
+    assert transport.closed is True
+
+
+def test_paramiko_connector_reports_tailscale_check_reauth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import elesim_setup.secure_deployment as secure_deployment
+
+    key_bytes = b"tailscale-server-key"
+    raw_socket = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(
+        secure_deployment.socket,
+        "create_connection",
+        lambda address, timeout: raw_socket,
+    )
+
+    class Key:
+        def asbytes(self) -> bytes:
+            return key_bytes
+
+    class Transport:
+        def __init__(self, _connection) -> None:
+            self.closed = False
+
+        def start_client(self, timeout) -> None:
+            pass
+
+        def get_remote_server_key(self):
+            return Key()
+
+        def auth_none(self, username):
+            raise RuntimeError("EOF")
+
+        def auth_password(self, username, password):
+            raise RuntimeError("EOF")
+
+        def is_authenticated(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(Transport=Transport, SSHClient=lambda: object()),
+    )
+    endpoint = SshEndpoint(
+        "100.64.0.20",
+        22,
+        "operator",
+        "",
+        ssh_sha256_fingerprint(key_bytes),
+        auth_mode="tailscale",
+    )
+
+    with pytest.raises(RuntimeError, match="Tailscale SSH authentication failed.*action=check"):
+        ParamikoConnector(timeout_s=4).connect(endpoint)
+
+
 class FakeSession:
     def __init__(self) -> None:
         self.commands: list[tuple[tuple[str, ...], bool]] = []

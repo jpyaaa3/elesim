@@ -278,8 +278,10 @@ Jetson을 당장 사용할 수 없으면 GUI에서 `simulation-only` mode로 저
 있다. 저장하지 않고 endpoint 형식만 확인하려면 활성 COM 호스트를 정확히 두 대만
 남긴 뒤 `두 호스트 점검`을 먼저 실행할 수도 있다. 이 점검은 DDS 주소
 (IP/hostname만, 포트 없음), DDS interface(`tailscale0` 등), 원격 SSH 관리
-host/user/port 형식과 선택적인 host-key probe만 확인한다. 일반 SSH over Tailscale의
-포트는 해당 호스트의 실제 `sshd` 포트이며 보통 22이다. `python3 -m http.server
+host/user/port 형식과 선택적인 host-key probe만 확인한다. `Tailscale SSH` 모드를
+선택하면 개인키 없이 Tailscale 인증을 사용하고 포트는 22로 고정된다. ACL이
+`action: check`라면 먼저 대화형 Tailscale SSH 재인증을 승인한다. 일반 OpenSSH over
+Tailscale를 선택한 경우에만 해당 호스트의 실제 `sshd` 포트를 입력한다. `python3 -m http.server
 8080`은 경로 확인용 임시 HTTP일 뿐 DDS/SSH 설정이 아니다. 이 점검은 DDS 양방향
 통신, RGBD, WebRTC, SROS2, NAT traversal을 증명하지 않는다. `full` mode의
 정식 저장·배포에만 Robot을 포함한 네 역할 topology가 필요하다.

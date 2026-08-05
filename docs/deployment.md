@@ -135,15 +135,19 @@ one explicit mode before assigning roles:
 
 Both modes mark exactly one host local. For each host, record a DDS
 address/interface independently from its optional SSH management
-hostname/port/user/identity path/pinned SHA-256 host fingerprint. Static discovery
+hostname/port/user/authentication mode/pinned SHA-256 host fingerprint. OpenSSH
+uses an agent or a selected identity path; Tailscale SSH is keyless and fixed to
+port 22. If the Tailscale ACL uses `action: check`, approve one interactive
+Tailscale SSH re-authentication before starting a manager job. Static discovery
 peers come from DDS addresses, never SSH values. Schema-v1 topology files are
 loaded as `full` and saved in schema v3 with the explicit mode.
 
 While the physical Robot host is unavailable, the connection-manager GUI offers
 an ephemeral two-host preflight for exactly two active COM cards. It accepts the
 current mutable DDS hostname/IP without a port, the selected interface (for
-example `tailscale0`), and the remote SSH management host/user/actual sshd port
-(normally 22). It does not save a topology, provision keys, or claim that an
+example `tailscale0`), and the remote SSH management host/user/port. For a
+Tailscale SSH endpoint the port is fixed at 22; ordinary OpenSSH uses the
+configured sshd port. It does not save a topology, provision keys, or claim that an
 SSH host-key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
 reachability test such as `python3 -m http.server 8080` is outside the runtime
 topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment

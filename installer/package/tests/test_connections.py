@@ -199,3 +199,19 @@ def test_runner_validates_tilde_identity_against_operator_home(
         topology = ConnectionTopology.from_dict(raw)
 
         runner._validate_management_host(topology)
+
+
+def test_runner_does_not_require_a_private_file_for_tailscale_ssh(
+    tmp_path: Path,
+) -> None:
+    raw = _topology(tmp_path, security_profile="trusted-network").to_dict()
+    raw["hosts"][1]["ssh"].update(
+        {"port": 22, "identity_file": "", "auth_mode": "tailscale"}
+    )
+    topology = ConnectionTopology.from_dict(raw)
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner._validate_management_host(topology)

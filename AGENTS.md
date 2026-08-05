@@ -109,7 +109,8 @@
     keystores from connection-manager-owned generation/bundle state, while
     retaining managed/external TURN inputs and optional runtime text logging.
     Migrations from v1-v7 disable new log retention. SSH remains setup-only and
-    respects non-default ports.
+    respects non-default ports; the connection manager also supports explicit
+    keyless Tailscale SSH on port 22.
   - `elesim-connections` owns the non-secret multi-host topology. DDS
     address/interface and SSH management host/port are separate fields; one is
     never inferred from the other.
@@ -155,9 +156,9 @@
   - `bootstrap.sh` preserves the invocation directory, selects a free loopback
     port, records outer-host GPU/display facts, and fail-closes rather than
     running a stale cached setup package.
-  - Connection-manager SSH transfer uses an agent or explicitly selected key,
-    pins a user-confirmed host fingerprint, and must never copy a complete
-    SROS2 authority/keystore to every host.
+  - Connection-manager SSH transfer uses an agent, an explicitly selected key,
+    or explicit keyless Tailscale SSH; it pins a user-confirmed host fingerprint
+    and must never copy a complete SROS2 authority/keystore to every host.
   - Coturn Compose variables are deliberately written as `$$...`, and its
     `/bin/sh -ec` command remains a one-element list containing the complete
     script. Do not collapse it to a scalar.
@@ -281,8 +282,9 @@
   - Before Jetson is available, use the GUI's `두 호스트 점검`/`Two-host endpoint
     preflight` with exactly two active COM cards. DDS addresses are mutable
     hostname/IP values without ports; `tailscale0` is an interface example.
-    SSH uses the remote sshd port (normally 22); an HTTP test on 8080 is not an
-    Elesim endpoint and is not saved.
+    SSH uses the remote sshd port (normally 22) for ordinary OpenSSH. The
+    explicit Tailscale SSH mode is keyless and fixed at port 22; an HTTP test on
+    8080 is not an Elesim endpoint and is not saved.
   - SSH port forwarding such as `ssh -L 8765:127.0.0.1:8765 -p 2222 ...` is
     only for reaching the loopback-bound installer GUI. Port 2222 has no DDS or
     WebRTC runtime meaning.
@@ -305,8 +307,9 @@
   - Validate SROS2 enforce-mode permissions and prove unauthorized
     publish/subscribe attempts are denied.
   - On real 2..4-host topology validate `elesim-connections` SSH fingerprint
-    pinning, non-default ports, full managed generation activation, one-host
-    failure rollback, and revocation of the replaced generation.
+    pinning, Tailscale SSH/check re-authentication, non-default OpenSSH ports,
+    full managed generation activation, one-host failure rollback, and
+    revocation of the replaced generation.
   - Validate both WebRTC streams, SDP size limits, atomic renegotiation and an
     actual Coturn relay candidate across NAT. This requires two appropriate
     hosts or networks plus ICE stats/Coturn logs; a local namespace simulation
@@ -436,7 +439,8 @@ fifth application and not part of inter-host DDS.
   uses a private JSON credential file mounted only into Sim; UI receives
   the usable value through the active DDS session grant.
 - SSH/`scp` is only a credential transfer mechanism and is not part of Elesim media
-  or control transport. Respect non-default SSH ports.
+  or control transport. Ordinary OpenSSH respects non-default ports; Tailscale
+  SSH uses its keyless port-22 mode.
 - Unitree DDS remains plaintext only on the private Jetson-GO2 NIC/domain. The
   bridge receives no Elesim enclave or CA material; do not widen SROS2 policy
   for Unitree topics or expose that participant on Tailscale/shared LAN.

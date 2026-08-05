@@ -180,6 +180,12 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     )
     assert len(ssh_key_fields) == 4
     assert all("value=" not in field for field in ssh_key_fields)
+    ssh_tailscale_fields = re.findall(
+        r'<input\b[^>]*data-field="ssh-tailscale"[^>]*>',
+        html,
+    )
+    assert len(ssh_tailscale_fields) == 4
+    assert "ssh-tailscale" in script
     assert "빈 칸은 SSH agent" in catalog["ko"]["ssh.help"]
     assert "preflight" in html
     assert 'id="preflight"' in html

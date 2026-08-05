@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import shlex
+import socket
 import stat
 import subprocess
 import tempfile
@@ -43,6 +44,10 @@ _PRIVATE_AUTHORITY_FILES = frozenset(
 
 class HostKeyVerificationError(RuntimeError):
     """The live SSH host key did not match the operator-pinned fingerprint."""
+
+
+class SshAuthenticationError(RuntimeError):
+    """The selected SSH authentication method was not accepted by the host."""
 
 
 class RemoteCommandError(RuntimeError):
@@ -291,7 +296,7 @@ class HostOperations(Protocol):
 
 
 class ParamikoConnector:
-    """Connect with a pinned host key and public-key authentication only."""
+    """Connect with a pinned host key using OpenSSH or Tailscale SSH."""
 
     def __init__(
         self,
@@ -308,6 +313,8 @@ class ParamikoConnector:
         import paramiko
 
         endpoint.validate()
+        if endpoint.uses_tailscale_ssh:
+            return self._connect_tailscale(endpoint, paramiko)
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(
             _PinnedHostKeyPolicy(endpoint.pinned_fingerprint)
@@ -337,24 +344,107 @@ class ParamikoConnector:
             command_timeout_s=self._command_timeout_s,
         )
 
+    def _connect_tailscale(self, endpoint: SshEndpoint, paramiko: object) -> SshSession:
+        """Authenticate through the Tailscale SSH server without a local key.
+
+        Tailscale SSH presents a normal SSH transport on TCP/22, but accepts
+        Tailscale identity rather than an OpenSSH key.  Paramiko's regular
+        ``SSHClient.connect`` path never sends the required ``none`` request,
+        so establish the transport explicitly and then hand it to the normal
+        session wrapper.  The compatibility password fallback is the method
+        documented by Tailscale for clients that cannot use ``auth_none``;
+        the value is a disposable placeholder, never a stored credential.
+        """
+
+        connection: object | None = None
+        transport: object | None = None
+        try:
+            connection = socket.create_connection(
+                (endpoint.host, int(endpoint.port)), timeout=self._timeout_s
+            )
+            transport = paramiko.Transport(connection)  # type: ignore[attr-defined]
+            transport.start_client(timeout=self._timeout_s)  # type: ignore[attr-defined]
+            key = transport.get_remote_server_key()  # type: ignore[attr-defined]
+            _verify_pinned_host_key(endpoint, key)
+            authenticated = False
+            try:
+                transport.auth_none(endpoint.user)  # type: ignore[attr-defined]
+                authenticated = bool(transport.is_authenticated())  # type: ignore[attr-defined]
+            except Exception:
+                # Some SSH libraries cannot issue SSH_MSG_USERAUTH_NONE to the
+                # Tailscale server.  Tailscale documents ``user+password`` with
+                # any password as its compatibility spelling for those clients.
+                authenticated = False
+            if not authenticated:
+                try:
+                    transport.auth_password(  # type: ignore[attr-defined]
+                        f"{endpoint.user}+password", "tailscale"
+                    )
+                    authenticated = bool(transport.is_authenticated())  # type: ignore[attr-defined]
+                except Exception as exc:
+                    raise SshAuthenticationError(
+                        f"Tailscale SSH authentication failed for "
+                        f"{endpoint.user}@{endpoint.host}. "
+                        "If the ACL uses action=check, approve one interactive "
+                        "Tailscale SSH re-authentication first and verify that "
+                        "the ACL permits this user. Tailscale SSH uses port 22 "
+                        "and does not use a private-key path."
+                    ) from exc
+            if not authenticated:
+                raise SshAuthenticationError(
+                    f"Tailscale SSH did not authenticate {endpoint.user}@{endpoint.host}. "
+                    "If the ACL uses action=check, approve one interactive "
+                    "Tailscale SSH re-authentication first and verify the ACL user."
+                )
+            client = paramiko.SSHClient()  # type: ignore[attr-defined]
+            # SSHClient owns and closes this transport through its normal close
+            # path.  This is the only private Paramiko attribute we rely on;
+            # it has been stable since Paramiko's Transport split.
+            client._transport = transport  # type: ignore[attr-defined]
+            transport = None
+            return _ParamikoSession(
+                client,
+                command_timeout_s=self._command_timeout_s,
+            )
+        except (HostKeyVerificationError, SshAuthenticationError):
+            raise
+        finally:
+            if transport is not None:
+                transport.close()  # type: ignore[attr-defined]
+            elif connection is not None:
+                # Transport owns the socket after a successful hand-off.  On a
+                # failed socket/transport construction, close the raw socket.
+                try:
+                    connection.close()  # type: ignore[attr-defined]
+                except BaseException:
+                    pass
+
 
 class _PinnedHostKeyPolicy:
     def __init__(self, expected: str) -> None:
         self._expected = expected
 
     def missing_host_key(self, _client: object, hostname: str, key: object) -> None:
-        try:
-            key_bytes = key.asbytes()  # type: ignore[attr-defined]
-        except (AttributeError, TypeError) as exc:
-            raise HostKeyVerificationError(
-                f"SSH server {hostname!r} supplied an invalid host key"
-            ) from exc
-        actual = ssh_sha256_fingerprint(key_bytes)
-        if not hmac.compare_digest(actual, self._expected):
-            raise HostKeyVerificationError(
-                f"SSH host-key mismatch for {hostname!r}: expected "
-                f"{self._expected}, received {actual}"
-            )
+        _verify_pinned_host_key_values(hostname, key, self._expected)
+
+
+def _verify_pinned_host_key(endpoint: SshEndpoint, key: object) -> None:
+    _verify_pinned_host_key_values(endpoint.host, key, endpoint.pinned_fingerprint)
+
+
+def _verify_pinned_host_key_values(hostname: str, key: object, expected: str) -> None:
+    try:
+        key_bytes = key.asbytes()  # type: ignore[attr-defined]
+    except (AttributeError, TypeError) as exc:
+        raise HostKeyVerificationError(
+            f"SSH server {hostname!r} supplied an invalid host key"
+        ) from exc
+    actual = ssh_sha256_fingerprint(key_bytes)
+    if not hmac.compare_digest(actual, expected):
+        raise HostKeyVerificationError(
+            f"SSH host-key mismatch for {hostname!r}: expected "
+            f"{expected}, received {actual}"
+        )
 
 
 class _ParamikoSession:
@@ -1592,6 +1682,7 @@ __all__ = [
     "SecurityGenerationIssuer",
     "SecurityFile",
     "Sros2BundleIssuer",
+    "SshAuthenticationError",
     "SshConnector",
     "SshHostOperations",
     "SshSession",

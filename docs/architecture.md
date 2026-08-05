@@ -247,11 +247,14 @@ Both modes mark exactly one host local and allow a host to own multiple roles.
 Schema-v1 documents load as `full` and are normalized on save.
 
 Every host has a DDS address and interface used for runtime UDP. A remote host
-separately has an SSH hostname, port, user, selected identity-file path or agent
-choice, and pinned SHA-256 host-key fingerprint for administration. The values
-may happen to name the same machine, but no DDS locator is derived from SSH and
-an SSH port such as `2222` is never a DDS or WebRTC port. Static peers are
-derived from the active hosts' DDS addresses only.
+separately has an SSH hostname, port, user, authentication mode (`openssh` via
+agent/key or `tailscale` via Tailscale SSH), and pinned SHA-256 host-key
+fingerprint for administration. Tailscale SSH is keyless and uses port 22;
+Tailscale ACL `check` rules may require an interactive re-authentication before
+the manager can automate commands. The values may happen to name the same
+machine, but no DDS locator is derived from SSH and an SSH port such as `2222`
+is never a DDS or WebRTC port. Static peers are derived from the active hosts'
+DDS addresses only.
 
 ## Verification Matrix
 

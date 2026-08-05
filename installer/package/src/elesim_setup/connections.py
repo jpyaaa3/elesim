@@ -211,7 +211,11 @@ class ConnectionDeploymentRunner:
                 )
         operator_home = operator_home_path()
         for host in topology.hosts:
-            if host.ssh is None or host.ssh.uses_agent:
+            if (
+                host.ssh is None
+                or host.ssh.uses_agent
+                or host.ssh.uses_tailscale_ssh
+            ):
                 continue
             identity = resolve_ssh_identity_path(host.ssh.identity_file)
             if identity.is_symlink() or not identity.is_file():

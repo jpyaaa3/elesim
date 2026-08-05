@@ -26,6 +26,7 @@ ROLES = ("pilot", "sim", "ui", "robot")
 SIMULATION_ROLES = ("pilot", "sim", "ui")
 TOPOLOGY_MODES = frozenset({"full", "simulation-only"})
 SECURITY_PROFILES = frozenset({"trusted-network", "sros2"})
+SSH_AUTH_MODES = frozenset({"openssh", "tailscale"})
 INSTALL_MODES = frozenset({"container", "native"})
 LIFECYCLES = frozenset({"compose", "systemd"})
 DDS_DISCOVERY_MODES = frozenset({"multicast", "static"})
@@ -149,6 +150,10 @@ class SshEndpoint:
     user: str
     identity_file: str
     pinned_fingerprint: str
+    # ``openssh`` uses the local agent or an explicitly selected key.  The
+    # ``tailscale`` mode speaks Tailscale SSH directly: it has no private-key
+    # file and is restricted to Tailscale's port 22 endpoint.
+    auth_mode: str = "openssh"
 
     def validate(self) -> "SshEndpoint":
         _validate_network_host(self.host, name="SSH host")
@@ -160,6 +165,16 @@ class SshEndpoint:
         identity = str(self.identity_file)
         if len(identity) > 4096 or "\x00" in identity or "\n" in identity or "\r" in identity:
             raise ValueError("SSH identity_file must be a path, not key contents")
+        if (
+            not isinstance(self.auth_mode, str)
+            or self.auth_mode not in SSH_AUTH_MODES
+        ):
+            raise ValueError(f"unsupported SSH auth_mode: {self.auth_mode!r}")
+        if self.auth_mode == "tailscale":
+            if int(self.port) != 22:
+                raise ValueError("Tailscale SSH uses port 22")
+            if identity.strip():
+                raise ValueError("Tailscale SSH must not use a private-key file")
         fingerprint = str(self.pinned_fingerprint).strip()
         if not _FINGERPRINT.fullmatch(fingerprint):
             raise ValueError("SSH pinned_fingerprint must be a SHA256 host-key fingerprint")
@@ -167,7 +182,11 @@ class SshEndpoint:
 
     @property
     def uses_agent(self) -> bool:
-        return not self.identity_file.strip()
+        return self.auth_mode == "openssh" and not self.identity_file.strip()
+
+    @property
+    def uses_tailscale_ssh(self) -> bool:
+        return self.auth_mode == "tailscale"
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
@@ -177,6 +196,7 @@ class SshEndpoint:
             "user": self.user,
             "identity_file": self.identity_file,
             "pinned_fingerprint": self.pinned_fingerprint,
+            "auth_mode": self.auth_mode,
         }
 
     @classmethod
@@ -184,6 +204,7 @@ class SshEndpoint:
         values = _strict_object(
             raw,
             required={"host", "port", "user", "identity_file", "pinned_fingerprint"},
+            optional={"auth_mode"},
             name="ssh",
         )
         return cls(
@@ -196,6 +217,9 @@ class SshEndpoint:
             pinned_fingerprint=_required_string(
                 values["pinned_fingerprint"], name="ssh.pinned_fingerprint"
             ),
+            auth_mode=_optional_string(
+                values.get("auth_mode", "openssh"), name="ssh.auth_mode"
+            ) or "openssh",
         ).validate()
 
 
@@ -906,6 +930,7 @@ __all__ = [
     "ROLES",
     "SIMULATION_ROLES",
     "SECURITY_PROFILES",
+    "SSH_AUTH_MODES",
     "TOPOLOGY_MODES",
     "ConnectionTopology",
     "DdsEndpoint",

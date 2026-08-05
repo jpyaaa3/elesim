@@ -178,7 +178,28 @@ function updateSshVisibility() {
     const details = card(slot).querySelector(".ssh-fields");
     details.hidden = !isActive(slot) || local === slot;
     card(slot).classList.toggle("local", local === slot && isActive(slot));
+    updateSshMode(slot);
   });
+}
+
+function updateSshMode(slot) {
+  const tailscale = field(slot, "ssh-tailscale").checked;
+  const active = isActive(slot);
+  const port = field(slot, "ssh-port");
+  const key = field(slot, "ssh-key");
+  if (tailscale) {
+    port.value = "22";
+    key.value = "";
+  }
+  port.disabled = !active || tailscale;
+  key.disabled = !active || tailscale;
+  card(slot).classList.toggle("tailscale-ssh", tailscale);
+}
+
+function sshPort(slot) {
+  return field(slot, "ssh-tailscale").checked
+    ? 22
+    : Number(field(slot, "ssh-port").value);
 }
 
 function topologyFromForm() {
@@ -214,10 +235,12 @@ function topologyFromForm() {
     if (!local) {
       host.ssh = {
         host: field(slot, "ssh-host").value.trim(),
-        port: Number(field(slot, "ssh-port").value),
+        port: sshPort(slot),
         user: field(slot, "ssh-user").value.trim(),
-        identity_file: field(slot, "ssh-key").value.trim(),
-        pinned_fingerprint: field(slot, "ssh-fingerprint").value.trim()
+        identity_file: field(slot, "ssh-tailscale").checked
+          ? "" : field(slot, "ssh-key").value.trim(),
+        pinned_fingerprint: field(slot, "ssh-fingerprint").value.trim(),
+        auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
       };
     }
     return host;
@@ -256,7 +279,7 @@ function preflightFromForm() {
         },
         ssh: local ? null : {
           host: field(slot, "ssh-host").value.trim(),
-          port: Number(field(slot, "ssh-port").value),
+          port: sshPort(slot),
           user: field(slot, "ssh-user").value.trim()
         }
       };
@@ -277,8 +300,13 @@ function fillHost(slot, host) {
     field(slot, "ssh-host").value = host.ssh.host;
     field(slot, "ssh-port").value = host.ssh.port;
     field(slot, "ssh-user").value = host.ssh.user;
+    field(slot, "ssh-tailscale").checked = host.ssh.auth_mode === "tailscale";
     field(slot, "ssh-key").value = host.ssh.identity_file;
     field(slot, "ssh-fingerprint").value = host.ssh.pinned_fingerprint;
+    updateSshMode(slot);
+  } else {
+    field(slot, "ssh-tailscale").checked = false;
+    updateSshMode(slot);
   }
   host.assignments.forEach((assignment) => {
     roleLocations[assignment.role] = slot;
@@ -393,7 +421,7 @@ async function probeSsh(slot) {
     throw new Error(t("error.local.probe"));
   }
   const host = field(slot, "ssh-host").value.trim();
-  const port = Number(field(slot, "ssh-port").value);
+  const port = sshPort(slot);
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
     body: JSON.stringify({host, port})
@@ -491,6 +519,10 @@ function bindEvents() {
   slots.forEach((slot) => {
     ["ssh-host", "ssh-port"].forEach((name) => {
       field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });
+    });
+    field(slot, "ssh-tailscale").addEventListener("change", () => {
+      updateSshMode(slot);
+      field(slot, "ssh-fingerprint").value = "";
     });
     ["host-id", "dds-address"].forEach((name) => {
       field(slot, name).addEventListener("input", renderDerivedPeers);

@@ -130,8 +130,9 @@ Exit condition:
   수 없음을 확인한다.
 - managed Authority의 host별 role bundle, 전체 generation rotation,
   한 호스트 실패 시 rollback, 교체 generation revocation을 확인한다.
-- SSH agent/선택 key, host fingerprint pinning, 비표준 SSH port를 실제
-  원격 host에서 확인한다. SSH forwarding은 설치 GUI 접근에만 사용한다.
+- SSH agent/선택 key 또는 Tailscale SSH(키 없는 port 22), host fingerprint
+  pinning, 비표준 OpenSSH port를 실제 원격 host에서 확인한다. SSH forwarding은
+  설치 GUI 접근에만 사용한다.
 - GUI loopback 접근을 로컬 및 비표준 SSH forward에서 확인한다.
 - 외부/managed Coturn의 lifecycle과 실제 WebRTC relay candidate를 ICE stats와
   Coturn 로그로 확인한다. TURN은 DDS를 전달하지 않는다.
