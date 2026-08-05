@@ -234,8 +234,11 @@ The tools image contains ROS interfaces and setup/doctor, not deployment
 implementations.
 
 `network_mode: host` preserves the selected DDS interface/locators and the
-meaning of loopback across generated Linux containers. The generated project
-name is `elesim-runtime`; images are `elesim/<role>:local`, and selected
+meaning of loopback for generated runtime role containers. The transient
+connection-manager container is deliberately bridged and publishes only its
+selected GUI port on host loopback; this keeps the browser reachable on Docker
+Desktop/WSL where container host networking is a separate namespace. The
+generated project name is `elesim-runtime`; images are `elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and
 `elesim-sim`. Managed TURN adds `elesim-coturn`. The tools service is
 transient and is not a user-managed runtime application. A second general

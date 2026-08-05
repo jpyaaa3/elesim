@@ -457,7 +457,6 @@ class DeveloperInstaller:
         services["manager"] = {
             "image": "elesim/dev:local",
             "build": service["build"],
-            "network_mode": "host",
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "profiles": ("manager",),
             "working_dir": str(self.workspace),
@@ -555,6 +554,7 @@ class DeveloperInstaller:
                 ).expanduser(),
                 default_local_bin_dir=Path("~/.local/bin").expanduser(),
                 operator_home=operator_home(),
+                install_uuid=self._install_uuid,
                 guard=guard,
             ),
         )
@@ -661,6 +661,7 @@ def _development_manager_wrapper(
     default_local_install_root: Path,
     default_local_bin_dir: Path,
     operator_home: Path,
+    install_uuid: str,
     guard: str,
 ) -> str:
     return (
@@ -690,7 +691,44 @@ def _development_manager_wrapper(
         "  printf 'ELESIM_LOCAL_BIN_DIR로 일반 설치 명령 디렉터리를 지정하십시오.\\n' >&2\n"
         "  exit 2\n"
         "fi\n"
+        "existing_manager=\"$(docker ps -aq --filter 'name=^/elesim-manager$')\"\n"
+        "if [[ -n $existing_manager ]]; then\n"
+        "  manager_owner=\"$(docker inspect -f '{{index .Config.Labels \"io.elesim.install_uuid\"}}' \"$existing_manager\")\"\n"
+        + "  if [[ $manager_owner != "
+        + shlex.quote(install_uuid)
+        + " ]]; then\n"
+        "    printf 'elesim-manager가 다른 Elesim 설치에 속합니다. 기존 설치를 먼저 종료하십시오.\\n' >&2\n"
+        "    exit 73\n"
+        "  fi\n"
+        "  manager_running=\"$(docker inspect -f '{{.State.Running}}' \"$existing_manager\")\"\n"
+        "  if [[ $manager_running == true ]]; then\n"
+        "    printf 'elesim-manager가 이미 실행 중입니다. 기존 연결관리자를 종료하거나 다른 터미널을 사용하십시오.\\n' >&2\n"
+        "    exit 73\n"
+        "  fi\n"
+        "  docker rm \"$existing_manager\" >/dev/null\n"
+        "fi\n"
+        "manager_port=8766\n"
+        "manager_args=(\"$@\")\n"
+        "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
+        "  case \"${manager_args[$manager_index]}\" in\n"
+        "    --port=*) manager_port=\"${manager_args[$manager_index]#--port=}\" ;;\n"
+        "    --port)\n"
+        "      if (( manager_index + 1 >= ${#manager_args[@]} )); then\n"
+        "        printf '연결관리자 --port 값이 없습니다.\\n' >&2\n"
+        "        exit 2\n"
+        "      fi\n"
+        "      manager_index=$((manager_index + 1))\n"
+        "      manager_port=\"${manager_args[$manager_index]}\"\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        "if [[ ! $manager_port =~ ^[0-9]+$ || $manager_port -lt 1 || $manager_port -gt 65535 ]]; then\n"
+        "  printf '연결관리자 port가 유효하지 않습니다: %s\\n' \"$manager_port\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "manager_args+=(--host 0.0.0.0)\n"
         "manager_options=(\n"
+        "  -e ELESIM_CONNECTION_PUBLISHED=1\n"
         "  -v \"$local_install_root:$local_install_root:rw\"\n"
         "  -v \"$local_bin_dir:$local_bin_dir:ro\"\n"
         "  -e "
@@ -705,14 +743,15 @@ def _development_manager_wrapper(
         "fi\n"
         "exec docker compose -f "
         + shlex.quote(str(compose))
-        + " run --rm --build --name elesim-manager "
+        + " run --rm --build --name elesim-manager --publish "
+        + '"127.0.0.1:${manager_port}:${manager_port}" '
         + '"${manager_options[@]}" manager elesim-connections --state '
         + shlex.quote(str(state_path))
         + " --authority-root "
         + shlex.quote(str(authority_root))
         + " --local-install-root \"$local_install_root\""
         + " --local-bin-dir \"$local_bin_dir\""
-        + ' "$@"\n'
+        + ' "${manager_args[@]}"\n'
     )
 
 

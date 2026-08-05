@@ -10,6 +10,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import os
 import re
 import secrets
 import threading
@@ -364,8 +365,12 @@ class ConnectionManagerServer(ThreadingHTTPServer):
         self,
         address: tuple[str, int],
         application: ConnectionManagerApplication,
+        *,
+        allow_container_wildcard: bool = False,
     ) -> None:
-        _require_loopback(address[0])
+        _require_loopback(
+            address[0], allow_container_wildcard=allow_container_wildcard
+        )
         self.application = application
         super().__init__(address, ConnectionManagerRequestHandler)
 
@@ -553,14 +558,16 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", policy)
 
 
-def _require_loopback(host: str) -> None:
+def _require_loopback(host: str, *, allow_container_wildcard: bool = False) -> None:
     try:
         address = ipaddress.ip_address(host)
     except ValueError as exc:
         raise ValueError(
             "connection manager must bind to a literal loopback address"
         ) from exc
-    if not address.is_loopback:
+    if not address.is_loopback and not (
+        allow_container_wildcard and address.is_unspecified
+    ):
         raise ValueError("connection manager must bind to loopback only")
 
 
@@ -594,9 +601,14 @@ def run_connection_gui(
         local_install_root=local_install_root,
         local_bin_dir=local_bin_dir,
     )
-    server = ConnectionManagerServer((host, int(port)), application)
+    server = ConnectionManagerServer(
+        (host, int(port)),
+        application,
+        allow_container_wildcard=os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1",
+    )
     actual_host, actual_port = server.server_address[:2]
-    url = f"http://{actual_host}:{actual_port}/?token={session_token}"
+    display_host = "127.0.0.1" if actual_host in {"0.0.0.0", "::"} else actual_host
+    url = f"http://{display_host}:{actual_port}/?token={session_token}"
     print(
         f"[connection-manager] {url}",
         flush=True,
