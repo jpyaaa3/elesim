@@ -377,7 +377,7 @@ def _write_cyclonedds(path: Path, dds: DdsSettings) -> None:
         ET.SubElement(
             interfaces,
             "NetworkInterface",
-            {"name": dds.interface, "automatic": "false"},
+            {"name": dds.interface},
         )
     discovery = ET.SubElement(domain, "Discovery")
     ET.SubElement(discovery, "ParticipantIndex").text = "auto"

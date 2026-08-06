@@ -39,6 +39,7 @@ from .security_provisioning import (
 from .security_views import prepare_role_keystore_views
 from .shell import write_executable
 from .state import InstallState
+from .updater import render_update_wrapper
 
 
 GO2_MPC_PACKAGE = "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git"
@@ -517,6 +518,14 @@ class Installer:
                     archive_enabled=self.state.runtime_text_logs.enabled,
                 ),
             )
+        write_executable(
+            self.state.bin_path / "elesim-update",
+            render_update_wrapper(
+                edition="general",
+                prefix=self.state.prefix_path,
+                state_path=self.state_path,
+            ),
+        )
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
@@ -527,6 +536,7 @@ class Installer:
             "elesim-up",
             "elesim-logs",
             "elesim-down",
+            "elesim-update",
         ]
         if include_uninstaller:
             names.append("elesim-uninstall")

@@ -69,7 +69,7 @@ def _archive_payload(
                 {
                     "schema_version": 1,
                     "bootstrap_api": 1,
-                    "required_commands": ["wizard", "gui", "install", "status"],
+                    "required_commands": ["wizard", "gui", "install", "update", "status"],
                 }
             ).encode("utf-8"),
         },
@@ -138,7 +138,7 @@ def _write_valid_snapshot(snapshot: Path, root_name: str = "elesim-main") -> Non
             {
                 "schema_version": 1,
                 "bootstrap_api": 1,
-                "required_commands": ["wizard", "gui", "install", "status"],
+                "required_commands": ["wizard", "gui", "install", "update", "status"],
             }
         ),
         encoding="utf-8",
@@ -737,7 +737,7 @@ def test_bootstrap_contract_and_executing_file_must_match(tmp_path: Path) -> Non
     contract = {
         "schema_version": 1,
         "bootstrap_api": 1,
-        "required_commands": ["wizard", "gui", "install", "status"],
+        "required_commands": ["wizard", "gui", "install", "update", "status"],
     }
     (setup / "bootstrap-contract.json").write_text(json.dumps(contract), encoding="utf-8")
     executing = tmp_path / "bootstrap.py"
@@ -775,7 +775,7 @@ def test_bootstrap_generation_auto_check_requires_shell_marker(
         {
             "schema_version": 1,
             "bootstrap_api": 2,
-            "required_commands": ["wizard", "gui", "install", "status"],
+            "required_commands": ["wizard", "gui", "install", "update", "status"],
         },
         {
             "schema_version": 1,
@@ -1068,7 +1068,7 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert "port_is_in_use" in script
     assert "selected another available port" in script
     assert "gui_arguments=(gui)" in script
-    assert "wizard|install|status)" in script
+    assert "wizard|install|update|status)" in script
     assert 'if [[ "$argument" != "gui" ]]' in script
     assert 'bootstrap_tmp="$(mktemp "$cache_dir/.bootstrap.py.XXXXXX")"' in script
     assert 'curl -fsSL "$raw_url" -o "$bootstrap_tmp"' in script

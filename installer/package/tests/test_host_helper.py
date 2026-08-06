@@ -135,6 +135,12 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
         bin_dir=bin_dir,
         project="elesim-runtime",
     )
+    _validate_command(
+        (str(bin_dir / "elesim-net"), "namespace-check"),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
     with pytest.raises(HostHelperError):
         _validate_command(
             ("/tmp/elesim-net", "show"),

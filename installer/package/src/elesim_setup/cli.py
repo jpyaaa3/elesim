@@ -7,12 +7,14 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .container_installer import ContainerInstaller
 from .installer import Installer, preflight_notes
 from .profiles import PROFILES, ROLE_ORDER, normalize_roles, roles_for_profile
+from .request import SetupRequest
 from .state import (
     ComputeSettings,
     DEFAULT_BIN_DIR,
@@ -488,6 +490,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     install.add_argument("--dry-run", action="store_true")
 
+    update = subparsers.add_parser(
+        "update",
+        help="기존 ownership 설치를 새 source로 재생성",
+    )
+    update.add_argument(
+        "--edition",
+        choices=("general", "developer"),
+        default="general",
+    )
+    update.add_argument("--dry-run", action="store_true")
+
     subparsers.add_parser("status", help="현재 설치 상태 출력")
     return parser
 
@@ -539,6 +552,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not args.dry_run:
                 _path_note(state.bin_path)
             return 0
+        if args.command == "update":
+            if args.edition == "developer":
+                from .capabilities import detect_install_host_capabilities
+                from .developer import DeveloperInstaller
+
+                capabilities = detect_install_host_capabilities()
+                request = _developer_update_request(state_path, source_root)
+                request.validate(capabilities)
+                DeveloperInstaller(
+                    request,
+                    capabilities=capabilities,
+                    dry_run=bool(args.dry_run),
+                ).run()
+            else:
+                current = InstallState.load(state_path)
+                state = replace(current, source_root=str(source_root)).validate()
+                installer_type = (
+                    ContainerInstaller
+                    if state.install_mode == "container"
+                    else Installer
+                )
+                installer_type(
+                    state,
+                    state_path=state_path,
+                    dry_run=bool(args.dry_run),
+                ).run()
+            return 0
     except KeyboardInterrupt:
         print("\n설치를 중단했습니다.", file=sys.stderr)
         return 130
@@ -550,6 +590,71 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     parser.error("unknown command")
     return 2
+
+
+def _developer_update_request(
+    state_path: Path,
+    source_root: Path,
+) -> SetupRequest:
+    if state_path.is_symlink() or not state_path.is_file():
+        raise ValueError(f"developer install state must be a regular file: {state_path}")
+    try:
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"developer install state could not be read: {exc}") from exc
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != 2:
+        raise ValueError("unsupported developer install state")
+    dds_raw = raw.get("dds")
+    if not isinstance(dds_raw, Mapping):
+        raise ValueError("developer install state is missing DDS settings")
+    security_profile = str(dds_raw.get("security_profile", "trusted-network"))
+    static_peers_raw = dds_raw.get("static_peers", ())
+    if not isinstance(static_peers_raw, list):
+        raise ValueError("developer DDS static_peers must be a list")
+    return SetupRequest(
+        language="ko",
+        edition="developer",
+        roles=(),
+        prefix=_state_path(raw, "workspace"),
+        bin_dir=_state_path(raw, "bin_dir"),
+        source_root=source_root,
+        compute=ComputeSettings(
+            gpu_mode=str(raw.get("gpu_mode", "inherit")),
+            gpu_device=str(raw.get("gpu_device", "")),
+        ),
+        network=NetworkSettings(),
+        dds=DdsSettings(
+            system_id=str(dds_raw.get("system_id", "elesim")),
+            domain_id=int(dds_raw.get("domain_id", 0)),
+            rmw_implementation=str(
+                dds_raw.get("rmw_implementation", "rmw_cyclonedds_cpp")
+            ),
+            discovery_mode=str(dds_raw.get("discovery_mode", "multicast")),
+            static_peers=tuple(str(value) for value in static_peers_raw),
+            interface=str(dds_raw.get("interface", "")),
+            security_profile=security_profile,
+            security_provisioning=(
+                "external" if security_profile == "sros2" else "none"
+            ),
+            keystore=str(dds_raw.get("keystore", "")),
+            enclave=str(dds_raw.get("enclave", "")),
+        ),
+        turn=TurnSettings(),
+        runtime_text_logs=RuntimeTextLogSettings(enabled=False),
+        jaeger=bool(raw.get("jaeger", False)),
+        repository=str(raw.get("repository", "jpyaaa3/elesim")),
+        ref=str(raw.get("ref", "main")),
+    )
+
+
+def _state_path(raw: Mapping[str, Any], name: str) -> Path:
+    value = str(raw.get(name, "")).strip()
+    if not value:
+        raise ValueError(f"developer install state is missing {name}")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"developer {name} must be absolute")
+    return path.resolve()
 
 
 if __name__ == "__main__":

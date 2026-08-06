@@ -28,6 +28,110 @@ def test_cli_commands_match_bootstrap_contract() -> None:
     assert tuple(subparsers.choices) == tuple(contract["required_commands"])
 
 
+def test_runtime_namespace_check_requires_configured_interface(local_state) -> None:
+    state = local_state(dds=DdsSettings(interface="tailscale0"))
+
+    network.require_runtime_network_namespace(
+        state,
+        interface_names=("lo", "eth0", "tailscale0"),
+    )
+    with pytest.raises(RuntimeError, match="Docker Desktop/WSL"):
+        network.require_runtime_network_namespace(
+            state,
+            interface_names=("lo", "eth0"),
+        )
+
+
+def test_runtime_namespace_check_allows_automatic_interface(local_state) -> None:
+    network.require_runtime_network_namespace(
+        local_state(dds=DdsSettings(interface="")),
+        interface_names=(),
+    )
+
+
+def test_update_reuses_installed_general_state_with_new_source(
+    local_state,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "install/install-state.json"
+    state = replace(
+        local_state(
+            roles=("pilot", "ui"),
+            dds=DdsSettings(interface="tailscale0"),
+        ),
+        source_root=str(tmp_path / "old-source"),
+    )
+    state.save(state_path)
+    received = []
+
+    class FakeInstaller:
+        def __init__(self, updated, **kwargs) -> None:
+            received.append((updated, kwargs))
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "ContainerInstaller", FakeInstaller)
+    result = cli.main(
+        (
+            "--source-root",
+            str(tmp_path / "new-source"),
+            "--state",
+            str(state_path),
+            "update",
+        )
+    )
+
+    assert result == 0
+    updated, kwargs = received[0]
+    assert updated.source_path == (tmp_path / "new-source").resolve()
+    assert updated.roles == state.roles
+    assert updated.dds == state.dds
+    assert updated.network == state.network
+    assert kwargs["state_path"] == state_path.resolve()
+
+
+def test_developer_update_state_round_trip(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    state_path = workspace / ".elesim/development/install-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "workspace": str(workspace),
+                "bin_dir": str(workspace / "bin"),
+                "repository": "lab/elesim",
+                "ref": "refactoring",
+                "gpu_mode": "specific",
+                "gpu_device": "GPU-1",
+                "jaeger": True,
+                "dds": {
+                    "system_id": "lab",
+                    "domain_id": 27,
+                    "rmw_implementation": "rmw_cyclonedds_cpp",
+                    "discovery_mode": "static",
+                    "static_peers": ["100.64.0.2"],
+                    "interface": "tailscale0",
+                    "security_profile": "trusted-network",
+                    "keystore": "",
+                    "enclave": "",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    request = cli._developer_update_request(state_path, tmp_path / "source")
+
+    assert request.prefix == workspace.resolve()
+    assert request.ref == "refactoring"
+    assert request.compute.gpu_device == "GPU-1"
+    assert request.dds.static_peers == ("100.64.0.2",)
+    assert request.dds.interface == "tailscale0"
+
+
 def test_interactive_role_selector_has_no_computer_presets() -> None:
     selected = cli._ask_roles(input_fn=lambda _prompt: "pilot,ui")
     assert selected == ("pilot", "ui")

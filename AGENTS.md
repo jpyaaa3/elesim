@@ -280,9 +280,14 @@
 - Operator-facing installation/run facts:
   - Bootstrap defaults to the local web wizard. Installation only writes the
     prefix/configuration/Compose contexts; it does not build or start images.
-    After installation, `source ~/.bashrc` once, then use `elesim-up`,
+    After installation, `source ~/.bashrc` once, then use `elesim-update`, `elesim-up`,
     `elesim-setup status`, `elesim-logs`, `elesim-logs --save`, and
     `elesim-down` on the machine owning the selected role.
+  - `elesim-update` fetches the repository/ref recorded by the install,
+    validates its ownership manifest, regenerates owned artifacts, and
+    incrementally builds selected images. It preserves topology, security and
+    logs and does not restart containers; `elesim-up` is the activation step.
+    Developer updates require a clean tracked checkout and fast-forward only.
   - General installations expose fixed role container names; Developer
     installations expose only `elesim-dev` and optional `elesim-jaeger`.
     Managed TURN adds `elesim-coturn` on the Sim host.

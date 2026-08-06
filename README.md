@@ -301,7 +301,12 @@ Tailscale를 선택한 경우에만 해당 호스트의 실제 `sshd` 포트를 
 않는다. 로컬에 `tailscale0`가 있으면 현재 주소를 읽기 전용으로 자동 제안하지만
 Tailscale 설치·로그인·ACL 변경은 하지 않는다. 재연결 뒤 주소가 바뀌었는지 확인한
 뒤 저장한다. `전체 시작`은 모든 호스트의 이미지를 먼저 완성한 뒤 역할을
-시작한다. 이때 각 호스트의 실제 `docker compose --progress plain build` 출력이
+시작한다. 시작 전에는 설정한 DDS interface가 실제 역할 컨테이너와 같은 network
+namespace에 보이는지도 검사한다. 특히 Docker Desktop의 별도 Linux VM에서는 WSL의
+`tailscale0`가 보이지 않을 수 있다. 이 경우 SSH가 되더라도 DDS UDP는 되지 않으므로,
+같은 WSL/Linux namespace에서 동작하는 Docker Engine을 사용하거나 컨테이너 안에서
+실제로 route되는 interface를 선택해야 한다. SSH용 Tailscale helper는 DDS를 relay하지
+않는다. 이때 각 호스트의 실제 `docker compose --progress plain build` 출력이
 연결 관리자 작업 기록과 `elesim-connections`를 실행한 터미널에 COM 이름과 함께
 실시간 표시된다. 이미지 빌드는 아직 컨테이너가 실행되기 전의 작업이므로
 `docker logs`나 `docker events`를 따로 볼 필요가 없다. 보안 초기 배포와 회전은
@@ -350,6 +355,7 @@ SROS2를 사용한다.
 
 ```bash
 elesim-build                 # Container 역할에서 선택한 이미지 build
+elesim-update                # 같은 branch의 새 소스와 이미지를 증분 갱신
 elesim-up                    # Container는 build/detach, Robot은 systemd start
 elesim-logs                  # 로그 follow; Ctrl+C는 서비스가 아니라 follow만 종료
 elesim-logs --save           # 선택한 runtime의 bounded text snapshot 저장
@@ -367,6 +373,13 @@ elesim-setup status          # 설치 상태 확인
 Jetson에 `elesim-connections`를 만들지 않는다. 대신 아래에서 설명하는 두
 systemd unit을 `elesim-up`/`elesim-down`이 제어한다.
 
+`elesim-update`는 설치 때 기록한 repository/ref에서 최신 bootstrap과 source를
+받고 ownership manifest를 다시 검증한 뒤, 같은 prefix의 설치기 소유 파일만
+갱신한다. Container 설치에서는 선택한 역할과 tools 이미지를 Docker cache로
+증분 build한다. 설정, connection topology, managed SROS2 generation,
+Authority, secret, cache와 log는 보존한다. 실행 중 컨테이너도 건드리지 않으므로
+성공 후 `elesim-up`을 한 번 실행해야 새 이미지가 적용된다.
+
 일반 설치의 `runtime text log archive`는 기본으로 켜져 있다. Docker 자체
 `json-file` 로그는 서비스마다 `10 MiB × 4`로 제한되고, `--save` 또는
 `elesim-down`은 `<설치 위치>/logs/runs/<UTC timestamp>/`에 서비스별 text
@@ -382,6 +395,7 @@ snapshot을 남긴다. 최근 5회만 보존하며 디렉터리는 `0700`, 파�
 
 ```bash
 elesim-build                 # 통짜 개발 이미지 build
+elesim-update                # clean checkout을 fast-forward하고 개발 이미지 증분 build
 elesim-up                    # 개발 컨테이너 detached 실행
 elesim-logs                  # 개발 컨테이너와 선택한 Jaeger 로그
 elesim-dev                   # 개발 shell
@@ -398,6 +412,8 @@ elesim-jaeger-down
 
 Jaeger UI 기본 주소는 `http://127.0.0.1:16686`이다. 개발 컨테이너 시작 시
 `$HOME/.venv`에 저장소 패키지를 editable로 연결하므로 소스 수정은 즉시 반영된다.
+개발자용 update는 tracked 변경이 staged/unstaged 상태로 남아 있으면 거부하고,
+설치 때 선택한 ref의 fast-forward만 허용한다.
 호스트에 pytest, ROS2 또는 과학 패키지를 별도 설치하지 말고 다음처럼 실행한다.
 
 ```bash

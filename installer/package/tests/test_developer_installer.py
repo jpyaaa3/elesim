@@ -90,10 +90,15 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "/var/run/docker.sock:/var/run/docker.sock:rw" not in manager["volumes"]
     assert (request.bin_dir / "elesim-dev").is_file()
     assert (request.bin_dir / "elesim-connections").is_file()
+    assert (request.bin_dir / "elesim-update").is_file()
     assert (request.bin_dir / "elesim-jaeger-up").is_file()
     assert (request.prefix / ".elesim/development/home").is_dir()
     assert (request.prefix / ".elesim/development/cache").is_dir()
     assert (request.prefix / ".elesim/development/build/dev-env.sh").is_file()
+    update_wrapper = (request.bin_dir / "elesim-update").read_text(encoding="utf-8")
+    assert "merge --ff-only FETCH_HEAD" in update_wrapper
+    assert "update --edition developer" in update_wrapper
+    assert "build dev" in update_wrapper
     manager_wrapper = (request.bin_dir / "elesim-connections").read_text(
         encoding="utf-8"
     )

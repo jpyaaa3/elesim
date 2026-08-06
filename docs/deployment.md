@@ -154,6 +154,14 @@ topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
 requires the Robot role; `simulation-only` deployment intentionally starts the
 three simulation roles without a physical Robot.
 
+SSH reachability is not DDS reachability. Before `start` or `restart`, every
+container host runs `elesim-net namespace-check` through its installed tools
+service. The check requires the configured DDS interface to exist in the same
+network namespace used by runtime roles. A Docker Desktop Linux VM commonly
+cannot see a WSL distro's `tailscale0`; the Tailscale SSH helper cannot relay
+DDS UDP. Use Docker Engine in that WSL/Linux namespace or a container-visible
+routed interface instead.
+
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`
 run the existing pinned local/SSH lifecycle commands. A user-requested full
@@ -237,6 +245,16 @@ The curl command opens a Korean/English loopback-only browser wizard. It
 generates files but does not build or start images; `elesim-up` is the first
 Docker build. The default prefix is the directory in which the curl command was
 started, not a global system directory.
+
+An installed `elesim-update` is the incremental refresh boundary. It fetches
+the install's recorded repository/ref through the bootstrap, validates the
+ownership manifest, regenerates only installer-owned artifacts, and lets Docker
+reuse unchanged build layers. Topology, security generations, Authority,
+credentials, caches, and logs are preserved. Running containers remain
+untouched; a later `elesim-up` explicitly replaces them with the rebuilt image.
+This is not a rolling multi-host deployment: update each host independently and
+use the connection manager when a protocol or managed-security change requires
+coordinated rollout.
 
 The generated project uses Linux host networking, read-only role configuration
 mounts, a read-only Sim model mount, and a profile-gated tools container.

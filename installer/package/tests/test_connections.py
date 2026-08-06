@@ -155,6 +155,16 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
             output("stdout", f"{self.host_id}-step-1\n")
             output("stderr", f"{self.host_id}-step-2\n")
 
+        def preflight(self, _host):
+            events.append(f"preflight:{self.host_id}")
+
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
         def launch(self, _host) -> None:
             events.append(f"launch:{self.host_id}")
 
@@ -178,6 +188,8 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     runner(topology, "start", logs.append)
 
     assert events == [
+        "preflight:operator",
+        "preflight:jetson",
         "build:operator",
         "build:jetson",
         "launch:operator",

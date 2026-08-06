@@ -31,6 +31,7 @@ from .ownership import (
 )
 from .request import SetupRequest
 from .shell import operator_home, write_executable
+from .updater import render_update_wrapper
 
 
 Log = Callable[[str], None]
@@ -559,6 +560,17 @@ class DeveloperInstaller:
                 guard=guard,
             ),
         )
+        write_executable(
+            self.request.bin_dir / "elesim-update",
+            render_update_wrapper(
+                edition="developer",
+                prefix=self.workspace,
+                state_path=self.generated_root / "install-state.json",
+                compose=compose,
+                build_services=("dev",),
+                preamble=guard,
+            ),
+        )
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
@@ -568,6 +580,7 @@ class DeveloperInstaller:
             "elesim-logs",
             "elesim-dev",
             "elesim-connections",
+            "elesim-update",
         ]
         if self.request.jaeger:
             names.extend(("elesim-jaeger-up", "elesim-jaeger-down"))

@@ -137,6 +137,12 @@ class ConnectionDeploymentRunner:
                         )
                     return
                 hosts = list(topology.hosts)
+                if action in {"start", "restart"}:
+                    log("모든 호스트의 런타임 네트워크를 사전 점검합니다.")
+                    for host in hosts:
+                        log(f"preflight: {host.display_name} ({host.host_id})")
+                        capabilities = operations[host.host_id].preflight(host)
+                        capabilities.require_for(host)
                 if action in {"stop", "restart"}:
                     log("활성 역할의 런타임을 정지합니다.")
                     for host in reversed(hosts):

@@ -40,6 +40,7 @@ from .security_provisioning import (
 from .security_views import prepare_role_keystore_views
 from .shell import operator_home, write_executable
 from .state import InstallState
+from .updater import render_update_wrapper
 
 
 @dataclass(frozen=True)
@@ -441,17 +442,23 @@ class ContainerInstaller:
         if secret is None:
             raise ValueError("managed Coturn requires a TURN secret file")
         command = (
+            'secret="$$(cat /run/secrets/turn.secret)"; '
+            'test -n "$$secret"; '
             "exec turnserver -n --log-file=stdout --fingerprint "
-            "--use-auth-secret --no-cli --no-multicast-peers --no-tls --no-dtls "
+            "--use-auth-secret --no-multicast-peers --no-tls --no-dtls "
             "--min-port=49160 --max-port=49200 "
             '--realm="$$TURN_REALM" --external-ip="$$TURN_PUBLIC_IP" '
-            '--static-auth-secret="$$(cat /run/secrets/turn.secret)"'
+            '--static-auth-secret="$$secret"'
         )
         return {
             "image": "coturn/coturn:4.14.0-r0-alpine",
             "container_name": "elesim-coturn",
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "network_mode": "host",
+            # The bind-mounted secret is owned by the installing host user and
+            # deliberately remains 0600.  Run Coturn under that exact UID/GID
+            # instead of the image's `nobody` account so the mount is readable.
+            "user": f"{os.getuid()}:{os.getgid()}",
             "restart": "unless-stopped",
             "logging": {
                 "driver": DOCKER_LOGGING["driver"],
@@ -582,6 +589,10 @@ class ContainerInstaller:
             ),
         )
         application_guard = launch_guard(provisioning_required_path(self.state))
+        runtime_network_guard = (
+            f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
+            "namespace-check >/dev/null\n"
+        )
         wrappers: dict[str, tuple[str, bool]] = {
             "elesim-build": (f"{command} build", False),
             "elesim-up": (
@@ -603,7 +614,11 @@ class ContainerInstaller:
             write_executable(
                 self.state.bin_path / name,
                 "#!/usr/bin/env bash\nset -euo pipefail\n"
-                + (application_guard if requires_provisioning else "")
+                + (
+                    application_guard + runtime_network_guard
+                    if requires_provisioning
+                    else ""
+                )
                 + guard
                 + "exec "
                 + body
@@ -659,6 +674,17 @@ class ContainerInstaller:
                 guard=guard,
             ),
         )
+        write_executable(
+            self.state.bin_path / "elesim-update",
+            render_update_wrapper(
+                edition="general",
+                prefix=self.state.prefix_path,
+                state_path=self.state_path,
+                compose=compose,
+                build_services=(*self.state.roles, "tools"),
+                preamble=guard,
+            ),
+        )
 
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
@@ -669,6 +695,7 @@ class ContainerInstaller:
             "elesim-setup",
             "elesim-net",
             "elesim-connections",
+            "elesim-update",
             *(f"elesim-{role}" for role in self.state.roles),
         ]
         if include_uninstaller:
@@ -734,6 +761,9 @@ class ContainerInstaller:
             if secret.is_symlink() or not secret.is_file():
                 raise ValueError(f"TURN secret path is not a regular file: {secret}")
             secret.chmod(0o600)
+            payload = secret.read_bytes()
+            if not payload.strip() or len(payload) > 4096:
+                raise ValueError("TURN secret must contain 1..4096 non-whitespace bytes")
             return
         secret.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(

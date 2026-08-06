@@ -7,6 +7,7 @@ import base64
 import ipaddress
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
@@ -125,6 +126,46 @@ def detect_tailscale(
         interface="tailscale0",
         addresses=tuple(addresses),
         detail="read-only Tailscale address hint; no installation or login was performed",
+    )
+
+
+def require_runtime_network_namespace(
+    state: InstallState,
+    *,
+    interface_names: Sequence[str] | None = None,
+) -> None:
+    """Fail before launch when DDS cannot bind its configured interface.
+
+    Container installs execute this through the tools service, so the names
+    describe the same network namespace that the runtime roles will use.  This
+    catches Docker Desktop/WSL configurations where the WSL host has
+    ``tailscale0`` but Docker's separate Linux VM does not.
+    """
+
+    interface = state.dds.interface.strip()
+    if not interface:
+        return
+    try:
+        indexed = (
+            socket.if_nameindex()
+            if interface_names is None
+            else enumerate(interface_names)
+        )
+        available = {str(name) for _index, name in indexed}
+    except OSError as exc:
+        raise RuntimeError(
+            f"DDS network interfaces could not be inspected: {exc}"
+        ) from exc
+    if interface in available:
+        return
+    detail = ", ".join(sorted(available)) or "none"
+    raise RuntimeError(
+        f"configured DDS interface {interface!r} is not visible in the runtime "
+        f"network namespace (visible: {detail}). Docker Desktop/WSL host "
+        "networking does not expose the WSL tailscale0 interface to runtime "
+        "containers. Use Docker Engine in the same WSL/Linux network namespace, "
+        "or select an interface that is genuinely routed inside the containers. "
+        "The Tailscale SSH helper does not carry DDS UDP traffic."
     )
 
 
@@ -358,6 +399,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
+    subparsers.add_parser(
+        "namespace-check",
+        help="런타임 네임스페이스에서 설정된 DDS interface 확인",
+    )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
@@ -434,6 +479,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = InstallState.load(state_path)
         if args.command == "show":
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "namespace-check":
+            require_runtime_network_namespace(state)
+            print("DDS runtime network namespace is ready")
             return 0
         if args.command == "restore-snapshot":
             try:

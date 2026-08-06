@@ -203,6 +203,9 @@ def test_native_install_records_host_uninstaller_and_exact_systemd_hashes(
     assert "exec python3 -B -S -m elesim_setup.uninstall" in wrapper
     assert f"--manifest {manifest_path}" in wrapper
     assert "export PYTHONNOUSERSITE=1" in wrapper
+    update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
+    assert "update --edition general" in update_wrapper
+    assert "docker compose" not in update_wrapper
     assert "docker compose" not in wrapper
 
 

@@ -116,7 +116,7 @@ gui_token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 gui_mode=1
 for argument in "$@"; do
   case "$argument" in
-    wizard|install|status)
+    wizard|install|update|status)
       gui_mode=0
       break
       ;;

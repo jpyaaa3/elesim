@@ -117,6 +117,11 @@
 - 필요한 근거: Ubuntu/WSL clean install/build/start/down, 반복 `elesim-dev`
   shell에서 임시 container가 늘지 않음, 고정 이름 충돌 진단, NVIDIA/CPU variant,
   GUI forwarding과 Jaeger다.
+- Docker Desktop의 별도 Linux VM에는 WSL distro의 `tailscale0`가 보이지 않을 수
+  있다. 설정한 DDS interface가 없으면 이제 시작 전에 거부하지만, 별도의 공식
+  sidecar/tunnel 설계는 아직 없다. 현재 routed-VPN 경로는 같은 Linux network
+  namespace의 Docker Engine 또는 컨테이너에서 실제로 보이는 다른 interface가
+  필요하다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 

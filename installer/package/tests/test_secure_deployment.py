@@ -770,6 +770,10 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
 
     assert capabilities.docker
     assert capabilities.security_root_writable
+    assert (
+        ("/usr/local/bin/elesim-net", "namespace-check"),
+        True,
+    ) in session.commands
     configure = next(
         argv for argv, _check in session.commands if "configure" in argv
     )

@@ -32,7 +32,7 @@ DEFAULT_REF = "main"
 CACHE_SCHEMA_VERSION = 1
 BOOTSTRAP_CONTRACT_SCHEMA_VERSION = 1
 BOOTSTRAP_API_VERSION = 1
-REQUIRED_SETUP_COMMANDS = ("wizard", "gui", "install", "status")
+REQUIRED_SETUP_COMMANDS = ("wizard", "gui", "install", "update", "status")
 VERIFY_BOOTSTRAP_SOURCE_ENV = "ELESIM_VERIFY_BOOTSTRAP_SOURCE"
 _FULL_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 _REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})")
@@ -616,7 +616,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def needs_controlling_terminal(arguments: Sequence[str]) -> bool:
-    return not any(value in {"gui", "install", "status"} for value in arguments)
+    return not any(value in {"gui", "install", "update", "status"} for value in arguments)
 
 
 def setup_arguments(

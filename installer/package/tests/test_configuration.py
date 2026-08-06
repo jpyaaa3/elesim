@@ -67,7 +67,7 @@ def test_cyclonedds_xml_contains_interface_and_static_peers(
     assert domain.attrib["id"] == "27"
     assert domain.findtext("General/AllowMulticast") == "false"
     interface = domain.find("General/Interfaces/NetworkInterface")
-    assert interface is not None and interface.attrib["name"] == "eth1"
+    assert interface is not None and interface.attrib == {"name": "eth1"}
     assert [
         peer.attrib["Address"]
         for peer in domain.findall("Discovery/Peers/Peer")

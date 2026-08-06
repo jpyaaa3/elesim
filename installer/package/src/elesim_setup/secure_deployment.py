@@ -1361,6 +1361,7 @@ class InstalledElesimLifecycle:
             raise RuntimeError(f"bin_dir mismatch on {host.host_id!r}")
         if str(state.get("install_mode", "")) != host.install_mode:
             raise RuntimeError(f"install_mode mismatch on {host.host_id!r}")
+        session.run((str(_net_command(host)), "namespace-check"))
         self._validate_managed_security_state(
             session,
             host,

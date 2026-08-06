@@ -5,6 +5,7 @@
     "wizard",
     "gui",
     "install",
+    "update",
     "status"
   ]
 }

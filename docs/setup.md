@@ -210,6 +210,7 @@ Generated layout:
 ├── elesim-build
 ├── elesim-up
 ├── elesim-down
+├── elesim-update
 ├── elesim-logs
 ├── elesim-setup
 ├── elesim-net
@@ -222,7 +223,7 @@ A native Robot installation replaces `containers/` with `roles/robot/`,
 `ros/`, and `tools/`, and stores both generated unit files below
 `roles/robot/systemd/`. Its command set is `elesim-setup`, `elesim-net`,
 `elesim-robot`, `elesim-unitree-bridge`, `elesim-up`, `elesim-logs`,
-`elesim-down`, and `elesim-uninstall`. It has no image to build and connection
+`elesim-down`, `elesim-update`, and `elesim-uninstall`. It has no image to build and connection
 management belongs on the operator laptop, so native Robot emits neither
 `elesim-build` nor `elesim-connections`.
 
@@ -242,6 +243,13 @@ wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
 host-key and deployment connections through `tailscale nc` when the bridge
 cannot directly route the WSL `tailscale0` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
+It is an SSH-management fallback only: it does not proxy DDS UDP. Generated
+runtime launchers and connection-manager start/restart preflight run
+`elesim-net namespace-check` inside the runtime network namespace. If the
+configured DDS interface is absent there, launch fails before role containers
+enter a restart loop. For Docker Desktop plus WSL, use a Docker Engine running
+inside the same WSL/Linux network namespace as Tailscale, or configure an
+interface and route that are genuinely visible inside the runtime containers.
 For a full lifecycle start, the same private helper accepts only the fixed
 Elesim Compose build shape and streams its actual
 `docker compose --progress plain build` stdout/stderr back to the manager. A
@@ -278,6 +286,7 @@ Developer mode requires Ubuntu/WSL amd64 and generates:
     ├── elesim-build
     ├── elesim-up
     ├── elesim-down
+    ├── elesim-update
     ├── elesim-logs
     ├── elesim-dev
     ├── elesim-connections
@@ -290,6 +299,31 @@ checkout. The installer never pulls, resets, or deletes it. An existing empty
 path is populated through a staging checkout inside that directory so a bind
 mount/current working directory is not removed. An unrelated nonempty path is
 rejected.
+
+## Incremental updates
+
+Every completed install emits a host-side `elesim-update` wrapper. It downloads
+the bootstrap from the repository and ref recorded at installation, so source
+integrity and bootstrap-generation checks are identical to a fresh install. It
+then runs the non-interactive `update` command against the existing state and
+ownership manifest.
+
+For a general container install, refresh preserves the install UUID and mutable
+runtime data: topology, managed SROS2 generations and Authority, secrets, logs,
+and application caches. It rewrites installer-owned configuration, wrappers,
+and build contexts, then builds the selected role images and tools image using
+Docker's normal layer cache. It neither runs Compose `down` nor recreates a
+running container; `elesim-up` is the explicit activation step.
+
+For a Developer install, the wrapper first rejects staged or unstaged tracked
+changes, fetches the installed ref from `origin`, and permits only a
+fast-forward merge. Untracked files remain unless Git rejects a path collision.
+It then refreshes `.elesim/development` and incrementally builds
+`elesim/dev:local`. Native Robot uses the same ownership validation to refresh
+its owned venv/configuration/systemd inputs but has no Docker image build.
+
+No edition performs a broad delete, Docker prune, branch switch, security-key
+rotation, topology inference, or automatic runtime restart.
 
 The image input is `environment/development`. It includes ROS2 Humble, Genesis,
 Torch, Pinocchio, OpenCV, RealSense, Dynamixel, aiortc, OpenTelemetry, pytest,

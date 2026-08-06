@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import yaml
 
 from elesim_setup.container_installer import ContainerInstaller, build_container_plan
@@ -172,13 +173,18 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "compose_match != 1" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
     role_wrapper = (state.bin_path / "elesim-sim").read_text(
         encoding="utf-8"
     )
     assert "up -d --build --remove-orphans" in up_wrapper
+    assert "elesim-net namespace-check >/dev/null" in up_wrapper
     assert "down --remove-orphans" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
+    assert "elesim-net namespace-check >/dev/null" in role_wrapper
+    assert "update --edition general" in update_wrapper
+    assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
 
 
@@ -311,6 +317,7 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     assert secret.stat().st_mode & 0o777 == 0o600
     assert compose["services"]["coturn"]["depends_on"] == ["sim"]
     assert compose["services"]["coturn"]["container_name"] == "elesim-coturn"
+    assert compose["services"]["coturn"]["user"] == f"{os.getuid()}:{os.getgid()}"
     assert compose["services"]["coturn"]["logging"] == {
         "driver": "json-file",
         "options": {"max-size": "10m", "max-file": "4"},
@@ -321,6 +328,12 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     assert f"{secret}:/run/secrets/turn.secret:ro" in (
         compose["services"]["sim"]["volumes"]
     )
+    command = compose["services"]["coturn"]["command"]
+    assert isinstance(command, list) and len(command) == 1
+    assert "--no-cli" not in command[0]
+    assert 'secret="$$(cat /run/secrets/turn.secret)"' in command[0]
+    assert 'test -n "$$secret"' in command[0]
+    assert '--static-auth-secret="$$secret"' in command[0]
     assert "router" not in str(compose).lower()
 
     fake_bin = tmp_path / "fake-docker"
@@ -406,6 +419,34 @@ def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(
 
     assert result.returncode == 78
     assert "elesim-connections" in result.stderr
+
+
+def test_managed_coturn_rejects_empty_existing_secret(
+    local_state,
+    tmp_path: Path,
+) -> None:
+    secret = tmp_path / "turn.secret"
+    secret.write_text("  \n", encoding="utf-8")
+    state = local_state(
+        roles=("sim",),
+        install_mode="container",
+        network=NetworkSettings(
+            turn_urls=("turn:turn.example.com:3478?transport=udp",),
+        ),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+        turn=TurnSettings(
+            mode="managed",
+            realm="elesim.local",
+            public_host="turn.example.com",
+            secret_file=str(secret),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="1..4096"):
+        ContainerInstaller(state).run()
 
 
 def test_external_turn_credentials_are_mounted_only_into_sim(
