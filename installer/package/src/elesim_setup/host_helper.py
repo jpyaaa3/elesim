@@ -17,7 +17,7 @@ import socketserver
 import subprocess
 import threading
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 
 _MAX_REQUEST = 256 * 1024
@@ -50,6 +50,10 @@ class _Server(socketserver.ThreadingUnixStreamServer):
 
 
 class _Handler(socketserver.StreamRequestHandler):
+    def setup(self) -> None:
+        super().setup()
+        self._reply_lock = threading.Lock()
+
     def handle(self) -> None:
         try:
             line = self.rfile.readline(_MAX_REQUEST + 1)
@@ -85,10 +89,26 @@ class _Handler(socketserver.StreamRequestHandler):
             bin_dir=self.helper.bin_dir,
             project=self.helper.project,
         )
-        returncode, stdout, stderr, out_cut, err_cut = _run_bounded(argv)
+        stream = request.get("stream", False)
+        if not isinstance(stream, bool):
+            raise HostHelperError("host-helper stream flag is invalid")
+
+        def emit(name: str, chunk: bytes) -> None:
+            self._reply(
+                {
+                    "type": "output",
+                    "stream": name,
+                    "data": base64.b64encode(chunk).decode("ascii"),
+                }
+            )
+
+        returncode, stdout, stderr, out_cut, err_cut = _run_bounded(
+            argv, on_output=emit if stream else None
+        )
         self._reply(
             {
                 "ok": True,
+                "type": "result",
                 "returncode": returncode,
                 "stdout": base64.b64encode(stdout).decode("ascii"),
                 "stderr": base64.b64encode(stderr).decode("ascii"),
@@ -152,9 +172,9 @@ class _Handler(socketserver.StreamRequestHandler):
                     process.wait()
 
     def _reply(self, payload: dict[str, object]) -> None:
-        self.connection.sendall(
-            json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
-        )
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
+        with self._reply_lock:
+            self.connection.sendall(encoded)
 
 
 def _validate_command(
@@ -178,6 +198,22 @@ def _validate_command(
         "-f",
         str(compose),
     )
+    progress_prefix = (
+        "docker",
+        "compose",
+        "--progress",
+        "plain",
+        "-p",
+        project,
+        "-f",
+        str(compose),
+    )
+    if tuple(argv[: len(progress_prefix)]) == progress_prefix:
+        suffix = tuple(argv[len(progress_prefix) :])
+        if suffix and suffix[0] == "build":
+            _validate_roles(suffix[1:])
+            return
+        raise HostHelperError("Compose progress output is allowed only for builds")
     if tuple(argv[: len(prefix)]) != prefix:
         raise HostHelperError("Docker command escapes the managed Compose project")
     suffix = tuple(argv[len(prefix) :])
@@ -200,22 +236,34 @@ def _validate_roles(values: Sequence[str]) -> None:
         raise HostHelperError("Docker lifecycle role selection is invalid")
 
 
-def _run_bounded(argv: Sequence[str]) -> tuple[int, bytes, bytes, bool, bool]:
+def _run_bounded(
+    argv: Sequence[str],
+    *,
+    on_output: Callable[[str, bytes], None] | None = None,
+) -> tuple[int, bytes, bytes, bool, bool]:
     process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results: dict[str, tuple[bytes, bool]] = {}
+    failures: list[BaseException] = []
 
     def drain(name: str, stream: object) -> None:
         retained = bytearray()
         truncated = False
-        while True:
-            chunk = stream.read(32 * 1024)  # type: ignore[attr-defined]
-            if not chunk:
-                break
-            retained.extend(chunk)
-            if len(retained) > _MAX_OUTPUT:
-                del retained[: len(retained) - _MAX_OUTPUT]
-                truncated = True
-        results[name] = bytes(retained), truncated
+        try:
+            while True:
+                chunk = os.read(stream.fileno(), 32 * 1024)  # type: ignore[attr-defined]
+                if not chunk:
+                    break
+                if on_output is not None:
+                    on_output(name, chunk)
+                retained.extend(chunk)
+                if len(retained) > _MAX_OUTPUT:
+                    del retained[: len(retained) - _MAX_OUTPUT]
+                    truncated = True
+        except BaseException as exc:
+            failures.append(exc)
+            process.terminate()
+        finally:
+            results[name] = bytes(retained), truncated
 
     workers = (
         threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
@@ -226,6 +274,8 @@ def _run_bounded(argv: Sequence[str]) -> tuple[int, bytes, bytes, bool, bool]:
     returncode = process.wait()
     for worker in workers:
         worker.join()
+    if failures:
+        raise failures[0]
     stdout, out_cut = results["stdout"]
     stderr, err_cut = results["stderr"]
     return returncode, stdout, stderr, out_cut, err_cut

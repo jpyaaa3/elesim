@@ -327,6 +327,7 @@ def test_two_host_preflight_rejects_secrets_and_http_port(tmp_path: Path) -> Non
 
 def test_background_deploy_is_bounded_and_redacts_sensitive_logs(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[tuple[ConnectionTopology, str]] = []
 
@@ -349,6 +350,10 @@ def test_background_deploy_is_bounded_and_redacts_sensitive_logs(
         "password=[redacted]",
     ]
     assert "must-not-reach-browser" not in json.dumps(finished)
+    terminal = capsys.readouterr().out
+    assert "[connection-manager] staging compute" in terminal
+    assert "[connection-manager] password=[redacted]" in terminal
+    assert "must-not-reach-browser" not in terminal
 
 
 def test_security_generation_actions_require_sros2(tmp_path: Path) -> None:

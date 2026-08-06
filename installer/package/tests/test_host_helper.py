@@ -8,6 +8,7 @@ import pytest
 
 from elesim_setup.host_helper import HostHelperError, _Server, _validate_command
 from elesim_setup.host_proxy import _upload_stdin
+from elesim_setup.secure_deployment import _run_through_host_helper
 
 
 def _paths() -> tuple[Path, Path]:
@@ -38,6 +39,24 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
             bin_dir=bin_dir,
             project="elesim-runtime",
         )
+    _validate_command(
+        (
+            "docker",
+            "compose",
+            "--progress",
+            "plain",
+            "-p",
+            "elesim-runtime",
+            "-f",
+            str(compose),
+            "build",
+            "pilot",
+            "ui",
+        ),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
 
 
 @pytest.mark.parametrize(
@@ -82,6 +101,18 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
             "-f",
             "/opt/elesim/containers/compose.yaml",
             "down",
+        ),
+        (
+            "docker",
+            "compose",
+            "--progress",
+            "plain",
+            "-p",
+            "elesim-runtime",
+            "-f",
+            "/opt/elesim/containers/compose.yaml",
+            "start",
+            "pilot",
         ),
     ),
 )
@@ -165,6 +196,63 @@ def test_tailscale_stream_releases_small_banner_before_eof(tmp_path: Path) -> No
         server.shutdown()
         server.server_close()
         worker.join(timeout=1)
+
+
+def test_host_helper_streams_actual_command_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, time\n"
+        "os.write(1, b'#1 loading build definition\\n')\n"
+        "time.sleep(0.05)\n"
+        "os.write(2, b'#2 building role image\\n')\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+    socket_path = tmp_path / "helper.sock"
+    server = _Server(
+        str(socket_path),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+        tailscale_bin=None,
+    )
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    output: list[tuple[str, str]] = []
+    try:
+        result = _run_through_host_helper(
+            (
+                "docker",
+                "compose",
+                "--progress",
+                "plain",
+                "-p",
+                "elesim-runtime",
+                "-f",
+                str(compose),
+                "build",
+                "pilot",
+            ),
+            socket_path=str(socket_path),
+            timeout_s=2,
+            output=lambda stream, text: output.append((stream, text)),
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=1)
+
+    assert result.exit_status == 0
+    assert ("stdout", "#1 loading build definition\n") in output
+    assert ("stderr", "#2 building role image\n") in output
 
 
 def test_host_proxy_releases_small_stdin_packet_before_eof() -> None:

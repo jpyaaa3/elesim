@@ -8,6 +8,7 @@ import json
 import os
 import stat
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
@@ -35,6 +36,41 @@ from .security_authority import Sros2Authority, new_generation_id
 
 
 Log = Callable[[str], None]
+
+
+class _BuildLogForwarder:
+    """Turn arbitrary stdout/stderr chunks into bounded host-labelled lines."""
+
+    def __init__(self, host: ManagedHost, log: Log) -> None:
+        self._prefix = f"build {host.display_name} ({host.host_id})"
+        self._log = log
+        self._pending = {"stdout": "", "stderr": ""}
+        self._lock = threading.Lock()
+
+    def __call__(self, stream: str, text: str) -> None:
+        if stream not in self._pending:
+            raise ValueError(f"unknown build output stream: {stream!r}")
+        with self._lock:
+            pending = self._pending[stream] + text.replace("\r", "\n")
+            lines = pending.split("\n")
+            self._pending[stream] = lines.pop()
+            for line in lines:
+                if line:
+                    self._log(f"{self._prefix} [{stream}] {line}")
+            # A tool that never emits a newline must not grow manager memory.
+            if len(self._pending[stream]) > 8 * 1024:
+                self._log(
+                    f"{self._prefix} [{stream}] "
+                    f"{self._pending[stream][:8 * 1024]}"
+                )
+                self._pending[stream] = self._pending[stream][8 * 1024 :]
+
+    def flush(self) -> None:
+        with self._lock:
+            for stream, line in self._pending.items():
+                if line:
+                    self._log(f"{self._prefix} [{stream}] {line}")
+                self._pending[stream] = ""
 
 
 class ConnectionDeploymentRunner:
@@ -110,7 +146,12 @@ class ConnectionDeploymentRunner:
                     log("모든 호스트의 이미지를 먼저 준비합니다.")
                     for host in hosts:
                         log(f"build: {host.display_name} ({host.host_id})")
-                        operations[host.host_id].build(host)
+                        output = _BuildLogForwarder(host, log)
+                        try:
+                            operations[host.host_id].build(host, output)
+                        finally:
+                            output.flush()
+                        log(f"build 완료: {host.display_name} ({host.host_id})")
                     launched = []
                     try:
                         log("활성 역할의 런타임을 시작합니다.")

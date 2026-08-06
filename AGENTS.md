@@ -128,7 +128,11 @@
     socket. This is a route fallback for Docker Desktop/WSL; it does not install
     Tailscale or change its ACLs.
   - Full runtime start builds every selected host first, then launches with
-    `--no-build`. Security provisioning/rotation never builds or recreates
+    `--no-build`. Its actual `docker compose --progress plain build`
+    stdout/stderr is streamed from the local allowlisted host helper or remote
+    pinned SSH channel into both the GUI job log and manager-launch terminal;
+    this is BuildKit output, not `docker logs`, events, or a synthetic
+    heartbeat. Security provisioning/rotation never builds or recreates
     containers and resumes only the exact roles that were previously running.
     Managed rollout verifies staged file digests, restores empty pending fields,
     removes inactive failed generations, records a transaction journal, and has

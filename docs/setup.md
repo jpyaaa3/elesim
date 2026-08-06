@@ -242,7 +242,16 @@ wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
 host-key and deployment connections through `tailscale nc` when the bridge
 cannot directly route the WSL `tailscale0` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
-generated project name is `elesim-runtime`; images are `elesim/<role>:local`, and selected
+For a full lifecycle start, the same private helper accepts only the fixed
+Elesim Compose build shape and streams its actual
+`docker compose --progress plain build` stdout/stderr back to the manager. A
+remote host streams the same output over its already authenticated SSH channel.
+The GUI job log and the terminal that launched `elesim-connections` therefore
+show real BuildKit lines, not a synthetic heartbeat. Output lines are bounded
+and redacted before presentation; the manager still receives neither daemon
+socket.
+The generated project name is `elesim-runtime`; images are
+`elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and
 `elesim-sim`. Managed TURN adds `elesim-coturn`. The tools service is
 transient and is not a user-managed runtime application. A second general

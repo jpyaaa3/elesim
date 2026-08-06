@@ -41,6 +41,7 @@ MAX_BUNDLE_FILE_BYTES = 1024 * 1024
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 MAX_REMOTE_OUTPUT_BYTES = 64 * 1024
 ProgressCallback = Callable[[str, str | None], None]
+CommandOutput = Callable[[str, str], None]
 _PRIVATE_AUTHORITY_FILES = frozenset(
     {"ca.key.pem", "identity_ca.key.pem", "permissions_ca.key.pem"}
 )
@@ -234,6 +235,14 @@ class SshSession(Protocol):
         self, argv: Sequence[str], *, check: bool = True
     ) -> RemoteCommandResult: ...
 
+    def run_streaming(
+        self,
+        argv: Sequence[str],
+        *,
+        output: CommandOutput,
+        check: bool = True,
+    ) -> RemoteCommandResult: ...
+
     def upload_bytes(self, path: PurePosixPath, content: bytes, mode: int) -> None: ...
 
 
@@ -275,7 +284,9 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None: ...
 
-    def build(self, session: SshSession, host: ManagedHost) -> None: ...
+    def build(
+        self, session: SshSession, host: ManagedHost, output: CommandOutput
+    ) -> None: ...
 
     def launch(self, session: SshSession, host: ManagedHost) -> None: ...
 
@@ -309,7 +320,7 @@ class HostOperations(Protocol):
 
     def start(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None: ...
 
-    def build(self, host: ManagedHost) -> None: ...
+    def build(self, host: ManagedHost, output: CommandOutput) -> None: ...
 
     def launch(self, host: ManagedHost) -> None: ...
 
@@ -534,6 +545,24 @@ class _ParamikoSession:
     def run(
         self, argv: Sequence[str], *, check: bool = True
     ) -> RemoteCommandResult:
+        return self._run(argv, check=check, output=None)
+
+    def run_streaming(
+        self,
+        argv: Sequence[str],
+        *,
+        output: CommandOutput,
+        check: bool = True,
+    ) -> RemoteCommandResult:
+        return self._run(argv, check=check, output=output)
+
+    def _run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool,
+        output: CommandOutput | None,
+    ) -> RemoteCommandResult:
         if not argv or any("\x00" in str(value) for value in argv):
             raise ValueError("remote command argv must be non-empty and contain no NUL")
         command = shlex.join([str(value) for value in argv])
@@ -544,12 +573,32 @@ class _ParamikoSession:
             command,
             timeout=timeout_s,
         )
+        channel = stdout.channel
+        if output is not None and all(
+            hasattr(channel, name)
+            for name in (
+                "recv_ready",
+                "recv",
+                "recv_stderr_ready",
+                "recv_stderr",
+                "exit_status_ready",
+            )
+        ):
+            result = _read_paramiko_channel(
+                channel,
+                output=output,
+                timeout_s=timeout_s,
+                command=command,
+            )
+            if check and result.exit_status != 0:
+                raise RemoteCommandError(argv, result)
+            return result
         streams: dict[str, tuple[bytes, bool]] = {}
         failures: list[BaseException] = []
 
         def drain(name: str, stream: object) -> None:
             try:
-                streams[name] = _read_stream_tail(stream)
+                streams[name] = _read_stream_tail(stream, name=name, output=output)
             except BaseException as exc:
                 failures.append(exc)
 
@@ -612,18 +661,81 @@ def _enable_ssh_keepalive(client: object) -> None:
     transport.set_keepalive(15)  # type: ignore[attr-defined]
 
 
-def _read_stream_tail(stream: object) -> tuple[bytes, bool]:
+def _read_stream_tail(
+    stream: object,
+    *,
+    name: str = "stdout",
+    output: CommandOutput | None = None,
+) -> tuple[bytes, bool]:
     retained = bytearray()
     truncated = False
     while True:
         chunk = stream.read(32 * 1024)  # type: ignore[attr-defined]
         if not chunk:
             break
+        if output is not None:
+            output(name, chunk.decode("utf-8", errors="replace"))
         retained.extend(chunk)
         if len(retained) > MAX_REMOTE_OUTPUT_BYTES:
             del retained[: len(retained) - MAX_REMOTE_OUTPUT_BYTES]
             truncated = True
     return bytes(retained), truncated
+
+
+def _read_paramiko_channel(
+    channel: object,
+    *,
+    output: CommandOutput,
+    timeout_s: float,
+    command: str,
+) -> RemoteCommandResult:
+    """Drain an SSH channel incrementally without ChannelFile read buffering."""
+
+    retained = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = {"stdout": False, "stderr": False}
+    deadline = time.monotonic() + timeout_s
+
+    def consume(name: str, chunk: bytes) -> None:
+        output(name, chunk.decode("utf-8", errors="replace"))
+        tail = retained[name]
+        tail.extend(chunk)
+        if len(tail) > MAX_REMOTE_OUTPUT_BYTES:
+            del tail[: len(tail) - MAX_REMOTE_OUTPUT_BYTES]
+            truncated[name] = True
+
+    while True:
+        progressed = False
+        while channel.recv_ready():  # type: ignore[attr-defined]
+            consume("stdout", channel.recv(32 * 1024))  # type: ignore[attr-defined]
+            progressed = True
+        while channel.recv_stderr_ready():  # type: ignore[attr-defined]
+            consume("stderr", channel.recv_stderr(32 * 1024))  # type: ignore[attr-defined]
+            progressed = True
+        if (
+            channel.exit_status_ready()  # type: ignore[attr-defined]
+            and not channel.recv_ready()  # type: ignore[attr-defined]
+            and not channel.recv_stderr_ready()  # type: ignore[attr-defined]
+        ):
+            break
+        if time.monotonic() >= deadline:
+            close = getattr(channel, "close", None)
+            if close is not None:
+                close()
+            raise TimeoutError(
+                f"remote command timed out after {timeout_s:.1f} seconds: {command}"
+            )
+        if not progressed:
+            time.sleep(0.05)
+
+    return RemoteCommandResult(
+        exit_status=int(channel.recv_exit_status()),  # type: ignore[attr-defined]
+        stdout=_decode_remote_output(
+            bytes(retained["stdout"]), truncated["stdout"]
+        ),
+        stderr=_decode_remote_output(
+            bytes(retained["stderr"]), truncated["stderr"]
+        ),
+    )
 
 
 def _decode_remote_output(content: bytes, truncated: bool) -> str:
@@ -788,9 +900,9 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.start(session, host, selected)
 
-    def build(self, host: ManagedHost) -> None:
+    def build(self, host: ManagedHost, output: CommandOutput) -> None:
         with self._connect(host) as session:
-            self._lifecycle.build(session, host)
+            self._lifecycle.build(session, host, output)
 
     def launch(self, host: ManagedHost) -> None:
         with self._connect(host) as session:
@@ -1014,9 +1126,30 @@ class _LocalSession:
     def run(
         self, argv: Sequence[str], *, check: bool = True
     ) -> RemoteCommandResult:
+        return self._run(argv, check=check, output=None)
+
+    def run_streaming(
+        self,
+        argv: Sequence[str],
+        *,
+        output: CommandOutput,
+        check: bool = True,
+    ) -> RemoteCommandResult:
+        return self._run(argv, check=check, output=output)
+
+    def _run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool,
+        output: CommandOutput | None,
+    ) -> RemoteCommandResult:
         values = tuple(str(value) for value in argv)
         if not values or any("\x00" in value for value in values):
             raise ValueError("local command argv must be non-empty and contain no NUL")
+        timeout_s = self._timeout_s
+        if "docker" in values and "build" in values:
+            timeout_s = max(timeout_s, 30 * 60)
         helper_socket = os.environ.get("ELESIM_HOST_HELPER_SOCKET", "").strip()
         if helper_socket and (
             values[0] == "docker" or Path(values[0]).name == "elesim-net"
@@ -1024,11 +1157,15 @@ class _LocalSession:
             result = _run_through_host_helper(
                 values,
                 socket_path=helper_socket,
-                timeout_s=(
-                    max(self._timeout_s, 30 * 60)
-                    if "build" in values
-                    else self._timeout_s
-                ),
+                output=output,
+                timeout_s=timeout_s,
+            )
+            if check and result.exit_status != 0:
+                raise RemoteCommandError(values, result)
+            return result
+        if output is not None:
+            result = _run_local_streaming(
+                values, output=output, timeout_s=timeout_s
             )
             if check and result.exit_status != 0:
                 raise RemoteCommandError(values, result)
@@ -1038,7 +1175,7 @@ class _LocalSession:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=self._timeout_s,
+            timeout=timeout_s,
         )
         if (
             len(completed.stdout) > MAX_REMOTE_OUTPUT_BYTES
@@ -1082,13 +1219,21 @@ class _LocalSession:
 
 
 def _run_through_host_helper(
-    argv: Sequence[str], *, socket_path: str, timeout_s: float
+    argv: Sequence[str],
+    *,
+    socket_path: str,
+    timeout_s: float,
+    output: CommandOutput | None = None,
 ) -> RemoteCommandResult:
     path = Path(socket_path)
     if not path.is_absolute() or "\x00" in socket_path:
         raise ValueError("host-helper socket path must be absolute")
     request = json.dumps(
-        {"operation": "run", "argv": [str(value) for value in argv]},
+        {
+            "operation": "run",
+            "argv": [str(value) for value in argv],
+            "stream": output is not None,
+        },
         separators=(",", ":"),
     ).encode("utf-8") + b"\n"
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
@@ -1096,10 +1241,28 @@ def _run_through_host_helper(
         connection.connect(socket_path)
         connection.sendall(request)
         with connection.makefile("rb") as response:
-            line = response.readline(256 * 1024 + 1)
-    if not line or len(line) > 256 * 1024:
-        raise RuntimeError("host-helper returned an invalid response")
-    payload = json.loads(line.decode("utf-8"))
+            while True:
+                line = response.readline(256 * 1024 + 1)
+                if not line or len(line) > 256 * 1024:
+                    raise RuntimeError("host-helper returned an invalid response")
+                payload = json.loads(line.decode("utf-8"))
+                if not isinstance(payload, Mapping):
+                    raise RuntimeError("host-helper response is malformed")
+                if payload.get("type") != "output":
+                    break
+                if output is None or payload.get("stream") not in {
+                    "stdout",
+                    "stderr",
+                }:
+                    raise RuntimeError("host-helper output frame is malformed")
+                try:
+                    chunk = base64.b64decode(str(payload["data"]), validate=True)
+                except (KeyError, ValueError) as exc:
+                    raise RuntimeError("host-helper output frame is malformed") from exc
+                output(
+                    str(payload["stream"]),
+                    chunk.decode("utf-8", errors="replace"),
+                )
     if not isinstance(payload, Mapping) or payload.get("ok") is not True:
         detail = (
             payload.get("error", "request refused")
@@ -1117,6 +1280,62 @@ def _run_through_host_helper(
         exit_status,
         _decode_remote_output(stdout, bool(payload.get("stdout_truncated"))),
         _decode_remote_output(stderr, bool(payload.get("stderr_truncated"))),
+    )
+
+
+def _run_local_streaming(
+    argv: Sequence[str], *, output: CommandOutput, timeout_s: float
+) -> RemoteCommandResult:
+    process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    streams: dict[str, tuple[bytes, bool]] = {}
+    failures: list[BaseException] = []
+
+    def drain(name: str, stream: object) -> None:
+        retained = bytearray()
+        truncated = False
+        try:
+            while True:
+                chunk = os.read(stream.fileno(), 32 * 1024)  # type: ignore[attr-defined]
+                if not chunk:
+                    break
+                output(name, chunk.decode("utf-8", errors="replace"))
+                retained.extend(chunk)
+                if len(retained) > MAX_REMOTE_OUTPUT_BYTES:
+                    del retained[: len(retained) - MAX_REMOTE_OUTPUT_BYTES]
+                    truncated = True
+        except BaseException as exc:
+            failures.append(exc)
+            process.terminate()
+        finally:
+            streams[name] = bytes(retained), truncated
+
+    workers = (
+        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
+    )
+    for worker in workers:
+        worker.start()
+    try:
+        returncode = process.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        raise
+    finally:
+        for worker in workers:
+            worker.join()
+    if failures:
+        raise failures[0]
+    stdout, out_cut = streams["stdout"]
+    stderr, err_cut = streams["stderr"]
+    return RemoteCommandResult(
+        returncode,
+        _decode_remote_output(stdout, out_cut),
+        _decode_remote_output(stderr, err_cut),
     )
 
 
@@ -1361,8 +1580,13 @@ class InstalledElesimLifecycle:
     ) -> None:
         session.run(_lifecycle_command(host, action="start", roles=roles))
 
-    def build(self, session: SshSession, host: ManagedHost) -> None:
-        session.run(_lifecycle_command(host, action="build", roles=host.roles))
+    def build(
+        self, session: SshSession, host: ManagedHost, output: CommandOutput
+    ) -> None:
+        session.run_streaming(
+            _lifecycle_command(host, action="build", roles=host.roles),
+            output=output,
+        )
 
     def launch(self, session: SshSession, host: ManagedHost) -> None:
         session.run(_lifecycle_command(host, action="launch", roles=host.roles))
@@ -1869,6 +2093,20 @@ def _compose_command(host: ManagedHost) -> tuple[str, ...]:
     )
 
 
+def _compose_build_command(host: ManagedHost) -> tuple[str, ...]:
+    compose = PurePosixPath(host.install_root) / "containers/compose.yaml"
+    return (
+        "docker",
+        "compose",
+        "--progress",
+        "plain",
+        "-p",
+        "elesim-runtime",
+        "-f",
+        str(compose),
+    )
+
+
 def _robot_service(host: ManagedHost) -> str:
     if host.roles != ("robot",):
         raise ValueError("systemd lifecycle is reserved for the Robot-only host")
@@ -1901,7 +2139,7 @@ def _lifecycle_command(
             # were running before the switch.  They never build or recreate.
             return (*_compose_command(host), "start", *selected)
         if action == "build":
-            return (*_compose_command(host), "build", *selected)
+            return (*_compose_build_command(host), "build", *selected)
         return (
             *_compose_command(host),
             "up",

@@ -336,6 +336,9 @@ class ConnectionManagerApplication:
                 self.job.logs.append(safe)
                 if len(self.job.logs) > _MAX_JOB_LOGS:
                     del self.job.logs[: len(self.job.logs) - _MAX_JOB_LOGS]
+            # Mirror bounded, redacted job lines in the terminal that launched
+            # the manager, so a long remote build never looks idle.
+            print(f"[connection-manager] {safe}", flush=True)
             if self._cancel_event.is_set():
                 raise ConnectionJobCancelled("connection-manager job cancelled")
 

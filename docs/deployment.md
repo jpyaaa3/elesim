@@ -158,7 +158,14 @@ The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`
 run the existing pinned local/SSH lifecycle commands. A user-requested full
 start first builds every selected host and only then launches roles with
-`--no-build`. Security deployment and rotation never build or recreate
+`--no-build`. Those builds use Compose plain-progress mode and stream the
+actual BuildKit stdout/stderr, labelled by host, into both the browser job log
+and the terminal that launched `elesim-connections`. This output is not
+available through `docker logs` because no role container exists yet, and
+`docker events` is not used as a progress substitute. Local streaming crosses
+the private allowlisted host helper; remote streaming uses the pinned SSH
+session. Neither path gives the manager a Docker or Tailscale daemon socket.
+Security deployment and rotation never build or recreate
 containers; they resume exactly the role containers that were running before
 the switch. Their badges describe
 management reachability and process state only; DDS discovery and WebRTC media

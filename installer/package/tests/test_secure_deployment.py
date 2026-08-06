@@ -130,7 +130,18 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "start",
         "sim",
     )
-    assert _lifecycle_command(host, action="build")[-2:] == ("build", "sim")
+    assert _lifecycle_command(host, action="build") == (
+        "docker",
+        "compose",
+        "--progress",
+        "plain",
+        "-p",
+        "elesim-runtime",
+        "-f",
+        "/opt/elesim/containers/compose.yaml",
+        "build",
+        "sim",
+    )
     assert _lifecycle_command(host, action="launch")[-4:] == (
         "up",
         "-d",
@@ -322,6 +333,66 @@ def test_paramiko_session_drains_and_bounds_verbose_remote_output() -> None:
     assert result.stdout == "out\n"
     assert result.stderr.startswith("[earlier remote output truncated]\n")
     assert result.stderr.endswith("x" * (64 * 1024))
+
+
+def test_paramiko_session_streams_live_channel_output() -> None:
+    class Channel:
+        def __init__(self) -> None:
+            self.stdout = [b"#1 load\n", b"#2 build\n"]
+            self.stderr = [b"warning\n"]
+
+        def recv_ready(self) -> bool:
+            return bool(self.stdout)
+
+        def recv(self, _size: int) -> bytes:
+            return self.stdout.pop(0)
+
+        def recv_stderr_ready(self) -> bool:
+            return bool(self.stderr)
+
+        def recv_stderr(self, _size: int) -> bytes:
+            return self.stderr.pop(0)
+
+        def exit_status_ready(self) -> bool:
+            return not self.stdout and not self.stderr
+
+        @staticmethod
+        def recv_exit_status() -> int:
+            return 0
+
+    channel = Channel()
+
+    class Stream(io.BytesIO):
+        pass
+
+    stdout = Stream()
+    stdout.channel = channel
+    stderr = Stream()
+    stderr.channel = channel
+
+    class Client:
+        @staticmethod
+        def exec_command(_command, timeout):
+            assert timeout == 1800
+            return None, stdout, stderr
+
+        @staticmethod
+        def close() -> None:
+            pass
+
+    output: list[tuple[str, str]] = []
+    result = _ParamikoSession(Client(), command_timeout_s=2).run_streaming(
+        ("docker", "compose", "build", "sim"),
+        output=lambda stream, text: output.append((stream, text)),
+    )
+
+    assert output == [
+        ("stdout", "#1 load\n"),
+        ("stdout", "#2 build\n"),
+        ("stderr", "warning\n"),
+    ]
+    assert result.stdout == "#1 load\n#2 build\n"
+    assert result.stderr == "warning\n"
 
 
 def test_paramiko_connector_uses_tailscale_ssh_auth_none_without_a_key(
@@ -542,7 +613,7 @@ class FakeLifecycle:
     def start(self, _session, _host, _roles) -> None:
         pass
 
-    def build(self, _session, _host) -> None:
+    def build(self, _session, _host, _output) -> None:
         pass
 
     def launch(self, _session, _host) -> None:
@@ -828,7 +899,7 @@ class FakeOperations:
     def start(self, _host, _roles=None):
         self._event("start")
 
-    def build(self, _host):
+    def build(self, _host, _output):
         self._event("build")
 
     def launch(self, _host):

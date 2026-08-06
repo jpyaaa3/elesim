@@ -144,13 +144,16 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
 ) -> None:
     topology = _topology(tmp_path, security_profile="trusted-network")
     events: list[str] = []
+    logs: list[str] = []
 
     class Operations:
         def __init__(self, host_id: str) -> None:
             self.host_id = host_id
 
-        def build(self, _host) -> None:
+        def build(self, _host, output) -> None:
             events.append(f"build:{self.host_id}")
+            output("stdout", f"{self.host_id}-step-1\n")
+            output("stderr", f"{self.host_id}-step-2\n")
 
         def launch(self, _host) -> None:
             events.append(f"launch:{self.host_id}")
@@ -172,7 +175,7 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         local_install_root=tmp_path / "install",
     )
 
-    runner(topology, "start", lambda _message: None)
+    runner(topology, "start", logs.append)
 
     assert events == [
         "build:operator",
@@ -180,6 +183,10 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         "launch:operator",
         "launch:jetson",
     ]
+    assert "build COM1 (operator) [stdout] operator-step-1" in logs
+    assert "build COM1 (operator) [stderr] operator-step-2" in logs
+    assert "build 완료: COM1 (operator)" in logs
+    assert "build 완료: Robot (jetson)" in logs
 
 
 def test_sros2_provision_rejects_an_existing_active_generation(
