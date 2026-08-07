@@ -224,9 +224,13 @@ class UiSimSession:
             ):
                 self._commands[-1] = _coalesce_command(self._commands[-1], queued)
                 return request_id
-            if len(self._commands) >= self.max_pending_commands:
+            if (
+                len(self._commands) + len(self._pending_command_ids)
+                >= self.max_pending_commands
+            ):
                 self._set_error(
-                    f"simulation command queue is full ({self.max_pending_commands})"
+                    "simulation command backlog is full "
+                    f"({self.max_pending_commands}); waiting for Sim acknowledgements"
                 )
                 return ""
             self._commands.append(queued)
@@ -389,6 +393,7 @@ class UiSimSession:
                 self._closing_session_id = ""
                 self._status = None
                 self._last_error = ""
+                self._forget_sent_request_locked("open", opened.request_id)
         try:
             receivers = self._negotiate_receivers(client, opened)
         except Exception:
@@ -485,6 +490,7 @@ class UiSimSession:
             ):
                 return
             self._pending_command_ids.discard(result.request_id)
+            self._forget_sent_request_locked("command", result.request_id)
             self._last_result = result
             failure = (
                 result.reason or f"{result.command} failed"
@@ -531,6 +537,15 @@ class UiSimSession:
         self._status = None
         self._commands.clear()
         self._pending_command_ids.clear()
+        self._sent_messages.clear()
+
+    def _forget_sent_request_locked(self, kind: str, request_id: str) -> None:
+        """Drop transport bookkeeping after a request receives its reply."""
+
+        wanted = (str(kind), str(request_id))
+        for message_id, entry in tuple(self._sent_messages.items()):
+            if entry == wanted:
+                self._sent_messages.pop(message_id, None)
 
     def _close_receivers(self) -> None:
         with self._lock:

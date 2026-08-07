@@ -167,6 +167,10 @@ Commands enter a bounded mailbox and are applied only on the Genesis main
 thread. Pausing stops physics, not endpoint heartbeats, status delivery or the
 WebRTC sessions. Reset increments the simulation epoch; Pilot stops an
 active Pick/Gaze workflow when it observes a pause edge or epoch change.
+The UI also bounds the combined queued/in-flight command backlog and reports a
+full backlog instead of silently accepting input while Sim acknowledgements
+are unavailable. Successful simulation results release their transport
+bookkeeping, so a lost or slow session cannot grow UI memory without bound.
 
 ## Network Security Profiles
 

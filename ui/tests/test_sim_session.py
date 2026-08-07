@@ -8,6 +8,7 @@ from elesim_protocol import (
     Envelope,
     SimulationSessionOpenedPayload,
     SimulationSessionRevokedPayload,
+    SimulationResultPayload,
     SimulationStatusPayload,
     TurnCredentials,
     WebRtcSignalPayload,
@@ -302,6 +303,70 @@ def test_commands_use_the_independent_simulation_session_lease() -> None:
         "command": "orbit",
         "arguments": {"dx": 0.25, "dy": -0.5},
     }
+
+
+def test_command_backlog_counts_inflight_commands_and_stays_bounded() -> None:
+    endpoint = Endpoint()
+    session = UiSimSession(
+        ui_id="ui-a",
+        sim_id="sim-a",
+        receiver_factory=Receiver,
+        max_pending_commands=8,
+        autostart=False,
+    )
+    session.run_cycle(endpoint)
+    request_id = endpoint.sent[0][1]["payload"]["request_id"]
+    endpoint.inbox.append(opened(str(request_id)))
+    session.run_cycle(endpoint)
+
+    for index in range(8):
+        assert session.send_command("reset_view")
+        session.run_cycle(endpoint)
+    assert session.snapshot.pending_commands == 8
+
+    assert session.send_command("reset_view") == ""
+    assert "backlog is full" in session.last_error
+    assert session.snapshot.pending_commands == 8
+
+
+def test_successful_command_result_releases_inflight_tracking() -> None:
+    endpoint = Endpoint()
+    session = new_session()
+    session.run_cycle(endpoint)
+    request_id = endpoint.sent[0][1]["payload"]["request_id"]
+    endpoint.inbox.append(opened(str(request_id)))
+    session.run_cycle(endpoint)
+
+    command_id = session.send_command("reset_view")
+    session.run_cycle(endpoint)
+    command_message = [
+        entry[2]
+        for entry in endpoint.sent
+        if entry[0] == "simulation_command"
+    ][-1]
+    assert session.snapshot.pending_commands == 1
+
+    result = SimulationResultPayload(
+        request_id=command_id,
+        session_id="session-a",
+        command="reset_view",
+        ok=True,
+        reason="reset",
+    )
+    endpoint.inbox.append(
+        make_envelope(
+            "simulation_result",
+            "sim-a",
+            target_id="ui-a",
+            payload=result.to_payload(),
+            lease_id="session-a",
+            seq=3,
+        )
+    )
+    session.run_cycle(endpoint)
+
+    assert session.snapshot.pending_commands == 0
+    assert command_message.message_id not in session._sent_messages
 
 
 def test_adjacent_camera_deltas_are_summed_without_crossing_command_barriers() -> None:
