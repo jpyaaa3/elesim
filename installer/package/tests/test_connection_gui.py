@@ -170,13 +170,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'id="workflow-stage"' in html
     assert 'data-i18n="advanced.title"' not in html
     assert 'id="host-check"' in html
-    assert 'id="rotate"' in html
+    assert 'id="rotate"' not in html
     assert 'id="runtime-stop"' in html
     assert 'id="recover"' not in html
     assert 'id="runtime-restart"' not in html
     assert 'function runApplyJob()' in script
-    assert 'apply.textContent = t(sros2 ? "action.provision" : "action.deploy")' in script
-    assert '["provision", "deploy", "rotate"].includes(job.action)' in script
+    assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
+    assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'startJob("check")' in script
     assert 'workflow.stage.ready' in script
     assert 'data-drop-slot="robot"' in html
@@ -384,6 +384,24 @@ def test_background_deploy_is_bounded_and_redacts_sensitive_logs(
     assert "[connection-manager] staging compute" in terminal
     assert "[connection-manager] password=[redacted]" in terminal
     assert "must-not-reach-browser" not in terminal
+
+
+def test_background_prepare_is_a_first_class_job_action(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def runner(_topology: ConnectionTopology, action: str, log) -> None:
+        calls.append(action)
+        log("security prepared")
+
+    app = _application(tmp_path, runner=runner)
+    app.save_topology(_topology().to_dict())
+
+    started = app.start_job("prepare")
+    finished = _wait_for_job(app)
+
+    assert started["action"] == "prepare"
+    assert calls == ["prepare"]
+    assert finished["status"] == "completed"
 
 
 def test_security_generation_actions_require_sros2(tmp_path: Path) -> None:

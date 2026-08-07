@@ -180,6 +180,8 @@ class ConnectionDeploymentRunner:
                         operations[host.host_id].start(host)
                 return
             if topology.security_profile == "trusted-network":
+                if action == "prepare":
+                    action = "deploy"
                 if action != "deploy":
                     raise ValueError(
                         "trusted-network에서는 deploy만 사용할 수 있습니다"
@@ -196,6 +198,8 @@ class ConnectionDeploymentRunner:
                 self.authority_root / topology.system_id
             )
             active = authority.active()
+            if action == "prepare":
+                action = "rotate" if active is not None else "provision"
             if action in {"provision", "deploy"} and active is not None:
                 raise ValueError(
                     "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
@@ -212,9 +216,14 @@ class ConnectionDeploymentRunner:
             journal = self._new_transaction_journal(action)
             journal["generation"] = generation
             self._write_transaction_journal(topology, journal)
+            operation = (
+                "새 보안 자료를 생성하고 검증"
+                if action == "provision"
+                else "기존 보안 세대를 새 세대로 재발급하고 검증"
+            )
             log(
-                f"SROS2 {generation} generation을 전체 호스트 사전 점검 후 "
-                "발급하고 원자적으로 적용합니다."
+                f"{operation}합니다. SROS2 {generation} generation을 "
+                "전체 호스트 사전 점검 후 원자적으로 적용합니다."
             )
             rollout = GenerationRollout(topology, operations)
             rollout.issue_and_apply(

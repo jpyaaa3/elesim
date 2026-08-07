@@ -352,9 +352,8 @@ function updateSecurityWarning() {
     ? t("graph.sros2.help") : t("graph.trusted.warning");
   byId("security-warning").classList.toggle("safe", sros2);
   const running = ["running", "cancelling"].includes(byId("job-status").dataset.status || "");
-  byId("apply").textContent = t(sros2 ? "action.provision" : "action.deploy");
+  byId("apply").textContent = t(sros2 ? "action.prepare" : "action.deploy");
   byId("apply").disabled = running;
-  byId("rotate").disabled = running || !sros2;
   updateWorkflow(running);
 }
 
@@ -363,7 +362,7 @@ function updateWorkflow(running = false) {
   if (!stage) return;
   const apply = byId("apply");
   const sros2 = byId("security").value === "sros2";
-  apply.textContent = t(sros2 ? "action.provision" : "action.deploy");
+  apply.textContent = t(sros2 ? "action.prepare" : "action.deploy");
   apply.disabled = running;
   byId("runtime-start").disabled = running || !workflowApplied;
   stage.textContent = running
@@ -415,7 +414,6 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
-  if (action === "rotate" && !window.confirm(t("rotate.confirm"))) return;
   // Host check is deliberately read-only: it inspects the last saved
   // topology, not an unsaved form that could silently change deployment.
   if (action !== "check") {
@@ -429,7 +427,7 @@ async function startJob(action) {
 }
 
 async function runApplyJob() {
-  const action = byId("security").value === "sros2" ? "provision" : "deploy";
+  const action = byId("security").value === "sros2" ? "prepare" : "deploy";
   await startJob(action);
 }
 
@@ -466,7 +464,7 @@ async function pollRuntimeStatus() {
 }
 
 function setJobRunning(running) {
-  ["save", "apply", "topology-mode", "rotate", "host-check", "runtime-stop", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
+  ["save", "apply", "topology-mode", "host-check", "runtime-stop", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateSecurityWarning();
   byId("cancel").disabled = !running;
 }
@@ -479,7 +477,7 @@ async function pollJob() {
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
-    if (job.status === "completed" && ["provision", "deploy", "rotate"].includes(job.action)) {
+    if (job.status === "completed" && ["prepare", "provision", "deploy", "rotate"].includes(job.action)) {
       workflowSaved = true;
       workflowApplied = true;
     }
@@ -549,7 +547,6 @@ function bindEvents() {
   byId("security").addEventListener("change", updateSecurityWarning);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
-  byId("rotate").addEventListener("click", () => startJob("rotate").catch(showError));
   byId("host-check").addEventListener("click", () => startJob("check").catch(showError));
   byId("runtime-stop").addEventListener("click", () => startJob("stop").catch(showError));
   byId("cancel").addEventListener("click", async () => {

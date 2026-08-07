@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -289,6 +290,64 @@ def test_sros2_provision_rejects_an_existing_active_generation(
 
     with pytest.raises(ValueError, match="provision/deploy"):
         runner(topology, "provision", lambda _message: None)
+
+
+@pytest.mark.parametrize(
+    ("has_active_generation", "expected_action"),
+    ((False, "provision"), (True, "rotate")),
+)
+def test_sros2_prepare_selects_create_or_reissue_automatically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    has_active_generation: bool,
+    expected_action: str,
+) -> None:
+    topology = _topology(tmp_path, security_profile="sros2")
+    observed: list[tuple[str, str]] = []
+
+    class FakeAuthority:
+        def __init__(self, path: Path) -> None:
+            assert path == (tmp_path / "authority/lab").resolve()
+
+        def active(self) -> object | None:
+            return object() if has_active_generation else None
+
+    class FakeRollout:
+        def __init__(self, _topology, _operations) -> None:
+            pass
+
+        def issue_and_apply(self, issuer, generation: str, *, progress) -> None:
+            observed.append((expected_action, generation))
+            progress("verify", "operator")
+
+    monkeypatch.setattr("elesim_setup.connections.Sros2Authority", FakeAuthority)
+    monkeypatch.setattr("elesim_setup.connections.GenerationRollout", FakeRollout)
+    monkeypatch.setattr(
+        "elesim_setup.connections.new_generation_id",
+        lambda: "g-20260807t000000000000z-abcdef123456",
+    )
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(lambda _topology: {"operator": object(), "jetson": object()}),
+    )
+
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+    runner(topology, "prepare", lambda _message: None)
+
+    assert observed == [
+        (expected_action, "g-20260807t000000000000z-abcdef123456")
+    ]
+    journal = json.loads(
+        (tmp_path / "authority/lab/transactions/latest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["action"] == expected_action
+    assert journal["status"] == "completed"
 
 
 def test_runner_rejects_local_install_root_mismatch(tmp_path: Path) -> None:
