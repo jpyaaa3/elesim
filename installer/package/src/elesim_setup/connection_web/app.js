@@ -479,7 +479,7 @@ async function pollJob() {
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
-    if (job.status === "completed" && ["provision", "deploy"].includes(job.action)) {
+    if (job.status === "completed" && ["provision", "deploy", "rotate"].includes(job.action)) {
       workflowSaved = true;
       workflowApplied = true;
     }
