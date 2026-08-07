@@ -286,6 +286,30 @@ class RollSweepScan:
             self._rolls.append(math.degrees(pose.roll_rad))
         return center, len(pw)
 
+    def _park_roll(self, target_deg: float, *, why: str) -> bool:
+        """
+        Move roll to ``target_deg`` and wait, IGNORING the stop flag.
+
+        Used for the pre-scan and post-scan trips to centre. A stop request must
+        not leave the joint parked at a sweep extreme, so this deliberately does
+        not honour ``_stop``; it is bounded by ``home_timeout_s`` instead.
+        """
+        self._command_roll(float(target_deg))
+        deadline = time.time() + float(self.cfg.home_timeout_s)
+        tol = float(self.cfg.settle_tol_deg)
+        while time.time() < deadline:
+            pose = self._sample_pose()
+            if pose is not None:
+                err = abs(math.degrees(pose.roll_rad) - float(target_deg))
+                if err <= tol:
+                    return True
+            self._command_roll(float(target_deg))
+            time.sleep(0.02)
+        pose = self._sample_pose()
+        got = "unknown" if pose is None else f"{math.degrees(pose.roll_rad):+.1f}"
+        self._set(msg=f"{why}: roll did not reach {target_deg:+.1f} deg (at {got})")
+        return False
+
     def _visible_window(
         self, center: np.ndarray, lo: float, hi: float
     ) -> tuple[float, float]:
@@ -468,6 +492,9 @@ class RollSweepScan:
         try:
             if self._open_camera is not None:
                 self._open_camera()
+            home = float(self.cfg.home_roll_deg)
+            self._set(phase="homing", msg=f"moving roll to centre ({home:+.1f} deg)")
+            self._park_roll(home, why="pre-scan homing")
             if bool(getattr(self.cfg, "continuous", False)):
                 self._set(
                     phase="sweeping",
@@ -504,6 +531,13 @@ class RollSweepScan:
         except Exception as exc:  # noqa: BLE001
             self._set(running=False, phase="failed", msg=f"scan failed: {exc}")
         finally:
+            if bool(self.cfg.return_home):
+                # in the finally so a failed, crashed or user-stopped scan still
+                # leaves the joint at centre rather than at a sweep extreme
+                try:
+                    self._park_roll(float(self.cfg.home_roll_deg), why="return to centre")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[roll_scan] return to centre failed: {exc}")
             if self._close_camera is not None:
                 try:
                     self._close_camera()

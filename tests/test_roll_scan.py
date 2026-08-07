@@ -118,7 +118,8 @@ def _pose_provider(ctx):
 
 def check_plan_coverage() -> list[str]:
     fails = []
-    cfg = RollScanConfig(step_deg=5.0, sweeps=2, margin_deg=3.0)
+    # span_deg=0 -> plan the full joint range, which is what this check is about
+    cfg = RollScanConfig(step_deg=5.0, sweeps=2, margin_deg=3.0, span_deg=0.0)
     p = build_plan(cfg)
     lo, hi = cfg.limit_span_deg()
     if abs(lo + 87.0) > 1e-9 or abs(hi - 87.0) > 1e-9:
@@ -136,8 +137,13 @@ def check_plan_coverage() -> list[str]:
         fails.append(f"irregular steps: max deviation {np.abs(np.abs(steps)-5.0).max():.2f}")
     if p.sweeps != 2 or p.n_stops < 60:
         fails.append(f"unexpected plan size {p.n_stops}")
-    print(f"  {'ok ' if not fails else 'BAD'} plan: {p.n_stops} stops, "
-          f"{lo:+.0f}..{hi:+.0f} deg, no duplicate turn angle")
+    centred = build_plan(RollScanConfig(step_deg=5.0, sweeps=1, span_deg=90.0,
+                                       home_roll_deg=0.0))
+    if abs(centred.lo_deg + 45.0) > 1e-6 or abs(centred.hi_deg - 45.0) > 1e-6:
+        fails.append(f"centred plan is {centred.lo_deg:+.1f}..{centred.hi_deg:+.1f}, want -45..+45")
+    print(f"  {'ok ' if not fails else 'BAD'} plan: {p.n_stops} stops over "
+          f"{lo:+.0f}..{hi:+.0f} deg full range, no duplicate turn angle; "
+          f"span_deg=90 plans {centred.lo_deg:+.0f}..{centred.hi_deg:+.0f}")
     return fails
 
 
@@ -179,7 +185,8 @@ def check_scan_reconstructs_cylinder(monkeypatched: bool = True) -> list[str]:
     arm = FakeArm()
     cam = FakeCylinderCamera(pose, arm, np.random.default_rng(3))
     cfg = RollScanConfig(step_deg=6.0, sweeps=1, continuous=False, settle_s=0.0,
-                         step_timeout_s=0.5, box_half=0.20, min_points_per_frame=100)
+                         step_timeout_s=0.5, box_half=0.20, min_points_per_frame=100,
+                         span_deg=0.0)   # full range: this check is about reconstruction
 
     scan = RollSweepScan(
         cfg=cfg,
@@ -344,6 +351,62 @@ def check_span_is_centred_on_anchor() -> list[str]:
     return fails
 
 
+def check_parks_at_centre() -> list[str]:
+    """
+    The scan must park roll at centre before sweeping and return there after --
+    including when it fails, so a bad run never leaves the joint at an extreme.
+    """
+    fails: list[str] = []
+    ctx = _ik_context()
+    pose = _pose_provider(ctx)
+
+    # start the arm far from centre so a missing pre-scan homing move is visible
+    arm = FakeArm(rate_deg_s=400.0)
+    arm.q[1] = math.radians(-80.0)
+    cam = FakeCylinderCamera(pose, arm, np.random.default_rng(4), n=400)
+    cfg = RollScanConfig(
+        step_deg=10.0, sweeps=1, continuous=True, sweep_rate_deg_s=300.0,
+        span_deg=40.0, home_roll_deg=0.0, return_home=True, home_timeout_s=4.0,
+        settle_s=0.0, step_timeout_s=0.4, box_half=0.20,
+        min_points_per_frame=50, max_pose_straddle_deg=90.0,
+    )
+    seen_phases: list[str] = []
+    scan = RollSweepScan(
+        cfg=cfg, pose_provider=pose, read_q4=arm.read,
+        command_roll=arm.command_roll_deg, grab_points=cam.grab_points,
+        on_progress=lambda p: seen_phases.append(p.phase),
+    )
+    scan.start()
+    if not scan.wait(timeout_s=180.0):
+        return ["park test: scan did not finish"]
+    end_deg = math.degrees(arm.q[1])
+    if "homing" not in seen_phases:
+        fails.append("no homing phase was reported before the sweep")
+    if abs(end_deg) > cfg.settle_tol_deg * 3:
+        fails.append(f"roll left at {end_deg:+.1f} deg instead of centre")
+    rolls = scan.roll_angles_deg()
+    if rolls and (min(rolls) < -25.0 or max(rolls) > 25.0):
+        fails.append(f"sweep left the +-20 deg window: {min(rolls):+.1f}..{max(rolls):+.1f}")
+
+    # and on failure: no camera at all, so the sweep cannot keep a single frame
+    arm2 = FakeArm(rate_deg_s=400.0)
+    arm2.q[1] = math.radians(70.0)
+    scan2 = RollSweepScan(
+        cfg=cfg, pose_provider=pose, read_q4=arm2.read,
+        command_roll=arm2.command_roll_deg, grab_points=lambda: None,
+    )
+    scan2.start()
+    scan2.wait(timeout_s=180.0)
+    end2 = math.degrees(arm2.q[1])
+    if scan2.progress().phase != "failed":
+        fails.append(f"expected a failed scan, got {scan2.progress().phase}")
+    if abs(end2) > cfg.settle_tol_deg * 3:
+        fails.append(f"failed scan left roll at {end2:+.1f} deg instead of centre")
+    print(f"  {'ok ' if not fails else 'BAD'} parks at centre: started -80 deg -> ended "
+          f"{end_deg:+.2f} deg; failed run started +70 deg -> ended {end2:+.2f} deg")
+    return fails
+
+
 def check_end_to_end_with_real_fitter() -> list[str]:
     """
     Full pipeline against the real fitting backend: cylinder standing on a table,
@@ -388,7 +451,7 @@ def check_end_to_end_with_real_fitter() -> list[str]:
 
     cam = TableCylinderCamera(pose, arm, rng)
     cfg = RollScanConfig(
-        step_deg=6.0, sweeps=1, continuous=False, settle_s=0.0,
+        step_deg=6.0, sweeps=1, continuous=False, settle_s=0.0, span_deg=0.0,
         step_timeout_s=0.5, box_half=0.20, min_points_per_frame=100, inlier_tol=0.004,
         label="selftest_e2e",
         outdir=str(Path(__file__).resolve().parents[1] / "engine" / "logs" / "roll_scan_selftest"),
@@ -457,6 +520,7 @@ def main() -> int:
         failures += check_pose_error_inflates_wall(clean_rms)
     failures += check_span_is_centred_on_anchor()
     failures += check_continuous_sweep()
+    failures += check_parks_at_centre()
     failures += check_end_to_end_with_real_fitter()
 
     print()

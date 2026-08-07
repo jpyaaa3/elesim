@@ -27,6 +27,13 @@ class RollScanConfig:
     # 90 deg of q away from centre, where the object being scanned is usually not
     # in view at all -- which is how a live sweep kept exactly one frame.
     span_deg: float = 90.0
+    # Roll angle treated as "centre" (q=0 is the middle of the range, u=180).
+    # The scan parks here before it starts and returns here when it ends, so a
+    # run always begins and finishes from a known, object-facing pose instead of
+    # wherever the previous action left the joint.
+    home_roll_deg: float = 0.0
+    return_home: bool = True
+    home_timeout_s: float = 6.0
     # keep a margin off the mechanical limit; the sweep is not trying to
     # exercise the joint stop, and pressing into it stalls the settle detector
     margin_deg: float = 3.0
@@ -130,7 +137,9 @@ class RollSweepPlan:
 
 
 def build_plan(cfg: RollScanConfig) -> RollSweepPlan:
-    lo, hi = cfg.limit_span_deg()
+    # the scan parks at home first, so the planned range is the span about
+    # home -- keeping stop-and-go and continuous mode on the same geometry
+    lo, hi = cfg.centred_span_deg(cfg.home_roll_deg)
     step = abs(float(cfg.step_deg))
     sweeps = max(int(cfg.sweeps), 1)
     if step < 1e-6 or hi <= lo:
