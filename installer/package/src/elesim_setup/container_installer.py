@@ -394,6 +394,7 @@ class ContainerInstaller:
             ],
         }
         if role == "sim":
+            service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]
             service["volumes"].extend(  # type: ignore[union-attr]
                 (
                     f"{role_root / 'model'}:/opt/elesim/model:ro",
@@ -418,24 +419,37 @@ class ContainerInstaller:
                 service["volumes"].append(  # type: ignore[union-attr]
                     f"{credentials}:/run/secrets/turn.credentials.json:ro"
                 )
+        if role in {"sim", "ui"}:
+            self._apply_x11_display(service)
         if role == "ui":
-            service["environment"].update(  # type: ignore[union-attr]
-                {
-                    "DISPLAY": "${DISPLAY:-:0}",
-                    "LIBGL_ALWAYS_SOFTWARE": "${ELESIM_UI_SOFTWARE_GL:-1}",
-                }
+            service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = (  # type: ignore[index]
+                "${ELESIM_UI_SOFTWARE_GL:-1}"
             )
-            service["volumes"].append("/tmp/.X11-unix:/tmp/.X11-unix:rw")  # type: ignore[union-attr]
-            xauthority = os.environ.get("XAUTHORITY", "").strip()
-            if xauthority and Path(xauthority).expanduser().is_file():
-                authority_path = Path(xauthority).expanduser().resolve()
-                service["environment"]["XAUTHORITY"] = str(authority_path)  # type: ignore[index]
-                service["volumes"].append(  # type: ignore[union-attr]
-                    f"{authority_path}:{authority_path}:ro"
-                )
         if role in {"pilot", "sim"}:
             self._apply_compute(service)
         return service
+
+    @staticmethod
+    def _apply_x11_display(service: dict[str, object]) -> None:
+        """Expose the host X11 display to graphical role containers.
+
+        Sim remains headless unless ``ELESIM_SIM_VIEWER=1`` is injected by the
+        ``elesim-up --view`` wrapper.  Keeping the display transport in the
+        generated Compose file lets that one-shot choice work without
+        mutating generated configuration or requiring a second installation.
+        """
+
+        environment = service["environment"]
+        volumes = service["volumes"]
+        if not isinstance(environment, dict) or not isinstance(volumes, list):
+            raise TypeError("graphical service must have mapping environment and list volumes")
+        environment["DISPLAY"] = "${DISPLAY:-:0}"
+        volumes.append("/tmp/.X11-unix:/tmp/.X11-unix:rw")
+        xauthority = os.environ.get("XAUTHORITY", "").strip()
+        if xauthority and Path(xauthority).expanduser().is_file():
+            authority_path = Path(xauthority).expanduser().resolve()
+            environment["XAUTHORITY"] = str(authority_path)
+            volumes.append(f"{authority_path}:{authority_path}:ro")
 
     def _coturn_service(self) -> dict[str, object]:
         secret = self.state.turn.secret_path
@@ -595,10 +609,6 @@ class ContainerInstaller:
         )
         wrappers: dict[str, tuple[str, bool]] = {
             "elesim-build": (f"{command} build", False),
-            "elesim-up": (
-                f"{command} up -d --build --remove-orphans",
-                True,
-            ),
             "elesim-setup": (
                 f"{command} run --rm --build tools elesim-setup "
                 f"--state {shlex.quote(str(self.state_path))}",
@@ -624,6 +634,15 @@ class ContainerInstaller:
                 + body
                 + ' "$@"\n',
             )
+        write_executable(
+            self.state.bin_path / "elesim-up",
+            _runtime_up_wrapper(
+                compose=compose,
+                guard=guard,
+                launch_guard=application_guard + runtime_network_guard,
+                has_sim="sim" in self.state.roles,
+            ),
+        )
         # ``elesim-net show`` is consumed as a machine-readable JSON document
         # by the connection manager.  Compose's ``run --build`` writes build
         # progress to stdout before the tool starts, which corrupts that
@@ -812,6 +831,18 @@ def _entrypoint(role: str) -> str:
         command = commands[role]
     except KeyError as exc:
         raise ValueError(f"unsupported container role: {role}") from exc
+    if role == "sim":
+        command = (
+            "sim_args=()\n"
+            'if [[ ${ELESIM_SIM_VIEWER:-} == "1" ]]; then\n'
+            "  sim_args+=(--viewer)\n"
+            "fi\n"
+            "exec "
+            + commands[role]
+            + ' "${sim_args[@]}" "$@"\n'
+        )
+    else:
+        command = "exec " + commands[role] + ' "$@"\n'
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -819,9 +850,7 @@ def _entrypoint(role: str) -> str:
         "source /opt/ros/humble/setup.bash\n"
         "source /opt/elesim/ros/install/setup.bash\n"
         "set -u\n"
-        "exec "
         + command
-        + ' "$@"\n'
     )
 
 
@@ -963,6 +992,66 @@ def _manager_wrapper(
         + ' "${manager_args[@]}"\n'
         + "manager_status=$?\n"
         + "exit \"$manager_status\"\n"
+    )
+
+
+def _runtime_up_wrapper(
+    *,
+    compose: Path,
+    guard: str,
+    launch_guard: str,
+    has_sim: bool,
+) -> str:
+    """Render the general runtime launcher with an optional Sim Viewer.
+
+    ``--view`` is intentionally a launcher-only switch.  It does not alter
+    the installed YAML or security material; it just passes a one-shot
+    environment value into the Sim container, whose entrypoint translates it
+    to the runtime's ``--viewer`` flag.
+    """
+
+    command = "docker compose -f " + shlex.quote(str(compose))
+    unsupported = (
+        "    printf '이 설치에는 Sim 역할이 없어 --view를 사용할 수 없습니다.\\n' >&2\n"
+        "    exit 64\n"
+    )
+    view_parse = (
+        "view_requested=0\n"
+        "compose_args=()\n"
+        "for argument in \"$@\"; do\n"
+        "  if [[ $argument == --view ]]; then\n"
+        + (
+            "    if (( view_requested )); then\n"
+            "      printf 'elesim-up --view는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+            "      exit 64\n"
+            "    fi\n"
+            "    view_requested=1\n"
+            if has_sim
+            else unsupported
+        )
+        + "  else\n"
+        "    compose_args+=(\"$argument\")\n"
+        "  fi\n"
+        "done\n"
+        "if (( view_requested )); then\n"
+        "  if [[ -z ${DISPLAY:-} ]]; then\n"
+        "    printf 'elesim-up --view에는 서버의 DISPLAY가 필요합니다. 그래픽 세션에서 실행하거나 DISPLAY를 설정하십시오.\\n' >&2\n"
+        "    exit 64\n"
+        "  fi\n"
+        "  export ELESIM_SIM_VIEWER=1\n"
+        "else\n"
+        "  export ELESIM_SIM_VIEWER=\n"
+        "fi\n"
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + view_parse
+        + launch_guard
+        + "exec "
+        + command
+        + ' up -d --build --remove-orphans "${compose_args[@]}"\n'
     )
 
 

@@ -2697,7 +2697,17 @@ def run_runtime(
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
     ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
     ap.add_argument("--cpu", action="store_true", help="run Genesis on CPU for this process")
-    ap.add_argument("--no-viewer", action="store_true", help="disable Genesis viewer for profiling/headless runs")
+    viewer_options = ap.add_mutually_exclusive_group()
+    viewer_options.add_argument(
+        "--viewer",
+        action="store_true",
+        help="enable the native Genesis viewer for this process",
+    )
+    viewer_options.add_argument(
+        "--no-viewer",
+        action="store_true",
+        help="disable Genesis viewer for profiling/headless runs",
+    )
     ap.add_argument("--no-sim-camera", action="store_true", help="disable simulated RGB-D camera")
     ap.add_argument("--sim-camera-hz", type=float, default=None, help="override simulated camera publish rate")
     ap.add_argument("--sim-camera-rgb", action=argparse.BooleanOptionalAction, default=None, help="enable/disable simulated camera RGB rendering")
@@ -2734,7 +2744,9 @@ def run_runtime(
             ),
             perf_log_path=str(args.perf_log_file) if args.perf_log_file is not None else str(sim_cfg.perf_log_path),
         )
-    if args.no_viewer:
+    if args.viewer:
+        sim_cfg = replace(sim_cfg, enable_viewer=True)
+    elif args.no_viewer:
         sim_cfg = replace(sim_cfg, enable_viewer=False)
     if args.no_sim_camera:
         sim_cfg = replace(sim_cfg, sim_camera_enable=False, sim_observer_camera_enable=False)

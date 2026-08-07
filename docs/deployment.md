@@ -355,6 +355,14 @@ A headless compute host normally runs Sim. Use
 `config.remote.yaml`: it disables the native Genesis desktop Viewer while
 keeping the observer and hand-eye render cameras enabled.
 
+일반 설치에서 실제 그래픽 세션이 있는 Sim 호스트라면 `elesim-up --view`로
+이번 실행에 한해 native Viewer를 켤 수 있다. `DISPLAY`와 X11 인증/WSLg가
+준비되어 있어야 하며, 설정 파일이나 보안 generation은 변경하지 않는다.
+
+```bash
+DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
+```
+
 ```bash
 elesim-sim \
   --config /opt/elesim/sim/config/config.remote.yaml \

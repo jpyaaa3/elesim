@@ -9,7 +9,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from elesim_setup.container_installer import ContainerInstaller, build_container_plan
+from elesim_setup.container_installer import (
+    ContainerInstaller,
+    _runtime_up_wrapper,
+    build_container_plan,
+)
 from elesim_setup.ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     OwnershipManifest,
@@ -141,6 +145,14 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         entrypoint = (context / "entrypoint").read_text(encoding="utf-8")
         assert "set +u\nsource /opt/ros/humble/setup.bash" in entrypoint
         assert "source /opt/elesim/ros/install/setup.bash\nset -u" in entrypoint
+        if role == "sim":
+            assert service["environment"]["ELESIM_SIM_VIEWER"] == (
+                "${ELESIM_SIM_VIEWER:-}"
+            )
+            assert service["environment"]["DISPLAY"] == "${DISPLAY:-:0}"
+            assert "/tmp/.X11-unix:/tmp/.X11-unix:rw" in service["volumes"]
+            assert 'ELESIM_SIM_VIEWER:-' in entrypoint
+            assert "sim_args+=(--viewer)" in entrypoint
     tools = state.prefix_path / "containers/build/tools"
     assert (tools / "interfaces/elesim_interfaces/msg/RgbdFrame.msg").is_file()
     assert compose["services"]["tools"]["image"] == "elesim/tools:local"
@@ -179,6 +191,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         encoding="utf-8"
     )
     assert "up -d --build --remove-orphans" in up_wrapper
+    assert "--view" in up_wrapper
+    assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
+    assert "DISPLAY" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     assert "down --remove-orphans" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
@@ -186,6 +201,69 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+
+
+def test_runtime_up_view_switch_is_one_shot_and_requires_display(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s' \"${ELESIM_SIM_VIEWER-UNSET}\" > \"$VIEWER_MARKER\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment["VIEWER_MARKER"] = str(tmp_path / "viewer.marker")
+    environment.pop("DISPLAY", None)
+    missing_display = subprocess.run(
+        (wrapper, "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert missing_display.returncode == 64
+    assert "DISPLAY" in missing_display.stderr
+    assert not Path(environment["VIEWER_MARKER"]).exists()
+
+    environment["DISPLAY"] = ":0"
+    viewed = subprocess.run(
+        (wrapper, "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert viewed.returncode == 0
+    assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
+
+    normal = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert normal.returncode == 0
+    assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == ""
 
 
 def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:
