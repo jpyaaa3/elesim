@@ -21,11 +21,23 @@ class RollScanConfig:
     # keep a margin off the mechanical limit; the sweep is not trying to
     # exercise the joint stop, and pressing into it stalls the settle detector
     margin_deg: float = 3.0
-    step_deg: float = 2.0
-    sweeps: int = 2
+    step_deg: float = 4.0
+    sweeps: int = 1
+    # Capture WHILE the joint traverses, instead of stopping at each angle.
+    # Stopping cost ~0.3 s per stop in settle alone, and stop-and-go buys nothing
+    # here: the pose comes from the measured joint state either way, so a frame
+    # taken mid-traverse is registered just as well as one taken at rest.
+    continuous: bool = True
+    # chosen so the frame cadence lands near one frame per step_deg; too fast and
+    # the traverse outruns per-frame processing, leaving gaps in coverage
+    sweep_rate_deg_s: float = 12.0
     settle_s: float = 0.12
     settle_tol_deg: float = 0.35
     step_timeout_s: float = 2.0
+    # a frame whose pose straddles more than this much roll is dropped: at
+    # 12 deg/s a 50 ms joint-read period is ~0.6 deg of ambiguity, and anything
+    # much larger would register the cloud at an angle the arm was never at
+    max_pose_straddle_deg: float = 1.5
     box_half: float = 0.15
     frame_voxel: float = 0.002
     fuse_voxel: float = 0.002
@@ -84,8 +96,14 @@ class RollSweepPlan:
         """
         px = self._PIXELS.get(str(cfg.resolution).strip().upper(), self._PIXELS["HD1080"])
         grab_s = max(1.0 / max(float(cfg.fps), 1.0), 0.0)
-        process_s = 0.15 * (px / 1.0e6)
-        return self.n_stops * (float(cfg.settle_s) + grab_s + process_s)
+        process_s = 0.16 * (px / 1.0e6)   # measured ~0.33 s/frame at HD1080
+        per_frame = grab_s + process_s
+        if bool(cfg.continuous):
+            # bounded by traverse time; frames are taken on the fly, so the only
+            # way processing dominates is if it cannot keep up with the rate
+            travel_s = self.coverage_deg() / max(float(cfg.sweep_rate_deg_s), 1e-6)
+            return self.sweeps * max(travel_s, self.n_stops / self.sweeps * per_frame)
+        return self.n_stops * (float(cfg.settle_s) + per_frame)
 
 
 def build_plan(cfg: RollScanConfig) -> RollSweepPlan:

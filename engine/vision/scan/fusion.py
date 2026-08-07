@@ -21,11 +21,47 @@ from .geometry import remove_dominant_plane
 
 
 def transform_points(pts_cam: np.ndarray, R: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """Camera-frame points -> world frame, given a world<-camera pose."""
-    pts = np.asarray(pts_cam, dtype=float)
+    """
+    Camera-frame points -> world frame, given a world<-camera pose.
+
+    float32 input stays float32. The ZED delivers float32 and the heavy stages
+    are memory-bound, so upcasting a 2 M-point frame to float64 doubled the
+    traffic for nothing: at ~1 m magnitudes float32 resolves ~0.1 um, four
+    orders below the 2 mm fusion voxel.
+    """
+    pts = np.asarray(pts_cam)
     if pts.size == 0:
-        return pts.reshape(0, 3)
-    return pts @ np.asarray(R, dtype=float).T + np.asarray(t, dtype=float).reshape(1, 3)
+        return pts.reshape(0, 3).astype(float, copy=False)
+    dt = np.float32 if pts.dtype == np.float32 else np.float64
+    pts = pts.astype(dt, copy=False)
+    return pts @ np.asarray(R, dtype=dt).T + np.asarray(t, dtype=dt).reshape(1, 3)
+
+
+def camera_depth_gate(
+    pts_cam: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    center: np.ndarray,
+    box_half: float,
+) -> np.ndarray:
+    """
+    Drop points that cannot land in the world-frame crop box, by depth alone.
+
+    Every point of a cube of half-size h centred on the anchor lies within
+    h*sqrt(3) of the anchor, so its camera-frame depth is within h*sqrt(3) of the
+    anchor's depth. That makes this a conservative pre-filter -- it never removes
+    a point ``box_crop`` would have kept -- and it is a 1-D mask, so it costs a
+    fraction of transforming the full frame and then cropping in world space.
+    """
+    pts_cam = np.asarray(pts_cam)
+    if len(pts_cam) == 0:
+        return pts_cam
+    R = np.asarray(R, dtype=float)
+    rel = np.asarray(center, dtype=float).reshape(3) - np.asarray(t, dtype=float).reshape(3)
+    d_anchor = float((R.T @ rel)[2])  # anchor depth along the optical axis
+    reach = float(box_half) * 1.7320508
+    z = pts_cam[:, 2]
+    return pts_cam[np.abs(z - d_anchor) < reach]
 
 
 _VOXEL_KEY_LIMIT = 1 << 20  # per-axis magnitude that fits the int64 packing below
@@ -112,6 +148,71 @@ def classify_surface_world(
     return "mixed", ext_frac
 
 
+def _inplane_aspect(pts: np.ndarray) -> float:
+    """Aspect ratio (2nd/1st singular value) of a point set within its own plane."""
+    X = pts - pts.mean(axis=0)
+    svals = np.linalg.svd(X, compute_uv=False)
+    return float(svals[1] / svals[0]) if svals[0] > 1e-12 else 0.0
+
+
+def remove_dominant_plane_fast(
+    points: np.ndarray,
+    tol: float = 0.004,
+    iters: int = 200,
+    min_fraction: float = 0.25,
+    rng: Optional[np.random.Generator] = None,
+    fit_points: int = 8000,
+) -> np.ndarray:
+    """
+    Same contract as the bench's ``remove_dominant_plane``, but the consensus
+    search runs on a SUBSAMPLE and the winning plane is then applied once to
+    every point.
+
+    The bench version scores all N points on each of 200 iterations, which is
+    1.08 s at 144k points on a Jetson -- the dominant per-frame cost of a sweep,
+    ~350 s over a scan. A plane is 3 parameters, so consensus does not need more
+    than a few thousand samples to be found; only the final masking needs the
+    full cloud. The elongated-strip safeguard is kept, because without it a
+    tangent band on a curved wall gets removed and biases the fitted radius.
+    """
+    points = np.asarray(points, dtype=float)
+    n = len(points)
+    if n < 50:
+        return points
+    rng = rng or np.random.default_rng(1)
+
+    sample = points if n <= int(fit_points) else points[rng.choice(n, int(fit_points), replace=False)]
+    m = len(sample)
+    best_plane: Optional[tuple[np.ndarray, np.ndarray]] = None
+    best_count = 0
+    for _ in range(int(iters)):
+        idx = rng.choice(m, size=3, replace=False)
+        p0, p1, p2 = sample[idx]
+        nrm = np.cross(p1 - p0, p2 - p0)
+        norm = float(np.linalg.norm(nrm))
+        if norm < 1e-9:
+            continue
+        nrm = nrm / norm
+        count = int((np.abs((sample - p0) @ nrm) < tol).sum())
+        if count > best_count:
+            best_count, best_plane = count, (p0.copy(), nrm)
+    if best_plane is None:
+        return points
+    # the subsample's inlier fraction estimates the full cloud's
+    if best_count < float(min_fraction) * m:
+        return points
+
+    p0, nrm = best_plane
+    mask = np.abs((points - p0) @ nrm) < tol
+    if int(mask.sum()) < float(min_fraction) * n:
+        return points
+    if _inplane_aspect(points[mask]) < 0.25:
+        # elongated strip, not an extended surface: almost certainly a tangent
+        # band on a curved wall, and removing it would bias the object
+        return points
+    return points[~mask]
+
+
 def clean_world_frame(pw: np.ndarray, max_planes: int = 2, min_points: int = 500) -> np.ndarray:
     """
     Strip planar structure from ONE frame's (already cropped) world points.
@@ -125,7 +226,7 @@ def clean_world_frame(pw: np.ndarray, max_planes: int = 2, min_points: int = 500
     for _ in range(int(max_planes)):
         if len(pw) < int(min_points):
             break
-        kept = remove_dominant_plane(pw, min_fraction=0.20)
+        kept = remove_dominant_plane_fast(pw, min_fraction=0.20)
         if len(kept) == len(pw):
             break
         pw = kept

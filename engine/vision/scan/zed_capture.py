@@ -208,9 +208,17 @@ class ZedScanCamera:
 
 
 def valid_points(xyz: np.ndarray, *, min_depth: float, max_depth: float) -> np.ndarray:
-    """(H, W, 3) -> (N, 3) finite points inside the depth window."""
-    flat = np.asarray(xyz, dtype=float).reshape(-1, 3)
-    ok = np.isfinite(flat).all(axis=1)
+    """
+    (H, W, 3) -> (N, 3) finite points inside the depth window.
+
+    Keeps the ZED's native float32: this touches every pixel of a 2 M-point
+    frame, so upcasting to float64 here doubled the memory traffic of the single
+    most-executed stage in a sweep.
+    """
+    flat = np.asarray(xyz).reshape(-1, 3)
+    if flat.dtype not in (np.float32, np.float64):
+        flat = flat.astype(np.float32, copy=False)
     z = flat[:, 2]
-    ok &= (z > float(min_depth)) & (z < float(max_depth))
+    ok = (z > np.float32(min_depth)) & (z < np.float32(max_depth))
+    ok &= np.isfinite(flat).all(axis=1)
     return flat[ok]

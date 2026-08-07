@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -42,21 +43,26 @@ def _identity_plane_removal(pts, min_fraction=0.20):  # noqa: ARG001
 
 
 class FakeArm:
-    """Roll joint with first-order lag; the other three joints stay put."""
+    """Roll joint that chases its command at a finite rate; others stay put."""
 
-    def __init__(self, tau: float = 0.02) -> None:
+    def __init__(self, rate_deg_s: float = 60.0) -> None:
         self.q = [0.10, 0.0, 0.20, -0.20]
         self._target = 0.0
-        self._tau = float(tau)
+        self._rate = math.radians(float(rate_deg_s))
+        self._t_last = time.time()
 
     def command_roll_deg(self, deg: float) -> None:
         self._target = math.radians(float(deg))
 
     def read(self):
-        # one lag step per read: the settle loop polls, so this converges
-        self.q[1] += (self._target - self.q[1]) * 0.55
-        if abs(self._target - self.q[1]) < 1e-4:
-            self.q[1] = self._target
+        # rate-limited tracking, so a continuous traverse cannot teleport and the
+        # settle detector in stop-and-go mode has something real to wait for
+        now = time.time()
+        dt = max(0.0, now - self._t_last)
+        self._t_last = now
+        err = self._target - self.q[1]
+        step = self._rate * dt
+        self.q[1] += math.copysign(min(abs(err), step), err) if step > 0 else 0.0
         return tuple(self.q), 0.0
 
 
@@ -172,8 +178,8 @@ def check_scan_reconstructs_cylinder(monkeypatched: bool = True) -> list[str]:
     pose = _pose_provider(ctx)
     arm = FakeArm()
     cam = FakeCylinderCamera(pose, arm, np.random.default_rng(3))
-    cfg = RollScanConfig(step_deg=6.0, sweeps=1, settle_s=0.0, step_timeout_s=0.2,
-                         box_half=0.20, min_points_per_frame=100)
+    cfg = RollScanConfig(step_deg=6.0, sweeps=1, continuous=False, settle_s=0.0,
+                         step_timeout_s=0.5, box_half=0.20, min_points_per_frame=100)
 
     scan = RollSweepScan(
         cfg=cfg,
@@ -257,6 +263,51 @@ def check_voxel_downsample_no_key_collision() -> list[str]:
     return fails
 
 
+def check_continuous_sweep() -> list[str]:
+    """
+    Continuous mode must cover the same roll range as stop-and-go, without
+    stopping -- that is the whole reason it exists (~0.3 s per stop saved).
+    """
+    fails: list[str] = []
+    ctx = _ik_context()
+    pose = _pose_provider(ctx)
+    arm = FakeArm(rate_deg_s=90.0)
+    cam = FakeCylinderCamera(pose, arm, np.random.default_rng(9), n=500)
+    cfg = RollScanConfig(
+        step_deg=8.0, sweeps=1, continuous=True, sweep_rate_deg_s=180.0,
+        settle_s=0.0, step_timeout_s=0.5, box_half=0.20,
+        min_points_per_frame=50, max_pose_straddle_deg=90.0,
+    )
+    scan = RollSweepScan(
+        cfg=cfg, pose_provider=pose, read_q4=arm.read,
+        command_roll=arm.command_roll_deg, grab_points=cam.grab_points,
+    )
+    t0 = time.time()
+    scan.start()
+    if not scan.wait(timeout_s=180.0):
+        return ["continuous scan did not finish"]
+    elapsed = time.time() - t0
+    res = scan.result()
+    if res is None:
+        return [f"continuous scan produced no result: {scan.progress().msg}"]
+    rolls = scan.roll_angles_deg()
+    if res.n_frames < 8:
+        fails.append(f"only {res.n_frames} frames kept in continuous mode")
+    if res.roll_span_deg < 120.0:
+        fails.append(f"continuous roll span only {res.roll_span_deg:.0f} deg")
+    gaps = np.abs(np.diff(sorted(rolls))) if len(rolls) > 1 else np.array([0.0])
+    if gaps.max() > 6 * cfg.step_deg:
+        fails.append(f"coverage gap of {gaps.max():.1f} deg (step is {cfg.step_deg})")
+    r_fit, rms = _fit_radius(res.fused)
+    err_mm = (r_fit - R_TRUE) * 2000.0
+    if abs(err_mm) > 6.0:
+        fails.append(f"continuous diameter error {err_mm:+.2f} mm")
+    print(f"  {'ok ' if not fails else 'BAD'} continuous sweep: {res.n_frames} frames in "
+          f"{elapsed:.1f} s, roll span {res.roll_span_deg:.0f} deg, max gap "
+          f"{gaps.max():.1f} deg, d={2*r_fit*1000:.1f} mm (err {err_mm:+.2f} mm)")
+    return fails
+
+
 def check_end_to_end_with_real_fitter() -> list[str]:
     """
     Full pipeline against the real fitting backend: cylinder standing on a table,
@@ -301,8 +352,8 @@ def check_end_to_end_with_real_fitter() -> list[str]:
 
     cam = TableCylinderCamera(pose, arm, rng)
     cfg = RollScanConfig(
-        step_deg=6.0, sweeps=1, settle_s=0.0, step_timeout_s=0.2,
-        box_half=0.20, min_points_per_frame=100, inlier_tol=0.004,
+        step_deg=6.0, sweeps=1, continuous=False, settle_s=0.0,
+        step_timeout_s=0.5, box_half=0.20, min_points_per_frame=100, inlier_tol=0.004,
         label="selftest_e2e",
         outdir=str(Path(__file__).resolve().parents[1] / "engine" / "logs" / "roll_scan_selftest"),
         save_frames_npz=False,
@@ -368,6 +419,7 @@ def main() -> int:
     failures += scan_fails
     if not scan_fails:
         failures += check_pose_error_inflates_wall(clean_rms)
+    failures += check_continuous_sweep()
     failures += check_end_to_end_with_real_fitter()
 
     print()

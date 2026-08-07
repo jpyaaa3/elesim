@@ -30,6 +30,7 @@ from .fusion import (
     anchor_from_frame,
     box_crop,
     build_provenance,
+    camera_depth_gate,
     clean_world_frame,
     fuse,
     transform_points,
@@ -224,6 +225,153 @@ class RollSweepScan:
             time.sleep(0.01)
         return None
 
+    def _capture_at(
+        self,
+        pose: FkPoseSample,
+        center: Optional[np.ndarray],
+        notes: list[str],
+        tag: str,
+    ) -> tuple[Optional[np.ndarray], int]:
+        """Grab, transform and keep one frame. Returns (anchor, points kept)."""
+        pts_cam = self._grab()
+        if pts_cam is None or len(pts_cam) == 0:
+            notes.append(f"{tag}: no depth")
+            return center, 0
+        if center is None:
+            center = anchor_from_frame(pts_cam, pose.R, pose.t, box_half=self.cfg.box_half)
+            if center is None:
+                notes.append(f"{tag}: anchor too sparse")
+                return None, 0
+        pts_cam = camera_depth_gate(pts_cam, pose.R, pose.t, center, self.cfg.box_half)
+        pw = transform_points(pts_cam, pose.R, pose.t)
+        pw = box_crop(pw, center, self.cfg.box_half)
+        pw = clean_world_frame(pw)
+        if len(pw) <= int(self.cfg.min_points_per_frame):
+            notes.append(f"{tag}: object out of view")
+            return center, 0
+        pw = voxel_downsample(pw, self.cfg.frame_voxel)
+        with self._lock:
+            self._frames.append(pw)
+            self._cams.append(np.asarray(pose.t, dtype=float).copy())
+            self._looks.append(np.asarray(pose.look, dtype=float).copy())
+            self._rolls.append(math.degrees(pose.roll_rad))
+        return center, len(pw)
+
+    def _run_continuous(self, notes: list[str]) -> Optional[np.ndarray]:
+        """
+        Traverse each leg at a fixed rate and capture on the fly.
+
+        The commanded angle is a time-based ramp rather than a sequence of
+        setpoints, so the joint never decelerates to a stop; a frame is kept
+        whenever the MEASURED roll has advanced a full step since the last kept
+        one, which keeps angular coverage a property of the plan even though the
+        capture cadence is whatever the pipeline can sustain.
+        """
+        cfg = self.cfg
+        lo, hi = cfg.span_deg()
+        rate = max(float(cfg.sweep_rate_deg_s), 1e-6)
+        center: Optional[np.ndarray] = None
+        kept_total = 0
+        stop_i = 0
+        for leg in range(max(int(cfg.sweeps), 1)):
+            if self._stop.is_set():
+                notes.append(f"stopped by user during sweep {leg + 1}")
+                break
+            start, end = (lo, hi) if leg % 2 == 0 else (hi, lo)
+            begin = self._goto_roll(start)
+            if begin is None:
+                notes.append(f"sweep {leg + 1}: could not reach the start angle")
+                continue
+            sign = 1.0 if end >= start else -1.0
+            t0 = time.time()
+            last_kept: Optional[float] = None
+            deadline = t0 + abs(end - start) / rate + float(cfg.step_timeout_s) * 3.0
+            while not self._stop.is_set():
+                cmd = start + sign * rate * (time.time() - t0)
+                cmd = min(cmd, end) if sign > 0 else max(cmd, end)
+                self._command_roll(float(cmd))
+
+                before = self._sample_pose()
+                pts_ready = before is not None
+                if pts_ready:
+                    after = self._sample_pose()
+                    straddle = abs(
+                        math.degrees((after or before).roll_rad - before.roll_rad)
+                    )
+                    mid = after if after is not None else before
+                    roll_now = math.degrees(mid.roll_rad)
+                    advanced = last_kept is None or abs(roll_now - last_kept) >= float(cfg.step_deg)
+                    if straddle > float(cfg.max_pose_straddle_deg):
+                        notes.append(f"leg{leg}: pose straddled {straddle:.2f} deg, frame dropped")
+                    elif advanced:
+                        center, kept = self._capture_at(mid, center, notes, f"leg{leg}@{roll_now:+.1f}")
+                        if kept:
+                            last_kept = roll_now
+                            kept_total += kept
+                        stop_i += 1
+                        self._set(
+                            stop_index=stop_i, sweep=leg + 1,
+                            roll_cmd_deg=float(cmd), roll_actual_deg=float(roll_now),
+                            frames_kept=len(self._frames), points_kept=kept_total,
+                            msg=f"roll {roll_now:+.1f} deg  kept {kept}",
+                        )
+                reached = abs(cmd - end) < 1e-6 and (
+                    before is not None
+                    and abs(math.degrees(before.roll_rad) - end) <= float(cfg.settle_tol_deg) * 3.0
+                )
+                if reached or time.time() > deadline:
+                    if not reached:
+                        notes.append(f"sweep {leg + 1}: traverse timed out at cmd {cmd:+.1f}")
+                    break
+        return center
+
+    def _finish(self, center: Optional[np.ndarray], notes: list[str]) -> None:
+        """Fuse what the sweep kept and publish the result. Shared by both modes."""
+        with self._lock:
+            frames = list(self._frames)
+            cams = list(self._cams)
+            looks = list(self._looks)
+            rolls = list(self._rolls)
+        if len(frames) < 2:
+            self._set(running=False, phase="failed",
+                      msg=f"need >=2 usable frames, got {len(frames)}")
+            return
+
+        self._set(phase="fusing", msg=f"fusing {len(frames)} frames")
+        fused = fuse(frames, voxel=self.cfg.fuse_voxel)
+        stacked, cam_rows = build_provenance(frames, cams)
+        samples = [
+            FkPoseSample(R=np.eye(3), t=c, q4=np.zeros(4), roll_rad=math.radians(r))
+            for c, r in zip(cams, rolls)
+        ]
+        res = FusionResult(
+            fused=fused,
+            stacked=stacked,
+            cam_positions=cam_rows,
+            n_frames=len(frames),
+            center=center,
+            roll_span_deg=(max(rolls) - min(rolls)) if rolls else 0.0,
+            view_span_deg=self._pose.view_span_deg(
+                [FkPoseSample(R=_look_to_R(l), t=c, q4=np.zeros(4), roll_rad=0.0)
+                 for l, c in zip(looks, cams)]
+            ),
+            observation_span_deg=self._pose.observation_span_deg(
+                samples, center if center is not None else fused.mean(axis=0)
+            ),
+            baseline_span_m=self._pose.baseline_span_m(samples),
+            sweeps=self.plan.sweeps,
+            notes=notes,
+        )
+        with self._lock:
+            self._result = res
+        self._set(
+            running=False, phase="done",
+            msg=(f"{len(frames)} frames, {len(fused)} pts, "
+                 f"roll span {res.roll_span_deg:.0f} deg, "
+                 f"object-view span {res.observation_span_deg:.0f} deg, "
+                 f"camera travel {res.baseline_span_m*1000:.0f} mm"),
+        )
+
     def _run(self) -> None:
         with self._lock:
             self._frames, self._cams, self._looks, self._rolls = [], [], [], []
@@ -236,8 +384,16 @@ class RollSweepScan:
         try:
             if self._open_camera is not None:
                 self._open_camera()
-            self._set(phase="sweeping", msg=f"{self.plan.n_stops} stops")
+            if bool(getattr(self.cfg, "continuous", False)):
+                self._set(
+                    phase="sweeping",
+                    msg=(f"continuous, {self.plan.sweeps} sweep(s) at "
+                         f"{self.cfg.sweep_rate_deg_s:g} deg/s"),
+                )
+                center = self._run_continuous(notes)
+                return self._finish(center, notes)
 
+            self._set(phase="sweeping", msg=f"{self.plan.n_stops} stops")
             per_sweep = max(1, self.plan.n_stops // max(self.plan.sweeps, 1))
             for idx, target in enumerate(self.plan.angles_deg):
                 if self._stop.is_set():
@@ -249,30 +405,7 @@ class RollSweepScan:
                     notes.append(f"stop {idx}: no pose")
                     continue
                 actual_deg = math.degrees(pose.roll_rad)
-                pts_cam = self._grab()
-                kept = 0
-                if pts_cam is None or len(pts_cam) == 0:
-                    notes.append(f"stop {idx}: no depth")
-                else:
-                    if center is None:
-                        center = anchor_from_frame(
-                            pts_cam, pose.R, pose.t, box_half=self.cfg.box_half
-                        )
-                        if center is None:
-                            notes.append(f"stop {idx}: anchor too sparse")
-                    if center is not None:
-                        pw = transform_points(pts_cam, pose.R, pose.t)
-                        pw = box_crop(pw, center, self.cfg.box_half)
-                        pw = clean_world_frame(pw)
-                        if len(pw) > int(self.cfg.min_points_per_frame):
-                            pw = voxel_downsample(pw, self.cfg.frame_voxel)
-                            kept = len(pw)
-                            frames.append(pw)
-                            cams.append(np.asarray(pose.t, dtype=float).copy())
-                            looks.append(np.asarray(pose.look, dtype=float).copy())
-                            rolls.append(actual_deg)
-                        else:
-                            notes.append(f"stop {idx}: object out of view")
+                center, kept = self._capture_at(pose, center, notes, f"stop {idx}")
                 self._set(
                     stop_index=idx + 1,
                     sweep=min(sweep_i + 1, self.plan.sweeps),
@@ -283,45 +416,7 @@ class RollSweepScan:
                     msg=f"roll {actual_deg:+.1f} deg  kept {kept}",
                 )
 
-            if len(frames) < 2:
-                self._set(running=False, phase="failed",
-                          msg=f"need >=2 usable frames, got {len(frames)}")
-                return
-
-            self._set(phase="fusing", msg=f"fusing {len(frames)} frames")
-            fused = fuse(frames, voxel=self.cfg.fuse_voxel)
-            stacked, cam_rows = build_provenance(frames, cams)
-            samples = [
-                FkPoseSample(R=np.eye(3), t=c, q4=np.zeros(4), roll_rad=math.radians(r))
-                for c, r in zip(cams, rolls)
-            ]
-            res = FusionResult(
-                fused=fused,
-                stacked=stacked,
-                cam_positions=cam_rows,
-                n_frames=len(frames),
-                center=center,
-                roll_span_deg=(max(rolls) - min(rolls)) if rolls else 0.0,
-                view_span_deg=self._pose.view_span_deg(
-                    [FkPoseSample(R=_look_to_R(l), t=c, q4=np.zeros(4), roll_rad=0.0)
-                     for l, c in zip(looks, cams)]
-                ),
-                observation_span_deg=self._pose.observation_span_deg(
-                    samples, center if center is not None else fused.mean(axis=0)
-                ),
-                baseline_span_m=self._pose.baseline_span_m(samples),
-                sweeps=self.plan.sweeps,
-                notes=notes,
-            )
-            with self._lock:
-                self._result = res
-            self._set(
-                running=False, phase="done",
-                msg=(f"{len(frames)} frames, {len(fused)} pts, "
-                     f"roll span {res.roll_span_deg:.0f} deg, "
-                     f"object-view span {res.observation_span_deg:.0f} deg, "
-                     f"camera travel {res.baseline_span_m*1000:.0f} mm"),
-            )
+            self._finish(center, notes)
         except Exception as exc:  # noqa: BLE001
             self._set(running=False, phase="failed", msg=f"scan failed: {exc}")
         finally:
