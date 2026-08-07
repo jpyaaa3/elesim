@@ -377,6 +377,9 @@ elesim-setup status          # 설치 상태 확인
 DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
 ```
 
+`--view`는 실행 직전에 현재 DISPLAY의 `xhost +si:localuser:root` 권한을
+필요할 때만 임시로 추가하고, `elesim-down`에서 Elesim이 추가한 권한만
+`xhost -si:localuser:root`로 회수한다. 이미 있던 권한은 회수하지 않는다.
 SSH X11 forwarding, X11 인증 또는 WSLg가 준비되어 있어야 한다. Viewer를
 닫으면 Sim가 종료될 수 있으므로, 장시간 원격 운용에는 UI의 WebRTC
 observer stream을 사용한다.
@@ -484,8 +487,9 @@ DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
 ```
 
 `--view`는 설치된 headless 설정이나 SROS2 자료를 변경하지 않는다. 단지
-이번 실행의 Sim 컨테이너에 Viewer 플래그를 전달한다. 디스플레이가 없는
-원격 compute host에서는 기본 `elesim-up`과 UI WebRTC observer를 사용한다.
+이번 실행의 Sim 컨테이너에 Viewer 플래그를 전달하고 X11 권한을 임시 관리한다.
+`elesim-down`을 실행하면 이 실행에서 추가한 권한을 회수한다. 디스플레이가
+없는 원격 compute host에서는 기본 `elesim-up`과 UI WebRTC observer를 사용한다.
 
 원격 Sim profile은 native Genesis Viewer를 끄지만 observer와 hand-eye
 렌더링은 유지한다.

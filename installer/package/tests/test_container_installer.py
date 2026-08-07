@@ -12,6 +12,7 @@ import yaml
 from elesim_setup.container_installer import (
     ContainerInstaller,
     _runtime_up_wrapper,
+    _runtime_down_wrapper,
     build_container_plan,
 )
 from elesim_setup.ownership import (
@@ -194,8 +195,12 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "--view" in up_wrapper
     assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
     assert "DISPLAY" in up_wrapper
+    assert "xhost +si:localuser:root" in up_wrapper
+    assert "viewer-xhost" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     assert "down --remove-orphans" in down_wrapper
+    assert "xhost -si:localuser:root" in down_wrapper
+    assert "viewer_xhost_cleanup" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
     assert "elesim-net namespace-check >/dev/null" in role_wrapper
     assert "update --edition general" in update_wrapper
@@ -215,6 +220,7 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
             guard="",
             launch_guard="",
             has_sim=True,
+            viewer_state=tmp_path / "viewer-xhost",
         ),
         encoding="utf-8",
     )
@@ -228,10 +234,27 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
         encoding="utf-8",
     )
     docker.chmod(0o755)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "if (( $# == 0 )); then\n"
+        "  if [[ -e ${XHOST_PERMISSION_MARKER:?} ]]; then\n"
+        "    printf 'SI:localuser:root\\n'\n"
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        "case $1 in\n"
+        "  +si:localuser:root) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  -si:localuser:root) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
 
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
     environment["VIEWER_MARKER"] = str(tmp_path / "viewer.marker")
+    environment["XHOST_PERMISSION_MARKER"] = str(tmp_path / "xhost.permission")
     environment.pop("DISPLAY", None)
     missing_display = subprocess.run(
         (wrapper, "--view"),
@@ -254,6 +277,8 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     )
     assert viewed.returncode == 0
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
+    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == ":0\n\n"
+    assert (tmp_path / "xhost.permission").is_file()
 
     normal = subprocess.run(
         (wrapper,),
@@ -264,6 +289,55 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     )
     assert normal.returncode == 0
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == ""
+    assert not (tmp_path / "viewer-xhost").exists()
+    assert not (tmp_path / "xhost.permission").exists()
+
+
+def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    wrapper = tmp_path / "elesim-down"
+    wrapper.write_text(
+        _runtime_down_wrapper(
+            compose=compose,
+            logs_root=tmp_path / "logs",
+            services=("sim",),
+            archive_enabled=False,
+            guard="",
+            viewer_state=tmp_path / "viewer-xhost",
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    (tmp_path / "viewer-xhost").write_text(":7\n/tmp/auth\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ $1 == -si:localuser:root ]]; then\n"
+        "  printf '%s' \"${DISPLAY:?}\" > \"${XHOST_REVOKED:?}\"\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment["XHOST_REVOKED"] = str(tmp_path / "xhost.revoked")
+    environment.pop("DISPLAY", None)
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert (tmp_path / "xhost.revoked").read_text(encoding="utf-8") == ":7"
+    assert not (tmp_path / "viewer-xhost").exists()
 
 
 def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:

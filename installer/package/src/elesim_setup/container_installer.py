@@ -641,6 +641,11 @@ class ContainerInstaller:
                 guard=guard,
                 launch_guard=application_guard + runtime_network_guard,
                 has_sim="sim" in self.state.roles,
+                viewer_state=(
+                    self.state.prefix_path / "cache/viewer-xhost"
+                    if "sim" in self.state.roles
+                    else None
+                ),
             ),
         )
         # ``elesim-net show`` is consumed as a machine-readable JSON document
@@ -678,6 +683,11 @@ class ContainerInstaller:
                 services=managed_services,
                 archive_enabled=self.state.runtime_text_logs.enabled,
                 guard=guard,
+                viewer_state=(
+                    self.state.prefix_path / "cache/viewer-xhost"
+                    if "sim" in self.state.roles
+                    else None
+                ),
             ),
         )
         write_executable(
@@ -995,12 +1005,85 @@ def _manager_wrapper(
     )
 
 
+def _viewer_xhost_function(state_path: Path) -> str:
+    """Render opt-in X11 ACL management for the root-based Sim container."""
+
+    state = shlex.quote(str(state_path))
+    return (
+        f"viewer_xhost_state={state}\n"
+        "viewer_xhost_cleanup() {\n"
+        "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] || return 0\n"
+        "  if [[ ! -f \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
+        "    printf 'Elesim xhost 상태 파일이 일반 파일이 아닙니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local saved_display=\"\" saved_xauthority=\"\"\n"
+        "  { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$viewer_xhost_state\"\n"
+        "  if [[ -z $saved_display ]]; then\n"
+        "    printf 'Elesim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  if ! command -v xhost >/dev/null 2>&1; then\n"
+        "    printf 'xhost 명령을 찾을 수 없어 X11 권한을 회수할 수 없습니다.\\n' >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local xhost_status=0\n"
+        "  if [[ -n $saved_xauthority ]]; then\n"
+        "    XAUTHORITY=\"$saved_xauthority\" DISPLAY=\"$saved_display\" xhost -si:localuser:root >/dev/null 2>&1 || xhost_status=$?\n"
+        "  else\n"
+        "    DISPLAY=\"$saved_display\" xhost -si:localuser:root >/dev/null 2>&1 || xhost_status=$?\n"
+        "  fi\n"
+        "  if (( xhost_status != 0 )); then\n"
+        "    printf 'X11 root 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
+        "    return \"$xhost_status\"\n"
+        "  fi\n"
+        "  rm -f -- \"$viewer_xhost_state\"\n"
+        "}\n"
+        "viewer_xhost_enable() {\n"
+        "  local display=\"${DISPLAY:-}\"\n"
+        "  if [[ -z $display ]]; then\n"
+        "    printf 'elesim-up --view에는 DISPLAY가 필요합니다.\\n' >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  if ! command -v xhost >/dev/null 2>&1; then\n"
+        "    printf 'xhost 명령을 찾을 수 없어 --view를 실행할 수 없습니다.\\n' >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  if [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
+        "    viewer_xhost_cleanup || return $?\n"
+        "  fi\n"
+        "  local xhost_list=\"\" had_root=0\n"
+        "  if ! xhost_list=\"$(xhost 2>/dev/null)\"; then\n"
+        "    printf 'DISPLAY에 연결할 수 없어 xhost ACL을 확인할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  if grep -Fq 'SI:localuser:root' <<<\"$xhost_list\"; then\n"
+        "    had_root=1\n"
+        "  fi\n"
+        "  if ! xhost +si:localuser:root >/dev/null 2>&1; then\n"
+        "    printf 'X11 root 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  if (( had_root == 0 )) || [[ -e \"$viewer_xhost_state\" ]]; then\n"
+        "    local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
+        "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
+        "      rm -f -- \"$temporary\"\n"
+        "      printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "      return 74\n"
+        "    fi\n"
+        "    chmod 0600 -- \"$viewer_xhost_state\"\n"
+        "  fi\n"
+        "}\n"
+    )
+
+
 def _runtime_up_wrapper(
     *,
     compose: Path,
     guard: str,
     launch_guard: str,
     has_sim: bool,
+    viewer_state: Path | None = None,
 ) -> str:
     """Render the general runtime launcher with an optional Sim Viewer.
 
@@ -1043,15 +1126,42 @@ def _runtime_up_wrapper(
         "  export ELESIM_SIM_VIEWER=\n"
         "fi\n"
     )
+    viewer_function = (
+        _viewer_xhost_function(viewer_state)
+        if has_sim and viewer_state is not None
+        else ""
+    )
+    viewer_action = (
+        "if (( ! view_requested )); then\n"
+        "  viewer_xhost_cleanup || exit $?\n"
+        "fi\n"
+        + launch_guard
+        + "if (( view_requested )); then\n"
+        "  viewer_xhost_enable || exit $?\n"
+        "fi\n"
+        if viewer_function
+        else launch_guard
+    )
+    compose_run = (
+        "compose_status=0\n"
+        "set +e\n"
+        + command
+        + ' up -d --build --remove-orphans "${compose_args[@]}"\n'
+        "compose_status=$?\n"
+        "set -e\n"
+        "if (( compose_status != 0 && view_requested )); then\n"
+        "  viewer_xhost_cleanup || compose_status=$?\n"
+        "fi\n"
+        "exit \"$compose_status\"\n"
+    )
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         + guard
+        + viewer_function
         + view_parse
-        + launch_guard
-        + "exec "
-        + command
-        + ' up -d --build --remove-orphans "${compose_args[@]}"\n'
+        + viewer_action
+        + compose_run
     )
 
 
@@ -1224,9 +1334,38 @@ def _runtime_down_wrapper(
     services: tuple[str, ...],
     archive_enabled: bool,
     guard: str,
+    viewer_state: Path | None = None,
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
+    viewer_function = (
+        _viewer_xhost_function(viewer_state)
+        if viewer_state is not None
+        else ""
+    )
     if not archive_enabled:
+        if viewer_function:
+            return (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                + guard
+                + viewer_function
+                + "if (( $# != 0 )); then\n"
+                + "  printf '사용법: elesim-down\n' >&2\n"
+                + "  exit 64\n"
+                + "fi\n"
+                + "down_status=0\n"
+                + "set +e\n"
+                + command
+                + " down --remove-orphans\n"
+                + "down_status=$?\n"
+                + "set -e\n"
+                + "viewer_status=0\n"
+                + "viewer_xhost_cleanup || viewer_status=$?\n"
+                + "if (( down_status != 0 )); then\n"
+                + "  exit \"$down_status\"\n"
+                + "fi\n"
+                + "exit \"$viewer_status\"\n"
+            )
         return (
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
@@ -1244,6 +1383,7 @@ def _runtime_down_wrapper(
         "set -euo pipefail\n"
         "umask 077\n"
         + guard
+        + viewer_function
         + "if (( $# != 0 )); then\n"
         + "  printf '사용법: elesim-down\\n' >&2\n"
         + "  exit 64\n"
@@ -1258,10 +1398,19 @@ def _runtime_down_wrapper(
         + "down_status=0\n"
         + command
         + " down --remove-orphans || down_status=$?\n"
+        + "viewer_status=0\n"
+        + (
+            "viewer_xhost_cleanup || viewer_status=$?\n"
+            if viewer_function
+            else ""
+        )
         + "if (( down_status != 0 )); then\n"
         + "  exit \"$down_status\"\n"
         + "fi\n"
-        + "exit \"$archive_status\"\n"
+        + "if (( archive_status != 0 )); then\n"
+        + "  exit \"$archive_status\"\n"
+        + "fi\n"
+        + "exit \"$viewer_status\"\n"
     )
 
 
