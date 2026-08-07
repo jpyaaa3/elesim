@@ -371,6 +371,19 @@ elesim-down                  # 선택한 runtime 종료
 elesim-setup status          # 설치 상태 확인
 ```
 
+여러 호스트를 시작하면 연결 관리자가 컨테이너 생성과 DDS 애플리케이션 피어
+발견을 구분해 `DDS readiness`를 표시한다. Sim의 Genesis 장면을 만드는 동안에는
+`대기 중`일 수 있으며, 이 진단은 느린 Sim을 자동으로 내리지 않는다. 특정 피어를
+엄격하게 확인할 때는 IP/SSH 이름이 아니라 endpoint ID를 사용한다.
+
+```bash
+elesim-net doctor --json --strict-peers \
+  --expect-peer sim-default --timeout 8
+```
+
+이 검사는 DDS endpoint descriptor까지만 확인한다. RGBD 프레임, WebRTC
+ICE/DTLS-SRTP, SROS2 권한과 실제 하드웨어 동작은 별도의 검증이다.
+
 실제 그래픽 세션이 있는 호스트에서 native Genesis Viewer를 일시적으로
 열려면 Sim 역할이 설치된 상태에서 다음처럼 실행한다. 기본 `elesim-up`은
 계속 headless로 실행된다.

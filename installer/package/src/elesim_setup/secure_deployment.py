@@ -294,6 +294,14 @@ class RemoteLifecycle(Protocol):
 
     def launch(self, session: SshSession, host: ManagedHost) -> None: ...
 
+    def runtime_doctor(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        expected_peer_ids: Sequence[str],
+        timeout_s: float,
+    ) -> Mapping[str, Any]: ...
+
     def status(
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]: ...
@@ -329,6 +337,13 @@ class HostOperations(Protocol):
     def build(self, host: ManagedHost, output: CommandOutput) -> None: ...
 
     def launch(self, host: ManagedHost) -> None: ...
+
+    def runtime_doctor(
+        self,
+        host: ManagedHost,
+        expected_peer_ids: Sequence[str],
+        timeout_s: float = 8.0,
+    ) -> Mapping[str, Any]: ...
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]: ...
 
@@ -919,6 +934,22 @@ class SshHostOperations:
     def launch(self, host: ManagedHost) -> None:
         with self._connect(host) as session:
             self._lifecycle.launch(session, host)
+
+    def runtime_doctor(
+        self,
+        host: ManagedHost,
+        expected_peer_ids: Sequence[str],
+        timeout_s: float = 8.0,
+    ) -> Mapping[str, Any]:
+        if timeout_s <= 0:
+            raise ValueError("runtime doctor timeout must be positive")
+        with self._connect(host) as session:
+            return self._lifecycle.runtime_doctor(
+                session,
+                host,
+                tuple(expected_peer_ids),
+                float(timeout_s),
+            )
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]:
         with self._connect(host) as session:
@@ -1648,6 +1679,40 @@ class InstalledElesimLifecycle:
 
     def launch(self, session: SshSession, host: ManagedHost) -> None:
         session.run(_lifecycle_command(host, action="launch", roles=host.roles))
+
+    def runtime_doctor(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        expected_peer_ids: Sequence[str],
+        timeout_s: float,
+    ) -> Mapping[str, Any]:
+        if timeout_s <= 0:
+            raise ValueError("runtime doctor timeout must be positive")
+        argv = [
+            str(_net_command(host)),
+            "doctor",
+            "--timeout",
+            f"{float(timeout_s):g}",
+            "--json",
+            "--strict-peers",
+        ]
+        for endpoint_id in expected_peer_ids:
+            value = str(endpoint_id).strip()
+            if value:
+                argv.extend(("--expect-peer", value))
+        result = session.run(tuple(argv), check=False)
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(
+                f"elesim-net doctor returned invalid JSON on {host.host_id!r}"
+                + (f": {detail[:512]}" if detail else "")
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise RuntimeError(f"elesim-net doctor returned a non-object on {host.host_id!r}")
+        return dict(payload)
 
     def status(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
         """Return a bounded lifecycle snapshot without changing host state."""

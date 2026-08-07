@@ -702,6 +702,17 @@ def _parser() -> argparse.ArgumentParser:
         help="DDS graph, RGBD topic, TURN과 WebRTC 연결 검사",
     )
     doctor.add_argument("--active", action="store_true", help="실제 DDS RGBD sample까지 검사")
+    doctor.add_argument(
+        "--expect-peer",
+        action="append",
+        default=[],
+        help="기대하는 원격 Elesim endpoint ID (반복 가능)",
+    )
+    doctor.add_argument(
+        "--strict-peers",
+        action="store_true",
+        help="기대 endpoint 미발견을 실패로 반환",
+    )
     doctor.add_argument("--timeout", type=float, default=4.0)
     doctor.add_argument("--json", action="store_true", help="기계 판독용 JSON 출력")
     return parser
@@ -821,6 +832,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 state,
                 timeout_s=args.timeout,
                 active=args.active,
+                expected_peers=args.expect_peer,
+                strict_peers=args.strict_peers,
             ).run()
             print(
                 json.dumps(report.to_dict(), ensure_ascii=False, indent=2)

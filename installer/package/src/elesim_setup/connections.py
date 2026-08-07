@@ -166,6 +166,7 @@ class ConnectionDeploymentRunner:
                             log(f"start: {host.display_name} ({host.host_id})")
                             operations[host.host_id].launch(host)
                             launched.append(host)
+                        self._report_runtime_readiness(topology, operations, hosts, log)
                     except BaseException:
                         for host in reversed(launched):
                             try:
@@ -252,6 +253,86 @@ class ConnectionDeploymentRunner:
                 self._write_transaction_journal(topology, journal)
         finally:
             self._close_operations(operations)
+
+    @staticmethod
+    def _report_runtime_readiness(
+        topology: ConnectionTopology,
+        operations: Mapping[str, HostOperations],
+        hosts: Sequence[ManagedHost],
+        log: Log,
+    ) -> None:
+        """Report application-level DDS readiness after detached launch.
+
+        ``docker compose up -d`` only proves that containers were created.  A
+        Sim process may still be building a Genesis scene, and a Docker
+        Desktop/WSL namespace may be unable to receive the remote descriptor.
+        Keep this probe best-effort so a slow but healthy Sim is not torn down;
+        make either case visible instead of presenting a silent successful
+        start.  The strict, read-only form remains available through
+        ``elesim-net doctor --strict-peers``.
+        """
+
+        log("DDS endpoint 준비 상태를 확인합니다 (컨테이너 시작과 별도).")
+        for host in hosts:
+            local_ids = {assignment.endpoint_id for assignment in host.assignments}
+            expected = tuple(
+                sorted(
+                    assignment.endpoint_id
+                    for peer_host in topology.hosts
+                    if peer_host.host_id != host.host_id
+                    for assignment in peer_host.assignments
+                    if assignment.endpoint_id not in local_ids
+                )
+            )
+            if not expected:
+                log(f"DDS readiness: {host.display_name} ({host.host_id}) — local-only")
+                continue
+            checker = getattr(operations[host.host_id], "runtime_doctor", None)
+            if not callable(checker):
+                log(
+                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    "검사기 없음; 컨테이너 로그에서 실제 상태를 확인하십시오"
+                )
+                continue
+            try:
+                report = checker(host, expected, timeout_s=8.0)
+            except BaseException as exc:
+                detail = str(exc).strip() or exc.__class__.__name__
+                log(
+                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"검사 실패: {detail[:768]}"
+                )
+                continue
+            if not isinstance(report, Mapping):
+                log(
+                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    "검사 결과 형식이 올바르지 않음; 컨테이너 로그를 확인하십시오"
+                )
+                continue
+            if bool(report.get("ok")):
+                log(
+                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"원격 endpoint {', '.join(expected)} 발견"
+                )
+                continue
+            peer_result = next(
+                (
+                    result
+                    for result in report.get("results", ())
+                    if isinstance(result, Mapping) and result.get("name") == "DDS peers"
+                ),
+                None,
+            )
+            detail = (
+                str(peer_result.get("detail", ""))
+                if isinstance(peer_result, Mapping)
+                else "expected endpoint가 아직 발견되지 않음"
+            )
+            log(
+                f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                f"대기 중: {detail[:768]}; Sim 장면 빌드 또는 Docker Desktop/WSL "
+                "네트워크 namespace를 확인하십시오"
+            )
 
     @staticmethod
     def _check_hosts(

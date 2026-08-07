@@ -120,6 +120,50 @@ def test_doctor_reports_dds_graph_rgbd_and_webrtc_control_carrier(
     assert report.ok
 
 
+def test_doctor_reports_expected_peer_descriptors(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = DdsGraphSnapshot(nodes=("/elesim/v6/sim",), topics={}, services={})
+    monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", lambda *_args, **_kwargs: graph)
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_peers",
+        lambda *_args, **_kwargs: ("sim-default",),
+    )
+
+    report = NetworkDoctor(
+        local_state(),
+        expected_peers=("sim-default",),
+        strict_peers=True,
+    ).run()
+
+    result = next(item for item in report.results if item.name == "DDS peers")
+    assert result.status == PASS
+    assert report.ok
+
+
+def test_doctor_strict_peer_probe_fails_when_target_is_missing(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = DdsGraphSnapshot(nodes=(), topics={}, services={})
+    monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", lambda *_args, **_kwargs: graph)
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_peers",
+        lambda *_args, **_kwargs: (),
+    )
+
+    report = NetworkDoctor(
+        local_state(),
+        expected_peers=("sim-default",),
+        strict_peers=True,
+    ).run()
+
+    result = next(item for item in report.results if item.name == "DDS peers")
+    assert result.status == FAIL
+    assert not report.ok
+
+
 def test_doctor_dds_failure_skips_dependent_checks(
     local_state,
     monkeypatch: pytest.MonkeyPatch,

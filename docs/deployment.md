@@ -191,6 +191,15 @@ management reachability and process state only; DDS discovery and WebRTC media
 are not inferred from a successful SSH command. The UI polls the read-only
 status while open and keeps deployment and rotation jobs separate from that poll.
 
+After launch, the manager performs one bounded read-only DDS endpoint-descriptor
+probe for each host with remote assignments. It logs `DDS readiness` as found,
+pending, or unavailable and does not tear down a runtime merely because Sim is
+still constructing its Genesis scene. Docker Desktop/WSL namespace isolation is
+reported separately from a slow application start. Use
+`elesim-net doctor --strict-peers --expect-peer <endpoint-id>` for a strict
+application-level discovery gate; this still does not prove RGBD, WebRTC,
+SROS2 authorization, or physical safety.
+
 Managed SROS2 rotation creates a complete new generation through the ROS 2
 security CLI. Per-host manifests bind the system, host, generation, assigned
 enclaves and SHA-256 file digests. Deployment performs all-host preflight,

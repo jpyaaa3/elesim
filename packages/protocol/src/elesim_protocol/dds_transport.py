@@ -1035,6 +1035,19 @@ class PeerClient:
     def registered(self) -> bool:
         return not self._closed and bool(self.node.registered)
 
+    def has_peer(self, endpoint_id: str) -> bool:
+        """Return whether the exact endpoint descriptor is currently live.
+
+        UI/session code can use this as a non-throwing readiness check before
+        attempting a routed request.  It intentionally delegates to the
+        bounded heartbeat directory; it does not treat a TCP/SSH connection or
+        a ROS node listing as application-level peer discovery.
+        """
+
+        if self._closed:
+            return False
+        return self.node.resolve(str(endpoint_id).strip()) is not None
+
     def heartbeat(self, *, force: bool = False) -> None:
         if self._closed:
             return

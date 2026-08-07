@@ -54,6 +54,11 @@ class Endpoint:
         self.closed = True
 
 
+class UndiscoveredEndpoint(Endpoint):
+    def has_peer(self, _endpoint_id: str) -> bool:
+        return False
+
+
 class Receiver:
     created: list["Receiver"] = []
 
@@ -156,6 +161,16 @@ def test_session_waits_for_sim_grant_before_creating_two_offers() -> None:
     assert all(receiver.turn == turn for receiver in Receiver.created)
     assert session.active_sim_id == "sim-a"
     assert session.connected_streams == ()
+
+
+def test_session_reports_descriptor_wait_without_sending_until_sim_is_discovered() -> None:
+    endpoint = UndiscoveredEndpoint()
+    session = new_session()
+
+    session.run_cycle(endpoint)
+
+    assert endpoint.sent == []
+    assert "endpoint descriptor" in session.last_error
 
 
 def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:

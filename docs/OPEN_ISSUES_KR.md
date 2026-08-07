@@ -104,6 +104,10 @@
   산출물을 거부한다. keyless Tailscale SSH topology에서는 runtime namespace에서
   22번 포트의 negative-only probe도 수행해 같은 관리 peer에조차 닿지 못하는
   경우 즉시 실패시킨다. TCP 성공을 DDS/UDP 성공으로 간주하지는 않는다.
+- 전체 시작은 이제 detached Compose 성공만 보고 끝내지 않고, 원격 endpoint ID의
+  transient-local descriptor를 한 번 점검해 `DDS readiness`를 로그에 남긴다.
+  Sim이 Genesis 장면을 만드는 동안에는 런타임을 내리지 않고 대기 상태로
+  표시한다. 이 점검은 실제 session/WebRTC 영상의 live gate를 대체하지 않는다.
 - 아직 남은 문제: route probe는 실제 DDS 통신의 증명이 아니다. 지원되는 경로에서
   Sim descriptor 발견, session open, 두 WebRTC offer/answer, 실제 영상 수신을
   순서대로 검증해야 한다. Docker Desktop Linux VM이 100.x UDP를 라우팅하지

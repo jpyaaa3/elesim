@@ -55,6 +55,24 @@ class DdsGraphSnapshot:
     services: Mapping[str, tuple[str, ...]]
 
 
+def _rclpy_import() -> Any:
+    """Import rclpy lazily so lightweight installer commands stay stdlib-only."""
+
+    import rclpy
+
+    return rclpy
+
+
+def _rclpy_context(rclpy: Any, state: InstallState) -> Any:
+    context = rclpy.context.Context()
+    try:
+        rclpy.init(args=None, context=context, domain_id=state.dds.domain_id)
+    except TypeError:
+        # Older Humble patch releases read ROS_DOMAIN_ID from the environment.
+        rclpy.init(args=None, context=context)
+    return context
+
+
 class DoctorReport:
     def __init__(self) -> None:
         self.results: list[ProbeResult] = []
@@ -203,15 +221,8 @@ def probe_dds_graph(
     """Join the configured domain and snapshot nodes, topics, and services."""
 
     _prepare_dds_environment(state)
-    if import_rclpy is None:
-        def import_rclpy() -> Any:
-            import rclpy
-
-            return rclpy
-
-    rclpy = import_rclpy()
-    context = rclpy.context.Context()
-    rclpy.init(args=None, context=context, domain_id=state.dds.domain_id)
+    rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
+    context = _rclpy_context(rclpy, state)
     node = None
     try:
         node = rclpy.create_node(
@@ -245,6 +256,71 @@ def probe_dds_graph(
             for name, types in node.get_service_names_and_types()
         }
         return DdsGraphSnapshot(nodes=nodes, topics=topics, services=services)
+    finally:
+        if node is not None:
+            node.destroy_node()
+        context.shutdown()
+
+
+def probe_dds_peers(
+    state: InstallState,
+    *,
+    timeout_s: float,
+    import_rclpy: Callable[[], Any] | None = None,
+) -> tuple[str, ...]:
+    """Collect endpoint IDs advertised on the Elesim discovery carrier.
+
+    The ROS graph can contain a node while the application-level peer
+    descriptor is still absent.  Runtime control addresses endpoint IDs, so a
+    node/topic snapshot alone cannot explain ``target peer ... is not active``.
+    This bounded transient-local subscription observes the same descriptor
+    carrier used by :class:`DdsPeerNode` without opening a control session.
+    """
+
+    _prepare_dds_environment(state)
+    try:
+        from elesim_interfaces.msg import EndpointDescriptor
+        from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+    except ImportError as exc:
+        raise RuntimeError(
+            "ROS 2 overlay에서 elesim_interfaces EndpointDescriptor를 찾을 수 없습니다"
+        ) from exc
+
+    rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
+    context = _rclpy_context(rclpy, state)
+    node = None
+    found: set[str] = set()
+    try:
+        node = rclpy.create_node(
+            "elesim_peer_doctor",
+            namespace=f"/{state.dds.system_id}/v6",
+            context=context,
+            use_global_arguments=True,
+        )
+        qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=64,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
+        def on_descriptor(message: Any) -> None:
+            peer = getattr(message, "peer", None)
+            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
+            if endpoint_id:
+                found.add(endpoint_id)
+
+        subscription = node.create_subscription(
+            EndpointDescriptor,
+            f"/{state.dds.system_id}/v6/discovery/endpoints",
+            on_descriptor,
+            qos,
+        )
+        deadline = time.monotonic() + max(0.2, float(timeout_s))
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=min(0.1, deadline - time.monotonic()))
+        node.destroy_subscription(subscription)
+        return tuple(sorted(found))
     finally:
         if node is not None:
             node.destroy_node()
@@ -314,10 +390,16 @@ class NetworkDoctor:
         *,
         timeout_s: float = 4.0,
         active: bool = False,
+        expected_peers: Sequence[str] = (),
+        strict_peers: bool = False,
     ) -> None:
         self.state = state.require_runnable_dds()
         self.timeout_s = max(0.2, float(timeout_s))
         self.active = bool(active)
+        self.expected_peers = tuple(
+            sorted({str(value).strip() for value in expected_peers if str(value).strip()})
+        )
+        self.strict_peers = bool(strict_peers)
 
     def run(self) -> DoctorReport:
         report = DoctorReport()
@@ -373,9 +455,48 @@ class NetworkDoctor:
                 "같은 domain에서 Elesim peer를 찾지 못함",
                 "상대 프로세스, ROS_DOMAIN_ID와 DDS discovery 설정을 확인하십시오",
             )
+        self._peer_results(report)
         self._rgbd_results(report, graph)
         self._webrtc_results(report, graph)
         return report
+
+    def _peer_results(self, report: DoctorReport) -> None:
+        if not self.expected_peers:
+            report.add("DDS peers", SKIP, "기대하는 원격 endpoint가 지정되지 않음")
+            return
+        try:
+            discovered = set(
+                probe_dds_peers(self.state, timeout_s=self.timeout_s)
+            )
+        except Exception as exc:
+            report.add(
+                "DDS peers",
+                FAIL if self.strict_peers else WARN,
+                str(exc),
+                "ROS 2 overlay와 DDS discovery carrier를 확인하십시오",
+            )
+            return
+        missing = tuple(peer for peer in self.expected_peers if peer not in discovered)
+        if not missing:
+            report.add(
+                "DDS peers",
+                PASS,
+                f"{len(self.expected_peers)}개 endpoint 발견: {', '.join(self.expected_peers)}",
+            )
+            return
+        status = FAIL if self.strict_peers else WARN
+        discovered_text = ", ".join(sorted(discovered)) or "없음"
+        report.add(
+            "DDS peers",
+            status,
+            f"미발견: {', '.join(missing)} (발견: {discovered_text})",
+            (
+                "모든 호스트가 같은 DDS domain/RMW/security를 사용하고, "
+                "런타임 namespace에서 선택 interface와 static peer 경로가 실제로 "
+                "보이는지 확인하십시오. Docker Desktop/WSL의 Tailscale TCP helper는 "
+                "DDS UDP를 전달하지 않습니다."
+            ),
+        )
 
     def _turn_results(self, report: DoctorReport) -> None:
         if not self.state.network.turn_urls:
@@ -503,6 +624,7 @@ __all__ = [
     "parse_tcp_endpoint",
     "parse_turn_url",
     "probe_dds_graph",
+    "probe_dds_peers",
     "probe_rgbd_frame",
     "tcp_connect",
     "udp_stun_probe",

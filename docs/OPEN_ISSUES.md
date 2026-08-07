@@ -106,6 +106,11 @@ there are historical unless repeated here.
   keyless Tailscale SSH, a negative-only port-22 probe from the runtime namespace
   fails early if that namespace cannot reach the management peer. A successful
   TCP probe is intentionally not treated as DDS/UDP evidence.
+- Full start now performs one bounded, read-only transient-local endpoint
+  descriptor probe for each host's remote endpoint IDs and logs `DDS readiness`.
+  A slow Genesis build remains running and is reported as pending rather than
+  being silently treated as a connected graph. This does not replace the live
+  session/WebRTC acceptance gate.
 - Still open: a route probe is not a live DDS proof. On a supported path we must
   verify Sim descriptor discovery, session open, both WebRTC offer/answer
   exchanges, and actual video reception in order. If Docker Desktop's Linux VM

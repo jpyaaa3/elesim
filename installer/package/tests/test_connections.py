@@ -207,6 +207,69 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     assert "build 완료: Robot (jetson)" in logs
 
 
+def test_runtime_start_reports_remote_dds_readiness_after_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+    logs: list[str] = []
+
+    class Operations:
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def build(self, _host, _output) -> None:
+            return None
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def launch(self, _host) -> None:
+            events.append(f"launch:{self.host_id}")
+
+        def runtime_doctor(self, _host, expected_peer_ids, *, timeout_s):
+            events.append(
+                f"doctor:{self.host_id}:{','.join(expected_peer_ids)}:{timeout_s:g}"
+            )
+            return {"ok": True, "results": []}
+
+        def stop(self, _host) -> None:
+            return None
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner(topology, "start", logs.append)
+
+    assert events == [
+        "launch:operator",
+        "launch:jetson",
+        "doctor:operator:robot-go2:8",
+        "doctor:jetson:pilot-main,sim-main,ui-main:8",
+    ]
+    assert any("DDS endpoint 준비 상태" in message for message in logs)
+    assert any("원격 endpoint robot-go2 발견" in message for message in logs)
+
+
 def test_host_check_combines_network_preflight_and_runtime_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

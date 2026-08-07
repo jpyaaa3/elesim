@@ -259,6 +259,15 @@ class UiSimSession:
                 self._send_close(client)
             return
         if not active and requested and not opening and not closing and now >= retry_after:
+            has_peer = getattr(client, "has_peer", None)
+            if callable(has_peer) and not has_peer(requested):
+                self._set_error(
+                    f"simulation peer {requested!r} is not discovered yet; "
+                    "waiting for its DDS endpoint descriptor"
+                )
+                with self._lock:
+                    self._retry_after = now + self.retry_s
+                return
             self._send_open(client, requested)
 
     def _send_open(self, client: Any, sim_id: str) -> None:
