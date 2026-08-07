@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from elesim_protocol import (
+    DdsTransportError,
     Envelope,
     SimMappingConfig,
     SimulationSessionGrantedPayload,
@@ -18,6 +19,18 @@ class Client:
 
     def send(self, message_type: str, **kwargs: object) -> None:
         self.sent.append((message_type, kwargs))
+
+
+class FlakyClient(Client):
+    def __init__(self, failing_type: str) -> None:
+        super().__init__()
+        self.failing_type = failing_type
+        self.fail = True
+
+    def send(self, message_type: str, **kwargs: object) -> None:
+        if self.fail and message_type == self.failing_type:
+            raise DdsTransportError(f"{message_type} target disappeared")
+        super().send(message_type, **kwargs)
 
 
 def message(payload: dict[str, object], *, seq: int = 1, lease_id: str = "lease-a") -> Envelope:
@@ -84,6 +97,20 @@ def test_runtime_telemetry_is_merged_and_sent_as_canonical_q() -> None:
     assert kwargs["lease_id"] == "lease-a"
     assert kwargs["payload"]["q"] == [-0.1, 0.2, 0.3, -0.3]
     assert kwargs["payload"]["go2_base_pos"] == [0.0, 0.0, 0.3]
+
+
+def test_telemetry_remains_dirty_when_pilot_temporarily_disappears() -> None:
+    value, _state, _client = endpoint()
+    client = FlakyClient("telemetry")
+    value.publish_telemetry({"q": [1.0, 2.0, 3.0, 4.0]})
+
+    value.flush_telemetry(client)
+    assert client.sent == []
+
+    client.fail = False
+    value.flush_telemetry(client)
+    assert client.sent[-1][0] == "telemetry"
+    assert client.sent[-1][1]["payload"]["q"] == [1.0, 2.0, 3.0, 4.0]
 
 
 def grant_simulation_session(value: SimEndpoint, client: Client) -> None:
@@ -167,6 +194,42 @@ def test_simulation_command_rejects_a_mismatched_operator_session_lease() -> Non
     assert client.sent[-1][0] == "simulation_result"
     assert client.sent[-1][1]["payload"]["ok"] is False
     assert client.sent[-1][1]["payload"]["reason"] == "simulation_session_mismatch"
+
+
+def test_simulation_result_is_requeued_when_ui_temporarily_disappears() -> None:
+    value, _state, _client = endpoint()
+    client = FlakyClient("simulation_result")
+    grant_simulation_session(value, client)
+    command = Envelope(
+        message_type="simulation_command",
+        source_id="ui-a",
+        target_id="sim-a",
+        payload={
+            "schema_version": 1,
+            "request_id": "pause-retry",
+            "session_id": "session-a",
+            "command": "pause",
+            "arguments": {},
+        },
+        seq=3,
+        timestamp=1.0,
+        message_id="pause-retry-message",
+        lease_id="session-a",
+    )
+    value.handle_envelope(client, command)
+    pending = value.operator_mailbox.drain()
+    assert len(pending) == 1
+    value.operator_mailbox.complete(pending[0], ok=True, reason="paused")
+
+    value.flush_simulation_results(client)
+    retained = value.operator_mailbox.take_results()
+    assert [result.request_id for result in retained] == ["pause-retry"]
+
+    value.operator_mailbox.requeue_results(retained)
+    client.fail = False
+    value.flush_simulation_results(client)
+    assert client.sent[-1][0] == "simulation_result"
+    assert client.sent[-1][1]["payload"]["request_id"] == "pause-retry"
 
 
 def test_simulation_status_is_fanned_out_by_the_peer_authority() -> None:

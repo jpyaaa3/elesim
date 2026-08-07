@@ -171,6 +171,11 @@ The UI also bounds the combined queued/in-flight command backlog and reports a
 full backlog instead of silently accepting input while Sim acknowledgements
 are unavailable. Successful simulation results release their transport
 bookkeeping, so a lost or slow session cannot grow UI memory without bound.
+Sim treats a transient loss of the Pilot or UI peer as a retryable DDS condition:
+telemetry and status remain dirty until acknowledged by the transport, and
+unsent simulation results return to the bounded mailbox. Reply failures and
+heartbeat/receive failures are diagnosed and retried without terminating the
+Genesis process's DDS thread.
 
 ## Network Security Profiles
 

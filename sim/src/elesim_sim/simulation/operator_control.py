@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from elesim_protocol import (
     SimulationCommandRequest,
@@ -131,6 +131,15 @@ class SimulationOperatorMailbox:
             results = list(self._results)
             self._results.clear()
             return results
+
+    def requeue_results(self, results: Iterable[PendingSimulationResult]) -> None:
+        """Put unsent results back at the front without changing their order."""
+
+        pending = tuple(results)
+        if not pending:
+            return
+        with self._lock:
+            self._results.extendleft(reversed(pending))
 
 
 class SimulationOperatorController:

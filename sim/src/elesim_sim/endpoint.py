@@ -13,6 +13,7 @@ from elesim_protocol import (
     CAPABILITY_STREAM_OBSERVER,
     CAPABILITY_STREAM_RGBD,
     DdsRuntimeSettings,
+    DdsTransportError,
     EndpointDescriptor,
     Envelope,
     MediaStreamDescriptor,
@@ -79,9 +80,11 @@ class SimEndpoint:
         self._telemetry_lock = threading.Lock()
         self._telemetry: dict[str, Any] = {}
         self._telemetry_dirty = False
+        self._telemetry_revision = 0
         self._status_lock = threading.Lock()
         self._status: Optional[SimulationStatusPayload] = None
         self._status_dirty = False
+        self._status_revision = 0
         self._diagnostic_seen: dict[str, float] = {}
 
     def start(self) -> None:
@@ -132,6 +135,7 @@ class SimEndpoint:
         with self._telemetry_lock:
             self._telemetry.update(dict(payload))
             self._telemetry_dirty = True
+            self._telemetry_revision += 1
 
     def publish_simulation_status(self, status: SimulationStatusPayload) -> None:
         if not isinstance(status, SimulationStatusPayload):
@@ -139,6 +143,7 @@ class SimEndpoint:
         with self._status_lock:
             self._status = status
             self._status_dirty = True
+            self._status_revision += 1
 
     def flush_telemetry(self, client: Any) -> None:
         if not self.pilot_id or not self.active_lease:
@@ -147,35 +152,60 @@ class SimEndpoint:
             if not self._telemetry_dirty:
                 return
             payload = dict(self._telemetry)
-            self._telemetry_dirty = False
-        client.send(
+            revision = self._telemetry_revision
+            pilot_id = self.pilot_id
+            lease_id = self.active_lease
+        if not self._send_best_effort(
+            client,
             "telemetry",
-            target_id=self.pilot_id,
+            target_id=pilot_id,
             payload=payload,
-            lease_id=self.active_lease,
-        )
+            lease_id=lease_id,
+        ):
+            return
+        with self._telemetry_lock:
+            if (
+                self._telemetry_revision == revision
+                and self.pilot_id == pilot_id
+                and self.active_lease == lease_id
+            ):
+                self._telemetry_dirty = False
 
     def flush_simulation_status(self, client: Any) -> None:
         with self._status_lock:
             if not self._status_dirty or self._status is None:
                 return
             status = self._status
-            self._status_dirty = False
-        client.send("simulation_status", payload=status.to_payload())
+            revision = self._status_revision
+        if not self._send_best_effort(
+            client,
+            "simulation_status",
+            payload=status.to_payload(),
+        ):
+            return
+        with self._status_lock:
+            if self._status_revision == revision:
+                self._status_dirty = False
 
     def flush_simulation_results(self, client: Any) -> None:
-        for result in self.operator_mailbox.take_results():
+        results = [
+            result
+            for result in self.operator_mailbox.take_results()
             if (
-                result.target_id != self.simulation_ui_id
-                or result.payload.session_id != self.simulation_session_id
-            ):
-                continue
-            client.send(
+                result.target_id == self.simulation_ui_id
+                and result.payload.session_id == self.simulation_session_id
+            )
+        ]
+        for index, result in enumerate(results):
+            if not self._send_best_effort(
+                client,
                 "simulation_result",
                 target_id=result.target_id,
                 payload=result.payload.to_payload(),
                 lease_id=self.simulation_session_id,
-            )
+            ):
+                self.operator_mailbox.requeue_results(results[index:])
+                return
 
     def handle_envelope(self, client: Any, message: Envelope) -> None:
         message_type = message.message_type
@@ -230,7 +260,8 @@ class SimEndpoint:
                 ok=ok,
                 reason=reason,
             )
-            client.send(
+            self._send_best_effort(
+                client,
                 "ack",
                 target_id=message.source_id,
                 payload={"reply_to": message.message_id, "ok": ok, "reason": reason},
@@ -306,7 +337,8 @@ class SimEndpoint:
             ok=False,
             reason=reason,
         )
-        client.send(
+        self._send_best_effort(
+            client,
             "simulation_result",
             target_id=message.source_id,
             payload=result.to_payload(),
@@ -347,7 +379,8 @@ class SimEndpoint:
             sdp=str(answer["sdp"]),
             type=str(answer["type"]),
         )
-        client.send(
+        sent = self._send_best_effort(
+            client,
             "webrtc_signal",
             target_id=message.source_id,
             payload=payload.to_payload(),
@@ -360,8 +393,41 @@ class SimEndpoint:
             source=self.endpoint_id,
             target=message.source_id,
             stream=signal.stream,
-            state="answer-sent",
+            state="answer-sent" if sent else "answer-retry",
         )
+
+    def _send_best_effort(
+        self,
+        client: Any,
+        message_type: str,
+        *,
+        target_id: Optional[str] = None,
+        payload: Optional[Mapping[str, object]] = None,
+        lease_id: str = "",
+        trace_context: Optional[Mapping[str, str]] = None,
+    ) -> bool:
+        kwargs: dict[str, object] = {
+            "payload": dict(payload or {}),
+            "lease_id": lease_id,
+        }
+        if target_id is not None:
+            kwargs["target_id"] = target_id
+        if trace_context is not None:
+            kwargs["trace_context"] = trace_context
+        try:
+            client.send(message_type, **kwargs)
+        except DdsTransportError as exc:
+            self._diagnostic(
+                "send",
+                dedupe=f"{message_type}:{target_id or 'authority'}",
+                source=self.endpoint_id,
+                target=target_id or "authority",
+                type=message_type,
+                state="retrying",
+                reason=str(exc),
+            )
+            return False
+        return True
 
     def _diagnostic(
         self,
@@ -408,16 +474,26 @@ class SimEndpoint:
         was_registered = client.registered
         try:
             while not self.stop_event.is_set():
-                client.heartbeat()
-                for message in client.receive(timeout_ms=20):
-                    self.handle_envelope(client, message)
-                if was_registered and not client.registered:
-                    self.revoke_lease()
-                    self.revoke_simulation_session()
-                was_registered = client.registered
-                self.flush_telemetry(client)
-                self.flush_simulation_status(client)
-                self.flush_simulation_results(client)
+                try:
+                    client.heartbeat()
+                    for message in client.receive(timeout_ms=20):
+                        self.handle_envelope(client, message)
+                    if was_registered and not client.registered:
+                        self.revoke_lease()
+                        self.revoke_simulation_session()
+                    was_registered = client.registered
+                    self.flush_telemetry(client)
+                    self.flush_simulation_status(client)
+                    self.flush_simulation_results(client)
+                except DdsTransportError as exc:
+                    self._diagnostic(
+                        "transport",
+                        dedupe="loop",
+                        source=self.endpoint_id,
+                        state="retrying",
+                        reason=str(exc),
+                    )
+                    self.stop_event.wait(0.1)
         finally:
             self.revoke_lease()
             self.revoke_simulation_session()
