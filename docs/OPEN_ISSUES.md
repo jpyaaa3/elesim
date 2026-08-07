@@ -24,6 +24,12 @@ there are historical unless repeated here.
 - A transient WebRTC frame-provider or frame-conversion failure now produces a
   bounded diagnostic and a black fallback frame instead of terminating the
   aiortc track. Stream recovery remains subject to the live media gate.
+- A UI DDS transport reset now clears the stale simulation session/receivers
+  and waits for a fresh Sim descriptor before reopening, so controls cannot
+  continue targeting an invalid lease. Live reconnect timing remains a gate.
+- The UI operator pump now marks DDS offline immediately on a heartbeat reset;
+  outstanding requests retain bounded timeout/retry behavior rather than
+  appearing healthy during a stale Pilot connection.
 
 ### P0. Router-Free ROS 2/DDS Migration Needs Live Proof And Typed-Surface Follow-Up
 

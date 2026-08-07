@@ -184,6 +184,13 @@ failures remain fatal so a failed safety action cannot be hidden.
 Each WebRTC video track likewise converts a transient frame-provider or frame
 conversion failure into a bounded diagnostic and a black fallback frame; the
 aiortc track stays alive so a later camera frame can recover the stream.
+The UI simulation session treats a DDS transport reset as a lease loss even
+before the peer directory reports an unregistered node: it closes stale media
+receivers, discards commands from the old session, and reopens only after a
+fresh Sim descriptor is discovered.
+The UI operator request pump also marks DDS offline immediately on a heartbeat
+reset, so the presentation layer cannot report a stale Pilot connection while
+requests are waiting for their normal bounded timeout.
 
 ## Network Security Profiles
 

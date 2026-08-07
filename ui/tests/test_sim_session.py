@@ -5,6 +5,7 @@ from collections import deque
 import pytest
 
 from elesim_protocol import (
+    DdsTransportError,
     Envelope,
     SimulationSessionOpenedPayload,
     SimulationSessionRevokedPayload,
@@ -58,6 +59,16 @@ class Endpoint:
 class UndiscoveredEndpoint(Endpoint):
     def has_peer(self, _endpoint_id: str) -> bool:
         return False
+
+
+class FailingHeartbeatEndpoint(Endpoint):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_heartbeat = False
+
+    def heartbeat(self) -> None:
+        if self.fail_heartbeat:
+            raise DdsTransportError("DDS socket reset")
 
 
 class Receiver:
@@ -189,6 +200,28 @@ def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     assert session.connected_streams == ("observer",)
     observer = session.receiver("observer")
     assert observer.answers == [("observer-answer", "answer")]
+
+
+def test_transport_reset_discards_stale_session_and_receivers() -> None:
+    Receiver.created.clear()
+    endpoint = FailingHeartbeatEndpoint()
+    session = new_session()
+    session.run_cycle(endpoint)
+    request_id = str(endpoint.sent[0][1]["payload"]["request_id"])
+    endpoint.inbox.append(opened(request_id))
+    session.run_cycle(endpoint)
+    receivers = tuple(Receiver.created)
+    assert session.snapshot.session_id == "session-a"
+
+    endpoint.fail_heartbeat = True
+    with pytest.raises(DdsTransportError, match="DDS socket reset"):
+        session.run_cycle(endpoint)
+
+    assert session.snapshot.session_id == ""
+    assert session.active_sim_id == ""
+    assert session.connected_streams == ()
+    assert all(receiver.closed for receiver in receivers)
+    assert "simulation transport failed" in session.last_error
 
 
 def test_turn_refresh_replaces_both_peers_without_reopening_the_session() -> None:

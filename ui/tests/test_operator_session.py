@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections import deque
 
+import pytest
+
 from elesim_protocol import (
+    DdsTransportError,
     OPERATOR_VIEW_SCHEMA_VERSION,
     Envelope,
     encode_value,
@@ -46,6 +49,11 @@ class Endpoint:
 
     def close(self) -> None:
         self.closed = True
+
+
+class FailingHeartbeatEndpoint(Endpoint):
+    def heartbeat(self) -> None:
+        raise DdsTransportError("DDS socket reset")
 
 
 def result(request_id: str, value: object = None, *, ok: bool = True) -> Envelope:
@@ -185,3 +193,16 @@ def test_peer_error_retires_the_exact_request_immediately() -> None:
         for request in endpoint.sent[1:]
         if request[0] == "operator_intent"
     )
+
+
+def test_transport_reset_marks_operator_dds_offline() -> None:
+    clock = Clock()
+    value = session(clock)
+    value.run_cycle(Endpoint(), now=clock.now)
+    assert value.status.dds_online is True
+
+    with pytest.raises(DdsTransportError, match="DDS socket reset"):
+        value.run_cycle(FailingHeartbeatEndpoint(), now=clock.now)
+
+    assert value.status.dds_online is False
+    assert "operator transport failed" in value.status.last_error

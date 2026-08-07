@@ -16,6 +16,7 @@ from elesim_protocol import (
     OpenSimulationSessionRequest,
     PeerClient,
     ProtocolError,
+    DdsTransportError,
     SimulationCommandRequest,
     SimulationResultPayload,
     SimulationSessionOpenedPayload,
@@ -237,7 +238,15 @@ class UiSimSession:
         return request_id
 
     def run_cycle(self, client: Any) -> None:
-        client.heartbeat()
+        try:
+            client.heartbeat()
+        except DdsTransportError as exc:
+            # A transport reset invalidates the remote session lease even if
+            # the client has not observed ``registered=False`` yet.  Drop
+            # stale receivers/commands so the next live descriptor opens a
+            # fresh session instead of sending into a dead DDS graph.
+            self._lose_session(f"simulation transport failed: {exc}")
+            raise
         for message in client.receive(timeout_ms=self.poll_ms):
             self._handle_message(client, message)
 

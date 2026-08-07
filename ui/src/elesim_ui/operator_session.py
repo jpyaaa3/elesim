@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
+    DdsTransportError,
     DdsRuntimeSettings,
     EndpointDescriptor,
     OPERATOR_OPERATIONS,
@@ -233,7 +234,14 @@ class OperatorSession:
 
     def run_cycle(self, endpoint: Any, *, now: Optional[float] = None) -> None:
         current = self.clock() if now is None else float(now)
-        endpoint.heartbeat()
+        try:
+            endpoint.heartbeat()
+        except DdsTransportError as exc:
+            # A failed heartbeat must not leave the UI presenting the last
+            # successful DDS state as online while requests wait indefinitely.
+            self._dds_online = False
+            self._record_error(f"operator transport failed: {exc}")
+            raise
         self._dds_online = bool(endpoint.registered)
         for message in endpoint.receive(timeout_ms=20):
             self._handle_message(message, now=current)

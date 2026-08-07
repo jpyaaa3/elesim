@@ -24,6 +24,12 @@
 - 일시적인 WebRTC frame provider 또는 frame 변환 실패는 이제 bounded 진단과
   검은 fallback frame으로 처리하며 aiortc track을 종료하지 않는다. 실제 stream
   복구와 media 품질은 여전히 live gate에서 확인해야 한다.
+- UI의 DDS transport가 끊기면 이제 오래된 simulation session/receiver를 폐기하고
+  새 Sim descriptor를 발견한 뒤에만 다시 연다. 따라서 무효한 lease로 조작 명령을
+  계속 보내지 않는다. 실제 reconnect timing은 여전히 live gate다.
+- UI operator pump도 heartbeat reset 즉시 DDS offline으로 표시한다. 남은 요청은
+  bounded timeout/retry 규칙을 따르므로, 오래된 Pilot 연결을 정상으로 표시하지
+  않는다.
 
 ### P0. Router 없는 ROS 2/DDS 전환은 live 증명과 typed surface 후속이 필요함
 

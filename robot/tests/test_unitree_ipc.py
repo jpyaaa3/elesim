@@ -81,6 +81,25 @@ def _wait(predicate, *, timeout: float = 1.0) -> None:
     raise AssertionError("condition did not become true before timeout")
 
 
+def _wait_for_listener(socket_path: Path) -> None:
+    def accepts_connections() -> bool:
+        if not socket_path.exists():
+            return False
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        probe.settimeout(0.05)
+        try:
+            probe.connect(str(socket_path))
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
+
+    # bind(2) creates the pathname before listen(2) completes.  Probe the
+    # actual listener so tests do not race a busy thread at startup.
+    _wait(accepts_connections)
+
+
 def _settings(socket_path: Path, *, deadman: float = 0.2):
     config = Go2HardwareConfig(
         enabled=True,
@@ -107,23 +126,7 @@ def _start_server(socket_path: Path, *, deadman: float = 0.2):
     thread = threading.Thread(target=server.serve_forever, args=(stop,), daemon=True)
     thread.start()
 
-    def listener_accepts_connections() -> bool:
-        if not socket_path.exists():
-            return False
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        probe.settimeout(0.05)
-        try:
-            probe.connect(str(socket_path))
-            return True
-        except OSError:
-            return False
-        finally:
-            probe.close()
-
-    # bind(2) creates the pathname before listen(2) completes.  Waiting only
-    # for path.exists() therefore races the first raw client under a busy
-    # test process; probe the actual listener instead.
-    _wait(listener_accepts_connections)
+    _wait_for_listener(socket_path)
     return config, safety, backend, stop, thread
 
 
@@ -361,7 +364,7 @@ def test_server_rejects_unexpected_peer_uid(tmp_path: Path) -> None:
     )
     thread = threading.Thread(target=server.serve_forever, args=(stop,), daemon=True)
     thread.start()
-    _wait(lambda: path.exists())
+    _wait_for_listener(path)
     raw = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     raw.settimeout(0.5)
     try:
