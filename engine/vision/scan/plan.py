@@ -70,10 +70,22 @@ class RollSweepPlan:
     def coverage_deg(self) -> float:
         return abs(self.hi_deg - self.lo_deg)
 
+    _PIXELS = {"VGA": 672 * 376, "HD720": 1280 * 720, "HD1080": 1920 * 1080,
+               "HD2K": 2208 * 1242}
+
     def estimated_duration_s(self, cfg: RollScanConfig) -> float:
-        """Rough wall-clock estimate, for the UI to show before committing."""
-        per_stop = float(cfg.settle_s) + 0.06  # settle + grab/transform overhead
-        return self.n_stops * per_stop
+        """
+        Rough wall-clock estimate, for the UI to show before committing.
+
+        Per-frame cost is dominated by touching every pixel of the cloud
+        (validity mask, transform, crop), which scales with resolution -- an
+        HD1080 frame is 2.1 M points. Measured at roughly 0.15 s per megapixel
+        on a Jetson, so the constant is not resolution-independent.
+        """
+        px = self._PIXELS.get(str(cfg.resolution).strip().upper(), self._PIXELS["HD1080"])
+        grab_s = max(1.0 / max(float(cfg.fps), 1.0), 0.0)
+        process_s = 0.15 * (px / 1.0e6)
+        return self.n_stops * (float(cfg.settle_s) + grab_s + process_s)
 
 
 def build_plan(cfg: RollScanConfig) -> RollSweepPlan:

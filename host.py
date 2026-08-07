@@ -1195,6 +1195,9 @@ class ControlHost:
             "lji_step",
             "servo",
             "experiment",
+            # roll-sweep geometry scan; rejected sources are dropped before the
+            # arm-latency counters, so an omission here looks like a silent no-op
+            "roll_scan",
         )
 
     def _active_debug_markers(self) -> list[dict[str, Any]]:
@@ -1676,15 +1679,39 @@ class ControlHost:
                 "gaze_config": gaze_config_to_dict(cfg),
             }
 
+    def _roll_scan_measured_q4(self) -> tuple[tuple[float, float, float, float], float]:
+        """
+        MEASURED joint state for the scan, with its age.
+
+        ``last_q`` comes from the motor read loop when hardware is present, so
+        this is the arm's real pose -- not the commanded one the panel state
+        holds. The scan's settle detector and its FK poses both depend on that
+        distinction being real.
+        """
+        q = self.last_q
+        if q is None:
+            return (0.0, 0.0, 0.0, 0.0), float("inf")
+        ts = float(self.last_state_ts or 0.0)
+        age = float("inf") if ts <= 0.0 else max(0.0, time.time() - ts)
+        return (
+            float(q.linear_m),
+            float(q.roll_rad),
+            float(q.theta1_rad),
+            float(q.theta2_rad),
+        ), age
+
     def _apply_roll_scan_config(self, service: Any) -> None:
-        """Hand the host's [roll_scan] config to the on-device service."""
+        """Hand the host's [roll_scan] config and measured-q source to the service."""
         cfg = self.roll_scan_config
-        if cfg is None:
-            return
+        if cfg is not None:
+            try:
+                service.set_roll_scan_config(cfg)
+            except Exception as exc:
+                print(f"[host] roll_scan config apply failed: {exc}")
         try:
-            service.set_roll_scan_config(cfg)
+            service.set_roll_scan_q4_source(self._roll_scan_measured_q4)
         except Exception as exc:
-            print(f"[host] roll_scan config apply failed: {exc}")
+            print(f"[host] roll_scan q4 source apply failed: {exc}")
 
     def _stop_on_device_roll_scan(self) -> None:
         service = self._embedded_control_service

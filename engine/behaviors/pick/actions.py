@@ -10952,6 +10952,23 @@ class ControlService:
     def set_roll_scan_config(self, cfg: "RollScanConfig") -> None:
         self._roll_scan_cfg = cfg
 
+    def set_roll_scan_q4_source(self, read_q4: Any) -> None:
+        """
+        Install a MEASURED joint-state source for the scan.
+
+        Without this the scan falls back to ``state.q4()``, which
+        ``apply_control_u`` fills with the COMMANDED q -- so the settle detector
+        would compare a command against itself and always report 'settled'
+        instantly, and the FK pose would assume the arm reached the target. On
+        real hardware the host passes its motor-read q here instead, which is
+        the whole point of using FK as metrology.
+        """
+        self._roll_scan_q4_source = read_q4
+
+    def _roll_scan_read_q4(self) -> Any:
+        src = getattr(self, "_roll_scan_q4_source", None)
+        return src if callable(src) else self.state.q4
+
     def _command_roll_deg(self, roll_deg: float) -> None:
         """Move only the roll joint to an absolute angle, leaving the rest put."""
         cfg = self.control_mapping()
@@ -11047,6 +11064,23 @@ class ControlService:
         self.refresh_ik_context()
 
         def _on_progress(p: Any) -> None:
+            # log phase changes and a periodic heartbeat: a sweep is ~30 s of
+            # silence otherwise, and "UI says sweeping but the arm is still" was
+            # impossible to diagnose from the host console
+            prev = getattr(self, "_roll_scan_log_phase", "")
+            now = time.time()
+            if str(p.phase) != prev:
+                self._roll_scan_log_phase = str(p.phase)
+                self._roll_scan_log_t = now
+                print(f"[roll_scan] {p.phase}: {p.msg}")
+            elif now - float(getattr(self, "_roll_scan_log_t", 0.0)) >= 2.0:
+                self._roll_scan_log_t = now
+                print(
+                    f"[roll_scan] {p.phase} {p.stop_index}/{p.n_stops} "
+                    f"sweep {p.sweep}/{p.n_sweeps} roll_cmd={p.roll_cmd_deg:+.1f} "
+                    f"roll_act={p.roll_actual_deg:+.1f} frames={p.frames_kept} "
+                    f"pts={p.points_kept}"
+                )
             self.state.set_roll_scan_status(
                 running=bool(p.running),
                 phase=str(p.phase),
@@ -11067,7 +11101,7 @@ class ControlService:
                 ik_context=self._ik_context,
                 hand_eye_transform=self._hand_eye_transform,
                 hand_eye_parent_frame=self._hand_eye_parent_frame,
-                read_q4=self.state.q4,
+                read_q4=self._roll_scan_read_q4(),
                 command_roll_deg=self._command_roll_deg,
                 on_progress=_on_progress,
             )
