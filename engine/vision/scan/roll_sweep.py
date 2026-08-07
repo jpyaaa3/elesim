@@ -319,7 +319,7 @@ class RollSweepScan:
         capture cadence is whatever the pipeline can sustain.
         """
         cfg = self.cfg
-        lo, hi = cfg.span_deg()
+        lo, hi = cfg.limit_span_deg()
         rate = max(float(cfg.sweep_rate_deg_s), 1e-6)
         center: Optional[np.ndarray] = None
         kept_total = 0
@@ -333,6 +333,18 @@ class RollSweepScan:
             if kept:
                 kept_total += kept
                 stop_i += 1
+            # centre the traverse on where the object was actually anchored.
+            # The joint's full range reaches 90 deg of q to either side of centre,
+            # and the object is normally only in view near the middle, so
+            # sweeping limit-to-limit spends most of its travel looking elsewhere.
+            anchor_deg = math.degrees(first.roll_rad)
+            lo2, hi2 = cfg.centred_span_deg(anchor_deg)
+            if (hi2 - lo2) < (hi - lo) - 1e-6:
+                notes.append(
+                    f"span centred on anchor roll {anchor_deg:+.1f} deg -> "
+                    f"{lo2:+.1f}..{hi2:+.1f} (of {lo:+.0f}..{hi:+.0f})"
+                )
+                lo, hi = lo2, hi2
         for leg in range(max(int(cfg.sweeps), 1)):
             if self._stop.is_set():
                 notes.append(f"stopped by user during sweep {leg + 1}")

@@ -120,7 +120,7 @@ def check_plan_coverage() -> list[str]:
     fails = []
     cfg = RollScanConfig(step_deg=5.0, sweeps=2, margin_deg=3.0)
     p = build_plan(cfg)
-    lo, hi = cfg.span_deg()
+    lo, hi = cfg.limit_span_deg()
     if abs(lo + 87.0) > 1e-9 or abs(hi - 87.0) > 1e-9:
         fails.append(f"span {lo}..{hi} != -87..87")
     if p.angles_deg[0] != lo or abs(max(p.angles_deg) - hi) > 1e-9:
@@ -277,6 +277,8 @@ def check_continuous_sweep() -> list[str]:
         step_deg=8.0, sweeps=1, continuous=True, sweep_rate_deg_s=180.0,
         settle_s=0.0, step_timeout_s=0.5, box_half=0.20,
         min_points_per_frame=50, max_pose_straddle_deg=90.0,
+        span_deg=0.0,   # full joint range, so the span assertion below is about
+                        # the traverse itself and not about span_deg
     )
     scan = RollSweepScan(
         cfg=cfg, pose_provider=pose, read_q4=arm.read,
@@ -293,8 +295,13 @@ def check_continuous_sweep() -> list[str]:
     rolls = scan.roll_angles_deg()
     if res.n_frames < 8:
         fails.append(f"only {res.n_frames} frames kept in continuous mode")
-    if res.roll_span_deg < 120.0:
-        fails.append(f"continuous roll span only {res.roll_span_deg:.0f} deg")
+    lo, hi = cfg.limit_span_deg()
+    want = 0.7 * (hi - lo)
+    if res.roll_span_deg < want:
+        fails.append(
+            f"continuous roll span {res.roll_span_deg:.0f} deg covers less than "
+            f"70% of the {hi - lo:.0f} deg range"
+        )
     gaps = np.abs(np.diff(sorted(rolls))) if len(rolls) > 1 else np.array([0.0])
     if gaps.max() > 6 * cfg.step_deg:
         fails.append(f"coverage gap of {gaps.max():.1f} deg (step is {cfg.step_deg})")
@@ -305,6 +312,35 @@ def check_continuous_sweep() -> list[str]:
     print(f"  {'ok ' if not fails else 'BAD'} continuous sweep: {res.n_frames} frames in "
           f"{elapsed:.1f} s, roll span {res.roll_span_deg:.0f} deg, max gap "
           f"{gaps.max():.1f} deg, d={2*r_fit*1000:.1f} mm (err {err_mm:+.2f} mm)")
+    return fails
+
+
+def check_span_is_centred_on_anchor() -> list[str]:
+    """
+    span_deg must centre the traverse on where the anchor was taken.
+
+    The live failure was a full-range sweep that began at a joint limit -- 90 deg
+    of q away from centre, where the object was not in view -- and kept exactly
+    one frame. Centring is what makes the traverse spend its travel where the
+    object actually is.
+    """
+    fails: list[str] = []
+    cfg = RollScanConfig(span_deg=40.0, margin_deg=3.0)
+    for centre in (0.0, -60.0, 60.0, -200.0):
+        lo, hi = cfg.centred_span_deg(centre)
+        lim_lo, lim_hi = cfg.limit_span_deg()
+        if abs((hi - lo) - 40.0) > 1e-6:
+            fails.append(f"centre {centre}: span {hi - lo:.1f} != 40")
+        if lo < lim_lo - 1e-9 or hi > lim_hi + 1e-9:
+            fails.append(f"centre {centre}: {lo:.1f}..{hi:.1f} escapes the joint limits")
+        want = min(max(centre, lim_lo + 20.0), lim_hi - 20.0)
+        if abs(0.5 * (lo + hi) - want) > 1e-6:
+            fails.append(f"centre {centre}: midpoint {0.5*(lo+hi):.1f} != {want:.1f}")
+    full = RollScanConfig(span_deg=0.0)
+    if full.centred_span_deg(30.0) != full.limit_span_deg():
+        fails.append("span_deg=0 should mean the full joint range")
+    print(f"  {'ok ' if not fails else 'BAD'} span centring: 40 deg window tracks the "
+          f"anchor and clamps at the limits; span_deg=0 keeps the full range")
     return fails
 
 
@@ -419,6 +455,7 @@ def main() -> int:
     failures += scan_fails
     if not scan_fails:
         failures += check_pose_error_inflates_wall(clean_rms)
+    failures += check_span_is_centred_on_anchor()
     failures += check_continuous_sweep()
     failures += check_end_to_end_with_real_fitter()
 

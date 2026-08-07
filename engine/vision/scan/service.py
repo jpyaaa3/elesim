@@ -292,8 +292,20 @@ def build_scan(
 
 
 def describe_plan(cfg: RollScanConfig) -> str:
+    """
+    Plan summary in BOTH unit systems.
+
+    Scan angles are joint degrees q (0 = middle of the range), but the arm is
+    driven and read in control units u, where u 0..360 spans q +90..-90. Those
+    differ by 2x and a sign, so showing only one invites a parameter being set
+    on the wrong scale.
+    """
     p = build_plan(cfg)
+    span = (f"centred {cfg.span_deg:g} deg on the anchor"
+            if cfg.span_deg > 0 else f"{p.lo_deg:+.0f}..{p.hi_deg:+.0f} full range")
+    mode = (f"continuous {cfg.sweep_rate_deg_s:g} deg/s" if cfg.continuous else "stop-and-go")
     return (
-        f"roll {p.lo_deg:+.0f}..{p.hi_deg:+.0f} deg, step {p.step_deg:g} deg, "
-        f"{p.sweeps} sweep(s) -> {p.n_stops} stops, ~{p.estimated_duration_s(cfg):.0f} s"
+        f"roll q {span}, step {p.step_deg:g} deg q ({2 * p.step_deg:g} u), "
+        f"{p.sweeps} sweep(s), {mode} -> up to {p.n_stops} frames, "
+        f"~{p.estimated_duration_s(cfg):.0f} s"
     )

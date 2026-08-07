@@ -1299,6 +1299,7 @@ def _load_roll_scan_config(
         roll_min_deg=g("roll_min_deg", lo),
         roll_max_deg=g("roll_max_deg", hi),
         margin_deg=g("margin_deg", r0.margin_deg),
+        span_deg=g("span_deg", r0.span_deg),
         step_deg=g("step_deg", r0.step_deg),
         sweeps=gi("sweeps", r0.sweeps),
         continuous=cp.getboolean("roll_scan", "continuous", fallback=r0.continuous),

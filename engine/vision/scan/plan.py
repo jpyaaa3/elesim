@@ -16,8 +16,17 @@ from dataclasses import dataclass
 class RollScanConfig:
     """Scan parameters. Angles in degrees, lengths in metres."""
 
+    # Angles here are JOINT degrees q, where q=0 is the middle of the roll range.
+    # The control/motor unit u is a different scale: u 0..360 maps to q +90..-90
+    # (2:1, and inverted by command_direction), so u=0 is one end, u=180 the
+    # centre, u=360 the other end. A q value of 4 deg is 8 u.
     roll_min_deg: float = -90.0
     roll_max_deg: float = 90.0
+    # Total q span to sweep, CENTRED on the roll angle the anchor was taken at.
+    # 0 means the full joint range. Sweeping the full range starts at an end,
+    # 90 deg of q away from centre, where the object being scanned is usually not
+    # in view at all -- which is how a live sweep kept exactly one frame.
+    span_deg: float = 90.0
     # keep a margin off the mechanical limit; the sweep is not trying to
     # exercise the joint stop, and pressing into it stalls the settle detector
     margin_deg: float = 3.0
@@ -55,14 +64,28 @@ class RollScanConfig:
     outdir: str = "engine/logs/roll_scan"
     save_frames_npz: bool = True
 
-    def span_deg(self) -> tuple[float, float]:
-        """Usable sweep range after the limit margin."""
+    def limit_span_deg(self) -> tuple[float, float]:
+        """Usable sweep range after the limit margin, in joint degrees."""
         lo = float(self.roll_min_deg) + float(self.margin_deg)
         hi = float(self.roll_max_deg) - float(self.margin_deg)
         if hi <= lo:
             mid = 0.5 * (float(self.roll_min_deg) + float(self.roll_max_deg))
             return mid, mid
         return lo, hi
+
+    def centred_span_deg(self, centre_deg: float) -> tuple[float, float]:
+        """``span_deg`` about ``centre_deg``, clamped to the joint limits."""
+        lo, hi = self.limit_span_deg()
+        span = float(self.span_deg)
+        if span <= 0.0 or span >= (hi - lo):
+            return lo, hi
+        half = 0.5 * span
+        c = min(max(float(centre_deg), lo + half), hi - half)
+        return c - half, c + half
+
+    # kept so plan building and older callers keep working unchanged
+    def span_deg_range(self) -> tuple[float, float]:
+        return self.limit_span_deg()
 
 
 @dataclass
@@ -107,7 +130,7 @@ class RollSweepPlan:
 
 
 def build_plan(cfg: RollScanConfig) -> RollSweepPlan:
-    lo, hi = cfg.span_deg()
+    lo, hi = cfg.limit_span_deg()
     step = abs(float(cfg.step_deg))
     sweeps = max(int(cfg.sweeps), 1)
     if step < 1e-6 or hi <= lo:
