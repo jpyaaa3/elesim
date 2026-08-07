@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 elesim-build-arm-model = "elesim_model_builder.cli:arm_model_main"
 elesim-build-sim-bundle = "elesim_model_builder.cli:sim_bundle_main"
+elesim-build-collision-model = "elesim_model_builder.cli:collision_model_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

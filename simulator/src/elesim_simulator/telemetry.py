@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -70,6 +70,7 @@ class RuntimeTelemetry:
         sim_wall_elapsed_s: Optional[float] = None,
         sim_realtime_factor: Optional[float] = None,
         sim_step_count: Optional[int] = None,
+        leg_dof_idx: Optional[Sequence[int]] = None,
     ) -> None:
         from scipy.spatial.transform import Rotation
 
@@ -92,6 +93,30 @@ class RuntimeTelemetry:
             "go2_base_ang_vel": self._vec3(angular_body),
             "go2_base_timestamp_s": float(time.time()),
         }
+        if leg_dof_idx:
+            leg_q = to_numpy_1d(go2_entity.get_dofs_position(dofs_idx_local=list(leg_dof_idx)))
+            payload["go2_leg_q"] = [float(x) for x in leg_q.reshape(-1)]
+        self._add_clock(
+            payload,
+            sim_time_s=sim_time_s,
+            sim_wall_elapsed_s=sim_wall_elapsed_s,
+            sim_realtime_factor=sim_realtime_factor,
+            sim_step_count=sim_step_count,
+        )
+        self.publish(payload)
+
+    def send_planned_move_target(
+        self,
+        xyz: Optional[np.ndarray],
+        *,
+        sim_time_s: Optional[float] = None,
+        sim_wall_elapsed_s: Optional[float] = None,
+        sim_realtime_factor: Optional[float] = None,
+        sim_step_count: Optional[int] = None,
+    ) -> None:
+        if xyz is None:
+            return
+        payload: dict[str, Any] = {"planned_move_target": self._vec3(xyz)}
         self._add_clock(
             payload,
             sim_time_s=sim_time_s,

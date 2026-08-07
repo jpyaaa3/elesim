@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 from elesim_protocol import ControlU, SimMappingConfig, SimQ, control_u_to_sim_q, sim_q_to_control_u
 
@@ -225,9 +225,40 @@ class ControlClient:
             force=True,
         )
 
+    def send_planned_move_target(
+        self,
+        *,
+        xyz: tuple[float, float, float],
+        hold_current_direction: bool = False,
+        source: str = "target",
+    ) -> None:
+        self._send(
+            {
+                "t": "target",
+                "source": str(source),
+                "planned_move_target": [float(value) for value in xyz],
+                "planned_move_target_hold_dir": bool(hold_current_direction),
+            },
+            force=True,
+        )
+
     def send_debug_markers(self, markers: list[dict[str, Any]], *, source: str = "target") -> None:
         self._send(
             {"t": "target", "source": str(source), "debug_markers": [dict(value) for value in markers]},
+            force=True,
+        )
+
+    def send_planned_move_preview(
+        self, waypoints: Sequence[Sequence[float]], *, source: str = "target"
+    ) -> None:
+        """Push the joint-space waypoints of a generated (not yet executed) planned
+        move for a one-shot translucent-ghost preview in the Simulator."""
+        self._send(
+            {
+                "t": "target",
+                "source": str(source),
+                "planned_move_preview_waypoints": [[float(x) for x in wp] for wp in waypoints],
+            },
             force=True,
         )
 

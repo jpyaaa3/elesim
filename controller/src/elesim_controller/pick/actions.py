@@ -20,6 +20,20 @@ from elesim_controller.config import IkConfig, PerceptionConfig, PickConfig, Sim
 from elesim_controller.gaze.stabilizer import GazeStabilizerConfig, patch_gaze_config
 from elesim_controller.gaze.gaze_service import GazeControlService
 from elesim_controller.observability.tracing import traced_thread_target
+from elesim_controller.pick.control_ownership import ControlOwnership
+from elesim_controller.pick.planned_move import PlannedMoveExecutor
+from elesim_controller.robot.arm.planning.trajectory import (
+    DEFAULT_BEND_RATE_RAD_S,
+    DEFAULT_LINEAR_RATE_M_S,
+    DEFAULT_ROLL_RATE_RAD_S,
+    JointRateLimits,
+)
+from elesim_controller.robot.arm.planning.collision import (
+    check_configuration,
+    load_collision_model_for_config,
+    simplify_go2_to_bounding_box,
+)
+from elesim_controller.robot.arm.planning.rrt import joint_bounds_from_context
 from elesim_protocol import (
     ControlU,
     DEFAULT_START_CONTROL_U,
@@ -107,6 +121,42 @@ DEFAULT_SAG_MODEL_PATH = os.path.join(
     "sag",
     "sag_model.json",
 )
+
+# Tolerate up to 1cm of *proxy-vs-proxy* overlap against static environment
+# obstacles (walls, etc.) before rejecting a plan -- confirmed live that a
+# fitted link capsule (a tight bound on the real mesh, not a padded one) can
+# clip a hand-authored obstacle box by a few mm while genuinely threading a
+# narrow opening (e.g. a hole in a wall) with real clearance to spare. Does
+# NOT relax self-collision or GO2-body checks, which were tuned tight
+# against real self-collision incidents and should stay strict. See
+# ``check_configuration``'s ``environment_clearance_m`` for the full
+# rationale.
+PLANNED_MOVE_ENVIRONMENT_CLEARANCE_M = -0.01
+
+# The bare IkConfig.tol default (1e-4 == 0.1mm) is unrealistically tight as a
+# one-shot convergence gate for a random-seed IK search: grasp.py/aim.py
+# never use it bare either, always clamping it up to something physically
+# sensible (0.003-0.012m, depending on the caller) for exactly this reason.
+# start_planned_move_generate_task_space previously used it bare, so a
+# genuinely-reachable target could fail every one of 60 seeds by converging
+# to (e.g.) 0.9mm and getting rejected for missing a 0.1mm bar -- confirmed
+# live. 0.003m matches this codebase's most common clamp floor (see
+# grasp.py's several ``max(self._ik_cfg.tol, 0.003)`` call sites).
+PLANNED_MOVE_POSITION_TOL_M = 0.003
+
+# JointRateLimits' own defaults (DEFAULT_ROLL_RATE_RAD_S ~2.88 rad/s,
+# DEFAULT_LINEAR_RATE_M_S 0.02 m/s) are derived from real Dynamixel
+# profile-velocity hardware limits (see trajectory.py's module docstring) --
+# appropriate for driving the real robot, but needlessly conservative for
+# a pure-simulator test run (use_hardware=False), where nothing constrains
+# how fast the commanded reference may advance. Scales
+# start_planned_move_execute's paced reference stream only; does not affect
+# start_planned_move_generate*'s RRT planning itself, and does not touch
+# real-hardware deployments (use_hardware=True keeps the unscaled defaults).
+# Note: the Simulator's own per-tick joint-rate cap (simulation.physics
+# .roll_rate/bend_rate in its own config.yaml) is a separate throttle on top
+# of this one -- both need raising to see the arm visibly move faster.
+PLANNED_MOVE_SIM_RATE_SCALE = 4.0
 
 
 def resolve_sag_model_path(path: str) -> str:
@@ -315,9 +365,11 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         self._ik_worker: Optional[threading.Thread] = None
         self._visual_obs_stale_s = 0.75
         self._gaze_cfg = gaze_cfg or GazeStabilizerConfig()
+        self._control_ownership = ControlOwnership()
         self._gaze_service = GazeControlService(
             self,
             self._gaze_cfg,
+            ownership=self._control_ownership,
             ownership_enable=bool(ownership_enable),
         )
         self._gaze_prev_uv_err: Optional[tuple[float, float]] = None
@@ -325,6 +377,22 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         self._gaze_last_cmd_wall_s: float = 0.0
         self._gaze_last_sent_du_mag: float = 0.0
         self._gaze_command_ref_u: Optional[ControlU] = None
+        collision_model = (
+            None if self._config_path is None else load_collision_model_for_config(self._config_path)
+        )
+        planned_move_rate_scale = 1.0 if self._use_hardware else float(PLANNED_MOVE_SIM_RATE_SCALE)
+        self._planned_move = PlannedMoveExecutor(
+            ownership=self._control_ownership,
+            ik_context=self._ik_context,
+            collision_model=collision_model,
+            rates=JointRateLimits(
+                linear_m_s=DEFAULT_LINEAR_RATE_M_S * planned_move_rate_scale,
+                roll_rad_s=DEFAULT_ROLL_RATE_RAD_S * planned_move_rate_scale,
+                theta1_rad_s=DEFAULT_BEND_RATE_RAD_S * planned_move_rate_scale,
+                theta2_rad_s=DEFAULT_BEND_RATE_RAD_S * planned_move_rate_scale,
+            ),
+        )
+        self._planned_move_cancel = threading.Event()
 
     @property
     def gaze_config(self) -> GazeStabilizerConfig:
@@ -1136,6 +1204,7 @@ class _ControllerContextActions(_ControlServiceCore):
                 print(f"[Pick] on-device stop failed: {exc}")
             return
         self._pick_e2e_cancel.set()
+        self._planned_move_cancel.set()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
         self.stop_gaze_stabilizer()
         self.stop_object_pick()
@@ -1732,6 +1801,353 @@ class _VisualSearchActions(_MobilePickWorkflowActions):
         """Deprecated: use start_look_aim_grasp_e2e()."""
         _ = float(pick_distance_m)
         self.start_look_aim_grasp_e2e()
+
+    def _planned_move_marker_sink(self, markers: list[dict[str, Any]]) -> None:
+        if self.client is not None and hasattr(self.client, "send_debug_markers"):
+            self.client.send_debug_markers(markers, source="planned_move")
+
+    @staticmethod
+    def _go2_check_inputs(
+        host_state: Optional[HostState],
+    ) -> tuple[Optional[tuple], Optional[tuple], Optional[tuple]]:
+        if host_state is None:
+            return None, None, None
+        return host_state.go2_base_pos, host_state.go2_base_rpy, host_state.go2_leg_q
+
+    def _run_planned_move_generate(
+        self,
+        *,
+        current_q: tuple[float, float, float, float],
+        target_q: tuple[float, float, float, float],
+        live_context: dict[str, Any],
+        host_state: Optional[HostState],
+    ) -> None:
+        """Shared tail for both the joint-space and task-space entry points:
+        derive the GO2-body collision-check inputs from ``host_state`` and run
+        the collision-checked RRT plan. Called from inside a worker thread by
+        both callers (task-space needs its own worker anyway for the IK solve
+        that precedes this)."""
+        go2_pos, go2_rpy_rad, leg_q = self._go2_check_inputs(host_state)
+        print(
+            f"[planned_move] current_q={tuple(round(v, 4) for v in current_q)} "
+            f"target_q={tuple(round(v, 4) for v in target_q)}"
+        )
+        print(
+            f"[planned_move] host_state={'none' if host_state is None else 'ok'} "
+            f"go2_base_pos={go2_pos} go2_base_rpy={go2_rpy_rad} "
+            f"-> GO2-body collision check {'ENABLED' if go2_pos is not None and go2_rpy_rad is not None else 'DISABLED (no telemetry)'} "
+            f"-> GO2-leg collision check {'ENABLED' if leg_q is not None else 'DISABLED (no leg telemetry)'}"
+        )
+        self._planned_move.generate(
+            current_q=current_q,
+            target_q=target_q,
+            send_debug_markers=self._planned_move_marker_sink,
+            context=live_context,
+            go2_pos=go2_pos,
+            go2_rpy_rad=go2_rpy_rad,
+            leg_q=leg_q,
+            environment_clearance_m=PLANNED_MOVE_ENVIRONMENT_CLEARANCE_M,
+            cancel=self._planned_move_cancel,
+        )
+
+    def start_planned_move_generate(
+        self, *, target_u_linear: float, target_u_roll: float, target_u_s1: float, target_u_s2: float
+    ) -> None:
+        """Plan a collision-checked joint-space path to the given *display* u
+        target and show it as debug markers in the Simulator. Does not move
+        the arm -- call ``start_planned_move_execute`` to actually stream it.
+
+        Takes display u (the same units/offset convention as the 4-DOF
+        sliders) rather than canonical q so target entry always matches
+        ``apply_control_u``'s conversion exactly, including the operator's
+        configured calibration offset -- a raw q target would silently
+        ignore that offset and land somewhere slightly different from what
+        the equivalent slider value means. See ``start_planned_move_generate_task_space``
+        for a Cartesian-tip-target alternative that solves IK first.
+        """
+        self._planned_move.mark_planning()
+        self._planned_move_cancel.clear()
+        current_q = (
+            float(self.state.linear),
+            float(self.state.roll),
+            float(self.state.theta1),
+            float(self.state.theta2),
+        )
+        actual_target_u = self._display_to_actual_u(
+            ControlU(
+                u_linear=float(target_u_linear),
+                u_roll=float(target_u_roll),
+                u_s1=float(target_u_s1),
+                u_s2=float(target_u_s2),
+            ),
+            apply_offset=True,
+        )
+        if self.client is not None:
+            target_sim_q = self.client.control_u_to_q(
+                u_linear=float(actual_target_u.u_linear),
+                u_roll=float(actual_target_u.u_roll),
+                u_s1=float(actual_target_u.u_s1),
+                u_s2=float(actual_target_u.u_s2),
+            )
+        else:
+            target_sim_q = control_u_to_sim_q(actual_target_u, self._mapping_cfg)
+        target_q = (
+            float(target_sim_q.linear_m),
+            float(target_sim_q.roll_rad),
+            float(target_sim_q.theta1_rad),
+            float(target_sim_q.theta2_rad),
+        )
+        print(
+            f"[planned_move] target_u_display=({target_u_linear},{target_u_roll},{target_u_s1},{target_u_s2}) "
+            f"-> target_u_actual=({actual_target_u.u_linear:.1f},{actual_target_u.u_roll:.1f},"
+            f"{actual_target_u.u_s1:.1f},{actual_target_u.u_s2:.1f})"
+        )
+        # The static self._ik_context assumes the arm's spawn pose; once GO2
+        # has moved (or was never at that spawn pose to begin with), both FK-
+        # derived marker positions and GO2-body collision checking need the
+        # arm's *current* base transform folded in instead.
+        host_state = self.client.refresh_state() if self.client is not None else None
+        live_context = self._ik_context_for_host(host_state)
+
+        def _worker() -> None:
+            self._run_planned_move_generate(
+                current_q=current_q, target_q=target_q, live_context=live_context, host_state=host_state
+            )
+
+        threading.Thread(
+            target=traced_thread_target("pick.planned_move.generate", _worker),
+            name="planned-move-generate",
+            daemon=True,
+        ).start()
+
+    def start_planned_move_generate_task_space(
+        self, *, target_xyz: tuple[float, float, float], hold_current_direction: bool = False
+    ) -> None:
+        """Like ``start_planned_move_generate`` but takes a Cartesian tip
+        target instead of raw joint/actuator values -- solves IK first (the
+        same ``ik.solve_then_align`` the rest of the pick pipeline already
+        uses via ``grasp.py``/``ready.py``/``aim.py``), then hands the
+        resulting joint target to the same collision-checked RRT planner.
+
+        ``hold_current_direction=True`` asks IK to also match the arm's
+        current tip direction (an align-refine pass on top of the position
+        solve); the default is position-only, matching the "just get me
+        there" spirit of the joint-space entry point.
+        """
+        self._planned_move.mark_planning()
+        self._planned_move_cancel.clear()
+        current_q = (
+            float(self.state.linear),
+            float(self.state.roll),
+            float(self.state.theta1),
+            float(self.state.theta2),
+        )
+        self.refresh_ik_context()
+        host_state = self.client.refresh_state() if self.client is not None else None
+        live_context = self._ik_context_for_host(host_state)
+        required = ("limit", "fk_joint_chain", "terminal_link_name", "old_tip_local_offset", "grasp_offset_node_local")
+        if any(k not in live_context for k in required):
+            print("[planned_move] task-space generate rejected | missing ik_context fields")
+            self._planned_move.fail(
+                reason="missing_ik_context", message="missing IK context (arm not calibrated?)"
+            )
+            return
+
+        target_dir_world = (
+            ik_kin._forward_grasp_direction_world(live_context, np.asarray(current_q, dtype=float))
+            if hold_current_direction
+            else None
+        )
+        target_xyz_arr = np.asarray(target_xyz, dtype=float).reshape(3)
+
+        def _candidate_seeds(rng: np.random.Generator) -> list[np.ndarray]:
+            """Position-only IK for this arm is under-constrained (4 joints,
+            3 position constraints) -- more than one joint configuration can
+            reach the same tip point, and they don't all orient the gripper
+            the same way. A single seed (``current_q``) only finds the one
+            branch nearest the arm's current pose; if that branch happens to
+            collide, try a handful of other seeds spanning the joint range
+            before giving up, since a collision-free branch reaching the
+            exact same target may well exist (confirmed live: an operator
+            reached the same tip point by hand without colliding, on the
+            same seed the auto-solve failed from).
+
+            A large bend (theta1/theta2 far from 0) swings an *intermediate*
+            link -- not just the tip -- well off the straight-line axis
+            between base and target; reaching into a narrow opening (e.g. a
+            hole in a wall) that way can dip a mid-chain link into material
+            the tip itself never gets near. A near-zero-bend seed, swept
+            across the roll range, approaches the same tip point almost
+            straight-on instead -- confirmed live (diagnostic sweep against
+            the wall demo): every one of 9 such seeds converged collision-
+            free where large-bend seeds frequently caught an intermediate
+            link (``node8``) on the wall. Try these cheap structured seeds
+            before falling back to unstructured local/global sampling.
+            """
+            lo, hi = joint_bounds_from_context(live_context)
+            span = hi - lo
+            seeds = [np.asarray(current_q, dtype=float)]
+            roll_lo, roll_hi = float(lo[1]), float(hi[1])
+            for roll in np.linspace(roll_lo, roll_hi, 9):
+                seeds.append(np.array([current_q[0], roll, 0.0, 0.0]))
+            for _ in range(20):
+                noise = rng.normal(scale=0.15 * span)
+                seeds.append(np.clip(np.asarray(current_q, dtype=float) + noise, lo, hi))
+            for _ in range(30):
+                seeds.append(rng.uniform(lo, hi))
+            return seeds
+
+        def _worker() -> None:
+            if self._planned_move.collision_model is None:
+                self._planned_move.fail(reason="no_collision_model")
+                return
+            go2_pos, go2_rpy_rad, leg_q = self._go2_check_inputs(host_state)
+            # Same simplification generate() applies internally (see its
+            # docstring) -- must match here too, or a seed this loop accepts
+            # as collision-free against the full model can immediately turn
+            # up goal_in_collision against generate()'s (more conservative)
+            # merged-box model, wasting the seed for nothing.
+            collision_model = simplify_go2_to_bounding_box(self._planned_move.collision_model, leg_q=leg_q)
+            print(
+                f"[planned_move] task-space generate | target={tuple(round(float(v), 4) for v in target_xyz_arr)} "
+                f"current_q={tuple(round(v, 4) for v in current_q)} "
+                f"go2_base_pos={go2_pos} go2_base_rpy={go2_rpy_rad}"
+            )
+            rng = np.random.default_rng()
+            seeds = _candidate_seeds(rng)
+            fallback: Optional[tuple[str, str]] = None
+
+            for attempt, seed in enumerate(seeds):
+                if self._planned_move_cancel.is_set():
+                    print(f"[planned_move] task-space generate cancelled after {attempt} seed(s)")
+                    self._planned_move.mark_cancelled()
+                    self._planned_move_marker_sink([])
+                    return
+                result = ik_pipeline.solve_then_align(
+                    target_world=target_xyz_arr,
+                    target_dir_world=target_dir_world,
+                    context=live_context,
+                    position_tol_m=max(float(self._ik_cfg.tol), PLANNED_MOVE_POSITION_TOL_M),
+                    max_iters=max(int(self._ik_cfg.max_iters), 1),
+                    current_seed=seed,
+                )
+                if not result.success or result.q is None:
+                    if fallback is None:
+                        fallback = (
+                            "ik_failed",
+                            f"ik_failed: {result.reason} (pos_err={float(result.position_error_m) * 1000.0:.1f}mm)",
+                        )
+                    continue
+                target_q = tuple(float(v) for v in np.asarray(result.q, dtype=float).reshape(4))
+                check = check_configuration(
+                    context=live_context,
+                    q=np.asarray(target_q, dtype=float),
+                    model=collision_model,
+                    go2_pos=go2_pos,
+                    go2_rpy_rad=go2_rpy_rad,
+                    leg_q=leg_q,
+                    environment_clearance_m=PLANNED_MOVE_ENVIRONMENT_CLEARANCE_M,
+                )
+                if check.ok:
+                    if attempt > 0:
+                        print(
+                            f"[planned_move] task-space IK: seed {attempt + 1}/{len(seeds)} "
+                            f"reached a collision-free goal (first {attempt} seed(s) collided or diverged)"
+                        )
+                    self._run_planned_move_generate(
+                        current_q=current_q, target_q=target_q, live_context=live_context, host_state=host_state
+                    )
+                    return
+                if fallback is None or fallback[0] == "ik_failed":
+                    fallback = (
+                        "goal_in_collision",
+                        f"goal_in_collision after {len(seeds)} IK seed(s): "
+                        f"{check.link_a!r} vs {check.link_b!r} gap={check.min_clearance_m:.4f}m",
+                    )
+
+            reason, message = fallback or ("ik_failed", "ik_failed: no seed converged")
+            print(
+                f"[planned_move] task-space generate failed after {len(seeds)} seed(s) | "
+                f"target={tuple(round(float(v), 4) for v in target_xyz_arr)} reason={reason} | {message}"
+            )
+            self._planned_move_marker_sink([])
+            self._planned_move.fail(reason=reason, message=message)
+
+        threading.Thread(
+            target=traced_thread_target("pick.planned_move.generate_task_space", _worker),
+            name="planned-move-generate-task-space",
+            daemon=True,
+        ).start()
+
+    def send_planned_move_target(
+        self, x: float, y: float, z: float, *, hold_current_direction: bool = False
+    ) -> None:
+        if self.client is not None and hasattr(self.client, "send_planned_move_target"):
+            self.client.send_planned_move_target(
+                xyz=(float(x), float(y), float(z)),
+                hold_current_direction=bool(hold_current_direction),
+                source="target",
+            )
+
+    def start_planned_move_preview(self) -> None:
+        """Play a one-shot translucent-ghost preview of the most recent successful
+        ``start_planned_move_generate`` path in the Simulator, start to end.
+
+        Purely a Simulator-side visual -- never moves the real arm and does not
+        acquire ``ControlOwnership`` (unlike ``start_planned_move_execute``), so
+        it's safe to call regardless of who currently owns the arm.
+        """
+        if self._planned_move.status().phase != "planned":
+            return
+        waypoints = self._planned_move.preview_waypoints()
+        if not waypoints:
+            return
+        if self.client is not None and hasattr(self.client, "send_planned_move_preview"):
+            self.client.send_planned_move_preview(waypoints, source="planned_move")
+
+    def start_planned_move_execute(self) -> None:
+        """Stream the path from the most recent successful ``start_planned_move_generate``."""
+        self._start_pick_workflow(
+            phases=(
+                PickWorkflowPhase(
+                    "planned_move",
+                    ObjectPickPhase.TRAVERSE.value,
+                    self._start_planned_move_execute_worker,
+                ),
+            ),
+            trace_name="pick.planned_move",
+            description="Planned move",
+        )
+
+    def _start_planned_move_execute_worker(self) -> None:
+        self._planned_move_cancel.clear()
+
+        def _worker() -> None:
+            outcome = self._planned_move.execute(
+                client=self.client,
+                cancel=self._planned_move_cancel,
+                send_debug_markers=self._planned_move_marker_sink,
+            )
+            self.state.set_pick_status(
+                running=False,
+                failed=not outcome.success,
+                phase=ObjectPickPhase.DONE.value if outcome.success else ObjectPickPhase.FAILED.value,
+                msg=f"planned move: {outcome.reason}",
+            )
+
+        threading.Thread(
+            target=traced_thread_target("pick.planned_move.worker", _worker),
+            name="planned-move",
+            daemon=True,
+        ).start()
+
+    def planned_move_status(self) -> dict[str, Any]:
+        status = self._planned_move.status()
+        return {
+            "phase": status.phase,
+            "message": status.message,
+            "waypoint_count": int(status.waypoint_count),
+        }
 
     def _reset_pick_search_state(self) -> None:
         self._pick_search_origin_u = None

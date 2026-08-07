@@ -29,6 +29,7 @@ SIMULATION_COMMANDS = frozenset(
         "reset",
         "set_speed",
         "set_debug_visible",
+        "set_collision_geometry_visible",
     }
 )
 
@@ -558,6 +559,9 @@ class SimulationCommandRequest:
         if command == "set_debug_visible":
             _unknown(raw, {"visible"}, context="set_debug_visible arguments")
             return {"visible": _boolean(raw.get("visible"), name="debug visible")}
+        if command == "set_collision_geometry_visible":
+            _unknown(raw, {"visible"}, context="set_collision_geometry_visible arguments")
+            return {"visible": _boolean(raw.get("visible"), name="collision geometry visible")}
         _unknown(raw, set(), context=f"{command} arguments")
         return {}
 
@@ -623,6 +627,7 @@ class SimulationStatusPayload:
     speed: float
     debug_visible: bool
     sim_time_s: float
+    collision_geometry_visible: bool = False
     schema_version: int = SIMULATION_SCHEMA_VERSION
 
     @classmethod
@@ -630,7 +635,15 @@ class SimulationStatusPayload:
         raw = _object(payload, context="simulation_status")
         _unknown(
             raw,
-            {"schema_version", "epoch", "paused", "speed", "debug_visible", "sim_time_s"},
+            {
+                "schema_version",
+                "epoch",
+                "paused",
+                "speed",
+                "debug_visible",
+                "sim_time_s",
+                "collision_geometry_visible",
+            },
             context="simulation_status",
         )
         _schema(raw, context="simulation status")
@@ -647,6 +660,9 @@ class SimulationStatusPayload:
             speed=speed,
             debug_visible=_boolean(raw.get("debug_visible"), name="debug visible"),
             sim_time_s=sim_time_s,
+            collision_geometry_visible=_boolean(
+                raw.get("collision_geometry_visible", False), name="collision geometry visible"
+            ),
         )
 
     def to_payload(self) -> dict[str, Any]:
@@ -657,6 +673,7 @@ class SimulationStatusPayload:
             "speed": self.speed,
             "debug_visible": self.debug_visible,
             "sim_time_s": self.sim_time_s,
+            "collision_geometry_visible": self.collision_geometry_visible,
         }
 
 

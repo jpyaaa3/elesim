@@ -135,6 +135,13 @@ def test_operator_allowlist_distinguishes_methods_from_properties() -> None:
     assert "_pick_config_effective" not in SERVICE_VALUES
 
 
+def test_operator_allowlist_exposes_planned_move() -> None:
+    assert "start_planned_move_generate" in SERVICE_CALLS
+    assert "start_planned_move_execute" in SERVICE_CALLS
+    assert "start_planned_move_preview" in SERVICE_CALLS
+    assert "planned_move_status" in SERVICE_CALLS
+
+
 def test_simulation_session_open_and_close_contracts_are_bounded() -> None:
     opened = OpenSimulationSessionRequest.from_payload(
         {

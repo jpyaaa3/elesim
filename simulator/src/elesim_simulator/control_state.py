@@ -48,6 +48,10 @@ class SimulationStateSource:
         self._obstacles_avoid_enabled = False
         self._obstacles_avoid_seq = 0
         self._sim_target: Optional[np.ndarray] = None
+        self._planned_move_target: Optional[np.ndarray] = None
+        self._planned_move_target_hold_dir = False
+        self._planned_move_preview_waypoints: list[tuple[float, float, float, float]] = []
+        self._planned_move_preview_seq = 0
         self._sim_reset_seq = 0
         self._debug_markers: list[dict[str, Any]] = []
         self._last_update_at: Optional[float] = None
@@ -108,6 +112,23 @@ class SimulationStateSource:
                     _vector(body["sim_target"], 3, name="sim_target"),
                     dtype=float,
                 )
+            if "planned_move_target" in body:
+                self._planned_move_target = np.asarray(
+                    _vector(body["planned_move_target"], 3, name="planned_move_target"),
+                    dtype=float,
+                )
+            if "planned_move_target_hold_dir" in body:
+                if not isinstance(body["planned_move_target_hold_dir"], bool):
+                    raise ValueError("planned_move_target_hold_dir must be boolean")
+                self._planned_move_target_hold_dir = body["planned_move_target_hold_dir"]
+            if "planned_move_preview_waypoints" in body:
+                raw_waypoints = body["planned_move_preview_waypoints"]
+                if not isinstance(raw_waypoints, list):
+                    raise ValueError("planned_move_preview_waypoints must be a list")
+                self._planned_move_preview_waypoints = [
+                    _vector(wp, 4, name="planned_move_preview_waypoint") for wp in raw_waypoints
+                ]
+                self._planned_move_preview_seq += 1
             if "debug_markers" in body:
                 if not isinstance(body["debug_markers"], list):
                     raise ValueError("debug_markers must be a list")
@@ -210,6 +231,22 @@ class SimulationStateSource:
     def sim_target_xyz(self) -> Optional[np.ndarray]:
         with self._lock:
             return None if self._sim_target is None else self._sim_target.copy()
+
+    def planned_move_target_xyz(self) -> Optional[np.ndarray]:
+        with self._lock:
+            return None if self._planned_move_target is None else self._planned_move_target.copy()
+
+    def planned_move_target_hold_dir(self) -> bool:
+        with self._lock:
+            return bool(self._planned_move_target_hold_dir)
+
+    def planned_move_preview_waypoints(self) -> list[tuple[float, float, float, float]]:
+        with self._lock:
+            return list(self._planned_move_preview_waypoints)
+
+    def planned_move_preview_seq(self) -> int:
+        with self._lock:
+            return self._planned_move_preview_seq
 
     def debug_markers(self) -> list[dict[str, Any]]:
         with self._lock:

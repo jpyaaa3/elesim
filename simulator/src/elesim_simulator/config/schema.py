@@ -118,6 +118,48 @@ class SpawnConfig:
     sim_target_collision: bool = True
     sim_target_gravity: bool = False
 
+    planned_move_target_enable: bool = True
+    planned_move_target_radius: float = 0.02
+    planned_move_target_color_rgba: tuple[float, float, float, float] = (0.2, 0.85, 0.35, 0.85)
+
+    planned_move_ghost_enable: bool = True
+    planned_move_ghost_color_rgba: tuple[float, float, float, float] = (0.35, 0.55, 0.95, 0.35)
+    # The ghost is a pure visual, unlike the real arm's own joint-rate limiter
+    # (a.params.roll_rate/bend_rate), which is tuned to real hardware limits --
+    # playing a preview back at that same real-world pace reads as sluggish
+    # for what's meant to be a quick "does this path look right" check, not an
+    # accurate real-time simulation. Scales all of the ghost's per-joint rate
+    # bounds (see ghost_playback.build_ghost_stream) uniformly.
+    planned_move_ghost_speed_scale: float = 16.0
+
+    # A static wall-with-a-hole obstacle, purely for RRT-avoidance demos --
+    # disabled by default so it never appears in an ordinary run. Enabling
+    # it here only affects what's *visually spawned*; the Controller's own
+    # collision_model.json needs the matching obstacle_boxes separately
+    # (see elesim_model_builder.collision_model.build_wall_with_hole_boxes),
+    # since the simulator must not import elesim_controller.
+    wall_obstacle_enable: bool = False
+    wall_obstacle_center_xyz: tuple[float, float, float] = (0.75, 0.0, 0.3)
+    wall_obstacle_width_m: float = 0.6
+    wall_obstacle_height_m: float = 0.6
+    wall_obstacle_thickness_m: float = 0.03
+    wall_obstacle_hole_width_m: float = 0.25
+    wall_obstacle_hole_height_m: float = 0.25
+    wall_obstacle_hole_offset_yz: tuple[float, float] = (0.0, 0.0)
+    wall_obstacle_color_rgba: tuple[float, float, float, float] = (0.55, 0.35, 0.2, 1.0)
+
+    # A solid vertical cylindrical obstacle (a post/pillar), purely for RRT-
+    # avoidance demos -- disabled by default, same rationale as
+    # wall_obstacle_enable. The Controller's own collision_model.json needs
+    # the matching obstacle_capsules entry separately (see
+    # elesim_model_builder.collision_model.build_cylinder_obstacle_capsule)
+    # for the RRT planner to actually avoid it.
+    cyl_obstacle_enable: bool = False
+    cyl_obstacle_center_xyz: tuple[float, float, float] = (0.55, 0.0, 0.5)
+    cyl_obstacle_radius_m: float = 0.1
+    cyl_obstacle_height_m: float = 1.0
+    cyl_obstacle_color_rgba: tuple[float, float, float, float] = (0.3, 0.3, 0.35, 1.0)
+
 
 @dataclass(frozen=True)
 class AppConfigBundle:

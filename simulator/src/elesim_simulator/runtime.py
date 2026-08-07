@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -32,8 +32,19 @@ from elesim_simulator.robot.go2.locomotion import Go2Command
 from elesim_simulator.robot.go2.locomotion.controller import RaibertTrotController
 from elesim_simulator.robot.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
 from elesim_simulator.robot.arm.rates import estimate_ideal_sim_rates
+from elesim_simulator.robot.arm.planning.ghost_playback import DEFAULT_LINEAR_RATE_M_S, build_ghost_stream
 from elesim_simulator.core.runtime_urdf import select_runtime_urdf
 from elesim_simulator.robot.arm.sag_model import segment_errors_from_model
+from elesim_simulator.collision_geometry import (
+    BOX_EDGE_INDICES,
+    CollisionGeometryModel,
+    LinkBoxGeom,
+    load_collision_geometry_model,
+    simplify_go2_to_bounding_box,
+    world_box_corners,
+    world_capsule,
+)
+from elesim_simulator.simulation.genesis.utils import quat_wxyz_to_xyzw
 from elesim_simulator.observability.tracing import configure_tracing, shutdown_tracing, span
 from elesim_simulator.simulation.operator_control import SimulationOperatorController
 
@@ -228,6 +239,52 @@ def _world_offset(
         float(pos[1] + world_off[1]),
         float(pos[2] + world_off[2]),
     )
+
+
+def _wall_with_hole_boxes(
+    center: Tuple[float, float, float],
+    width: float,
+    height: float,
+    thickness: float,
+    hole_width: float,
+    hole_height: float,
+    hole_offset: Tuple[float, float] = (0.0, 0.0),
+) -> list[tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+    """A wall spanning world Y/Z with a rectangular hole, as up to 4
+    non-overlapping axis-aligned boxes (a "picture frame"). Returns
+    ``[(center, full_size), ...]`` ready for ``gs.morphs.Box``.
+
+    Duplicated (not imported) from
+    ``elesim_model_builder.collision_model.build_wall_with_hole_boxes`` --
+    the simulator must not depend on the controller's collision-model
+    package, and this is purely a visual/physical spawn, not the
+    obstacle_boxes collision-check data (that lives in the Controller's own
+    collision_model.json).
+    """
+    cx, cy, cz = (float(x) for x in center)
+    hole_off_y, hole_off_z = (float(x) for x in hole_offset)
+    wall_y_min, wall_y_max = cy - float(width) / 2.0, cy + float(width) / 2.0
+    wall_z_min, wall_z_max = cz - float(height) / 2.0, cz + float(height) / 2.0
+    hole_cy, hole_cz = cy + hole_off_y, cz + hole_off_z
+    hole_y_min, hole_y_max = hole_cy - float(hole_width) / 2.0, hole_cy + float(hole_width) / 2.0
+    hole_z_min, hole_z_max = hole_cz - float(hole_height) / 2.0, hole_cz + float(hole_height) / 2.0
+
+    def _bar(y_min: float, y_max: float, z_min: float, z_max: float):
+        size_y = y_max - y_min
+        size_z = z_max - z_min
+        if size_y <= 1e-9 or size_z <= 1e-9:
+            return None
+        center_bar = (cx, (y_min + y_max) / 2.0, (z_min + z_max) / 2.0)
+        size_bar = (float(thickness), size_y, size_z)
+        return (center_bar, size_bar)
+
+    bars = [
+        _bar(wall_y_min, wall_y_max, hole_z_max, wall_z_max),
+        _bar(wall_y_min, wall_y_max, wall_z_min, hole_z_min),
+        _bar(wall_y_min, hole_y_min, hole_z_min, hole_z_max),
+        _bar(hole_y_max, wall_y_max, hole_z_min, hole_z_max),
+    ]
+    return [bar for bar in bars if bar is not None]
 
 
 class Go2Locomotion:
@@ -520,6 +577,13 @@ class Go2Locomotion:
     def mirror_mode(self) -> bool:
         return bool(self._mirror)
 
+    @property
+    def all_leg_dof_idx(self) -> list[int]:
+        """DOF indices for all 12 leg joints, ``FL,FR,RL,RR`` x ``hip,thigh,calf`` --
+        matches the ``go2_leg_q`` wire field's ordering convention (see
+        ``elesim_model_builder.collision_model.build_go2_body_shapes``)."""
+        return list(self._leg_dof_idxs)
+
     def _init_mirror_kinematic(self) -> None:
         """Mirror puppet: no PD actuation; pose is overwritten each frame."""
         n = len(self._leg_dof_idxs)
@@ -625,15 +689,18 @@ def _make_urdf_morph(
     *,
     fixed: bool,
     requires_jac_and_IK: bool = False,
+    collision: bool = True,
+    prioritize_urdf_material: bool = True,
 ):
     common = dict(
         file=urdf_path,
         pos=pos,
         euler=euler,
         fixed=bool(fixed),
-        prioritize_urdf_material=True,
+        prioritize_urdf_material=bool(prioritize_urdf_material),
         merge_fixed_links=False,
         requires_jac_and_IK=bool(requires_jac_and_IK),
+        collision=bool(collision),
     )
     merge_fixed = not bool(requires_jac_and_IK)
     try:
@@ -642,7 +709,12 @@ def _make_urdf_morph(
         try:
             return gs.morphs.URDF(**common, default_armature=0.0)
         except TypeError:
-            return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
+            try:
+                return gs.morphs.URDF(
+                    file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed), collision=bool(collision)
+                )
+            except TypeError:
+                return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
 
 
 def _prepare_go2_urdf_with_config_colors(
@@ -859,6 +931,55 @@ class MarkerSet:
         self._dynamic_markers[key] = scene.draw_debug_arrow(pos=pos_arr, vec=dir_arr * length_f, radius=float(radius), color=color)
         self._dynamic_marker_sig[key] = sig
 
+    def draw_dynamic_line(
+        self, scene, key: str, p0: np.ndarray, p1: np.ndarray, color, radius: float
+    ) -> None:
+        """A thick line segment -- shows a proxy capsule's real extent (segment + radius),
+        not just a single point at its midpoint."""
+        p0_arr = np.asarray(p0, dtype=float).reshape(3)
+        p1_arr = np.asarray(p1, dtype=float).reshape(3)
+        sig = np.concatenate([p0_arr, p1_arr], axis=0)
+        marker = self._dynamic_markers.get(key, None)
+        prev_sig = self._dynamic_marker_sig.get(key, None)
+        if marker is not None and prev_sig is not None and np.allclose(prev_sig, sig, atol=1e-9):
+            return
+        if marker is not None:
+            try:
+                scene.clear_debug_object(marker)
+            except Exception:
+                pass
+        self._dynamic_markers[key] = scene.draw_debug_line(start=p0_arr, end=p1_arr, radius=float(radius), color=color)
+        self._dynamic_marker_sig[key] = sig
+
+    def draw_dynamic_box(
+        self,
+        scene,
+        key: str,
+        lo: np.ndarray,
+        hi: np.ndarray,
+        color,
+    ) -> None:
+        """A world-axis-aligned wireframe box -- shows a proxy box's real extent.
+
+        Drops the proxy's own rotation (``draw_debug_box`` only takes an
+        axis-aligned world bounds pair); an acceptable approximation for
+        parts (``plate``/``housing``) that barely rotate relative to world.
+        """
+        lo_arr = np.asarray(lo, dtype=float).reshape(3)
+        hi_arr = np.asarray(hi, dtype=float).reshape(3)
+        sig = np.concatenate([lo_arr, hi_arr], axis=0)
+        marker = self._dynamic_markers.get(key, None)
+        prev_sig = self._dynamic_marker_sig.get(key, None)
+        if marker is not None and prev_sig is not None and np.allclose(prev_sig, sig, atol=1e-9):
+            return
+        if marker is not None:
+            try:
+                scene.clear_debug_object(marker)
+            except Exception:
+                pass
+        self._dynamic_markers[key] = scene.draw_debug_box(bounds=(lo_arr, hi_arr), color=color, wireframe=True)
+        self._dynamic_marker_sig[key] = sig
+
     def clear_dynamic_missing(self, scene, active_keys: set[str]) -> None:
         stale = [key for key in self._dynamic_markers.keys() if key not in active_keys]
         for key in stale:
@@ -869,6 +990,160 @@ class MarkerSet:
                     scene.clear_debug_object(marker)
                 except Exception:
                     pass
+
+
+# Host-supplied debug markers are allowlisted by `name`, not free-form --
+# camera-frame names are host telemetry consumed elsewhere, never rendered
+# from this list.
+_HOST_VISIBLE_MARKER_NAMES = frozenset({"ready_pose", "ready_pose_dir", "planned_waypoint"})
+_HOST_CAMERA_MARKER_NAMES = frozenset({"camera_optical", "camera_look", "camera_right"})
+
+
+@dataclass(frozen=True)
+class HostMarkerSpec:
+    """Resolved render instructions for one host-supplied debug marker.
+
+    ``kind`` selects which of ``pos``/(``p0``,``p1``)/``bounds`` is populated:
+    "sphere" (a point, the original behavior), "capsule" (a line segment plus
+    radius -- shows a proxy capsule's real extent, not just its midpoint), or
+    "box" (a world-frame AABB -- shows a proxy box's real extent; the box's
+    own rotation is dropped since ``draw_debug_box`` only takes axis-aligned
+    bounds, an acceptable approximation since these parts barely rotate).
+    """
+
+    kind: str
+    pos: Tuple[float, float, float]
+    rgba: Tuple[float, float, float, float]
+    radius: float
+    sphere_key: Optional[str]
+    arrow_key: Optional[str]
+    direction: Optional[Tuple[float, float, float]]
+    length: float
+    line_key: Optional[str] = None
+    p0: Optional[Tuple[float, float, float]] = None
+    p1: Optional[Tuple[float, float, float]] = None
+    box_key: Optional[str] = None
+    bounds: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None
+
+
+def _resolve_capsule_marker(
+    marker: Mapping[str, Any], *, name: str, id_part: str, rgba: Tuple[float, float, float, float], radius: float
+) -> Optional[HostMarkerSpec]:
+    p0_raw = marker.get("p0", None)
+    p1_raw = marker.get("p1", None)
+    if not isinstance(p0_raw, (list, tuple)) or len(p0_raw) != 3:
+        return None
+    if not isinstance(p1_raw, (list, tuple)) or len(p1_raw) != 3:
+        return None
+    p0 = (float(p0_raw[0]), float(p0_raw[1]), float(p0_raw[2]))
+    p1 = (float(p1_raw[0]), float(p1_raw[1]), float(p1_raw[2]))
+    return HostMarkerSpec(
+        kind="capsule",
+        pos=p0,
+        rgba=rgba,
+        radius=radius,
+        sphere_key=None,
+        arrow_key=None,
+        direction=None,
+        length=0.0,
+        line_key=f"{id_part}:line",
+        p0=p0,
+        p1=p1,
+    )
+
+
+def _resolve_box_marker(
+    marker: Mapping[str, Any], *, name: str, id_part: str, rgba: Tuple[float, float, float, float]
+) -> Optional[HostMarkerSpec]:
+    bounds_raw = marker.get("bounds", None)
+    if not isinstance(bounds_raw, (list, tuple)) or len(bounds_raw) != 2:
+        return None
+    lo_raw, hi_raw = bounds_raw
+    if not isinstance(lo_raw, (list, tuple)) or len(lo_raw) != 3:
+        return None
+    if not isinstance(hi_raw, (list, tuple)) or len(hi_raw) != 3:
+        return None
+    lo = (float(lo_raw[0]), float(lo_raw[1]), float(lo_raw[2]))
+    hi = (float(hi_raw[0]), float(hi_raw[1]), float(hi_raw[2]))
+    return HostMarkerSpec(
+        kind="box",
+        pos=lo,
+        rgba=rgba,
+        radius=0.0,
+        sphere_key=None,
+        arrow_key=None,
+        direction=None,
+        length=0.0,
+        box_key=f"{id_part}:box",
+        bounds=(lo, hi),
+    )
+
+
+def resolve_host_marker(marker: Mapping[str, Any]) -> Optional[HostMarkerSpec]:
+    """Validate one host debug-marker dict and resolve its render key(s).
+
+    Returns ``None`` if the marker should be skipped (wrong frame, missing
+    position, or a ``name`` outside ``_HOST_VISIBLE_MARKER_NAMES``).
+
+    An optional ``key`` field lets several markers share one semantic
+    ``name`` -- e.g. a whole RRT-planned path sent as many ``"name":
+    "planned_waypoint"`` entries, one per waypoint, each with its own
+    ``key`` -- without overwriting each other's rendered sphere. Markers
+    without ``key`` keep the original one-marker-per-name behavior
+    (``ready_pose``/``ready_pose_dir``).
+
+    An optional ``shape`` field ("sphere" (default), "capsule", "box")
+    switches what's drawn -- see ``HostMarkerSpec``.
+    """
+    if str(marker.get("frame", "world")) != "world":
+        return None
+    name = str(marker.get("name", "")).strip()
+    if not name or name in _HOST_CAMERA_MARKER_NAMES or name not in _HOST_VISIBLE_MARKER_NAMES:
+        return None
+
+    color_raw = marker.get("color", [0.1, 1.0, 0.1, 0.95])
+    if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
+        rgba = (
+            float(color_raw[0]),
+            float(color_raw[1]),
+            float(color_raw[2]),
+            float(color_raw[3]) if len(color_raw) >= 4 else 0.95,
+        )
+    else:
+        rgba = (0.1, 1.0, 0.1, 0.95)
+    radius = float(marker.get("radius", 0.012))
+
+    key_suffix = str(marker.get("key", "")).strip()
+    id_part = f"{name}:{key_suffix}" if key_suffix else name
+
+    shape = str(marker.get("shape", "sphere")).strip().lower()
+    if shape == "capsule":
+        return _resolve_capsule_marker(marker, name=name, id_part=id_part, rgba=rgba, radius=radius)
+    if shape == "box":
+        return _resolve_box_marker(marker, name=name, id_part=id_part, rgba=rgba)
+
+    pos = marker.get("pos", None)
+    if not isinstance(pos, (list, tuple)) or len(pos) != 3:
+        return None
+    sphere_key = None if name == "ready_pose_dir" else f"{id_part}:sphere"
+
+    direction_raw = marker.get("dir", None)
+    direction = None
+    arrow_key = None
+    if isinstance(direction_raw, (list, tuple)) and len(direction_raw) == 3:
+        direction = (float(direction_raw[0]), float(direction_raw[1]), float(direction_raw[2]))
+        arrow_key = f"{id_part}:dir"
+
+    return HostMarkerSpec(
+        kind="sphere",
+        pos=(float(pos[0]), float(pos[1]), float(pos[2])),
+        rgba=rgba,
+        radius=radius,
+        sphere_key=sphere_key,
+        arrow_key=arrow_key,
+        direction=direction,
+        length=float(marker.get("length", 0.09)),
+    )
 
 
 @dataclass
@@ -886,6 +1161,16 @@ class SimScene:
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
+    planned_move_target_entity: object = None
+    planned_move_target_xyz: Optional[np.ndarray] = None
+    wall_obstacle_entities: list = field(default_factory=list)
+    cyl_obstacle_entities: list = field(default_factory=list)
+    ghost_entity: object = None
+    ghost_mover: Optional["SimMover"] = None
+    ghost_park_pos: Optional[np.ndarray] = None
+    ghost_stream: list = field(default_factory=list)
+    ghost_tick_idx: int = 0
+    ghost_playing: bool = False
     n_nodes: int = 0
     n_seg: int = 0
     sim_step_count: int = 0
@@ -895,6 +1180,8 @@ class SimScene:
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
+    ghost_mount_pos_body: Optional[np.ndarray] = None
+    ghost_mount_rot_body: Optional[Rot] = None
 
     def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
         """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
@@ -939,6 +1226,152 @@ class SimScene:
         except Exception:
             pass
 
+    _GHOST_PARK_OFFSET_M = (0.0, 0.0, -50.0)
+
+    def park_ghost(self) -> None:
+        """Move the planned-move ghost far below the scene so it's effectively invisible
+        while idle -- Genesis has no runtime alpha/visibility toggle, so repositioning
+        off-scene is the only available mechanism (see set_4dof_instant/_apply_q_direct,
+        which are direct kinematic writes with no rendering-side hide switch)."""
+        if self.ghost_entity is None:
+            return
+        try:
+            base = self.ghost_park_pos if self.ghost_park_pos is not None else np.zeros(3, dtype=float)
+            offset = np.asarray(self._GHOST_PARK_OFFSET_M, dtype=float)
+            self.ghost_entity.set_pos(base + offset)
+        except Exception:
+            pass
+        self.ghost_stream = []
+        self.ghost_tick_idx = 0
+        self.ghost_playing = False
+
+    def record_ghost_go2_mount(self, *, arm_root_pos, arm_root_quat) -> None:
+        """Record the ghost's mount offset relative to GO2's base, using the
+        *real* arm's actual, FK-verified root-link (``layout.fk_root_link``,
+        e.g. ``"plate"``) world pose -- NOT the ghost's own spawn pose, which
+        is only a rough pre-build placeholder (``arm_pos``/``arm_euler``; FK
+        isn't queryable until after ``scene.build()`` + the arm's been posed,
+        same reason ``_spawn_planned_move_target_marker``'s own placeholder
+        needs a post-build correction). Using the placeholder here would
+        silently bake in whatever error it has, making the ghost start
+        somewhere subtly (or not so subtly) off from the real arm for the
+        entire session.
+
+        Call once, right after the real arm has been posed (``
+        apply_spawn_arm_pose``) -- lets ``_sync_ghost_base`` re-derive the
+        ghost's live world pose from GO2's live base pose every tick, the same
+        way ``record_arm_go2_mount``/``sync_arm_to_go2_base`` do for a
+        hypothetically-separate real arm entity. Only meaningful when
+        GO2-mounted; a no-op otherwise."""
+        if self.ghost_entity is None or self.go2_entity is None:
+            return
+        from elesim_simulator.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
+
+        base = self.go2_entity.get_link("base")
+        base_pos = self._to_numpy_1d(base.get_pos())[:3]
+        base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
+        arm_pos_arr = np.asarray(arm_root_pos, dtype=float).reshape(3)
+        arm_quat_xyzw = _quat_wxyz_to_xyzw(np.asarray(arm_root_quat, dtype=float).reshape(4))
+        R_b = Rot.from_quat(base_quat_xyzw)
+        R_a = Rot.from_quat(arm_quat_xyzw)
+        self.ghost_mount_pos_body = np.asarray(R_b.inv().apply(arm_pos_arr - base_pos), dtype=float)
+        self.ghost_mount_rot_body = R_b.inv() * R_a
+
+    def _sync_ghost_base(self) -> None:
+        """Weld the (arm-only) ghost's base to wherever the real arm currently
+        sits -- GO2's own body/legs are deliberately excluded from the ghost
+        entirely (it's a standalone arm URDF, not the merged GO2+arm one), so
+        there's nothing GO2-shaped to weld or animate here beyond this one
+        base transform.
+
+        GO2 is assumed static for the duration of a preview (the planner
+        itself assumes this, see ``PlannedMoveExecutor.generate``'s
+        docstring), but a standing GO2 under MPC balance control never holds
+        a perfectly fixed pose (see ``sync_arm_to_go2_base``'s own "Genesis
+        weld can drift under MPC" note) -- so this must be called every tick
+        during playback, not just once at unpark time, or the ghost's base
+        visibly drifts away from the real arm over a multi-second preview.
+        """
+        if self.ghost_entity is None:
+            return
+        try:
+            if (
+                self.go2_entity is not None
+                and self.ghost_mount_pos_body is not None
+                and self.ghost_mount_rot_body is not None
+            ):
+                from elesim_simulator.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
+
+                base = self.go2_entity.get_link("base")
+                base_pos = self._to_numpy_1d(base.get_pos())[:3]
+                base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
+                R_b = Rot.from_quat(base_quat_xyzw)
+                pos = base_pos + R_b.apply(self.ghost_mount_pos_body)
+                new_rot = R_b * self.ghost_mount_rot_body
+                quat_xyzw = new_rot.as_quat()
+                quat = np.array(
+                    [float(quat_xyzw[3]), float(quat_xyzw[0]), float(quat_xyzw[1]), float(quat_xyzw[2])],
+                    dtype=float,
+                )
+            elif self.mover is not None:
+                pos = self._to_numpy_1d(self.mover.entity.get_pos())[:3]
+                quat = self._to_numpy_1d(self.mover.entity.get_quat())[:4]
+            else:
+                return
+            self.ghost_park_pos = pos.copy()
+            self.ghost_entity.set_pos(pos)
+            self.ghost_entity.set_quat(quat)
+        except Exception:
+            pass
+
+    def unpark_ghost(self) -> None:
+        """Reposition the ghost at the real arm's current live base pose, just
+        before playing a preview."""
+        if self.ghost_entity is None:
+            return
+        self._sync_ghost_base()
+
+    def start_ghost_preview(self, stream: list) -> None:
+        """Begin a one-shot ghost playback of an already time-parameterized joint
+        stream (see ``elesim_simulator.robot.arm.planning.ghost_playback
+        .build_ghost_stream``). Restarts from the beginning if a preview is
+        already in progress -- each Preview click plays the whole path once.
+
+        Sets the ghost's base *and* its first joint pose in this same call,
+        rather than leaving the joint pose for the next ``step_ghost_preview``
+        tick -- the two are otherwise not atomic (this is called from the
+        poll step, unconditionally, while ``step_ghost_preview`` only runs
+        when ``did_step`` is true that iteration), so a repeated Preview
+        click could otherwise show the ghost's base already snapped to the
+        new pose for a tick or more while its joints still show the *previous*
+        preview's last (or otherwise stale) configuration -- a visibly wrong,
+        twisted-looking pose right at the start.
+        """
+        if self.ghost_entity is None or self.ghost_mover is None or not stream:
+            return
+        self.unpark_ghost()
+        self.ghost_stream = list(stream)
+        self.ghost_tick_idx = 0
+        self.ghost_playing = True
+        first = self.ghost_stream[0]
+        self.ghost_mover.set_4dof_instant(float(first[0]), float(first[1]), float(first[2]), float(first[3]))
+
+    def step_ghost_preview(self) -> None:
+        """Advance the ghost one physics tick through its playback stream, parking
+        it again once the path has been played once, start to end."""
+        if not self.ghost_playing or self.ghost_mover is None:
+            return
+        if self.ghost_tick_idx >= len(self.ghost_stream):
+            self.park_ghost()
+            return
+        self._sync_ghost_base()
+        q = self.ghost_stream[self.ghost_tick_idx]
+        self.ghost_mover.set_4dof_instant(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+        self.ghost_tick_idx += 1
+        if self.ghost_tick_idx >= len(self.ghost_stream):
+            self.ghost_playing = False
+            self.park_ghost()
+
     @staticmethod
     def _to_numpy_1d(raw) -> np.ndarray:
         if hasattr(raw, "detach"):
@@ -976,6 +1409,25 @@ class SimScene:
             print(f"[runtime] sim target move failed: {exc}")
             return False
         self.sim_target_xyz = pos.copy()
+        return True
+
+    def set_planned_move_target_position(self, xyz: np.ndarray) -> bool:
+        target = self.planned_move_target_entity
+        if target is None:
+            return False
+        pos = np.asarray(xyz, dtype=float).reshape(3)
+        prev = self.planned_move_target_xyz
+        if prev is not None and np.allclose(prev, pos, atol=1e-9):
+            return True
+        try:
+            target.set_pos(pos)
+            zero_vel = getattr(target, "zero_all_dofs_velocity", None)
+            if callable(zero_vel):
+                zero_vel()
+        except Exception as exc:
+            print(f"[runtime] planned move target move failed: {exc}")
+            return False
+        self.planned_move_target_xyz = pos.copy()
         return True
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
@@ -1226,6 +1678,7 @@ class SimScene:
                 pass
         if self.mover is not None:
             self.mover.set_claw_closed(False)
+        self.park_ghost()
         start_q = self.apply_spawn_arm_pose(cfg, hold_instant_frames=8)
         if self.go2 is not None:
             self.go2.set_arm_q_for_metrics(
@@ -2046,6 +2499,29 @@ class RuntimePrep:
         if bool(a.spawn.sim_target_enable):
             self._spawn_perception_target()
 
+        if bool(a.spawn.planned_move_target_enable):
+            self._spawn_planned_move_target_marker(placeholder_pos=arm_pos)
+
+        if bool(a.spawn.wall_obstacle_enable):
+            self._spawn_wall_obstacle()
+
+        if bool(a.spawn.cyl_obstacle_enable):
+            self._spawn_cyl_obstacle()
+
+        ghost_entity = None
+        if bool(a.spawn.planned_move_ghost_enable):
+            # Always the standalone arm-only URDF (mirrors AssetProcessor
+            # ._arm_urdf_path() -- always built/present regardless of use_go2,
+            # see prepare_assets()'s own `required` list), positioned at the
+            # arm's own mount point -- GO2's body/legs are deliberately
+            # excluded from the ghost entirely, even when GO2-mounted, so
+            # there's no GO2 geometry in the ghost to animate at all (see
+            # record_ghost_go2_mount).
+            ghost_urdf_path = os.path.join(a.cfg.build_dir, a.cfg.arm_urdf_name)
+            ghost_entity = self._spawn_planned_move_ghost(
+                urdf_path=ghost_urdf_path, pos=arm_pos, euler=arm_euler
+            )
+
         eye_camera = None
         if bool(a.cfg.sim_camera_enable) and str(a.cfg.hand_eye_config).strip():
             from elesim_simulator.vision.sim_camera import Node9EyeInHandCamera
@@ -2112,6 +2588,22 @@ class RuntimePrep:
         )
         a.sim_scene.n_nodes = n_nodes
         a.sim_scene.n_seg = n_seg
+
+        if ghost_entity is not None:
+            a.sim_scene.ghost_entity = ghost_entity
+            a.sim_scene.ghost_mover = SimMover(
+                ghost_entity,
+                a.params,
+                a.limit,
+                n_nodes=n_nodes,
+                n_seg=n_seg,
+                linear_joint_name=a.layout.linear_joint_name,
+                roll_joint_name=a.layout.roll_joint_name,
+                bend_joint_names=a.layout.bend_joint_names,
+            )
+            a.sim_scene.ghost_park_pos = np.asarray(arm_pos, dtype=float).reshape(3)
+            a.sim_scene.park_ghost()
+
         start_q = a.sim_scene.apply_spawn_arm_pose(a._proto_cfg)
         print(
             "[runtime] arm spawn pose | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
@@ -2126,6 +2618,28 @@ class RuntimePrep:
                 start_q.theta2_rad,
             )
         )
+
+        if a.sim_scene.planned_move_target_entity is not None:
+            initial_tip = a.sim_scene.actual_tip_world(a.layout)
+            if initial_tip is not None:
+                a.sim_scene.set_planned_move_target_position(initial_tip)
+
+        if a.sim_scene.ghost_entity is not None and use_go2 and go2_entity is not None:
+            # arm_pos/arm_euler (used only to spawn the ghost) are a rough
+            # pre-build placeholder -- same reason the target marker above
+            # needs its own post-build correction -- so the ghost's mount
+            # offset must be recorded from the *real* arm's actual,
+            # FK-verified root-link pose here, not from the ghost's own
+            # (placeholder-based) spawn pose. Otherwise the ghost starts
+            # somewhere subtly (or not so subtly) off from the real arm.
+            try:
+                arm_root_link = ent.get_link(a.layout.fk_root_link)
+                a.sim_scene.record_ghost_go2_mount(
+                    arm_root_pos=_to_numpy_1d(arm_root_link.get_pos())[:3],
+                    arm_root_quat=_to_numpy_1d(arm_root_link.get_quat())[:4],
+                )
+            except Exception as exc:
+                print(f"[runtime] ghost go2-mount record failed: {exc}")
 
         if eye_camera is not None:
             eye_camera.bind(ent, hand_eye_path=str(a.cfg.hand_eye_config))
@@ -2209,6 +2723,177 @@ class RuntimePrep:
         except Exception as exc:
             print(f"[runtime] sim target spawn failed: {exc}")
 
+    def _spawn_planned_move_target_marker(self, *, placeholder_pos: tuple[float, float, float]) -> None:
+        # Spawned at a placeholder (the arm's mount position) because FK isn't queryable until
+        # after scene.build() -- see the snap-to-actual-tip call right after apply_spawn_arm_pose().
+        a = self.app
+        scene = a.sim_scene.scene
+        if scene is None:
+            return
+        radius = float(a.spawn.planned_move_target_radius)
+        color = tuple(float(x) for x in a.spawn.planned_move_target_color_rgba)
+        sphere_kwargs: dict[str, Any] = {
+            "radius": max(0.005, radius),
+            "pos": tuple(float(x) for x in placeholder_pos),
+            "fixed": True,
+            "collision": False,
+        }
+        try:
+            try:
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            except TypeError as exc:
+                print(f"[runtime] planned move target collision flag ignored by this Genesis build: {exc}")
+                sphere_kwargs.pop("collision", None)
+                sphere = gs.morphs.Sphere(**sphere_kwargs)
+            ent = scene.add_entity(
+                sphere,
+                surface=gs.surfaces.Rough(color=color),
+            )
+            a.sim_scene.planned_move_target_entity = ent
+            a.sim_scene.planned_move_target_xyz = np.asarray(sphere_kwargs["pos"], dtype=float).reshape(3)
+            print(
+                "[runtime] planned move target marker at %s r=%.3f color=%s"
+                % (str(sphere_kwargs["pos"]), float(radius), str(tuple(round(float(v), 3) for v in color)))
+            )
+        except Exception as exc:
+            print(f"[runtime] planned move target marker spawn failed: {exc}")
+
+    def _spawn_planned_move_ghost(
+        self,
+        *,
+        urdf_path: str,
+        pos: tuple[float, float, float],
+        euler: tuple[float, float, float],
+    ) -> object:
+        """A second, translucent, non-colliding copy of the *standalone arm-only*
+        URDF used to preview a planned RRT path (see ``ControlService
+        .start_planned_move_preview``) -- always this arm-only asset, even when
+        GO2-mounted, so GO2's body/legs are never part of the ghost at all (see
+        ``record_ghost_go2_mount``/``SimScene._sync_ghost_base`` for how the
+        ghost still tracks the arm's live mount point on GO2's back without
+        needing any GO2 geometry of its own). Fixed/kinematic and
+        collision-free -- it is posed directly via its own ``SimMover``
+        (``set_4dof_instant``), never simulated. Parked off-scene (see
+        ``SimScene.park_ghost``) until a preview plays."""
+        a = self.app
+        scene = a.sim_scene.scene
+        if scene is None:
+            return None
+        color = tuple(float(x) for x in a.spawn.planned_move_ghost_color_rgba)
+        try:
+            morph = _make_urdf_morph(
+                urdf_path,
+                pos,
+                euler,
+                fixed=True,
+                collision=False,
+                prioritize_urdf_material=False,
+            )
+            ent = scene.add_entity(morph, surface=gs.surfaces.Rough(color=color))
+            print(f"[runtime] planned move ghost spawned at {pos} from {urdf_path}")
+            return ent
+        except Exception as exc:
+            print(f"[runtime] planned move ghost spawn failed: {exc}")
+            return None
+
+    def _spawn_wall_obstacle(self) -> None:
+        """Spawn a static wall-with-a-hole obstacle for RRT-avoidance demos
+        (see ``elesim_simulator.config.schema.SpawnConfig.wall_obstacle_*``).
+
+        Real, collidable, fixed boxes -- so a bad plan visibly bumps the arm
+        into the wall instead of clipping through it. The Controller's own
+        collision_model.json needs the matching ``obstacle_boxes`` entries
+        separately (see ``elesim_model_builder.collision_model
+        .build_wall_with_hole_boxes``) for the RRT planner to actually avoid
+        it; this spawn call only makes it visible/physical in the Simulator.
+        """
+        a = self.app
+        scene = a.sim_scene.scene
+        if scene is None:
+            return
+        color = tuple(float(x) for x in a.spawn.wall_obstacle_color_rgba)
+        bars = _wall_with_hole_boxes(
+            center=tuple(float(x) for x in a.spawn.wall_obstacle_center_xyz),
+            width=float(a.spawn.wall_obstacle_width_m),
+            height=float(a.spawn.wall_obstacle_height_m),
+            thickness=float(a.spawn.wall_obstacle_thickness_m),
+            hole_width=float(a.spawn.wall_obstacle_hole_width_m),
+            hole_height=float(a.spawn.wall_obstacle_hole_height_m),
+            hole_offset=tuple(float(x) for x in a.spawn.wall_obstacle_hole_offset_yz),
+        )
+        for center, size in bars:
+            box_kwargs: dict[str, Any] = {
+                "pos": center,
+                "size": size,
+                "fixed": True,
+                "collision": True,
+            }
+            try:
+                try:
+                    box = gs.morphs.Box(**box_kwargs)
+                except TypeError as exc:
+                    print(f"[runtime] wall obstacle collision flag ignored by this Genesis build: {exc}")
+                    box_kwargs.pop("collision", None)
+                    box = gs.morphs.Box(**box_kwargs)
+                ent = scene.add_entity(box, surface=gs.surfaces.Rough(color=color))
+                a.sim_scene.wall_obstacle_entities.append(ent)
+            except Exception as exc:
+                print(f"[runtime] wall obstacle box spawn failed: {exc}")
+        print(
+            "[runtime] wall obstacle: %d box(es) at center=%s size=%sx%s hole=%sx%s"
+            % (
+                len(bars),
+                tuple(round(float(v), 3) for v in a.spawn.wall_obstacle_center_xyz),
+                float(a.spawn.wall_obstacle_width_m),
+                float(a.spawn.wall_obstacle_height_m),
+                float(a.spawn.wall_obstacle_hole_width_m),
+                float(a.spawn.wall_obstacle_hole_height_m),
+            )
+        )
+
+    def _spawn_cyl_obstacle(self) -> None:
+        """Spawn a static vertical cylindrical obstacle for RRT-avoidance demos
+        (see ``elesim_simulator.config.schema.SpawnConfig.cyl_obstacle_*``).
+
+        Real, collidable, fixed cylinder -- so a bad plan visibly bumps the
+        arm into the post instead of clipping through it. The Controller's
+        own collision_model.json needs the matching ``obstacle_capsules``
+        entry separately (see ``elesim_model_builder.collision_model
+        .build_cylinder_obstacle_capsule``) for the RRT planner to actually
+        avoid it; this spawn call only makes it visible/physical in the
+        Simulator.
+        """
+        a = self.app
+        scene = a.sim_scene.scene
+        if scene is None:
+            return
+        color = tuple(float(x) for x in a.spawn.cyl_obstacle_color_rgba)
+        center = tuple(float(x) for x in a.spawn.cyl_obstacle_center_xyz)
+        radius = float(a.spawn.cyl_obstacle_radius_m)
+        height = float(a.spawn.cyl_obstacle_height_m)
+        cyl_kwargs: dict[str, Any] = {
+            "pos": center,
+            "radius": radius,
+            "height": height,
+            "fixed": True,
+            "collision": True,
+        }
+        try:
+            try:
+                cyl = gs.morphs.Cylinder(**cyl_kwargs)
+            except TypeError as exc:
+                print(f"[runtime] cylinder obstacle collision flag ignored by this Genesis build: {exc}")
+                cyl_kwargs.pop("collision", None)
+                cyl = gs.morphs.Cylinder(**cyl_kwargs)
+            ent = scene.add_entity(cyl, surface=gs.surfaces.Rough(color=color))
+            a.sim_scene.cyl_obstacle_entities.append(ent)
+            print(
+                "[runtime] cylinder obstacle at center=%s radius=%.3f height=%.3f"
+                % (tuple(round(float(v), 3) for v in center), radius, height)
+            )
+        except Exception as exc:
+            print(f"[runtime] cylinder obstacle spawn failed: {exc}")
+
     @staticmethod
     def _resolve_genesis_go2_urdf() -> str:
         local_candidate = os.path.join(
@@ -2231,6 +2916,7 @@ class SimRuntime:
         self._applied_sim_reset_seq: int = 0
         self._applied_go2_sport_pose_seq: int = 0
         self._applied_go2_obstacles_avoid_seq: int = 0
+        self._applied_planned_move_preview_seq: int = 0
         self._t_mirror_status_log: float = 0.0
         self._last_status_publish_t: float = 0.0
         self._status_dirty = True
@@ -2356,6 +3042,21 @@ class SimRuntime:
                 )
                 self._status_dirty = True
 
+            preview_seq = int(a.state_source.planned_move_preview_seq())
+            if preview_seq > int(self._applied_planned_move_preview_seq):
+                self._applied_planned_move_preview_seq = preview_seq
+                waypoints = a.state_source.planned_move_preview_waypoints()
+                if waypoints:
+                    speed_scale = max(float(a.spawn.planned_move_ghost_speed_scale), 1e-6)
+                    stream = build_ghost_stream(
+                        waypoints,
+                        roll_rate=float(a.params.roll_rate) * speed_scale,
+                        bend_rate=float(a.params.bend_rate) * speed_scale,
+                        linear_rate=DEFAULT_LINEAR_RATE_M_S * speed_scale,
+                        tick_hz=1.0 / float(a.params.dt),
+                    )
+                    a.sim_scene.start_ghost_preview(stream)
+
     def _apply_go2_feature_commands(self) -> bool:
         a = self.app
         if a.state_source is None or a.sim_scene.go2 is None:
@@ -2395,6 +3096,119 @@ class SimRuntime:
         if a.feedback_pub is not None:
             a.feedback_pub.close()
 
+    # A neutral, "always available" color -- distinct from the red used for
+    # an actively-detected collision conflict (see
+    # elesim_controller.pick.planned_move.COLLISION_MARKER_COLOR), so an
+    # operator can't confuse "here's the whole proxy, for reference" with
+    # "this specific thing just failed a check".
+    _COLLISION_GEOMETRY_COLOR = [0.1, 0.85, 0.95, 0.55]
+
+    def _draw_collision_geometry(self, a: "GenesisApp", active_dynamic_keys: set[str]) -> None:
+        """Draw every link's collision proxy capsule(s)/box(es) at its live world pose.
+
+        Pure visualization -- reads link poses straight from the live Genesis
+        entities, independent of the controller's own collision checking.
+        """
+        model = a.collision_geometry_model
+        if model is None or a.sim_scene.mover is None:
+            return
+        entity = a.sim_scene.mover.entity
+        scene = a.sim_scene.scene
+        color = self._COLLISION_GEOMETRY_COLOR
+
+        def _link_world_pose(link_name: str) -> Optional[tuple[np.ndarray, np.ndarray]]:
+            try:
+                link = entity.get_link(link_name)
+            except Exception:
+                return None
+            pos = _to_numpy_1d(link.get_pos())[:3].astype(float)
+            quat_xyzw = quat_wxyz_to_xyzw(_to_numpy_1d(link.get_quat())[:4])
+            rot = Rot.from_quat(quat_xyzw).as_matrix()
+            return pos, rot
+
+        for name, capsule in model.link_capsules.items():
+            if model.is_inert(name):
+                continue
+            pose = _link_world_pose(name)
+            if pose is None:
+                continue
+            pos, rot = pose
+            p0, p1, radius = world_capsule(pos, rot, capsule)
+            key = f"collision_geom:{name}:line"
+            active_dynamic_keys.add(key)
+            a.markers.draw_dynamic_line(scene, key, p0, p1, color, radius)
+
+        for name, boxes in model.link_boxes.items():
+            if model.is_inert(name):
+                continue
+            pose = _link_world_pose(name)
+            if pose is None:
+                continue
+            pos, rot = pose
+            for idx, box in enumerate(boxes):
+                corners = world_box_corners(pos, rot, box)
+                for edge_idx, (i, j) in enumerate(BOX_EDGE_INDICES):
+                    key = f"collision_geom:{name}:box{idx}:edge{edge_idx}"
+                    active_dynamic_keys.add(key)
+                    a.markers.draw_dynamic_line(scene, key, corners[i], corners[j], color, 0.0015)
+
+        for idx, obstacle in enumerate(model.obstacle_boxes):
+            corners = world_box_corners(
+                obstacle.center_world, obstacle.rot_world, LinkBoxGeom(np.zeros(3), obstacle.half_extents_world)
+            )
+            for edge_idx, (i, j) in enumerate(BOX_EDGE_INDICES):
+                key = f"collision_geom:obstacle:{idx}:edge{edge_idx}"
+                active_dynamic_keys.add(key)
+                a.markers.draw_dynamic_line(scene, key, corners[i], corners[j], color, 0.0015)
+
+        for idx, capsule in enumerate(model.obstacle_capsules):
+            key = f"collision_geom:obstacle_capsule:{idx}:line"
+            active_dynamic_keys.add(key)
+            a.markers.draw_dynamic_line(scene, key, capsule.p0_world, capsule.p1_world, color, capsule.radius)
+
+        has_go2_geometry = model.go2_capsules or model.go2_boxes or model.go2_leg_segments
+        if a.sim_scene.go2_entity is not None and has_go2_geometry:
+            try:
+                base = a.sim_scene.go2_entity.get_link("base")
+                go2_pos = _to_numpy_1d(base.get_pos())[:3].astype(float)
+                go2_quat_xyzw = quat_wxyz_to_xyzw(_to_numpy_1d(base.get_quat())[:4])
+                go2_rot = Rot.from_quat(go2_quat_xyzw).as_matrix()
+            except Exception:
+                go2_pos = None
+                go2_rot = None
+            leg_q = None
+            if model.go2_leg_segments and a.sim_scene.go2 is not None:
+                try:
+                    leg_q = _to_numpy_1d(
+                        a.sim_scene.go2_entity.get_dofs_position(dofs_idx_local=a.sim_scene.go2.all_leg_dof_idx)
+                    )
+                except Exception:
+                    leg_q = None
+            if go2_pos is not None and go2_rot is not None:
+                # Path planning (PlannedMoveExecutor.generate()) checks the
+                # arm against a single merged GO2 box, not each individual
+                # torso/head/leg shape (see elesim_controller...collision
+                # .simplify_go2_to_bounding_box) -- draw the same merged box
+                # here instead of the per-shape detail, so this overlay
+                # reflects what's actually being checked rather than stale,
+                # more-detailed geometry that no longer matches the real
+                # collision check.
+                simplified = simplify_go2_to_bounding_box(model, leg_q=leg_q)
+                for idx, box in enumerate(simplified.go2_boxes):
+                    box_pos = go2_pos + go2_rot @ box.center_body
+                    box_rot = go2_rot @ box.rot_body
+                    corners = world_box_corners(box_pos, box_rot, LinkBoxGeom(np.zeros(3), box.half_extents_body))
+                    for edge_idx, (i, j) in enumerate(BOX_EDGE_INDICES):
+                        key = f"collision_geom:go2_box:{idx}:edge{edge_idx}"
+                        active_dynamic_keys.add(key)
+                        a.markers.draw_dynamic_line(scene, key, corners[i], corners[j], color, 0.0015)
+                for idx, capsule in enumerate(simplified.go2_capsules):
+                    p0 = go2_pos + go2_rot @ capsule.p0_body
+                    p1 = go2_pos + go2_rot @ capsule.p1_body
+                    key = f"collision_geom:go2_chassis:{idx}:line"
+                    active_dynamic_keys.add(key)
+                    a.markers.draw_dynamic_line(scene, key, p0, p1, color, capsule.radius)
+
     def run(self) -> None:
         a = self.app
         assert a.sim_scene.scene is not None and a.sim_scene.mover is not None
@@ -2413,6 +3227,11 @@ class SimRuntime:
                 sim_target_xyz = a.state_source.sim_target_xyz() if a.state_source is not None else None
                 if sim_target_xyz is not None:
                     a.sim_scene.set_sim_target_position(sim_target_xyz)
+                planned_move_target_xyz = (
+                    a.state_source.planned_move_target_xyz() if a.state_source is not None else None
+                )
+                if planned_move_target_xyz is not None:
+                    a.sim_scene.set_planned_move_target_position(planned_move_target_xyz)
                 self._maybe_log_mirror_status(time.time())
                 ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
                 ik_target_dir = a.state_source.ik_target_dir() if a.state_source is not None else None
@@ -2492,12 +3311,35 @@ class SimRuntime:
                             sim_wall_elapsed_s=sim_wall_elapsed_s,
                             sim_realtime_factor=sim_realtime_factor,
                             sim_step_count=sim_step_count,
+                            leg_dof_idx=(a.sim_scene.go2.all_leg_dof_idx if a.sim_scene.go2 is not None else None),
                         )
+                    a.feedback_pub.send_planned_move_target(
+                        a.sim_scene.planned_move_target_xyz,
+                        sim_time_s=sim_time_s,
+                        sim_wall_elapsed_s=sim_wall_elapsed_s,
+                        sim_realtime_factor=sim_realtime_factor,
+                        sim_step_count=sim_step_count,
+                    )
                 perf.section("feedback", t_sec)
                 t_sec = time.perf_counter()
                 active_dynamic_keys: set[str] = set()
-                _HOST_VISIBLE_MARKER_NAMES = frozenset({"ready_pose", "ready_pose_dir"})
-                _HOST_CAMERA_MARKER_NAMES = frozenset({"camera_optical", "camera_look", "camera_right"})
+                if (
+                    a.state_source is not None
+                    and a.state_source.planned_move_target_hold_dir()
+                    and a.sim_scene.planned_move_target_xyz is not None
+                    and sim_tip_dir is not None
+                ):
+                    key = "planned_move_target:dir"
+                    active_dynamic_keys.add(key)
+                    a.markers.draw_dynamic_arrow(
+                        a.sim_scene.scene,
+                        key,
+                        a.sim_scene.planned_move_target_xyz,
+                        sim_tip_dir,
+                        [0.2, 0.85, 0.35, 1.0],
+                        0.004,
+                        0.08,
+                    )
                 debug_visible = bool(a.spawn.draw_debug_markers and self.operator.debug_visible)
                 if debug_visible and cam_origin is not None and cam_look is not None and cam_right is not None:
                     pos_arr = np.asarray(cam_origin, dtype=float).reshape(3)
@@ -2511,49 +3353,54 @@ class SimRuntime:
                     )
                 if debug_visible and a.state_source is not None:
                     for marker in a.state_source.debug_markers():
-                        if str(marker.get("frame", "world")) != "world":
+                        spec = resolve_host_marker(marker)
+                        if spec is None:
                             continue
-                        pos = marker.get("pos", None)
-                        if not isinstance(pos, (list, tuple)) or len(pos) != 3:
-                            continue
-                        name = str(marker.get("name", "")).strip()
-                        if (
-                            not name
-                            or name in _HOST_CAMERA_MARKER_NAMES
-                            or name not in _HOST_VISIBLE_MARKER_NAMES
-                        ):
-                            continue
-                        color_raw = marker.get("color", [0.1, 1.0, 0.1, 0.95])
-                        if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
-                            rgba = [float(color_raw[0]), float(color_raw[1]), float(color_raw[2]), float(color_raw[3]) if len(color_raw) >= 4 else 0.95]
-                        else:
-                            rgba = [0.1, 1.0, 0.1, 0.95]
-                        radius = float(marker.get("radius", 0.012))
-                        pos_arr = np.asarray(pos, dtype=float).reshape(3)
-                        if name != "ready_pose_dir":
-                            sphere_key = f"{name}:sphere"
-                            active_dynamic_keys.add(sphere_key)
-                            a.markers.draw_dynamic_sphere(a.sim_scene.scene, sphere_key, pos_arr, rgba, radius)
-                        direction = marker.get("dir", None)
-                        if isinstance(direction, (list, tuple)) and len(direction) == 3:
-                            arrow_key = f"{name}:dir"
-                            active_dynamic_keys.add(arrow_key)
-                            length = float(marker.get("length", 0.09))
+                        pos_arr = np.asarray(spec.pos, dtype=float)
+                        if spec.sphere_key is not None:
+                            active_dynamic_keys.add(spec.sphere_key)
+                            a.markers.draw_dynamic_sphere(
+                                a.sim_scene.scene, spec.sphere_key, pos_arr, list(spec.rgba), spec.radius
+                            )
+                        if spec.arrow_key is not None:
+                            active_dynamic_keys.add(spec.arrow_key)
                             a.markers.draw_dynamic_arrow(
                                 a.sim_scene.scene,
-                                arrow_key,
+                                spec.arrow_key,
                                 pos_arr,
-                                np.asarray(direction, dtype=float).reshape(3),
-                                rgba,
-                                max(0.0025, radius * 0.35),
-                                length,
+                                np.asarray(spec.direction, dtype=float),
+                                list(spec.rgba),
+                                max(0.0025, spec.radius * 0.35),
+                                spec.length,
                             )
+                        if spec.line_key is not None and spec.p0 is not None and spec.p1 is not None:
+                            active_dynamic_keys.add(spec.line_key)
+                            a.markers.draw_dynamic_line(
+                                a.sim_scene.scene,
+                                spec.line_key,
+                                np.asarray(spec.p0, dtype=float),
+                                np.asarray(spec.p1, dtype=float),
+                                list(spec.rgba),
+                                spec.radius,
+                            )
+                        if spec.box_key is not None and spec.bounds is not None:
+                            active_dynamic_keys.add(spec.box_key)
+                            a.markers.draw_dynamic_box(
+                                a.sim_scene.scene,
+                                spec.box_key,
+                                np.asarray(spec.bounds[0], dtype=float),
+                                np.asarray(spec.bounds[1], dtype=float),
+                                list(spec.rgba),
+                            )
+                if self.operator.collision_geometry_visible:
+                    self._draw_collision_geometry(a, active_dynamic_keys)
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 perf.section("markers", t_sec)
                 t_sec = time.perf_counter()
                 did_step = self.operator.should_step()
                 if did_step:
                     a.sim_scene.step()
+                    a.sim_scene.step_ghost_preview()
                 perf.section("physics", t_sec)
                 if did_step and a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
                     a.sim_scene.go2.reapply_last_mirror_pose()
@@ -2641,6 +3488,7 @@ class GenesisApp:
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
         self.layout = JointLayout()
         self.markers = MarkerSet()
+        self.collision_geometry_model: Optional[CollisionGeometryModel] = load_collision_geometry_model()
         self.sim_scene = SimScene(frame_hub=frame_hub)
         self.state_source = state_source
         self.feedback_pub = feedback_publisher

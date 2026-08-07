@@ -30,7 +30,7 @@ from .webrtc import WebRtcVideoReceiver
 
 SIMULATION_STREAMS = ("observer", "hand_eye_preview")
 _COALESCED_COMMANDS = frozenset(
-    {"orbit", "pan", "zoom", "set_speed", "set_debug_visible"}
+    {"orbit", "pan", "zoom", "set_speed", "set_debug_visible", "set_collision_geometry_visible"}
 )
 
 

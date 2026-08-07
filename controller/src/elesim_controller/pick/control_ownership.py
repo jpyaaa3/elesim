@@ -13,6 +13,7 @@ class ControlOwner(str, Enum):
     WALK_APPROACH = "walk_approach"
     GRASP_LJI = "grasp_lji"
     BLIND_FINISH = "blind_finish"
+    PLANNED_MOVE = "planned_move"
 
 
 class ControlState(str, Enum):

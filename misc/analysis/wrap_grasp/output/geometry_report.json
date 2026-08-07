@@ -1,0 +1,737 @@
+{
+  "sources": {
+    "arm_model": "/Users/hwancheolkang/Workspace/elesim/controller/config/arm_model.json",
+    "collision_model": "/Users/hwancheolkang/Workspace/elesim/controller/config/collision_model.json",
+    "sag_model": "/Users/hwancheolkang/Workspace/elesim/controller/config/sag/sag_model.json"
+  },
+  "expected_ra_l_values": {
+    "h_pitch_m": 0.0415,
+    "n_seg": 5,
+    "alpha_max_deg": 36.0,
+    "segment_bend_range_deg": 180.0,
+    "arm_length_m": 0.415,
+    "tendon_offset_w_m": 0.026,
+    "gripper_max_opening_m": 0.08,
+    "min_wrap_diameter_m": 0.07
+  },
+  "A_arc_geometry": {
+    "fk_joint_chain": [
+      {
+        "name": "j_plate_housing",
+        "parent": "plate",
+        "child": "housing",
+        "type": "prismatic",
+        "origin_parent_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_housing_wedge",
+        "parent": "housing",
+        "child": "wedge",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.0,
+          0.0,
+          0.155
+        ],
+        "axis_parent": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_wedge_node0",
+        "parent": "wedge",
+        "child": "node0",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.028,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node0_node1",
+        "parent": "node0",
+        "child": "node1",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.05,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node1_node2",
+        "parent": "node1",
+        "child": "node2",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.05,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node2_node3",
+        "parent": "node2",
+        "child": "node3",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node3_node4",
+        "parent": "node3",
+        "child": "node4",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node4_node5",
+        "parent": "node4",
+        "child": "node5",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node5_node6",
+        "parent": "node5",
+        "child": "node6",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node6_node7",
+        "parent": "node6",
+        "child": "node7",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node7_node8",
+        "parent": "node7",
+        "child": "node8",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node8_node9",
+        "parent": "node8",
+        "child": "node9",
+        "type": "revolute",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_node9_gripper_base",
+        "parent": "node9",
+        "child": "gripper_base",
+        "type": "fixed",
+        "origin_parent_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_gripper_base_claw_left",
+        "parent": "gripper_base",
+        "child": "gripper_claw_left",
+        "type": "prismatic",
+        "origin_parent_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_gripper_base_claw_right",
+        "parent": "gripper_base",
+        "child": "gripper_claw_right",
+        "type": "prismatic",
+        "origin_parent_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      },
+      {
+        "name": "j_gripper_base_camera",
+        "parent": "gripper_base",
+        "child": "camera",
+        "type": "fixed",
+        "origin_parent_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "axis_parent": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    ],
+    "bend_joint_names": [
+      "j_wedge_node0",
+      "j_node0_node1",
+      "j_node1_node2",
+      "j_node2_node3",
+      "j_node3_node4",
+      "j_node4_node5",
+      "j_node5_node6",
+      "j_node6_node7",
+      "j_node7_node8",
+      "j_node8_node9"
+    ],
+    "n_seg": 5,
+    "n_bend_joints_total": 10,
+    "bend_pivot_positions_m_root_frame": {
+      "j_wedge_node0": [
+        0.028,
+        0.0,
+        0.155
+      ],
+      "j_node0_node1": [
+        0.078,
+        0.0,
+        0.155
+      ],
+      "j_node1_node2": [
+        0.128,
+        0.0,
+        0.155
+      ],
+      "j_node2_node3": [
+        0.178,
+        0.0,
+        0.155
+      ],
+      "j_node3_node4": [
+        0.22799999999999998,
+        0.0,
+        0.155
+      ],
+      "j_node4_node5": [
+        0.27799999999999997,
+        0.0,
+        0.155
+      ],
+      "j_node5_node6": [
+        0.32799999999999996,
+        0.0,
+        0.155
+      ],
+      "j_node6_node7": [
+        0.37799999999999995,
+        0.0,
+        0.155
+      ],
+      "j_node7_node8": [
+        0.42799999999999994,
+        0.0,
+        0.155
+      ],
+      "j_node8_node9": [
+        0.4779999999999999,
+        0.0,
+        0.155
+      ]
+    },
+    "h_pitch_m": {
+      "values": [
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05
+      ],
+      "uniform": true,
+      "mean_m": 0.049999999999999996,
+      "note": "Spacing between consecutive bend-joint pivots (child-link nominal positions at q=0), NOT link/capsule boundaries. Excludes the wedge lead-in."
+    },
+    "wedge_lead_in_m": {
+      "value": 0.028,
+      "note": "Rigid, non-bending stub from the roll-joint (wedge) frame origin to the first bend-joint pivot (j_wedge_node0). Not part of the periodic h sequence."
+    },
+    "joint_limits": {
+      "linear_m": {
+        "min": -0.23,
+        "max": 0.0
+      },
+      "roll_deg": {
+        "min": -90.0,
+        "max": 90.0
+      },
+      "bend_deg_per_joint": {
+        "min": -36.0,
+        "max": 36.0
+      },
+      "note": "theta1/theta2 in q=(linear,roll,theta1,theta2) are applied directly to each bend joint within their segment in kinematics._build_q_map (out[joint]=theta+sag_err), i.e. theta IS the per-node angle alpha, not a total-segment angle divided by n_seg."
+    },
+    "alpha_max_deg_per_node": 36.0,
+    "segment_bend_range_deg": 180.0,
+    "lengths_m": {
+      "wedge_to_node9_backbone": 0.4779999999999999,
+      "node9_to_gripper_base": 0.05141984052872975,
+      "old_tip_local_offset_len": 0.05,
+      "grasp_offset_node_local_len": 0.07688072840445784,
+      "note": "'Total arm length' is ambiguous; reporting each labeled segment length rather than a single figure. See strategy summary for the RA-L comparison."
+    }
+  },
+  "B_collision_geometry": {
+    "link_capsules_backbone": {
+      "wedge": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.028,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.0608276253029822,
+        "d_inner_m": 0.0608276253029822,
+        "d_outer_m": 0.0608276253029822
+      },
+      "node0": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.05,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node1": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.05,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node2": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node3": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node4": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node5": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node6": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node7": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node8": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      },
+      "node9": {
+        "shape": "capsule (isotropic)",
+        "p0_local_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "p1_local_m": [
+          0.04999999999999999,
+          0.0,
+          0.0
+        ],
+        "radius_m": 0.05622277118748239,
+        "d_inner_m": 0.05622277118748239,
+        "d_outer_m": 0.05622277118748239
+      }
+    },
+    "link_boxes": {
+      "gripper_base": [
+        {
+          "center_local_m": [
+            0.005249999999999998,
+            0.0,
+            -0.01675
+          ],
+          "half_extents_local_m": [
+            0.03025,
+            0.05,
+            0.01675
+          ]
+        }
+      ],
+      "gripper_claw_left": [
+        {
+          "center_local_m": [
+            0.0,
+            -0.035,
+            0.0065
+          ],
+          "half_extents_local_m": [
+            0.025,
+            0.035,
+            0.0065
+          ]
+        }
+      ],
+      "gripper_claw_right": [
+        {
+          "center_local_m": [
+            0.0,
+            -0.035,
+            -0.0065
+          ],
+          "half_extents_local_m": [
+            0.025,
+            0.035,
+            0.0065
+          ]
+        }
+      ],
+      "housing": [
+        {
+          "center_local_m": [
+            -0.1165,
+            0.0015000000000000013,
+            0.1099735
+          ],
+          "half_extents_local_m": [
+            0.1165,
+            0.065,
+            0.1099735
+          ]
+        }
+      ]
+    },
+    "default_radius_m": 0.03,
+    "d_inner_vs_d_outer": {
+      "value": null,
+      "reason": "The capsule fitting method (misc/tooling/model_builder/.../collision_model.py: chain_axis_capsule) takes radius = max perpendicular distance from ANY mesh vertex to the backbone axis line -- a single isotropic scalar. There is no concave/convex split anywhere in the fitting code or the JSON schema, so d_inner and d_outer are identical (= the capsule radius) by construction, not independently measured quantities."
+    },
+    "tendon_routing_offset_w": {
+      "value": null,
+      "reason": "grep -rni 'tendon' across controller/src, misc/tooling/model_builder/src, and controller/config returns zero matches. No tendon-channel offset, lobe, or asymmetric envelope is represented in the collision model at all -- the object could plausibly contact a tendon guide before the disc surface in reality, but this codebase has no data to quantify that; not modeled, not just unreported."
+    }
+  },
+  "C_gripper": {
+    "old_tip_local_offset_m": [
+      0.05,
+      0.0,
+      0.0
+    ],
+    "grasp_offset_node_local_m": [
+      0.07300000000000006,
+      -0.012,
+      0.020919999999999994
+    ],
+    "approach_axis_local": [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "approach_link_name": "gripper_base",
+    "max_opening_width_m": {
+      "value": null,
+      "reason": "No calibrated gripper opening-width spec exists anywhere in the repo (checked controller/config/*.json, *.yaml, and all gripper/claw Python source). The real gripper is driven as a boolean claw_closed open/close command (controller/src/elesim_controller/pick/state.py PanelState.claw_closed; controller/src/elesim_controller/pick/actions.py send_claw_command), not a continuous width. The only numeric claw range in the repo is a synthetic FK joint limit used purely for placing the claw meshes for collision/FK purposes (misc/tooling/model_builder/src/elesim_model_builder/json_builder.py: j_gripper_base_claw_left/right, limit_deg=(-0.02,0.0)/(0.0,0.02) -- i.e. 0.02m per claw, 0.04m combined if both were driven independently), explicitly not a measured hardware spec. Using it as 'gripper max opening' would misrepresent a modeling placeholder as ground truth, so it is left null.",
+      "unverified_fk_placeholder_combined_m": 0.04
+    }
+  },
+  "D_camera": {
+    "hand_eye_extrinsic": {
+      "source": "/Users/hwancheolkang/Workspace/elesim/controller/config/calibration/hand_eye.camera.json",
+      "parent_frame": "node9",
+      "child_frame": "camera_color_optical_frame",
+      "translation_m": [
+        0.08,
+        0.025,
+        -0.025
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        -0.5,
+        0.5,
+        -0.5
+      ],
+      "note": "Mounted relative to 'node9', NOT the tip/gripper_base/camera-link frame used by fk_joint_chain's own fixed 'camera' joint (j_gripper_base_camera, parent gripper_base). These are two independent representations of camera placement that are not verified consistent with each other in this analysis."
+    },
+    "runtime_stream_config": {
+      "source": "controller/config/config.yaml: simulation.cameras.hand_eye",
+      "fov_deg": 60.0,
+      "resolution": [
+        640,
+        480
+      ],
+      "max_hz": 30.0,
+      "depth_enabled": true
+    },
+    "depth_valid_range_m": {
+      "value": {
+        "z_min": 0.15,
+        "z_max": 2.5
+      },
+      "note": "These are Python keyword-argument DEFAULTS on estimate_object_position_camera() in controller/src/elesim_controller/vision/perception/depth_pose.py, used for outlier rejection during pose estimation -- not a sensor datasheet spec, and overridable per call. Reported as-is, flagged as a code default rather than a calibrated sensor range."
+    }
+  },
+  "E_base_mount": {
+    "go2_mount_offset_m": {
+      "value": [
+        0.1,
+        0.0,
+        0.07
+      ],
+      "source": "controller/config/config.yaml: robot.go2.spawn.mount_offset_m (actual deployed value)"
+    },
+    "go2_spawn_height_m": {
+      "value": 0.32,
+      "source": "controller/config/config.yaml: robot.go2.spawn.spawn_height (actual deployed value)"
+    },
+    "use_go2": {
+      "value": true,
+      "source": "controller/config/config.yaml: robot.go2.use_go2"
+    },
+    "schema_defaults_for_reference": {
+      "go2_mount_offset_m": [
+        0.0,
+        0.0,
+        0.08
+      ],
+      "go2_spawn_height_m": 0.42,
+      "source": "controller/src/elesim_controller/config/schema.py SpawnConfig defaults",
+      "note": "config.yaml overrides these defaults; the deployed values above are what's actually used."
+    },
+    "note": "Go2ArmMount (controller/src/elesim_controller/robot/arm/mounts/go2_mount.py) is a runtime dataclass built from these config values via Go2ArmMount.from_context(); it is not itself a static config value."
+  },
+  "F_sag_model_status": {
+    "sag_model_json_exists": true,
+    "mode": "func_finder_refined_v1 (inferred: model_type key absent, but c*/a*/b*_coeffs keys present)",
+    "coefficient_counts": {
+      "c1_params": 2,
+      "c2_params": 2,
+      "a1": 5,
+      "a2": 5,
+      "b1_coeffs": 5,
+      "b2_coeffs": 5
+    },
+    "note": "Coefficient VALUES intentionally omitted -- only structure/mode reported, per task rules.",
+    "disabled_in_this_analysis": true,
+    "disable_reason": "sag_model.json is not trusted per task instructions; nominal (uncorrected) geometry is used for the sweep by default. Shape uncertainty is instead modeled via --shape-margin."
+  }
+}

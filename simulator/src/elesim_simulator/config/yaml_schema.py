@@ -137,6 +137,30 @@ _register(
 )
 _register(
     "spawn_config",
+    "world.planned_move_target",
+    _prefixed(SpawnConfig, "planned_move_target_"),
+    strip_prefix="planned_move_target_",
+)
+_register(
+    "spawn_config",
+    "world.planned_move_ghost",
+    _prefixed(SpawnConfig, "planned_move_ghost_"),
+    strip_prefix="planned_move_ghost_",
+)
+_register(
+    "spawn_config",
+    "world.wall_obstacle",
+    _prefixed(SpawnConfig, "wall_obstacle_"),
+    strip_prefix="wall_obstacle_",
+)
+_register(
+    "spawn_config",
+    "world.cyl_obstacle",
+    _prefixed(SpawnConfig, "cyl_obstacle_"),
+    strip_prefix="cyl_obstacle_",
+)
+_register(
+    "spawn_config",
     "world.debug",
     {"draw_debug_markers"},
     aliases={"draw_debug_markers": "markers"},

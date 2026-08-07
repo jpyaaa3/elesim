@@ -188,6 +188,7 @@ class RemoteState:
             leg_q = _tuple(data.get("go2_leg_q"), 12)
             leg_dq = _tuple(data.get("go2_leg_dq"), 12)
             leg_torque = _tuple(data.get("go2_leg_torque_nm"), 12)
+            planned_move_target = _tuple(data.get("planned_move_target"), 3)
 
             return HostState(
                 connected=connected,
@@ -252,6 +253,7 @@ class RemoteState:
                 go2_leg_q=leg_q,
                 go2_leg_dq=leg_dq,
                 go2_leg_torque_nm=leg_torque,
+                planned_move_target_xyz=None if planned_move_target is None else tuple(planned_move_target),
                 go2_sport_pose=str(data.get("go2_sport_pose", "")),
                 go2_sport_pose_seq=_integer(data.get("go2_sport_pose_seq")),
                 go2_obstacles_avoid_enabled=bool(data.get("go2_obstacles_avoid_enabled", False)),

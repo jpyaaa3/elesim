@@ -147,6 +147,7 @@ class SimulationOperatorController:
         self.paused = False
         self.speed = 1.0
         self.debug_visible = True
+        self.collision_geometry_visible = False
         self.epoch = 0
         self._steps_remaining = 0
         self._observer_dirty = False
@@ -178,6 +179,9 @@ class SimulationOperatorController:
         if name == "set_debug_visible":
             self.debug_visible = bool(command.arguments["visible"])
             return True, "debug visibility updated"
+        if name == "set_collision_geometry_visible":
+            self.collision_geometry_visible = bool(command.arguments["visible"])
+            return True, "collision geometry visibility updated"
         return False, "unsupported simulation command"
 
     def reset(self) -> None:
@@ -208,6 +212,7 @@ class SimulationOperatorController:
             speed=self.speed,
             debug_visible=self.debug_visible,
             sim_time_s=max(0.0, float(sim_time_s)),
+            collision_geometry_visible=self.collision_geometry_visible,
         )
 
 

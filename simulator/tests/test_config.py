@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from elesim_simulator.config import load_app_config
+from elesim_simulator.config.schema import SpawnConfig
 from elesim_simulator.config.yaml_schema import ConfigValidationError
 from elesim_simulator.runtime import _select_compute_backend
 
@@ -20,6 +21,8 @@ CONFIG_DIR = Path(__file__).parents[1] / "config"
         "config.pc.yaml",
         "config.remote.yaml",
         "config.jetson.yaml",
+        "config.demo_wall.yaml",
+        "config.demo_cylinder.yaml",
     ),
 )
 def test_simulator_configs_load_with_role_owned_schema(name: str) -> None:
@@ -32,6 +35,25 @@ def test_simulator_configs_load_with_role_owned_schema(name: str) -> None:
     assert not hasattr(bundle, "go2_hardware_config")
     assert not hasattr(bundle, "ik_config")
     assert not hasattr(bundle, "hardware_config")
+
+
+def test_wall_obstacle_disabled_by_default_dataclass_but_enabled_by_the_demo_config() -> None:
+    # SpawnConfig()'s own default, not config.yaml's current value -- config.yaml
+    # is free to opt in directly (as it does today) without this test caring.
+    assert SpawnConfig().wall_obstacle_enable is False
+    demo_bundle = load_app_config(str(CONFIG_DIR / "config.demo_wall.yaml"))
+    assert demo_bundle.spawn_config.wall_obstacle_enable is True
+    assert demo_bundle.spawn_config.wall_obstacle_hole_width_m > 0.0
+
+
+def test_cyl_obstacle_disabled_by_default_dataclass_but_enabled_by_the_demo_config() -> None:
+    assert SpawnConfig().cyl_obstacle_enable is False
+    demo_bundle = load_app_config(str(CONFIG_DIR / "config.demo_cylinder.yaml"))
+    assert demo_bundle.spawn_config.cyl_obstacle_enable is True
+    assert demo_bundle.spawn_config.cyl_obstacle_radius_m > 0.0
+    assert demo_bundle.spawn_config.cyl_obstacle_height_m > 0.0
+    # The cylinder demo should show only the cylinder, not both obstacles at once.
+    assert demo_bundle.spawn_config.wall_obstacle_enable is False
 
 
 def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> None:

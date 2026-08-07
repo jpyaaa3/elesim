@@ -29,6 +29,7 @@ class ObjectPickPhase(str, Enum):
     APPROACH = "approach"
     EXTEND = "extend"
     TWEAK = "tweak"
+    TRAVERSE = "traverse"
     DONE = "done"
     FAILED = "failed"
 

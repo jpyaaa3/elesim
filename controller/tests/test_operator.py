@@ -49,6 +49,9 @@ class ViewService:
     def pick_e2e_running(self) -> bool:
         return True
 
+    def planned_move_status(self):
+        return {"phase": "idle", "message": "", "waypoint_count": 0}
+
     def _pick_config_effective(self):
         return {"mobile_handoff_distance_m": 0.3}
 

@@ -9,7 +9,12 @@ simulation:
     realtime_factor: 1.0
     gravity: [0.0, 0.0, 0.0]
     roll_rate: .inf
-    bend_rate: .inf
+    # Explicit (not .inf) so _apply_ideal_rates_if_needed doesn't fall back
+    # to the hardware-derived ~0.288 rad/s -- matched to roll's rate
+    # (2.8777, itself derived from real profile-velocity registers) so bend
+    # is no slower than roll/linear in practice. See DEFAULT_BEND_RATE_RAD_S
+    # in controller/.../planning/trajectory.py for why.
+    bend_rate: 2.8777
   runtime:
     use_gpu: true
     enable_viewer: true
@@ -116,11 +121,21 @@ robot:
 
 world:
   target:
-    enable: true
+    enable: false
     xyz: [0.8, 0.0, 0.2]
     radius: 0.025
     color_rgba: [0.85, 0.15, 0.15, 1.0]
     collision: true
     gravity: false
+  wall_obstacle:
+    enable: true
+    center_xyz: [0.55, 0.0, 0.3]
+    width_m: 0.6
+    height_m: 0.6
+    thickness_m: 0.03
+    hole_width_m: 0.25
+    hole_height_m: 0.25
+    hole_offset_yz: [0.0, 0.0]
+    color_rgba: [0.55, 0.35, 0.2, 1.0]
   debug:
     markers: true

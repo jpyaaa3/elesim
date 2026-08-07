@@ -107,6 +107,54 @@ def toggle_switch(
     return clicked
 
 
+def _style_spacing_x(panel) -> float:
+    style = getattr(imgui, "get_style", lambda: None)()
+    spacing = getattr(style, "item_spacing", None)
+    if spacing is None:
+        return scaled(panel, 8.0)
+    if hasattr(spacing, "x"):
+        return float(spacing.x)
+    return float(spacing[0])
+
+
+def draw_float3_input(
+    panel,
+    label: str,
+    values: tuple[float, float, float],
+    identifier: str,
+    *,
+    format: str,
+    label_w: float = 82.0,
+) -> tuple[bool, tuple[float, float, float]]:
+    imgui.text(str(label))
+    imgui.same_line(scaled(panel, label_w))
+    width_getter = getattr(imgui, "get_content_region_available_width", None)
+    available = max(1.0, float(width_getter()) if callable(width_getter) else scaled(panel, 260.0))
+    spacing = _style_spacing_x(panel)
+    component_w = max(scaled(panel, 40.0), (available - spacing * 2.0) / 3.0)
+
+    changed_any = False
+    out = [float(values[0]), float(values[1]), float(values[2])]
+    for idx in range(3):
+        if idx > 0:
+            imgui.same_line()
+        imgui.push_item_width(component_w)
+        try:
+            changed, new_value = imgui.input_float(
+                f"##{identifier}_{idx}",
+                float(out[idx]),
+                0.0,
+                0.0,
+                format=format,
+            )
+        finally:
+            imgui.pop_item_width()
+        if changed:
+            out[idx] = float(new_value)
+            changed_any = True
+    return changed_any, (float(out[0]), float(out[1]), float(out[2]))
+
+
 def begin_disabled_ui(disabled: bool) -> Optional[str]:
     if not disabled:
         return None

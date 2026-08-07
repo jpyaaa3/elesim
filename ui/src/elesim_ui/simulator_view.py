@@ -108,6 +108,13 @@ class SimulatorView:
         if changed:
             self.session.send_command("set_debug_visible", {"visible": bool(visible)})
 
+        collision_geometry_visible = bool(status.collision_geometry_visible) if status is not None else False
+        changed, collision_visible = imgui.checkbox(
+            "Collision geometry##sim-collision-geometry", collision_geometry_visible
+        )
+        if changed:
+            self.session.send_command("set_collision_geometry_visible", {"visible": bool(collision_visible)})
+
         if status is not None:
             run_state = "paused" if status.paused else "running"
             imgui.text_disabled(

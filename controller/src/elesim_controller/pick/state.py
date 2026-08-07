@@ -46,6 +46,7 @@ class HostState:
     go2_leg_q: Optional[tuple[float, ...]] = None
     go2_leg_dq: Optional[tuple[float, ...]] = None
     go2_leg_torque_nm: Optional[tuple[float, ...]] = None
+    planned_move_target_xyz: Optional[tuple[float, float, float]] = None
     go2_sport_pose: str = ""
     go2_sport_pose_seq: int = 0
     go2_obstacles_avoid_enabled: bool = False

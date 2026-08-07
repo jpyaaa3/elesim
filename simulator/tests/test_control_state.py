@@ -40,3 +40,40 @@ def test_lease_revocation_stops_mobile_base_without_resetting_arm() -> None:
     assert state.go2_vel() == (0.0, 0.0, 0.0)
     assert state.estimate_q().linear_m == -0.1
 
+
+def test_planned_move_preview_waypoints_parse_and_advance_the_seq_counter() -> None:
+    state = SimulationStateSource(SimMappingConfig())
+    assert state.planned_move_preview_waypoints() == []
+    assert state.planned_move_preview_seq() == 0
+
+    waypoints = [[0.0, 0.0, 0.0, 0.0], [-0.1, 0.2, 0.3, -0.1]]
+    state.apply_target({"command": "target", "planned_move_preview_waypoints": waypoints})
+
+    assert state.planned_move_preview_waypoints() == [(0.0, 0.0, 0.0, 0.0), (-0.1, 0.2, 0.3, -0.1)]
+    assert state.planned_move_preview_seq() == 1
+
+
+def test_planned_move_preview_seq_advances_even_on_an_identical_repeated_payload() -> None:
+    """Each Preview click must restart playback from the start -- including a
+    click that resends the exact same plan -- so the seq counter (which the
+    Simulator watches for a rising edge) has to advance unconditionally
+    whenever the field is present, not just when the value changes."""
+    state = SimulationStateSource(SimMappingConfig())
+    waypoints = [[0.0, 0.0, 0.0, 0.0], [-0.1, 0.2, 0.3, -0.1]]
+    payload = {"command": "target", "planned_move_preview_waypoints": waypoints}
+
+    state.apply_target(payload)
+    state.apply_target(payload)
+
+    assert state.planned_move_preview_seq() == 2
+
+
+def test_planned_move_preview_waypoints_rejects_malformed_entries() -> None:
+    state = SimulationStateSource(SimMappingConfig())
+    with pytest.raises(ValueError):
+        state.apply_target(
+            {"command": "target", "planned_move_preview_waypoints": [[0.0, 0.0, 0.0]]}
+        )
+    with pytest.raises(ValueError):
+        state.apply_target({"command": "target", "planned_move_preview_waypoints": "not-a-list"})
+

@@ -117,6 +117,14 @@ class RemoteControlService:
     def pick_e2e_running(self) -> bool:
         return bool(self.session.service_value("pick_e2e_running", False))
 
+    def planned_move_status(self) -> dict[str, Any]:
+        return dict(
+            self.session.service_value(
+                "planned_move_status",
+                {"phase": "idle", "message": "", "waypoint_count": 0},
+            )
+        )
+
     def _pick_config_effective(self) -> Any:
         return self.session.service_value("pick_config", PickConfig())
 

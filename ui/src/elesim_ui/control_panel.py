@@ -29,6 +29,7 @@ from .panels import (
     draw_hardware_panel,
     draw_ik_panel,
     draw_perception_panel,
+    draw_planned_move_panel,
     draw_resolution_panel,
     draw_sag_panel,
     draw_status_panel,
@@ -119,6 +120,7 @@ class ControlPanel:
         self._hw_header_init_open = False
         self._ctrl_header_init_open = False
         self._ik_header_init_open = False
+        self._planned_move_header_init_open = False
         self._go2_header_init_open = False
         self._perception_header_init_open = False
         self._status_header_init_open = False
@@ -518,6 +520,7 @@ class ControlPanel:
                         draw_control_4dof_panel,
                         draw_go2_panel,
                         draw_ik_panel,
+                        draw_planned_move_panel,
                         draw_sag_panel,
                     ),
                     item_width=first_item_w,
@@ -558,6 +561,7 @@ class ControlPanel:
                     draw_control_4dof_panel,
                     draw_go2_panel,
                     draw_ik_panel,
+                    draw_planned_move_panel,
                     draw_sag_panel,
                 ),
                 item_width=max(scaled(self, 120.0), left_w * 0.45),
@@ -583,6 +587,7 @@ class ControlPanel:
                     draw_control_4dof_panel,
                     draw_go2_panel,
                     draw_ik_panel,
+                    draw_planned_move_panel,
                     draw_sag_panel,
                     draw_sim_video_panel,
                     draw_status_panel,

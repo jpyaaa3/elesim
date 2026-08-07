@@ -1,0 +1,31 @@
+{
+  "analytic": {
+    "inputs": {
+      "h_m": 0.049999999999999996,
+      "alpha_max_deg": 36.0,
+      "d_inner_m": 0.05622277118748239
+    },
+    "R_min_curvature_m": 0.08090169943749474,
+    "inner_envelope_at_alpha_max_m": 0.07694208842938133,
+    "min_wrappable_radius_m": 0.02071931724189894,
+    "min_wrappable_diameter_mm": 41.43863448379788,
+    "alpha_required_deg_by_radius_mm": {
+      "10": 44.35951429056897,
+      "20": 38.29315587320205,
+      "27.5": 34.74761626784878,
+      "37.5": 30.941231354460204,
+      "62.5": 24.312054724635964,
+      "87.5": 20.0346543915068,
+      "125.0": 15.85868127308883
+    }
+  },
+  "comparison_to_numeric_sweep": {
+    "analytic_min_wrappable_diameter_mm": 41.43863448379788,
+    "numeric_caged_diameter_range_mm": [
+      55.0,
+      200.0
+    ],
+    "ratio_numeric_min_over_analytic": 1.3272638127471235,
+    "interpretation": "The analytic formula models ONE segment forming a constant-curvature arc in isolation, with the object centered exactly at that arc's own center of curvature. The numeric sweep instead grid-searches the real two-segment geometry with the actual base assembly (plate/housing/gripper) present, gated by real self-collision checks and a stricter 'no escape gate' (G<2r) requirement rather than pure tangency. Agreement within roughly the same order of magnitude is the expected sanity-check outcome; an exact match is not, and a large (>~3x) or inverted gap should be treated as a signal to re-check the numeric pipeline, not as proof the analytic model is right."
+  }
+}
