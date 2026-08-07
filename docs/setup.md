@@ -532,16 +532,21 @@ other. SSH port `2222` is an administration example only. Topology state is
 non-secret: it may retain an identity-file path and host fingerprint, but never
 a password, private-key body, SROS2 key, TURN secret, credential, or token.
 
-When the physical Jetson is unavailable, the GUI's **two-host preflight** can
-check exactly two active COM cards without saving or deploying a topology. Enter
-the current, mutable DDS address (hostname/IP only, no `:port`) and interface
-(`tailscale0` on a Tailscale path), then enter the remote host's actual SSH
-management host, user, and port. Ordinary SSH over Tailscale uses the sshd port
-(normally 22, unless that host was configured differently); the connection
-manager does not invent a Tailscale or DDS port. A temporary
+When the physical Jetson is unavailable, select `simulation-only` and save the
+active COM topology normally. The GUI's primary maintenance action is now
+**Host check**: it checks every saved host's runtime network namespace, install
+and SSH management path, and Compose/systemd lifecycle state in one read-only
+job. This replaces the old split between the ephemeral two-host preflight and
+the saved-topology host-status button. The `/api/preflight` contract remains
+available for automation and focused Jetson-less tests, but is not an everyday
+GUI action. Enter the current, mutable DDS address (hostname/IP only, no
+`:port`) and interface (`tailscale0` on a Tailscale path), then enter the remote
+host's actual SSH management host, user, and port. Ordinary SSH over Tailscale
+uses the sshd port (normally 22, unless that host was configured differently);
+the connection manager does not invent a Tailscale or DDS port. A temporary
 `python3 -m http.server 8080` reachability check is outside this document and
-must not be entered as a DDS or SSH port. The optional host-key probe is not a
-proof of bidirectional DDS, SROS2, RGBD, WebRTC, or NAT traversal. Only `full`
+must not be entered as a DDS or SSH port. Host check is not a proof of
+bidirectional DDS, SROS2, RGBD, WebRTC, or NAT traversal. Only `full`
 deployment requires the Robot role; `simulation-only` deployment intentionally
 starts the three simulation roles without a physical Robot.
 
@@ -563,16 +568,18 @@ part of the non-secret connection topology.
 
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of
-them. Uploaded files are checked against their bundle SHA-256 values. Rotation
-captures the exact running-role set, stops only that set, switches each host's
-`security/current`, resumes existing containers without building or recreating
-them, and verifies the generation. A host that was stopped before provisioning
-remains stopped. A failure restores the complete captured configuration,
-including empty managed-pending fields, restarts only the roles that were
-previously running, and removes an inactive failed generation. A bounded
-transaction journal remains under the operator Authority. The recovery action
-converges an interrupted graph to the Authority's active generation, or to
-managed-pending when no Authority generation is active.
+them. Uploaded files are checked against their bundle SHA-256 values. The GUI
+labels rotation **Key reissue**. It captures the exact running-role set, stops
+only that set, switches each host's `security/current`, resumes existing
+containers without building or recreating them, and verifies the generation. A
+host that was stopped before provisioning remains stopped. A failure restores
+the complete captured configuration, including empty managed-pending fields,
+restarts only the roles that were previously running, and removes an inactive
+failed generation. A bounded transaction journal remains under the operator
+Authority. The internal recovery action converges an interrupted graph to the
+Authority-active generation, or to managed-pending when no Authority
+generation is active; ordinary GUI use exposes Abort and Host check rather than
+a separate advanced recovery panel.
 
 ## TURN Ownership
 

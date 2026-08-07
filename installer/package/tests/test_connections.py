@@ -206,6 +206,63 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     assert "build 완료: Robot (jetson)" in logs
 
 
+def test_host_check_combines_network_preflight_and_runtime_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+    logs: list[str] = []
+
+    class Capabilities:
+        @staticmethod
+        def require_for(_host) -> None:
+            events.append("require")
+
+    class Operations:
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def runtime_network_check(self, _host) -> None:
+            events.append(f"network-check:{self.host_id}")
+
+        def preflight(self, _host):
+            events.append(f"preflight:{self.host_id}")
+            return Capabilities()
+
+        def status(self, _host):
+            events.append(f"status:{self.host_id}")
+            return {"state": "stopped", "running_roles": []}
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner(topology, "check", logs.append)
+
+    assert events == [
+        "network-check:operator",
+        "preflight:operator",
+        "require",
+        "status:operator",
+        "network-check:jetson",
+        "preflight:jetson",
+        "require",
+        "status:jetson",
+    ]
+    assert "status: COM1 = stopped [—]" in logs
+    assert "status: Robot = stopped [—]" in logs
+
+
 def test_sros2_provision_rejects_an_existing_active_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

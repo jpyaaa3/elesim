@@ -267,36 +267,6 @@ function topologyFromForm() {
   };
 }
 
-function preflightFromForm() {
-  const activeCom = slots.filter((slot) => slot !== "robot" && isActive(slot));
-  if (activeCom.length !== 2) throw new Error(t("error.preflight.hosts"));
-  const localSlot = document.querySelector('input[name="local-host"]:checked')?.value || "";
-  if (!activeCom.includes(localSlot)) throw new Error(t("error.local"));
-  return {
-    schema_version: 1,
-    discovery_mode: byId("discovery").value,
-    hosts: activeCom.map((slot) => {
-      const local = slot === localSlot;
-      return {
-        id: field(slot, "host-id").value.trim(),
-        display_name: field(slot, "display-name").value.trim(),
-        local,
-        dds: {
-          address: field(slot, "dds-address").value.trim(),
-          interface: field(slot, "dds-interface").value.trim()
-        },
-        ssh: local ? null : {
-          host: field(slot, "ssh-host").value.trim(),
-          port: sshPort(slot),
-          user: field(slot, "ssh-user").value.trim(),
-          auth_mode: field(slot, "ssh-tailscale").checked ? "tailscale" : "openssh"
-        }
-      };
-    }),
-    probe_ssh: true
-  };
-}
-
 function fillHost(slot, host) {
   field(slot, "host-id").value = host.id;
   field(slot, "display-name").value = host.display_name;
@@ -423,31 +393,6 @@ function renderServerPeers(peers) {
     .join("\n");
 }
 
-function renderPreflightResult(result) {
-  const lines = [t("preflight.ok")];
-  result.preflight.hosts.forEach((host) => {
-    const peers = result.derived_static_peers[host.id] || [];
-    lines.push(`DDS ${host.id}: ${host.dds.address} / ${host.dds.interface}`);
-    if (result.preflight.discovery_mode === "static") {
-      lines.push(`  peers: ${peers.join(", ") || "—"}`);
-    }
-    const ssh = result.ssh_checks[host.id];
-    if (ssh) {
-      const status = ssh.checked ? t("preflight.ssh.checked") : t("preflight.ssh.skipped");
-      lines.push(`SSH ${host.id}: ${ssh.host}:${ssh.port} (${status})`);
-    }
-  });
-  byId("preflight-result").textContent = lines.join("\n");
-}
-
-async function runPreflight() {
-  const result = await api("/api/preflight", {
-    method: "POST",
-    body: JSON.stringify(preflightFromForm())
-  });
-  renderPreflightResult(result);
-}
-
 async function probeSsh(slot) {
   if (document.querySelector('input[name="local-host"]:checked')?.value === slot) {
     throw new Error(t("error.local.probe"));
@@ -471,7 +416,11 @@ async function probeSsh(slot) {
 
 async function startJob(action) {
   if (action === "rotate" && !window.confirm(t("rotate.confirm"))) return;
-  await saveTopology({quiet: true, invalidate: !["start", "stop", "restart", "check"].includes(action)});
+  // Host check is deliberately read-only: it inspects the last saved
+  // topology, not an unsaved form that could silently change deployment.
+  if (action !== "check") {
+    await saveTopology({quiet: true, invalidate: !["start", "stop", "restart"].includes(action)});
+  }
   await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify({})});
   setJobRunning(true);
   if (pollTimer) window.clearInterval(pollTimer);
@@ -517,7 +466,7 @@ async function pollRuntimeStatus() {
 }
 
 function setJobRunning(running) {
-  ["save", "preflight", "apply", "topology-mode", "rotate", "recover", "runtime-check", "runtime-start", "runtime-stop", "runtime-restart"].forEach((id) => { byId(id).disabled = running; });
+  ["save", "apply", "topology-mode", "rotate", "host-check", "runtime-stop", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateSecurityWarning();
   byId("cancel").disabled = !running;
 }
@@ -536,6 +485,9 @@ async function pollJob() {
     }
     setJobRunning(running);
     updateWorkflow(running);
+    if (!running && job.action === "check") {
+      pollRuntimeStatus();
+    }
     if (!running && pollTimer) {
       window.clearInterval(pollTimer);
       pollTimer = null;
@@ -596,14 +548,10 @@ function bindEvents() {
   });
   byId("security").addEventListener("change", updateSecurityWarning);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
-  byId("preflight").addEventListener("click", () => runPreflight().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("rotate").addEventListener("click", () => startJob("rotate").catch(showError));
-  byId("recover").addEventListener("click", () => startJob("recover").catch(showError));
-  byId("runtime-check").addEventListener("click", () => pollRuntimeStatus().catch(showError));
-  ["start", "stop", "restart"].forEach((action) => {
-    byId(`runtime-${action}`).addEventListener("click", () => startJob(action).catch(showError));
-  });
+  byId("host-check").addEventListener("click", () => startJob("check").catch(showError));
+  byId("runtime-stop").addEventListener("click", () => startJob("stop").catch(showError));
   byId("cancel").addEventListener("click", async () => {
     try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }
     catch (error) { showError(error); }

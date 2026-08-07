@@ -284,21 +284,22 @@ DDS port가 `2222`가 되는 것이 아니다. 연결 설정에는 SSH password,
 SROS2 private key, TURN secret을 저장하지 않는다.
 
 Jetson을 당장 사용할 수 없으면 GUI에서 `simulation-only` mode로 저장·배포할 수
-있다. 저장하지 않고 endpoint 형식만 확인하려면 활성 COM 호스트를 정확히 두 대만
-남긴 뒤 `두 호스트 점검`을 먼저 실행할 수도 있다. 이 점검은 DDS 주소
-(IP/hostname만, 포트 없음), DDS interface(`tailscale0` 등), 원격 SSH 관리
-host/user/port 형식과 선택적인 host-key probe만 확인한다. `Tailscale SSH` 모드를
+있다. 연결 관리자에는 일상 흐름을 벗어난 고급 탭을 두지 않고 `키 재발급`,
+`호스트 점검`, `전체 정지`를 별도 유지보수 동작으로 제공한다. 호스트 점검은 저장된 topology의
+모든 host에 대해 런타임 namespace, 설치/SSH 관리 경로, Compose 또는 Robot
+systemd 상태를 한 번에 읽기 전용으로 검사한다. 이 점검은 DDS 양방향 통신,
+RGBD, WebRTC, SROS2 권한, NAT traversal을 증명하지 않는다. `Tailscale SSH` 모드를
 선택하면 개인키 없이 Tailscale 인증을 사용하고 포트는 22로 고정된다. ACL이
 `action: check`라면 먼저 대화형 Tailscale SSH 재인증을 승인한다. 일반 OpenSSH over
 Tailscale를 선택한 경우에만 해당 호스트의 실제 `sshd` 포트를 입력한다. `python3 -m http.server
-8080`은 경로 확인용 임시 HTTP일 뿐 DDS/SSH 설정이 아니다. 이 점검은 DDS 양방향
-통신, RGBD, WebRTC, SROS2, NAT traversal을 증명하지 않는다. `full` mode의
+8080`은 경로 확인용 임시 HTTP일 뿐 DDS/SSH 설정이 아니다. `full` mode의
 정식 저장·배포에만 Robot을 포함한 네 역할 topology가 필요하다.
 
-연결 관리자에는 저장된 topology를 기준으로 `호스트 상태 확인`, `전체 시작`,
-`전체 정지`, `전체 재시작`이 있다. 이는 SSH/로컬 Compose 또는 Robot systemd의
-관리 상태만 읽고 조작하며, DDS discovery나 WebRTC 영상이 살아 있다고 추정하지
-않는다. 로컬에 `tailscale0`가 있으면 현재 주소를 읽기 전용으로 자동 제안하지만
+정상 작업은 `검증 후 저장` → `보안 자료 생성·초기 배포` → `전체 시작` 순서다.
+`Abort`는 실행 중인 현재 작업을 안전한 경계에서 취소한다. `키 재발급`은 기존
+활성 SROS2 세대를 새 세대로 교체하며, `호스트 점검`은 보안 세대를 만들거나
+런타임을 시작하지 않는다. `전체 정지`는 활성 역할을 중단하지만 이미 발급된
+보안 세대를 되돌리지는 않는다. 로컬에 `tailscale0`가 있으면 현재 주소를 읽기 전용으로 자동 제안하지만
 Tailscale 설치·로그인·ACL 변경은 하지 않는다. 재연결 뒤 주소가 바뀌었는지 확인한
 뒤 저장한다. `전체 시작`은 모든 호스트의 이미지를 먼저 완성한 뒤 역할을
 시작한다. 시작 전에는 설정한 DDS interface가 실제 역할 컨테이너와 같은 network
@@ -314,9 +315,9 @@ SROS2 키 발급 자체가 실패하는 것은 아니지만, 런타임 시작은
 실시간 표시된다. 이미지 빌드는 아직 컨테이너가 실행되기 전의 작업이므로
 `docker logs`나 `docker events`를 따로 볼 필요가 없다. 보안 초기 배포와 회전은
 원래 실행 중이던 역할만 다시 시작하며,
-처음부터 꺼져 있던 역할을 임의로 켜지 않는다. 중단된 managed SROS2 세대가
-감지되면 `중단된 보안 작업 복구`로 Authority의 활성 세대 또는 명시적인 미발급
-상태 하나로 수렴시킨 뒤 다시 배포한다.
+처음부터 꺼져 있던 역할을 임의로 켜지 않는다. 보안 배포 중단으로 세대가
+불일치한 경우의 복구 API는 내부 안전장치로 유지되며, 일반 작업자는 먼저
+`Abort`하고 `호스트 점검` 결과를 확인한 뒤 재시도한다.
 
 ### TURN/Coturn
 

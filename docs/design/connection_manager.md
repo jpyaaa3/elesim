@@ -238,11 +238,12 @@ DDS UDP port forwarding은 일반 입력란으로 노출하지 않는다. 실제
 RMW/DDS가 선택·광고하며 고정된 app port 모델이 아니다. 연결관리자는 runtime에서
 발견된 locator를 진단 정보로 보여 줄 수는 있다.
 
-### 7.3 Jetson 없는 두 호스트 사전 점검 (M2-A)
+### 7.3 Jetson 없는 두 호스트 사전 점검 (M2-A, API/자동화)
 
-Jetson을 실제로 켤 수 없는 동안에는 `COM` 카드에서 활성 상태인 **정확히 두
-호스트**만 골라 `두 호스트 점검`을 실행할 수 있다. 이 점검은 저장·배포하지 않는
-role-neutral 문서로 다음만 확인한다.
+Jetson을 실제로 켤 수 없는 동안에는 API/자동화에서 `COM` 카드의 **정확히 두
+호스트**를 대상으로 ephemeral preflight를 실행할 수 있다. 이 점검은 저장·배포하지
+않는 role-neutral 문서로 다음만 확인한다. 일반 GUI에서는 이 동작을 별도 버튼으로
+노출하지 않고, 저장된 topology 전체를 대상으로 하는 `호스트 점검`에 통합한다.
 
 - 각 호스트의 DDS 광고 주소가 hostname/IP이고 포트를 붙이지 않았는가
 - 각 호스트의 DDS 인터페이스가 `tailscale0`처럼 한 개의 NIC 이름인가

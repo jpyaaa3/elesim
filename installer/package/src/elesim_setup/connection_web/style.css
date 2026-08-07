@@ -46,6 +46,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 button.secondary { border-color: var(--line); background: var(--surface); color: var(--ink); }
 button.secondary:hover { background: var(--surface-2); }
 button.warning-button { border-color: #b77a16; background: #9b6410; }
+button.danger-button { border-color: var(--danger); background: var(--danger); }
+button.danger-button:hover { background: #7f2525; }
 
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
   outline: 3px solid rgb(42 95 158 / 28%);
@@ -149,11 +151,11 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; }
 .workflow-status, .job-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .workflow-status span { color: var(--accent-dark); font-weight: 700; }
-.advanced-actions { grid-column: 1 / -1; margin-top: 8px; }
-.advanced-actions details { border-top: 1px solid var(--line); padding-top: 12px; }
-.advanced-actions summary { cursor: pointer; color: var(--accent-dark); font-weight: 800; }
-.advanced-actions details > p { margin: 8px 0; font-size: 12px; }
-.advanced-actions pre { margin-top: 10px; }
+.maintenance-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(240px, .7fr) minmax(300px, 1.3fr); gap: 24px; align-items: center; border: 1px solid #e5c37b; border-radius: 8px; padding: 14px; background: var(--warning-soft); }
+.maintenance-heading h3 { margin: 4px 0 3px; font-size: 16px; }
+.maintenance-heading p:last-child { margin: 0; font-size: 12px; }
+.host-status { grid-column: 1 / -1; margin-top: 12px; }
+.host-status > strong { display: block; margin-bottom: 7px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .action-row { display: flex; flex-wrap: wrap; gap: 8px; align-content: start; }
 .job-status { grid-column: 1 / -1; }
@@ -172,7 +174,7 @@ pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6
 @media (max-width: 720px) {
   main { width: min(100% - 20px, 1500px); margin-top: 10px; }
   .panel { padding: 16px; }
-  .section-heading, .derived, .actions { display: block; }
+  .section-heading, .derived, .actions, .maintenance-actions { display: block; }
   .section-heading > p { margin-top: 8px; text-align: left; }
   .graph-grid, .host-grid { grid-template-columns: 1fr; }
   .derived pre { margin-top: 14px; }

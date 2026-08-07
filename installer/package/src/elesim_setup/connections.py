@@ -129,12 +129,7 @@ class ConnectionDeploymentRunner:
                 return
             if action in {"start", "stop", "restart", "check"}:
                 if action == "check":
-                    snapshot = self.runtime_status(topology)
-                    for item in snapshot.get("hosts", ()):  # type: ignore[union-attr]
-                        log(
-                            f"{item.get('host_id', '?')}: "
-                            f"{item.get('state', 'unknown')}"
-                        )
+                    self._check_hosts(topology, operations, log)
                     return
                 hosts = list(topology.hosts)
                 if action in {"start", "restart"}:
@@ -248,6 +243,47 @@ class ConnectionDeploymentRunner:
                 self._write_transaction_journal(topology, journal)
         finally:
             self._close_operations(operations)
+
+    @staticmethod
+    def _check_hosts(
+        topology: ConnectionTopology,
+        operations: Mapping[str, HostOperations],
+        log: Log,
+    ) -> None:
+        """Run one read-only host check for endpoint and runtime state.
+
+        The browser used to expose two checks with different scopes: an
+        ephemeral two-host endpoint check and a saved-topology lifecycle
+        status poll.  The operator-facing check now uses the saved topology
+        and performs the same gates that a lifecycle start would perform,
+        followed by the current Compose/systemd state.  It never changes
+        files, security generations, or running roles.
+        """
+
+        log("모든 호스트의 연결과 런타임 상태를 점검합니다.")
+        failures: list[str] = []
+        for host in topology.hosts:
+            log(f"check: {host.display_name} ({host.host_id})")
+            try:
+                operations[host.host_id].runtime_network_check(host)
+                capabilities = operations[host.host_id].preflight(host)
+                capabilities.require_for(host)
+                status = dict(operations[host.host_id].status(host))
+                state = str(status.get("state", "unknown"))
+                running = status.get("running_roles", ())
+                if isinstance(running, (list, tuple)):
+                    role_text = ", ".join(str(role) for role in running) or "—"
+                else:
+                    role_text = ", ".join(host.roles) or "—"
+                log(f"status: {host.display_name} = {state} [{role_text}]")
+            except ConnectionJobCancelled:
+                raise
+            except Exception as exc:
+                detail = str(exc).strip() or exc.__class__.__name__
+                failures.append(f"{host.display_name} ({host.host_id}): {detail}")
+                log(f"check failed: {host.display_name} ({host.host_id}) — {detail}")
+        if failures:
+            raise RuntimeError("호스트 점검 실패: " + "; ".join(failures))
 
     def _recover_managed_security(
         self,

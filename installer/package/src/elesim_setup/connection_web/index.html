@@ -152,6 +152,18 @@
 
     <section class="panel actions" aria-labelledby="actions-heading">
       <div><p class="eyebrow" data-i18n="workflow.eyebrow"></p><h2 id="actions-heading" data-i18n="actions.title"></h2><p data-i18n="actions.help"></p></div>
+      <div class="maintenance-actions">
+        <div class="maintenance-heading">
+          <p class="eyebrow" data-i18n="maintenance.eyebrow"></p>
+          <h3 data-i18n="maintenance.title"></h3>
+          <p data-i18n="maintenance.help"></p>
+        </div>
+        <div class="action-row">
+          <button id="rotate" type="button" class="warning-button" data-i18n="action.rotate"></button>
+          <button id="host-check" type="button" class="secondary" data-i18n="action.host-check"></button>
+          <button id="runtime-stop" type="button" class="secondary" data-i18n="action.stop"></button>
+        </div>
+      </div>
       <div class="workflow-steps">
         <article class="workflow-step" data-step="save">
           <div class="step-number">1</div>
@@ -170,23 +182,8 @@
         </article>
       </div>
       <div class="workflow-status"><strong data-i18n="workflow.status"></strong><span id="workflow-stage">—</span></div>
-      <div class="advanced-actions">
-        <details>
-          <summary data-i18n="advanced.title"></summary>
-          <p data-i18n="advanced.help"></p>
-          <div class="action-row">
-            <button id="preflight" type="button" class="secondary" data-i18n="action.preflight"></button>
-            <button id="rotate" type="button" class="warning-button" data-i18n="action.rotate"></button>
-            <button id="recover" type="button" class="warning-button" data-i18n="action.recover"></button>
-            <button id="runtime-check" type="button" class="secondary" data-i18n="action.check"></button>
-            <button id="runtime-stop" type="button" class="secondary" data-i18n="action.stop"></button>
-            <button id="runtime-restart" type="button" class="secondary" data-i18n="action.restart"></button>
-          </div>
-          <pre id="preflight-result">—</pre>
-        </details>
-      </div>
-      <div class="job-actions"><button id="cancel" type="button" class="secondary" data-i18n="action.cancel" disabled></button></div>
-      <pre id="runtime-status">—</pre>
+      <div class="job-actions"><button id="cancel" type="button" class="danger-button" data-i18n="action.cancel" disabled></button></div>
+      <div class="host-status"><strong data-i18n="runtime.title"></strong><pre id="runtime-status">—</pre></div>
       <div class="job-status"><strong id="job-status" data-i18n="job.idle"></strong><pre id="job-log"></pre></div>
     </section>
   </main>

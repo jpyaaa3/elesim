@@ -168,9 +168,15 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "simulation-only" in script
     assert 'id="apply"' in html
     assert 'id="workflow-stage"' in html
-    assert 'data-i18n="advanced.title"' in html
+    assert 'data-i18n="advanced.title"' not in html
+    assert 'id="host-check"' in html
+    assert 'id="rotate"' in html
+    assert 'id="runtime-stop"' in html
+    assert 'id="recover"' not in html
+    assert 'id="runtime-restart"' not in html
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t(sros2 ? "action.provision" : "action.deploy")' in script
+    assert 'startJob("check")' in script
     assert 'workflow.stage.ready' in script
     assert 'data-drop-slot="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
@@ -195,11 +201,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert len(ssh_tailscale_fields) == 4
     assert "ssh-tailscale" in script
     assert "빈 칸은 SSH agent" in catalog["ko"]["ssh.help"]
-    assert "preflight" in html
-    assert 'id="preflight"' in html
     assert 'data-field="dds-address"' in html
     assert 'placeholder="100.x.y.z"' in html
-    assert "8080" in catalog["ko"]["preflight.help"]
+    assert "Abort" in catalog["ko"]["action.cancel"]
 
 
 def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) -> None:
