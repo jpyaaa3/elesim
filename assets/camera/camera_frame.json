@@ -1,16 +1,16 @@
 {
-  "notes": "Visual camera payload. The mesh attachment is independent from the camera optical frame; D435 optical origin is offset toward one end of the body.",
+  "notes": "ZED Mini stereo camera, under-slung below the gripper, mounted rolled 180 deg (image up = node9 -Z). Mesh local frame: +Y is the optical axis (lens front face at y=0.03025), +X is the stereo baseline (lens axes at x=-0.025 / +0.038, 63.0 mm apart), +Z is camera up. The mesh attachment is independent from the optical frame; see model_presets/visual_servoing/hand_eye.camera.json for the imager origin.",
   "connectors": {
     "from": {
-      "p": [0.0, -0.025, -0.00495],
-      "q": [-0.5, 0.5, -0.5, 0.5],
+      "p": [0.00632, -0.005021, -0.042062],
+      "q": [0.70710678, 0.0, -0.70710678, 0.0],
       "joint": {
         "type": "fixed",
         "axis": [1.0, 0.0, 0.0]
       }
     },
     "to": {
-      "p": [-0.037, 0.0, 0.02505],
+      "p": [0.0065, 0.03025, 0.0],
       "q": [0.0, 0.0, 0.0, 1.0]
     }
   }
