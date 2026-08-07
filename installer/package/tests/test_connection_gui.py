@@ -177,6 +177,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
+    assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
     assert 'startJob("check")' in script
     assert 'workflow.stage.ready' in script
     assert 'data-drop-slot="robot"' in html

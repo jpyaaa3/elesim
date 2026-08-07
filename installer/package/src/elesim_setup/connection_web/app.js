@@ -547,6 +547,7 @@ function bindEvents() {
   byId("security").addEventListener("change", updateSecurityWarning);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
+  byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
   byId("host-check").addEventListener("click", () => startJob("check").catch(showError));
   byId("runtime-stop").addEventListener("click", () => startJob("stop").catch(showError));
   byId("cancel").addEventListener("click", async () => {
