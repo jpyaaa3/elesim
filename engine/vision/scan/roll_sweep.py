@@ -45,6 +45,7 @@ from .fusion import (
     FusionResult,
     anchor_from_frame,
     anchor_via_roi,
+    crop_half_for_object,
     box_crop,
     build_provenance,
     camera_depth_gate,
@@ -143,6 +144,8 @@ class RollSweepScan:
         self._looks: list[np.ndarray] = []
         self._rolls: list[float] = []
         self._stage_logs = 0
+        # sized from the detected object at anchor time; cfg.box_half is the cap
+        self._box_half = np.full(3, float(cfg.box_half))
 
     # ---------------- lifecycle ----------------
 
@@ -276,10 +279,10 @@ class RollSweepScan:
             if center is None:
                 return None, 0
         n_valid = len(pts_cam)
-        pts_cam = camera_depth_gate(pts_cam, pose.R, pose.t, center, self.cfg.box_half)
+        pts_cam = camera_depth_gate(pts_cam, pose.R, pose.t, center, self._box_half)
         n_gated = len(pts_cam)
         pw = transform_points(pts_cam, pose.R, pose.t)
-        pw = box_crop(pw, center, self.cfg.box_half)
+        pw = box_crop(pw, center, self._box_half)
         n_box = len(pw)
         pw = clean_world_frame(pw)
         n_clean = len(pw)
@@ -321,15 +324,22 @@ class RollSweepScan:
         if self._grab_frame is not None:
             organized = self._grab_frame()
             if organized is not None:
-                center, detail = anchor_via_roi(
+                center, detail, extent = anchor_via_roi(
                     organized, pose.R, pose.t,
                     min_depth=self.cfg.min_depth, max_depth=self.cfg.max_depth,
                 )
                 if center is not None:
+                    if extent is not None:
+                        self._box_half = crop_half_for_object(extent, cap=self.cfg.box_half)
+                        detail += (f" -> box_half "
+                                   f"{np.round(self._box_half, 3).tolist()} "
+                                   f"(cap {self.cfg.box_half:g})")
                     notes.append(f"anchor via roi: {detail}")
                     return center
                 notes.append(f"anchor via roi failed: {detail}")
-        center = anchor_from_frame(pts_cam, pose.R, pose.t, box_half=self.cfg.box_half)
+        center = anchor_from_frame(
+            pts_cam, pose.R, pose.t, box_half=float(np.max(self._box_half))
+        )
         if center is None:
             notes.append("anchor too sparse")
             return None
@@ -442,12 +452,21 @@ class RollSweepScan:
                     start, end = (lo, hi) if leg % 2 == 0 else (hi, lo)
             sign = 1.0 if end >= start else -1.0
             t0 = time.time()
+            last_cmd_t = 0.0
+            cmd_period = 1.0 / max(float(cfg.command_hz), 1.0)
             last_kept: Optional[float] = None
             deadline = t0 + abs(end - start) / rate + float(cfg.step_timeout_s) * 3.0
             while not self._stop.is_set():
                 cmd = start + sign * rate * (time.time() - t0)
                 cmd = min(cmd, end) if sign > 0 else max(cmd, end)
-                self._command_roll(float(cmd))
+                # rate-limit the ramp: the loop spins far faster than the servo can
+                # accept, and commanding every iteration replaced the pending target
+                # ~166 times a second while sync_write climbed to 650 ms. The joint
+                # tracked worse, not better, for the extra traffic.
+                now_cmd = time.time()
+                if now_cmd - last_cmd_t >= cmd_period:
+                    last_cmd_t = now_cmd
+                    self._command_roll(float(cmd))
 
                 before = self._sample_pose()
                 pts_ready = before is not None

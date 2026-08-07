@@ -47,6 +47,10 @@ class RollScanConfig:
     # chosen so the frame cadence lands near one frame per step_deg; too fast and
     # the traverse outruns per-frame processing, leaving gaps in coverage
     sweep_rate_deg_s: float = 12.0
+    # how often the ramp is re-commanded. The capture loop spins much faster
+    # than the hardware accepts; commanding every iteration replaced the pending
+    # target ~166 times a second and pushed sync_write to 650 ms.
+    command_hz: float = 25.0
     settle_s: float = 0.12
     settle_tol_deg: float = 0.35
     step_timeout_s: float = 2.0
@@ -54,6 +58,9 @@ class RollScanConfig:
     # 12 deg/s a 50 ms joint-read period is ~0.6 deg of ambiguity, and anything
     # much larger would register the cloud at an angle the arm was never at
     max_pose_straddle_deg: float = 1.5
+    # UPPER BOUND on the crop half-size. The actual box is sized from the object
+    # detected at anchor time -- a fixed 0.15 around an 0.11 m object pulled in
+    # ~0.19 m of background per side and the fused cloud filled the box.
     box_half: float = 0.15
     frame_voxel: float = 0.002
     fuse_voxel: float = 0.002

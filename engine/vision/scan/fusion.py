@@ -42,7 +42,7 @@ def camera_depth_gate(
     R: np.ndarray,
     t: np.ndarray,
     center: np.ndarray,
-    box_half: float,
+    box_half,
 ) -> np.ndarray:
     """
     Drop points that cannot land in the world-frame crop box, by depth alone.
@@ -59,7 +59,9 @@ def camera_depth_gate(
     R = np.asarray(R, dtype=float)
     rel = np.asarray(center, dtype=float).reshape(3) - np.asarray(t, dtype=float).reshape(3)
     d_anchor = float((R.T @ rel)[2])  # anchor depth along the optical axis
-    reach = float(box_half) * 1.7320508
+    # a per-axis box still fits inside the sphere of its LARGEST half-size, so
+    # using the max keeps this a filter that never drops a kept point
+    reach = float(np.max(np.asarray(box_half, dtype=float))) * 1.7320508
     z = pts_cam[:, 2]
     return pts_cam[np.abs(z - d_anchor) < reach]
 
@@ -104,11 +106,16 @@ def voxel_downsample(pts: np.ndarray, voxel: float) -> np.ndarray:
     return sums / counts[:, None]
 
 
-def box_crop(pts: np.ndarray, center: np.ndarray, half: float) -> np.ndarray:
+def box_crop(pts: np.ndarray, center: np.ndarray, half) -> np.ndarray:
+    """Crop to a box about ``center``. ``half`` is a scalar or a per-axis vector."""
     pts = np.asarray(pts, dtype=float)
     if len(pts) == 0:
         return pts.reshape(0, 3)
-    m = np.all(np.abs(pts - np.asarray(center, dtype=float).reshape(1, 3)) < float(half), axis=1)
+    h = np.asarray(half, dtype=float).reshape(-1)
+    h = np.repeat(h, 3) if h.size == 1 else h.reshape(3)
+    m = np.all(
+        np.abs(pts - np.asarray(center, dtype=float).reshape(1, 3)) < h.reshape(1, 3), axis=1
+    )
     return pts[m]
 
 
@@ -327,21 +334,46 @@ def anchor_via_roi(
     from . import geometry
 
     if not geometry.available():
-        return None, f"object detection unavailable: {geometry.backend_error()}"
+        return None, f"object detection unavailable: {geometry.backend_error()}", None
     roi = geometry.auto_roi(xyz_organized, min_depth=min_depth, max_depth=max_depth)
     if roi is None:
-        return None, "auto_roi found no non-planar cluster (is the object in view?)"
+        return None, "auto_roi found no non-planar cluster (is the object in view?)", None
     pts, valid_ratio, z_med = geometry.extract_points(
         xyz_organized, roi, float(depth_window), remove_plane=True
     )
     if pts is None or len(pts) < 200:
-        return None, f"roi {roi} yielded only {0 if pts is None else len(pts)} object points"
+        return None, f"roi {roi} yielded only {0 if pts is None else len(pts)} object points", None
     pw = transform_points(pts, R, t)
     extent = pw.max(axis=0) - pw.min(axis=0)
     return np.median(pw, axis=0), (
         f"roi={roi} n={len(pts)} valid={valid_ratio:.2f} depth={z_med:.3f}m "
         f"extent={np.round(extent, 3).tolist()}"
-    )
+    ), np.asarray(extent, dtype=float)
+
+
+def crop_half_for_object(
+    extent: np.ndarray, *, margin: float = 1.35, floor: float = 0.04, cap: float = 0.15
+) -> np.ndarray:
+    """
+    PER-AXIS crop half-size fitted to the DETECTED object.
+
+    A measured live case: the object was 0.101 x 0.126 x 0.108 m, but the crop box
+    used the configured half-size of 0.15 -- a 0.30 m cube, three times the
+    object. Even with a correct anchor that pulls ~0.19 m of table and background
+    in on every side, and the fused cloud came out filling the box exactly in two
+    axes.
+
+    Per-axis rather than a single number, because the targets are cylinders: a
+    26 mm pipe 300 mm long needs a box that is generous along its axis and tight
+    across it. One isotropic half-size sized off the largest extent would be
+    0.15 and let the background straight back in.
+
+    ``margin`` leaves room for the parts of the object no single view saw, and for
+    anchor error. ``cap`` is the configured ``box_half``, an upper bound per axis
+    rather than the value itself.
+    """
+    half = 0.5 * np.asarray(extent, dtype=float).reshape(3)
+    return np.clip(half * float(margin), float(floor), float(cap))
 
 
 def reanchor_from_view_rays(

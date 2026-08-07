@@ -1307,6 +1307,7 @@ def _load_roll_scan_config(
         sweeps=gi("sweeps", r0.sweeps),
         continuous=cp.getboolean("roll_scan", "continuous", fallback=r0.continuous),
         sweep_rate_deg_s=g("sweep_rate_deg_s", r0.sweep_rate_deg_s),
+        command_hz=g("command_hz", r0.command_hz),
         max_pose_straddle_deg=g("max_pose_straddle_deg", r0.max_pose_straddle_deg),
         settle_s=g("settle_s", r0.settle_s),
         settle_tol_deg=g("settle_tol_deg", r0.settle_tol_deg),

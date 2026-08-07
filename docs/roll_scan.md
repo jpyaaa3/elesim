@@ -149,6 +149,8 @@ have to be in the same process, which is what decides this.
 | ZED on **USB 3.0** | the ZED Mini's video interface needs it. On USB 2.0 only its HID sub-device enumerates, `/dev/video*` never appears, and the SDK reports a bare `CAMERA STREAM FAILED TO START`. `probe_zed()` detects exactly this and names it. |
 | `pyzed` | ZED SDK Python bindings. |
 
+Measured on the Jetson: `cam.grab()` with `NEURAL` depth at HD1080 takes **222 ms**, on top of ~295 ms of point processing. `NEURAL_LIGHT` or `HD720` are the levers if a scan needs to be faster.
+
 ---
 
 ## 5. Configuration
@@ -174,6 +176,7 @@ All of `[roll_scan]` in [config.ini](../config.ini). Angles are **q degrees**.
 |---|---|---|
 | `continuous` | `true` | capture while traversing. `false` = stop at each angle. |
 | `sweep_rate_deg_s` | `12.0` | traverse rate. Pick it so frame cadence lands near one frame per `step_deg`. |
+| `command_hz` | `25.0` | how often the ramp is re-commanded. The capture loop spins much faster than the servo accepts; commanding every iteration replaced the pending target ~166 times a second and pushed `sync_write` to 650 ms. |
 | `max_pose_straddle_deg` | `1.5` | drop a frame whose pose moved more than this during capture. |
 | `max_stale_pose_s` | `0.15` | joint state older than this is flagged stale. |
 | `settle_s`, `settle_tol_deg`, `step_timeout_s` | `0.12`, `0.35`, `2.0` | stop-and-go mode only. |
@@ -182,7 +185,7 @@ All of `[roll_scan]` in [config.ini](../config.ini). Angles are **q degrees**.
 
 | key | default | meaning |
 |---|---|---|
-| `box_half` | `0.15` | half-size of the world crop cube around the anchor. |
+| `box_half` | `0.15` | **upper bound** on the crop half-size. The actual box is sized PER AXIS from the object detected at anchor time (an 11 cm object gets a ~15 cm box, not 30 cm). A fixed 0.15 pulled ~19 cm of background in per side. |
 | `frame_voxel` / `fuse_voxel` | `0.002` | per-frame and fused voxel size. |
 | `inlier_tol` | `0.005` | circle inlier tolerance. FK pose error shows up as wall thickness, so do not tighten this to hide it. |
 | `min_depth` / `max_depth` | `0.15` / `1.5` | depth window. |
