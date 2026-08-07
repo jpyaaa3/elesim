@@ -21,6 +21,9 @@ there are historical unless repeated here.
   a rate-limited diagnostic, and retries discovery instead of leaving the
   safety loop through an uncaught transport exception. This is covered by a
   regression test; live Jetson stop timing remains a manual gate.
+- A transient WebRTC frame-provider or frame-conversion failure now produces a
+  bounded diagnostic and a black fallback frame instead of terminating the
+  aiortc track. Stream recovery remains subject to the live media gate.
 
 ### P0. Router-Free ROS 2/DDS Migration Needs Live Proof And Typed-Surface Follow-Up
 

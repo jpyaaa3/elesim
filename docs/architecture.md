@@ -181,6 +181,9 @@ process-exit condition: it revokes the local motion lease (running the arm
 safe-hold path), keeps the local deadman and hardware monitor ticking, emits a
 rate-limited diagnostic, and retries discovery. Cleanup or hardware-stop
 failures remain fatal so a failed safety action cannot be hidden.
+Each WebRTC video track likewise converts a transient frame-provider or frame
+conversion failure into a bounded diagnostic and a black fallback frame; the
+aiortc track stays alive so a later camera frame can recover the stream.
 
 ## Network Security Profiles
 

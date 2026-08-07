@@ -48,24 +48,60 @@ def ice_configuration(turn: Optional[TurnCredentials]) -> Any:
 
 
 class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
-    def __init__(self, provider: Callable[[], Optional[np.ndarray]], *, fps: float = 30.0) -> None:
+    def __init__(
+        self,
+        provider: Callable[[], Optional[np.ndarray]],
+        *,
+        fps: float = 30.0,
+        on_error: Optional[Callable[[str], None]] = None,
+    ) -> None:
         super().__init__()
         self.provider = provider
         self.fps = max(1.0, float(fps))
         self.started = time.monotonic()
         self.index = 0
+        self.on_error = on_error
+        self._last_error = ""
+        self._last_error_at = 0.0
 
     async def recv(self) -> Any:
         self.index += 1
         target = self.started + self.index / self.fps
         await asyncio.sleep(max(0.0, target - time.monotonic()))
-        frame = self.provider()
+        try:
+            frame = self.provider()
+        except Exception as exc:
+            self._report_error("provider", exc)
+            frame = None
         if frame is None:
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        video = av.VideoFrame.from_ndarray(np.ascontiguousarray(frame), format="bgr24")
+        try:
+            video = av.VideoFrame.from_ndarray(
+                np.ascontiguousarray(frame),
+                format="bgr24",
+            )
+        except Exception as exc:
+            self._report_error("encode", exc)
+            fallback = np.zeros((480, 640, 3), dtype=np.uint8)
+            video = av.VideoFrame.from_ndarray(fallback, format="bgr24")
         video.pts = self.index
         video.time_base = Fraction(1, round(self.fps))
         return video
+
+    def _report_error(self, stage: str, exc: Exception) -> None:
+        detail = f"{stage}: {str(exc).strip() or exc.__class__.__name__}"[:512]
+        now = time.monotonic()
+        if detail == self._last_error and now - self._last_error_at < 5.0:
+            return
+        self._last_error = detail
+        self._last_error_at = now
+        if self.on_error is not None:
+            try:
+                self.on_error(detail)
+            except Exception:
+                pass
+            return
+        print(f"[webrtc] frame fallback: {detail}", flush=True)
 
 
 class WebRtcVideoSender:

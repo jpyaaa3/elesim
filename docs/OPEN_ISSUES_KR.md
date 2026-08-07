@@ -21,6 +21,9 @@
   safe-hold를 수행하며, local deadman/hardware monitor tick을 계속 돌리고,
   rate-limited 진단을 남긴 뒤 discovery를 재시도한다. 회귀 테스트로 고정했으며,
   실제 Jetson의 stop timing은 여전히 수동 gate다.
+- 일시적인 WebRTC frame provider 또는 frame 변환 실패는 이제 bounded 진단과
+  검은 fallback frame으로 처리하며 aiortc track을 종료하지 않는다. 실제 stream
+  복구와 media 품질은 여전히 live gate에서 확인해야 한다.
 
 ### P0. Router 없는 ROS 2/DDS 전환은 live 증명과 typed surface 후속이 필요함
 
