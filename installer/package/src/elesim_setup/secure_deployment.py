@@ -40,11 +40,32 @@ MAX_BUNDLE_FILES = 256
 MAX_BUNDLE_FILE_BYTES = 1024 * 1024
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 MAX_REMOTE_OUTPUT_BYTES = 64 * 1024
+_HOST_HELPER_RESPONSE_GRACE_S = 2.0
+_BUILD_COMMAND_TIMEOUT_S = 30 * 60
+# Compose lifecycle commands are detached, but Docker may still spend time
+# creating networks, extracting image layers, or waiting for a runtime
+# backend.  The old 30-second local default made a valid ``up --no-build``
+# look like a failed rollout and triggered an unnecessary rollback.
+_RUNTIME_LIFECYCLE_TIMEOUT_S = 5 * 60
+_RUNTIME_LIFECYCLE_ACTIONS = frozenset({"up", "start", "stop"})
 ProgressCallback = Callable[[str, str | None], None]
 CommandOutput = Callable[[str, str], None]
 _PRIVATE_AUTHORITY_FILES = frozenset(
     {"ca.key.pem", "identity_ca.key.pem", "permissions_ca.key.pem"}
 )
+
+
+def _command_timeout(argv: Sequence[str], base: float) -> float:
+    """Return a bounded timeout appropriate for one managed command."""
+
+    values = tuple(str(value) for value in argv)
+    if "build" in values:
+        return max(float(base), float(_BUILD_COMMAND_TIMEOUT_S))
+    if "compose" in values and any(
+        action in values for action in _RUNTIME_LIFECYCLE_ACTIONS
+    ):
+        return max(float(base), float(_RUNTIME_LIFECYCLE_TIMEOUT_S))
+    return float(base)
 
 
 class HostKeyVerificationError(RuntimeError):
@@ -587,9 +608,7 @@ class _ParamikoSession:
         if not argv or any("\x00" in str(value) for value in argv):
             raise ValueError("remote command argv must be non-empty and contain no NUL")
         command = shlex.join([str(value) for value in argv])
-        timeout_s = self._command_timeout_s
-        if "docker" in argv and "build" in argv:
-            timeout_s = max(timeout_s, 30 * 60)
+        timeout_s = _command_timeout(argv, self._command_timeout_s)
         _stdin, stdout, stderr = self._client.exec_command(  # type: ignore[attr-defined]
             command,
             timeout=timeout_s,
@@ -1190,9 +1209,7 @@ class _LocalSession:
         values = tuple(str(value) for value in argv)
         if not values or any("\x00" in value for value in values):
             raise ValueError("local command argv must be non-empty and contain no NUL")
-        timeout_s = self._timeout_s
-        if "docker" in values and "build" in values:
-            timeout_s = max(timeout_s, 30 * 60)
+        timeout_s = _command_timeout(values, self._timeout_s)
         helper_socket = os.environ.get("ELESIM_HOST_HELPER_SOCKET", "").strip()
         if helper_socket and (
             values[0] == "docker" or Path(values[0]).name == "elesim-net"
@@ -1276,11 +1293,17 @@ def _run_through_host_helper(
             "operation": "run",
             "argv": [str(value) for value in argv],
             "stream": output is not None,
+            "timeout_s": float(timeout_s),
         },
         separators=(",", ":"),
     ).encode("utf-8") + b"\n"
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(float(timeout_s))
+        # The helper enforces the command deadline itself.  Leave a small
+        # response grace period for it to terminate the child, drain both
+        # pipes, and return a structured timeout error.
+        connection.settimeout(
+            max(float(timeout_s) + _HOST_HELPER_RESPONSE_GRACE_S, 2.0)
+        )
         connection.connect(socket_path)
         connection.sendall(request)
         with connection.makefile("rb") as response:

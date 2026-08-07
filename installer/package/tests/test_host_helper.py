@@ -274,6 +274,56 @@ def test_host_helper_streams_actual_command_output(
     assert ("stderr", "#2 building role image\n") in output
 
 
+def test_host_helper_enforces_client_command_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/usr/bin/env python3\n"
+        "import time\n"
+        "time.sleep(2)\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+    socket_path = tmp_path / "helper.sock"
+    server = _Server(
+        str(socket_path),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+        tailscale_bin=None,
+    )
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="command timed out"):
+            _run_through_host_helper(
+                (
+                    "docker",
+                    "compose",
+                    "-p",
+                    "elesim-runtime",
+                    "-f",
+                    str(compose),
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "--remove-orphans",
+                ),
+                socket_path=str(socket_path),
+                timeout_s=0.8,
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=1)
+
+
 def test_host_helper_terminates_command_when_stream_client_disconnects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

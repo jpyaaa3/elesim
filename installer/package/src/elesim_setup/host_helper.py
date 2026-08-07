@@ -10,19 +10,24 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import select
+import shlex
 import socket
 import socketserver
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Sequence
 
 
 _MAX_REQUEST = 256 * 1024
 _MAX_OUTPUT = 64 * 1024
+_DEFAULT_COMMAND_TIMEOUT_S = 5 * 60
+_MAX_COMMAND_TIMEOUT_S = 30 * 60
 _ROLES = frozenset({"pilot", "sim", "ui"})
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 
@@ -93,6 +98,17 @@ class _Handler(socketserver.StreamRequestHandler):
         stream = request.get("stream", False)
         if not isinstance(stream, bool):
             raise HostHelperError("host-helper stream flag is invalid")
+        raw_timeout = request.get("timeout_s", _DEFAULT_COMMAND_TIMEOUT_S)
+        if isinstance(raw_timeout, bool):
+            raise HostHelperError("host-helper timeout is invalid")
+        try:
+            timeout_s = float(raw_timeout)
+        except (TypeError, ValueError) as exc:
+            raise HostHelperError("host-helper timeout is invalid") from exc
+        if not math.isfinite(timeout_s) or not 0 < timeout_s <= _MAX_COMMAND_TIMEOUT_S:
+            raise HostHelperError(
+                f"host-helper timeout must be in (0, {_MAX_COMMAND_TIMEOUT_S:g}]"
+            )
 
         def emit(name: str, chunk: bytes) -> None:
             if not self._reply(
@@ -112,6 +128,7 @@ class _Handler(socketserver.StreamRequestHandler):
             argv,
             on_output=emit if stream else None,
             cancelled=self._client_disconnected,
+            timeout_s=timeout_s,
         )
         self._reply(
             {
@@ -293,7 +310,10 @@ def _run_bounded(
     *,
     on_output: Callable[[str, bytes], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    timeout_s: float = _DEFAULT_COMMAND_TIMEOUT_S,
 ) -> tuple[int, bytes, bytes, bool, bool]:
+    if not math.isfinite(float(timeout_s)) or not 0 < float(timeout_s) <= _MAX_COMMAND_TIMEOUT_S:
+        raise ValueError("host-helper command timeout is out of bounds")
     process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results: dict[str, tuple[bytes, bool]] = {}
     failures: list[BaseException] = []
@@ -324,13 +344,19 @@ def _run_bounded(
     )
     for worker in workers:
         worker.start()
+    deadline = time.monotonic() + float(timeout_s)
     cancelled_error: BaseException | None = None
+    timeout_error: TimeoutError | None = None
     while True:
         try:
-            returncode = process.wait(timeout=0.1)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(tuple(argv), float(timeout_s))
+            returncode = process.wait(timeout=min(0.1, remaining))
             break
         except subprocess.TimeoutExpired:
-            if cancelled is None or not cancelled():
+            expired = time.monotonic() >= deadline
+            if not expired and (cancelled is None or not cancelled()):
                 continue
             process.terminate()
             try:
@@ -338,7 +364,13 @@ def _run_bounded(
             except subprocess.TimeoutExpired:
                 process.kill()
                 returncode = process.wait()
-            cancelled_error = BrokenPipeError("host-helper client disconnected")
+            if expired:
+                timeout_error = TimeoutError(
+                    f"host-helper command timed out after {float(timeout_s):.1f} seconds: "
+                    f"{shlex.join(tuple(str(value) for value in argv))}"
+                )
+            else:
+                cancelled_error = BrokenPipeError("host-helper client disconnected")
             break
     for worker in workers:
         worker.join()
@@ -346,6 +378,8 @@ def _run_bounded(
         raise failures[0]
     if cancelled_error is not None:
         raise cancelled_error
+    if timeout_error is not None:
+        raise timeout_error
     stdout, out_cut = results["stdout"]
     stderr, err_cut = results["stderr"]
     return returncode, stdout, stderr, out_cut, err_cut

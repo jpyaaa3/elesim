@@ -31,6 +31,7 @@ from elesim_setup.secure_deployment import (
     SecurityFile,
     SshHostOperations,
     TopologyRollout,
+    _command_timeout,
     _lifecycle_command,
     _ParamikoSession,
     ssh_sha256_fingerprint,
@@ -335,6 +336,42 @@ def test_paramiko_session_drains_and_bounds_verbose_remote_output() -> None:
     assert result.stdout == "out\n"
     assert result.stderr.startswith("[earlier remote output truncated]\n")
     assert result.stderr.endswith("x" * (64 * 1024))
+
+
+def test_paramiko_session_allows_slow_detached_compose_lifecycle() -> None:
+    class Channel:
+        @staticmethod
+        def recv_exit_status() -> int:
+            return 0
+
+    class Stream(io.BytesIO):
+        channel = Channel()
+
+    class Client:
+        @staticmethod
+        def exec_command(_command, timeout):
+            assert timeout == 300
+            return None, Stream(), Stream()
+
+    result = _ParamikoSession(Client(), command_timeout_s=2).run(
+        (
+            "docker",
+            "compose",
+            "-p",
+            "elesim-runtime",
+            "up",
+            "-d",
+            "--no-build",
+        )
+    )
+
+    assert result.exit_status == 0
+
+
+def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> None:
+    assert _command_timeout(("docker", "compose", "build", "sim"), 2) == 1800
+    assert _command_timeout(("docker", "compose", "up", "-d"), 2) == 300
+    assert _command_timeout(("elesim-net", "show"), 2) == 2
 
 
 def test_paramiko_session_streams_live_channel_output() -> None:

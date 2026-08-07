@@ -271,7 +271,10 @@ remote host streams the same output over its already authenticated SSH channel.
 The GUI job log and the terminal that launched `elesim-connections` therefore
 show real BuildKit lines, not a synthetic heartbeat. Output lines are bounded
 and redacted before presentation; the manager still receives neither daemon
-socket.
+socket. After all images are built, the detached Compose lifecycle step uses a
+bounded five-minute command timeout. This is separate from the thirty-minute
+image build limit, so a slow Docker backend does not make `up --no-build` appear
+to be a failed security rollout and trigger an avoidable rollback.
 The generated project name is `elesim-runtime`; images are
 `elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and

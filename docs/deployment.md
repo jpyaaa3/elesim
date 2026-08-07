@@ -184,6 +184,10 @@ available through `docker logs` because no role container exists yet, and
 `docker events` is not used as a progress substitute. Local streaming crosses
 the private allowlisted host helper; remote streaming uses the pinned SSH
 session. Neither path gives the manager a Docker or Tailscale daemon socket.
+After all images are built, the detached Compose lifecycle step uses a bounded
+five-minute command timeout. This is separate from the thirty-minute image
+build limit, so a slow Docker backend does not make `up --no-build` appear to
+be a failed security rollout and trigger an avoidable rollback.
 Security deployment and rotation never build or recreate
 containers; they resume exactly the role containers that were running before
 the switch. Their badges describe
