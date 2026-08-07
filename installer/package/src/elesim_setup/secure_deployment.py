@@ -1444,12 +1444,36 @@ class InstalledElesimLifecycle:
         for the pending connection-manager configuration.
         """
 
+        peer_args = tuple(
+            value
+            for peer in self._topology.discovery_peers(host.host_id)
+            for value in ("--dds-peer", peer)
+        )
+        # When the operator already authenticated to a remote host through
+        # keyless Tailscale SSH, add a negative-only port-22 probe from the
+        # *runtime* namespace.  A pass never proves DDS/UDP; a failure does
+        # prove that Docker Desktop/WSL cannot even reach the same peer path
+        # and is preferable to starting a graph that waits forever.
+        tailscale_peer_args = tuple(
+            value
+            for peer in self._topology.discovery_peers(host.host_id)
+            if any(
+                other.dds.address == peer
+                and other.ssh is not None
+                and other.ssh.auth_mode == "tailscale"
+                and other.ssh.port == 22
+                for other in self._topology.hosts
+            )
+            for value in ("--tcp-peer", peer)
+        )
         session.run(
             (
                 str(_net_command(host)),
                 "namespace-check",
                 "--dds-interface",
                 host.dds.interface,
+                *peer_args,
+                *tailscale_peer_args,
             )
         )
 
@@ -1853,8 +1877,12 @@ class TopologyRollout:
         previous: dict[str, HostActivationState] = {}
         stopped: list[ManagedHost] = []
         configured: list[ManagedHost] = []
-        phase = "preflight"
+        phase = "network-preflight"
         try:
+            for host in hosts:
+                _notify_progress(progress, phase, host.host_id)
+                self._operations[host.host_id].runtime_network_check(host)
+            phase = "preflight"
             for host in hosts:
                 _notify_progress(progress, phase, host.host_id)
                 capabilities = self._operations[host.host_id].preflight(host)
@@ -1926,8 +1954,16 @@ class GenerationRollout:
         """Validate every host before any new security generation is issued."""
 
         previous: dict[str, HostActivationState] = {}
-        phase = "preflight"
+        phase = "network-preflight"
         try:
+            # This is deliberately before Authority generation.  It is a
+            # read-only bind/route check in the runtime namespace, so an
+            # unsupported Docker Desktop/WSL path cannot leave a fresh
+            # security generation behind for a graph that cannot start.
+            for host in self._topology.hosts:
+                _notify_progress(progress, phase, host.host_id)
+                self._operations[host.host_id].runtime_network_check(host)
+            phase = "preflight"
             for host in self._topology.hosts:
                 _notify_progress(progress, phase, host.host_id)
                 capabilities = self._operations[host.host_id].preflight(host)

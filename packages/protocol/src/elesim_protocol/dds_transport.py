@@ -71,10 +71,42 @@ _DESCRIPTOR_PERIOD_S = 2.5
 _MAX_PAYLOAD_JSON = 1_048_576
 _MAX_TRACE_JSON = 16_384
 _MAX_PENDING_INBOUND = 512
+_DIAGNOSTIC_MESSAGE_TYPES = frozenset(
+    {
+        "discover",
+        "endpoint_list",
+        "select_target",
+        "target_selected",
+        "open_simulation_session",
+        "simulation_session_granted",
+        "simulation_session_opened",
+        "simulation_command",
+        "motion_command",
+        "operator_intent",
+        "operator_result",
+        "webrtc_signal",
+        "ack",
+        "error",
+    }
+)
 
 
 class DdsTransportError(RuntimeError):
     """DDS runtime, discovery, serialization, or delivery failed."""
+
+
+def _diagnostic_value(value: object) -> str:
+    """Render a non-secret bounded value for one-line runtime diagnostics."""
+
+    rendered = str(value).replace("\n", " ").replace("\r", " ").strip()
+    return rendered[:160] or "-"
+
+
+def _normalized_interface(value: object) -> str:
+    interface = str(value or "").strip()
+    if interface.casefold() in {"automatic", "auto", "-"}:
+        return ""
+    return interface
 
 
 def _bounded_int(value: object, *, name: str, minimum: int, maximum: int) -> int:
@@ -152,6 +184,11 @@ class DdsRuntimeSettings:
             raise ValueError("static DDS discovery requires at least one peer")
         object.__setattr__(self, "discovery_mode", discovery)
         object.__setattr__(self, "static_peers", peers)
+        object.__setattr__(
+            self,
+            "network_interface",
+            _normalized_interface(self.network_interface),
+        )
         security = str(self.security_profile).strip().lower()
         if security not in {"trusted-network", "sros2"}:
             raise ValueError(
@@ -374,6 +411,7 @@ class DdsPeerNode:
         self._heartbeat_sequence = 0
         self._last_announcement_at: Optional[float] = None
         self._last_heartbeat_at: Optional[float] = None
+        self._diagnostic_seen: dict[str, float] = {}
 
         ros_args = self.settings.apply_environment()
         try:
@@ -517,6 +555,13 @@ class DdsPeerNode:
         expired = self.directory.expire(now=now)
         for identity in expired:
             self._wire_descriptors.pop(identity, None)
+            self._diagnostic(
+                "discovery",
+                dedupe=f"lost:{identity.endpoint_id}:{identity.boot_id}",
+                state="lost",
+                endpoint=identity.endpoint_id,
+                boot=identity.boot_id,
+            )
         self._expire_pending_inbound(now)
         self.spin_once(timeout_s=0.0)
 
@@ -564,6 +609,14 @@ class DdsPeerNode:
             raise DdsTransportError("DDS peer is closed")
         target = self.resolve(envelope.target_id)
         if target is None:
+            self._diagnostic(
+                "control",
+                dedupe=f"inactive:{envelope.target_id}:{envelope.message_type}",
+                state="peer-inactive",
+                source=self.identity.endpoint_id,
+                target=envelope.target_id,
+                type=envelope.message_type,
+            )
             raise DdsTransportError(
                 f"target peer {envelope.target_id!r} is not active"
             )
@@ -719,6 +772,15 @@ class DdsPeerNode:
                 interface_hash=str(message.interface_hash),
             )
             self.directory.announce(descriptor, now=self.clock())
+            if identity not in self._wire_descriptors:
+                self._diagnostic(
+                    "discovery",
+                    dedupe=f"found:{identity.endpoint_id}:{identity.boot_id}",
+                    state="discovered",
+                    endpoint=identity.endpoint_id,
+                    role=endpoint.role,
+                    boot=identity.boot_id,
+                )
             self._wire_descriptors[identity] = DiscoveredPeer(
                 descriptor=endpoint,
                 identity=identity,
@@ -785,10 +847,48 @@ class DdsPeerNode:
         except (json.JSONDecodeError, PeerAmbiguityError, ProtocolError, ValueError):
             return
         if known is None or known.identity != source:
+            self._diagnostic(
+                "control",
+                dedupe=f"queued:{source.endpoint_id}:{source.boot_id}:{envelope.message_type}",
+                state="queued-awaiting-descriptor",
+                source=source.endpoint_id,
+                boot=source.boot_id,
+                type=envelope.message_type,
+            )
             self._defer_inbound(envelope, source)
             return
+        if envelope.message_type in _DIAGNOSTIC_MESSAGE_TYPES:
+            self._diagnostic(
+                "control",
+                dedupe=f"received:{source.endpoint_id}:{source.boot_id}:{envelope.message_type}",
+                state="received",
+                source=source.endpoint_id,
+                boot=source.boot_id,
+                target=self.identity.endpoint_id,
+                type=envelope.message_type,
+                interval=1.0,
+            )
         with self._inbox_lock:
             self._inbox.append((envelope, source))
+
+    def _diagnostic(
+        self,
+        event: str,
+        *,
+        dedupe: str,
+        interval: float = 5.0,
+        **fields: object,
+    ) -> None:
+        now = self.clock()
+        previous = self._diagnostic_seen.get(dedupe)
+        if previous is not None and now - previous < interval:
+            return
+        self._diagnostic_seen[dedupe] = now
+        rendered = " ".join(
+            f"{key}={_diagnostic_value(value)}"
+            for key, value in fields.items()
+        )
+        print(f"[dds-{event}] {rendered}", flush=True)
 
     def _defer_inbound(self, envelope: Envelope, source: PeerIdentity) -> None:
         """Hold startup-racing traffic until the exact source boot is known."""

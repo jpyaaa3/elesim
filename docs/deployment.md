@@ -154,17 +154,24 @@ topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
 requires the Robot role; `simulation-only` deployment intentionally starts the
 three simulation roles without a physical Robot.
 
-SSH reachability is not DDS reachability. Before `start` or `restart`, every
-container host runs the lightweight `elesim-net namespace-check` through its
-installed tools service. The check requires the configured DDS interface to
-exist in the same network namespace used by runtime roles. A configured
-`tailscale0` is therefore supported for direct binding wherever the runtime
-namespace exposes it. SROS2 generation preflight deliberately does not run
-this check; it verifies the host and security boundary, while runtime startup
-verifies the bind boundary. A Docker Desktop Linux VM commonly cannot see a
-WSL distro's `tailscale0`; the Tailscale SSH helper cannot relay DDS UDP. Use
-Docker Engine in that WSL/Linux namespace for direct binding, or explicitly
-configure a container-visible routed interface as a separate mode.
+SSH reachability is not DDS reachability. Before managed security material is
+issued, and again before `start` or `restart`, every container host runs the
+lightweight `elesim-net namespace-check` through its installed tools service.
+The check requires the configured DDS interface to exist in the same network
+namespace used by runtime roles and, for static discovery, checks each DDS peer
+route. It remains a read-only bind/route gate; it does not prove discovery,
+SROS2 authorization, RGB-D, or WebRTC media. A configured `tailscale0` is
+therefore supported for direct binding wherever the runtime namespace exposes
+it. A Docker Desktop Linux VM commonly cannot see a WSL distro's `tailscale0`;
+the Tailscale SSH helper cannot relay DDS UDP. Use Docker Engine in that
+WSL/Linux namespace for direct binding, or explicitly configure a
+container-visible routed interface as a separate mode and use static peers.
+For keyless Tailscale SSH hosts the lifecycle also runs a negative-only TCP
+port-22 probe inside the runtime namespace. It is not a DDS/UDP acceptance
+test; it only turns the stronger failure (the runtime cannot reach the same
+peer path used by management) into an immediate actionable error instead of a
+long `target peer ... is not active` wait. The generated tools image carries
+`iproute2`, and the launch guard rejects stale state/XML/Compose DDS values.
 
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`

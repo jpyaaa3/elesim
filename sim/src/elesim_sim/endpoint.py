@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
@@ -81,6 +82,7 @@ class SimEndpoint:
         self._status_lock = threading.Lock()
         self._status: Optional[SimulationStatusPayload] = None
         self._status_dirty = False
+        self._diagnostic_seen: dict[str, float] = {}
 
     def start(self) -> None:
         self.stop_event.clear()
@@ -176,16 +178,33 @@ class SimEndpoint:
             )
 
     def handle_envelope(self, client: Any, message: Envelope) -> None:
-        if message.message_type == "lease_granted":
+        message_type = message.message_type
+        if message_type in {
+            "lease_granted",
+            "lease_revoked",
+            "simulation_session_granted",
+            "simulation_session_revoked",
+            "motion_command",
+            "simulation_command",
+            "webrtc_signal",
+        }:
+            self._diagnostic(
+                "receive",
+                dedupe=f"{message_type}:{message.source_id}",
+                source=message.source_id,
+                target=self.endpoint_id,
+                type=message_type,
+            )
+        if message_type == "lease_granted":
             self.grant_lease(
                 str((message.payload or {}).get("pilot_id", "")),
                 message.lease_id,
             )
             return
-        if message.message_type == "lease_revoked":
+        if message_type == "lease_revoked":
             self.revoke_lease()
             return
-        if message.message_type == "simulation_session_granted":
+        if message_type == "simulation_session_granted":
             try:
                 granted = SimulationSessionGrantedPayload.from_payload(message.payload or {})
             except ProtocolError:
@@ -193,7 +212,7 @@ class SimEndpoint:
             if granted.sim_id == self.endpoint_id and message.lease_id == granted.session_id:
                 self.grant_simulation_session(granted)
             return
-        if message.message_type == "simulation_session_revoked":
+        if message_type == "simulation_session_revoked":
             try:
                 revoked = SimulationSessionRevokedPayload.from_payload(message.payload or {})
             except ProtocolError:
@@ -201,8 +220,16 @@ class SimEndpoint:
             if revoked.session_id == self.simulation_session_id:
                 self.revoke_simulation_session()
             return
-        if message.message_type == "motion_command":
+        if message_type == "motion_command":
             ok, reason = self._apply_motion(message)
+            self._diagnostic(
+                "motion",
+                dedupe=f"motion:{message.source_id}:{reason}",
+                source=message.source_id,
+                target=self.endpoint_id,
+                ok=ok,
+                reason=reason,
+            )
             client.send(
                 "ack",
                 target_id=message.source_id,
@@ -211,10 +238,10 @@ class SimEndpoint:
                 trace_context=message.trace_context,
             )
             return
-        if message.message_type == "simulation_command":
+        if message_type == "simulation_command":
             self._queue_simulation_command(client, message)
             return
-        if message.message_type == "webrtc_signal":
+        if message_type == "webrtc_signal":
             self._handle_webrtc_offer(client, message)
 
     def _validate_motion(self, message: Envelope, *, allow_estop: bool = False) -> tuple[bool, str]:
@@ -262,6 +289,14 @@ class SimEndpoint:
                 SimulationOperatorCommand.from_request(request, ui_id=message.source_id)
             )
             if queued:
+                self._diagnostic(
+                    "simulation",
+                    dedupe=f"command:{request.command}:{request.request_id}",
+                    source=message.source_id,
+                    target=self.endpoint_id,
+                    command=request.command,
+                    state="queued",
+                )
                 return
             reason = "simulation command queue is full"
         result = SimulationResultPayload(
@@ -277,6 +312,15 @@ class SimEndpoint:
             payload=result.to_payload(),
             lease_id=message.lease_id,
             trace_context=message.trace_context,
+        )
+        self._diagnostic(
+            "simulation",
+            dedupe=f"command-rejected:{request.command}:{request.request_id}",
+            source=message.source_id,
+            target=self.endpoint_id,
+            command=request.command,
+            state="rejected",
+            reason=reason,
         )
 
     def _handle_webrtc_offer(self, client: Any, message: Envelope) -> None:
@@ -310,6 +354,33 @@ class SimEndpoint:
             lease_id=self.simulation_session_id,
             trace_context=message.trace_context,
         )
+        self._diagnostic(
+            "webrtc",
+            dedupe=f"answer:{signal.session_id}:{signal.stream}",
+            source=self.endpoint_id,
+            target=message.source_id,
+            stream=signal.stream,
+            state="answer-sent",
+        )
+
+    def _diagnostic(
+        self,
+        event: str,
+        *,
+        dedupe: str,
+        interval: float = 5.0,
+        **fields: object,
+    ) -> None:
+        now = time.monotonic()
+        previous = self._diagnostic_seen.get(dedupe)
+        if previous is not None and now - previous < interval:
+            return
+        self._diagnostic_seen[dedupe] = now
+        rendered = " ".join(
+            f"{key}={str(value).replace(chr(10), ' ')[:160]}"
+            for key, value in fields.items()
+        )
+        print(f"[sim-dds] event={event} {rendered}", flush=True)
 
     def _run(self) -> None:
         capabilities = [CAPABILITY_MOTION_ARM, CAPABILITY_MOTION_GO2]

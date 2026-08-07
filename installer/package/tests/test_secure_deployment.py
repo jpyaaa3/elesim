@@ -12,6 +12,7 @@ import pytest
 from elesim_setup.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
+    DdsGraphSettings,
     ManagedHost,
     RoleAssignment,
     SshEndpoint,
@@ -81,6 +82,7 @@ def _topology() -> ConnectionTopology:
                 lifecycle="systemd",
             ),
         ),
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
     ).validate()
 
 
@@ -781,6 +783,10 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
             "namespace-check",
             "--dds-interface",
             "tailscale0",
+            "--dds-peer",
+            "100.64.0.1",
+            "--dds-peer",
+            "100.64.0.3",
         ),
         True,
     ) in session.commands
@@ -820,6 +826,24 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "start",
         "sim",
     ) in compose_commands
+
+
+def test_tailscale_lifecycle_probe_is_added_only_for_tailscale_ssh() -> None:
+    raw = _topology().to_dict()
+    raw["hosts"][1]["ssh"].update(
+        {"port": 22, "identity_file": "", "auth_mode": "tailscale"}
+    )
+    topology = ConnectionTopology.from_dict(raw)
+    session = LifecycleSession()
+
+    InstalledElesimLifecycle(topology).runtime_network_check(
+        session, topology.host("laptop")
+    )
+
+    probe = next(
+        argv for argv, _check in session.commands if "namespace-check" in argv
+    )
+    assert probe[-2:] == ("--tcp-peer", "100.64.0.2")
 
 
 def test_lifecycle_status_ignores_manager_service() -> None:

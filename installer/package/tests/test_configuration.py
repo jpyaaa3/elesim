@@ -89,6 +89,19 @@ def test_cyclonedds_xml_preserves_direct_tailscale_bind(local_state) -> None:
     assert interface.attrib == {"name": "tailscale0"}
 
 
+def test_cyclonedds_xml_omits_legacy_automatic_interface(local_state) -> None:
+    state = local_state(
+        roles=("pilot",),
+        dds=DdsSettings(interface="automatic"),
+    )
+    copy_role_configs(state)
+
+    generate_role_configs(state)
+    root = ET.parse(generated_dds_config_path(state, "pilot")).getroot()
+
+    assert root.find("Domain/General/Interfaces/NetworkInterface") is None
+
+
 def test_container_managed_turn_uses_sim_owned_secret_mount_path(
     local_state,
     tmp_path,

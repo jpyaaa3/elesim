@@ -14,6 +14,7 @@ from elesim_setup.container_installer import (
     _runtime_up_wrapper,
     _runtime_down_wrapper,
     build_container_plan,
+    refresh_compose_dds_environment,
 )
 from elesim_setup.ownership import (
     DOCKER_INSTALL_UUID_LABEL,
@@ -211,6 +212,38 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+
+
+def test_compose_dds_environment_refresh_tracks_configured_state(local_state) -> None:
+    state = local_state(
+        roles=("pilot", "ui"),
+        install_mode="container",
+        dds=DdsSettings(
+            discovery_mode="static",
+            static_peers=("100.74.222.24",),
+            interface="eth0",
+        ),
+    )
+    ContainerInstaller(state).run()
+    compose_path = state.prefix_path / "containers/compose.yaml"
+    compose = _compose(state)
+    for role in state.roles:
+        compose["services"][role]["environment"]["ELESIM_DDS_NETWORK_INTERFACE"] = (
+            "tailscale0"
+        )
+    compose["services"]["tools"]["environment"]["ELESIM_DDS_NETWORK_INTERFACE"] = (
+        "tailscale0"
+    )
+    compose_path.write_text(yaml.safe_dump(compose, sort_keys=False), encoding="utf-8")
+
+    refresh_compose_dds_environment(state)
+
+    refreshed = _compose(state)
+    for role in (*state.roles, "tools"):
+        environment = refreshed["services"][role]["environment"]
+        assert environment["ELESIM_DDS_NETWORK_INTERFACE"] == "eth0"
+        assert environment["ELESIM_DDS_DISCOVERY_MODE"] == "static"
+        assert environment["ELESIM_DDS_STATIC_PEERS"] == "100.74.222.24"
 
 
 def test_runtime_up_view_switch_is_one_shot_and_requires_display(
@@ -489,6 +522,8 @@ def test_static_discovery_is_exported_to_every_service(local_state) -> None:
         assert environment["ELESIM_DDS_DISCOVERY_MODE"] == "static"
         assert environment["ELESIM_DDS_STATIC_PEERS"] == "192.0.2.10,192.0.2.11"
         assert environment["ELESIM_DDS_NETWORK_INTERFACE"] == "eth1"
+    up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    assert "namespace-check >/dev/null" in up_wrapper
 
 
 def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(

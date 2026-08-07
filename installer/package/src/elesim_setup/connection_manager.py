@@ -619,6 +619,22 @@ class ConnectionTopology:
         dds_addresses = [host.dds.address.casefold() for host in self.hosts]
         if len(set(dds_addresses)) != len(dds_addresses):
             raise ValueError("active host DDS addresses must be unique")
+        routed_addresses = any(
+            host.dds.address_source == "tailscale"
+            or _is_tailscale_ipv4(host.dds.address)
+            or host.dds.interface.casefold() == "tailscale0"
+            for host in self.hosts
+        )
+        if (
+            len(self.hosts) > 1
+            and self.dds_graph.discovery_mode == "multicast"
+            and routed_addresses
+        ):
+            raise ValueError(
+                "multicast DDS discovery cannot cross Tailscale/routed VPN hosts; "
+                "select static discovery so every host uses the other hosts' DDS "
+                "addresses as direct peers"
+            )
         if sum(host.local for host in self.hosts) != 1:
             raise ValueError("exactly one managed host must be local")
         if "robot" in next(host for host in self.hosts if host.local).roles:
@@ -874,6 +890,16 @@ def _validate_network_host(
         raise ValueError(f"{name} must not be a loopback address")
     if reject_multicast and address.is_multicast:
         raise ValueError(f"{name} must not be a multicast address")
+
+
+def _is_tailscale_ipv4(value: str) -> bool:
+    """Return whether an address is in Tailscale's CGNAT IPv4 pool."""
+
+    try:
+        address = ipaddress.ip_address(str(value).strip())
+    except ValueError:
+        return False
+    return address.version == 4 and address in ipaddress.ip_network("100.64.0.0/10")
 
 
 def _validate_absolute_posix_path(value: Any, *, name: str) -> None:

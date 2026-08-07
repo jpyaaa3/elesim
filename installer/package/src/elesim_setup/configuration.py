@@ -372,12 +372,18 @@ def _write_cyclonedds(path: Path, dds: DdsSettings) -> None:
     ET.SubElement(general, "AllowMulticast").text = (
         "true" if dds.discovery_mode == "multicast" else "false"
     )
-    if dds.interface:
+    interface = str(dds.interface).strip()
+    # ``automatic`` was accepted by older setup flows as a display value, but
+    # CycloneDDS treats it as a literal interface name and refuses to create a
+    # domain.  Omit the element to request the vendor's normal auto-selection.
+    if interface.casefold() in {"automatic", "auto", "-"}:
+        interface = ""
+    if interface:
         interfaces = ET.SubElement(general, "Interfaces")
         ET.SubElement(
             interfaces,
             "NetworkInterface",
-            {"name": dds.interface},
+            {"name": interface},
         )
     discovery = ET.SubElement(domain, "Discovery")
     ET.SubElement(discovery, "ParticipantIndex").text = "auto"

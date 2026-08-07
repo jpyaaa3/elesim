@@ -6,6 +6,7 @@ import os
 import secrets
 import shlex
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +67,63 @@ DOCKER_LOGGING = {
     "options": {"max-size": "10m", "max-file": "4"},
 }
 RUNTIME_LOG_RETENTION = 5
+
+
+def refresh_compose_dds_environment(state: InstallState) -> None:
+    """Refresh generated Compose DDS variables after ``elesim-net configure``.
+
+    The network configurator owns the installed state and role XML, while the
+    Compose file is generated during installation.  Updating only the former
+    leaves stale ``ELESIM_DDS_*`` values behind (notably after switching from
+    a direct ``tailscale0`` attempt to a routed ``eth0``/static-peer setup).
+    Keep the generated manifest self-consistent without rebuilding images or
+    touching running containers; the next lifecycle start will read it.
+    """
+
+    if state.install_mode != "container":
+        return
+    compose_path = state.prefix_path / "containers" / "compose.yaml"
+    if not compose_path.exists():
+        return
+    if compose_path.is_symlink() or not compose_path.is_file():
+        raise ValueError(f"Compose manifest is not a regular file: {compose_path}")
+    try:
+        payload = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"Compose manifest could not be read: {compose_path}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("services"), dict):
+        raise ValueError(f"Compose manifest has no services object: {compose_path}")
+
+    services = payload["services"]
+    installer = ContainerInstaller(state)
+    for role in state.roles:
+        service = services.get(role)
+        if not isinstance(service, dict) or not isinstance(service.get("environment"), dict):
+            raise ValueError(f"Compose service {role!r} has no environment object")
+        service["environment"].update(installer._dds_environment(role))
+    tools = services.get("tools")
+    if isinstance(tools, dict) and isinstance(tools.get("environment"), dict):
+        tools["environment"].update(
+            installer._dds_environment(state.roles[0], enclave_override=True)
+        )
+
+    rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    mode = stat.S_IMODE(compose_path.stat().st_mode)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=compose_path.parent,
+        prefix=f".{compose_path.name}.",
+        delete=False,
+    ) as handle:
+        handle.write(rendered)
+        temporary = Path(handle.name)
+    try:
+        temporary.chmod(mode)
+        os.replace(temporary, compose_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
@@ -609,6 +667,10 @@ class ContainerInstaller:
             ),
         )
         application_guard = launch_guard(provisioning_required_path(self.state))
+        # Read the installed state at invocation time instead of embedding
+        # static peers in a long-lived wrapper.  ``elesim-net configure`` can
+        # change peers/interface without reinstalling the wrapper; its
+        # namespace-check command then validates the current state.
         runtime_network_guard = (
             f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
             "namespace-check >/dev/null\n"
@@ -743,12 +805,15 @@ class ContainerInstaller:
         *,
         enclave_override: bool = False,
     ) -> dict[str, object]:
+        interface = str(self.state.dds.interface).strip()
+        if interface.casefold() in {"automatic", "auto", "-"}:
+            interface = ""
         environment: dict[str, object] = {
             "PYTHONUNBUFFERED": "1",
             "ELESIM_SYSTEM_ID": self.state.dds.system_id,
             "ELESIM_DDS_DISCOVERY_MODE": self.state.dds.discovery_mode,
             "ELESIM_DDS_STATIC_PEERS": ",".join(self.state.dds.static_peers),
-            "ELESIM_DDS_NETWORK_INTERFACE": self.state.dds.interface,
+            "ELESIM_DDS_NETWORK_INTERFACE": interface,
             "ELESIM_DDS_SECURITY_PROFILE": self.state.dds.security_profile,
             "ELESIM_DDS_VENDOR_CONFIG": "/opt/elesim/config/cyclonedds.xml",
             "ROS_DOMAIN_ID": str(self.state.dds.domain_id),

@@ -8,6 +8,7 @@ import pytest
 from elesim_setup.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
+    DdsGraphSettings,
     ManagedHost,
     PreflightHost,
     PreflightSshEndpoint,
@@ -34,6 +35,7 @@ def _topology() -> ConnectionTopology:
     return ConnectionTopology(
         system_id="lab_arm",
         security_profile="sros2",
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
         hosts=(
             ManagedHost(
                 host_id="laptop",
@@ -166,6 +168,27 @@ def test_connection_topology_roundtrip_keeps_dds_and_ssh_distinct() -> None:
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == "server.example"
     assert restored.host("compute").ssh.port == 2222
+
+
+def test_multicast_rejects_multi_host_tailscale_address_even_when_interface_is_eth0() -> None:
+    topology = _topology()
+    raw = topology.to_dict()
+    raw["dds_graph"]["discovery_mode"] = "multicast"
+    raw["hosts"][0]["dds"] = {
+        "address": "100.64.0.10",
+        "interface": "eth0",
+    }
+    raw["hosts"][1]["dds"] = {
+        "address": "100.64.0.20",
+        "interface": "eth0",
+    }
+    raw["hosts"][2]["dds"] = {
+        "address": "100.64.0.30",
+        "interface": "eth0",
+    }
+
+    with pytest.raises(ValueError, match="multicast DDS discovery"):
+        ConnectionTopology.from_dict(raw)
 
 
 def test_tailscale_ssh_endpoint_is_keyless_and_defaults_old_files_to_openssh() -> None:

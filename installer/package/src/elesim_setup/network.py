@@ -12,9 +12,12 @@ import stat
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
+
+import yaml
 
 from .configuration import (
     generate_role_configs,
@@ -134,6 +137,8 @@ def require_runtime_network_namespace(
     *,
     interface: str | None = None,
     interface_names: Sequence[str] | None = None,
+    peers: Sequence[str] | None = None,
+    route_runner: Callable[..., object] | None = None,
 ) -> None:
     """Fail before launch when DDS cannot bind its configured interface.
 
@@ -148,31 +153,239 @@ def require_runtime_network_namespace(
     configured_interface = (
         state.dds.interface if interface is None else str(interface)
     ).strip()
-    if not configured_interface:
-        return
-    try:
-        indexed = (
-            socket.if_nameindex()
-            if interface_names is None
-            else enumerate(interface_names)
-        )
-        available = {str(name) for _index, name in indexed}
-    except OSError as exc:
-        raise RuntimeError(
-            f"DDS network interfaces could not be inspected: {exc}"
-        ) from exc
-    if configured_interface in available:
-        return
-    detail = ", ".join(sorted(available)) or "none"
-    raise RuntimeError(
-        f"configured DDS interface {configured_interface!r} is not visible in "
-        f"the runtime network namespace (visible: {detail}). Direct DDS bind "
-        f"to {configured_interface!r} requires that interface in the runtime "
-        "namespace. Docker Desktop/WSL may place the WSL interface in another "
-        "namespace. A Tailscale 100.x address may still be routable through "
-        "another interface, but that is a separate routed/NAT mode and does "
-        "not satisfy a direct tailscale0 bind."
+    # Older generated states used the human-facing word ``automatic``.  It is
+    # not a CycloneDDS interface name; an omitted interface is the portable
+    # auto-selection form and is what the generated XML must represent.
+    if configured_interface.casefold() in {"automatic", "auto", "-"}:
+        configured_interface = ""
+    if configured_interface:
+        try:
+            indexed = (
+                socket.if_nameindex()
+                if interface_names is None
+                else enumerate(interface_names)
+            )
+            available = {str(name) for _index, name in indexed}
+        except OSError as exc:
+            raise RuntimeError(
+                f"DDS network interfaces could not be inspected: {exc}"
+            ) from exc
+        if configured_interface not in available:
+            detail = ", ".join(sorted(available)) or "none"
+            raise RuntimeError(
+                f"configured DDS interface {configured_interface!r} is not visible in "
+                f"the runtime network namespace (visible: {detail}). Direct DDS bind "
+                f"to {configured_interface!r} requires that interface in the runtime "
+                "namespace. Docker Desktop/WSL may place the WSL interface in another "
+                "namespace. A Tailscale 100.x address may still be routable through "
+                "another interface, but that is a separate routed/NAT mode and does "
+                "not satisfy a direct tailscale0 bind."
+            )
+
+    configured_peers = tuple(
+        str(value).strip()
+        for value in (state.dds.static_peers if peers is None else peers)
+        if str(value).strip()
     )
+    if not configured_peers:
+        return
+
+    probe = subprocess.run if route_runner is None else route_runner
+    for peer in configured_peers:
+        try:
+            result = probe(
+                ["ip", "-j", "route", "get", peer],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1.5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(
+                f"DDS peer route probe is unavailable for {peer!r}: {exc}. "
+                "Install iproute2 in the runtime namespace or choose a host "
+                "network backend that exposes the configured route."
+            ) from exc
+        if int(getattr(result, "returncode", 1)) != 0:
+            detail = str(getattr(result, "stderr", "") or "").strip()
+            suffix = f": {detail[:512]}" if detail else ""
+            raise RuntimeError(
+                f"no runtime route to DDS peer {peer!r}{suffix}. "
+                "SSH/Tailscale TCP reachability does not prove a DDS UDP route."
+            )
+        try:
+            raw = json.loads(str(getattr(result, "stdout", "") or ""))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"runtime route probe returned invalid JSON for DDS peer {peer!r}"
+            ) from exc
+        route = raw[0] if isinstance(raw, list) and raw else raw
+        if not isinstance(route, Mapping):
+            raise RuntimeError(
+                f"runtime route probe returned no route for DDS peer {peer!r}"
+            )
+        device = str(route.get("dev", "")).strip()
+        if not device:
+            raise RuntimeError(
+                f"runtime route probe returned no interface for DDS peer {peer!r}"
+            )
+        if configured_interface and device != configured_interface:
+            raise RuntimeError(
+                f"DDS peer {peer!r} routes through {device!r}, not configured "
+                f"interface {configured_interface!r}. Bind DDS to the routed "
+                "interface or run Docker in the namespace containing the direct "
+                "Tailscale interface."
+            )
+
+
+def require_runtime_tcp_reachability(
+    peers: Sequence[str],
+    *,
+    port: int = 22,
+    connector: Callable[..., object] | None = None,
+) -> None:
+    """Run a negative-only sanity probe for Tailscale SSH peers.
+
+    This is deliberately limited to peers whose management connection already
+    uses keyless Tailscale SSH.  A failure is useful: the same runtime
+    namespace cannot even reach the peer's Tailscale SSH endpoint, so starting
+    DDS there would otherwise produce a long, opaque discovery wait.  A
+    successful TCP connection is *not* treated as proof of DDS UDP reachability;
+    the route/interface check and live DDS doctor remain separate gates.
+    """
+
+    if isinstance(port, bool) or not 1 <= int(port) <= 65535:
+        raise ValueError("TCP probe port must be in 1..65535")
+    connect = socket.create_connection if connector is None else connector
+    for peer in tuple(str(value).strip() for value in peers if str(value).strip()):
+        try:
+            connection = connect((peer, int(port)), timeout=1.5)
+            close = getattr(connection, "close", None)
+            if callable(close):
+                close()
+        except (OSError, TimeoutError) as exc:
+            raise RuntimeError(
+                f"runtime namespace cannot reach Tailscale SSH peer "
+                f"{peer}:{port}: {exc}. This negative TCP check is not a DDS "
+                "proof, but it confirms that the runtime path is broken. "
+                "Docker Desktop/WSL host networking commonly isolates the Docker "
+                "Linux VM from WSL tailscale0; use Docker Engine in the same "
+                "namespace as Tailscale or configure a genuinely routed, "
+                "container-visible DDS interface."
+            ) from exc
+
+
+def require_generated_dds_configuration(state: InstallState) -> None:
+    """Reject stale generated DDS files before a runtime can start.
+
+    ``install-state.json``, the CycloneDDS XML, and the generated Compose
+    environment are three views of one configuration.  Older connection
+    manager runs updated only one or two of them, which let a process start
+    with an XML interface different from the value shown by ``elesim-net``.
+    Such a mismatch is especially dangerous on Docker Desktop/WSL: the
+    manager may report a Tailscale choice while CycloneDDS still binds the
+    Docker VM's ``eth0``.  This check is local, bounded, and does not claim
+    that a route is live; it only prevents contradictory generated files.
+    """
+
+    expected_interface = _normalized_interface(state.dds.interface)
+    expected_peers = tuple(state.dds.static_peers)
+    expected_multicast = state.dds.discovery_mode == "multicast"
+
+    for role in state.roles:
+        xml_path = generated_dds_config_path(state, role)
+        if xml_path.is_symlink() or not xml_path.is_file():
+            raise RuntimeError(
+                f"generated DDS config is missing for role {role!r}: {xml_path}. "
+                "Run elesim-net configure or elesim-update before starting."
+            )
+        try:
+            root = ET.parse(xml_path).getroot()
+        except (ET.ParseError, OSError) as exc:
+            raise RuntimeError(
+                f"generated DDS XML is unreadable for role {role!r}: {xml_path}"
+            ) from exc
+        domain = root.find("./Domain")
+        if domain is None:
+            raise RuntimeError(
+                f"generated DDS XML has no Domain for role {role!r}: {xml_path}"
+            )
+        general = domain.find("./General")
+        if general is None:
+            raise RuntimeError(
+                f"generated DDS XML has no General section for role {role!r}"
+            )
+        interfaces = tuple(
+            str(node.attrib.get("name", "")).strip()
+            for node in general.findall("./Interfaces/NetworkInterface")
+        )
+        actual_interface = interfaces[0] if len(interfaces) == 1 else ""
+        if len(interfaces) > 1 or actual_interface != expected_interface:
+            rendered = ", ".join(interfaces) or "(automatic)"
+            wanted = expected_interface or "(automatic)"
+            raise RuntimeError(
+                f"generated DDS XML for role {role!r} binds {rendered!r}, but "
+                f"install state requires {wanted!r}. Re-run elesim-net configure "
+                "or elesim-update; do not start with mixed XML/state values."
+            )
+        multicast_text = (general.findtext("./AllowMulticast") or "").strip().lower()
+        if (multicast_text == "true") != expected_multicast:
+            raise RuntimeError(
+                f"generated DDS XML discovery mode for role {role!r} disagrees "
+                "with install state; re-run elesim-net configure."
+            )
+        actual_peers = tuple(
+            str(node.attrib.get("Address", "")).strip()
+            for node in domain.findall("./Discovery/Peers/Peer")
+        )
+        if actual_peers != expected_peers:
+            raise RuntimeError(
+                f"generated DDS XML static peers for role {role!r} disagree "
+                "with install state; re-run elesim-net configure."
+            )
+
+    if state.install_mode != "container":
+        return
+    compose_path = state.prefix_path / "containers" / "compose.yaml"
+    if compose_path.is_symlink() or not compose_path.is_file():
+        raise RuntimeError(
+            f"generated Compose manifest is missing: {compose_path}. "
+            "Run elesim-update before starting."
+        )
+    try:
+        payload = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"generated Compose manifest is unreadable: {compose_path}") from exc
+    services = payload.get("services") if isinstance(payload, Mapping) else None
+    if not isinstance(services, Mapping):
+        raise RuntimeError(f"generated Compose manifest has no services: {compose_path}")
+    expected_peer_text = ",".join(expected_peers)
+    for role in state.roles:
+        service = services.get(role)
+        environment = service.get("environment") if isinstance(service, Mapping) else None
+        if not isinstance(environment, Mapping):
+            raise RuntimeError(f"generated Compose service {role!r} has no environment")
+        actual_interface = _normalized_interface(environment.get("ELESIM_DDS_NETWORK_INTERFACE", ""))
+        actual_peers = str(environment.get("ELESIM_DDS_STATIC_PEERS", "")).strip()
+        actual_discovery = str(environment.get("ELESIM_DDS_DISCOVERY_MODE", "")).strip().lower()
+        if actual_interface != expected_interface:
+            raise RuntimeError(
+                f"generated Compose DDS interface for role {role!r} is "
+                f"{actual_interface or '(automatic)'!r}, but install state requires "
+                f"{expected_interface or '(automatic)'!r}; run elesim-update."
+            )
+        if actual_peers != expected_peer_text or (
+            actual_discovery == "multicast"
+        ) != expected_multicast:
+            raise RuntimeError(
+                f"generated Compose DDS discovery values for role {role!r} are "
+                "stale; run elesim-update before starting."
+            )
+
+
+def _normalized_interface(value: object) -> str:
+    interface = str(value or "").strip()
+    return "" if interface.casefold() in {"automatic", "auto", "-"} else interface
 
 
 def _prompt(label: str, current: str) -> str:
@@ -413,6 +626,18 @@ def _parser() -> argparse.ArgumentParser:
         "--dds-interface",
         help="설치 상태 대신 검사할 pending DDS interface",
     )
+    namespace_check.add_argument(
+        "--dds-peer",
+        action="append",
+        default=None,
+        help="검사할 직접 연결 DDS peer (반복 가능)",
+    )
+    namespace_check.add_argument(
+        "--tcp-peer",
+        action="append",
+        default=None,
+        help="negative-only Tailscale SSH reachability probe peer (반복 가능)",
+    )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
@@ -491,10 +716,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
         if args.command == "namespace-check":
+            # Connection-manager preflight passes a pending interface/peer
+            # override before it has configured the host.  In that mode the
+            # installed generated files are expected to be old; the normal
+            # launch wrapper has no override and must reject stale files.
+            if args.dds_interface is None and args.dds_peer is None:
+                require_generated_dds_configuration(state)
             require_runtime_network_namespace(
                 state,
                 interface=args.dds_interface,
+                peers=args.dds_peer,
             )
+            if args.tcp_peer:
+                require_runtime_tcp_reachability(args.tcp_peer)
             interface = (
                 state.dds.interface
                 if args.dds_interface is None
@@ -636,6 +870,9 @@ def _apply_configuration_transaction(
             )
 
     targets = {state_path}
+    compose_path = updated.prefix_path / "containers" / "compose.yaml"
+    if compose_path.exists():
+        targets.add(compose_path)
     targets.add(provisioning_required_path(updated))
     for role in updated.roles:
         targets.add(generated_config_path(updated, role))
@@ -645,6 +882,12 @@ def _apply_configuration_transaction(
     snapshots = {path: _snapshot(path) for path in targets}
     try:
         written = generate_role_configs(updated)
+        # ``elesim-net configure`` also owns the generated Compose manifest's
+        # DDS environment.  Keep it aligned with the state/XML transaction so
+        # a later lifecycle start cannot reuse stale interface or peer values.
+        from .container_installer import refresh_compose_dds_environment
+
+        refresh_compose_dds_environment(updated)
         sync_provisioning_required(updated)
         updated.save(state_path)
         return written

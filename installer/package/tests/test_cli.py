@@ -5,6 +5,7 @@ import base64
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -12,6 +13,7 @@ import yaml
 from conftest import ROOT, copy_role_configs
 from elesim_setup import cli, network
 from elesim_setup.configuration import generate_role_configs, generated_config_path
+from elesim_setup.container_installer import ContainerInstaller
 from elesim_setup.security_provisioning import sync_provisioning_required
 from elesim_setup.state import DdsSettings, InstallState
 
@@ -60,6 +62,128 @@ def test_runtime_namespace_check_allows_automatic_interface(local_state) -> None
         local_state(dds=DdsSettings(interface="")),
         interface_names=(),
     )
+
+
+def test_runtime_namespace_check_validates_static_peer_route(local_state) -> None:
+    calls: list[list[str]] = []
+
+    def route_runner(argv, **_kwargs):
+        calls.append(list(argv))
+        return SimpleNamespace(
+            returncode=0,
+            stdout='[{"dst":"100.74.222.24","dev":"eth0"}]',
+            stderr="",
+        )
+
+    network.require_runtime_network_namespace(
+        local_state(dds=DdsSettings(interface="eth0")),
+        interface_names=("lo", "eth0"),
+        interface="eth0",
+        peers=("100.74.222.24",),
+        route_runner=route_runner,
+    )
+    assert calls == [["ip", "-j", "route", "get", "100.74.222.24"]]
+
+
+def test_runtime_namespace_check_rejects_peer_on_other_interface(local_state) -> None:
+    result = SimpleNamespace(
+        returncode=0,
+        stdout='[{"dst":"100.74.222.24","dev":"docker0"}]',
+        stderr="",
+    )
+    with pytest.raises(RuntimeError, match="routes through 'docker0'"):
+        network.require_runtime_network_namespace(
+            local_state(dds=DdsSettings(interface="eth0")),
+            interface_names=("lo", "eth0", "docker0"),
+            interface="eth0",
+            peers=("100.74.222.24",),
+            route_runner=lambda *_args, **_kwargs: result,
+        )
+
+
+def test_runtime_namespace_check_rejects_route_without_device(local_state) -> None:
+    result = SimpleNamespace(
+        returncode=0,
+        stdout='[{"dst":"100.74.222.24"}]',
+        stderr="",
+    )
+    with pytest.raises(RuntimeError, match="no interface"):
+        network.require_runtime_network_namespace(
+            local_state(dds=DdsSettings(interface="")),
+            interface_names=(),
+            peers=("100.74.222.24",),
+            route_runner=lambda *_args, **_kwargs: result,
+        )
+
+
+def test_tailscale_tcp_probe_is_negative_only() -> None:
+    calls: list[tuple[object, object]] = []
+
+    class Connection:
+        def close(self) -> None:
+            return None
+
+    def connector(address, **kwargs):
+        calls.append((address, kwargs.get("timeout")))
+        return Connection()
+
+    network.require_runtime_tcp_reachability(
+        ("100.74.222.24",), connector=connector
+    )
+    assert calls == [(('100.74.222.24', 22), 1.5)]
+
+    def blocked(_address, **_kwargs):
+        raise TimeoutError("timed out")
+
+    with pytest.raises(RuntimeError, match="runtime namespace cannot reach"):
+        network.require_runtime_tcp_reachability(
+            ("100.74.222.24",), connector=blocked
+        )
+
+
+def test_generated_dds_views_must_match_state(local_state) -> None:
+    state = local_state(
+        roles=("pilot",),
+        dds=DdsSettings(
+            discovery_mode="static",
+            static_peers=("100.74.222.24",),
+            interface="eth0",
+        ),
+    )
+    ContainerInstaller(state).run()
+
+    network.require_generated_dds_configuration(state)
+
+    compose_path = state.prefix_path / "containers/compose.yaml"
+    compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    compose["services"]["pilot"]["environment"]["ELESIM_DDS_NETWORK_INTERFACE"] = (
+        "tailscale0"
+    )
+    compose_path.write_text(
+        yaml.safe_dump(compose, sort_keys=False), encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="Compose DDS interface"):
+        network.require_generated_dds_configuration(state)
+
+
+def test_generated_dds_xml_must_match_state(local_state) -> None:
+    state = local_state(
+        roles=("pilot",),
+        dds=DdsSettings(
+            discovery_mode="static",
+            static_peers=("100.74.222.24",),
+            interface="eth0",
+        ),
+    )
+    ContainerInstaller(state).run()
+    xml_path = state.prefix_path / "roles/pilot/config/cyclonedds.xml"
+    xml_path.write_text(
+        xml_path.read_text(encoding="utf-8").replace('name="eth0"', 'name="tailscale0"'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="generated DDS XML"):
+        network.require_generated_dds_configuration(state)
 
 
 def test_update_reuses_installed_general_state_with_new_source(

@@ -217,6 +217,7 @@ function topologyFromForm() {
   const maximum = topologyMode === "simulation-only" ? 3 : 4;
   if (active.length < minimum || active.length > maximum) throw new Error(t("error.host.count"));
   if (!active.includes(localSlot)) throw new Error(t("error.local"));
+  ensureRoutedDiscovery({notify: false});
   const hosts = active.map((slot) => {
     const local = slot === localSlot;
     const roles = visibleRoles().filter((role) => {
@@ -302,7 +303,30 @@ function applyLocalTailscaleHint(context) {
   const iface = field(local, "dds-interface");
   if (!address.value.trim()) address.value = String(hint.addresses[0]);
   if (!iface.value.trim()) iface.value = String(hint.interface || "tailscale0");
+  ensureRoutedDiscovery();
   showNotice("notice.tailscale.prefill");
+}
+
+function ensureRoutedDiscovery({notify = true} = {}) {
+  const active = activeSlots();
+  const usesTailscale = active.some((slot) =>
+    field(slot, "dds-interface").value.trim().toLowerCase() === "tailscale0" ||
+    isTailscaleAddress(field(slot, "dds-address").value)
+  );
+  if (active.length > 1 && usesTailscale && byId("discovery").value === "multicast") {
+    byId("discovery").value = "static";
+    renderDerivedPeers();
+    if (notify) showNotice("notice.tailscale.static");
+    return true;
+  }
+  return false;
+}
+
+function isTailscaleAddress(value) {
+  const parts = String(value || "").trim().split(".");
+  if (parts.length !== 4 || parts[0] !== "100") return false;
+  const second = Number(parts[1]);
+  return Number.isInteger(second) && second >= 64 && second <= 127;
 }
 
 function applyTopology(topology) {
@@ -531,6 +555,10 @@ function bindEvents() {
     });
     ["host-id", "dds-address"].forEach((name) => {
       field(slot, name).addEventListener("input", renderDerivedPeers);
+    });
+    field(slot, "dds-interface").addEventListener("input", () => {
+      ensureRoutedDiscovery();
+      renderDerivedPeers();
     });
   });
   document.querySelectorAll("input, select").forEach((control) => {

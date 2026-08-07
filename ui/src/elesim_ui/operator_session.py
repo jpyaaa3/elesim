@@ -99,6 +99,8 @@ class OperatorSession:
         self._last_snapshot_at: Optional[float] = None
         self._dds_online = False
         self._last_error = ""
+        self._last_error_log = ""
+        self._last_error_log_at = 0.0
         if autostart:
             self.start()
 
@@ -199,7 +201,7 @@ class OperatorSession:
                         self._requests.pop(prior_id, None)
             if len(self._requests) >= self.max_pending:
                 message = f"operator request queue is full ({self.max_pending})"
-                self._last_error = message
+                self._record_error(message)
                 if on_error is not None:
                     self._callbacks.append((on_error, message))
                 return request.request_id
@@ -397,5 +399,16 @@ class OperatorSession:
             )
 
     def _record_error(self, message: str) -> None:
+        value = str(message)
+        now = self.clock()
         with self._lock:
-            self._last_error = str(message)
+            self._last_error = value
+            should_log = (
+                value != self._last_error_log
+                or now - self._last_error_log_at >= 5.0
+            )
+            if should_log:
+                self._last_error_log = value
+                self._last_error_log_at = now
+        if should_log:
+            print(f"[ui-dds] {value}", flush=True)

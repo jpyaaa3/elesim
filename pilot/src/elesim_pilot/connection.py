@@ -100,6 +100,7 @@ class PilotConnection:
         self._last_discover_at: Optional[float] = None
         self._selection_requested = ""
         self._selection_requested_at: Optional[float] = None
+        self._diagnostic_seen: dict[str, float] = {}
 
     def start(self) -> None:
         if self.thread is not None and self.thread.is_alive():
@@ -139,6 +140,16 @@ class PilotConnection:
             ),
             settings=self.dds_settings,
         )
+        identity = getattr(endpoint, "identity", None)
+        if identity is None:
+            identity = getattr(getattr(endpoint, "node", None), "identity", None)
+        self._diagnostic(
+            "lifecycle",
+            dedupe="started",
+            state="started",
+            endpoint=self.pilot_id,
+            boot=getattr(identity, "boot_id", "unknown"),
+        )
         self.ready.set()
         try:
             while not self.stop_event.is_set():
@@ -160,6 +171,12 @@ class PilotConnection:
                 except DdsTransportError as exc:
                     self.state_sink.peer_connected(False)
                     self.state_sink.accept_error(f"DDS peer transport failed: {exc}")
+                    self._diagnostic(
+                        "transport",
+                        dedupe=f"error:{exc}",
+                        state="failed",
+                        error=exc,
+                    )
                     self.stop_event.wait(0.1)
                 except (ProtocolError, ValueError) as exc:
                     self.state_sink.accept_error(f"protocol receive failed: {exc}")
@@ -172,6 +189,16 @@ class PilotConnection:
         if message_type == "endpoint_list":
             raw_endpoints = payload.get("endpoints", [])
             self.endpoints = [dict(value) for value in raw_endpoints if isinstance(value, Mapping)]
+            endpoint_ids = ",".join(
+                sorted(str(value.get("endpoint_id", "")) for value in self.endpoints)
+            )
+            self._diagnostic(
+                "discovery",
+                dedupe=f"endpoints:{endpoint_ids}",
+                state="endpoint-list",
+                endpoint=self.pilot_id,
+                peers=endpoint_ids or "none",
+            )
             self._request_desired_target(endpoint)
             return
         if message_type == "target_selected":
@@ -179,6 +206,14 @@ class PilotConnection:
             self.lease_id = str(payload.get("lease_id", ""))
             self._selection_requested = self.active_target
             self._selection_requested_at = None
+            self._diagnostic(
+                "target",
+                dedupe=f"selected:{self.active_target}",
+                state="selected",
+                source=self.pilot_id,
+                target=self.active_target,
+                lease=self.lease_id,
+            )
             self.state_sink.target_changed(self.active_target)
             descriptor = next(
                 (value for value in self.endpoints if value.get("endpoint_id") == self.active_target),
@@ -193,6 +228,13 @@ class PilotConnection:
                     )
             return
         if message_type in {"target_lost", "target_released"}:
+            self._diagnostic(
+                "target",
+                dedupe=f"lost:{self.active_target}",
+                state="lost",
+                source=self.pilot_id,
+                target=self.active_target or "none",
+            )
             self.active_target = ""
             self.lease_id = ""
             self._selection_requested = ""
@@ -274,6 +316,13 @@ class PilotConnection:
         if not self.desired_target or self.active_target == self.desired_target:
             return
         if not any(value.get("endpoint_id") == self.desired_target for value in self.endpoints):
+            self._diagnostic(
+                "discovery",
+                dedupe=f"waiting:{self.desired_target}",
+                state="waiting-target",
+                source=self.pilot_id,
+                target=self.desired_target,
+            )
             return
         current = time.monotonic() if now is None else float(now)
         if (
@@ -283,6 +332,13 @@ class PilotConnection:
         ):
             return
         endpoint.send("select_target", payload={"target_id": self.desired_target})
+        self._diagnostic(
+            "target",
+            dedupe=f"request:{self.desired_target}",
+            state="select-requested",
+            source=self.pilot_id,
+            target=self.desired_target,
+        )
         self._selection_requested = self.desired_target
         self._selection_requested_at = current
 
@@ -334,9 +390,24 @@ class PilotConnection:
     ) -> None:
         if not self.active_target:
             self.state_sink.accept_error("no_active_target")
+            self._diagnostic(
+                "motion",
+                dedupe="no-target",
+                state="blocked",
+                source=self.pilot_id,
+                reason="no_active_target",
+            )
             return
         if not self.lease_id and not allow_without_lease:
             self.state_sink.accept_error("no_active_lease")
+            self._diagnostic(
+                "motion",
+                dedupe="no-lease",
+                state="blocked",
+                source=self.pilot_id,
+                target=self.active_target,
+                reason="no_active_lease",
+            )
             return
         endpoint.send(
             "motion_command",
@@ -344,6 +415,25 @@ class PilotConnection:
             payload=payload,
             lease_id=self.lease_id,
         )
+
+    def _diagnostic(
+        self,
+        event: str,
+        *,
+        dedupe: str,
+        interval: float = 5.0,
+        **fields: object,
+    ) -> None:
+        now = time.monotonic()
+        previous = self._diagnostic_seen.get(dedupe)
+        if previous is not None and now - previous < interval:
+            return
+        self._diagnostic_seen[dedupe] = now
+        rendered = " ".join(
+            f"{key}={str(value).replace(chr(10), ' ')[:160]}"
+            for key, value in fields.items()
+        )
+        print(f"[pilot-dds] event={event} {rendered}", flush=True)
 
 
 __all__ = ["PilotConnection", "canonical_motion_payload"]

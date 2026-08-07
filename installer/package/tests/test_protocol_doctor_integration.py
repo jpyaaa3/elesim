@@ -34,3 +34,7 @@ def test_container_images_build_the_interface_overlay() -> None:
         assert " build " in dockerfile
         assert "rmw-cyclonedds-cpp" in dockerfile
         assert "rosidl-default-generators" in dockerfile
+    # ``elesim-net namespace-check`` runs inside the tools image and uses
+    # ``ip -j route get`` for static peers.  Without iproute2 the check would
+    # fail only after installation, making a valid topology look broken.
+    assert "iproute2" in tools

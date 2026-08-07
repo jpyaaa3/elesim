@@ -67,6 +67,49 @@
 - 일반 IPv4 NAT, CGNAT, symmetric NAT는 의도적으로 지원하지 않는다. TURN은
   WebRTC media만 relay하며 DDS 우회 수단으로 안내하면 안 된다.
 
+### P1. Docker Desktop/WSL routed DDS discovery와 원격 Sim 세션이 동작하지 않음
+
+- 상태: open. Sim 컨테이너 자체는 Genesis 초기화와 RGBD publisher 생성까지
+  완료하지만, Docker Desktop/WSL의 `eth0` 경로에서는 Pilot·UI가
+  `sim-default` descriptor/heartbeat를 발견하지 못한다.
+- 관찰 증상은 `target peer 'sim-default' is not active`, `OBSERVER WAIT`,
+  `HAND-EYE WAIT`이다. 이는 WebRTC 또는 Coturn 인증 오류가 아니라 DDS
+  `open_simulation_session` 자체가 Sim에 도달하지 않았다는 뜻이다. Coturn은
+  이 단계에서 아직 사용되지 않는다.
+- 같은 DDS graph 단절이 조작에도 영향을 준다. UI의 `operator_intent`는
+  Pilot으로, Pilot의 `motion_command`는 Sim/Robot으로, UI의
+  `simulation_command`는 Sim으로 전달되어야 한다. 따라서 NoMachine에서
+  Sim 화면을 볼 수 있다는 사실은 제어 경로가 살아 있다는 증거가 아니며,
+  현재 상태에서는 UI 조작이 반대편에 도달하지 않는 것이 예상된다.
+- `elesim-logs`가 조용했던 것도 별도 관측성 결함이었다. 이제 runtime은
+  discovery 도착/소실, peer 전송 대기·실패, operator intent,
+  simulation session/command, motion 수신/ack, WebRTC signaling을 bounded
+  transition log로 출력하며 DDS 줄에는 endpoint·target·boot ID를 포함한다.
+  아래의 실제 media/control acceptance gate는 여전히 open이다.
+- Docker Desktop의 `network_mode: host`는 WSL의 `tailscale0`가 아니라 별도
+  Docker Linux VM의 namespace를 사용한다. `tailscale0`을 `eth0`으로 바꾸면
+  컨테이너가 시작될 수는 있지만, Tailscale 100.x 주소에 대한 DDS UDP 경로가
+  생기는 것은 아니다.
+- 기본 `multicast` discovery는 Tailscale/routed VPN을 건너지 않는다. routed
+  경로에서는 모든 호스트 주소를 이용한 static-peer discovery와 실제 양방향
+  DDS UDP 검증이 필요하다. 단순히 인터페이스 이름 검사를 완화하거나 SSH/TCP
+  helper를 재사용하는 것은 해결책이 아니다.
+- 설정 측 guard는 이제 Tailscale 주소를 routed endpoint로 취급하고 multicast
+  대신 static discovery를 선택하며, 구형 `automatic` interface 값을 정규화한다.
+  또한 managed 보안 자료를 발급하기 전에 runtime namespace와 모든 static peer
+  route를 점검한다. 따라서 “키 발급은 성공했는데 시작은 묵묵부답”인 경로를
+  설정 단계에서 막는다.
+- tools image에는 이제 `iproute2`가 포함되며, 시작 전
+  `install-state.json`·CycloneDDS XML·Compose DDS 설정이 서로 다른 구형
+  산출물을 거부한다. keyless Tailscale SSH topology에서는 runtime namespace에서
+  22번 포트의 negative-only probe도 수행해 같은 관리 peer에조차 닿지 못하는
+  경우 즉시 실패시킨다. TCP 성공을 DDS/UDP 성공으로 간주하지는 않는다.
+- 아직 남은 문제: route probe는 실제 DDS 통신의 증명이 아니다. 지원되는 경로에서
+  Sim descriptor 발견, session open, 두 WebRTC offer/answer, 실제 영상 수신을
+  순서대로 검증해야 한다. Docker Desktop Linux VM이 100.x UDP를 라우팅하지
+  못하면 같은 namespace의 Docker Engine을 쓰거나 별도 routed transport를
+  설계해야 하며, SSH/Tailscale TCP helper는 대체 수단이 아니다.
+
 ### P1. 원격 Genesis 영상과 조작은 live gate가 필요함
 
 - 상태: open.
@@ -118,11 +161,11 @@
   shell에서 임시 container가 늘지 않음, 고정 이름 충돌 진단, NVIDIA/CPU variant,
   GUI forwarding과 Jaeger다.
 - Docker Desktop의 별도 Linux VM에는 WSL distro의 `tailscale0`가 보이지 않을 수
-  있다. 직접 bind는 해당 namespace에서 interface가 보일 때 지원·검증하며,
-  SROS2 Authority preflight와 런타임 bind 검사는 분리한다. 별도의 공식
-  sidecar/tunnel 설계는 아직 없으므로 직접 bind에는 같은 Linux namespace의
-  Docker Engine이 필요하고, 다른 컨테이너-visible interface를 쓰는 경우는
-  별도 routed/NAT 모드로 취급한다.
+  있다. 직접 bind는 해당 namespace에서 interface가 보일 때 managed provisioning
+  전과 런타임 시작 전에 점검한다. 별도의 공식 sidecar/tunnel 설계는 아직
+  없으므로 직접 bind에는 같은 Linux namespace의 Docker Engine이 필요하고,
+  다른 container-visible interface를 쓰는 경우는 별도 routed/NAT 모드로
+  취급한다. route check만으로 live DDS가 증명되지는 않는다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 

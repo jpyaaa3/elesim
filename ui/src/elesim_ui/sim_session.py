@@ -120,6 +120,8 @@ class UiSimSession:
         self._sent_messages: dict[str, tuple[str, str]] = {}
         self._last_result: Optional[SimulationResultPayload] = None
         self._last_error = ""
+        self._last_error_log = ""
+        self._last_error_log_at = 0.0
         self._was_registered = False
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -223,7 +225,7 @@ class UiSimSession:
                 self._commands[-1] = _coalesce_command(self._commands[-1], queued)
                 return request_id
             if len(self._commands) >= self.max_pending_commands:
-                self._last_error = (
+                self._set_error(
                     f"simulation command queue is full ({self.max_pending_commands})"
                 )
                 return ""
@@ -475,8 +477,13 @@ class UiSimSession:
                 return
             self._pending_command_ids.discard(result.request_id)
             self._last_result = result
-            if not result.ok:
-                self._last_error = result.reason or f"{result.command} failed"
+            failure = (
+                result.reason or f"{result.command} failed"
+                if not result.ok
+                else ""
+            )
+        if failure:
+            self._set_error(failure)
 
     def _handle_peer_error(self, message: Any) -> None:
         payload = dict(message.payload or {})
@@ -491,14 +498,14 @@ class UiSimSession:
                 self._clear_session_locked()
             elif kind == "command":
                 self._pending_command_ids.discard(request_id)
-            self._last_error = reason
+        self._set_error(reason)
 
     def _lose_session(self, reason: str) -> None:
         self._close_receivers()
         with self._lock:
             self._clear_session_locked()
-            self._last_error = reason
             self._retry_after = self.clock() + self.retry_s
+        self._set_error(reason)
 
     def _clear_session(self) -> None:
         self._close_receivers()
@@ -532,8 +539,19 @@ class UiSimSession:
                 pass
 
     def _set_error(self, message: str) -> None:
+        value = str(message)
+        now = self.clock()
         with self._lock:
-            self._last_error = str(message)
+            self._last_error = value
+            should_log = (
+                value != self._last_error_log
+                or now - self._last_error_log_at >= 5.0
+            )
+            if should_log:
+                self._last_error_log = value
+                self._last_error_log_at = now
+        if should_log:
+            print(f"[ui-dds] {value}", flush=True)
 
     def _run(self) -> None:
         client = self.peer

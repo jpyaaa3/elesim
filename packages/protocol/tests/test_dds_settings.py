@@ -12,6 +12,12 @@ def test_static_discovery_requires_an_explicit_seed() -> None:
         DdsRuntimeSettings(discovery_mode="static")
 
 
+def test_legacy_automatic_interface_is_normalized_to_vendor_auto_selection() -> None:
+    settings = DdsRuntimeSettings(network_interface="automatic")
+
+    assert settings.network_interface == ""
+
+
 def test_sros2_requires_keystore_and_absolute_enclave() -> None:
     with pytest.raises(ValueError, match="keystore"):
         DdsRuntimeSettings(security_profile="sros2", enclave="/elesim/robot")

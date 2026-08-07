@@ -245,16 +245,25 @@ cannot directly route the WSL `tailscale0` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
 It is an SSH-management fallback only: it does not proxy DDS UDP. A configured
 `tailscale0` remains a valid direct DDS bind and is preserved in the generated
-CycloneDDS XML. The lightweight `elesim-net namespace-check` runs immediately
-before an actual runtime start (and in the generated launch wrapper), inside
-the same network namespace as the role containers. SROS2 authority preflight
-does not perform this runtime check: key generation and interface availability
-are separate gates. If the configured interface is absent at start, launch
-fails before role containers enter a restart loop. For Docker Desktop plus WSL,
-direct `tailscale0` binding requires a Docker Engine running inside the same
-WSL/Linux network namespace as Tailscale; a routed/NAT path through another
-container-visible interface is a separate configuration and does not become a
-direct `tailscale0` bind automatically.
+CycloneDDS XML. The lightweight `elesim-net namespace-check` runs in the same
+network namespace as the role containers, both before managed security material
+is issued and immediately before an actual runtime start (including generated
+launch wrappers). For static discovery it also checks that every configured DDS
+peer has a route through the selected interface. These are read-only bind/route
+checks, not proof that DDS discovery or application traffic is working. If a
+check fails, provisioning stops before it leaves a fresh security generation
+behind for an unusable graph. For Docker Desktop plus WSL, direct `tailscale0`
+binding requires a Docker Engine running inside the same WSL/Linux network
+namespace as Tailscale; a routed/NAT path through another container-visible
+interface is a separate configuration and does not become a direct
+`tailscale0` bind automatically. SSH/Tailscale TCP success never substitutes
+for the DDS UDP route check. When a topology uses keyless Tailscale SSH, the
+manager also performs a negative-only port-22 probe from the runtime namespace:
+a failure proves that the runtime cannot reach the same peer path used for
+management and stops lifecycle startup before an opaque discovery wait; a pass
+is still not DDS/UDP evidence. The tools image includes `iproute2` for the route
+probe, and `elesim-net namespace-check` rejects stale state/XML/Compose values
+before touching a running role.
 For a full lifecycle start, the same private helper accepts only the fixed
 Elesim Compose build shape and streams its actual
 `docker compose --progress plain build` stdout/stderr back to the manager. A

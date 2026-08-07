@@ -166,6 +166,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="unused"' in html
     assert 'id="topology-mode"' in html
     assert "simulation-only" in script
+    assert "ensureRoutedDiscovery" in script
+    assert "notice.tailscale.static" in script
     assert 'id="apply"' in html
     assert 'id="workflow-stage"' in html
     assert 'data-i18n="advanced.title"' not in html

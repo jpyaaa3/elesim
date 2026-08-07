@@ -69,6 +69,50 @@ there are historical unless repeated here.
 - Ordinary IPv4 NAT, CGNAT and symmetric NAT are deliberately unsupported.
   TURN relays WebRTC media only; it must never be presented as DDS traversal.
 
+### P1. Docker Desktop/WSL Routed DDS Discovery And Remote Sim Session Are Not Operational
+
+- Status: open. The Sim container can complete Genesis initialization and create
+  its RGB-D publisher, but Pilot and UI do not discover the `sim-default`
+  descriptor/heartbeat when the Docker Desktop/WSL path is configured through
+  `eth0`.
+- The observed symptoms are `target peer 'sim-default' is not active`,
+  `OBSERVER WAIT`, and `HAND-EYE WAIT`. This is upstream of WebRTC and Coturn:
+  the DDS `open_simulation_session` request never reaches Sim, so Coturn has not
+  entered the flow yet.
+- The same DDS graph break also disables control. UI `operator_intent` must reach
+  Pilot, Pilot `motion_command` must reach Sim/Robot, and UI
+  `simulation_command` must reach Sim. Seeing the Sim window through NoMachine
+  proves only display access; it does not prove the control path.
+- Empty `elesim-logs` was a separate observability gap. The runtime now emits
+  bounded transition logs for discovery loss/arrival, queued or failed peer
+  sends, operator intents, simulation-session open/command, motion receive/ack,
+  and WebRTC signaling; DDS lines include endpoint, target and boot identity.
+  The live media/control acceptance gate below remains open.
+- Docker Desktop `network_mode: host` uses the separate Docker Linux VM
+  namespace, not the WSL namespace containing `tailscale0`. Changing the
+  configured interface to `eth0` may let containers start, but it does not create
+  a DDS UDP route to Tailscale 100.x addresses.
+- Default multicast discovery does not cross Tailscale/routed VPN. A routed path
+  requires static-peer discovery from every host address plus a verified
+  bidirectional DDS UDP path. Relaxing the interface check or reusing the SSH/TCP
+  helper is not a valid fix.
+- The setup-side guard now treats Tailscale addresses as routed endpoints,
+  selects static discovery instead of multicast, normalizes the legacy
+  `automatic` interface value, and checks the runtime namespace plus every static
+  peer route before issuing managed security material. This prevents the most
+  misleading “keys succeeded, start silently fails” path.
+- The tools image now includes `iproute2`; launch also rejects stale
+  `install-state.json`/CycloneDDS XML/Compose DDS views. When the topology uses
+  keyless Tailscale SSH, a negative-only port-22 probe from the runtime namespace
+  fails early if that namespace cannot reach the management peer. A successful
+  TCP probe is intentionally not treated as DDS/UDP evidence.
+- Still open: a route probe is not a live DDS proof. On a supported path we must
+  verify Sim descriptor discovery, session open, both WebRTC offer/answer
+  exchanges, and actual video reception in order. If Docker Desktop's Linux VM
+  cannot route the 100.x UDP traffic, the supported fix remains a same-namespace
+  Docker Engine or a separately designed routed transport; SSH/Tailscale TCP
+  helper traffic cannot substitute for it.
+
 ### P1. Remote Genesis Video And Control Need A Live Gate
 
 - Status: open.
@@ -125,12 +169,12 @@ there are historical unless repeated here.
   `elesim-dev` shells proving no temporary container proliferation, fixed-name
   collision diagnostics, NVIDIA/CPU variants, GUI forwarding and Jaeger.
 - Docker Desktop's separate Linux VM may not expose a WSL distro's
-  `tailscale0`. Direct binding is supported and checked immediately before
-  runtime start when the interface is visible; SROS2 authority preflight does
-  not conflate the two gates. A supported sidecar/tunnel design still does not
-  exist, so Docker Desktop users need Docker Engine in the same Linux network
-  namespace for direct binding or an explicitly configured container-visible
-  routed interface for a separate NAT mode.
+  `tailscale0`. Direct binding is supported and checked before managed
+  provisioning and runtime start when the interface is visible. A supported
+  sidecar/tunnel design still does not exist, so Docker Desktop users need
+  Docker Engine in the same Linux network namespace for direct binding or an
+  explicitly configured container-visible routed interface for a separate NAT
+  mode; the route check alone is not a live DDS acceptance test.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 

@@ -74,6 +74,11 @@ typed service/action 정의는 생성되어 있지만 runtime에는 아직 연�
   topology의 SSH와 DDS endpoint를 계속 분리한다. `check`, `start`, `stop`,
   `restart`는 기존 pinned local/SSH lifecycle을 재사용하며 DDS discovery나
   WebRTC media의 생존을 SSH 성공으로 추정하지 않는다.
+- 정적 peer는 tools runtime namespace에서 `iproute2` route 검사를 거친다.
+  keyless Tailscale SSH topology에는 같은 namespace의 port-22 도달 실패를
+  조기에 보고하는 negative-only probe가 추가되며, 상태·CycloneDDS XML·Compose
+  DDS 값이 어긋난 구형 산출물은 실행 전에 거부한다. 어느 probe도 DDS/UDP
+  discovery의 실기 수용을 대신하지 않는다.
 - Observer camera 조작은 pinned Genesis 1.2.0 Trackball 의미(왼쪽 orbit,
   가운데 pan, 오른쪽/휠 zoom, pole clamp)를 사용하고 Roll 표시 방향은
   canonical roll 증가와 일치한다. UI의 두 영상은 별도 native window 한 곳에서
@@ -113,7 +118,10 @@ Exit condition:
   sequence 거부, 재발견과 재연결을 확인한다.
 - loss/reorder 상황에서 stop/deadman과 오류 로그가 확인된다.
 - M3는 일반 IPv4 NAT/CGNAT/symmetric NAT 지원 증명이 아니다. 해당 경로는
-  명시적으로 실패하고 actionable diagnostic을 내야 한다.
+  명시적으로 실패하고 actionable diagnostic을 내야 한다. Docker
+  Desktop/WSL에서 WSL의 `tailscale0`가 Docker Linux VM에 전달되지 않는
+  경우도 같은 사전 진단으로 분류하고, 같은 namespace의 Docker Engine 또는
+  실제 routed interface를 사용해야 한다.
 
 ### M4 — 보안·원격 배포·호스트 수용시험
 
