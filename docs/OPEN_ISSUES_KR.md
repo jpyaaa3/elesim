@@ -14,6 +14,14 @@
 근거를 보존한 기록이며, 여기에서 다시 언급하지 않은 경로와 테스트 수치는 과거
 정보로 취급한다.
 
+### 최근 software hardening (2026-08-07)
+
+- Robot의 DDS transport 단절은 이제 재시도 가능한 상태다. Robot process가
+  예외로 안전 루프를 빠져나가지 않고 local motion lease를 해제해 arm
+  safe-hold를 수행하며, local deadman/hardware monitor tick을 계속 돌리고,
+  rate-limited 진단을 남긴 뒤 discovery를 재시도한다. 회귀 테스트로 고정했으며,
+  실제 Jetson의 stop timing은 여전히 수동 gate다.
+
 ### P0. Router 없는 ROS 2/DDS 전환은 live 증명과 typed surface 후속이 필요함
 
 - 상태: 실제 network 검증과 typed service/action binding에 대해 open이다.

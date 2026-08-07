@@ -138,3 +138,57 @@ def test_camera_start_failure_stops_camera_and_closes_runtime_and_peer(
     assert OpenRuntime.latest.close_count == 1
     assert FakeClient.latest is not None
     assert FakeClient.latest.close_count == 1
+
+
+def test_transient_dds_loss_keeps_robot_safety_loop_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_startup(monkeypatch, camera_enabled=False)
+
+    class RuntimeWithSafetyLoop:
+        latest: "RuntimeWithSafetyLoop | None" = None
+
+        def __init__(self, **_kwargs) -> None:
+            type(self).latest = self
+            self.active_lease = "lease-1"
+            self.pilot_id = "pilot-a"
+            self.revoke_count = 0
+            self.tick_count = 0
+            self.close_count = 0
+
+        def open(self) -> None:
+            return None
+
+        def revoke_lease(self) -> None:
+            self.revoke_count += 1
+            self.active_lease = ""
+            self.pilot_id = ""
+
+        def tick(self) -> None:
+            self.tick_count += 1
+
+        def close(self) -> None:
+            self.close_count += 1
+
+    class FlakyClient(FakeClient):
+        receive_count = 0
+
+        def heartbeat(self) -> None:
+            return None
+
+        def receive(self, *, timeout_ms: int = 0):
+            del timeout_ms
+            type(self).receive_count += 1
+            if type(self).receive_count == 1:
+                raise robot_main.DdsTransportError("target peer disappeared")
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(robot_main, "PeerClient", FlakyClient)
+    monkeypatch.setattr(robot_main, "RobotRuntime", RuntimeWithSafetyLoop)
+
+    robot_main._run()
+
+    assert RuntimeWithSafetyLoop.latest is not None
+    assert RuntimeWithSafetyLoop.latest.revoke_count == 1
+    assert RuntimeWithSafetyLoop.latest.tick_count >= 1
+    assert RuntimeWithSafetyLoop.latest.close_count == 1

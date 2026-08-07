@@ -176,6 +176,11 @@ telemetry and status remain dirty until acknowledged by the transport, and
 unsent simulation results return to the bounded mailbox. Reply failures and
 heartbeat/receive failures are diagnosed and retried without terminating the
 Genesis process's DDS thread.
+Robot treats a transient DDS transport failure as a safety event rather than a
+process-exit condition: it revokes the local motion lease (running the arm
+safe-hold path), keeps the local deadman and hardware monitor ticking, emits a
+rate-limited diagnostic, and retries discovery. Cleanup or hardware-stop
+failures remain fatal so a failed safety action cannot be hidden.
 
 ## Network Security Profiles
 

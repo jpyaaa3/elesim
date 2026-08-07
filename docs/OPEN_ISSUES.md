@@ -14,6 +14,14 @@ This section is authoritative for the deployment-based architecture. The long
 sections below it are retained as pre-refactor evidence; paths and test counts
 there are historical unless repeated here.
 
+### Recent software hardening (2026-08-07)
+
+- Robot DDS transport loss is now retryable. The Robot process revokes its
+  local motion lease, continues the local deadman/hardware-monitor tick, emits
+  a rate-limited diagnostic, and retries discovery instead of leaving the
+  safety loop through an uncaught transport exception. This is covered by a
+  regression test; live Jetson stop timing remains a manual gate.
+
 ### P0. Router-Free ROS 2/DDS Migration Needs Live Proof And Typed-Surface Follow-Up
 
 - Status: open for live validation and typed service/action binding. Router/ZMQ

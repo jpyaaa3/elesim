@@ -12,6 +12,7 @@ from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
     CAPABILITY_STREAM_RGBD,
+    DdsTransportError,
     EndpointDescriptor,
     MEDIA_KIND_RGBD,
     MEDIA_SECURITY_DDS,
@@ -135,38 +136,62 @@ def _run() -> None:
         if camera is not None:
             camera.start()
         last_state = 0.0
+        last_transport_error = ""
+        last_transport_log_at = 0.0
         while True:
-            client.heartbeat()
-            messages = tuple(client.receive(timeout_ms=20))
-            for message in messages:
-                if message.message_type == "lease_granted":
-                    runtime.grant_lease(
-                        str((message.payload or {}).get("pilot_id", "")),
-                        message.lease_id,
-                    )
-                elif message.message_type == "lease_revoked":
-                    runtime.revoke_lease()
-                elif message.message_type == "motion_command":
-                    ok, reason = runtime.apply(message)
+            try:
+                client.heartbeat()
+                messages = tuple(client.receive(timeout_ms=20))
+                for message in messages:
+                    if message.message_type == "lease_granted":
+                        runtime.grant_lease(
+                            str((message.payload or {}).get("pilot_id", "")),
+                            message.lease_id,
+                        )
+                    elif message.message_type == "lease_revoked":
+                        runtime.revoke_lease()
+                    elif message.message_type == "motion_command":
+                        ok, reason = runtime.apply(message)
+                        client.send(
+                            "ack",
+                            target_id=message.source_id,
+                            payload={
+                                "reply_to": message.message_id,
+                                "ok": ok,
+                                "reason": reason,
+                            },
+                            lease_id=message.lease_id,
+                        )
+                runtime.tick()
+                now = time.monotonic()
+                if runtime.pilot_id and now - last_state >= config.safety.telemetry_period_s:
+                    last_state = now
+                    state = runtime.state()
+                    if camera is not None:
+                        state["camera"] = camera.status()
                     client.send(
-                        "ack",
-                        target_id=message.source_id,
-                        payload={"reply_to": message.message_id, "ok": ok, "reason": reason},
-                        lease_id=message.lease_id,
+                        "telemetry",
+                        target_id=runtime.pilot_id,
+                        payload=state,
+                        lease_id=runtime.active_lease,
                     )
-            runtime.tick()
-            now = time.monotonic()
-            if runtime.pilot_id and now - last_state >= config.safety.telemetry_period_s:
-                last_state = now
-                state = runtime.state()
-                if camera is not None:
-                    state["camera"] = camera.status()
-                client.send(
-                    "telemetry",
-                    target_id=runtime.pilot_id,
-                    payload=state,
-                    lease_id=runtime.active_lease,
-                )
+            except DdsTransportError as exc:
+                # A lost DDS peer must not stop the local safety loop.  Revoke
+                # the motion lease so arm safe-hold runs, keep ticking the
+                # deadman/telemetry monitor, and let DDS discovery recover.
+                if runtime.active_lease:
+                    runtime.revoke_lease()
+                runtime.tick()
+                now = time.monotonic()
+                detail = str(exc).strip() or exc.__class__.__name__
+                if detail != last_transport_error or now - last_transport_log_at >= 5.0:
+                    print(
+                        f"[robot-dds] transport unavailable; motion lease revoked: {detail}",
+                        flush=True,
+                    )
+                    last_transport_error = detail
+                    last_transport_log_at = now
+                time.sleep(0.1)
     except KeyboardInterrupt:
         pass
     except BaseException as exc:
