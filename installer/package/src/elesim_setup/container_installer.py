@@ -144,6 +144,12 @@ class ContainerInstaller:
         self.log("[1/6] 설치 디렉터리와 runtime data 준비")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        cache_root = self.state.prefix_path / "cache"
+        for cache_path in (cache_root, cache_root / "genesis"):
+            if cache_path.is_symlink():
+                raise ValueError(f"runtime cache는 symlink일 수 없습니다: {cache_path}")
+            cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            cache_path.chmod(0o700)
         security_root = self.state.prefix_path / "security"
         if security_root.is_symlink():
             raise ValueError(f"security root는 symlink일 수 없습니다: {security_root}")
@@ -1068,6 +1074,13 @@ def _viewer_xhost_function(state_path: Path) -> str:
         "    local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
         "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
         "      rm -f -- \"$temporary\"\n"
+        "      if (( had_root == 0 )); then\n"
+        "        if [[ -n ${XAUTHORITY:-} ]]; then\n"
+        "          XAUTHORITY=\"$XAUTHORITY\" DISPLAY=\"$display\" xhost -si:localuser:root >/dev/null 2>&1 || true\n"
+        "        else\n"
+        "          DISPLAY=\"$display\" xhost -si:localuser:root >/dev/null 2>&1 || true\n"
+        "        fi\n"
+        "      fi\n"
         "      printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
         "      return 74\n"
         "    fi\n"

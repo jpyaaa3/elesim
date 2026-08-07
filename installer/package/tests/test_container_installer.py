@@ -99,6 +99,11 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     ContainerInstaller(state).run()
     compose = _compose(state)
 
+    cache_root = state.prefix_path / "cache"
+    assert cache_root.is_dir()
+    assert cache_root.stat().st_mode & 0o777 == 0o700
+    assert (cache_root / "genesis").is_dir()
+    assert (cache_root / "genesis").stat().st_mode & 0o777 == 0o700
     assert compose["name"] == "elesim-runtime"
     assert set(compose["services"]) == {
         "sim",
@@ -338,6 +343,58 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
     assert result.returncode == 0
     assert (tmp_path / "xhost.revoked").read_text(encoding="utf-8") == ":7"
     assert not (tmp_path / "viewer-xhost").exists()
+
+
+def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    blocked_parent = tmp_path / "blocked"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            viewer_state=blocked_parent / "viewer-xhost",
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    docker.chmod(0o755)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "case $1 in\n"
+        "  +si:localuser:root) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  -si:localuser:root) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment["DISPLAY"] = ":0"
+    environment["XHOST_PERMISSION_MARKER"] = str(tmp_path / "xhost.permission")
+
+    result = subprocess.run(
+        (wrapper, "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 74
+    assert "상태를 기록할 수 없습니다" in result.stderr
+    assert not (tmp_path / "xhost.permission").exists()
 
 
 def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:
