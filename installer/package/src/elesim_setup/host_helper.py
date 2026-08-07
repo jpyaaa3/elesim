@@ -12,6 +12,7 @@ import base64
 import json
 import os
 import re
+import select
 import socket
 import socketserver
 import subprocess
@@ -94,16 +95,23 @@ class _Handler(socketserver.StreamRequestHandler):
             raise HostHelperError("host-helper stream flag is invalid")
 
         def emit(name: str, chunk: bytes) -> None:
-            self._reply(
+            if not self._reply(
                 {
                     "type": "output",
                     "stream": name,
                     "data": base64.b64encode(chunk).decode("ascii"),
                 }
-            )
+            ):
+                # The manager may time out and close its helper socket while
+                # a long Docker build is still producing output.  Propagate
+                # that disconnect into ``_run_bounded`` so it terminates the
+                # child instead of leaving an orphan build behind.
+                raise BrokenPipeError("host-helper client disconnected")
 
         returncode, stdout, stderr, out_cut, err_cut = _run_bounded(
-            argv, on_output=emit if stream else None
+            argv,
+            on_output=emit if stream else None,
+            cancelled=self._client_disconnected,
         )
         self._reply(
             {
@@ -188,14 +196,36 @@ class _Handler(socketserver.StreamRequestHandler):
                     process.kill()
                     process.wait()
 
-    def _reply(self, payload: dict[str, object]) -> None:
+    def _reply(self, payload: dict[str, object]) -> bool:
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
         with self._reply_lock:
             try:
                 self.connection.sendall(encoded)
             except (BrokenPipeError, ConnectionResetError, OSError):
                 # A disconnected proxy cannot receive an error response.
-                return
+                return False
+        return True
+
+    def _client_disconnected(self) -> bool:
+        """Detect a closed request socket even while a child is quiet."""
+
+        try:
+            readable, _writable, _exceptional = select.select(
+                [self.connection], [], [], 0
+            )
+        except (OSError, ValueError):
+            return True
+        if not readable:
+            return False
+        try:
+            data = self.connection.recv(
+                1, socket.MSG_PEEK | getattr(socket, "MSG_DONTWAIT", 0)
+            )
+        except BlockingIOError:
+            return False
+        except (ConnectionResetError, OSError):
+            return True
+        return data == b""
 
 
 def _validate_command(
@@ -262,6 +292,7 @@ def _run_bounded(
     argv: Sequence[str],
     *,
     on_output: Callable[[str, bytes], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[int, bytes, bytes, bool, bool]:
     process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results: dict[str, tuple[bytes, bool]] = {}
@@ -293,11 +324,28 @@ def _run_bounded(
     )
     for worker in workers:
         worker.start()
-    returncode = process.wait()
+    cancelled_error: BaseException | None = None
+    while True:
+        try:
+            returncode = process.wait(timeout=0.1)
+            break
+        except subprocess.TimeoutExpired:
+            if cancelled is None or not cancelled():
+                continue
+            process.terminate()
+            try:
+                returncode = process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                returncode = process.wait()
+            cancelled_error = BrokenPipeError("host-helper client disconnected")
+            break
     for worker in workers:
         worker.join()
     if failures:
         raise failures[0]
+    if cancelled_error is not None:
+        raise cancelled_error
     stdout, out_cut = results["stdout"]
     stderr, err_cut = results["stderr"]
     return returncode, stdout, stderr, out_cut, err_cut
