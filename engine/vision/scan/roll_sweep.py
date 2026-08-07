@@ -1,16 +1,32 @@
 """
-Roll-sweep scan: traverse roll limit-to-limit, capture at fixed ANGLE steps,
-repeat, fuse with FK poses.
+Roll-sweep scan: park at centre, traverse roll, capture on the fly, fuse with
+FK poses, park at centre again.
 
-Why angle-triggered and not time-triggered: the capture trigger is the roll
-angle crossing the next step boundary, so the angular coverage of the fused
-cloud is a property of the plan, not of how fast the joint happened to move.
-A time-triggered sweep bunches frames wherever the joint slowed down.
+See ``docs/roll_scan.md`` for the operator-facing guide.
 
-Why repeated sweeps: each pass re-observes the same angles from a slightly
-different settled position, so averaging across passes suppresses per-frame
-depth noise without ICP. Passes alternate direction (min->max, max->min) so no
-extra travel is wasted returning to the start.
+Sequence per run:
+  1. park roll at ``home_roll_deg`` (the middle of the range)
+  2. anchor: one frame from that pose fixes the world crop box
+  3. traverse ``span_deg`` centred on the anchor, capturing while moving
+  4. fuse, fit, report
+  5. park roll at centre again -- in a ``finally``, so a failed, crashed or
+     stopped run still leaves the joint where the next one expects it
+
+Why capture is angle-gated, not time-gated: a frame is kept only once the
+MEASURED roll has advanced a full ``step_deg`` since the last kept one, so
+angular coverage is a property of the plan rather than of how fast the joint
+happened to move. A time-gated sweep bunches frames wherever it slowed down.
+
+Why continuous rather than stop-and-go: the pose comes from the measured joint
+state either way, so a frame taken mid-traverse registers just as well as one
+taken at rest -- and stopping cost ~0.3 s per stop in settle alone. Frames whose
+pose straddles more than ``max_pose_straddle_deg`` are dropped, because
+registering a cloud at an angle the arm was never at is exactly the error this
+scan exists to measure. ``continuous = false`` restores stop-and-go.
+
+Why the traverse is centred rather than limit-to-limit: the joint reaches 90 deg
+of q either side of centre, and the object is normally only in view near the
+middle, so a full-range sweep spends most of its travel looking elsewhere.
 """
 
 from __future__ import annotations

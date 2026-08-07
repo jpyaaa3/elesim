@@ -53,6 +53,7 @@ git graph 체크용으로 readme만 수정합니다(07-22 17:48)
 - 목표 방향 벡터와 실제 끝단 방향 비교
 - 처짐 모델(`sag_model`)을 반영한 체인 거동 확인
 - IK / 정렬 / 미세조정 알고리즘 실험
+- roll 스윕 + ZED 포인트클라우드 융합으로 물체 단면 측정 (FK 포즈 기반, VIO/ICP 미사용) — [docs/roll_scan.md](./docs/roll_scan.md)
 
 현재 로봇 모델은 다음 자유도를 가집니다.
 
