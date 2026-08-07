@@ -2094,6 +2094,18 @@ class ControlHost:
             prefix = name.removesuffix("_ms")
             row[f"{prefix}_avg_ms"] = "" if avg is None else float(avg)
             row[f"{prefix}_max_ms"] = "" if mx is None else float(mx)
+        idle = not any(
+            int(self._arm_latency_counts.get(k, 0))
+            for k in ("recv", "submit", "submit_reject", "apply", "replace")
+        )
+        if idle:
+            # nothing happened this interval: the line would be all zeros and
+            # dashes, and at 2 s it drowns every other message in the console
+            self._arm_latency_write_csv_row(row)
+            self._arm_latency_counts.clear()
+            self._arm_latency_sums.clear()
+            self._arm_latency_max.clear()
+            return
         print(
             "[arm_latency] "
             f"recv={int(self._arm_latency_counts.get('recv', 0))} "
@@ -2820,10 +2832,18 @@ class ControlHost:
             float(q.theta2_rad),
         )
         now_log = time.time()
-        if (
-            log_key != self._last_target_log_key
-            or (now_log - float(self._last_target_log_t)) >= 1.0
-        ):
+        # a continuous ramp changes q every tick, so keying the dedup on q alone
+        # printed one line per command (245 lines for a single sweep). Streaming
+        # sources get a hard rate limit; one-shot sources keep the old behaviour.
+        streaming = source_s in ("roll_scan", "gaze", "lji", "lji_step", "servo")
+        if streaming:
+            should_log = (now_log - float(self._last_target_log_t)) >= 1.0
+        else:
+            should_log = (
+                log_key != self._last_target_log_key
+                or (now_log - float(self._last_target_log_t)) >= 1.0
+            )
+        if should_log:
             self._last_target_log_key = log_key
             self._last_target_log_t = now_log
             print(

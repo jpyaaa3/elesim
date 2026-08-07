@@ -38,6 +38,18 @@ from .fusion import (
 )
 
 
+def _summarize_notes(notes: Sequence[str], top: int = 3) -> str:
+    """Collapse per-frame notes into the reasons that actually dominated."""
+    if not notes:
+        return "no per-frame notes recorded"
+    buckets: dict[str, int] = {}
+    for n in notes:
+        key = str(n).split(":", 1)[-1].strip() if ":" in str(n) else str(n)
+        buckets[key] = buckets.get(key, 0) + 1
+    ranked = sorted(buckets.items(), key=lambda kv: -kv[1])[:top]
+    return "drops: " + ", ".join(f"{k} x{v}" for k, v in ranked)
+
+
 @dataclass
 class ScanProgress:
     """Snapshot for the UI. Plain values only -- crosses a thread boundary."""
@@ -86,6 +98,7 @@ class RollSweepScan:
         on_progress: Optional[Callable[[ScanProgress], None]] = None,
         open_camera: Optional[Callable[[], None]] = None,
         close_camera: Optional[Callable[[], None]] = None,
+        read_intrinsics: Optional[Callable[[], Optional[Any]]] = None,
     ) -> None:
         self.cfg = cfg
         self.plan = build_plan(cfg)
@@ -96,6 +109,7 @@ class RollSweepScan:
         self._on_progress = on_progress
         self._open_camera = open_camera
         self._close_camera = close_camera
+        self._read_intrinsics = read_intrinsics
 
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -109,6 +123,7 @@ class RollSweepScan:
         self._cams: list[np.ndarray] = []
         self._looks: list[np.ndarray] = []
         self._rolls: list[float] = []
+        self._stage_logs = 0
 
     # ---------------- lifecycle ----------------
 
@@ -242,12 +257,26 @@ class RollSweepScan:
             if center is None:
                 notes.append(f"{tag}: anchor too sparse")
                 return None, 0
+        n_valid = len(pts_cam)
         pts_cam = camera_depth_gate(pts_cam, pose.R, pose.t, center, self.cfg.box_half)
+        n_gated = len(pts_cam)
         pw = transform_points(pts_cam, pose.R, pose.t)
         pw = box_crop(pw, center, self.cfg.box_half)
+        n_box = len(pw)
         pw = clean_world_frame(pw)
-        if len(pw) <= int(self.cfg.min_points_per_frame):
-            notes.append(f"{tag}: object out of view")
+        n_clean = len(pw)
+        if self._stage_logs < 6:
+            # per-stage counts for the first few frames: "too few points" alone
+            # cannot distinguish an object out of the box from plane removal
+            # eating the object, and those need opposite fixes
+            self._stage_logs += 1
+            notes.append(
+                f"{tag}: valid={n_valid} gated={n_gated} box={n_box} clean={n_clean}"
+            )
+        if n_clean <= int(self.cfg.min_points_per_frame):
+            why = "nothing in the crop box" if n_box <= int(self.cfg.min_points_per_frame) \
+                else f"plane removal left {n_clean} of {n_box}"
+            notes.append(f"{tag}: too few points -- {why}")
             return center, 0
         pw = voxel_downsample(pw, self.cfg.frame_voxel)
         with self._lock:
@@ -256,6 +285,28 @@ class RollSweepScan:
             self._looks.append(np.asarray(pose.look, dtype=float).copy())
             self._rolls.append(math.degrees(pose.roll_rad))
         return center, len(pw)
+
+    def _visible_window(
+        self, center: np.ndarray, lo: float, hi: float
+    ) -> tuple[float, float]:
+        """Roll range over which the anchored target stays in frame."""
+        intr = None
+        if self._read_intrinsics is not None:
+            try:
+                intr = self._read_intrinsics()
+            except Exception:  # noqa: BLE001
+                intr = None
+        if intr is None:
+            return lo, hi
+        q4, _age = self._read_q4()
+        try:
+            return self._pose.visible_roll_window_deg(
+                q4, center,
+                fx=intr.fx, fy=intr.fy, cx=intr.cx, cy=intr.cy,
+                width=intr.width, height=intr.height, lo_deg=lo, hi_deg=hi,
+            )
+        except Exception:  # noqa: BLE001
+            return lo, hi
 
     def _run_continuous(self, notes: list[str]) -> Optional[np.ndarray]:
         """
@@ -273,6 +324,15 @@ class RollSweepScan:
         center: Optional[np.ndarray] = None
         kept_total = 0
         stop_i = 0
+        # anchor BEFORE traversing, from where the arm already is: the anchor
+        # decides the crop box and the visible window, and taking it at a joint
+        # limit (as the leg loop would) is the least representative viewpoint
+        first = self._sample_pose()
+        if first is not None:
+            center, kept = self._capture_at(first, None, notes, "anchor")
+            if kept:
+                kept_total += kept
+                stop_i += 1
         for leg in range(max(int(cfg.sweeps), 1)):
             if self._stop.is_set():
                 notes.append(f"stopped by user during sweep {leg + 1}")
@@ -282,6 +342,15 @@ class RollSweepScan:
             if begin is None:
                 notes.append(f"sweep {leg + 1}: could not reach the start angle")
                 continue
+            if center is not None and leg == 0:
+                lo2, hi2 = self._visible_window(center, lo, hi)
+                if (hi2 - lo2) < (hi - lo) - 1e-6:
+                    notes.append(
+                        f"visible window {lo2:+.0f}..{hi2:+.0f} deg of {lo:+.0f}..{hi:+.0f} "
+                        f"(target leaves the frame outside it)"
+                    )
+                    lo, hi = lo2, hi2
+                    start, end = (lo, hi) if leg % 2 == 0 else (hi, lo)
             sign = 1.0 if end >= start else -1.0
             t0 = time.time()
             last_kept: Optional[float] = None
@@ -333,8 +402,11 @@ class RollSweepScan:
             looks = list(self._looks)
             rolls = list(self._rolls)
         if len(frames) < 2:
-            self._set(running=False, phase="failed",
-                      msg=f"need >=2 usable frames, got {len(frames)}")
+            self._set(
+                running=False, phase="failed",
+                msg=(f"need >=2 usable frames, got {len(frames)}. "
+                     f"{_summarize_notes(notes)}"),
+            )
             return
 
         self._set(phase="fusing", msg=f"fusing {len(frames)} frames")

@@ -274,6 +274,10 @@ def build_scan(
 
         return valid_points(frame.xyz, min_depth=cfg.min_depth, max_depth=cfg.max_depth)
 
+    def _intrinsics() -> Optional[Any]:
+        cam = holder.get("cam")
+        return None if cam is None else getattr(cam, "intrinsics", None)
+
     return RollSweepScan(
         cfg=cfg,
         pose_provider=pose,
@@ -283,6 +287,7 @@ def build_scan(
         on_progress=on_progress,
         open_camera=_open,
         close_camera=_close,
+        read_intrinsics=_intrinsics,
     )
 
 

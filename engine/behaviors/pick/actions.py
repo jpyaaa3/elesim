@@ -11139,7 +11139,11 @@ class ControlService:
                     running=False, phase="failed", msg=f"fit failed: {exc}"
                 )
                 print(f"[roll_scan] fit failed: {exc}")
+                for note in (res.notes or [])[:12]:
+                    print(f"[roll_scan] note: {note}")
                 return
+            for note in (res.notes or [])[:12]:
+                print(f"[roll_scan] note: {note}")
             fused = report.get("fused") or {}
             self.state.set_roll_scan_status(
                 running=False, phase="done",

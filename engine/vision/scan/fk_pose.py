@@ -121,6 +121,70 @@ class FkPoseProvider:
             age_s=float(age_s),
         )
 
+    def visible_roll_window_deg(
+        self,
+        q4: Sequence[float],
+        target_world: np.ndarray,
+        *,
+        fx: float,
+        fy: float,
+        cx: float,
+        cy: float,
+        width: int,
+        height: int,
+        lo_deg: float,
+        hi_deg: float,
+        margin_frac: float = 0.15,
+        samples: int = 181,
+    ) -> tuple[float, float]:
+        """
+        The sub-range of roll over which ``target_world`` stays inside the image.
+
+        This arm rolls about its BASE, and the optical axis lies close to that
+        axis, so rolling translates the camera on a wide arc without re-aiming
+        it: the target slides across the frame and leaves it. Concretely, a 174
+        deg sweep moves the optical centre ~486 mm while a 65 deg HFOV spans only
+        ~385 mm at 0.3 m, so most of the joint's range points nowhere near the
+        object. Sweeping it anyway costs traverse time and yields nothing.
+
+        Returns the contiguous window around the best angle, shrunk by
+        ``margin_frac`` of the image so the target is not clipped at the border.
+        Falls back to the full range if the target is never projected inside.
+        """
+        q = np.asarray(q4, dtype=float).reshape(4).copy()
+        tw = np.asarray(target_world, dtype=float).reshape(3)
+        mx, my = float(width) * margin_frac, float(height) * margin_frac
+        angles = np.linspace(float(lo_deg), float(hi_deg), int(samples))
+        inside = np.zeros(len(angles), dtype=bool)
+        for i, deg in enumerate(angles):
+            q[1] = np.radians(float(deg))
+            try:
+                T = self.transform(q)
+            except Exception:  # noqa: BLE001
+                continue
+            pc = (T[:3, :3].T) @ (tw - T[:3, 3])
+            if pc[2] <= 1e-3:
+                continue
+            u = float(fx) * pc[0] / pc[2] + float(cx)
+            v = float(fy) * pc[1] / pc[2] + float(cy)
+            inside[i] = (mx <= u <= float(width) - mx) and (my <= v <= float(height) - my)
+
+        if not inside.any():
+            return float(lo_deg), float(hi_deg)
+        # longest contiguous run of visible angles
+        best_len = best_start = run_start = 0
+        run = 0
+        for i, ok in enumerate(inside):
+            if ok:
+                if run == 0:
+                    run_start = i
+                run += 1
+                if run > best_len:
+                    best_len, best_start = run, run_start
+            else:
+                run = 0
+        return float(angles[best_start]), float(angles[best_start + best_len - 1])
+
     def baseline_span_m(self, samples: Sequence[FkPoseSample]) -> float:
         """
         How far the optical centre actually travelled across a capture.
