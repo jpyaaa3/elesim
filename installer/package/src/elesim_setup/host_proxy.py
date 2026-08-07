@@ -60,9 +60,16 @@ def _upload_stdin(connection: socket.socket, input_fd: int) -> None:
             content = os.read(input_fd, 32 * 1024)
             if not content:
                 break
-            connection.sendall(content)
+            try:
+                connection.sendall(content)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # The remote SSH endpoint may finish and close first.
+                return
     finally:
-        connection.shutdown(socket.SHUT_WR)
+        try:
+            connection.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
 
 
 def _read_line(connection: socket.socket) -> bytes:

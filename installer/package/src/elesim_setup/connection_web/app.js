@@ -570,6 +570,9 @@ async function initialize() {
     if (context.topology) {
       workflowSaved = true;
       applyTopology(context.topology);
+      if (context.security?.managed_generation) {
+        workflowApplied = true;
+      }
     } else if (context.local_defaults) {
       if (context.local_defaults.install_root) {
         field("com1", "install-root").value = context.local_defaults.install_root;

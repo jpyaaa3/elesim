@@ -104,6 +104,7 @@ class ConnectionManagerApplication:
         tailscale_fingerprint_probe: FingerprintProbe | None = None,
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
+        authority_root: Path | None = None,
     ) -> None:
         self.state_path = state_path.expanduser()
         self.token = str(token)
@@ -120,6 +121,9 @@ class ConnectionManagerApplication:
         )
         self.local_bin_dir = (
             "" if local_bin_dir is None else str(local_bin_dir.expanduser().resolve())
+        )
+        self.authority_root = (
+            None if authority_root is None else authority_root.expanduser().resolve()
         )
         self.job = ConnectionJob()
         self._job_lock = threading.Lock()
@@ -138,6 +142,7 @@ class ConnectionManagerApplication:
             "topology_exists": topology is not None,
             "topology": None if topology is None else topology.to_dict(),
             "derived_static_peers": self._derived_peers(topology),
+            "security": self._security_context(topology),
             "local_defaults": {
                 "install_root": self.local_install_root,
                 "bin_dir": self.local_bin_dir,
@@ -147,6 +152,33 @@ class ConnectionManagerApplication:
                 "tailscale_proxy": os.environ.get("ELESIM_TAILSCALE_PROXY") == "1",
             },
             "tailscale": tailscale,
+        }
+
+    def _security_context(
+        self, topology: ConnectionTopology | None
+    ) -> dict[str, object]:
+        """Expose only non-secret managed-generation state to the browser."""
+
+        profile = None if topology is None else topology.security_profile
+        generation = ""
+        if (
+            topology is not None
+            and profile == "sros2"
+            and self.authority_root is not None
+        ):
+            active_path = self.authority_root / topology.system_id / "active.json"
+            if active_path.is_file() and not active_path.is_symlink():
+                try:
+                    payload = json.loads(active_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    payload = None
+                if isinstance(payload, Mapping):
+                    value = payload.get("generation")
+                    if isinstance(value, str) and value:
+                        generation = value
+        return {
+            "profile": profile,
+            "managed_generation": generation,
         }
 
     def load_topology(self, *, required: bool = True) -> ConnectionTopology | None:
@@ -633,6 +665,7 @@ def run_connection_gui(
     fingerprint_probe: FingerprintProbe | None = None,
     local_install_root: Path | None = None,
     local_bin_dir: Path | None = None,
+    authority_root: Path | None = None,
 ) -> int:
     session_token = token or secrets.token_urlsafe(32)
     application = ConnectionManagerApplication(
@@ -643,6 +676,7 @@ def run_connection_gui(
         fingerprint_probe=fingerprint_probe,
         local_install_root=local_install_root,
         local_bin_dir=local_bin_dir,
+        authority_root=authority_root,
     )
     server = ConnectionManagerServer(
         (host, int(port)),

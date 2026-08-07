@@ -204,6 +204,17 @@ def test_tailscale_stream_releases_small_banner_before_eof(tmp_path: Path) -> No
         worker.join(timeout=1)
 
 
+def test_host_proxy_upload_treats_peer_close_as_normal_eof() -> None:
+    left, right = socket.socketpair()
+    input_fd = os.open(os.devnull, os.O_RDONLY)
+    try:
+        right.close()
+        _upload_stdin(left, input_fd)
+    finally:
+        os.close(input_fd)
+        left.close()
+
+
 def test_host_helper_streams_actual_command_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

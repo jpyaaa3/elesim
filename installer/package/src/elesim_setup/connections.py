@@ -578,6 +578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         token=args.token,
         local_install_root=args.local_install_root,
         local_bin_dir=args.local_bin_dir,
+        authority_root=args.authority_root,
     )
 
 

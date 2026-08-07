@@ -235,6 +235,31 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
         app.save_topology(unsafe)
 
 
+def test_context_restores_managed_generation_without_private_material(
+    tmp_path: Path,
+) -> None:
+    authority = tmp_path / "authority" / "lab_arm"
+    authority.mkdir(parents=True)
+    (authority / "active.json").write_text(
+        json.dumps({"generation": "g-20260807t000000000000z-abcdef123456"}),
+        encoding="utf-8",
+    )
+    app = ConnectionManagerApplication(
+        state_path=tmp_path / "connections.json",
+        token="test-session-token",
+        runner=lambda _topology, _action, _log: None,
+        authority_root=tmp_path / "authority",
+    )
+    app.save_topology(_topology().to_dict())
+
+    security = app.context()["security"]
+    assert security == {
+        "profile": "sros2",
+        "managed_generation": "g-20260807t000000000000z-abcdef123456",
+    }
+    assert "BEGIN PRIVATE KEY" not in json.dumps(security)
+
+
 def test_application_saves_simulation_only_topology_without_robot(tmp_path: Path) -> None:
     app = _application(tmp_path)
     topology = _simulation_topology()

@@ -144,8 +144,16 @@ class _Handler(socketserver.StreamRequestHandler):
                         break
                     process.stdin.write(data)
                     process.stdin.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # The SSH/Tailscale peer is allowed to close its half of the
+                # stream first after a successful command.  This is teardown,
+                # not a failed rollout; the reader side will reap the proxy.
+                return
             finally:
-                process.stdin.close()
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
 
         worker = threading.Thread(target=upload, daemon=True)
         worker.start()
@@ -158,7 +166,13 @@ class _Handler(socketserver.StreamRequestHandler):
                 data = os.read(process.stdout.fileno(), 32 * 1024)
                 if not data:
                     break
-                self.connection.sendall(data)
+                try:
+                    self.connection.sendall(data)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    # The client went away while the proxied command was
+                    # shutting down.  Do not turn that normal EOF into a
+                    # second traceback from the request handler.
+                    break
         finally:
             process.stdout.close()
             try:
@@ -174,7 +188,11 @@ class _Handler(socketserver.StreamRequestHandler):
     def _reply(self, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
         with self._reply_lock:
-            self.connection.sendall(encoded)
+            try:
+                self.connection.sendall(encoded)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # A disconnected proxy cannot receive an error response.
+                return
 
 
 def _validate_command(
