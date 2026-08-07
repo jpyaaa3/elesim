@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -139,6 +140,14 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         assert service["environment"]["CYCLONEDDS_URI"] == (
             "file:///opt/elesim/config/cyclonedds.xml"
         )
+        if role == "sim":
+            assert service["user"] == f"{os.getuid()}:{os.getgid()}"
+            assert service["environment"]["HOME"] == "/tmp"
+            assert service["environment"]["XDG_CACHE_HOME"] == "/tmp/elesim-cache"
+            assert (
+                f"{state.prefix_path / 'cache/genesis'}:/tmp/elesim-cache/genesis:rw"
+                in service["volumes"]
+            )
         assert "depends_on" not in service
         role_keystore = state.prefix_path / "security/roles" / role
         security_mount = (
@@ -209,19 +218,55 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "--view" in up_wrapper
     assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
     assert "DISPLAY" in up_wrapper
-    assert "xhost +si:localuser:root" in up_wrapper
+    assert (
+        f"viewer_xhost_user={pwd.getpwuid(os.getuid()).pw_name}" in up_wrapper
+    )
+    assert 'xhost +si:localuser:"$viewer_xhost_user"' in up_wrapper
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
     assert "XDG_RUNTIME_DIR" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     assert "down --remove-orphans" in down_wrapper
-    assert "xhost -si:localuser:root" in down_wrapper
+    assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
     assert "viewer_xhost_cleanup" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
     assert "elesim-net namespace-check >/dev/null" in role_wrapper
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+
+
+def test_container_install_falls_back_when_legacy_cache_is_not_writable(
+    local_state, monkeypatch
+) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+    legacy_cache = state.prefix_path / "cache"
+    legacy_marker = legacy_cache / "genesis" / "legacy-artifact.bin"
+    legacy_marker.write_bytes(b"keep")
+    original_chmod = Path.chmod
+
+    def deny_legacy_cache(path: Path, mode: int, *args, **kwargs) -> None:
+        if path == legacy_cache or path == legacy_cache / "genesis":
+            raise PermissionError("legacy cache belongs to root")
+        original_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", deny_legacy_cache)
+    ContainerInstaller(state).run()
+
+    fallback = state.prefix_path / ".runtime-cache"
+    assert fallback.is_dir()
+    assert (fallback / "genesis").is_dir()
+    assert legacy_marker.read_bytes() == b"keep"
+    compose = _compose(state)
+    assert (
+        f"{fallback / 'genesis'}:/tmp/elesim-cache/genesis:rw"
+        in compose["services"]["sim"]["volumes"]
+    )
+    manifest = json.loads(
+        (state.prefix_path / "install-ownership.json").read_text(encoding="utf-8")
+    )
+    assert str(fallback) in manifest["managed_roots"]
 
 
 def test_compose_dds_environment_refresh_tracks_configured_state(local_state) -> None:
@@ -269,6 +314,7 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
             launch_guard="",
             has_sim=True,
             viewer_state=tmp_path / "viewer-xhost",
+            viewer_user="simuser",
         ),
         encoding="utf-8",
     )
@@ -287,13 +333,13 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
         "#!/usr/bin/env bash\n"
         "if (( $# == 0 )); then\n"
         "  if [[ -e ${XHOST_PERMISSION_MARKER:?} ]]; then\n"
-        "    printf 'SI:localuser:root\\n'\n"
+        "    printf 'SI:localuser:simuser\\n'\n"
         "  fi\n"
         "  exit 0\n"
         "fi\n"
         "case $1 in\n"
-        "  +si:localuser:root) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
-        "  -si:localuser:root) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  +si:localuser:simuser) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  -si:localuser:simuser) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -353,6 +399,7 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
             archive_enabled=False,
             guard="",
             viewer_state=tmp_path / "viewer-xhost",
+            viewer_user="simuser",
         ),
         encoding="utf-8",
     )
@@ -364,7 +411,7 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
     xhost = fake_bin / "xhost"
     xhost.write_text(
         "#!/usr/bin/env bash\n"
-        "if [[ $1 == -si:localuser:root ]]; then\n"
+        "if [[ $1 == -si:localuser:simuser ]]; then\n"
         "  printf '%s' \"${DISPLAY:?}\" > \"${XHOST_REVOKED:?}\"\n"
         "fi\n",
         encoding="utf-8",
@@ -403,6 +450,7 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
             launch_guard="",
             has_sim=True,
             viewer_state=blocked_parent / "viewer-xhost",
+            viewer_user="simuser",
         ),
         encoding="utf-8",
     )
@@ -416,8 +464,8 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
     xhost.write_text(
         "#!/usr/bin/env bash\n"
         "case $1 in\n"
-        "  +si:localuser:root) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
-        "  -si:localuser:root) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  +si:localuser:simuser) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  -si:localuser:simuser) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
         "esac\n",
         encoding="utf-8",
     )

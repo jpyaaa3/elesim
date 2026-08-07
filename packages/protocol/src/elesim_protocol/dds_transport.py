@@ -1134,6 +1134,21 @@ class PeerClient:
             try:
                 routed = self._route_inbound(envelope, source)
             except (AuthorityError, ProtocolError, ValueError) as exc:
+                diagnostic = getattr(self.node, "_diagnostic", None)
+                if callable(diagnostic):
+                    diagnostic(
+                        "control",
+                        dedupe=(
+                            f"rejected:{source.endpoint_id}:{envelope.message_type}:"
+                            f"{str(exc)[:128]}"
+                        ),
+                        state="rejected",
+                        source=source.endpoint_id,
+                        target=self.descriptor.endpoint_id,
+                        type=envelope.message_type,
+                        reason=str(exc),
+                        interval=1.0,
+                    )
                 self._send_error(envelope, source, str(exc) or "invalid request")
                 continue
             for item in routed:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import pwd
 import secrets
 import shlex
 import shutil
@@ -174,6 +175,10 @@ class ContainerInstaller:
         self.shell_bashrc = (
             None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
         )
+        # Prefer the public install cache, but retain a private migration
+        # location for installations whose old root-owned cache cannot be
+        # chmod-ed by the current operator.
+        self._runtime_cache_root = self.state.prefix_path / "cache"
 
     @property
     def container_root(self) -> Path:
@@ -203,12 +208,7 @@ class ContainerInstaller:
         self.log("[1/6] 설치 디렉터리와 runtime data 준비")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
-        cache_root = self.state.prefix_path / "cache"
-        for cache_path in (cache_root, cache_root / "genesis"):
-            if cache_path.is_symlink():
-                raise ValueError(f"runtime cache는 symlink일 수 없습니다: {cache_path}")
-            cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
-            cache_path.chmod(0o700)
+        self._runtime_cache_root = self._prepare_runtime_cache()
         security_root = self.state.prefix_path / "security"
         if security_root.is_symlink():
             raise ValueError(f"security root는 symlink일 수 없습니다: {security_root}")
@@ -252,6 +252,7 @@ class ContainerInstaller:
             self.container_root,
             self.state.prefix_path / "roles",
             self.state.prefix_path / "cache",
+            self.state.prefix_path / ".runtime-cache",
             self.state.prefix_path / "connections",
             self.state.prefix_path / "security",
             self.state.prefix_path / "secrets",
@@ -325,6 +326,7 @@ class ContainerInstaller:
                 self.container_root,
                 self.state.prefix_path / "roles",
                 self.state.prefix_path / "cache",
+                self.state.prefix_path / ".runtime-cache",
                 self.state.prefix_path / "connections",
                 self.state.prefix_path / "security",
                 self.state.prefix_path / "secrets",
@@ -339,6 +341,48 @@ class ContainerInstaller:
             install_uuid=self._install_uuid,
             refresh=refresh,
         )
+
+    def _prepare_runtime_cache(self) -> Path:
+        """Prepare a user-owned cache, tolerating legacy root-owned state.
+
+        Older general installs ran Sim as root and could leave
+        ``cache/genesis`` inaccessible to the normal installer user. Never
+        delete or adopt that data: fall back to a fresh, exact Elesim-owned
+        cache subtree under the same prefix and keep the legacy cache intact.
+        """
+
+        legacy = self.state.prefix_path / "cache"
+        fallback = self.state.prefix_path / ".runtime-cache"
+        for candidate in (legacy, fallback):
+            if candidate.is_symlink():
+                raise ValueError(f"runtime cache는 symlink일 수 없습니다: {candidate}")
+        # Once migration selected the fallback, keep using it even if an
+        # administrator later repairs the legacy directory. This avoids
+        # silently switching away from a warm cache on the next update.
+        candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
+        for index, cache_root in enumerate(candidates):
+            try:
+                for cache_path in (cache_root, cache_root / "genesis"):
+                    if cache_path.is_symlink():
+                        raise ValueError(
+                            f"runtime cache는 symlink일 수 없습니다: {cache_path}"
+                        )
+                    cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    cache_path.chmod(0o700)
+                if index:
+                    self.log(
+                        "[cache] 기존 cache에 쓸 수 없어 새 runtime cache를 사용합니다: "
+                        f"{cache_root}"
+                    )
+                return cache_root
+            except PermissionError:
+                if index == len(candidates) - 1:
+                    raise PermissionError(
+                        "Elesim runtime cache를 준비할 수 없습니다. "
+                        f"다음 경로의 권한을 확인하십시오: {cache_root}"
+                    )
+                continue
+        raise RuntimeError("runtime cache 후보가 없습니다")
 
     def _validate_source(self) -> None:
         root = self.state.source_path
@@ -459,11 +503,27 @@ class ContainerInstaller:
             ],
         }
         if role == "sim":
+            # Genesis writes its cache through ``Path.home()``/XDG.  General
+            # role containers used to run as root, which made the host bind
+            # mount root-owned and caused the next normal-user
+            # ``elesim-update`` to fail while chmod-ing ``cache/genesis``.
+            # Sim needs no privileged host access; keep its writable state
+            # owned by the installing operator instead.
+            service["user"] = f"{os.getuid()}:{os.getgid()}"
+            service["environment"].update(  # type: ignore[union-attr]
+                {
+                    "HOME": "/tmp",
+                    "XDG_CACHE_HOME": "/tmp/elesim-cache",
+                }
+            )
             service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]
             service["volumes"].extend(  # type: ignore[union-attr]
                 (
                     f"{role_root / 'model'}:/opt/elesim/model:ro",
-                    f"{self.state.prefix_path / 'cache/genesis'}:/var/lib/elesim/.cache/genesis:rw",
+                    (
+                        f"{self._runtime_cache_root / 'genesis'}:"
+                        "/tmp/elesim-cache/genesis:rw"
+                    ),
                 )
             )
             service["shm_size"] = "2gb"
@@ -657,6 +717,7 @@ class ContainerInstaller:
     def _write_wrappers(self) -> None:
         compose = self.container_root / "compose.yaml"
         command = f"docker compose -f {shlex.quote(str(compose))}"
+        viewer_user = pwd.getpwuid(os.getuid()).pw_name
         guard = _compose_owner_guard(
             compose,
             project=GENERAL_COMPOSE_PROJECT,
@@ -715,6 +776,7 @@ class ContainerInstaller:
                     if "sim" in self.state.roles
                     else None
                 ),
+                viewer_user=viewer_user,
             ),
         )
         # ``elesim-net show`` is consumed as a machine-readable JSON document
@@ -757,6 +819,7 @@ class ContainerInstaller:
                     if "sim" in self.state.roles
                     else None
                 ),
+                viewer_user=viewer_user,
             ),
         )
         write_executable(
@@ -1077,10 +1140,15 @@ def _manager_wrapper(
     )
 
 
-def _viewer_xhost_function(state_path: Path) -> str:
-    """Render opt-in X11 ACL management for the root-based Sim container."""
+def _viewer_xhost_function(
+    state_path: Path,
+    *,
+    xhost_user: str = "root",
+) -> str:
+    """Render opt-in X11 ACL management for the Sim container user."""
 
     state = shlex.quote(str(state_path))
+    user = shlex.quote(str(xhost_user))
     fallback = (
         '"${XDG_RUNTIME_DIR:-/tmp}/elesim/viewer-xhost-'
         + hashlib.sha256(str(state_path).encode("utf-8")).hexdigest()[:16]
@@ -1088,6 +1156,7 @@ def _viewer_xhost_function(state_path: Path) -> str:
     )
     return (
         f"viewer_xhost_state={state}\n"
+        f"viewer_xhost_user={user}\n"
         f"viewer_xhost_fallback={fallback}\n"
         "viewer_xhost_select_state() {\n"
         "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] && return 0\n"
@@ -1116,12 +1185,12 @@ def _viewer_xhost_function(state_path: Path) -> str:
         "  fi\n"
         "  local xhost_status=0\n"
         "  if [[ -n $saved_xauthority ]]; then\n"
-        "    XAUTHORITY=\"$saved_xauthority\" DISPLAY=\"$saved_display\" xhost -si:localuser:root >/dev/null 2>&1 || xhost_status=$?\n"
+        "    XAUTHORITY=\"$saved_xauthority\" DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
         "  else\n"
-        "    DISPLAY=\"$saved_display\" xhost -si:localuser:root >/dev/null 2>&1 || xhost_status=$?\n"
+        "    DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
         "  fi\n"
         "  if (( xhost_status != 0 )); then\n"
-        "    printf 'X11 root 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
+        "    printf 'X11 Viewer 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
         "    return \"$xhost_status\"\n"
         "  fi\n"
         "  rm -f -- \"$viewer_xhost_state\"\n"
@@ -1139,27 +1208,27 @@ def _viewer_xhost_function(state_path: Path) -> str:
         "  if [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
         "    viewer_xhost_cleanup || return $?\n"
         "  fi\n"
-        "  local xhost_list=\"\" had_root=0\n"
+        "  local xhost_list=\"\" had_viewer_user=0\n"
         "  if ! xhost_list=\"$(xhost 2>/dev/null)\"; then\n"
         "    printf 'DISPLAY에 연결할 수 없어 xhost ACL을 확인할 수 없습니다: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
-        "  if grep -Fq 'SI:localuser:root' <<<\"$xhost_list\"; then\n"
-        "    had_root=1\n"
+        "  if grep -Fq \"SI:localuser:$viewer_xhost_user\" <<<\"$xhost_list\"; then\n"
+        "    had_viewer_user=1\n"
         "  fi\n"
-        "  if ! xhost +si:localuser:root >/dev/null 2>&1; then\n"
-        "    printf 'X11 root 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "  if ! xhost +si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1; then\n"
+        "    printf 'X11 Viewer 사용자 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
-        "  if (( had_root == 0 )) || [[ -e \"$viewer_xhost_state\" ]]; then\n"
+        "  if (( had_viewer_user == 0 )) || [[ -e \"$viewer_xhost_state\" ]]; then\n"
         "    local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
         "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
         "      rm -f -- \"$temporary\"\n"
-        "      if (( had_root == 0 )); then\n"
+        "      if (( had_viewer_user == 0 )); then\n"
         "        if [[ -n ${XAUTHORITY:-} ]]; then\n"
-        "          XAUTHORITY=\"$XAUTHORITY\" DISPLAY=\"$display\" xhost -si:localuser:root >/dev/null 2>&1 || true\n"
+        "          XAUTHORITY=\"$XAUTHORITY\" DISPLAY=\"$display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || true\n"
         "        else\n"
-        "          DISPLAY=\"$display\" xhost -si:localuser:root >/dev/null 2>&1 || true\n"
+        "          DISPLAY=\"$display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || true\n"
         "        fi\n"
         "      fi\n"
         "      printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
@@ -1178,6 +1247,7 @@ def _runtime_up_wrapper(
     launch_guard: str,
     has_sim: bool,
     viewer_state: Path | None = None,
+    viewer_user: str = "root",
 ) -> str:
     """Render the general runtime launcher with an optional Sim Viewer.
 
@@ -1221,7 +1291,7 @@ def _runtime_up_wrapper(
         "fi\n"
     )
     viewer_function = (
-        _viewer_xhost_function(viewer_state)
+        _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
         if has_sim and viewer_state is not None
         else ""
     )
@@ -1456,11 +1526,12 @@ def _runtime_down_wrapper(
     archive_enabled: bool,
     guard: str,
     viewer_state: Path | None = None,
+    viewer_user: str = "root",
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
     presence = _runtime_presence_function(compose=compose, services=services)
     viewer_function = (
-        _viewer_xhost_function(viewer_state)
+        _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
         if viewer_state is not None
         else ""
     )

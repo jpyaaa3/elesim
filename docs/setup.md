@@ -391,6 +391,15 @@ NVIDIA modes require a working host driver and NVIDIA Container Toolkit. The
 setup container cannot prove that the subsequently built runtime image can
 create a GPU context; that remains a post-install check.
 
+The general Sim container is launched with the installing user's numeric
+UID/GID. Viewer mode grants the same installing user's X11 ACL, rather than a
+root ACL. Its Genesis cache is mounted at `/tmp/elesim-cache/genesis` inside the
+container and backed by the install's `cache/genesis` directory. This keeps
+runtime cache writes compatible with a later normal-user `elesim-update` and
+does not grant the application container host-root privileges. If an older
+installation left that cache root-owned, update preserves it and switches to
+the managed `<prefix>/.runtime-cache` subtree instead of deleting data.
+
 ## Shell Registration
 
 When selected, setup atomically manages exactly one block in `~/.bashrc`:

@@ -397,9 +397,9 @@ ICE/DTLS-SRTP, SROS2 권한과 실제 하드웨어 동작은 별도의 검증이
 DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
 ```
 
-`--view`는 실행 직전에 현재 DISPLAY의 `xhost +si:localuser:root` 권한을
+`--view`는 실행 직전에 Sim 컨테이너를 실행하는 설치 사용자의 DISPLAY 권한을
 필요할 때만 임시로 추가하고, `elesim-down`에서 Elesim이 추가한 권한만
-`xhost -si:localuser:root`로 회수한다. 이미 있던 권한은 회수하지 않는다.
+회수한다. 이미 있던 권한은 회수하지 않는다.
 SSH X11 forwarding, X11 인증 또는 WSLg가 준비되어 있어야 한다. Viewer를
 닫으면 Sim가 종료될 수 있으므로, 장시간 원격 운용에는 UI의 WebRTC
 observer stream을 사용한다.
@@ -417,6 +417,9 @@ systemd unit을 `elesim-up`/`elesim-down`이 제어한다.
 증분 build한다. 설정, connection topology, managed SROS2 generation,
 Authority, secret, cache와 log는 보존한다. 실행 중 컨테이너도 건드리지 않으므로
 성공 후 `elesim-up`을 한 번 실행해야 새 이미지가 적용된다.
+Sim은 설치 사용자 UID/GID로 실행되어 Genesis 캐시를 root 소유로 만들지 않으며,
+구형 설치의 root 소유 cache는 삭제하지 않고 `<설치 위치>/.runtime-cache`로
+자동 전환한다.
 
 일반 설치의 `runtime text log archive`는 기본으로 켜져 있다. Docker 자체
 `json-file` 로그는 서비스마다 `10 MiB × 4`로 제한되고, `--save` 또는
@@ -608,7 +611,7 @@ Git에 올리면 안 되는 파일:
 서버에서 임시 X11 권한을 열었다면 종료 후 반드시 회수한다.
 
 ```bash
-xhost -si:localuser:root
+xhost -si:localuser:"$(id -un)"
 ```
 
 ## 제거와 재설치
