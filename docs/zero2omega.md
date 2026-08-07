@@ -193,9 +193,10 @@ elesim-connections
 포트를 두 번 열지 않는다. `Address already in use`가 나오면 이전에 실행한
 연결관리자/설치 GUI를 먼저 닫고, 실제 작업이 없을 때만 정확한
 `elesim-manager` transient container를 정리한다. 최신 wrapper는 중지 상태의
-stale manager를 다음 실행 때 자동 정리하고, 실행 중인 manager는 다른 작업일
-수 있으므로 삭제하지 않는다. 전역 `docker prune`은 사용하지 않는다. 필요하면
-새 포트를 지정한다.
+stale manager를 다음 실행 때 자동 정리한다. 현재 실행이 소유한 manager는
+종료 신호를 받아도 고정 이름이 남지 않도록 정리하며, 다른 실행이 소유한
+실행 중 manager는 건드리지 않는다. 전역 `docker prune`은 사용하지 않는다.
+필요하면 새 포트를 지정한다.
 
 ```bash
 elesim-connections --port 8771
@@ -582,7 +583,7 @@ elesim-connections --port 8771
 터미널에 출력된 URL을 사용한다.
 
 설치 완료 화면에서 stale manager 정리 명령을 복사할 수도 있다. 이 명령은
-중지된 manager만 지우고 실행 중인 연결관리자는 건드리지 않는다. PATH 등록을
+중지된 manager만 지우고 다른 실행 중 연결관리자는 건드리지 않는다. PATH 등록을
 선택했다면 같은 화면에서 `source ~/.bashrc`도 복사해 현재 shell에 반영한다.
 
 ### `연결관리자에서 호스트 상태는 되지만 DDS가 안 보임`

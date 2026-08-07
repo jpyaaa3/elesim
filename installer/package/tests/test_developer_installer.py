@@ -111,6 +111,7 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "manager_started=0" in manager_wrapper
     assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in manager_wrapper
     assert "docker rm elesim-manager" in manager_wrapper
+    assert "docker rm -f elesim-manager" in manager_wrapper
     assert "manager_status=$?" in manager_wrapper
     assert "ELESIM_DOCKER_GID" not in manager_wrapper
     assert "elesim-manager-compose" not in manager_wrapper

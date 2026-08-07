@@ -191,6 +191,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "manager_started=0" in wrapper
     assert "trap 'host_helper_cleanup; manager_cleanup' EXIT" in wrapper
     assert "docker rm elesim-manager" in wrapper
+    assert "docker rm -f elesim-manager" in wrapper
     assert "manager_status=$?" in wrapper
     assert "ELESIM_DOCKER_GID" not in wrapper
     assert "elesim-manager-compose" not in wrapper

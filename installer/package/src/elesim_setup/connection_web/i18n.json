@@ -1,6 +1,6 @@
 {
   "ko": {
-    "app.title": "ELESiM 연결 관리자",
+    "app.title": "Elesim 연결 관리자",
     "app.eyebrow": "P2P ROS 2 / DDS",
     "app.heading": "프로그램 배치와 호스트 연결을 한곳에서 관리합니다",
     "app.intro": "full 모드에서는 Pilot, Sim, UI와 Robot Jetson을, simulation-only 모드에서는 물리 Robot 없이 Pilot·Sim·UI를 배치합니다. 저장 후 보안 자료 생성·실행 준비를 누르면 첫 실행은 새 키 생성, 이후 실행은 키 재발급과 검증을 자동으로 수행합니다.",
@@ -100,7 +100,7 @@
     "error.local.probe": "로컬 컴퓨터에는 설치용 SSH endpoint가 필요하지 않습니다."
   },
   "en": {
-    "app.title": "ELESiM Connection Manager",
+    "app.title": "Elesim Connection Manager",
     "app.eyebrow": "P2P ROS 2 / DDS",
     "app.heading": "Manage application placement and host connections in one place",
     "app.intro": "In full mode place Pilot, Sim, UI, and the Robot Jetson; in simulation-only mode place Pilot, Sim, and UI without a physical Robot. After saving, Prepare security and runtime automatically creates keys on the first run and reissues and verifies them on later runs.",

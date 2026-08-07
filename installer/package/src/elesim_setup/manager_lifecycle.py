@@ -9,10 +9,12 @@ from pathlib import Path
 def manager_lifecycle_fragment(install_uuid: str) -> str:
     """Return shell code that protects and cleans ``elesim-manager``.
 
-    A running manager is never removed automatically.  A stopped manager is a
-    disposable one-shot object, so it may be removed even when it belongs to a
-    previous installation.  Once this wrapper starts its own manager, the EXIT
-    cleanup is restricted to the current install UUID.
+    A running manager from another invocation is never removed automatically.
+    A stopped manager is a disposable one-shot object, so it may be removed
+    even when it belongs to a previous installation.  Once this wrapper starts
+    its own manager, the EXIT cleanup is restricted to the current install UUID
+    and force-removes that owned container so an interrupted GUI cannot leave a
+    fixed-name container blocking the next invocation.
     """
 
     quoted_uuid = shlex.quote(install_uuid)
@@ -24,9 +26,11 @@ def manager_lifecycle_fragment(install_uuid: str) -> str:
         "2>/dev/null || true)\"\n"
         "  owner=\"$(docker inspect -f '{{index .Config.Labels \"io.elesim.install_uuid\"}}' "
         "elesim-manager 2>/dev/null || true)\"\n"
-        "  if [[ $state == false && ( $manager_started == 0 || $owner == "
+        "  if [[ $manager_started == 1 && $owner == "
         + quoted_uuid
-        + " ) ]]; then\n"
+        + " ]]; then\n"
+        "    docker rm -f elesim-manager >/dev/null 2>&1 || true\n"
+        "  elif [[ $state == false && $manager_started == 0 ]]; then\n"
         "    docker rm elesim-manager >/dev/null 2>&1 || true\n"
         "  fi\n"
         "}\n"
