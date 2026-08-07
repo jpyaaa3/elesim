@@ -371,6 +371,11 @@ elesim-down                  # 선택한 runtime 종료
 elesim-setup status          # 설치 상태 확인
 ```
 
+아직 역할 컨테이너가 하나도 생성되지 않았다면 `elesim-logs`와
+`elesim-logs --save`는 조용히 끝나지 않고 `elesim-up`이 필요하다고 알린다.
+`elesim-down`은 이미 정지한 runtime에 대해 Compose 경고를 내지 않는 안전한
+no-op이다.
+
 여러 호스트를 시작하면 연결 관리자가 컨테이너 생성과 DDS 애플리케이션 피어
 발견을 구분해 `DDS readiness`를 표시한다. Sim의 Genesis 장면을 만드는 동안에는
 `대기 중`일 수 있으며, 이 진단은 느린 Sim을 자동으로 내리지 않는다. 특정 피어를
@@ -418,7 +423,8 @@ Authority, secret, cache와 log는 보존한다. 실행 중 컨테이너도 건�
 `elesim-down`은 `<설치 위치>/logs/runs/<UTC timestamp>/`에 서비스별 text
 snapshot을 남긴다. 최근 5회만 보존하며 디렉터리는 `0700`, 파일은 `0600`이다.
 필요 없으면 설치 화면에서 끌 수 있다. `elesim-down`은 snapshot 실패 여부와
-상관없이 종료를 시도하고, 저장 실패는 non-zero status로 알린다.
+상관없이 종료를 시도하고, 저장 실패는 non-zero status로 알린다. 역할
+컨테이너가 이미 정지한 경우에는 archive를 건너뛰고 성공적으로 종료한다.
 
 ### 개발자용
 

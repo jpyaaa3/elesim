@@ -1374,6 +1374,24 @@ def _runtime_archive_function(
     )
 
 
+def _runtime_presence_function(
+    *, compose: Path, services: tuple[str, ...]
+) -> str:
+    """Render a bounded role-container presence probe for operator wrappers."""
+
+    command = "docker compose -f " + shlex.quote(str(compose))
+    rendered_services = " ".join(shlex.quote(service) for service in services)
+    return (
+        "runtime_has_role_containers() {\n"
+        "  [[ -n $("
+        + command
+        + " ps -aq "
+        + rendered_services
+        + " 2>/dev/null) ]]\n"
+        "}\n"
+    )
+
+
 def _runtime_logs_wrapper(
     *,
     compose: Path,
@@ -1407,12 +1425,21 @@ def _runtime_logs_wrapper(
         "umask 077\n"
         + guard
         + archive
+        + _runtime_presence_function(compose=compose, services=services)
         + "if (( $# == 0 )); then\n"
+        + "  if ! runtime_has_role_containers; then\n"
+        + "    printf '실행 중인 Elesim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    exit 3\n"
+        + "  fi\n"
         + "  exec "
         + command
         + " logs -f\n"
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
+        + "  if ! runtime_has_role_containers; then\n"
+        + "    printf '저장할 Elesim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    exit 3\n"
+        + "  fi\n"
         + save_action
         + "  exit $?\n"
         + "fi\n"
@@ -1431,6 +1458,7 @@ def _runtime_down_wrapper(
     viewer_state: Path | None = None,
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
+    presence = _runtime_presence_function(compose=compose, services=services)
     viewer_function = (
         _viewer_xhost_function(viewer_state)
         if viewer_state is not None
@@ -1443,16 +1471,21 @@ def _runtime_down_wrapper(
                 "set -euo pipefail\n"
                 + guard
                 + viewer_function
+                + presence
                 + "if (( $# != 0 )); then\n"
                 + "  printf '사용법: elesim-down\n' >&2\n"
                 + "  exit 64\n"
                 + "fi\n"
                 + "down_status=0\n"
-                + "set +e\n"
+                + "if runtime_has_role_containers; then\n"
+                + "  set +e\n"
                 + command
                 + " down --remove-orphans\n"
-                + "down_status=$?\n"
-                + "set -e\n"
+                + "  down_status=$?\n"
+                + "  set -e\n"
+                + "else\n"
+                + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+                + "fi\n"
                 + "viewer_status=0\n"
                 + "viewer_xhost_cleanup || viewer_status=$?\n"
                 + "if (( down_status != 0 )); then\n"
@@ -1464,13 +1497,18 @@ def _runtime_down_wrapper(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             + guard
+            + presence
             + "if (( $# != 0 )); then\n"
             + "  printf '사용법: elesim-down\\n' >&2\n"
             + "  exit 64\n"
             + "fi\n"
-            + "exec "
+            + "if runtime_has_role_containers; then\n"
+            + "  "
             + command
             + " down --remove-orphans\n"
+            + "else\n"
+            + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            + "fi\n"
         )
     return (
         "#!/usr/bin/env bash\n"
@@ -1478,6 +1516,7 @@ def _runtime_down_wrapper(
         "umask 077\n"
         + guard
         + viewer_function
+        + presence
         + "if (( $# != 0 )); then\n"
         + "  printf '사용법: elesim-down\\n' >&2\n"
         + "  exit 64\n"
@@ -1488,10 +1527,21 @@ def _runtime_down_wrapper(
             services=services,
         )
         + "archive_status=0\n"
-        + "archive_runtime_logs || archive_status=$?\n"
+        + "runtime_present=0\n"
+        + "if runtime_has_role_containers; then\n"
+        + "  runtime_present=1\n"
+        + "  archive_runtime_logs || archive_status=$?\n"
+        + "else\n"
+        + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
+        + "fi\n"
         + "down_status=0\n"
+        + "if (( runtime_present )); then\n"
+        + "  "
         + command
         + " down --remove-orphans || down_status=$?\n"
+        + "else\n"
+        + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+        + "fi\n"
         + "viewer_status=0\n"
         + (
             "viewer_xhost_cleanup || viewer_status=$?\n"

@@ -422,6 +422,9 @@ one service file per snapshot below `<prefix>/logs/runs/<UTC timestamp>`.
 `elesim-down` snapshots before shutdown when archiving is enabled, still runs
 the stop operation after an archive failure, and returns nonzero when the
 snapshot failed. Native Robot exports both Robot and bridge journald units.
+When no selected role container exists, `elesim-logs` and `--save` fail with an
+actionable `elesim-up` message, while `elesim-down` is a successful no-op and
+does not emit a Compose "No resource found" warning.
 Archives retain the newest five generations, cap each native export at 10 MiB,
 and use directory mode `0700` and file mode `0600`. Direct or ancestor symlink
 substitution fails closed.

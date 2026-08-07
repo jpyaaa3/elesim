@@ -51,6 +51,13 @@ def _fake_docker(path: Path) -> Path:
         "  printf '{\"schema_version\":1}\\n'\n"
         "  exit 0\n"
         "fi\n"
+        "if [[ $arguments == *' ps -aq '* ]]; then\n"
+        "  if [[ ${ELESIM_FAKE_RUNTIME_EMPTY:-0} == 1 ]]; then\n"
+        "    exit 0\n"
+        "  fi\n"
+        "  printf 'container-id\\n'\n"
+        "  exit 0\n"
+        "fi\n"
         "if [[ $arguments == *' logs --no-color --timestamps '* ]]; then\n"
         "  service=${!#}\n"
         "  printf 'saved log for %s\\n' \"$service\"\n"
@@ -865,6 +872,47 @@ def test_runtime_logs_no_argument_follows_and_save_archives_each_service(
         log = run / f"{service}.log"
         assert log.read_text(encoding="utf-8") == f"saved log for {service}\n"
         assert log.stat().st_mode & 0o777 == 0o600
+
+
+def test_runtime_logs_and_down_explain_an_already_stopped_runtime(
+    local_state,
+    tmp_path: Path,
+) -> None:
+    state = local_state(roles=("ui",), install_mode="container")
+    ContainerInstaller(state).run()
+    fake_bin = tmp_path / "fake-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    marker = tmp_path / "down-called"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_RUNTIME_EMPTY": "1",
+            "ELESIM_DOWN_MARKER": str(marker),
+        }
+    )
+
+    logs = subprocess.run(
+        (state.bin_path / "elesim-logs",),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    down = subprocess.run(
+        (state.bin_path / "elesim-down",),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert logs.returncode == 3
+    assert "먼저 elesim-up" in logs.stderr
+    assert down.returncode == 0
+    assert "이미 정지" in down.stderr
+    assert not marker.exists()
 
 
 def test_runtime_log_archive_keeps_only_five_latest_runs(
