@@ -748,7 +748,15 @@ def _roll_scan_view(panel) -> dict:
             "surface": str(raw.get("roll_scan_surface", "") or ""),
             "source": "Jetson",
         }
-        if remote["running"] or not local["running"]:
+        try:
+            delegated = bool(panel.service.roll_scan_delegated())
+        except Exception:  # noqa: BLE001
+            delegated = False
+        # When the host owns the scan it is the ONLY authority. The local block is
+        # just the optimistic 'requested' marker set on the click, and it stays
+        # running=True forever -- so preferring it would hide a host-side failure
+        # (which is exactly how a ZED that could not open looked like "no reaction").
+        if delegated or remote["running"] or not local["running"]:
             return remote
     return local
 

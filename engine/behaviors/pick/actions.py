@@ -10971,6 +10971,17 @@ class ControlService:
         scan = getattr(self, "_roll_scan", None)
         return None if scan is None else scan.progress()
 
+    def roll_scan_delegated(self) -> bool:
+        """
+        True when the host owns the scan.
+
+        The UI needs this: when delegating, the local status is only an
+        optimistic 'requested' marker, and the host is the sole authority on
+        what actually happened. Without it a host-side failure stays hidden
+        behind the local flag.
+        """
+        return self._delegate_roll_scan_to_host()
+
     def roll_scan_plan_text(self) -> str:
         from engine.vision.scan.service import describe_plan
 
@@ -10989,6 +11000,7 @@ class ControlService:
 
         from engine.vision.scan import geometry
         from engine.vision.scan.service import ScanUnavailable, build_scan, fit_and_report
+        from engine.vision.scan.zed_capture import probe_zed
 
         if self._delegate_roll_scan_to_host():
             if hasattr(self.client, "send_roll_scan_start"):
@@ -11018,10 +11030,16 @@ class ControlService:
         if str(label).strip():
             cfg = _replace(cfg, label=str(label).strip())
 
+        # refuse before moving the arm: a sweep that cannot fit, or has no
+        # camera, is ~30 s of joint travel for nothing
         if not geometry.available():
-            # refuse before moving the arm: a sweep whose fit cannot run is
-            # ~30 s of joint travel for nothing
             msg = geometry.status()
+            self.state.set_roll_scan_status(running=False, phase="failed", msg=msg)
+            print(f"[roll_scan] {msg}")
+            return
+        cam_ok, cam_why = probe_zed()
+        if not cam_ok:
+            msg = f"camera unavailable: {cam_why}"
             self.state.set_roll_scan_status(running=False, phase="failed", msg=msg)
             print(f"[roll_scan] {msg}")
             return

@@ -15,6 +15,7 @@ a retrieved XYZ point needs no axis permutation before the FK transform.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -27,6 +28,59 @@ except Exception:  # noqa: BLE001
 
 class ZedUnavailableError(RuntimeError):
     """Raised when the ZED SDK bindings or a physical camera are missing."""
+
+
+_STEREOLABS_VID = "2b03"
+# ZED-M exposes its IMU/controls as a separate low-speed HID device; the stereo
+# video interface is a different idProduct and needs USB 3.0 bandwidth
+_HID_PIDS = {"f681"}
+
+
+def probe_zed() -> tuple[bool, str]:
+    """
+    Cheap pre-flight: can a ZED plausibly be opened, and if not, why?
+
+    ``sl.Camera.open`` reports a bare "CAMERA STREAM FAILED TO START" for the
+    common failure -- the camera plugged into a USB 2.0 port, where its HID
+    sub-device enumerates but the video interface does not. That message tells
+    the operator nothing actionable, so this reads sysfs directly and names the
+    condition. Runs in microseconds and never touches the camera, so it is safe
+    to call before committing the arm to a sweep.
+    """
+    if sl is None:
+        return False, "pyzed is not installed"
+
+    video_nodes = sorted(Path("/dev").glob("video*"))
+    usb = Path("/sys/bus/usb/devices")
+    hid_only: list[str] = []
+    video_iface: list[str] = []
+    for dev in sorted(usb.glob("*")) if usb.is_dir() else []:
+        try:
+            if (dev / "idVendor").read_text().strip().lower() != _STEREOLABS_VID:
+                continue
+            pid = (dev / "idProduct").read_text().strip().lower()
+            speed = (dev / "speed").read_text().strip()
+        except (OSError, ValueError):
+            continue
+        tag = f"{pid}@{speed}Mbps"
+        (hid_only if pid in _HID_PIDS else video_iface).append(tag)
+
+    if not hid_only and not video_iface:
+        return False, "no Stereolabs USB device found (camera unplugged?)"
+    if video_iface and video_nodes:
+        return True, f"ZED video interface present ({', '.join(video_iface)})"
+    if hid_only and not video_iface:
+        return False, (
+            f"only the ZED HID sub-device is enumerated ({', '.join(hid_only)}); "
+            "the stereo video interface is missing. The ZED Mini needs USB 3.0 for "
+            "video -- move it to a USB 3.0 port (a 2.0 port or hub enumerates HID only)."
+        )
+    if not video_nodes:
+        return False, (
+            f"ZED USB device present ({', '.join(video_iface + hid_only)}) but no "
+            "/dev/video* node exists; the UVC interface did not come up"
+        )
+    return True, "ZED present"
 
 
 @dataclass(frozen=True)
