@@ -132,18 +132,23 @@ def detect_tailscale(
 def require_runtime_network_namespace(
     state: InstallState,
     *,
+    interface: str | None = None,
     interface_names: Sequence[str] | None = None,
 ) -> None:
     """Fail before launch when DDS cannot bind its configured interface.
 
     Container installs execute this through the tools service, so the names
     describe the same network namespace that the runtime roles will use.  This
-    catches Docker Desktop/WSL configurations where the WSL host has
-    ``tailscale0`` but Docker's separate Linux VM does not.
+    is intentionally a direct-bind check: a configured ``tailscale0`` remains
+    a valid request and passes wherever that interface is visible.  The
+    optional override is used by the connection manager so a pending topology
+    is checked instead of a stale installed state.
     """
 
-    interface = state.dds.interface.strip()
-    if not interface:
+    configured_interface = (
+        state.dds.interface if interface is None else str(interface)
+    ).strip()
+    if not configured_interface:
         return
     try:
         indexed = (
@@ -156,16 +161,17 @@ def require_runtime_network_namespace(
         raise RuntimeError(
             f"DDS network interfaces could not be inspected: {exc}"
         ) from exc
-    if interface in available:
+    if configured_interface in available:
         return
     detail = ", ".join(sorted(available)) or "none"
     raise RuntimeError(
-        f"configured DDS interface {interface!r} is not visible in the runtime "
-        f"network namespace (visible: {detail}). Docker Desktop/WSL host "
-        "networking does not expose the WSL tailscale0 interface to runtime "
-        "containers. Use Docker Engine in the same WSL/Linux network namespace, "
-        "or select an interface that is genuinely routed inside the containers. "
-        "The Tailscale SSH helper does not carry DDS UDP traffic."
+        f"configured DDS interface {configured_interface!r} is not visible in "
+        f"the runtime network namespace (visible: {detail}). Direct DDS bind "
+        f"to {configured_interface!r} requires that interface in the runtime "
+        "namespace. Docker Desktop/WSL may place the WSL interface in another "
+        "namespace. A Tailscale 100.x address may still be routable through "
+        "another interface, but that is a separate routed/NAT mode and does "
+        "not satisfy a direct tailscale0 bind."
     )
 
 
@@ -399,9 +405,13 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
-    subparsers.add_parser(
+    namespace_check = subparsers.add_parser(
         "namespace-check",
         help="런타임 네임스페이스에서 설정된 DDS interface 확인",
+    )
+    namespace_check.add_argument(
+        "--dds-interface",
+        help="설치 상태 대신 검사할 pending DDS interface",
     )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
@@ -481,8 +491,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
         if args.command == "namespace-check":
-            require_runtime_network_namespace(state)
-            print("DDS runtime network namespace is ready")
+            require_runtime_network_namespace(
+                state,
+                interface=args.dds_interface,
+            )
+            interface = (
+                state.dds.interface
+                if args.dds_interface is None
+                else str(args.dds_interface).strip()
+            )
+            print(
+                "DDS direct-bind interface is visible: "
+                f"{interface or '(automatic)'}"
+            )
             return 0
         if args.command == "restore-snapshot":
             try:

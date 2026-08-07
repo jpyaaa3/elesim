@@ -42,6 +42,19 @@ def test_runtime_namespace_check_requires_configured_interface(local_state) -> N
         )
 
 
+def test_runtime_namespace_check_accepts_pending_tailscale_bind(local_state) -> None:
+    # The installed state may still contain an older interface.  The
+    # connection manager can validate the pending direct-bind choice without
+    # rewriting that state first.
+    state = local_state(dds=DdsSettings(interface="eth0"))
+
+    network.require_runtime_network_namespace(
+        state,
+        interface="tailscale0",
+        interface_names=("lo", "eth0", "tailscale0"),
+    )
+
+
 def test_runtime_namespace_check_allows_automatic_interface(local_state) -> None:
     network.require_runtime_network_namespace(
         local_state(dds=DdsSettings(interface="")),

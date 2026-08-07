@@ -155,12 +155,16 @@ requires the Robot role; `simulation-only` deployment intentionally starts the
 three simulation roles without a physical Robot.
 
 SSH reachability is not DDS reachability. Before `start` or `restart`, every
-container host runs `elesim-net namespace-check` through its installed tools
-service. The check requires the configured DDS interface to exist in the same
-network namespace used by runtime roles. A Docker Desktop Linux VM commonly
-cannot see a WSL distro's `tailscale0`; the Tailscale SSH helper cannot relay
-DDS UDP. Use Docker Engine in that WSL/Linux namespace or a container-visible
-routed interface instead.
+container host runs the lightweight `elesim-net namespace-check` through its
+installed tools service. The check requires the configured DDS interface to
+exist in the same network namespace used by runtime roles. A configured
+`tailscale0` is therefore supported for direct binding wherever the runtime
+namespace exposes it. SROS2 generation preflight deliberately does not run
+this check; it verifies the host and security boundary, while runtime startup
+verifies the bind boundary. A Docker Desktop Linux VM commonly cannot see a
+WSL distro's `tailscale0`; the Tailscale SSH helper cannot relay DDS UDP. Use
+Docker Engine in that WSL/Linux namespace for direct binding, or explicitly
+configure a container-visible routed interface as a separate mode.
 
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
 read-only per-host Compose/systemd query, while `start`, `stop`, and `restart`

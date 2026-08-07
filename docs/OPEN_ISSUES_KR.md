@@ -118,10 +118,11 @@
   shell에서 임시 container가 늘지 않음, 고정 이름 충돌 진단, NVIDIA/CPU variant,
   GUI forwarding과 Jaeger다.
 - Docker Desktop의 별도 Linux VM에는 WSL distro의 `tailscale0`가 보이지 않을 수
-  있다. 설정한 DDS interface가 없으면 이제 시작 전에 거부하지만, 별도의 공식
-  sidecar/tunnel 설계는 아직 없다. 현재 routed-VPN 경로는 같은 Linux network
-  namespace의 Docker Engine 또는 컨테이너에서 실제로 보이는 다른 interface가
-  필요하다.
+  있다. 직접 bind는 해당 namespace에서 interface가 보일 때 지원·검증하며,
+  SROS2 Authority preflight와 런타임 bind 검사는 분리한다. 별도의 공식
+  sidecar/tunnel 설계는 아직 없으므로 직접 bind에는 같은 Linux namespace의
+  Docker Engine이 필요하고, 다른 컨테이너-visible interface를 쓰는 경우는
+  별도 routed/NAT 모드로 취급한다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 

@@ -74,6 +74,21 @@ def test_cyclonedds_xml_contains_interface_and_static_peers(
     ] == ["192.0.2.10", "sim.example.com"]
 
 
+def test_cyclonedds_xml_preserves_direct_tailscale_bind(local_state) -> None:
+    state = local_state(
+        roles=("pilot",),
+        dds=DdsSettings(interface="tailscale0"),
+    )
+    copy_role_configs(state)
+
+    generate_role_configs(state)
+    root = ET.parse(generated_dds_config_path(state, "pilot")).getroot()
+
+    interface = root.find("Domain/General/Interfaces/NetworkInterface")
+    assert interface is not None
+    assert interface.attrib == {"name": "tailscale0"}
+
+
 def test_container_managed_turn_uses_sim_owned_secret_mount_path(
     local_state,
     tmp_path,

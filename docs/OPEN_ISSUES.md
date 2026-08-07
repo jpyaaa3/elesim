@@ -125,10 +125,12 @@ there are historical unless repeated here.
   `elesim-dev` shells proving no temporary container proliferation, fixed-name
   collision diagnostics, NVIDIA/CPU variants, GUI forwarding and Jaeger.
 - Docker Desktop's separate Linux VM may not expose a WSL distro's
-  `tailscale0`. Launch now fails early when the configured DDS interface is
-  absent, but a supported sidecar/tunnel design does not exist; the current
-  routed-VPN path requires Docker Engine in the same Linux network namespace or
-  another interface that is genuinely visible to the containers.
+  `tailscale0`. Direct binding is supported and checked immediately before
+  runtime start when the interface is visible; SROS2 authority preflight does
+  not conflate the two gates. A supported sidecar/tunnel design still does not
+  exist, so Docker Desktop users need Docker Engine in the same Linux network
+  namespace for direct binding or an explicitly configured container-visible
+  routed interface for a separate NAT mode.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 

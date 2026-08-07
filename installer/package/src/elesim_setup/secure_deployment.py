@@ -257,6 +257,10 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
     ) -> RemoteCapabilities: ...
 
+    def runtime_network_check(
+        self, session: SshSession, host: ManagedHost
+    ) -> None: ...
+
     def snapshot(
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]: ...
@@ -305,6 +309,8 @@ class RemoteLifecycle(Protocol):
 
 class HostOperations(Protocol):
     def preflight(self, host: ManagedHost) -> RemoteCapabilities: ...
+
+    def runtime_network_check(self, host: ManagedHost) -> None: ...
 
     def capture_state(self, host: ManagedHost) -> HostActivationState: ...
 
@@ -768,6 +774,12 @@ class SshHostOperations:
         security_root = self._security_root_for(host)
         with self._connect(host) as session:
             return self._lifecycle.preflight(session, host, security_root)
+
+    def runtime_network_check(self, host: ManagedHost) -> None:
+        """Run the cheap direct-interface probe in the runtime namespace."""
+
+        with self._connect(host) as session:
+            self._lifecycle.runtime_network_check(session, host)
 
     def capture_state(self, host: ManagedHost) -> HostActivationState:
         security_root = self._security_root_for(host)
@@ -1361,7 +1373,6 @@ class InstalledElesimLifecycle:
             raise RuntimeError(f"bin_dir mismatch on {host.host_id!r}")
         if str(state.get("install_mode", "")) != host.install_mode:
             raise RuntimeError(f"install_mode mismatch on {host.host_id!r}")
-        session.run((str(_net_command(host)), "namespace-check"))
         self._validate_managed_security_state(
             session,
             host,
@@ -1418,6 +1429,28 @@ class InstalledElesimLifecycle:
             jetson=jetson,
             security_root_writable=writable,
             architecture=architecture_result.stdout.strip(),
+        )
+
+    def runtime_network_check(
+        self, session: SshSession, host: ManagedHost
+    ) -> None:
+        """Validate the pending DDS interface immediately before runtime use.
+
+        This deliberately does not belong to security preflight: SROS2
+        authority generation is independent of whether a host's current
+        container backend exposes a direct interface.  The check itself is
+        still required before a lifecycle start, and receives the topology's
+        interface explicitly so an older installed state cannot be mistaken
+        for the pending connection-manager configuration.
+        """
+
+        session.run(
+            (
+                str(_net_command(host)),
+                "namespace-check",
+                "--dds-interface",
+                host.dds.interface,
+            )
         )
 
     def _validate_managed_security_state(
@@ -1848,6 +1881,7 @@ class TopologyRollout:
             phase = "start"
             for host in stopped:
                 _notify_progress(progress, phase, host.host_id)
+                self._operations[host.host_id].runtime_network_check(host)
                 self._operations[host.host_id].start(
                     host, previous[host.host_id].running_roles
                 )
@@ -1967,6 +2001,7 @@ class GenerationRollout:
             phase = "start"
             for host in stopped:
                 _notify_progress(progress, phase, host.host_id)
+                self._operations[host.host_id].runtime_network_check(host)
                 self._operations[host.host_id].start(
                     host, previous[host.host_id].running_roles
                 )

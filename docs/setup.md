@@ -243,13 +243,18 @@ wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
 host-key and deployment connections through `tailscale nc` when the bridge
 cannot directly route the WSL `tailscale0` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
-It is an SSH-management fallback only: it does not proxy DDS UDP. Generated
-runtime launchers and connection-manager start/restart preflight run
-`elesim-net namespace-check` inside the runtime network namespace. If the
-configured DDS interface is absent there, launch fails before role containers
-enter a restart loop. For Docker Desktop plus WSL, use a Docker Engine running
-inside the same WSL/Linux network namespace as Tailscale, or configure an
-interface and route that are genuinely visible inside the runtime containers.
+It is an SSH-management fallback only: it does not proxy DDS UDP. A configured
+`tailscale0` remains a valid direct DDS bind and is preserved in the generated
+CycloneDDS XML. The lightweight `elesim-net namespace-check` runs immediately
+before an actual runtime start (and in the generated launch wrapper), inside
+the same network namespace as the role containers. SROS2 authority preflight
+does not perform this runtime check: key generation and interface availability
+are separate gates. If the configured interface is absent at start, launch
+fails before role containers enter a restart loop. For Docker Desktop plus WSL,
+direct `tailscale0` binding requires a Docker Engine running inside the same
+WSL/Linux network namespace as Tailscale; a routed/NAT path through another
+container-visible interface is a separate configuration and does not become a
+direct `tailscale0` bind automatically.
 For a full lifecycle start, the same private helper accepts only the fixed
 Elesim Compose build shape and streams its actual
 `docker compose --progress plain build` stdout/stderr back to the manager. A

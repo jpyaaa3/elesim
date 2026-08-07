@@ -165,6 +165,9 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
 
             return Capabilities()
 
+        def runtime_network_check(self, _host) -> None:
+            events.append(f"network-check:{self.host_id}")
+
         def launch(self, _host) -> None:
             events.append(f"launch:{self.host_id}")
 
@@ -188,7 +191,9 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     runner(topology, "start", logs.append)
 
     assert events == [
+        "network-check:operator",
         "preflight:operator",
+        "network-check:jetson",
         "preflight:jetson",
         "build:operator",
         "build:jetson",

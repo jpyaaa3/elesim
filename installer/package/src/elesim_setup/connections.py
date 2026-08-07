@@ -141,6 +141,12 @@ class ConnectionDeploymentRunner:
                     log("모든 호스트의 런타임 네트워크를 사전 점검합니다.")
                     for host in hosts:
                         log(f"preflight: {host.display_name} ({host.host_id})")
+                        # This is a cheap interface-visibility probe, not a
+                        # DDS discovery or hardware test.  It is kept outside
+                        # security generation preflight so a valid
+                        # tailscale0 topology can be provisioned before the
+                        # selected runtime backend is started.
+                        operations[host.host_id].runtime_network_check(host)
                         capabilities = operations[host.host_id].preflight(host)
                         capabilities.require_for(host)
                 if action in {"stop", "restart"}:
@@ -297,6 +303,7 @@ class ConnectionDeploymentRunner:
                     log(f"recover-active: {host.display_name} ({host.host_id})")
                     operations[host.host_id].activate(host, active.generation)
             for host in stopped:
+                operations[host.host_id].runtime_network_check(host)
                 operations[host.host_id].start(
                     host, snapshots[host.host_id].running_roles
                 )

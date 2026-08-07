@@ -598,6 +598,9 @@ class FakeLifecycle:
     def preflight(self, _session, _host, _root):
         return RemoteCapabilities(True, True, False, True)
 
+    def runtime_network_check(self, _session, _host) -> None:
+        pass
+
     def snapshot(self, _session, host):
         return {"roles": list(host.roles)}
 
@@ -762,6 +765,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     capabilities = lifecycle.preflight(
         session, host, PurePosixPath("/opt/elesim/security")
     )
+    assert not any("namespace-check" in argv for argv, _check in session.commands)
+    lifecycle.runtime_network_check(session, host)
     lifecycle.configure(
         session, host, "g2", PurePosixPath("/opt/elesim/security")
     )
@@ -771,7 +776,12 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     assert capabilities.docker
     assert capabilities.security_root_writable
     assert (
-        ("/usr/local/bin/elesim-net", "namespace-check"),
+        (
+            "/usr/local/bin/elesim-net",
+            "namespace-check",
+            "--dds-interface",
+            "tailscale0",
+        ),
         True,
     ) in session.commands
     configure = next(
@@ -880,6 +890,9 @@ class FakeOperations:
             jetson=host.jetson,
             security_root_writable=True,
         )
+
+    def runtime_network_check(self, _host):
+        return None
 
     def capture_state(self, host):
         self._event("current")

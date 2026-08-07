@@ -302,11 +302,14 @@ Tailscale를 선택한 경우에만 해당 호스트의 실제 `sshd` 포트를 
 Tailscale 설치·로그인·ACL 변경은 하지 않는다. 재연결 뒤 주소가 바뀌었는지 확인한
 뒤 저장한다. `전체 시작`은 모든 호스트의 이미지를 먼저 완성한 뒤 역할을
 시작한다. 시작 전에는 설정한 DDS interface가 실제 역할 컨테이너와 같은 network
-namespace에 보이는지도 검사한다. 특히 Docker Desktop의 별도 Linux VM에서는 WSL의
-`tailscale0`가 보이지 않을 수 있다. 이 경우 SSH가 되더라도 DDS UDP는 되지 않으므로,
-같은 WSL/Linux namespace에서 동작하는 Docker Engine을 사용하거나 컨테이너 안에서
-실제로 route되는 interface를 선택해야 한다. SSH용 Tailscale helper는 DDS를 relay하지
-않는다. 이때 각 호스트의 실제 `docker compose --progress plain build` 출력이
+namespace에 보이는지도 가볍게 검사한다. `tailscale0`은 직접 bind 대상으로
+정상 보존되며, 런타임 namespace에 실제로 존재할 때 통과한다. 특히 Docker
+Desktop의 별도 Linux VM에서는 WSL의 `tailscale0`가 보이지 않을 수 있다. 이 경우
+SROS2 키 발급 자체가 실패하는 것은 아니지만, 런타임 시작은 직접 bind 검사에서
+실패한다. 직접 bind에는 같은 WSL/Linux namespace에서 동작하는 Docker Engine이
+필요하며, 컨테이너 안에서 route되는 다른 interface를 선택하는 것은 별도의
+라우팅/NAT 모드다. SSH용 Tailscale helper는 DDS를 relay하지 않는다. 이때 각
+호스트의 실제 `docker compose --progress plain build` 출력이
 연결 관리자 작업 기록과 `elesim-connections`를 실행한 터미널에 COM 이름과 함께
 실시간 표시된다. 이미지 빌드는 아직 컨테이너가 실행되기 전의 작업이므로
 `docker logs`나 `docker events`를 따로 볼 필요가 없다. 보안 초기 배포와 회전은
