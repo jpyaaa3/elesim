@@ -828,6 +828,62 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     ) in compose_commands
 
 
+def test_runtime_doctor_requests_strict_peer_json() -> None:
+    class DoctorSession:
+        def __init__(self) -> None:
+            self.commands: list[tuple[tuple[str, ...], bool]] = []
+
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            command = tuple(argv)
+            self.commands.append((command, check))
+            return RemoteCommandResult(
+                1,
+                json.dumps({"ok": False, "results": []}),
+                "peer is still pending\n",
+            )
+
+    topology = _topology()
+    session = DoctorSession()
+    report = InstalledElesimLifecycle(topology).runtime_doctor(
+        session,
+        topology.host("server"),
+        ("pilot-main", "ui-main", ""),
+        8.0,
+    )
+
+    assert report == {"ok": False, "results": []}
+    assert session.commands == [
+        (
+            (
+                "/usr/local/bin/elesim-net",
+                "doctor",
+                "--timeout",
+                "8",
+                "--json",
+                "--strict-peers",
+                "--expect-peer",
+                "pilot-main",
+                "--expect-peer",
+                "ui-main",
+            ),
+            False,
+        )
+    ]
+
+
+def test_runtime_doctor_explains_non_json_remote_output() -> None:
+    class DoctorSession:
+        @staticmethod
+        def run(_argv, *, check=True) -> RemoteCommandResult:
+            return RemoteCommandResult(2, "build progress\n", "docker failed\n")
+
+    topology = _topology()
+    with pytest.raises(RuntimeError, match="invalid JSON.*server"):
+        InstalledElesimLifecycle(topology).runtime_doctor(
+            DoctorSession(), topology.host("server"), (), 4.0
+        )
+
+
 def test_tailscale_lifecycle_probe_is_added_only_for_tailscale_ssh() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["ssh"].update(

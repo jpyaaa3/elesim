@@ -270,6 +270,59 @@ def test_runtime_start_reports_remote_dds_readiness_after_launch(
     assert any("원격 endpoint robot-go2 발견" in message for message in logs)
 
 
+def test_runtime_readiness_tolerates_malformed_results_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    logs: list[str] = []
+
+    class Operations:
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def build(self, _host, _output) -> None:
+            return None
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def launch(self, _host) -> None:
+            return None
+
+        def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
+            assert timeout_s == 8
+            return {"ok": False, "results": None}
+
+        def stop(self, _host) -> None:
+            return None
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner(topology, "start", logs.append)
+
+    assert any("expected endpoint가 아직 발견되지 않음" in message for message in logs)
+
+
 def test_host_check_combines_network_preflight_and_runtime_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

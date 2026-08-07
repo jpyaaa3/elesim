@@ -42,13 +42,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         daemon=True,
     )
     worker.start()
-    while True:
-        content = connection.recv(32 * 1024)
-        if not content:
-            break
-        sys.stdout.buffer.write(content)
-        sys.stdout.buffer.flush()
-    connection.close()
+    try:
+        while True:
+            content = connection.recv(32 * 1024)
+            if not content:
+                break
+            sys.stdout.buffer.write(content)
+            sys.stdout.buffer.flush()
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        # A peer may close immediately after the SSH/Tailscale handshake.
+        # This is a normal proxy teardown and must not print a traceback.
+        return 0
+    finally:
+        connection.close()
     return 0
 
 
@@ -68,7 +74,7 @@ def _upload_stdin(connection: socket.socket, input_fd: int) -> None:
     finally:
         try:
             connection.shutdown(socket.SHUT_WR)
-        except OSError:
+        except (OSError, ValueError):
             pass
 
 

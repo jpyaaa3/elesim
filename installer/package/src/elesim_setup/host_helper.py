@@ -152,7 +152,7 @@ class _Handler(socketserver.StreamRequestHandler):
             finally:
                 try:
                     process.stdin.close()
-                except OSError:
+                except (OSError, ValueError):
                     pass
 
         worker = threading.Thread(target=upload, daemon=True)
@@ -174,7 +174,10 @@ class _Handler(socketserver.StreamRequestHandler):
                     # second traceback from the request handler.
                     break
         finally:
-            process.stdout.close()
+            try:
+                process.stdout.close()
+            except (OSError, ValueError):
+                pass
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:

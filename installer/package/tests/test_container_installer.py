@@ -203,6 +203,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "DISPLAY" in up_wrapper
     assert "xhost +si:localuser:root" in up_wrapper
     assert "viewer-xhost" in up_wrapper
+    assert "viewer_xhost_select_state" in up_wrapper
+    assert "XDG_RUNTIME_DIR" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     assert "down --remove-orphans" in down_wrapper
     assert "xhost -si:localuser:root" in down_wrapper

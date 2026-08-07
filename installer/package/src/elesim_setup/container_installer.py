@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 import shlex
@@ -1080,8 +1081,23 @@ def _viewer_xhost_function(state_path: Path) -> str:
     """Render opt-in X11 ACL management for the root-based Sim container."""
 
     state = shlex.quote(str(state_path))
+    fallback = (
+        '"${XDG_RUNTIME_DIR:-/tmp}/elesim/viewer-xhost-'
+        + hashlib.sha256(str(state_path).encode("utf-8")).hexdigest()[:16]
+        + '"'
+    )
     return (
         f"viewer_xhost_state={state}\n"
+        f"viewer_xhost_fallback={fallback}\n"
+        "viewer_xhost_select_state() {\n"
+        "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] && return 0\n"
+        "  local state_parent=\"${viewer_xhost_state%/*}\"\n"
+        "  if [[ -d \"$state_parent\" && ! -w \"$state_parent\" ]]; then\n"
+        "    viewer_xhost_state=\"$viewer_xhost_fallback\"\n"
+        "    printf '기존 X11 상태 경로에 쓸 수 없어 임시 경로를 사용합니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_select_state\n"
         "viewer_xhost_cleanup() {\n"
         "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] || return 0\n"
         "  if [[ ! -f \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
@@ -1137,7 +1153,7 @@ def _viewer_xhost_function(state_path: Path) -> str:
         "  fi\n"
         "  if (( had_root == 0 )) || [[ -e \"$viewer_xhost_state\" ]]; then\n"
         "    local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
-        "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
+        "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
         "      rm -f -- \"$temporary\"\n"
         "      if (( had_root == 0 )); then\n"
         "        if [[ -n ${XAUTHORITY:-} ]]; then\n"

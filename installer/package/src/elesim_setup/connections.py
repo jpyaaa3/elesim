@@ -315,10 +315,12 @@ class ConnectionDeploymentRunner:
                     f"원격 endpoint {', '.join(expected)} 발견"
                 )
                 continue
+            raw_results = report.get("results", ())
+            results = raw_results if isinstance(raw_results, (list, tuple)) else ()
             peer_result = next(
                 (
                     result
-                    for result in report.get("results", ())
+                    for result in results
                     if isinstance(result, Mapping) and result.get("name") == "DDS peers"
                 ),
                 None,
