@@ -39,12 +39,20 @@ class _FakeLink:
 
 class TestSimCameraMount(unittest.TestCase):
     def test_hand_eye_optical_axes_in_node9(self) -> None:
+        """
+        ZED Mini mounted rolled 180 deg about the optical axis.
+
+        Look direction is unchanged from the old D435 mount (node9 +X), but the
+        roll flips right and down: optical +X -> node9 +Y, optical +Y -> node9
+        +Z. Both signs are opposite the D435 values this test used to pin.
+        """
         cfg = ROOT / "model_presets" / "visual_servoing" / "hand_eye.camera.json"
         T = load_hand_eye_offset_T(cfg)
         R = T[:3, :3]
         np.testing.assert_allclose(R[:, 2], [1.0, 0.0, 0.0], atol=1e-6)
-        np.testing.assert_allclose(R[:, 0], [0.0, -1.0, 0.0], atol=1e-6)
-        np.testing.assert_allclose(R[:, 1], [0.0, 0.0, -1.0], atol=1e-6)
+        np.testing.assert_allclose(R[:, 0], [0.0, 1.0, 0.0], atol=1e-6)
+        np.testing.assert_allclose(R[:, 1], [0.0, 0.0, 1.0], atol=1e-6)
+        np.testing.assert_allclose(np.linalg.det(R), 1.0, atol=1e-9)
 
     def test_genesis_camera_object_matches_link_attach(self) -> None:
         cfg = ROOT / "model_presets" / "visual_servoing" / "hand_eye.camera.json"

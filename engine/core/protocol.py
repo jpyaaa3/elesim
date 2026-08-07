@@ -297,6 +297,7 @@ def pack_state(
     gaze_tick_count: Optional[int] = None,
     gaze_update_count: Optional[int] = None,
     gaze_config: Optional[dict[str, Any]] = None,
+    extra: Optional[dict[str, Any]] = None,
     pick_running: Optional[bool] = None,
     pick_failed: Optional[bool] = None,
     pick_phase: Optional[str] = None,
@@ -514,6 +515,9 @@ def pack_state(
                 marker["ttl_ms"] = int(raw.get("ttl_ms", 0))
             packed_markers.append(marker)
         out["debug_markers"] = packed_markers
+    if extra:
+        for _k, _v in extra.items():
+            out.setdefault(str(_k), _v)
     return out
 
 

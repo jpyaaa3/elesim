@@ -97,6 +97,7 @@ class ControlClient:
         self.last_gaze_update_count: int = 0
         self.last_gaze_obs_age_s: float = -1.0
         self.last_gaze_config: dict[str, Any] = {}
+        self.last_roll_scan: dict[str, Any] = {}
         self.last_pick_running: bool = False
         self.last_pick_failed: bool = False
         self.last_pick_phase: str = "idle"
@@ -184,6 +185,7 @@ class ControlClient:
             gaze_update_count=int(self.last_gaze_update_count),
             gaze_obs_age_s=float(self.last_gaze_obs_age_s),
             gaze_config=dict(self.last_gaze_config),
+            roll_scan=dict(self.last_roll_scan),
             pick_running=bool(self.last_pick_running),
             pick_failed=bool(self.last_pick_failed),
             pick_phase=str(self.last_pick_phase),
@@ -311,6 +313,11 @@ class ControlClient:
                 )
             except (TypeError, ValueError):
                 pass
+
+    def _update_roll_scan_fields(self, msg: dict[str, Any]) -> None:
+        found = {k: v for k, v in msg.items() if str(k).startswith("roll_scan_")}
+        if found:
+            self.last_roll_scan.update(found)
 
     def _update_gaze_fields(self, msg: dict[str, Any]) -> None:
         if "gaze_running" in msg:
@@ -457,6 +464,7 @@ class ControlClient:
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             self._update_gaze_fields(msg)
+            self._update_roll_scan_fields(msg)
             self._update_pick_fields(msg)
             object_world_raw = msg.get("object_world", None)
             if isinstance(object_world_raw, (list, tuple)) and len(object_world_raw) == 3:
@@ -564,6 +572,7 @@ class ControlClient:
             self._update_sim_clock_fields(msg)
             self._update_perception_fields(msg)
             self._update_gaze_fields(msg)
+            self._update_roll_scan_fields(msg)
             self._update_pick_fields(msg)
             actual_tip_raw = msg.get("actual_tip", None)
             if isinstance(actual_tip_raw, (list, tuple)) and len(actual_tip_raw) == 3:
@@ -690,6 +699,26 @@ class ControlClient:
         now = time.time()
         self.tx_seq += 1
         self._send({"t": "gaze_stop", "ts": now, "seq": self.tx_seq})
+
+    def send_roll_scan_start(
+        self, *, label: str = "", gt_diameter_m: Optional[float] = None
+    ) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send(
+            {
+                "t": "roll_scan_start",
+                "ts": now,
+                "seq": self.tx_seq,
+                "label": str(label),
+                "gt_diameter_m": None if gt_diameter_m is None else float(gt_diameter_m),
+            }
+        )
+
+    def send_roll_scan_stop(self) -> None:
+        now = time.time()
+        self.tx_seq += 1
+        self._send({"t": "roll_scan_stop", "ts": now, "seq": self.tx_seq})
 
     def stop_lji_velocity_control(self, *, reason: str = "client_stop") -> None:
         now = time.time()

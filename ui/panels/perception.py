@@ -31,6 +31,7 @@ _CONFIG_BROWSE_W = 72.0
 _MODE_BUTTON_W = 76.0
 _DETECTION_EVERY_BUTTON_W = 112.0
 _DETECTION_TRACK_BUTTON_W = 132.0
+_ROLL_SCAN_BUTTON_W = 128.0
 _BALL_MOVE_W = 58.0
 _GAZE_MODE_BUTTON_W = 92.0
 _PICK_ACTION_W = 108.0
@@ -675,6 +676,132 @@ def _draw_tracking_controls(panel) -> None:
         panel.service.start_demo4_stop_and_grasp()
 
 
+def _sync_roll_scan_plan_text(panel) -> None:
+    """
+    Cache the plan line and the fitting-backend status.
+
+    Both are static for a given config but involve a filesystem probe, so they
+    are refreshed on a timer rather than every frame.
+    """
+    now = time.time()
+    if now < float(getattr(panel, "_roll_scan_text_until", 0.0)):
+        return
+    panel._roll_scan_text_until = now + 5.0
+    try:
+        plan = panel.service.roll_scan_plan_text()
+    except Exception as exc:  # noqa: BLE001
+        plan = f"plan unavailable: {exc}"
+    try:
+        backend = panel.service.roll_scan_backend_status()
+    except Exception as exc:  # noqa: BLE001
+        backend = f"geometry backend: unknown ({exc})"
+    if "MISSING" in backend or "incomplete" in backend:
+        # say so before the button is pressed: the scan refuses to move the arm
+        # when the fit cannot run, and the reason belongs next to the control
+        plan = f"{plan}\n{backend}"
+    panel._roll_scan_plan_text = plan
+
+
+def _roll_scan_view(panel) -> dict:
+    """
+    Scan status, wherever it is running.
+
+    A local scan writes straight into PanelState; a host-side scan arrives in
+    HostState.roll_scan. Prefer whichever one says it is running, so the panel
+    does not go blank the moment the scan moves to the Jetson.
+    """
+    st = panel.state
+    local = {
+        "running": bool(getattr(st, "roll_scan_running", False)),
+        "phase": str(getattr(st, "roll_scan_phase", "idle") or "idle"),
+        "msg": str(getattr(st, "roll_scan_msg", "") or ""),
+        "stop_index": int(getattr(st, "roll_scan_stop_index", 0)),
+        "n_stops": int(getattr(st, "roll_scan_n_stops", 0)),
+        "sweep": int(getattr(st, "roll_scan_sweep", 0)),
+        "n_sweeps": int(getattr(st, "roll_scan_n_sweeps", 0)),
+        "roll_actual_deg": float(getattr(st, "roll_scan_roll_actual_deg", 0.0)),
+        "frames_kept": int(getattr(st, "roll_scan_frames_kept", 0)),
+        "points_kept": int(getattr(st, "roll_scan_points_kept", 0)),
+        "diameter_mm": getattr(st, "roll_scan_diameter_mm", None),
+        "arc_span_deg": getattr(st, "roll_scan_arc_span_deg", None),
+        "residual_rms_mm": getattr(st, "roll_scan_residual_rms_mm", None),
+        "surface": str(getattr(st, "roll_scan_surface", "") or ""),
+        "source": "local",
+    }
+    host = getattr(panel, "_host_state", None)
+    raw = getattr(host, "roll_scan", None) if host is not None else None
+    if isinstance(raw, dict) and raw:
+        remote = {
+            "running": bool(raw.get("roll_scan_running", False)),
+            "phase": str(raw.get("roll_scan_phase", "idle") or "idle"),
+            "msg": str(raw.get("roll_scan_msg", "") or ""),
+            "stop_index": int(raw.get("roll_scan_stop_index", 0) or 0),
+            "n_stops": int(raw.get("roll_scan_n_stops", 0) or 0),
+            "sweep": int(raw.get("roll_scan_sweep", 0) or 0),
+            "n_sweeps": int(raw.get("roll_scan_n_sweeps", 0) or 0),
+            "roll_actual_deg": float(raw.get("roll_scan_roll_actual_deg", 0.0) or 0.0),
+            "frames_kept": int(raw.get("roll_scan_frames_kept", 0) or 0),
+            "points_kept": int(raw.get("roll_scan_points_kept", 0) or 0),
+            "diameter_mm": raw.get("roll_scan_diameter_mm", None),
+            "arc_span_deg": raw.get("roll_scan_arc_span_deg", None),
+            "residual_rms_mm": raw.get("roll_scan_residual_rms_mm", None),
+            "surface": str(raw.get("roll_scan_surface", "") or ""),
+            "source": "Jetson",
+        }
+        if remote["running"] or not local["running"]:
+            return remote
+    return local
+
+
+def _draw_roll_scan_controls(panel) -> None:
+    view = _roll_scan_view(panel)
+    running = bool(view["running"])
+
+    if _button(panel, "Scan Geometry##roll_scan_start", _ROLL_SCAN_BUTTON_W):
+        panel.service.start_roll_scan()
+    imgui.same_line()
+    if _button(panel, "Stop Scan##roll_scan_stop", _ROLL_SCAN_BUTTON_W):
+        panel.service.stop_roll_scan()
+
+    imgui.text_disabled(str(getattr(panel, "_roll_scan_plan_text", "") or ""))
+
+    phase = str(view["phase"])
+    if running:
+        n = int(view["n_stops"])
+        i = int(view["stop_index"])
+        frac = 0.0 if n <= 0 else min(1.0, i / float(n))
+        bar = getattr(imgui, "progress_bar", None)
+        overlay = f"{phase}  {i}/{n}"
+        if callable(bar):
+            try:
+                bar(float(frac), (0.0, 0.0), overlay)
+            except TypeError:  # older imgui binding without an overlay arg
+                bar(float(frac))
+                imgui.same_line()
+                imgui.text(overlay)
+        else:
+            imgui.text(overlay)
+        imgui.text(
+            f"sweep {view['sweep']}/{view['n_sweeps']}   roll {view['roll_actual_deg']:+.1f} deg"
+            f"   frames {view['frames_kept']}   pts {view['points_kept']}"
+        )
+    else:
+        tag = "FAILED" if phase == "failed" else phase.upper()
+        imgui.text(f"{tag}  ({view['source']})")
+
+    d = view.get("diameter_mm")
+    if d is not None:
+        arc = view.get("arc_span_deg")
+        rms = view.get("residual_rms_mm")
+        imgui.text(
+            f"d = {float(d):.1f} mm   arc {float(arc or 0.0):.0f} deg"
+            f"   wall rms {float(rms or 0.0):.2f} mm   {view['surface']}"
+        )
+    msg = str(view["msg"])
+    if msg:
+        imgui.text_wrapped(msg)
+
+
 def _draw_pick_play_button(panel, *, disabled: bool) -> bool:
     size = scaled(panel, _BUTTON_H)
     if not callable(getattr(imgui, "invisible_button", None)) or not callable(getattr(imgui, "get_window_draw_list", None)):
@@ -1102,4 +1229,10 @@ def draw_perception_panel(panel) -> None:
         _draw_tracking_controls(panel)
         imgui.separator()
         _draw_gaze_tuning_controls(panel)
+        _end_section()
+
+    imgui.separator()
+    if _begin_section("Geometry Scan", "roll_scan"):
+        _sync_roll_scan_plan_text(panel)
+        _draw_roll_scan_controls(panel)
         _end_section()

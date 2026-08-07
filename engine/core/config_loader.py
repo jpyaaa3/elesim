@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import configparser
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional, Tuple
 import engine.core.protocol as proto
@@ -13,6 +13,7 @@ from engine.robot.go2.hardware.config import Go2HardwareConfig
 from engine.robot.go2.locomotion.config import Go2LocomotionConfig
 from engine.behaviors.gaze.stabilizer import GazeStabilizerConfig
 from engine.robot.arm.joint_defs import JointLimit
+from engine.vision.scan.plan import RollScanConfig
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -444,6 +445,7 @@ class AppConfigBundle:
     go2_hardware_config: Go2HardwareConfig
     gaze_stabilizer_config: GazeStabilizerConfig
     experiment_config: ExperimentConfig
+    roll_scan_config: RollScanConfig
     mapping_config: proto.SimMappingConfig
 
 
@@ -1281,6 +1283,46 @@ def _load_go2_hardware_config(cp: configparser.ConfigParser, defaults: AppConfig
     )
 
 
+def _load_roll_scan_config(
+    cp: configparser.ConfigParser, defaults: AppConfigBundle, joint_limit: JointLimit
+) -> RollScanConfig:
+    r0 = defaults.roll_scan_config
+    # the sweep range defaults to the arm's own roll limits, so raising the
+    # joint limit widens the scan without a second place to edit
+    lo = float(getattr(joint_limit, "roll_min_deg", r0.roll_min_deg))
+    hi = float(getattr(joint_limit, "roll_max_deg", r0.roll_max_deg))
+    if not cp.has_section("roll_scan"):
+        return replace(r0, roll_min_deg=lo, roll_max_deg=hi)
+    g = lambda k, d: cp.getfloat("roll_scan", k, fallback=d)  # noqa: E731
+    gi = lambda k, d: cp.getint("roll_scan", k, fallback=d)  # noqa: E731
+    return RollScanConfig(
+        roll_min_deg=g("roll_min_deg", lo),
+        roll_max_deg=g("roll_max_deg", hi),
+        margin_deg=g("margin_deg", r0.margin_deg),
+        step_deg=g("step_deg", r0.step_deg),
+        sweeps=gi("sweeps", r0.sweeps),
+        settle_s=g("settle_s", r0.settle_s),
+        settle_tol_deg=g("settle_tol_deg", r0.settle_tol_deg),
+        step_timeout_s=g("step_timeout_s", r0.step_timeout_s),
+        box_half=g("box_half", r0.box_half),
+        frame_voxel=g("frame_voxel", r0.frame_voxel),
+        fuse_voxel=g("fuse_voxel", r0.fuse_voxel),
+        inlier_tol=g("inlier_tol", r0.inlier_tol),
+        min_depth=g("min_depth", r0.min_depth),
+        max_depth=g("max_depth", r0.max_depth),
+        min_points_per_frame=gi("min_points_per_frame", r0.min_points_per_frame),
+        max_stale_pose_s=g("max_stale_pose_s", r0.max_stale_pose_s),
+        resolution=cp.get("roll_scan", "resolution", fallback=r0.resolution),
+        depth_mode=cp.get("roll_scan", "depth_mode", fallback=r0.depth_mode),
+        fps=gi("fps", r0.fps),
+        confidence=gi("confidence", r0.confidence),
+        texture_confidence=gi("texture_confidence", r0.texture_confidence),
+        label=cp.get("roll_scan", "label", fallback=r0.label),
+        outdir=cp.get("roll_scan", "outdir", fallback=r0.outdir),
+        save_frames_npz=cp.getboolean("roll_scan", "save_frames_npz", fallback=r0.save_frames_npz),
+    )
+
+
 def _load_gaze_stabilizer_config(cp: configparser.ConfigParser, defaults: AppConfigBundle) -> GazeStabilizerConfig:
     g0 = defaults.gaze_stabilizer_config
     if not cp.has_section("gaze_stabilizer"):
@@ -1385,6 +1427,7 @@ def _default_app_config_bundle() -> AppConfigBundle:
         go2_hardware_config=Go2HardwareConfig(),
         gaze_stabilizer_config=GazeStabilizerConfig(),
         experiment_config=ExperimentConfig(),
+        roll_scan_config=RollScanConfig(),
         mapping_config=proto.SimMappingConfig(),
     )
 
@@ -1771,6 +1814,7 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
     go2_hardware_config_cfg = _load_go2_hardware_config(cp, defaults)
     gaze_stabilizer_config_cfg = _load_gaze_stabilizer_config(cp, defaults)
     experiment_config_cfg = _load_experiment_config(cp, defaults)
+    roll_scan_config_cfg = _load_roll_scan_config(cp, defaults, joint_limit_cfg)
     mapping_config_cfg = _build_mapping_config(joint_limit_cfg, hardware_config_cfg)
 
     return AppConfigBundle(
@@ -1787,5 +1831,6 @@ def load_app_config_from_ini(path: str) -> AppConfigBundle:
         go2_hardware_config=go2_hardware_config_cfg,
         gaze_stabilizer_config=gaze_stabilizer_config_cfg,
         experiment_config=experiment_config_cfg,
+        roll_scan_config=roll_scan_config_cfg,
         mapping_config=mapping_config_cfg,
     )

@@ -91,6 +91,7 @@ def main() -> None:
         go2_arm_mount=go2_arm_mount,
         use_hardware=bool(bundle.sim_config.use_hardware),
     )
+    service.set_roll_scan_config(bundle.roll_scan_config)
     gui = ControlPanel(
         state,
         service,

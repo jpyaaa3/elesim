@@ -500,6 +500,7 @@ class ControlHost:
         pick_config: Optional[PickConfig] = None,
         perception_config: Optional[PerceptionConfig] = None,
         gaze_config: Optional[Any] = None,
+        roll_scan_config: Optional[Any] = None,
         ownership_enable: bool = False,
         show_all_ports: bool = False,
         cfg: proto.SimMappingConfig = proto.SimMappingConfig(),
@@ -526,6 +527,7 @@ class ControlHost:
         self.pick_config = pick_config or PickConfig()
         self.perception_config = perception_config or PerceptionConfig()
         self.gaze_config = gaze_config or GazeStabilizerConfig()
+        self.roll_scan_config = roll_scan_config
         self.ownership_enable = bool(ownership_enable)
         self.show_all_ports = bool(show_all_ports)
         self._go2_bridge = go2_bridge
@@ -1474,6 +1476,7 @@ class ControlHost:
         perception_payload = self._perception_state_payload()
         gaze_payload = self._gaze_state_payload()
         pick_payload = self._pick_state_payload()
+        roll_scan_payload = self._roll_scan_state_payload()
         self._broadcast(
             proto.pack_state(
                 u=self.last_u,
@@ -1519,6 +1522,7 @@ class ControlHost:
                 pick_failed=bool(pick_payload.get("pick_failed", False)),
                 pick_phase=str(pick_payload.get("pick_phase", "idle")),
                 pick_status_msg=str(pick_payload.get("pick_status_msg", "")),
+                extra=dict(roll_scan_payload),
                 sag_model=self.last_sag_model,
                 claw_closed=self.last_claw_closed,
                 go2_vel=self._effective_go2_vel(now),
@@ -1558,6 +1562,7 @@ class ControlHost:
         perception_payload = self._perception_state_payload()
         gaze_payload = self._gaze_state_payload()
         pick_payload = self._pick_state_payload()
+        roll_scan_payload = self._roll_scan_state_payload()
         return HostState(
             connected=True,
             tx_seq=int(tx_seq),
@@ -1633,6 +1638,7 @@ class ControlHost:
             pick_failed=bool(pick_payload.get("pick_failed", False)),
             pick_phase=str(pick_payload.get("pick_phase", "idle")),
             pick_status_msg=str(pick_payload.get("pick_status_msg", "")),
+            roll_scan=dict(roll_scan_payload),
         )
 
     def _gaze_state_payload(self) -> Dict[str, Any]:
@@ -1668,6 +1674,53 @@ class ControlHost:
                 "gaze_tick_count": int(st.gaze_tick_count),
                 "gaze_update_count": int(st.gaze_update_count),
                 "gaze_config": gaze_config_to_dict(cfg),
+            }
+
+    def _apply_roll_scan_config(self, service: Any) -> None:
+        """Hand the host's [roll_scan] config to the on-device service."""
+        cfg = self.roll_scan_config
+        if cfg is None:
+            return
+        try:
+            service.set_roll_scan_config(cfg)
+        except Exception as exc:
+            print(f"[host] roll_scan config apply failed: {exc}")
+
+    def _stop_on_device_roll_scan(self) -> None:
+        service = self._embedded_control_service
+        if service is not None:
+            try:
+                service.stop_roll_scan()
+            except Exception as exc:
+                print(f"[host] on-device roll scan stop failed: {exc}")
+
+    def _roll_scan_state_payload(self) -> Dict[str, Any]:
+        service = self._embedded_control_service
+        if service is None:
+            return {
+                "roll_scan_running": False,
+                "roll_scan_phase": "idle",
+                "roll_scan_msg": "",
+            }
+        st = service.state
+        with st._lock:
+            return {
+                "roll_scan_running": bool(st.roll_scan_running),
+                "roll_scan_phase": str(st.roll_scan_phase),
+                "roll_scan_msg": str(st.roll_scan_msg),
+                "roll_scan_stop_index": int(st.roll_scan_stop_index),
+                "roll_scan_n_stops": int(st.roll_scan_n_stops),
+                "roll_scan_sweep": int(st.roll_scan_sweep),
+                "roll_scan_n_sweeps": int(st.roll_scan_n_sweeps),
+                "roll_scan_roll_cmd_deg": float(st.roll_scan_roll_cmd_deg),
+                "roll_scan_roll_actual_deg": float(st.roll_scan_roll_actual_deg),
+                "roll_scan_frames_kept": int(st.roll_scan_frames_kept),
+                "roll_scan_points_kept": int(st.roll_scan_points_kept),
+                "roll_scan_diameter_mm": st.roll_scan_diameter_mm,
+                "roll_scan_arc_span_deg": st.roll_scan_arc_span_deg,
+                "roll_scan_residual_rms_mm": st.roll_scan_residual_rms_mm,
+                "roll_scan_surface": str(st.roll_scan_surface),
+                "roll_scan_last_output": str(st.roll_scan_last_output),
             }
 
     def _pick_state_payload(self) -> Dict[str, Any]:
@@ -3768,6 +3821,63 @@ class ControlHost:
             )
             self._broadcast_state_now()
             return
+        if t == "roll_scan_start":
+            ok = True
+            reason = "on_device_roll_scan"
+            try:
+                service = self._ensure_on_device_control_service()
+                self._apply_roll_scan_config(service)
+                gt = msg.get("gt_diameter_m", None)
+                service.start_roll_scan(
+                    label=str(msg.get("label", "")),
+                    gt_diameter_m=None if gt is None else float(gt),
+                )
+                ok = bool(service.state.roll_scan_running)
+                reason = str(service.state.roll_scan_msg or reason)
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_roll_scan_start_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                }
+                | self._roll_scan_state_payload(),
+            )
+            self._broadcast_state_now()
+            return
+        if t == "roll_scan_stop":
+            ok = True
+            reason = "on_device_roll_scan_stop"
+            try:
+                service = self._embedded_control_service
+                if service is None:
+                    reason = "no_on_device_service"
+                else:
+                    service.stop_roll_scan()
+                    reason = str(service.state.roll_scan_msg or reason)
+            except Exception as exc:
+                ok = False
+                reason = f"on_device_roll_scan_stop_failed:{exc}"
+            self._reply(
+                ident,
+                {
+                    "t": "ack",
+                    "ts": proto.now_s(),
+                    "ok": bool(ok),
+                    "reason": str(reason),
+                    "device": self.device,
+                    "torque_enabled": self.torque_enabled,
+                }
+                | self._roll_scan_state_payload(),
+            )
+            self._broadcast_state_now()
+            return
         if t == "gaze_start_walking":
             ok = True
             mode = str(msg.get("gaze_mode", "")).strip()
@@ -4747,6 +4857,7 @@ def run_host(
             pick_config=bundle.pick_config,
             perception_config=bundle.perception_config,
             gaze_config=bundle.gaze_stabilizer_config,
+            roll_scan_config=bundle.roll_scan_config,
             ownership_enable=bool(getattr(bundle.experiment_config, "ownership_enable", False)),
             show_all_ports=bool(bundle.sim_config.show_all_ports),
             cfg=bundle.mapping_config,

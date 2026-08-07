@@ -8,6 +8,14 @@ from typing import Any, Optional, Tuple
 from engine.core.protocol import ControlU, SimQ
 
 
+def _is_nan(value: float) -> bool:
+    """NaN is the 'clear this field' sentinel for optional status numbers."""
+    try:
+        return value != value
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @dataclass(frozen=True)
 class HostState:
     connected: bool
@@ -76,6 +84,7 @@ class HostState:
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
     gaze_config: dict[str, Any] = field(default_factory=dict)
+    roll_scan: dict[str, Any] = field(default_factory=dict)
     pick_running: bool = False
     pick_failed: bool = False
     pick_phase: str = "idle"
@@ -140,6 +149,26 @@ class PanelState:
     gaze_tick_count: int = 0
     gaze_update_count: int = 0
     gaze_obs_age_s: float = -1.0
+
+    # roll-sweep geometry scan (FK-pose multi-view fusion)
+    roll_scan_running: bool = False
+    roll_scan_phase: str = "idle"
+    roll_scan_msg: str = ""
+    roll_scan_stop_index: int = 0
+    roll_scan_n_stops: int = 0
+    roll_scan_sweep: int = 0
+    roll_scan_n_sweeps: int = 0
+    roll_scan_roll_cmd_deg: float = 0.0
+    roll_scan_roll_actual_deg: float = 0.0
+    roll_scan_frames_kept: int = 0
+    roll_scan_points_kept: int = 0
+    roll_scan_diameter_mm: Optional[float] = None
+    roll_scan_arc_span_deg: Optional[float] = None
+    roll_scan_residual_rms_mm: Optional[float] = None
+    roll_scan_surface: str = ""
+    roll_scan_last_output: str = ""
+
+    q_last_update_s: float = 0.0
 
     mock_object_x: float = 0.5
     mock_object_y: float = 0.0
@@ -207,6 +236,18 @@ class PanelState:
             self.roll = float(roll)
             self.theta1 = float(theta1)
             self.theta2 = float(theta2)
+            # stamped so consumers can tell whether the joint state still
+            # matches an image they just grabbed; a stale q4 silently produces a
+            # wrong FK camera pose, which fusion cannot detect afterwards
+            self.q_last_update_s = float(time.time())
+
+    def q4(self) -> Tuple[Tuple[float, float, float, float], float]:
+        """Current (linear, roll, theta1, theta2) and its age in seconds."""
+        with self._lock:
+            q = (float(self.linear), float(self.roll), float(self.theta1), float(self.theta2))
+            ts = float(self.q_last_update_s)
+        age = float("inf") if ts <= 0.0 else max(0.0, time.time() - ts)
+        return q, age
 
     def reset_q(self) -> None:
         self.set_q(0.0, 0.0, 0.0, 0.0)
@@ -381,6 +422,64 @@ class PanelState:
                 self.gaze_tick_count = int(tick_count)
             if update_count is not None:
                 self.gaze_update_count = int(update_count)
+
+    def set_roll_scan_status(
+        self,
+        *,
+        running: Optional[bool] = None,
+        phase: str = "",
+        msg: Optional[str] = None,
+        stop_index: Optional[int] = None,
+        n_stops: Optional[int] = None,
+        sweep: Optional[int] = None,
+        n_sweeps: Optional[int] = None,
+        roll_cmd_deg: Optional[float] = None,
+        roll_actual_deg: Optional[float] = None,
+        frames_kept: Optional[int] = None,
+        points_kept: Optional[int] = None,
+        diameter_mm: Optional[float] = None,
+        arc_span_deg: Optional[float] = None,
+        residual_rms_mm: Optional[float] = None,
+        surface: str = "",
+        last_output: str = "",
+    ) -> None:
+        with self._lock:
+            if running is not None:
+                self.roll_scan_running = bool(running)
+            if str(phase).strip():
+                self.roll_scan_phase = str(phase)
+            if msg is not None:
+                self.roll_scan_msg = str(msg)
+            if stop_index is not None:
+                self.roll_scan_stop_index = int(stop_index)
+            if n_stops is not None:
+                self.roll_scan_n_stops = int(n_stops)
+            if sweep is not None:
+                self.roll_scan_sweep = int(sweep)
+            if n_sweeps is not None:
+                self.roll_scan_n_sweeps = int(n_sweeps)
+            if roll_cmd_deg is not None:
+                self.roll_scan_roll_cmd_deg = float(roll_cmd_deg)
+            if roll_actual_deg is not None:
+                self.roll_scan_roll_actual_deg = float(roll_actual_deg)
+            if frames_kept is not None:
+                self.roll_scan_frames_kept = int(frames_kept)
+            if points_kept is not None:
+                self.roll_scan_points_kept = int(points_kept)
+            # fit results are cleared explicitly by passing NaN, so a new scan
+            # does not leave the previous scan's diameter on screen
+            if diameter_mm is not None:
+                self.roll_scan_diameter_mm = None if _is_nan(diameter_mm) else float(diameter_mm)
+            if arc_span_deg is not None:
+                self.roll_scan_arc_span_deg = None if _is_nan(arc_span_deg) else float(arc_span_deg)
+            if residual_rms_mm is not None:
+                self.roll_scan_residual_rms_mm = (
+                    None if _is_nan(residual_rms_mm) else float(residual_rms_mm)
+                )
+            if str(surface).strip():
+                self.roll_scan_surface = str(surface)
+            if str(last_output).strip():
+                self.roll_scan_last_output = str(last_output)
 
     def set_perception_last_capture(self, path: str) -> None:
         with self._lock:

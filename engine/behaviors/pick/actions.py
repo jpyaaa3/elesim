@@ -10930,6 +10930,196 @@ class ControlService:
         self.state.set_perception_status(running=True, failed=False, msg="starting")
         cap.start()
 
+    # ------------------------------------------------------------------
+    # roll-sweep geometry scan (FK poses, no VIO, no ICP)
+    # ------------------------------------------------------------------
+
+    def _delegate_roll_scan_to_host(self) -> bool:
+        # the scan needs the camera AND the joint state in one process; when
+        # perception lives on the host, so must the scan
+        return (
+            bool(self._remote_gaze_delegate)
+            and not bool(self._perception_run_local)
+            and self.client is not None
+        )
+
+    def _roll_scan_config(self) -> "RollScanConfig":
+        from engine.vision.scan.plan import RollScanConfig
+
+        cfg = getattr(self, "_roll_scan_cfg", None)
+        return cfg if cfg is not None else RollScanConfig()
+
+    def set_roll_scan_config(self, cfg: "RollScanConfig") -> None:
+        self._roll_scan_cfg = cfg
+
+    def _command_roll_deg(self, roll_deg: float) -> None:
+        """Move only the roll joint to an absolute angle, leaving the rest put."""
+        cfg = self.control_mapping()
+        u = sim_q_to_control_u(
+            SimQ(
+                linear_m=float(self.state.linear),
+                roll_rad=math.radians(float(roll_deg)),
+                theta1_rad=float(self.state.theta1),
+                theta2_rad=float(self.state.theta2),
+            ),
+            cfg,
+        )
+        display = self._actual_to_display_u(u)
+        self.apply_partial_control_u({"roll": float(display.u_roll)}, source="roll_scan")
+
+    def roll_scan_progress(self) -> Optional[Any]:
+        scan = getattr(self, "_roll_scan", None)
+        return None if scan is None else scan.progress()
+
+    def roll_scan_plan_text(self) -> str:
+        from engine.vision.scan.service import describe_plan
+
+        try:
+            return describe_plan(self._roll_scan_config())
+        except Exception as exc:  # noqa: BLE001
+            return f"plan unavailable: {exc}"
+
+    def roll_scan_backend_status(self) -> str:
+        from engine.vision.scan import geometry
+
+        return geometry.status()
+
+    def start_roll_scan(self, *, label: str = "", gt_diameter_m: Optional[float] = None) -> None:
+        from dataclasses import replace as _replace
+
+        from engine.vision.scan import geometry
+        from engine.vision.scan.service import ScanUnavailable, build_scan, fit_and_report
+
+        if self._delegate_roll_scan_to_host():
+            if hasattr(self.client, "send_roll_scan_start"):
+                self.client.send_roll_scan_start(label=str(label), gt_diameter_m=gt_diameter_m)
+                self.state.set_roll_scan_status(
+                    running=True, phase="opening", msg="on-device scan requested"
+                )
+                print("[roll_scan] on-device start requested")
+            else:
+                self.state.set_roll_scan_status(
+                    running=False, phase="failed", msg="remote host lacks roll_scan_start"
+                )
+            return
+
+        scan = getattr(self, "_roll_scan", None)
+        if scan is not None and scan.is_running():
+            self.state.set_roll_scan_status(msg="already running")
+            return
+        if self._visual_busy():
+            self.state.set_roll_scan_status(
+                running=False, phase="failed", msg="rejected: visual pipeline busy"
+            )
+            print("[roll_scan] rejected: visual pipeline busy")
+            return
+
+        cfg = self._roll_scan_config()
+        if str(label).strip():
+            cfg = _replace(cfg, label=str(label).strip())
+
+        if not geometry.available():
+            # refuse before moving the arm: a sweep whose fit cannot run is
+            # ~30 s of joint travel for nothing
+            msg = geometry.status()
+            self.state.set_roll_scan_status(running=False, phase="failed", msg=msg)
+            print(f"[roll_scan] {msg}")
+            return
+
+        self.refresh_ik_context()
+
+        def _on_progress(p: Any) -> None:
+            self.state.set_roll_scan_status(
+                running=bool(p.running),
+                phase=str(p.phase),
+                msg=str(p.msg),
+                stop_index=int(p.stop_index),
+                n_stops=int(p.n_stops),
+                sweep=int(p.sweep),
+                n_sweeps=int(p.n_sweeps),
+                roll_cmd_deg=float(p.roll_cmd_deg),
+                roll_actual_deg=float(p.roll_actual_deg),
+                frames_kept=int(p.frames_kept),
+                points_kept=int(p.points_kept),
+            )
+
+        try:
+            scan = build_scan(
+                cfg=cfg,
+                ik_context=self._ik_context,
+                hand_eye_transform=self._hand_eye_transform,
+                hand_eye_parent_frame=self._hand_eye_parent_frame,
+                read_q4=self.state.q4,
+                command_roll_deg=self._command_roll_deg,
+                on_progress=_on_progress,
+            )
+        except ScanUnavailable as exc:
+            self.state.set_roll_scan_status(running=False, phase="failed", msg=str(exc))
+            print(f"[roll_scan] unavailable: {exc}")
+            return
+
+        self._roll_scan = scan
+        self._roll_scan_gt_m = gt_diameter_m
+        self.state.set_roll_scan_status(
+            running=True, phase="opening",
+            msg=self.roll_scan_plan_text(),
+            diameter_mm=float("nan"), arc_span_deg=float("nan"), residual_rms_mm=float("nan"),
+            stop_index=0, n_stops=scan.plan.n_stops, sweep=0, n_sweeps=scan.plan.sweeps,
+            frames_kept=0, points_kept=0,
+        )
+        scan.start()
+
+        def _finish() -> None:
+            scan.wait()
+            res = scan.result()
+            if res is None:
+                return
+            self.state.set_roll_scan_status(phase="fitting", msg="fitting cylinder")
+            try:
+                report = fit_and_report(
+                    res, cfg,
+                    frames=scan.frames(),
+                    cam_positions=scan.cam_positions(),
+                    gt_diameter_m=gt_diameter_m,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.state.set_roll_scan_status(
+                    running=False, phase="failed", msg=f"fit failed: {exc}"
+                )
+                print(f"[roll_scan] fit failed: {exc}")
+                return
+            fused = report.get("fused") or {}
+            self.state.set_roll_scan_status(
+                running=False, phase="done",
+                msg=(f"d={fused.get('diameter_mm')} mm, arc {fused.get('arc_span_deg')} deg, "
+                     f"rms {fused.get('residual_rms_mm')} mm"),
+                diameter_mm=fused.get("diameter_mm"),
+                arc_span_deg=fused.get("arc_span_deg"),
+                residual_rms_mm=fused.get("residual_rms_mm"),
+                surface=str(fused.get("surface", "")),
+                last_output=str((report.get("outputs") or {}).get("report_json", "")),
+            )
+
+        self._roll_scan_finish_thread = threading.Thread(
+            target=_finish, name="roll-scan-finish", daemon=True
+        )
+        self._roll_scan_finish_thread.start()
+
+    def stop_roll_scan(self) -> None:
+        if self._delegate_roll_scan_to_host():
+            if hasattr(self.client, "send_roll_scan_stop"):
+                self.client.send_roll_scan_stop()
+                self.state.set_roll_scan_status(
+                    running=False, phase="idle", msg="on-device stop requested"
+                )
+                return
+        scan = getattr(self, "_roll_scan", None)
+        if scan is None:
+            self.state.set_roll_scan_status(running=False, phase="idle", msg="not running")
+            return
+        scan.stop()
+        self.state.set_roll_scan_status(msg="stop requested")
+
     def stop_perception_capture(self, *, stop_recording: bool = True) -> None:
         if not self._perception_run_local:
             self._stop_remote_preview()
