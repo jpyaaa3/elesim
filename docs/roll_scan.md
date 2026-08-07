@@ -76,10 +76,12 @@ park roll at centre  →  anchor  →  traverse while capturing  →  fuse  → 
 
 1. **Park at centre** (`home_roll_deg`). A run always starts from a known,
    object-facing pose rather than wherever the last action left the joint.
-2. **Anchor.** One frame is taken from that pose. Its non-planar remainder gives
-   a world-frame point that becomes the centre of a `box_half` cube. *Every
-   later frame is cropped to that box*, so the anchor decides what the scan is
-   even looking at.
+2. **Anchor.** One frame is taken from that pose and run through the bench's
+   `auto_roi` (nearest significant non-planar cluster) and `extract_points`; the
+   median of the resulting object points becomes the centre of a `box_half` cube.
+   *Every later frame is cropped to that box*, so the anchor decides what the
+   scan is even looking at. If no object cluster is found it falls back to a
+   whole-frame median and **says so** — that fallback anchors on background.
 3. **Traverse.** Roll ramps across `span_deg` centred on the anchor angle, at
    `sweep_rate_deg_s`. Frames are grabbed continuously; one is **kept** each
    time the measured roll has advanced `step_deg` since the last kept frame.
@@ -305,6 +307,11 @@ For the first few frames the scan logs the point count at every stage:
 
 - **`box` is small** → the object is not in the crop box. The anchor landed on
   the wrong thing, or `box_half` is too small.
+- **the fused cloud fills the crop box exactly** (extent = `2 * box_half` in two
+  axes) → the box is slicing a large surface, not enclosing an object. Check the
+  `anchor via roi` note: if it says the whole-frame median was used, no object
+  cluster was detected and the box is on background. Frames will also share ~0%
+  of their points, which is the giveaway.
 - **`box` is large but `clean` is tiny** → plane removal ate the object. Its
   wall was locally planar enough to win a plane consensus. Shrink `box_half` so
   the table is not in the box to begin with (the cheapest fix), or raise the

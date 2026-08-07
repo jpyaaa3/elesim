@@ -300,6 +300,50 @@ def anchor_from_frame(
     return np.median(coarse, axis=0)
 
 
+def anchor_via_roi(
+    xyz_organized: np.ndarray,
+    R: np.ndarray,
+    t: np.ndarray,
+    *,
+    min_depth: float,
+    max_depth: float,
+    depth_window: float = 0.12,
+) -> tuple[Optional[np.ndarray], str]:
+    """
+    Anchor on a DETECTED object, using the bench's own extraction.
+
+    ``anchor_from_frame`` takes the median of whatever survives plane removal
+    across the entire frame, which lands on background: a live scan anchored that
+    way produced a cloud that filled the crop box exactly in two axes (i.e. the
+    box was slicing a wall, not enclosing an object) and whose frames shared 0%
+    of their points.
+
+    ``auto_roi`` finds the nearest significant non-planar cluster and
+    ``extract_points`` reduces that ROI to object candidates -- which is what
+    those functions exist for. Returns (anchor, description); anchor is None when
+    no object cluster is found, which is worth reporting rather than falling back
+    silently to a background anchor.
+    """
+    from . import geometry
+
+    if not geometry.available():
+        return None, f"object detection unavailable: {geometry.backend_error()}"
+    roi = geometry.auto_roi(xyz_organized, min_depth=min_depth, max_depth=max_depth)
+    if roi is None:
+        return None, "auto_roi found no non-planar cluster (is the object in view?)"
+    pts, valid_ratio, z_med = geometry.extract_points(
+        xyz_organized, roi, float(depth_window), remove_plane=True
+    )
+    if pts is None or len(pts) < 200:
+        return None, f"roi {roi} yielded only {0 if pts is None else len(pts)} object points"
+    pw = transform_points(pts, R, t)
+    extent = pw.max(axis=0) - pw.min(axis=0)
+    return np.median(pw, axis=0), (
+        f"roi={roi} n={len(pts)} valid={valid_ratio:.2f} depth={z_med:.3f}m "
+        f"extent={np.round(extent, 3).tolist()}"
+    )
+
+
 def reanchor_from_view_rays(
     frames: Sequence[np.ndarray],
     cams: Sequence[np.ndarray],

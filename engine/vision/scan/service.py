@@ -274,6 +274,14 @@ def build_scan(
 
         return valid_points(frame.xyz, min_depth=cfg.min_depth, max_depth=cfg.max_depth)
 
+    def _grab_frame() -> Optional[np.ndarray]:
+        """Organized (H, W, 3) cloud, which auto_roi needs (it works in pixels)."""
+        cam = holder.get("cam")
+        if cam is None:
+            return None
+        frame = cam.grab()
+        return None if frame is None else frame.xyz
+
     def _intrinsics() -> Optional[Any]:
         cam = holder.get("cam")
         return None if cam is None else getattr(cam, "intrinsics", None)
@@ -288,6 +296,7 @@ def build_scan(
         open_camera=_open,
         close_camera=_close,
         read_intrinsics=_intrinsics,
+        grab_frame=_grab_frame,
     )
 
 

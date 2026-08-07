@@ -44,6 +44,7 @@ from .plan import RollScanConfig, RollSweepPlan, build_plan
 from .fusion import (
     FusionResult,
     anchor_from_frame,
+    anchor_via_roi,
     box_crop,
     build_provenance,
     camera_depth_gate,
@@ -115,6 +116,7 @@ class RollSweepScan:
         open_camera: Optional[Callable[[], None]] = None,
         close_camera: Optional[Callable[[], None]] = None,
         read_intrinsics: Optional[Callable[[], Optional[Any]]] = None,
+        grab_frame: Optional[Callable[[], Optional[np.ndarray]]] = None,
     ) -> None:
         self.cfg = cfg
         self.plan = build_plan(cfg)
@@ -126,6 +128,7 @@ class RollSweepScan:
         self._open_camera = open_camera
         self._close_camera = close_camera
         self._read_intrinsics = read_intrinsics
+        self._grab_frame = grab_frame
 
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -269,9 +272,8 @@ class RollSweepScan:
             notes.append(f"{tag}: no depth")
             return center, 0
         if center is None:
-            center = anchor_from_frame(pts_cam, pose.R, pose.t, box_half=self.cfg.box_half)
+            center = self._anchor(pose, pts_cam, notes)
             if center is None:
-                notes.append(f"{tag}: anchor too sparse")
                 return None, 0
         n_valid = len(pts_cam)
         pts_cam = camera_depth_gate(pts_cam, pose.R, pose.t, center, self.cfg.box_half)
@@ -289,18 +291,53 @@ class RollSweepScan:
             notes.append(
                 f"{tag}: valid={n_valid} gated={n_gated} box={n_box} clean={n_clean}"
             )
-        if n_clean <= int(self.cfg.min_points_per_frame):
-            why = "nothing in the crop box" if n_box <= int(self.cfg.min_points_per_frame) \
-                else f"plane removal left {n_clean} of {n_box}"
+        pw = voxel_downsample(pw, self.cfg.frame_voxel)
+        if len(pw) <= int(self.cfg.min_points_per_frame):
+            if n_box <= int(self.cfg.min_points_per_frame):
+                why = "nothing in the crop box"
+            elif n_clean <= int(self.cfg.min_points_per_frame):
+                why = f"plane removal left {n_clean} of {n_box}"
+            else:
+                why = f"voxel downsample left {len(pw)} of {n_clean}"
             notes.append(f"{tag}: too few points -- {why}")
             return center, 0
-        pw = voxel_downsample(pw, self.cfg.frame_voxel)
         with self._lock:
             self._frames.append(pw)
             self._cams.append(np.asarray(pose.t, dtype=float).copy())
             self._looks.append(np.asarray(pose.look, dtype=float).copy())
             self._rolls.append(math.degrees(pose.roll_rad))
         return center, len(pw)
+
+    def _anchor(
+        self, pose: FkPoseSample, pts_cam: np.ndarray, notes: list[str]
+    ) -> Optional[np.ndarray]:
+        """
+        Fix the world crop box on a DETECTED object.
+
+        Prefers the bench's auto_roi + extract_points, which find the nearest
+        non-planar cluster; the whole-frame median fallback anchors on background
+        and produced a scan whose frames shared none of their points.
+        """
+        if self._grab_frame is not None:
+            organized = self._grab_frame()
+            if organized is not None:
+                center, detail = anchor_via_roi(
+                    organized, pose.R, pose.t,
+                    min_depth=self.cfg.min_depth, max_depth=self.cfg.max_depth,
+                )
+                if center is not None:
+                    notes.append(f"anchor via roi: {detail}")
+                    return center
+                notes.append(f"anchor via roi failed: {detail}")
+        center = anchor_from_frame(pts_cam, pose.R, pose.t, box_half=self.cfg.box_half)
+        if center is None:
+            notes.append("anchor too sparse")
+            return None
+        notes.append(
+            "anchor from whole-frame median (no object cluster detected) -- "
+            "the crop box may be on background"
+        )
+        return center
 
     def _park_roll(self, target_deg: float, *, why: str) -> bool:
         """
