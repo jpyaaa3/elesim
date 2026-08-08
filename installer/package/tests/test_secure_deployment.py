@@ -13,6 +13,7 @@ from elesim_setup.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,
+    DeploymentUnit,
     ManagedHost,
     RoleAssignment,
     SshEndpoint,
@@ -52,7 +53,6 @@ def _topology() -> ConnectionTopology:
         (
             ManagedHost(
                 "laptop",
-                "Laptop",
                 True,
                 DdsEndpoint("100.64.0.1", "tailscale0"),
                 None,
@@ -63,7 +63,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 "server",
-                "Server",
                 False,
                 DdsEndpoint("100.64.0.2", "tailscale0"),
                 _ssh(),
@@ -71,7 +70,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 "robot",
-                "Robot",
                 False,
                 DdsEndpoint("100.64.0.3", "tailscale0"),
                 _ssh("robot.example"),
@@ -153,6 +151,50 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     )
 
 
+def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
+    host = ManagedHost(
+        "jetson",
+        False,
+        DdsEndpoint("100.64.0.31", "tailscale0"),
+        _ssh("jetson.example"),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"), RoleAssignment("ui", "ui-main")),
+                install_root="/opt/elesim-runtime",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim-robot",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+
+    runtime = host.runtime_units[0]
+    robot = host.robot_units[0]
+    assert _lifecycle_command(runtime, action="start")[-3:] == (
+        "start",
+        "pilot",
+        "ui",
+    )
+    assert _lifecycle_command(runtime, action="build")[-3:] == (
+        "build",
+        "pilot",
+        "ui",
+    )
+    assert _lifecycle_command(robot, action="start") == (
+        "sudo",
+        "-n",
+        "systemctl",
+        "start",
+        "elesim-robot.service",
+    )
+
+
 def test_bundle_manifest_is_bounded_hashed_and_contains_no_payload() -> None:
     bundle = _bundle("server")
 
@@ -163,6 +205,40 @@ def test_bundle_manifest_is_bounded_hashed_and_contains_no_payload() -> None:
     assert manifest["files"][0]["mode"] == "0600"
     assert manifest["files"][0]["sha256"]
     assert b"private" not in bundle.manifest_bytes()
+
+
+def test_role_scoped_bundle_keeps_only_selected_role_material() -> None:
+    bundle = SecurityBundle(
+        "lab",
+        "jetson",
+        "g2",
+        (
+            SecurityFile("keystore/public/identity_ca.cert.pem", b"public", 0o644),
+            SecurityFile("public/legacy_identity_ca.cert.pem", b"legacy", 0o644),
+            SecurityFile("keystore/enclaves/elesim/lab/pilot/main/key.pem", b"pilot"),
+            SecurityFile("keystore/enclaves/elesim/lab/robot/main/key.pem", b"robot"),
+            SecurityFile("roles/pilot/keystore/enclaves/elesim/lab/pilot/main/key.pem", b"pilot"),
+            SecurityFile("roles/robot/keystore/enclaves/elesim/lab/robot/main/key.pem", b"robot"),
+        ),
+    ).validate()
+
+    robot_view = bundle.for_roles(("robot",))
+
+    assert [item.relative_path for item in robot_view.files] == [
+        "keystore/public/identity_ca.cert.pem",
+        "public/legacy_identity_ca.cert.pem",
+        "keystore/enclaves/elesim/lab/robot/main/key.pem",
+        "roles/robot/keystore/enclaves/elesim/lab/robot/main/key.pem",
+    ]
+
+    pilot_view = bundle.for_roles(("pilot",))
+    assert [item.relative_path for item in pilot_view.files] == [
+        "keystore/public/identity_ca.cert.pem",
+        "public/legacy_identity_ca.cert.pem",
+        "keystore/enclaves/elesim/lab/pilot/main/key.pem",
+        "roles/pilot/keystore/enclaves/elesim/lab/pilot/main/key.pem",
+    ]
+    assert all("ui" not in item.relative_path for item in pilot_view.files)
 
 
 def test_authority_export_directory_adapter_skips_the_old_manifest(
@@ -635,7 +711,7 @@ class FakeConnector:
 
 class FakeLifecycle:
     def preflight(self, _session, _host, _root):
-        return RemoteCapabilities(True, True, False, True)
+        return RemoteCapabilities(True, True, False, True, "x86_64")
 
     def runtime_network_check(self, _session, _host) -> None:
         pass
@@ -960,7 +1036,6 @@ def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
         (
             ManagedHost(
                 "laptop",
-                "Simulation laptop",
                 True,
                 DdsEndpoint("100.64.0.40", "tailscale0"),
                 None,
@@ -1002,10 +1077,11 @@ class FakeOperations:
     def preflight(self, host):
         self._event("preflight")
         return RemoteCapabilities(
-            docker=host.install_mode == "container",
-            systemd=host.install_mode == "native",
+            docker=bool(host.runtime_units),
+            systemd=bool(host.robot_units),
             jetson=host.jetson,
             security_root_writable=True,
+            architecture="x86_64",
         )
 
     def runtime_network_check(self, _host):
@@ -1121,7 +1197,6 @@ def test_simulation_only_trusted_rollout_accepts_one_compose_host() -> None:
         (
             ManagedHost(
                 "laptop",
-                "Simulation laptop",
                 True,
                 DdsEndpoint("100.64.0.40", "tailscale0"),
                 None,

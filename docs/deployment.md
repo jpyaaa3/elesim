@@ -133,26 +133,43 @@ one explicit mode before assigning roles:
 - `simulation-only`: assign Pilot, Sim, and UI exactly once across
   one to three container/Compose hosts; no Robot or Jetson host is created.
 
-Both modes mark exactly one host local. For each host, record a DDS
-address/interface independently from its optional SSH management
-hostname/port/user/authentication mode/pinned SHA-256 host fingerprint. OpenSSH
-uses an agent or a selected identity path; Tailscale SSH is keyless and fixed to
-port 22. If the Tailscale ACL uses `action: check`, approve one interactive
-Tailscale SSH re-authentication before starting a manager job. Static discovery
-peers come from DDS addresses, never SSH values. Schema-v1 topology files are
-loaded as `full` and saved in schema v3 with the explicit mode.
+Both modes mark exactly one host local. For each host, record one advertised
+DDS IP/interface; the connection manager derives the SSH destination from that
+IP and stores only SSH port/user/authentication mode/pinned SHA-256 host
+fingerprint separately. OpenSSH uses an agent or a selected identity path;
+Tailscale SSH is keyless and fixed to port 22. If the Tailscale ACL uses
+`action: check`, approve one interactive Tailscale SSH re-authentication before
+starting a manager job. Static discovery peers come from DDS addresses. Schema-v1
+topology files are loaded as `full` and saved in schema v3 with the explicit mode.
 
 While the physical Robot host is unavailable, the connection-manager GUI offers
 an ephemeral two-host preflight for exactly two active COM cards. It accepts the
-current mutable DDS hostname/IP without a port, the selected interface (for
-example `tailscale0`), and the remote SSH management host/user/port. For a
-Tailscale SSH endpoint the port is fixed at 22; ordinary OpenSSH uses the
+current mutable advertised IP without a port, the selected interface (for
+example `tailscale0`), and the remote SSH user/port. The SSH destination is the
+same advertised IP. For a Tailscale SSH endpoint the port is fixed at 22;
+ordinary OpenSSH uses the
 configured sshd port. It does not save a topology, provision keys, or claim that an
 SSH host-key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
 reachability test such as `python3 -m http.server 8080` is outside the runtime
 topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
 requires the Robot role; `simulation-only` deployment intentionally starts the
 three simulation roles without a physical Robot.
+
+### One computer, multiple deployment units
+
+The topology treats a computer as a host client, not as a single-role box. A
+host may carry more than one independent deployment unit. The normal Jetson
+mixed layout is a native `robot-native` unit with the mandatory Robot service
+and a separate `runtime` Compose unit for validated container roles (currently
+Pilot/UI; Sim remains subject to the ARM64 gate).
+Those units have independent prefixes, ownership manifests, security role
+views, build contexts, and lifecycle commands; stopping or updating one does
+not adopt or delete the other. A Robot assignment is valid only when its unit
+is native/systemd and the host is marked as a Jetson. A host marked as Jetson
+must include that mandatory native Robot unit; its additional Pilot/UI roles
+remain a separate validated container unit. The connection manager serializes these units in its existing
+topology state and reads older one-unit files as a single `runtime` or
+`robot-native` unit.
 
 SSH reachability is not DDS reachability. Before managed security material is
 issued, and again before `start` or `restart`, every container host runs the
@@ -426,8 +443,9 @@ SSH's port is unrelated to DDS, RGBD, or TURN ports.
 
 ## Robot Jetson
 
-For a connection-manager-owned topology, run the setup wizard on the Jetson and
-select **Robot only**. Setup generates `elesim-robot.service` and
+For a connection-manager-owned topology, install the mandatory Robot unit on the
+Jetson by selecting **Robot only** in the native setup path. Setup generates
+`elesim-robot.service` and
 `elesim-unitree-bridge.service` and prints exact account/group, ACL, unit
 registration and enable commands without running `sudo`. The Robot unit runs as
 the invoking account and owns the Elesim DDS/SROS2 participant, hardware and
@@ -472,6 +490,17 @@ match the two fixed units before enabling `elesim-robot.service`.
 The standalone Jetson artifact contains no UI, pilot workflow, Genesis,
 source assets or model builder. Adapting it to a managed topology is future
 release-packaging work, not an automatic setup fallback.
+
+After the native Robot unit exists, a second general/container installation may
+be created on the same Jetson for Pilot and/or UI. Use a different prefix (for
+example `/opt/elesim-runtime`) and keep its Compose project separate from the
+Robot prefix. In `elesim-connections`, place Robot and the container roles on
+the same Jetson card; the saved topology represents them as two deployment
+units. The connection manager never installs or replaces either unit
+implicitly: each unit must already have its own generated wrappers, ownership
+manifest and runtime artifacts. It validates, provisions role-scoped security
+material, and coordinates their independent lifecycles. Sim remains unavailable
+on the Jetson until its ARM64 image and runtime dependencies have been validated.
 
 ## Development Model Rebuild
 

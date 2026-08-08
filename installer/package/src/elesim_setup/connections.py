@@ -42,7 +42,7 @@ class _BuildLogForwarder:
     """Turn arbitrary stdout/stderr chunks into bounded host-labelled lines."""
 
     def __init__(self, host: ManagedHost, log: Log) -> None:
-        self._prefix = f"build {host.display_name} ({host.host_id})"
+        self._prefix = f"build {host.host_id}"
         self._log = log
         self._pending = {"stdout": "", "stderr": ""}
         self._lock = threading.Lock()
@@ -112,7 +112,7 @@ class ConnectionDeploymentRunner:
                 log(phase)
                 return
             host = topology.host(host_id)
-            log(f"{phase}: {host.display_name} ({host.host_id})")
+            log(f"{phase}: {host.host_id}")
 
         try:
             if action == "recover":
@@ -135,7 +135,7 @@ class ConnectionDeploymentRunner:
                 if action in {"start", "restart"}:
                     log("모든 호스트의 런타임 네트워크를 사전 점검합니다.")
                     for host in hosts:
-                        log(f"preflight: {host.display_name} ({host.host_id})")
+                        log(f"preflight: {host.host_id}")
                         # This is a cheap interface-visibility probe, not a
                         # DDS discovery or hardware test.  It is kept outside
                         # security generation preflight so a valid
@@ -147,23 +147,23 @@ class ConnectionDeploymentRunner:
                 if action in {"stop", "restart"}:
                     log("활성 역할의 런타임을 정지합니다.")
                     for host in reversed(hosts):
-                        log(f"stop: {host.display_name} ({host.host_id})")
+                        log(f"stop: {host.host_id}")
                         operations[host.host_id].stop(host)
                 if action == "start":
                     log("모든 호스트의 이미지를 먼저 준비합니다.")
                     for host in hosts:
-                        log(f"build: {host.display_name} ({host.host_id})")
+                        log(f"build: {host.host_id}")
                         output = _BuildLogForwarder(host, log)
                         try:
                             operations[host.host_id].build(host, output)
                         finally:
                             output.flush()
-                        log(f"build 완료: {host.display_name} ({host.host_id})")
+                        log(f"build 완료: {host.host_id}")
                     launched = []
                     try:
                         log("활성 역할의 런타임을 시작합니다.")
                         for host in hosts:
-                            log(f"start: {host.display_name} ({host.host_id})")
+                            log(f"start: {host.host_id}")
                             operations[host.host_id].launch(host)
                             launched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
@@ -177,7 +177,7 @@ class ConnectionDeploymentRunner:
                 elif action == "restart":
                     log("활성 역할의 런타임을 시작합니다.")
                     for host in hosts:
-                        log(f"start: {host.display_name} ({host.host_id})")
+                        log(f"start: {host.host_id}")
                         operations[host.host_id].start(host)
                 return
             if topology.security_profile == "trusted-network":
@@ -285,12 +285,12 @@ class ConnectionDeploymentRunner:
                 )
             )
             if not expected:
-                log(f"DDS readiness: {host.display_name} ({host.host_id}) — local-only")
+                log(f"DDS readiness: {host.host_id} — local-only")
                 continue
             checker = getattr(operations[host.host_id], "runtime_doctor", None)
             if not callable(checker):
                 log(
-                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"DDS readiness: {host.host_id} — "
                     "검사기 없음; 컨테이너 로그에서 실제 상태를 확인하십시오"
                 )
                 continue
@@ -299,19 +299,19 @@ class ConnectionDeploymentRunner:
             except BaseException as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
                 log(
-                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"DDS readiness: {host.host_id} — "
                     f"검사 실패: {detail[:768]}"
                 )
                 continue
             if not isinstance(report, Mapping):
                 log(
-                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"DDS readiness: {host.host_id} — "
                     "검사 결과 형식이 올바르지 않음; 컨테이너 로그를 확인하십시오"
                 )
                 continue
             if bool(report.get("ok")):
                 log(
-                    f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                    f"DDS readiness: {host.host_id} — "
                     f"원격 endpoint {', '.join(expected)} 발견"
                 )
                 continue
@@ -331,7 +331,7 @@ class ConnectionDeploymentRunner:
                 else "expected endpoint가 아직 발견되지 않음"
             )
             log(
-                f"DDS readiness: {host.display_name} ({host.host_id}) — "
+                f"DDS readiness: {host.host_id} — "
                 f"대기 중: {detail[:768]}; Sim 장면 빌드 또는 Docker Desktop/WSL "
                 "네트워크 namespace를 확인하십시오"
             )
@@ -355,7 +355,7 @@ class ConnectionDeploymentRunner:
         log("모든 호스트의 연결과 런타임 상태를 점검합니다.")
         failures: list[str] = []
         for host in topology.hosts:
-            log(f"check: {host.display_name} ({host.host_id})")
+            log(f"check: {host.host_id}")
             try:
                 operations[host.host_id].runtime_network_check(host)
                 capabilities = operations[host.host_id].preflight(host)
@@ -367,13 +367,13 @@ class ConnectionDeploymentRunner:
                     role_text = ", ".join(str(role) for role in running) or "—"
                 else:
                     role_text = ", ".join(host.roles) or "—"
-                log(f"status: {host.display_name} = {state} [{role_text}]")
+                log(f"status: {host.host_id} = {state} [{role_text}]")
             except ConnectionJobCancelled:
                 raise
             except Exception as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
-                failures.append(f"{host.display_name} ({host.host_id}): {detail}")
-                log(f"check failed: {host.display_name} ({host.host_id}) — {detail}")
+                failures.append(f"{host.host_id}: {detail}")
+                log(f"check failed: {host.host_id} — {detail}")
         if failures:
             raise RuntimeError("호스트 점검 실패: " + "; ".join(failures))
 
@@ -399,7 +399,7 @@ class ConnectionDeploymentRunner:
                 running = snapshots[host.host_id].running_roles
                 if not running:
                     continue
-                log(f"recover-stop: {host.display_name} ({host.host_id})")
+                log(f"recover-stop: {host.host_id}")
                 operations[host.host_id].stop(host, running)
                 stopped.append(host)
             if active is None:
@@ -407,20 +407,36 @@ class ConnectionDeploymentRunner:
                 for host in topology.hosts:
                     previous = snapshots[host.host_id]
                     pending = copy.deepcopy(dict(previous.runtime_configuration))
+                    pending_security = {
+                        "security_profile": "sros2",
+                        "security_provisioning": "managed",
+                        "security_generation": "",
+                        "security_bundle": "",
+                        "keystore": "",
+                        "enclave": "",
+                    }
                     dds = pending.get("dds")
                     if not isinstance(dds, dict):
                         raise RuntimeError(f"DDS state is missing on {host.host_id!r}")
-                    dds.update(
-                        {
-                            "security_profile": "sros2",
-                            "security_provisioning": "managed",
-                            "security_generation": "",
-                            "security_bundle": "",
-                            "keystore": "",
-                            "enclave": "",
-                        }
-                    )
-                    log(f"recover-pending: {host.display_name} ({host.host_id})")
+                    dds.update(pending_security)
+                    unit_states = pending.get("units")
+                    if isinstance(unit_states, dict):
+                        for unit_id, raw_unit in tuple(unit_states.items()):
+                            if not isinstance(raw_unit, Mapping):
+                                raise RuntimeError(
+                                    f"DDS state is missing on "
+                                    f"{host.host_id!r}/{unit_id!r}"
+                                )
+                            unit_copy = copy.deepcopy(dict(raw_unit))
+                            unit_dds = unit_copy.get("dds")
+                            if not isinstance(unit_dds, dict):
+                                raise RuntimeError(
+                                    f"DDS state is missing on "
+                                    f"{host.host_id!r}/{unit_id!r}"
+                                )
+                            unit_dds.update(pending_security)
+                            unit_states[unit_id] = unit_copy
+                    log(f"recover-pending: {host.host_id}")
                     operations[host.host_id].rollback(
                         host,
                         HostActivationState(None, pending, previous.running_roles),
@@ -428,7 +444,7 @@ class ConnectionDeploymentRunner:
             else:
                 log(f"Authority generation {active.generation}으로 호스트를 일치시킵니다.")
                 for host in topology.hosts:
-                    log(f"recover-active: {host.display_name} ({host.host_id})")
+                    log(f"recover-active: {host.host_id}")
                     operations[host.host_id].activate(host, active.generation)
             for host in stopped:
                 operations[host.host_id].runtime_network_check(host)
@@ -458,6 +474,33 @@ class ConnectionDeploymentRunner:
         host: ManagedHost, snapshot: HostActivationState
     ) -> None:
         state = snapshot.runtime_configuration
+        unit_states = state.get("units")
+        if isinstance(unit_states, Mapping):
+            for unit in host.units:
+                actual = unit_states.get(unit.unit_id)
+                if not isinstance(actual, Mapping):
+                    raise RuntimeError(
+                        f"복구 대상 {host.host_id!r}/{unit.unit_id}의 설치 상태가 없습니다"
+                    )
+                boundaries = {
+                    "roles": list(unit.roles),
+                    "prefix": unit.install_root,
+                    "bin_dir": unit.bin_dir,
+                    "install_mode": unit.install_mode,
+                }
+                for name, value in boundaries.items():
+                    observed = actual.get(name)
+                    if name == "roles" and set(
+                        str(item) for item in (observed or ())
+                    ) == set(value):
+                        continue
+                    if name != "roles" and observed == value:
+                        continue
+                    raise RuntimeError(
+                        f"복구 대상 {host.host_id!r}/{unit.unit_id}의 {name} 설치 경계가 "
+                        f"topology와 다릅니다: {observed!r} != {value!r}"
+                    )
+            return
         boundaries = {
             "roles": list(host.roles),
             "prefix": host.install_root,
@@ -487,15 +530,16 @@ class ConnectionDeploymentRunner:
             for host in topology.hosts:
                 try:
                     value = dict(operations[host.host_id].status(host))
+                    # Runtime status is keyed by the stable host ID; discard
+                    # labels returned by an older remote helper.
+                    value.pop("display_name", None)
                     value.setdefault("host_id", host.host_id)
-                    value.setdefault("display_name", host.display_name)
                     value.setdefault("roles", list(host.roles))
                     value["reachable"] = True
                 except Exception as exc:
                     hosts.append(
                         {
                             "host_id": host.host_id,
-                            "display_name": host.display_name,
                             "roles": list(host.roles),
                             "reachable": False,
                             "state": "unreachable",
@@ -571,10 +615,10 @@ class ConnectionDeploymentRunner:
 
     def _validate_management_host(self, topology: ConnectionTopology) -> None:
         local = topology.local_host
-        if "robot" in local.roles:
+        if not local.runtime_units:
             raise ValueError(
                 "연결관리자는 Authority를 보관하는 운영 컴퓨터에서 실행해야 하며 "
-                "Robot 호스트를 local로 지정할 수 없습니다"
+                "local 호스트에는 연결관리자용 container unit이 필요합니다"
             )
         if self.local_install_root is not None:
             configured = Path(local.install_root).expanduser().resolve()
@@ -601,19 +645,19 @@ class ConnectionDeploymentRunner:
             identity = resolve_ssh_identity_path(host.ssh.identity_file)
             if identity.is_symlink() or not identity.is_file():
                 raise ValueError(
-                    f"{host.display_name} SSH identity가 일반 파일이 아닙니다: "
+                    f"{host.host_id} SSH identity가 일반 파일이 아닙니다: "
                     f"{identity}"
                 )
             resolved = identity.resolve()
             if operator_home != resolved.parent and operator_home not in resolved.parents:
                 raise ValueError(
-                    f"{host.display_name} SSH identity는 연결관리자에 read-only로 "
+                    f"{host.host_id} SSH identity는 연결관리자에 read-only로 "
                     "mount된 HOME 안에 있어야 합니다. 다른 위치의 키는 SSH agent에 "
                     "등록하십시오."
                 )
             if stat.S_IMODE(resolved.stat().st_mode) & 0o077:
                 raise ValueError(
-                    f"{host.display_name} SSH identity 권한은 0600 이하이어야 합니다: "
+                    f"{host.host_id} SSH identity 권한은 0600 이하이어야 합니다: "
                     f"{resolved}"
                 )
 

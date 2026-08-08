@@ -22,13 +22,14 @@ import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Protocol
 
 from .connection_manager import (
     canonical_endpoint_key,
     ConnectionTopology,
+    DeploymentUnit,
     ManagedHost,
     SshEndpoint,
     resolve_ssh_identity_path,
@@ -174,6 +175,46 @@ class SecurityBundle:
             json.dumps(self.manifest(), ensure_ascii=False, sort_keys=True, indent=2) + "\n"
         ).encode("utf-8")
 
+    def for_roles(self, roles: Sequence[str]) -> "SecurityBundle":
+        """Return a role-scoped view for one installation unit.
+
+        The Authority export is host-scoped because a computer may own more
+        than one unit.  Runtime prefixes are not: a native Robot install must
+        never receive the Compose unit's private enclave (and vice versa).
+        Public trust material is retained in both views; only enclave and
+        stable role-view paths matching ``roles`` are copied.
+        """
+
+        selected = frozenset(str(role) for role in roles)
+        if not selected:
+            raise ValueError("a unit security bundle requires at least one role")
+        files: list[SecurityFile] = []
+        for file in self.files:
+            parts = PurePosixPath(file.relative_path).parts
+            if parts[:2] == ("keystore", "public") or parts[:1] == ("public",):
+                files.append(file)
+                continue
+            role = None
+            if parts and parts[0] == "roles" and len(parts) >= 2:
+                role = parts[1]
+            elif parts[:2] == ("keystore", "enclaves"):
+                if len(parts) < 5:
+                    # governance.p7s/permissions.p7s and other keystore-wide
+                    # trust material are common to every unit.  Keep these;
+                    # only the nested role enclave is filtered below.
+                    files.append(file)
+                    continue
+                # keystore/enclaves/elesim/<system>/<role>/...
+                role = parts[4]
+            if role in selected:
+                files.append(file)
+        return SecurityBundle(
+            system_id=self.system_id,
+            host_id=self.host_id,
+            generation=self.generation,
+            files=tuple(files),
+        ).validate()
+
     @classmethod
     def from_directory(
         cls,
@@ -230,12 +271,19 @@ class RemoteCapabilities:
     def require_for(self, host: ManagedHost) -> None:
         if not self.security_root_writable:
             raise RuntimeError(f"host {host.host_id!r} cannot write its security root")
-        if host.install_mode == "container" and not self.docker:
+        if host.runtime_units and not self.docker:
             raise RuntimeError(f"host {host.host_id!r} requires Docker")
-        if "robot" in host.roles and (not self.jetson or not self.systemd):
+        if host.robot_units and (not self.jetson or not self.systemd):
             raise RuntimeError(
                 f"Robot host {host.host_id!r} requires Jetson and systemd capabilities"
             )
+        if any("sim" in unit.roles for unit in host.runtime_units):
+            architecture = self.architecture.casefold()
+            if architecture not in {"x86_64", "amd64"}:
+                raise RuntimeError(
+                    f"Sim on {host.host_id!r} requires an amd64 runtime image; "
+                    f"detected architecture {self.architecture or 'unknown'!r}"
+                )
 
 
 @dataclass(frozen=True)
@@ -245,6 +293,10 @@ class HostActivationState:
     generation: str | None
     runtime_configuration: Mapping[str, Any]
     running_roles: tuple[str, ...] = ()
+    # A mixed Jetson host can have an independently installed Robot and
+    # Compose unit.  Keep their previous generations separately; a host-level
+    # generation is retained above for the homogeneous schema/API.
+    unit_generations: Mapping[str, str | None] = field(default_factory=dict)
 
 
 class SshSession(Protocol):
@@ -816,90 +868,68 @@ class SshHostOperations:
             self._lifecycle.runtime_network_check(session, host)
 
     def capture_state(self, host: ManagedHost) -> HostActivationState:
-        security_root = self._security_root_for(host)
         with self._connect(host) as session:
-            result = session.run(
-                ("readlink", str(security_root / "current")), check=False
-            )
+            unit_generations: dict[str, str | None] = {}
+            for unit in host.units:
+                security_root = self._security_root_for_unit(host, unit)
+                result = session.run(
+                    ("readlink", str(security_root / "current")), check=False
+                )
+                generation: str | None = None
+                if result.exit_status == 0 and result.stdout.strip():
+                    generation = PurePosixPath(result.stdout.strip()).name
+                    _safe_generation(generation)
+                unit_generations[unit.unit_id] = generation
             configuration = dict(self._lifecycle.snapshot(session, host))
             status = dict(self._lifecycle.status(session, host))
-        generation: str | None = None
-        if result.exit_status == 0 and result.stdout.strip():
-            generation = PurePosixPath(result.stdout.strip()).name
-            _safe_generation(generation)
+        generation_values = {value for value in unit_generations.values() if value is not None}
+        if len(generation_values) > 1:
+            raise RuntimeError(
+                f"security generations differ between units on {host.host_id!r}: "
+                f"{sorted(generation_values)!r}"
+            )
+        generation = next(iter(generation_values), None)
         running_raw = status.get("running_roles", ())
         running_roles = tuple(
             role for role in host.roles if role in set(str(value) for value in running_raw)
         )
-        return HostActivationState(generation, configuration, running_roles)
+        return HostActivationState(
+            generation,
+            configuration,
+            running_roles,
+            unit_generations=unit_generations,
+        )
 
     def stage(self, host: ManagedHost, bundle: SecurityBundle) -> None:
         _check_bundle_target(host, bundle)
-        security_root = self._security_root_for(host)
-        generation_root = security_root / "generations"
-        final_root = generation_root / bundle.generation
-        stage_root = security_root / ".staging" / (
-            f"{bundle.generation}-{uuid.uuid4().hex}"
-        )
         with self._connect(host) as session:
-            session.run(("mkdir", "-p", str(generation_root), str(stage_root.parent)))
-            exists = session.run(("test", "-e", str(final_root)), check=False)
-            symlink = session.run(("test", "-L", str(final_root)), check=False)
-            if exists.exit_status == 0 or symlink.exit_status == 0:
-                raise FileExistsError(
-                    f"security generation already exists on {host.host_id}: "
-                    f"{bundle.generation}"
+            for unit in host.units:
+                unit_bundle = bundle.for_roles(unit.roles)
+                _stage_unit_bundle(
+                    session,
+                    host,
+                    unit,
+                    self._security_root_for_unit(host, unit),
+                    unit_bundle,
                 )
-            session.run(("mkdir", str(stage_root)))
-            session.run(("chmod", "0700", str(stage_root)))
-            try:
-                for file in sorted(bundle.files, key=lambda item: item.relative_path):
-                    file.validate()
-                    session.upload_bytes(
-                        stage_root / PurePosixPath(file.relative_path),
-                        file.content,
-                        file.mode,
-                    )
-                manifest_bytes = bundle.manifest_bytes()
-                session.upload_bytes(stage_root / "manifest.json", manifest_bytes, 0o600)
-                expected_digests = {
-                    file.relative_path: hashlib.sha256(file.content).hexdigest()
-                    for file in bundle.files
-                }
-                expected_digests["manifest.json"] = hashlib.sha256(
-                    manifest_bytes
-                ).hexdigest()
-                for relative_path, expected_digest in expected_digests.items():
-                    result = session.run(
-                        ("sha256sum", "--", str(stage_root / relative_path))
-                    )
-                    actual = result.stdout.partition(" ")[0].strip().lower()
-                    if not hmac.compare_digest(actual, expected_digest):
-                        raise RuntimeError(
-                            f"staged security file digest mismatch on {host.host_id}: "
-                            f"{relative_path}"
-                        )
-                session.run(("mv", str(stage_root), str(final_root)))
-            except BaseException:
-                session.run(("rm", "-rf", "--", str(stage_root)), check=False)
-                raise
 
     def discard_generation(self, host: ManagedHost, generation: str) -> None:
         _safe_generation(generation)
-        security_root = self._security_root_for(host)
-        target = security_root / "generations" / generation
         with self._connect(host) as session:
-            current = session.run(
-                ("readlink", str(security_root / "current")), check=False
-            )
-            if current.exit_status == 0 and (
-                PurePosixPath(current.stdout.strip()).name == generation
-            ):
-                raise RuntimeError(
-                    f"refusing to discard active generation on {host.host_id}: "
-                    f"{generation}"
+            for unit in host.units:
+                security_root = self._security_root_for_unit(host, unit)
+                target = security_root / "generations" / generation
+                current = session.run(
+                    ("readlink", str(security_root / "current")), check=False
                 )
-            session.run(("rm", "-rf", "--", str(target)), check=False)
+                if current.exit_status == 0 and (
+                    PurePosixPath(current.stdout.strip()).name == generation
+                ):
+                    raise RuntimeError(
+                        f"refusing to discard active generation on {host.host_id}: "
+                        f"{generation}"
+                    )
+                session.run(("rm", "-rf", "--", str(target)), check=False)
 
     def stop(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None:
         selected = _selected_roles(host, roles)
@@ -910,25 +940,22 @@ class SshHostOperations:
 
     def activate(self, host: ManagedHost, generation: str) -> None:
         _safe_generation(generation)
-        security_root = self._security_root_for(host)
-        final_root = security_root / "generations" / generation
-        temporary = security_root / f".current-{uuid.uuid4().hex}"
-        current = security_root / "current"
         with self._connect(host) as session:
-            session.run(("test", "-d", str(final_root)))
-            session.run(("ln", "-s", str(final_root), str(temporary)))
-            try:
-                session.run(("mv", "-Tf", str(temporary), str(current)))
-            except BaseException:
-                session.run(("rm", "-f", "--", str(temporary)), check=False)
-                raise
-            self._sync_role_views(
+            for unit in host.units:
+                security_root = self._security_root_for_unit(host, unit)
+                _activate_unit_generation(
+                    session,
+                    host,
+                    unit,
+                    security_root,
+                    generation=generation,
+                )
+            self._lifecycle.configure(
                 session,
                 host,
-                security_root,
-                generation=generation,
+                generation,
+                self._security_root_for(host),
             )
-            self._lifecycle.configure(session, host, generation, security_root)
 
     def configure_topology(self, host: ManagedHost) -> None:
         if self._topology.security_profile != "trusted-network":
@@ -994,44 +1021,49 @@ class SshHostOperations:
             self._lifecycle.verify(session, host, None, running_roles)
 
     def rollback(self, host: ManagedHost, previous: HostActivationState) -> None:
-        security_root = self._security_root_for(host)
-        if previous.generation is not None:
-            self._switch_only(host, previous.generation)
-        else:
-            with self._connect(host) as session:
-                session.run(
-                    ("rm", "-f", "--", str(security_root / "current")),
-                    check=False,
-                )
-                self._sync_role_views(
-                    session,
-                    host,
-                    security_root,
-                    generation=None,
-                )
+        unit_generations = dict(previous.unit_generations)
+        if not unit_generations:
+            unit_generations = {
+                unit.unit_id: previous.generation for unit in host.units
+            }
+        with self._connect(host) as session:
+            for unit in host.units:
+                generation = unit_generations.get(unit.unit_id)
+                security_root = self._security_root_for_unit(host, unit)
+                if generation is not None:
+                    _activate_unit_generation(
+                        session,
+                        host,
+                        unit,
+                        security_root,
+                        generation=generation,
+                    )
+                else:
+                    session.run(
+                        ("rm", "-f", "--", str(security_root / "current")),
+                        check=False,
+                    )
+                    self._sync_role_views(
+                        session,
+                        host,
+                        security_root,
+                        generation=None,
+                        roles=unit.roles,
+                    )
         with self._connect(host) as session:
             self._lifecycle.restore(session, host, previous.runtime_configuration)
 
     def _switch_only(self, host: ManagedHost, generation: str) -> None:
         _safe_generation(generation)
-        security_root = self._security_root_for(host)
-        final_root = security_root / "generations" / generation
-        temporary = security_root / f".current-{uuid.uuid4().hex}"
-        current = security_root / "current"
         with self._connect(host) as session:
-            session.run(("test", "-d", str(final_root)))
-            session.run(("ln", "-s", str(final_root), str(temporary)))
-            try:
-                session.run(("mv", "-Tf", str(temporary), str(current)))
-            except BaseException:
-                session.run(("rm", "-f", "--", str(temporary)), check=False)
-                raise
-            self._sync_role_views(
-                session,
-                host,
-                security_root,
-                generation=generation,
-            )
+            for unit in host.units:
+                _activate_unit_generation(
+                    session,
+                    host,
+                    unit,
+                    self._security_root_for_unit(host, unit),
+                    generation=generation,
+                )
 
     @staticmethod
     def _sync_role_views(
@@ -1040,8 +1072,11 @@ class SshHostOperations:
         security_root: PurePosixPath,
         *,
         generation: str | None,
+        roles: Sequence[str] | None = None,
     ) -> None:
         """Refresh stable role roots in place while application services stop."""
+
+        selected_roles = tuple(host.roles if roles is None else roles)
 
         roles_root = security_root / "roles"
         if session.run(("test", "-L", str(roles_root)), check=False).exit_status == 0:
@@ -1050,7 +1085,7 @@ class SshHostOperations:
         session.run(("chmod", "0700", str(roles_root)))
 
         sources: dict[str, PurePosixPath] = {}
-        for role in host.roles:
+        for role in selected_roles:
             destination = roles_root / role
             if session.run(
                 ("test", "-L", str(destination)), check=False
@@ -1078,7 +1113,7 @@ class SshHostOperations:
             session.run(("test", "-d", str(source / "enclaves")))
             sources[role] = source
 
-        for role in host.roles:
+        for role in selected_roles:
             destination = roles_root / role
             session.run(
                 (
@@ -1109,16 +1144,29 @@ class SshHostOperations:
             raise ValueError(f"host {host.host_id!r} does not match the managed topology")
         if self._security_root_override is not None:
             return self._security_root_override
-        return _safe_remote_root(str(PurePosixPath(host.install_root) / "security"))
+        return self._security_root_for_unit(host, host.primary_unit)
+
+    def _security_root_for_unit(
+        self, host: ManagedHost, unit: DeploymentUnit
+    ) -> PurePosixPath:
+        if self._topology.host(host.host_id) != host:
+            raise ValueError(f"host {host.host_id!r} does not match the managed topology")
+        if self._security_root_override is not None and len(host.units) == 1:
+            return self._security_root_override
+        return _safe_remote_root(str(PurePosixPath(unit.install_root) / "security"))
 
     def _connect(self, host: ManagedHost) -> SshSession:
         if host.local or host.ssh is None:
             raise ValueError(
                 f"SshHostOperations cannot operate local host {host.host_id!r}; "
                 "inject local HostOperations instead"
-            )
+        )
         if self._session is None:
-            self._session = self._connector.connect(host.ssh)
+            # The UI exposes one host IP (the DDS advertised address).  Keep
+            # the transport target derived from that value even when an old
+            # topology carried a stale, separately editable SSH host.
+            endpoint = replace(host.ssh, host=host.dds.address)
+            self._session = self._connector.connect(endpoint)
             self._session.__enter__()
         return _BorrowedSession(self._session)
 
@@ -1406,7 +1454,7 @@ def _run_local_streaming(
 
 
 class InstalledElesimLifecycle:
-    """Concrete lifecycle for fixed Compose hosts and the native Robot service."""
+    """Concrete lifecycle for independently installed units on one host."""
 
     def __init__(self, topology: ConnectionTopology) -> None:
         self._topology = topology.validate()
@@ -1415,28 +1463,47 @@ class InstalledElesimLifecycle:
         self, session: SshSession, host: ManagedHost, security_root: PurePosixPath
     ) -> RemoteCapabilities:
         state = self.snapshot(session, host)
-        configured_roles = tuple(str(value) for value in state.get("roles", ()))
-        if set(configured_roles) != set(host.roles):
-            raise RuntimeError(
-                f"installed roles on {host.host_id!r} do not match assignments: "
-                f"{configured_roles!r} != {host.roles!r}"
+        unit_states = state.get("units")
+        if isinstance(unit_states, Mapping):
+            states = {str(key): value for key, value in unit_states.items()}
+        else:
+            states = {host.primary_unit.unit_id: state}
+        for unit in host.units:
+            unit_state = states.get(unit.unit_id)
+            if not isinstance(unit_state, Mapping):
+                raise RuntimeError(
+                    f"installed state for unit {unit.unit_id!r} is missing on {host.host_id!r}"
+                )
+            configured_roles = tuple(str(value) for value in unit_state.get("roles", ()))
+            if set(configured_roles) != set(unit.roles):
+                raise RuntimeError(
+                    f"installed roles on {host.host_id}/{unit.unit_id!r} do not match assignments: "
+                    f"{configured_roles!r} != {unit.roles!r}"
+                )
+            for key, expected in {
+                "prefix": unit.install_root,
+                "bin_dir": unit.bin_dir,
+                "install_mode": unit.install_mode,
+            }.items():
+                if str(unit_state.get(key, "")) != expected:
+                    raise RuntimeError(
+                        f"{key} mismatch on {host.host_id}/{unit.unit_id}"
+                    )
+            self._validate_managed_security_state(
+                session,
+                host,
+                self._unit_security_root(host, unit, security_root),
+                unit_state,
             )
-        if str(state.get("prefix", "")) != host.install_root:
-            raise RuntimeError(f"install_root mismatch on {host.host_id!r}")
-        if str(state.get("bin_dir", "")) != host.bin_dir:
-            raise RuntimeError(f"bin_dir mismatch on {host.host_id!r}")
-        if str(state.get("install_mode", "")) != host.install_mode:
-            raise RuntimeError(f"install_mode mismatch on {host.host_id!r}")
-        self._validate_managed_security_state(
-            session,
-            host,
-            security_root,
-            state,
-        )
 
-        writable = session.run(
-            ("test", "-w", str(PurePosixPath(host.install_root))), check=False
-        ).exit_status == 0
+        writable = all(
+            session.run(
+                ("test", "-w", str(PurePosixPath(unit.install_root))),
+                check=False,
+            ).exit_status
+            == 0
+            for unit in host.units
+        )
         docker = session.run(
             ("docker", "version", "--format", "{{.Server.Version}}"), check=False
         ).exit_status == 0
@@ -1448,12 +1515,14 @@ class InstalledElesimLifecycle:
         ).exit_status == 0
         architecture_result = session.run(("uname", "-m"), check=False)
 
-        if host.lifecycle == "compose":
-            compose = PurePosixPath(host.install_root) / "containers/compose.yaml"
+        for unit in host.runtime_units:
+            compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
             if session.run(("test", "-f", str(compose)), check=False).exit_status != 0:
-                raise RuntimeError(f"Compose manifest is missing on {host.host_id!r}")
-        else:
-            service = _robot_service(host)
+                raise RuntimeError(
+                    f"Compose manifest is missing on {host.host_id}/{unit.unit_id}"
+                )
+        for unit in host.robot_units:
+            service = _robot_service(unit)
             sudo_probe = session.run(
                 (
                     "sudo",
@@ -1472,8 +1541,7 @@ class InstalledElesimLifecycle:
 
         # The root is deliberately below the user-owned install prefix.  It is
         # created during staging, after every host has passed this read-only probe.
-        expected_root = PurePosixPath(host.install_root) / "security"
-        if security_root != expected_root:
+        if security_root != PurePosixPath(host.primary_unit.install_root) / "security":
             writable = writable and session.run(
                 ("test", "-w", str(security_root.parent)), check=False
             ).exit_status == 0
@@ -1520,16 +1588,27 @@ class InstalledElesimLifecycle:
             )
             for value in ("--tcp-peer", peer)
         )
-        session.run(
-            (
-                str(_net_command(host)),
-                "namespace-check",
-                "--dds-interface",
-                host.dds.interface,
-                *peer_args,
-                *tailscale_peer_args,
+        for unit in host.units:
+            session.run(
+                (
+                    str(_net_command(unit)),
+                    "namespace-check",
+                    "--dds-interface",
+                    host.dds.interface,
+                    *peer_args,
+                    *tailscale_peer_args,
+                )
             )
-        )
+
+    @staticmethod
+    def _unit_security_root(
+        host: ManagedHost,
+        unit: DeploymentUnit,
+        host_security_root: PurePosixPath,
+    ) -> PurePosixPath:
+        if len(host.units) == 1:
+            return host_security_root
+        return PurePosixPath(unit.install_root) / "security"
 
     def _validate_managed_security_state(
         self,
@@ -1586,16 +1665,28 @@ class InstalledElesimLifecycle:
     def snapshot(
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]:
-        result = session.run((str(_net_command(host)), "show"))
-        try:
-            raw = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"elesim-net show returned invalid JSON on {host.host_id!r}"
-            ) from exc
-        if not isinstance(raw, Mapping):
-            raise RuntimeError(f"installed state is not an object on {host.host_id!r}")
-        return dict(raw)
+        snapshots: dict[str, Mapping[str, Any]] = {}
+        for unit in host.units:
+            result = session.run((str(_net_command(unit)), "show"))
+            try:
+                raw = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"elesim-net show returned invalid JSON on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                ) from exc
+            if not isinstance(raw, Mapping):
+                raise RuntimeError(
+                    f"installed state is not an object on {host.host_id}/{unit.unit_id!r}"
+                )
+            snapshots[unit.unit_id] = dict(raw)
+        if len(snapshots) == 1:
+            return dict(next(iter(snapshots.values())))
+        primary = snapshots[host.primary_unit.unit_id]
+        result = dict(primary)
+        result["units"] = snapshots
+        result["roles"] = list(host.roles)
+        return result
 
     def configure(
         self,
@@ -1604,56 +1695,57 @@ class InstalledElesimLifecycle:
         generation: str | None,
         security_root: PurePosixPath,
     ) -> None:
-        values: dict[str, Any] = {
-            "system_id": self._topology.system_id,
-            "domain_id": self._topology.dds_graph.domain_id,
-            "rmw_implementation": self._topology.dds_graph.rmw_implementation,
-            "discovery_mode": self._topology.dds_graph.discovery_mode,
-            "static_peers": self._topology.discovery_peers(host.host_id),
-            "interface": host.dds.interface,
-            "security_profile": self._topology.security_profile,
-        }
-        if self._topology.security_profile == "sros2":
-            if generation is None:
-                raise ValueError("managed sros2 configuration requires a generation")
-            values.update(
-                {
-                    "security_provisioning": "managed",
-                    "security_generation": generation,
-                    "security_bundle": str(
-                        security_root / "current" / "keystore"
-                    ),
-                    "keystore": str(security_root / "current" / "keystore"),
-                    "enclave": f"/elesim/{self._topology.system_id}",
-                }
-            )
-        else:
-            if generation is not None:
-                raise ValueError("trusted-network configuration has no generation")
-            values.update(
-                {
-                    "security_provisioning": "none",
-                    "security_generation": "",
-                    "security_bundle": "",
-                    "keystore": "",
-                    "enclave": "",
-                }
-            )
         endpoints = {
             assignment.role: assignment.endpoint_id
             for managed_host in self._topology.hosts
             for assignment in managed_host.assignments
         }
-        session.run(
-            _configuration_command(
-                host,
-                values,
-                sim_id=endpoints.get("sim", ""),
-                pilot_id=endpoints.get("pilot", ""),
-                ui_id=endpoints.get("ui", ""),
-                robot_id=endpoints.get("robot", ""),
+        for unit in host.units:
+            unit_root = self._unit_security_root(host, unit, security_root)
+            values: dict[str, Any] = {
+                "system_id": self._topology.system_id,
+                "domain_id": self._topology.dds_graph.domain_id,
+                "rmw_implementation": self._topology.dds_graph.rmw_implementation,
+                "discovery_mode": self._topology.dds_graph.discovery_mode,
+                "static_peers": self._topology.discovery_peers(host.host_id),
+                "interface": host.dds.interface,
+                "security_profile": self._topology.security_profile,
+            }
+            if self._topology.security_profile == "sros2":
+                if generation is None:
+                    raise ValueError("managed sros2 configuration requires a generation")
+                values.update(
+                    {
+                        "security_provisioning": "managed",
+                        "security_generation": generation,
+                        "security_bundle": str(unit_root / "current" / "keystore"),
+                        "keystore": str(unit_root / "current" / "keystore"),
+                        "enclave": f"/elesim/{self._topology.system_id}",
+                    }
+                )
+            else:
+                if generation is not None:
+                    raise ValueError("trusted-network configuration has no generation")
+                values.update(
+                    {
+                        "security_provisioning": "none",
+                        "security_generation": "",
+                        "security_bundle": "",
+                        "keystore": "",
+                        "enclave": "",
+                    }
+                )
+            role_ids = {role: endpoints.get(role, "") for role in unit.roles}
+            session.run(
+                _configuration_command(
+                    unit,
+                    values,
+                    sim_id=role_ids.get("sim", ""),
+                    pilot_id=role_ids.get("pilot", ""),
+                    ui_id=role_ids.get("ui", ""),
+                    robot_id=role_ids.get("robot", ""),
+                )
             )
-        )
 
     def restore(
         self,
@@ -1665,43 +1757,68 @@ class InstalledElesimLifecycle:
         network = configuration.get("network")
         if not isinstance(dds, Mapping) or not isinstance(network, Mapping):
             raise RuntimeError(f"rollback state is malformed for {host.host_id!r}")
-        payload = base64.urlsafe_b64encode(
-            json.dumps(
-                dict(configuration),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).decode("ascii")
-        session.run(
-            (
-                str(_net_command(host)),
-                "restore-snapshot",
-                "--payload",
-                payload,
+        unit_snapshots = configuration.get("units")
+        for unit in host.units:
+            snapshot = (
+                unit_snapshots.get(unit.unit_id, {})
+                if isinstance(unit_snapshots, Mapping)
+                else configuration
             )
-        )
+            if not isinstance(snapshot, Mapping):
+                raise RuntimeError(f"rollback state for {host.host_id}/{unit.unit_id} is malformed")
+            payload = base64.urlsafe_b64encode(
+                json.dumps(
+                    dict(snapshot),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).decode("ascii")
+            session.run(
+                (
+                    str(_net_command(unit)),
+                    "restore-snapshot",
+                    "--payload",
+                    payload,
+                )
+            )
 
     def stop(
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None:
-        session.run(_lifecycle_command(host, action="stop", roles=roles))
+        selected = set(_selected_roles(host, roles))
+        units = sorted(host.units, key=lambda unit: ("robot" not in unit.roles, unit.unit_id))
+        for unit in units:
+            unit_roles = tuple(role for role in unit.roles if role in selected)
+            if unit_roles:
+                session.run(_lifecycle_command(unit, action="stop", roles=unit_roles))
 
     def start(
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None:
-        session.run(_lifecycle_command(host, action="start", roles=roles))
+        selected = set(_selected_roles(host, roles))
+        units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
+        for unit in units:
+            unit_roles = tuple(role for role in unit.roles if role in selected)
+            if unit_roles:
+                session.run(_lifecycle_command(unit, action="start", roles=unit_roles))
 
     def build(
         self, session: SshSession, host: ManagedHost, output: CommandOutput
     ) -> None:
-        session.run_streaming(
-            _lifecycle_command(host, action="build", roles=host.roles),
-            output=output,
-        )
+        for unit in host.runtime_units:
+            def unit_output(stream: str, text: str, *, unit_id: str = unit.unit_id) -> None:
+                output(stream, f"[{unit_id}] {text}")
+
+            session.run_streaming(
+                _lifecycle_command(unit, action="build", roles=unit.roles),
+                output=unit_output,
+            )
 
     def launch(self, session: SshSession, host: ManagedHost) -> None:
-        session.run(_lifecycle_command(host, action="launch", roles=host.roles))
+        units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
+        for unit in units:
+            session.run(_lifecycle_command(unit, action="launch", roles=unit.roles))
 
     def runtime_doctor(
         self,
@@ -1712,64 +1829,86 @@ class InstalledElesimLifecycle:
     ) -> Mapping[str, Any]:
         if timeout_s <= 0:
             raise ValueError("runtime doctor timeout must be positive")
-        argv = [
-            str(_net_command(host)),
-            "doctor",
-            "--timeout",
-            f"{float(timeout_s):g}",
-            "--json",
-            "--strict-peers",
-        ]
-        for endpoint_id in expected_peer_ids:
-            value = str(endpoint_id).strip()
-            if value:
-                argv.extend(("--expect-peer", value))
-        result = session.run(tuple(argv), check=False)
-        try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            detail = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(
-                f"elesim-net doctor returned invalid JSON on {host.host_id!r}"
-                + (f": {detail[:512]}" if detail else "")
-            ) from exc
-        if not isinstance(payload, Mapping):
-            raise RuntimeError(f"elesim-net doctor returned a non-object on {host.host_id!r}")
-        return dict(payload)
+        payloads: dict[str, Mapping[str, Any]] = {}
+        for unit in host.units:
+            argv = [
+                str(_net_command(unit)),
+                "doctor",
+                "--timeout",
+                f"{float(timeout_s):g}",
+                "--json",
+                "--strict-peers",
+            ]
+            for endpoint_id in expected_peer_ids:
+                value = str(endpoint_id).strip()
+                if value:
+                    argv.extend(("--expect-peer", value))
+            result = session.run(tuple(argv), check=False)
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                detail = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(
+                    f"elesim-net doctor returned invalid JSON on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                    + (f": {detail[:512]}" if detail else "")
+                ) from exc
+            if not isinstance(payload, Mapping):
+                raise RuntimeError(
+                    f"elesim-net doctor returned a non-object on "
+                    f"{host.host_id}/{unit.unit_id!r}"
+                )
+            payloads[unit.unit_id] = dict(payload)
+        if len(payloads) == 1:
+            return dict(next(iter(payloads.values())))
+        return {"state": "ready", "units": payloads}
 
     def status(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
         """Return a bounded lifecycle snapshot without changing host state."""
-
-        if host.lifecycle == "compose":
-            result = session.run(
-                (*_compose_command(host), "ps", "--status", "running", "--services"),
-                check=False,
-            )
-            expected = set(host.roles)
-            # The manager/tools services may also be running in this Compose
-            # project, but they are not application roles and must not make a
-            # host look degraded before Pilot/Sim/UI have started.
-            running = tuple(
-                sorted(value for value in result.stdout.split() if value in expected)
-            )
-            active = expected.issubset(set(running))
-            state = "running" if active else ("stopped" if not running else "degraded")
-            return {
-                "state": state,
-                "running_roles": list(running),
-                "detail": result.stderr.strip()[:512],
-            }
-        result = session.run(
-            ("sudo", "-n", "systemctl", "is-active", _robot_service(host)),
-            check=False,
+        unit_status: dict[str, Mapping[str, Any]] = {}
+        for unit in host.units:
+            if unit.install_mode == "container":
+                result = session.run(
+                    (*_compose_command(unit), "ps", "--status", "running", "--services"),
+                    check=False,
+                )
+                expected = set(unit.roles)
+                running = tuple(
+                    sorted(value for value in result.stdout.split() if value in expected)
+                )
+                active = expected.issubset(set(running))
+                state = "running" if active else ("stopped" if not running else "degraded")
+                unit_status[unit.unit_id] = {
+                    "state": state,
+                    "running_roles": list(running),
+                    "detail": result.stderr.strip()[:512],
+                }
+            else:
+                result = session.run(
+                    ("sudo", "-n", "systemctl", "is-active", _robot_service(unit)),
+                    check=False,
+                )
+                value = result.stdout.strip()
+                state = value if value in {"active", "inactive", "failed", "unknown"} else "unknown"
+                unit_status[unit.unit_id] = {
+                    "state": "running" if state == "active" else state,
+                    "running_roles": list(unit.roles if state == "active" else ()),
+                    "detail": result.stderr.strip()[:512],
+                }
+        if len(unit_status) == 1:
+            return dict(next(iter(unit_status.values())))
+        running_roles = [
+            role
+            for unit in host.units
+            for role in unit_status[unit.unit_id].get("running_roles", ())
+        ]
+        states = {str(value.get("state", "unknown")) for value in unit_status.values()}
+        state = (
+            "running"
+            if states == {"running"}
+            else ("stopped" if states <= {"stopped", "inactive"} else "degraded")
         )
-        value = result.stdout.strip()
-        state = value if value in {"active", "inactive", "failed", "unknown"} else "unknown"
-        return {
-            "state": "running" if state == "active" else state,
-            "running_roles": list(host.roles),
-            "detail": result.stderr.strip()[:512],
-        }
+        return {"state": state, "running_roles": running_roles, "units": unit_status}
 
     def verify(
         self,
@@ -1779,22 +1918,18 @@ class InstalledElesimLifecycle:
         running_roles: Sequence[str],
     ) -> None:
         selected = _selected_roles(host, running_roles)
-        if selected and host.lifecycle == "compose":
-            result = session.run(
-                (*_compose_command(host), "ps", "--status", "running", "--services")
-            )
-            running = set(result.stdout.split())
-            missing = sorted(set(selected) - running)
-            if missing:
-                raise RuntimeError(
-                    f"roles are not running on {host.host_id!r}: {', '.join(missing)}"
-                )
-        elif selected:
-            session.run(("sudo", "-n", "systemctl", "is-active", "--quiet", _robot_service(host)))
         state = self.snapshot(session, host)
-        dds = state.get("dds")
-        if not isinstance(dds, Mapping):
-            raise RuntimeError(f"DDS state is missing on {host.host_id!r}")
+        unit_states = state.get("units")
+        states = (
+            unit_states
+            if isinstance(unit_states, Mapping)
+            else {host.primary_unit.unit_id: state}
+        )
+        endpoint_by_role = {
+            assignment.role: assignment.endpoint_id
+            for managed_host in self._topology.hosts
+            for assignment in managed_host.assignments
+        }
         expected = {
             "system_id": self._topology.system_id,
             "domain_id": self._topology.dds_graph.domain_id,
@@ -1804,46 +1939,67 @@ class InstalledElesimLifecycle:
             "interface": host.dds.interface,
             "security_profile": self._topology.security_profile,
         }
-        for name, value in expected.items():
-            actual = dds.get(name)
-            if name == "static_peers":
-                actual = list(actual or ())
-            if actual != value:
+        for unit in host.units:
+            unit_selected = tuple(role for role in unit.roles if role in selected)
+            unit_state = states.get(unit.unit_id)
+            if not isinstance(unit_state, Mapping):
+                raise RuntimeError(f"DDS state is missing on {host.host_id}/{unit.unit_id}")
+            if unit_selected and unit.install_mode == "container":
+                result = session.run(
+                    (*_compose_command(unit), "ps", "--status", "running", "--services")
+                )
+                missing = sorted(set(unit_selected) - set(result.stdout.split()))
+                if missing:
+                    raise RuntimeError(
+                        "roles are not running on "
+                        f"{host.host_id}/{unit.unit_id}: {', '.join(missing)}"
+                    )
+            elif unit_selected:
+                session.run(
+                    (
+                        "sudo",
+                        "-n",
+                        "systemctl",
+                        "is-active",
+                        "--quiet",
+                        _robot_service(unit),
+                    )
+                )
+            dds = unit_state.get("dds")
+            if not isinstance(dds, Mapping):
+                raise RuntimeError(f"DDS state is missing on {host.host_id}/{unit.unit_id}")
+            for name, value in expected.items():
+                actual = dds.get(name)
+                if name == "static_peers":
+                    actual = list(actual or ())
+                if actual != value:
+                    raise RuntimeError(
+                        f"DDS {name} did not activate on {host.host_id}/{unit.unit_id}: "
+                        f"{actual!r} != {value!r}"
+                    )
+            if generation is not None and str(dds.get("security_generation", "")) != generation:
                 raise RuntimeError(
-                    f"DDS {name} did not activate on {host.host_id!r}: "
-                    f"{actual!r} != {value!r}"
+                    f"security generation did not activate on {host.host_id}/{unit.unit_id}"
                 )
-        if generation is not None and str(dds.get("security_generation", "")) != generation:
-            raise RuntimeError(f"security generation did not activate on {host.host_id!r}")
-        if generation is not None:
-            security_root = PurePosixPath(host.install_root) / "security"
-            current = session.run(("readlink", str(security_root / "current")))
-            if PurePosixPath(current.stdout.strip()).name != generation:
-                raise RuntimeError(
-                    f"security/current does not select {generation!r} on {host.host_id!r}"
-                )
-            session.run(("test", "-f", str(security_root / "current/manifest.json")))
-            for role in host.roles:
-                endpoint_id = next(
-                    assignment.endpoint_id
-                    for managed_host in self._topology.hosts
-                    for assignment in managed_host.assignments
-                    if assignment.role == role
-                )
-                role_key = (
-                    security_root
-                    / "roles"
-                    / role
-                    / "enclaves"
-                    / "elesim"
-                    / self._topology.system_id
-                    / role
-                    / canonical_endpoint_key(endpoint_id)
-                    / "key.pem"
-                )
-                session.run(("test", "-f", str(role_key)))
-        if selected:
-            session.run((str(_net_command(host)), "doctor", "--json"))
+            if generation is not None:
+                security_root = PurePosixPath(unit.install_root) / "security"
+                current = session.run(("readlink", str(security_root / "current")))
+                if PurePosixPath(current.stdout.strip()).name != generation:
+                    raise RuntimeError(
+                        f"security/current does not select {generation!r} on "
+                        f"{host.host_id}/{unit.unit_id}"
+                    )
+                session.run(("test", "-f", str(security_root / "current/manifest.json")))
+                for role in unit.roles:
+                    endpoint_id = endpoint_by_role[role]
+                    role_key = (
+                        security_root / "roles" / role / "enclaves" / "elesim"
+                        / self._topology.system_id / role
+                        / canonical_endpoint_key(endpoint_id) / "key.pem"
+                    )
+                    session.run(("test", "-f", str(role_key)))
+            if unit_selected:
+                session.run((str(_net_command(unit)), "doctor", "--json"))
 
 
 @dataclass(frozen=True)
@@ -2237,12 +2393,16 @@ def _restore_hosts(
     return tuple(errors)
 
 
-def _net_command(host: ManagedHost) -> PurePosixPath:
-    return PurePosixPath(host.bin_dir) / "elesim-net"
+def _unit_for_target(target: ManagedHost | DeploymentUnit) -> DeploymentUnit:
+    return target.primary_unit if isinstance(target, ManagedHost) else target
 
 
-def _compose_command(host: ManagedHost) -> tuple[str, ...]:
-    compose = PurePosixPath(host.install_root) / "containers/compose.yaml"
+def _net_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:
+    return PurePosixPath(_unit_for_target(target).bin_dir) / "elesim-net"
+
+
+def _compose_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
+    compose = PurePosixPath(_unit_for_target(target).install_root) / "containers/compose.yaml"
     return (
         "docker",
         "compose",
@@ -2253,8 +2413,8 @@ def _compose_command(host: ManagedHost) -> tuple[str, ...]:
     )
 
 
-def _compose_build_command(host: ManagedHost) -> tuple[str, ...]:
-    compose = PurePosixPath(host.install_root) / "containers/compose.yaml"
+def _compose_build_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
+    compose = PurePosixPath(_unit_for_target(target).install_root) / "containers/compose.yaml"
     return (
         "docker",
         "compose",
@@ -2267,9 +2427,10 @@ def _compose_build_command(host: ManagedHost) -> tuple[str, ...]:
     )
 
 
-def _robot_service(host: ManagedHost) -> str:
-    if host.roles != ("robot",):
-        raise ValueError("systemd lifecycle is reserved for the Robot-only host")
+def _robot_service(target: ManagedHost | DeploymentUnit) -> str:
+    roles = target.roles
+    if roles != ("robot",):
+        raise ValueError("systemd lifecycle is reserved for the native Robot unit")
     return "elesim-robot.service"
 
 
@@ -2283,25 +2444,32 @@ def _selected_roles(
 
 
 def _lifecycle_command(
-    host: ManagedHost,
+    target: ManagedHost | DeploymentUnit,
     *,
     action: str,
     roles: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
     if action not in {"start", "stop", "build", "launch"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
-    selected = _selected_roles(host, roles)
-    if host.lifecycle == "compose":
+    if isinstance(target, ManagedHost):
+        selected = _selected_roles(target, roles)
+        unit = target.primary_unit
+    else:
+        unit = target
+        selected = unit.roles if roles is None else tuple(str(role) for role in roles)
+        if len(set(selected)) != len(selected) or not set(selected).issubset(unit.roles):
+            raise ValueError(f"runtime role selection escapes {unit.unit_id!r}: {selected!r}")
+    if unit.lifecycle == "compose":
         if action == "stop":
-            return (*_compose_command(host), "stop", *selected)
+            return (*_compose_command(unit), "stop", *selected)
         if action == "start":
             # Security/topology transactions resume the exact containers that
             # were running before the switch.  They never build or recreate.
-            return (*_compose_command(host), "start", *selected)
+            return (*_compose_command(unit), "start", *selected)
         if action == "build":
-            return (*_compose_build_command(host), "build", *selected)
+            return (*_compose_build_command(unit), "build", *selected)
         return (
-            *_compose_command(host),
+            *_compose_command(unit),
             "up",
             "-d",
             "--no-build",
@@ -2311,11 +2479,11 @@ def _lifecycle_command(
         if action == "build":
             return ("true",)
         action = "start"
-    return ("sudo", "-n", "systemctl", action, _robot_service(host))
+    return ("sudo", "-n", "systemctl", action, _robot_service(unit))
 
 
 def _configuration_command(
-    host: ManagedHost,
+    target: ManagedHost | DeploymentUnit,
     dds: Mapping[str, Any],
     *,
     sim_id: str = "",
@@ -2335,7 +2503,7 @@ def _configuration_command(
     if missing:
         raise ValueError("DDS configuration is missing: " + ", ".join(missing))
     arguments: list[str] = [
-        str(_net_command(host)),
+        str(_net_command(target)),
         "configure",
         "--non-interactive",
         "--dds-system-id",
@@ -2406,6 +2574,86 @@ def _check_bundle_target(host: ManagedHost, bundle: SecurityBundle) -> None:
         raise ValueError(
             f"security bundle for {bundle.host_id!r} cannot be sent to {host.host_id!r}"
         )
+
+
+def _stage_unit_bundle(
+    session: SshSession,
+    host: ManagedHost,
+    unit: DeploymentUnit,
+    security_root: PurePosixPath,
+    bundle: SecurityBundle,
+) -> None:
+    """Stage one role-filtered bundle under one installation prefix."""
+
+    generation_root = security_root / "generations"
+    final_root = generation_root / bundle.generation
+    stage_root = security_root / ".staging" / (
+        f"{bundle.generation}-{unit.unit_id}-{uuid.uuid4().hex}"
+    )
+    session.run(("mkdir", "-p", str(generation_root), str(stage_root.parent)))
+    exists = session.run(("test", "-e", str(final_root)), check=False)
+    symlink = session.run(("test", "-L", str(final_root)), check=False)
+    if exists.exit_status == 0 or symlink.exit_status == 0:
+        raise FileExistsError(
+            f"security generation already exists on {host.host_id}/{unit.unit_id}: "
+            f"{bundle.generation}"
+        )
+    session.run(("mkdir", str(stage_root)))
+    session.run(("chmod", "0700", str(stage_root)))
+    try:
+        for file in sorted(bundle.files, key=lambda item: item.relative_path):
+            file.validate()
+            session.upload_bytes(
+                stage_root / PurePosixPath(file.relative_path),
+                file.content,
+                file.mode,
+            )
+        manifest_bytes = bundle.manifest_bytes()
+        session.upload_bytes(stage_root / "manifest.json", manifest_bytes, 0o600)
+        expected_digests = {
+            file.relative_path: hashlib.sha256(file.content).hexdigest()
+            for file in bundle.files
+        }
+        expected_digests["manifest.json"] = hashlib.sha256(manifest_bytes).hexdigest()
+        for relative_path, expected_digest in expected_digests.items():
+            result = session.run(("sha256sum", "--", str(stage_root / relative_path)))
+            actual = result.stdout.partition(" ")[0].strip().lower()
+            if not hmac.compare_digest(actual, expected_digest):
+                raise RuntimeError(
+                    f"staged security file digest mismatch on "
+                    f"{host.host_id}/{unit.unit_id}: {relative_path}"
+                )
+        session.run(("mv", str(stage_root), str(final_root)))
+    except BaseException:
+        session.run(("rm", "-rf", "--", str(stage_root)), check=False)
+        raise
+
+
+def _activate_unit_generation(
+    session: SshSession,
+    host: ManagedHost,
+    unit: DeploymentUnit,
+    security_root: PurePosixPath,
+    *,
+    generation: str,
+) -> None:
+    final_root = security_root / "generations" / generation
+    temporary = security_root / f".current-{unit.unit_id}-{uuid.uuid4().hex}"
+    current = security_root / "current"
+    session.run(("test", "-d", str(final_root)))
+    session.run(("ln", "-s", str(final_root), str(temporary)))
+    try:
+        session.run(("mv", "-Tf", str(temporary), str(current)))
+    except BaseException:
+        session.run(("rm", "-f", "--", str(temporary)), check=False)
+        raise
+    SshHostOperations._sync_role_views(
+        session,
+        host,
+        security_root,
+        generation=generation,
+        roles=unit.roles,
+    )
 
 
 def _safe_identifier(value: str, *, name: str) -> str:

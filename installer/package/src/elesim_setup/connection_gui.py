@@ -71,6 +71,18 @@ def connection_web_root() -> Path:
     return Path(__file__).resolve().parent / "connection_web"
 
 
+def installer_web_font_root() -> Path:
+    """Return the installer-owned font directory shared by both web UIs.
+
+    The connection manager must not import or read assets from the runtime UI
+    package. Keeping the browser font under ``elesim_setup/web`` makes the
+    installer the sole owner of its static assets while allowing the setup
+    wizard and connection manager to render Korean text identically.
+    """
+
+    return Path(__file__).resolve().parent / "web" / "fonts"
+
+
 @dataclass
 class ConnectionJob:
     status: str = "idle"
@@ -214,7 +226,7 @@ class ConnectionManagerApplication:
             if host.ssh is None:
                 continue
             check: dict[str, object] = {
-                "host": host.ssh.host,
+                "host": host.dds.address,
                 "port": host.ssh.port,
                 "user": host.ssh.user,
                 "checked": False,
@@ -222,7 +234,7 @@ class ConnectionManagerApplication:
             if probe_ssh:
                 result = self.probe_fingerprint(
                     {
-                        "host": host.ssh.host,
+                        "host": host.dds.address,
                         "port": host.ssh.port,
                         "auth_mode": host.ssh.auth_mode,
                     }
@@ -588,16 +600,32 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
     def _static(self, request_path: str) -> None:
         relative = request_path.lstrip("/") or "index.html"
         allowed = {
-            "index.html": "text/html; charset=utf-8",
-            "app.js": "text/javascript; charset=utf-8",
-            "style.css": "text/css; charset=utf-8",
-            "i18n.json": "application/json; charset=utf-8",
+            "index.html": (
+                connection_web_root() / "index.html",
+                "text/html; charset=utf-8",
+            ),
+            "app.js": (
+                connection_web_root() / "app.js",
+                "text/javascript; charset=utf-8",
+            ),
+            "style.css": (
+                connection_web_root() / "style.css",
+                "text/css; charset=utf-8",
+            ),
+            "i18n.json": (
+                connection_web_root() / "i18n.json",
+                "application/json; charset=utf-8",
+            ),
+            "fonts/NotoSansCJKkr-Regular.otf": (
+                installer_web_font_root() / "NotoSansCJKkr-Regular.otf",
+                "font/otf",
+            ),
         }
-        content_type = allowed.get(relative)
-        if content_type is None:
+        asset = allowed.get(relative)
+        if asset is None:
             self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
             return
-        path = connection_web_root() / relative
+        path, content_type = asset
         if not path.is_file():
             self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
             return
@@ -622,7 +650,8 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
         if not api:
             policy = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
-                "connect-src 'self'; img-src 'self' data:; base-uri 'none'; "
+                "connect-src 'self'; font-src 'self'; img-src 'self' data:; "
+                "base-uri 'none'; "
                 "form-action 'none'; frame-ancestors 'none'"
             )
         self.send_header("Content-Security-Policy", policy)
@@ -710,4 +739,5 @@ __all__ = [
     "StatusProvider",
     "run_connection_gui",
     "connection_web_root",
+    "installer_web_font_root",
 ]

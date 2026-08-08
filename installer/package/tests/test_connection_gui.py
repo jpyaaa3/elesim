@@ -13,6 +13,7 @@ from elesim_setup.connection_gui import (
     ConnectionManagerApplication,
     ConnectionManagerServer,
     connection_web_root,
+    installer_web_font_root,
 )
 from elesim_setup.connection_manager import (
     ConnectionTopology,
@@ -45,7 +46,6 @@ def _topology() -> ConnectionTopology:
         hosts=(
             ManagedHost(
                 host_id="laptop",
-                display_name="Operator laptop",
                 local=True,
                 dds=DdsEndpoint("100.64.0.10", "tailscale0"),
                 ssh=None,
@@ -56,7 +56,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 host_id="compute",
-                display_name="Compute server",
                 local=False,
                 dds=DdsEndpoint("100.64.0.20", "tailscale0"),
                 ssh=_ssh("compute.example", 2222),
@@ -64,7 +63,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 host_id="robot",
-                display_name="Robot Jetson",
                 local=False,
                 dds=DdsEndpoint("100.64.0.30", "tailscale0"),
                 ssh=_ssh("robot.example", 2201),
@@ -87,7 +85,6 @@ def _simulation_topology() -> ConnectionTopology:
         hosts=(
             ManagedHost(
                 host_id="laptop",
-                display_name="Simulation laptop",
                 local=True,
                 dds=DdsEndpoint("100.64.0.40", "tailscale0"),
                 ssh=None,
@@ -108,14 +105,12 @@ def _preflight_payload() -> dict[str, object]:
         "hosts": [
             {
                 "id": "laptop",
-                "display_name": "Operator laptop",
                 "local": True,
                 "dds": {"address": "100.64.0.10", "interface": "tailscale0"},
                 "ssh": None,
             },
             {
                 "id": "compute",
-                "display_name": "Compute host",
                 "local": False,
                 "dds": {"address": "100.64.0.20", "interface": "tailscale0"},
                 "ssh": {"host": "100.64.0.20", "port": 22, "user": "elesim"},
@@ -162,6 +157,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert all(
         (root / name).is_file() for name in ("index.html", "style.css", "app.js")
     )
+    assert (installer_web_font_root() / "NotoSansCJKkr-Regular.otf").is_file()
+    assert 'url("/fonts/NotoSansCJKkr-Regular.otf")' in (
+        root / "style.css"
+    ).read_text(encoding="utf-8")
+    assert html.count("data-banner-close") == 2
+    assert "banner.querySelector(\".banner-message\")" in script
+    assert "setTimeout(() => { banner.hidden = true;" not in script
     assert all(label in html for label in ("COM1", "COM2", "COM3", "Robot"))
     assert 'data-field="unused"' in html
     assert 'id="topology-mode"' in html
@@ -169,29 +171,43 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "ensureRoutedDiscovery" in script
     assert "notice.tailscale.static" in script
     assert 'id="apply"' in html
-    assert 'id="workflow-stage"' in html
+    assert 'id="workflow-stage"' not in html
     assert 'data-i18n="advanced.title"' not in html
-    assert 'id="host-check"' in html
+    assert 'id="host-check"' not in html
     assert 'id="rotate"' not in html
-    assert 'id="runtime-stop"' in html
+    assert 'id="runtime-stop"' not in html
     assert 'id="recover"' not in html
     assert 'id="runtime-restart"' not in html
+    assert 'class="workflow-layout"' in html
+    assert 'data-state="pending"' in html
+    assert 'id="cancel"' in html
+    assert 'data-i18n="actions.title"' in html
+    assert 'data-i18n="actions.help"' not in html
+    assert 'maintenance-actions' not in html
+    assert 'workflow.save.help' not in html
+    assert 'workflow.apply.help' not in html
+    assert 'workflow.start.help' not in html
+    assert 'workflow.stage.unsaved' not in script
+    assert 'derived-heading' not in html
+    assert 'derived-peers' not in html
+    assert 'renderDerivedPeers' not in script
+    assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
-    assert 'startJob("check")' in script
-    assert 'workflow.stage.ready' in script
-    assert 'data-drop-slot="robot"' in html
+    assert 'startJob("check")' not in script
+    assert 'workflow.stage.' not in script
+    assert 'data-drop-slot="com4"' in html
+    assert 'data-slot="robot"' not in html
+    assert 'data-drop-unit="runtime"' in html
+    assert 'data-drop-unit="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
     assert 'roleLocations.robot = "robot"' in script
     assert 'sim: "sim-default"' in script
     assert 'robot: "robot-go2"' in script
-    assert "SSH" in catalog["ko"]["boundary.text"]
-    assert "런타임" in catalog["ko"]["boundary.text"]
-    assert "DDS 도달성" in catalog["ko"]["boundary.text"]
-    assert "bidirectional UDP" in catalog["en"]["boundary.text"]
-    assert "자동으로 계산" in catalog["ko"]["derived.help"]
+    assert catalog["ko"]["actions.title"] == "연결 확인"
+    assert catalog["en"]["actions.title"] == "Check Connections"
     ssh_key_fields = re.findall(
         r'<input\b[^>]*data-field="ssh-key"[^>]*>',
         html,
@@ -204,7 +220,12 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     )
     assert len(ssh_tailscale_fields) == 4
     assert "ssh-tailscale" in script
-    assert "빈 칸은 SSH agent" in catalog["ko"]["ssh.help"]
+    assert "ssh.help" not in catalog["ko"]
+    assert catalog["en"]["ssh.title"] == "Private-key authentication via SSH"
+    assert html.count('data-field="ssh-host" type="text" readonly disabled') == 4
+    assert "robot-install-root" not in html
+    assert "robot-bin-dir" not in html
+    assert 'host.ssh.host' not in script
     assert 'data-field="dds-address"' in html
     assert 'placeholder="100.x.y.z"' in html
     assert "Abort" in catalog["ko"]["action.cancel"]
@@ -532,6 +553,15 @@ def test_http_boundary_requires_token_and_sets_strict_headers(tmp_path: Path) ->
         assert "script-src 'self'" in response.getheader("Content-Security-Policy")
         assert response.getheader("Cache-Control") == "no-store"
         response.read()
+        connection.close()
+
+        connection = http.client.HTTPConnection(host, port, timeout=2)
+        connection.request("GET", "/fonts/NotoSansCJKkr-Regular.otf")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "font/otf"
+        assert "font-src 'self'" in response.getheader("Content-Security-Policy")
+        assert len(response.read()) > 1_000_000
         connection.close()
 
         connection = http.client.HTTPConnection(host, port, timeout=2)

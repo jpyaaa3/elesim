@@ -27,7 +27,8 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 - UI, Pilot, Sim, Robot의 실행 host 배치를 보여 준다.
 - 각 host의 DDS 네트워크 profile을 일관되게 생성한다.
 - 실제 DDS discovery/control/RGBD 연결성을 검사해 준다.
-- SSH 관리 경로, DDS 경로, WebRTC/TURN 경로를 혼동하지 않게 한다.
+- SSH 관리 포트와 DDS/WebRTC 경로를 혼동하지 않되, 한 호스트의 SSH 목적지
+  IP는 그 호스트의 광고 DDS IP에서 자동으로 사용한다.
 
 연결관리자는 다음을 하면 안 된다.
 
@@ -71,7 +72,7 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 
 | mode | 허용 role | host 수 | 설치 제약 |
 | --- | --- | --- | --- |
-| `full` | Pilot, Sim, UI, Robot 각 1회 | 2~4 | Robot host만 native/Jetson/systemd |
+| `full` | Pilot, Sim, UI, Robot 각 1회 | 2~4 | Robot unit은 native/Jetson/systemd, 같은 host의 다른 unit은 container/Compose |
 | `simulation-only` | Pilot, Sim, UI 각 1회 | 1~3 | 모든 host container/Compose, Robot/Jetson 금지 |
 
 `simulation-only`는 물리 Robot이 없다는 사실을 모델에 명시하는 실행 경로다.
@@ -88,12 +89,12 @@ thread 등은 독립 배포 client가 아니다. 예를 들어 UI의 operator �
 
 | 용어 | 의미 | 연결관리자가 저장/표시하는 방식 |
 | --- | --- | --- |
-| Host | 실제 컴퓨터 또는 VM | 사람이 붙인 이름, 설치/관리 정보 |
+| Host | 실제 컴퓨터 또는 VM | 안정적인 host ID와 설치/관리 정보 |
 | Role | UI/Pilot/Sim/Robot 책임 | Host에 배치하는 블록 |
 | endpoint ID | `pilot-main` 같은 논리 주소 | role assignment에 저장 |
 | boot ID | 매 실행마다 바뀌는 process incarnation | runtime discovery에서 읽기 전용 표시 |
 | DDS locator | 실제 IP, UDP port, transport 정보 | DDS가 discovery로 교환; 고정 설정값이 아님 |
-| SSH 주소/포트 | 설치 GUI forwarding, 원격 설치/로그 접근 | 관리용 정보; DDS/WebRTC runtime 주소가 아님 |
+| SSH IP/포트 | 원격 설치/로그 접근 | IP는 DDS 광고 IP에서 파생, 포트는 관리용이며 DDS/WebRTC 포트가 아님 |
 | TURN URL/credential | WebRTC media relay 설정 | Sim/active UI session용; DDS용이 아님 |
 
 특히 `endpoint_id`가 사용자가 말한 “X번 자리”에 해당한다. IP와 UDP port는
@@ -200,18 +201,20 @@ static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesi
 초기 GUI는 Scratch 같은 host/role canvas로 구성한다.
 
 ```text
-[ Host A / Laptop ]       [ Host B / Compute ]      [ Host C ]
-  [UI] [Pilot]         [Sim]               unused
-
-[ Robot / Jetson ]
-  [Robot]  # 고정
+[ Host A / Laptop ]       [ Host B / Compute ]      [ Host C / Jetson ]
+  [UI] [Pilot]         [Sim]               [Robot native]
+                                                   [Pilot/UI runtime]
 ```
 
-- 첫 화면은 요청한 `COM1`, `COM2`, `COM3`, `Robot` slot을 사용하며 각 host의
-  표시 이름과 안정적인 host ID는 별도로 변경할 수 있다.
+- 첫 화면은 `COM1`~`COM4`의 동등한 Host 카드를 사용하며 안정적인 host ID를
+  유일한 호스트 닉네임과 식별자로 사용한다.
 - Pilot, Sim, UI 블록은 일반 Host 카드에 drag & drop 한다.
-- `full` mode에서는 Robot 블록을 Robot/Jetson 카드에 고정한다. 현재 Robot은
-  Jetson/JetPack native 단독 설치만 허용하므로 일반 container role과 섞지 않는다.
+- `full` mode에서는 Robot 블록도 카드 사이에서 drag & drop 한다. 대상 카드가
+  Jetson으로 표시되어야 하며 Robot은 native/systemd lane에만 놓을 수 있다.
+  Jetson으로 표시한 카드는 필수 Robot unit을 함께 가져야 하고, 같은 카드의
+  Pilot/UI는 별도 Compose unit으로 유지한다.
+  같은 카드에 Pilot/UI를 놓으면 별도 Compose lane/unit으로 저장된다. 현재
+  ARM64 이미지가 검증되지 않은 Sim은 Jetson 카드에 놓을 수 없다.
 - `simulation-only` mode에서는 Robot 카드를 숨기고 COM1~COM3만 사용한다. COM
   카드는 1~3개까지 활성화할 수 있고, Pilot/Sim/UI 세 블록은 각 한
   번씩만 배치한다.
@@ -247,7 +250,8 @@ Jetson을 실제로 켤 수 없는 동안에는 API/자동화에서 `COM` 카드
 
 - 각 호스트의 DDS 광고 주소가 hostname/IP이고 포트를 붙이지 않았는가
 - 각 호스트의 DDS 인터페이스가 `tailscale0`처럼 한 개의 NIC 이름인가
-- local 호스트는 SSH endpoint가 없고, remote 호스트는 명시적인 SSH host/user/port를
+- local 호스트는 SSH endpoint가 없고, remote 호스트는 광고 IP에서 파생된 SSH
+  목적지와 명시적인 user/port를
   갖는가
 - 요청한 경우 remote SSH host-key probe가 그 host와 port에 도달하는가
 
@@ -298,8 +302,8 @@ graph, topic 표면을 검증한다. `--active`의 RGBD sample 검사는 별도 
 검증 항목이며 GUI가 성공했다고 추정해서는 안 된다.
 
 연결관리자는 로컬 `tailscale0`의 현재 IPv4를 읽기 전용으로 제안할 수 있지만
-Tailscale 설치·로그인·ACL을 변경하지 않는다. 저장된 topology에는 DDS 주소와 SSH
-관리 주소/포트를 별도로 남긴다. 저장 이후에는 `check`, `start`, `stop`, `restart`
+Tailscale 설치·로그인·ACL을 변경하지 않는다. 저장된 topology에는 DDS 주소와 그 IP를
+재사용하는 SSH 목적지, 그리고 별도의 관리 포트/user를 남긴다. 저장 이후에는 `check`, `start`, `stop`, `restart`
 작업으로 각 host의 Compose/systemd 관리 상태를 확인·조작할 수 있으며, SSH 성공을
 DDS discovery나 WebRTC media 성공으로 해석하지 않는다.
 

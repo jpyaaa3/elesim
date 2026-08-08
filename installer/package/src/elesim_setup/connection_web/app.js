@@ -7,10 +7,11 @@ if (query.get("token")) {
 }
 
 const token = sessionStorage.getItem("elesimConnectionToken") || "";
-const computerSlots = ["com1", "com2", "com3"];
-const slots = [...computerSlots, "robot"];
+const computerSlots = ["com1", "com2", "com3", "com4"];
+const jetsonSlot = "com4";
+const slots = [...computerSlots];
 const applicationRoles = ["pilot", "sim", "ui", "robot"];
-const movableRoles = ["pilot", "sim", "ui"];
+const movableRoles = applicationRoles.filter((role) => role !== "robot");
 
 let catalog = {};
 let language = "ko";
@@ -21,8 +22,9 @@ let roleLocations = {
   pilot: "com1",
   sim: "com2",
   ui: "com1",
-  robot: "robot"
+  robot: "com4"
 };
+// Legacy schema-v3 migration marker: old saved files used roleLocations.robot = "robot".
 let endpointIds = {
   pilot: "pilot-main",
   sim: "sim-default",
@@ -33,13 +35,98 @@ let pollTimer = null;
 let runtimePollTimer = null;
 let workflowSaved = false;
 let workflowApplied = false;
+const workflowStates = {save: "pending", apply: "pending", start: "pending"};
 
 const byId = (id) => document.getElementById(id);
 const card = (slot) => document.querySelector(`.host-card[data-slot="${slot}"]`);
 const field = (slot, name) => card(slot).querySelector(`[data-field="${name}"]`);
 
+function addField(slot, name, labelKey, value = "", {checkbox = false, wide = false, unitRole = ""} = {}) {
+  const hostFields = card(slot).querySelector(".host-fields");
+  if (field(slot, name)) return field(slot, name);
+  const label = document.createElement("label");
+  if (wide) label.classList.add("wide");
+  if (unitRole) label.dataset.unitRole = unitRole;
+  const input = document.createElement("input");
+  input.dataset.field = name;
+  input.type = checkbox ? "checkbox" : "text";
+  if (checkbox) input.checked = Boolean(value);
+  else input.value = value;
+  input.spellcheck = false;
+  const span = document.createElement("span");
+  span.dataset.i18n = labelKey;
+  label.append(input, span);
+  hostFields.append(label);
+  return input;
+}
+
+function normalizeHostCards() {
+  // Schema-v3 shipped a special Robot card. Reuse that DOM slot as Jetson
+  // while still accepting old saved topologies.
+  const legacyRobot = document.querySelector('.host-card[data-slot="robot"]');
+  if (legacyRobot) {
+    legacyRobot.dataset.slot = "com4";
+    legacyRobot.classList.remove("robot", "disabled");
+    legacyRobot.querySelector(".slot-name").textContent = "Jetson";
+    const fixed = legacyRobot.querySelector(".fixed");
+    if (fixed) fixed.remove();
+    const zone = legacyRobot.querySelector(".drop-zone");
+    zone.dataset.dropSlot = "com4";
+    zone.dataset.dropUnit = "runtime";
+    zone.classList.remove("fixed-zone");
+    if (!legacyRobot.querySelector(".unit-lanes")) {
+      const lanes = document.createElement("div");
+      lanes.className = "unit-lanes";
+      const runtimeLane = document.createElement("section");
+      runtimeLane.className = "unit-lane runtime-lane";
+      const runtimeTitle = document.createElement("h3");
+      runtimeTitle.dataset.i18n = "unit.runtime";
+      runtimeLane.append(runtimeTitle, zone);
+      const robotLane = document.createElement("section");
+      robotLane.className = "unit-lane robot-lane";
+      const robotTitle = document.createElement("h3");
+      robotTitle.dataset.i18n = "unit.robot";
+      const robotZone = document.createElement("div");
+      robotZone.className = "drop-zone";
+      robotZone.dataset.dropSlot = "com4";
+      robotZone.dataset.dropUnit = "robot";
+      robotLane.append(robotTitle, robotZone);
+      lanes.append(runtimeLane, robotLane);
+      legacyRobot.insertBefore(lanes, legacyRobot.querySelector(".host-fields"));
+    }
+    const local = legacyRobot.querySelector('input[name="local-host"]');
+    local.disabled = false;
+    local.value = "com4";
+    legacyRobot.querySelector("header .unused")?.remove();
+    const probe = legacyRobot.querySelector("[data-probe-slot]");
+    if (probe) probe.dataset.probeSlot = "com4";
+    field("com4", "install-root").value = "/opt/elesim";
+    field("com4", "bin-dir").value = "/opt/elesim/bin";
+    field("com4", "host-id").value = "com4";
+  }
+}
+
 function t(key) {
   return catalog[language]?.[key] || key;
+}
+
+function setWorkflowStepState(step, state) {
+  workflowStates[step] = state;
+  document.querySelector(`.workflow-step[data-step="${step}"]`)?.setAttribute("data-state", state);
+}
+
+function setWorkflowStepEnabled(step, enabled) {
+  const element = document.querySelector(`.workflow-step[data-step="${step}"]`);
+  if (!element) return;
+  element.dataset.enabled = String(enabled);
+  const button = element.querySelector("button");
+  if (button) button.disabled = !enabled;
+}
+
+function workflowStepForAction(action) {
+  if (["prepare", "provision", "deploy", "rotate"].includes(action)) return "apply";
+  if (action === "start") return "start";
+  return "";
 }
 
 async function api(path, options = {}) {
@@ -52,18 +139,21 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function setBannerVisible(banner, visible) {
+  banner.hidden = !visible;
+  banner.classList.toggle("dismissed", !visible);
+}
+
 function showError(value) {
   const banner = byId("error-banner");
-  banner.textContent = value instanceof Error ? value.message : String(value);
-  banner.hidden = false;
-  window.setTimeout(() => { banner.hidden = true; }, 9000);
+  banner.querySelector(".banner-message").textContent = value instanceof Error ? value.message : String(value);
+  setBannerVisible(banner, true);
 }
 
 function showNotice(key) {
   const banner = byId("notice-banner");
-  banner.textContent = t(key);
-  banner.hidden = false;
-  window.setTimeout(() => { banner.hidden = true; }, 4500);
+  banner.querySelector(".banner-message").textContent = t(key);
+  setBannerVisible(banner, true);
 }
 
 function applyLanguage(next) {
@@ -72,20 +162,24 @@ function applyLanguage(next) {
   document.querySelectorAll("[data-i18n]").forEach((element) => {
     element.textContent = t(element.dataset.i18n);
   });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+    element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+  });
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.classList.toggle("active", button.dataset.language === language);
   });
   renderRoleBlocks();
-  renderDerivedPeers();
-  updateSecurityWarning();
+  updateWorkflow();
 }
 
 function isActive(slot) {
-  return slot === "robot" ? topologyMode === "full" : !field(slot, "unused").checked;
+  return slot === jetsonSlot ? topologyMode === "full" : !field(slot, "unused").checked;
 }
 
 function visibleRoles() {
-  return topologyMode === "simulation-only" ? movableRoles : applicationRoles;
+  return topologyMode === "simulation-only"
+    ? applicationRoles.filter((role) => role !== "robot")
+    : applicationRoles;
 }
 
 function activeSlots() {
@@ -96,22 +190,60 @@ function applyTopologyMode(next) {
   topologyMode = next === "simulation-only" ? "simulation-only" : "full";
   const selector = byId("topology-mode");
   if (selector) selector.value = topologyMode;
-  const robotCard = card("robot");
-  if (robotCard) robotCard.hidden = topologyMode === "simulation-only";
+  if (card(jetsonSlot)) card(jetsonSlot).hidden = topologyMode === "simulation-only";
+  if (topologyMode === "simulation-only") {
+    roleLocations.robot = "";
+    if (card(jetsonSlot)) {
+      setCardActive(jetsonSlot);
+    }
+  } else {
+    roleLocations.robot = jetsonSlot;
+    if (card(jetsonSlot)) {
+      setCardActive(jetsonSlot);
+    }
+  }
   renderRoleBlocks();
   updateSshVisibility();
-  renderDerivedPeers();
 }
 
 function firstActiveCom(except = "") {
-  return slots.find((slot) => slot !== "robot" && slot !== except && isActive(slot)) || "";
+  return slots.find((slot) => slot !== except && isActive(slot)) || "";
+}
+
+function firstActiveJetson(except = "") {
+  const local = document.querySelector('input[name="local-host"]:checked')?.value;
+  return jetsonSlot !== except && jetsonSlot !== local && isActive(jetsonSlot) ? jetsonSlot : "";
+}
+
+function firstActiveRuntime(except = "") {
+  return slots.find((slot) => (
+    slot !== except && isActive(slot) && slot !== jetsonSlot
+  )) || "";
+}
+
+function canPlaceRole(role, target, {notify = true} = {}) {
+  if (role === "robot" && target !== jetsonSlot) {
+    if (notify) showError(t("error.robot.jetson"));
+    return false;
+  }
+  const local = document.querySelector('input[name="local-host"]:checked')?.value;
+  if (role === "robot" && local === target) {
+    if (notify) showError(t("error.local.robot"));
+    return false;
+  }
+  if (role === "sim" && target === jetsonSlot) {
+    if (notify) showError(t("error.sim.jetson"));
+    return false;
+  }
+  return true;
 }
 
 function renderRoleBlocks() {
   document.querySelectorAll(".drop-zone").forEach((zone) => zone.replaceChildren());
   visibleRoles().forEach((role) => {
-    const slot = role === "robot" ? "robot" : roleLocations[role];
-    const zone = document.querySelector(`[data-drop-slot="${slot}"]`);
+    const slot = roleLocations[role];
+    const unit = role === "robot" ? "robot" : "runtime";
+    const zone = document.querySelector(`[data-drop-slot="${slot}"][data-drop-unit="${unit}"]`);
     if (!zone) return;
     const block = document.createElement("div");
     block.className = `role-block role-${role}`;
@@ -144,8 +276,18 @@ function renderRoleBlocks() {
   });
 }
 
-function moveRole(role, target) {
-  if (!movableRoles.includes(role) || target === "robot" || !isActive(target)) return;
+function moveRole(role, target, targetUnit = "runtime") {
+  if (role === "robot") return;
+  if (!movableRoles.includes(role) || !isActive(target)) return;
+  if (targetUnit === "robot" && role !== "robot") {
+    showError(t("error.unit.robot"));
+    return;
+  }
+  if (targetUnit === "runtime" && role === "robot") {
+    showError(t("error.unit.runtime"));
+    return;
+  }
+  if (!canPlaceRole(role, target)) return;
   roleLocations[role] = target;
   markWorkflowDirty();
   renderRoleBlocks();
@@ -154,21 +296,45 @@ function moveRole(role, target) {
 function setCardActive(slot) {
   const hostCard = card(slot);
   const active = isActive(slot);
+  const unused = field(slot, "unused");
   hostCard.classList.toggle("disabled", !active);
   hostCard.querySelectorAll("input, select, button").forEach((control) => {
-    if (control === field(slot, "unused")) return;
+    if (control === unused) return;
     control.disabled = !active;
   });
   if (!active) {
+    if (slot === jetsonSlot) {
+      renderRoleBlocks();
+      updateSshVisibility();
+      return;
+    }
     const destination = firstActiveCom(slot);
     if (!destination) {
-      field(slot, "unused").checked = false;
+      unused.checked = false;
       setCardActive(slot);
       showError(t("error.one.com"));
       return;
     }
-    movableRoles.filter((role) => roleLocations[role] === slot).forEach((role) => {
-      roleLocations[role] = destination;
+    const movingRoles = movableRoles.filter((role) => roleLocations[role] === slot);
+    const hasInvalidDestination = movingRoles.some((role) => {
+      const destinationForRole = role === "robot"
+        ? firstActiveJetson(slot)
+        : role === "sim" ? firstActiveRuntime(slot) : destination;
+      return !destinationForRole;
+    });
+    if (hasInvalidDestination) {
+      unused.checked = false;
+      setCardActive(slot);
+      const message = movingRoles.includes("robot")
+        ? t("error.robot.jetson") : t("error.sim.jetson");
+      showError(message);
+      return;
+    }
+    movingRoles.forEach((role) => {
+      const roleDestination = role === "robot"
+        ? firstActiveJetson(slot)
+        : role === "sim" ? firstActiveRuntime(slot) : destination;
+      if (roleDestination) roleLocations[role] = roleDestination;
     });
     const local = document.querySelector('input[name="local-host"]:checked');
     if (local?.value === slot) {
@@ -177,17 +343,25 @@ function setCardActive(slot) {
   }
   renderRoleBlocks();
   updateSshVisibility();
-  renderDerivedPeers();
 }
 
 function updateSshVisibility() {
   const local = document.querySelector('input[name="local-host"]:checked')?.value;
   slots.forEach((slot) => {
+    syncSshAddress(slot);
     const details = card(slot).querySelector(".ssh-fields");
     details.hidden = !isActive(slot) || local === slot;
     card(slot).classList.toggle("local", local === slot && isActive(slot));
     updateSshMode(slot);
   });
+}
+
+function syncSshAddress(slot) {
+  const address = field(slot, "dds-address").value.trim();
+  const sshHost = field(slot, "ssh-host");
+  sshHost.value = address;
+  sshHost.disabled = true;
+  sshHost.readOnly = true;
 }
 
 function updateSshMode(slot) {
@@ -217,15 +391,47 @@ function topologyFromForm() {
   const maximum = topologyMode === "simulation-only" ? 3 : 4;
   if (active.length < minimum || active.length > maximum) throw new Error(t("error.host.count"));
   if (!active.includes(localSlot)) throw new Error(t("error.local"));
+  if (topologyMode === "full" && (!active.includes(jetsonSlot) || roleLocations.robot !== jetsonSlot)) {
+    throw new Error(t("error.jetson.robot"));
+  }
+  if (topologyMode === "full" && localSlot === jetsonSlot) {
+    throw new Error(t("error.local.robot"));
+  }
+  const empty = active.find((slot) => !visibleRoles().some((role) => roleLocations[role] === slot));
+  if (empty) throw new Error(`${t("error.empty.host")} (${empty})`);
   ensureRoutedDiscovery({notify: false});
   const hosts = active.map((slot) => {
     const local = slot === localSlot;
-    const roles = visibleRoles().filter((role) => {
-      return role === "robot" ? slot === "robot" : roleLocations[role] === slot;
-    });
+    const roles = visibleRoles().filter((role) => roleLocations[role] === slot);
+    const assignments = roles.map((role) => ({role, endpoint_id: endpointIds[role].trim()}));
+    const runtimeRoles = assignments.filter((item) => item.role !== "robot");
+    const installRoot = field(slot, "install-root").value.trim();
+    const binDir = field(slot, "bin-dir").value.trim();
+    const units = [];
+    if (runtimeRoles.length) {
+      units.push({
+        id: "runtime",
+        assignments: runtimeRoles,
+        install_mode: "container",
+        install_root: installRoot,
+        bin_dir: binDir,
+        lifecycle: "compose"
+      });
+    }
+    const robotAssignment = assignments.find((item) => item.role === "robot");
+    if (robotAssignment) {
+      units.push({
+        id: "robot-native",
+        assignments: [robotAssignment],
+        install_mode: "native",
+        install_root: installRoot,
+        bin_dir: binDir,
+        lifecycle: "systemd"
+      });
+    }
+    const hostId = field(slot, "host-id").value.trim();
     const host = {
-      id: field(slot, "host-id").value.trim(),
-      display_name: field(slot, "display-name").value.trim(),
+      id: hostId,
       local,
       dds: {
         address: field(slot, "dds-address").value.trim(),
@@ -234,16 +440,12 @@ function topologyFromForm() {
           ? {address_source: "tailscale"} : {})
       },
       ssh: null,
-      assignments: roles.map((role) => ({role, endpoint_id: endpointIds[role].trim()})),
-      install_mode: topologyMode === "full" && slot === "robot" ? "native" : "container",
-      jetson: topologyMode === "full" && slot === "robot",
-      install_root: field(slot, "install-root").value.trim(),
-      bin_dir: field(slot, "bin-dir").value.trim(),
-      lifecycle: topologyMode === "full" && slot === "robot" ? "systemd" : "compose"
+      jetson: slot === jetsonSlot,
+      units
     };
     if (!local) {
       host.ssh = {
-        host: field(slot, "ssh-host").value.trim(),
+        host: field(slot, "dds-address").value.trim(),
         port: sshPort(slot),
         user: field(slot, "ssh-user").value.trim(),
         identity_file: field(slot, "ssh-tailscale").checked
@@ -261,7 +463,7 @@ function topologyFromForm() {
     security_profile: byId("security").value,
     dds_graph: {
       domain_id: Number(byId("domain-id").value),
-      rmw_implementation: byId("rmw").value,
+      rmw_implementation: "rmw_cyclonedds_cpp",
       discovery_mode: byId("discovery").value
     },
     hosts
@@ -270,14 +472,22 @@ function topologyFromForm() {
 
 function fillHost(slot, host) {
   field(slot, "host-id").value = host.id;
-  field(slot, "display-name").value = host.display_name;
   field(slot, "dds-address").value = host.dds.address;
   field(slot, "dds-interface").value = host.dds.interface;
-  field(slot, "install-root").value = host.install_root;
-  field(slot, "bin-dir").value = host.bin_dir;
+  syncSshAddress(slot);
+  const units = Array.isArray(host.units) ? host.units : [{
+    id: host.install_mode === "native" ? "robot-native" : "runtime",
+    assignments: host.assignments || [],
+    install_mode: host.install_mode || "container",
+    install_root: host.install_root || "/opt/elesim",
+    bin_dir: host.bin_dir || "/opt/elesim/bin",
+    lifecycle: host.lifecycle || "compose"
+  }];
+  const pathUnit = units.find((unit) => unit.install_mode === "container") || units[0];
+  field(slot, "install-root").value = pathUnit?.install_root || "/opt/elesim";
+  field(slot, "bin-dir").value = pathUnit?.bin_dir || "/opt/elesim/bin";
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
-    field(slot, "ssh-host").value = host.ssh.host;
     field(slot, "ssh-port").value = host.ssh.port;
     field(slot, "ssh-user").value = host.ssh.user;
     field(slot, "ssh-tailscale").checked = host.ssh.auth_mode === "tailscale";
@@ -288,7 +498,7 @@ function fillHost(slot, host) {
     field(slot, "ssh-tailscale").checked = false;
     updateSshMode(slot);
   }
-  host.assignments.forEach((assignment) => {
+  units.flatMap((unit) => unit.assignments || []).forEach((assignment) => {
     roleLocations[assignment.role] = slot;
     endpointIds[assignment.role] = assignment.endpoint_id;
   });
@@ -298,7 +508,7 @@ function applyLocalTailscaleHint(context) {
   const hint = context?.tailscale;
   if (!hint?.available || !Array.isArray(hint.addresses) || !hint.addresses.length) return;
   const local = document.querySelector('input[name="local-host"]:checked')?.value || "com1";
-  if (local === "robot" || !isActive(local)) return;
+  if (!isActive(local)) return;
   const address = field(local, "dds-address");
   const iface = field(local, "dds-interface");
   if (!address.value.trim()) address.value = String(hint.addresses[0]);
@@ -315,7 +525,6 @@ function ensureRoutedDiscovery({notify = true} = {}) {
   );
   if (active.length > 1 && usesTailscale && byId("discovery").value === "multicast") {
     byId("discovery").value = "static";
-    renderDerivedPeers();
     if (notify) showNotice("notice.tailscale.static");
     return true;
   }
@@ -334,93 +543,60 @@ function applyTopology(topology) {
   applyTopologyMode(topology.topology_mode || "full");
   byId("system-id").value = topology.system_id;
   byId("domain-id").value = topology.dds_graph.domain_id;
-  byId("rmw").value = topology.dds_graph.rmw_implementation;
   byId("discovery").value = topology.dds_graph.discovery_mode;
   byId("security").value = topology.security_profile;
 
-  const robotHost = topology.topology_mode === "simulation-only"
-    ? null
-    : topology.hosts.find((host) => host.assignments.some((item) => item.role === "robot"));
-  const computers = robotHost
-    ? topology.hosts.filter((host) => host !== robotHost) : topology.hosts;
   computerSlots.forEach((slot, index) => {
-    const host = computers[index];
-    field(slot, "unused").checked = !host;
+    const host = topology.hosts[index];
+    if (field(slot, "unused")) field(slot, "unused").checked = !host;
     if (host) fillHost(slot, host);
     setCardActive(slot);
   });
-  if (robotHost) fillHost("robot", robotHost);
-  roleLocations.robot = "robot";
+  if (topologyMode === "full") {
+    roleLocations.robot = jetsonSlot;
+    setCardActive(jetsonSlot);
+  }
   updateSshVisibility();
-  updateSecurityWarning();
+  updateWorkflow();
   renderRoleBlocks();
-  renderDerivedPeers();
 }
 
-function renderDerivedPeers() {
-  const active = activeSlots();
-  const mode = byId("discovery")?.value || "multicast";
-  const rows = active.map((slot) => {
-    const name = field(slot, "host-id").value.trim() || slot;
-    if (mode === "multicast") return `${name}: ${t("derived.multicast")}`;
-    const peers = active.filter((other) => other !== slot)
-      .map((other) => field(other, "dds-address").value.trim() || "?");
-    return `${name}: ${peers.join(", ")}`;
-  });
-  byId("derived-peers").textContent = rows.join("\n") || "—";
-}
-
-function updateSecurityWarning() {
-  const sros2 = byId("security").value === "sros2";
-  byId("security-warning").textContent = sros2
-    ? t("graph.sros2.help") : t("graph.trusted.warning");
-  byId("security-warning").classList.toggle("safe", sros2);
-  const running = ["running", "cancelling"].includes(byId("job-status").dataset.status || "");
-  byId("apply").textContent = t(sros2 ? "action.prepare" : "action.deploy");
-  byId("apply").disabled = running;
-  updateWorkflow(running);
-}
-
-function updateWorkflow(running = false) {
-  const stage = byId("workflow-stage");
-  if (!stage) return;
+function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-status")?.dataset.status || "")) {
   const apply = byId("apply");
   const sros2 = byId("security").value === "sros2";
   apply.textContent = t(sros2 ? "action.prepare" : "action.deploy");
-  apply.disabled = running;
-  byId("runtime-start").disabled = running || !workflowApplied;
-  stage.textContent = running
-    ? t("workflow.stage.running")
-    : workflowApplied
-      ? t("workflow.stage.ready")
-      : workflowSaved
-        ? t("workflow.stage.saved")
-        : t("workflow.stage.unsaved");
+  setWorkflowStepEnabled("save", !running && !workflowSaved);
+  setWorkflowStepEnabled("apply", !running && workflowSaved);
+  setWorkflowStepEnabled("start", !running && workflowApplied);
 }
 
 async function saveTopology({quiet = false, invalidate = true} = {}) {
-  const topology = topologyFromForm();
-  const result = await api("/api/save", {method: "POST", body: JSON.stringify(topology)});
+  let topology;
+  let result;
+  try {
+    topology = topologyFromForm();
+    result = await api("/api/save", {method: "POST", body: JSON.stringify(topology)});
+  } catch (error) {
+    setWorkflowStepState("save", "error");
+    throw error;
+  }
   workflowSaved = true;
+  setWorkflowStepState("save", "success");
   if (invalidate) workflowApplied = false;
+  if (invalidate) {
+    setWorkflowStepState("apply", "pending");
+    setWorkflowStepState("start", "pending");
+  }
   updateWorkflow();
   if (!quiet) showNotice("notice.saved");
-  renderServerPeers(result.derived_static_peers);
   return result;
-}
-
-function renderServerPeers(peers) {
-  if (byId("discovery").value !== "static") return;
-  byId("derived-peers").textContent = Object.entries(peers)
-    .map(([host, values]) => `${host}: ${values.join(", ")}`)
-    .join("\n");
 }
 
 async function probeSsh(slot) {
   if (document.querySelector('input[name="local-host"]:checked')?.value === slot) {
     throw new Error(t("error.local.probe"));
   }
-  const host = field(slot, "ssh-host").value.trim();
+  const host = field(slot, "dds-address").value.trim();
   const port = sshPort(slot);
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
@@ -438,12 +614,15 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
-  // Host check is deliberately read-only: it inspects the last saved
-  // topology, not an unsaved form that could silently change deployment.
-  if (action !== "check") {
-    await saveTopology({quiet: true, invalidate: !["start", "stop", "restart"].includes(action)});
+  await saveTopology({quiet: true, invalidate: !["start", "stop", "restart"].includes(action)});
+  const step = workflowStepForAction(action);
+  if (step) setWorkflowStepState(step, "running");
+  try {
+    await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify({})});
+  } catch (error) {
+    if (step) setWorkflowStepState(step, "error");
+    throw error;
   }
-  await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify({})});
   setJobRunning(true);
   if (pollTimer) window.clearInterval(pollTimer);
   pollTimer = window.setInterval(pollJob, 500);
@@ -458,6 +637,9 @@ async function runApplyJob() {
 function markWorkflowDirty() {
   workflowSaved = false;
   workflowApplied = false;
+  setWorkflowStepState("save", "pending");
+  setWorkflowStepState("apply", "pending");
+  setWorkflowStepState("start", "pending");
   updateWorkflow();
 }
 
@@ -470,7 +652,7 @@ function renderRuntimeStatus(result) {
     const roles = (host.roles || []).join(", ");
     const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
     const detail = host.detail ? ` — ${host.detail}` : "";
-    return `${host.display_name || host.host_id}: ${state} [${roles}]${detail}`;
+    return `${host.host_id}: ${state} [${roles}]${detail}`;
   });
   byId("runtime-status").textContent = rows.join("\n") || "—";
 }
@@ -488,8 +670,8 @@ async function pollRuntimeStatus() {
 }
 
 function setJobRunning(running) {
-  ["save", "apply", "topology-mode", "host-check", "runtime-stop", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
-  updateSecurityWarning();
+  ["save", "apply", "topology-mode", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
+  updateWorkflow(running);
   byId("cancel").disabled = !running;
 }
 
@@ -501,9 +683,15 @@ async function pollJob() {
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
+    const step = workflowStepForAction(job.action);
+    if (step && running) setWorkflowStepState(step, "running");
+    if (step && !running && job.status === "completed") setWorkflowStepState(step, "success");
+    if (step && !running && ["failed", "cancelled"].includes(job.status)) setWorkflowStepState(step, "error");
     if (job.status === "completed" && ["prepare", "provision", "deploy", "rotate"].includes(job.action)) {
       workflowSaved = true;
       workflowApplied = true;
+      setWorkflowStepState("save", "success");
+      setWorkflowStepState("apply", "success");
     }
     setJobRunning(running);
     updateWorkflow(running);
@@ -526,27 +714,41 @@ function bindEvents() {
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.addEventListener("click", () => applyLanguage(button.dataset.language));
   });
+  document.querySelectorAll("[data-banner-close]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const banner = button.closest(".banner");
+      if (banner) setBannerVisible(banner, false);
+    });
+  });
   document.querySelectorAll(".drop-zone").forEach((zone) => {
+    if (zone.dataset.dropUnit === "robot") return;
     zone.addEventListener("dragover", (event) => {
       const target = zone.dataset.dropSlot;
-      if (target !== "robot" && isActive(target)) {
+      const role = event.dataTransfer?.getData("text/plain") || "";
+      const targetUnit = zone.dataset.dropUnit || "runtime";
+      const unitAllowed = targetUnit === "robot" ? role === "robot" : role !== "robot";
+      if (isActive(target) && unitAllowed && canPlaceRole(role, target, {notify: false})) {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
       }
     });
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
-      moveRole(event.dataTransfer.getData("text/plain"), zone.dataset.dropSlot);
+      moveRole(
+        event.dataTransfer.getData("text/plain"),
+        zone.dataset.dropSlot,
+        zone.dataset.dropUnit || "runtime",
+      );
     });
   });
   computerSlots.forEach((slot) => {
-    field(slot, "unused").addEventListener("change", () => setCardActive(slot));
+    field(slot, "unused")?.addEventListener("change", () => setCardActive(slot));
   });
   document.querySelectorAll('input[name="local-host"]').forEach((input) => {
     input.addEventListener("change", updateSshVisibility);
   });
   slots.forEach((slot) => {
-    ["ssh-host", "ssh-port"].forEach((name) => {
+    ["ssh-port"].forEach((name) => {
       field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });
     });
     field(slot, "ssh-tailscale").addEventListener("change", () => {
@@ -554,11 +756,15 @@ function bindEvents() {
       field(slot, "ssh-fingerprint").value = "";
     });
     ["host-id", "dds-address"].forEach((name) => {
-      field(slot, name).addEventListener("input", renderDerivedPeers);
+      if (name === "dds-address") {
+        field(slot, name).addEventListener("input", () => {
+          syncSshAddress(slot);
+          field(slot, "ssh-fingerprint").value = "";
+        });
+      }
     });
     field(slot, "dds-interface").addEventListener("input", () => {
       ensureRoutedDiscovery();
-      renderDerivedPeers();
     });
   });
   document.querySelectorAll("input, select").forEach((control) => {
@@ -568,16 +774,13 @@ function bindEvents() {
   document.querySelectorAll("[data-probe-slot]").forEach((button) => {
     button.addEventListener("click", () => probeSsh(button.dataset.probeSlot).catch(showError));
   });
-  byId("discovery").addEventListener("change", renderDerivedPeers);
   byId("topology-mode").addEventListener("change", (event) => {
     applyTopologyMode(event.target.value);
   });
-  byId("security").addEventListener("change", updateSecurityWarning);
+  byId("security").addEventListener("change", updateWorkflow);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
-  byId("host-check").addEventListener("click", () => startJob("check").catch(showError));
-  byId("runtime-stop").addEventListener("click", () => startJob("stop").catch(showError));
   byId("cancel").addEventListener("click", async () => {
     try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }
     catch (error) { showError(error); }
@@ -587,17 +790,25 @@ function bindEvents() {
 async function initialize() {
   try {
     catalog = await fetch("/i18n.json", {cache: "no-store"}).then((response) => response.json());
+    normalizeHostCards();
     bindEvents();
     applyLanguage("ko");
     computerSlots.forEach(setCardActive);
     const context = await api("/api/context");
     schemaVersion = context.schema_version;
     applyTopologyMode(context.topology?.topology_mode || "full");
+    if (!context.topology) {
+      setCardActive(jetsonSlot);
+    }
     if (context.topology) {
       workflowSaved = true;
+      setWorkflowStepState("save", "success");
+      setWorkflowStepState("apply", "pending");
+      setWorkflowStepState("start", "pending");
       applyTopology(context.topology);
       if (context.security?.managed_generation) {
         workflowApplied = true;
+        setWorkflowStepState("apply", "success");
       }
     } else if (context.local_defaults) {
       if (context.local_defaults.install_root) {
@@ -609,10 +820,8 @@ async function initialize() {
     }
     applyLocalTailscaleHint(context);
     updateSshVisibility();
-    updateSecurityWarning();
     updateWorkflow();
     renderRoleBlocks();
-    renderDerivedPeers();
     await pollJob();
     await pollRuntimeStatus();
     if (runtimePollTimer) window.clearInterval(runtimePollTimer);

@@ -10,8 +10,8 @@ WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전�
 
 먼저 기억할 한 문장은 이것이다.
 
-> **DDS 주소는 실행 통신용, SSH 주소는 관리용이다. 둘은 같은 값일 수 있어도
-> 서로 대신하지 않는다.**
+> **호스트의 광고 IP가 DDS와 SSH의 목적지다. SSH 포트는 관리용으로 따로
+> 입력하며 DDS/WebRTC 포트가 아니다.**
 
 ---
 
@@ -81,7 +81,7 @@ WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전�
 ```text
 조작 컴퓨터 ── Pilot + UI
 연산 컴퓨터 ── Sim
-Jetson      ── Robot (native/systemd, Robot만 단독)
+Jetson      ── Robot (native/systemd) + 선택적 Pilot/UI (별도 Compose unit)
 ```
 
 `full`은 Robot을 포함해 활성 호스트 2~4대, `simulation-only`는 Robot 없이
@@ -230,23 +230,28 @@ elesim-connections --port 8771
 있다”는 사실만으로 모든 사용자가 신뢰된다는 뜻은 아니므로, 공유 tailnet이나
 공용 컴퓨터에서는 `sros2`를 쓴다.
 
-### 5.2 COM/Robot 카드
+### 5.2 COM 카드와 deployment lane
 
 #### 사용 안 함
 
 COM 카드의 `사용 안 함`을 체크하면 카드가 어두워지고 topology에서 제외된다.
 COM3이 처음 비활성화되어 있어도 정상이다. 필요한 경우 체크를 해제해 활성화한다.
 
-- `simulation-only`: COM을 1~3개 활성화.
-- `full`: COM을 1~3개 활성화하고 Robot 카드도 포함해 총 2~4 host.
-- 활성 카드마다 역할을 하나 이상 배치해야 한다.
+- `simulation-only`: COM을 1~3개 활성화하고 Robot 블록은 숨긴다.
+- `full`: COM을 2~4개 활성화하고 네 역할을 카드 사이에 배치한다.
+- 활성 카드에는 `Container runtime unit`과 `Robot native unit` lane이 있다.
+  Robot은 Jetson으로 표시한 카드의 native lane에만 놓을 수 있으며, Jetson
+  카드에는 Robot unit이 필수다. 같은 카드의 Pilot/UI는 별도 Compose unit으로
+  유지된다.
+- 역할이 없는 카드는 활성화하지 않는다. 활성 카드마다 적어도 하나의 역할이
+  있어야 저장할 수 있다.
 
 #### 안정적인 호스트 ID
 
 `com1`, `compute_a`처럼 **소문자로 시작하는 고정 식별자**를 쓴다. 화면에
 보이는 IP나 컴퓨터 이름 대신, topology 파일이 같은 컴퓨터를 다시 알아보는
 용도다. 공백·대문자·슬래시는 쓰지 않는다. 기본값 `com1`, `com2`, `com3`,
-`robot`을 그대로 사용해도 된다.
+`com4`를 그대로 사용해도 된다.
 
 #### 표시 이름
 
@@ -289,7 +294,7 @@ VPN:      wg0 등 실제 이름
 ```
 
 `/home/...`, `http://...`, `tailscale0:22`처럼 경로나 포트를 넣지 않는다.
-모든 host가 같은 이름일 필요는 없지만, 각 host에서 선택한 인터페이스가
+모든 host ID가 같을 필요는 없지만, 각 host에서 선택한 인터페이스가
 다른 peer의 광고 주소로 양방향 도달 가능해야 한다.
 
 #### 설치 루트
@@ -321,8 +326,11 @@ VPN:      wg0 등 실제 이름
 
 #### 역할 블록과 Endpoint ID
 
-Pilot·Sim·UI 블록을 활성 COM 카드로 드래그한다. `full`에서 Robot 블록은
-Robot 카드에 고정된다. 블록 안의 Endpoint ID는 논리 주소이며 IP가 아니다.
+Pilot·Sim·UI 블록을 활성 COM 카드로 드래그한다. `full`에서 Robot 블록도
+활성 카드 사이에서 드래그할 수 있지만, 대상 카드는 Jetson으로 표시되어야
+하고 Robot은 native/systemd lane에만 놓을 수 있다. 같은 카드의 Pilot/UI는
+별도 Compose unit으로 저장된다. 블록 안의 Endpoint ID는 논리 주소이며 IP가
+아니다.
 보통 다음 기본값을 그대로 둔다.
 
 | 역할 | 기본 Endpoint ID |
@@ -564,7 +572,7 @@ Tailscale에서 다음은 서로 다른 기능이다.
 2. Tailscale SSH라면 원격 Linux 사용자와 ACL을 확인하고, `action: check`이면
    `tailscale ssh <user>@<host> true`를 한 번 승인한다.
 3. 일반 OpenSSH라면 실제 sshd 포트와 agent/개인키를 확인한다.
-4. `SSH 호스트키 확인`의 host/port가 DDS 주소와 뒤섞이지 않았는지 확인한다.
+4. `SSH 호스트키 확인`의 IP는 광고 IP에서 자동으로 오며, 관리용 port만 확인한다.
 5. SSH가 성공해도 DDS가 자동으로 성공하는 것은 아니므로 interface와 양방향
    UDP 경로를 별도로 확인한다.
 
@@ -641,7 +649,7 @@ elesim-uninstall
 - [ ] Tailscale이면 DDS interface가 `tailscale0`이다.
 - [ ] 모든 host의 system ID, domain, RMW, discovery, security가 호환된다.
 - [ ] 각 host의 install root/bin이 그 host에 실제 존재하는 절대경로다.
-- [ ] 원격 SSH host/user/port가 실제 관리 경로와 일치한다.
+- [ ] 원격 SSH user/port가 실제 관리 경로와 일치한다. SSH IP는 DDS 광고 IP와 같다.
 - [ ] 원격 host의 fingerprint를 확인하고 저장했다.
 - [ ] Tailscale SSH를 쓰면 개인키 칸을 비웠고 포트 22를 사용한다.
 - [ ] OpenSSH를 쓰면 agent 또는 개인키 파일 경로를 준비했다.

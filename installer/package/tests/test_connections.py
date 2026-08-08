@@ -27,7 +27,6 @@ def _topology(tmp_path: Path, *, security_profile: str) -> ConnectionTopology:
         hosts=(
             ManagedHost(
                 host_id="operator",
-                display_name="COM1",
                 local=True,
                 dds=DdsEndpoint("10.0.0.10", "eth0"),
                 ssh=None,
@@ -41,7 +40,6 @@ def _topology(tmp_path: Path, *, security_profile: str) -> ConnectionTopology:
             ),
             ManagedHost(
                 host_id="jetson",
-                display_name="Robot",
                 local=False,
                 dds=DdsEndpoint("10.0.0.20", "eth0"),
                 ssh=SshEndpoint(
@@ -92,7 +90,7 @@ def test_trusted_network_runner_applies_bundle_free_topology(
     runner(topology, "deploy", events.append)
 
     assert applied
-    assert "verify: COM1 (operator)" in events
+    assert "verify: operator" in events
 
 
 def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
@@ -126,7 +124,7 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
 
     runner(topology, "deploy", cancel_on_completion)
 
-    assert events[-1] == "verify: COM1 (operator)"
+    assert events[-1] == "verify: operator"
 
 
 def test_trusted_network_rejects_security_actions(tmp_path: Path) -> None:
@@ -201,10 +199,10 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         "launch:operator",
         "launch:jetson",
     ]
-    assert "build COM1 (operator) [stdout] operator-step-1" in logs
-    assert "build COM1 (operator) [stderr] operator-step-2" in logs
-    assert "build 완료: COM1 (operator)" in logs
-    assert "build 완료: Robot (jetson)" in logs
+    assert "build operator [stdout] operator-step-1" in logs
+    assert "build operator [stderr] operator-step-2" in logs
+    assert "build 완료: operator" in logs
+    assert "build 완료: jetson" in logs
 
 
 def test_runtime_start_reports_remote_dds_readiness_after_launch(
@@ -376,8 +374,8 @@ def test_host_check_combines_network_preflight_and_runtime_status(
         "require",
         "status:jetson",
     ]
-    assert "status: COM1 = stopped [—]" in logs
-    assert "status: Robot = stopped [—]" in logs
+    assert "status: operator = stopped [—]" in logs
+    assert "status: jetson = stopped [—]" in logs
 
 
 def test_sros2_provision_rejects_an_existing_active_generation(

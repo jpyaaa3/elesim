@@ -1,8 +1,9 @@
 """Persistent, non-secret topology for the Elesim connection manager.
 
-This module deliberately models DDS and SSH as separate endpoints.  A DDS
-address may happen to equal an SSH hostname, but neither value is derived from
-the other and the SSH port has no DDS meaning.
+Each host has one advertised IP.  That value is used both as the DDS address
+and as the SSH destination; SSH keeps its own port, user, authentication mode,
+and host-key fingerprint because those are management settings rather than DDS
+settings.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import os
 import re
 import stat
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
@@ -228,8 +229,9 @@ class PreflightSshEndpoint:
     """Non-secret SSH target used by the Jetson-less endpoint preflight.
 
     The preflight deliberately carries no identity path or pinned fingerprint:
-    it only checks that the management target is the one the operator entered
-    and, when requested, asks the existing host-key probe to reach it.  The
+    it only checks that the management target derived from the advertised DDS
+    IP is reachable and, when requested, asks the existing host-key probe to
+    reach it.  The
     full :class:`SshEndpoint` remains mandatory for a saved/deployable
     topology, so this type cannot accidentally weaken rollout pinning.
     """
@@ -283,15 +285,17 @@ class PreflightHost:
     """A role-neutral host endpoint for a two-computer connectivity check."""
 
     host_id: str
-    display_name: str
     local: bool
     dds: DdsEndpoint
     ssh: PreflightSshEndpoint | None
 
+    def __post_init__(self) -> None:
+        if self.ssh is not None:
+            object.__setattr__(self, "ssh", replace(self.ssh, host=self.dds.address))
+
     def validate(self) -> "PreflightHost":
         if not _STABLE_ID.fullmatch(str(self.host_id)):
             raise ValueError("preflight host_id must be a stable lower-case identifier")
-        _plain_text(self.display_name, name="preflight display_name", maximum=128)
         if not isinstance(self.local, bool):
             raise ValueError("preflight host.local must be boolean")
         self.dds.validate()
@@ -302,23 +306,31 @@ class PreflightHost:
             raise ValueError("every remote preflight host requires SSH host and port")
         else:
             self.ssh.validate()
+            if self.ssh.host != self.dds.address:
+                raise ValueError(
+                    "preflight SSH IP is derived from the DDS IP; do not configure a separate host"
+                )
         return self
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
+        ssh = None if self.ssh is None else replace(self.ssh, host=self.dds.address)
         return {
             "id": self.host_id,
-            "display_name": self.display_name,
             "local": self.local,
             "dds": self.dds.to_dict(),
-            "ssh": None if self.ssh is None else self.ssh.to_dict(),
+            "ssh": None if ssh is None else ssh.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "PreflightHost":
         values = _strict_object(
             raw,
-            required={"id", "display_name", "local", "dds", "ssh"},
+            required={"id", "local", "dds", "ssh"},
+            # Older ephemeral probe payloads carried a user-editable label.
+            # Read and discard it so an existing browser payload remains
+            # loadable, but never retain or emit it.
+            optional={"display_name"},
             name="preflight host",
         )
         if not isinstance(values["local"], bool):
@@ -328,18 +340,17 @@ class PreflightHost:
         ssh_raw = values["ssh"]
         if ssh_raw is not None and not isinstance(ssh_raw, Mapping):
             raise ValueError("preflight host.ssh must be an object or null")
+        dds = DdsEndpoint.from_dict(values["dds"])
+        ssh = (
+            None
+            if ssh_raw is None
+            else PreflightSshEndpoint.from_dict(ssh_raw)
+        )
         return cls(
             host_id=_required_string(values["id"], name="preflight host.id"),
-            display_name=_required_string(
-                values["display_name"], name="preflight display_name"
-            ),
             local=values["local"],
-            dds=DdsEndpoint.from_dict(values["dds"]),
-            ssh=(
-                None
-                if ssh_raw is None
-                else PreflightSshEndpoint.from_dict(ssh_raw)
-            ),
+            dds=dds,
+            ssh=ssh,
         ).validate()
 
 
@@ -373,9 +384,6 @@ class TwoHostPreflight:
         ids = [host.host_id for host in self.hosts]
         if len(set(ids)) != len(ids):
             raise ValueError("preflight host IDs must be unique")
-        display_names = [host.display_name.casefold() for host in self.hosts]
-        if len(set(display_names)) != len(display_names):
-            raise ValueError("preflight host display names must be unique")
         addresses = [host.dds.address.casefold() for host in self.hosts]
         if len(set(addresses)) != len(addresses):
             raise ValueError("preflight DDS addresses must be unique")
@@ -455,23 +463,202 @@ class RoleAssignment:
 
 
 @dataclass(frozen=True)
-class ManagedHost:
-    host_id: str
-    display_name: str
-    local: bool
-    dds: DdsEndpoint
-    ssh: SshEndpoint | None
+class DeploymentUnit:
+    """One independently installed/lifecycle-managed unit on a host.
+
+    A physical computer is not an installation boundary.  In particular, a
+    Jetson may carry the mandatory native Robot unit and a separate Compose
+    unit for Pilot/UI.  Both units use the host's shared installation and
+    command paths; only their lifecycle/install mode differs.
+    """
+
+    unit_id: str
     assignments: tuple[RoleAssignment, ...]
     install_mode: str = "container"
-    jetson: bool = False
     install_root: str = "/opt/elesim"
     bin_dir: str = "/usr/local/bin"
     lifecycle: str = "compose"
 
+    def validate(self, *, jetson: bool) -> "DeploymentUnit":
+        if not _STABLE_ID.fullmatch(str(self.unit_id)):
+            raise ValueError("unit_id must be a stable lower-case identifier")
+        if self.install_mode not in INSTALL_MODES:
+            raise ValueError(f"unsupported unit install_mode: {self.install_mode!r}")
+        if self.lifecycle not in LIFECYCLES:
+            raise ValueError(f"unsupported unit lifecycle: {self.lifecycle!r}")
+        _validate_absolute_posix_path(self.install_root, name="unit.install_root")
+        _validate_absolute_posix_path(self.bin_dir, name="unit.bin_dir")
+        if not self.assignments:
+            raise ValueError("every deployment unit must own at least one role")
+        roles = [assignment.validate().role for assignment in self.assignments]
+        if len(set(roles)) != len(roles):
+            raise ValueError("a deployment unit assigns one role more than once")
+        if "robot" in roles:
+            if roles != ["robot"]:
+                raise ValueError("the native Robot unit must contain only Robot")
+            if self.install_mode != "native" or not jetson:
+                raise ValueError("Robot requires native installation on a Jetson host")
+            if self.lifecycle != "systemd":
+                raise ValueError("Robot requires the native systemd lifecycle")
+        elif self.install_mode != "container" or self.lifecycle != "compose":
+            raise ValueError("Pilot, Sim and UI units require container/Compose")
+        elif jetson and "sim" in roles:
+            raise ValueError(
+                "Sim is currently amd64-only and cannot be assigned to a Jetson "
+                "until an ARM64 image is validated"
+            )
+        return self
+
+    @property
+    def roles(self) -> tuple[str, ...]:
+        return tuple(assignment.role for assignment in self.assignments)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.unit_id,
+            "assignments": [assignment.to_dict() for assignment in self.assignments],
+            "install_mode": self.install_mode,
+            "install_root": self.install_root,
+            "bin_dir": self.bin_dir,
+            "lifecycle": self.lifecycle,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "DeploymentUnit":
+        values = _strict_object(
+            raw,
+            required={"id", "assignments", "install_mode", "install_root", "bin_dir", "lifecycle"},
+            name="deployment unit",
+        )
+        assignments_raw = _object_sequence(values["assignments"], name="unit.assignments")
+        return cls(
+            unit_id=_required_string(values["id"], name="unit.id"),
+            assignments=tuple(RoleAssignment.from_dict(item) for item in assignments_raw),
+            install_mode=_required_string(values["install_mode"], name="unit.install_mode"),
+            install_root=_required_string(values["install_root"], name="unit.install_root"),
+            bin_dir=_required_string(values["bin_dir"], name="unit.bin_dir"),
+            lifecycle=_required_string(values["lifecycle"], name="unit.lifecycle"),
+        )
+
+
+@dataclass(frozen=True, init=False)
+class ManagedHost:
+    host_id: str
+    local: bool
+    dds: DdsEndpoint
+    ssh: SshEndpoint | None
+    units: tuple[DeploymentUnit, ...]
+    jetson: bool = False
+
+    def __init__(
+        self,
+        host_id: str,
+        local: bool,
+        dds: DdsEndpoint,
+        ssh: SshEndpoint | None,
+        assignments: Sequence[RoleAssignment] | None = None,
+        install_mode: str = "container",
+        jetson: bool = False,
+        install_root: str = "/opt/elesim",
+        bin_dir: str = "/usr/local/bin",
+        lifecycle: str = "compose",
+        units: Sequence[DeploymentUnit] | None = None,
+    ) -> None:
+        if units is None:
+            legacy_assignments = tuple(assignments or ())
+            unit_id = "robot-native" if install_mode == "native" else "runtime"
+            units = (
+                DeploymentUnit(
+                    unit_id=unit_id,
+                    assignments=legacy_assignments,
+                    install_mode=install_mode,
+                    install_root=install_root,
+                    bin_dir=bin_dir,
+                    lifecycle=lifecycle,
+                ),
+            )
+        else:
+            units = tuple(units)
+            if assignments:
+                flattened = tuple(
+                    assignment
+                    for unit in units
+                    for assignment in unit.assignments
+                )
+                if tuple(assignments) != flattened:
+                    raise ValueError("assignments and units disagree")
+        if ssh is not None:
+            ssh = replace(ssh, host=dds.address)
+        if units:
+            # Installation and command paths are host-level fields in the GUI.
+            # Normalize legacy mixed-unit records here so an old Robot-specific
+            # path cannot survive as a hidden second configuration.
+            path_unit = next(
+                (unit for unit in units if unit.install_mode == "container"),
+                units[0],
+            )
+            units = tuple(
+                replace(
+                    unit,
+                    install_root=path_unit.install_root,
+                    bin_dir=path_unit.bin_dir,
+                )
+                for unit in units
+            )
+        object.__setattr__(self, "host_id", host_id)
+        object.__setattr__(self, "local", local)
+        object.__setattr__(self, "dds", dds)
+        object.__setattr__(self, "ssh", ssh)
+        object.__setattr__(self, "units", tuple(units))
+        object.__setattr__(self, "jetson", jetson)
+
+    @property
+    def assignments(self) -> tuple[RoleAssignment, ...]:
+        return tuple(
+            assignment
+            for unit in self.units
+            for assignment in unit.assignments
+        )
+
+    @property
+    def roles(self) -> tuple[str, ...]:
+        return tuple(assignment.role for assignment in self.assignments)
+
+    @property
+    def runtime_units(self) -> tuple[DeploymentUnit, ...]:
+        return tuple(unit for unit in self.units if unit.install_mode == "container")
+
+    @property
+    def robot_units(self) -> tuple[DeploymentUnit, ...]:
+        return tuple(unit for unit in self.units if "robot" in unit.roles)
+
+    @property
+    def primary_unit(self) -> DeploymentUnit:
+        if not self.units:
+            raise ValueError("managed host has no deployment units")
+        return self.runtime_units[0] if self.runtime_units else self.units[0]
+
+    # These compatibility properties keep older lifecycle/status code and
+    # schema-v3 callers readable while all new serialization is unit-based.
+    @property
+    def install_mode(self) -> str:
+        return self.primary_unit.install_mode
+
+    @property
+    def install_root(self) -> str:
+        return self.primary_unit.install_root
+
+    @property
+    def bin_dir(self) -> str:
+        return self.primary_unit.bin_dir
+
+    @property
+    def lifecycle(self) -> str:
+        return self.primary_unit.lifecycle
+
     def validate(self) -> "ManagedHost":
         if not _STABLE_ID.fullmatch(str(self.host_id)):
             raise ValueError("host_id must be a stable lower-case identifier")
-        _plain_text(self.display_name, name="display_name", maximum=128)
         if not isinstance(self.local, bool):
             raise ValueError("host.local must be boolean")
         self.dds.validate()
@@ -482,74 +669,78 @@ class ManagedHost:
             raise ValueError("every remote host requires an explicit SSH endpoint")
         else:
             self.ssh.validate()
-        if self.install_mode not in INSTALL_MODES:
-            raise ValueError(f"unsupported install_mode: {self.install_mode!r}")
-        _validate_absolute_posix_path(self.install_root, name="install_root")
-        _validate_absolute_posix_path(self.bin_dir, name="bin_dir")
-        if self.lifecycle not in LIFECYCLES:
-            raise ValueError(f"unsupported host lifecycle: {self.lifecycle!r}")
+            if self.ssh.host != self.dds.address:
+                raise ValueError(
+                    "SSH IP is derived from the DDS IP; do not configure a separate host"
+                )
         if not isinstance(self.jetson, bool):
             raise ValueError("host.jetson must be boolean")
-        if not self.assignments:
-            raise ValueError("every managed host must own at least one role")
-        roles = [assignment.validate().role for assignment in self.assignments]
+        if not self.units:
+            raise ValueError("every managed host must own at least one deployment unit")
+        unit_ids = [unit.unit_id for unit in self.units]
+        if len(set(unit_ids)) != len(unit_ids):
+            raise ValueError(f"host {self.host_id!r} has duplicate deployment unit IDs")
+        roles = [assignment.role for assignment in self.assignments]
         if len(set(roles)) != len(roles):
             raise ValueError(f"host {self.host_id!r} assigns one role more than once")
-        if "robot" in roles:
-            if roles != ["robot"]:
-                raise ValueError("Robot must be the only role on its Jetson host")
-            if self.install_mode != "native" or not self.jetson:
-                raise ValueError("Robot requires native installation on a Jetson host")
-            if self.lifecycle != "systemd":
-                raise ValueError("Robot requires the native systemd lifecycle")
-        elif self.jetson:
-            raise ValueError("a Jetson host in this topology must own the Robot role")
-        elif self.install_mode != "container" or self.lifecycle != "compose":
+        if self.jetson and "robot" not in roles:
             raise ValueError(
-                "Pilot, Sim and UI hosts require container/Compose"
+                "a Jetson host must include the mandatory native Robot unit; "
+                "place Pilot/UI in a separate container unit if needed"
             )
-        elif self.install_mode != "container":
-            raise ValueError("only the Robot Jetson may use native installation")
-        expected_lifecycle = "compose" if self.install_mode == "container" else "systemd"
-        if self.lifecycle != expected_lifecycle:
+        for unit in self.units:
+            unit.validate(jetson=self.jetson)
+        if len(self.runtime_units) > 1:
             raise ValueError(
-                f"{self.install_mode} installation requires {expected_lifecycle} lifecycle"
+                "a host may have only one container/Compose unit because the "
+                "runtime project name is fixed to elesim-runtime"
             )
+        # Installation and command paths belong to the host, not to a role.
+        # A Jetson may therefore expose one shared pair of paths to its native
+        # Robot unit and its optional Compose unit.  The unit records retain
+        # their lifecycle/install mode, but no longer impose artificial path
+        # separation between them.
         return self
-
-    @property
-    def roles(self) -> tuple[str, ...]:
-        return tuple(assignment.role for assignment in self.assignments)
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
-        return {
+        result: dict[str, Any] = {
             "id": self.host_id,
-            "display_name": self.display_name,
             "local": self.local,
             "dds": self.dds.to_dict(),
             "ssh": None if self.ssh is None else self.ssh.to_dict(),
-            "assignments": [assignment.to_dict() for assignment in self.assignments],
-            "install_mode": self.install_mode,
             "jetson": self.jetson,
-            "install_root": self.install_root,
-            "bin_dir": self.bin_dir,
-            "lifecycle": self.lifecycle,
+            "units": [unit.to_dict() for unit in self.units],
         }
+        # Keep a read-compatible mirror for homogeneous schema-v3 files.  It
+        # is intentionally derived, never consumed by new code, and can be
+        # removed when the persistent topology schema is next bumped.
+        if len(self.units) == 1:
+            unit = self.units[0]
+            result.update(
+                {
+                    "assignments": [assignment.to_dict() for assignment in self.assignments],
+                    "install_mode": unit.install_mode,
+                    "install_root": unit.install_root,
+                    "bin_dir": unit.bin_dir,
+                    "lifecycle": unit.lifecycle,
+                }
+            )
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "ManagedHost":
         values = _strict_object(
             raw,
-            required={
-                "id",
+            required={"id", "local", "dds", "ssh", "jetson"},
+            optional={
+                # Schema-v1..v3 files may still contain the retired label.
+                # It is deliberately ignored during migration and is never
+                # represented by ManagedHost or written back out.
                 "display_name",
-                "local",
-                "dds",
-                "ssh",
+                "units",
                 "assignments",
                 "install_mode",
-                "jetson",
                 "install_root",
                 "bin_dir",
                 "lifecycle",
@@ -558,24 +749,90 @@ class ManagedHost:
         )
         if not isinstance(values["local"], bool) or not isinstance(values["jetson"], bool):
             raise ValueError("host.local and host.jetson must be boolean")
-        assignments_raw = _object_sequence(values["assignments"], name="assignments")
         ssh_raw = values["ssh"]
         if ssh_raw is not None and not isinstance(ssh_raw, Mapping):
             raise ValueError("host.ssh must be an object or null")
         if not isinstance(values["dds"], Mapping):
             raise ValueError("host.dds must be an object")
+        units_raw = values.get("units")
+        if units_raw is not None:
+            units = tuple(
+                DeploymentUnit.from_dict(item)
+                for item in _object_sequence(units_raw, name="units")
+            )
+            # Old callers sometimes edit the mirrored fields in a loaded
+            # object.  Honour that explicit legacy edit only when it differs
+            # from the canonical unit representation.
+            if "assignments" in values:
+                legacy_assignments = tuple(
+                    RoleAssignment.from_dict(item)
+                    for item in _object_sequence(values["assignments"], name="assignments")
+                )
+                canonical = tuple(
+                    assignment for unit in units for assignment in unit.assignments
+                )
+                legacy_fields = {
+                    "install_mode": values.get("install_mode"),
+                    "install_root": values.get("install_root"),
+                    "bin_dir": values.get("bin_dir"),
+                    "lifecycle": values.get("lifecycle"),
+                }
+                unit = units[0] if len(units) == 1 else None
+                differs = legacy_assignments != canonical or (
+                    unit is not None
+                    and any(legacy_fields[key] != getattr(unit, key) for key in legacy_fields)
+                )
+                if differs:
+                    units = (
+                        DeploymentUnit(
+                            unit_id=(unit.unit_id if unit is not None else "runtime"),
+                            assignments=legacy_assignments,
+                            install_mode=_required_string(
+                                values["install_mode"], name="install_mode"
+                            ),
+                            install_root=_required_string(
+                                values["install_root"], name="install_root"
+                            ),
+                            bin_dir=_required_string(
+                                values["bin_dir"], name="bin_dir"
+                            ),
+                            lifecycle=_required_string(
+                                values["lifecycle"], name="lifecycle"
+                            ),
+                        ),
+                    )
+        else:
+            required_legacy = {
+                "assignments",
+                "install_mode",
+                "install_root",
+                "bin_dir",
+                "lifecycle",
+            }
+            missing = sorted(key for key in required_legacy if key not in values)
+            if missing:
+                raise ValueError(
+                    "host is missing deployment units and legacy fields: "
+                    + ", ".join(missing)
+                )
+            assignments_raw = _object_sequence(values["assignments"], name="assignments")
+            units = (
+                DeploymentUnit(
+                    unit_id="robot-native" if values["install_mode"] == "native" else "runtime",
+                    assignments=tuple(RoleAssignment.from_dict(item) for item in assignments_raw),
+                    install_mode=_required_string(values["install_mode"], name="install_mode"),
+                    install_root=_required_string(values["install_root"], name="install_root"),
+                    bin_dir=_required_string(values["bin_dir"], name="bin_dir"),
+                    lifecycle=_required_string(values["lifecycle"], name="lifecycle"),
+                ),
+            )
         return cls(
             host_id=_required_string(values["id"], name="host.id"),
-            display_name=_required_string(values["display_name"], name="display_name"),
             local=values["local"],
             dds=DdsEndpoint.from_dict(values["dds"]),
             ssh=None if ssh_raw is None else SshEndpoint.from_dict(ssh_raw),
-            assignments=tuple(RoleAssignment.from_dict(item) for item in assignments_raw),
-            install_mode=_required_string(values["install_mode"], name="install_mode"),
             jetson=values["jetson"],
-            install_root=_required_string(values["install_root"], name="install_root"),
-            bin_dir=_required_string(values["bin_dir"], name="bin_dir"),
-            lifecycle=_required_string(values["lifecycle"], name="lifecycle"),
+            units=units,
         ).validate()
 
 
@@ -613,9 +870,6 @@ class ConnectionTopology:
         host_ids = [host.host_id for host in self.hosts]
         if len(set(host_ids)) != len(host_ids):
             raise ValueError("host IDs must be unique")
-        display_names = [host.display_name.casefold() for host in self.hosts]
-        if len(set(display_names)) != len(display_names):
-            raise ValueError("host display names must be unique")
         dds_addresses = [host.dds.address.casefold() for host in self.hosts]
         if len(set(dds_addresses)) != len(dds_addresses):
             raise ValueError("active host DDS addresses must be unique")
@@ -654,7 +908,9 @@ class ConnectionTopology:
                         raise ValueError(
                             "simulation-only topology must not assign the Robot role"
                         )
-                    raise ValueError(f"role is not valid for {self.topology_mode}: {assignment.role}")
+                    raise ValueError(
+                        f"role is not valid for {self.topology_mode}: {assignment.role}"
+                    )
                 by_role[assignment.role].append(assignment)
                 endpoint_ids.append(assignment.endpoint_id)
         invalid = [role for role, values in by_role.items() if len(values) != 1]
@@ -974,6 +1230,7 @@ __all__ = [
     "ConnectionTopology",
     "DdsEndpoint",
     "DdsGraphSettings",
+    "DeploymentUnit",
     "ManagedHost",
     "PreflightHost",
     "PreflightSshEndpoint",

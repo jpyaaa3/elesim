@@ -99,6 +99,13 @@ uses the separate fixed `elesim-runtime-dev` project with one persistent
 three general-role containers. Managed WebRTC relay adds `elesim-coturn` only
 to the Sim host's general project.
 
+The host boundary is independent from the deployment-unit boundary. A Jetson
+may therefore run the native Robot service and a separate Compose unit for
+validated container roles (currently Pilot/UI) at the same time. Each unit
+keeps its own prefix, ownership manifest, lifecycle and role-scoped security
+view; Robot remains native-only and Jetson-only, but the host itself is an
+ordinary peer in the connection topology.
+
 ## Model Lifecycle
 
 `model/source` is builder input. `model/builder` creates immutable
@@ -275,15 +282,13 @@ topology. Schema v2 records an explicit `topology_mode`:
 Both modes mark exactly one host local and allow a host to own multiple roles.
 Schema-v1 documents load as `full` and are normalized on save.
 
-Every host has a DDS address and interface used for runtime UDP. A remote host
-separately has an SSH hostname, port, user, authentication mode (`openssh` via
-agent/key or `tailscale` via Tailscale SSH), and pinned SHA-256 host-key
-fingerprint for administration. Tailscale SSH is keyless and uses port 22;
-Tailscale ACL `check` rules may require an interactive re-authentication before
-the manager can automate commands. The values may happen to name the same
-machine, but no DDS locator is derived from SSH and an SSH port such as `2222`
-is never a DDS or WebRTC port. Static peers are derived from the active hosts'
-DDS addresses only.
+Every host has one advertised IP and interface used for runtime UDP. The same
+IP is the SSH destination; SSH keeps its own port, user, authentication mode
+(`openssh` via agent/key or `tailscale` via Tailscale SSH), and pinned SHA-256
+host-key fingerprint. Tailscale SSH is keyless and uses port 22; Tailscale ACL
+`check` rules may require an interactive re-authentication before the manager
+can automate commands. An SSH port such as `2222` is never a DDS or WebRTC
+port. Static peers are derived from the active hosts' DDS addresses only.
 
 ## Verification Matrix
 

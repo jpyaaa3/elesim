@@ -9,6 +9,7 @@ from elesim_setup.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
     DdsGraphSettings,
+    DeploymentUnit,
     ManagedHost,
     PreflightHost,
     PreflightSshEndpoint,
@@ -39,7 +40,6 @@ def _topology() -> ConnectionTopology:
         hosts=(
             ManagedHost(
                 host_id="laptop",
-                display_name="Operator laptop",
                 local=True,
                 dds=DdsEndpoint("100.64.0.10", "tailscale0"),
                 ssh=None,
@@ -50,7 +50,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 host_id="compute",
-                display_name="Compute server",
                 local=False,
                 dds=DdsEndpoint("100.64.0.20", "tailscale0"),
                 ssh=_ssh("server.example"),
@@ -58,7 +57,6 @@ def _topology() -> ConnectionTopology:
             ),
             ManagedHost(
                 host_id="robot",
-                display_name="Robot Jetson",
                 local=False,
                 dds=DdsEndpoint("100.64.0.30", "tailscale0"),
                 ssh=_ssh("jetson.example", port=2201),
@@ -78,14 +76,12 @@ def _preflight() -> TwoHostPreflight:
         hosts=(
             PreflightHost(
                 host_id="laptop",
-                display_name="Operator laptop",
                 local=True,
                 dds=DdsEndpoint("100.64.0.10", "tailscale0"),
                 ssh=None,
             ),
             PreflightHost(
                 host_id="compute",
-                display_name="Compute host",
                 local=False,
                 dds=DdsEndpoint("100.64.0.20", "tailscale0"),
                 ssh=PreflightSshEndpoint("100.64.0.20", 22, "elesim"),
@@ -102,7 +98,6 @@ def _simulation_topology() -> ConnectionTopology:
         hosts=(
             ManagedHost(
                 host_id="sim-laptop",
-                display_name="Simulation laptop",
                 local=True,
                 dds=DdsEndpoint("100.64.0.40", "tailscale0"),
                 ssh=None,
@@ -116,7 +111,7 @@ def _simulation_topology() -> ConnectionTopology:
     ).validate()
 
 
-def test_two_host_preflight_keeps_mutable_tailscale_and_ssh_endpoints_distinct() -> None:
+def test_two_host_preflight_derives_ssh_destination_from_advertised_ip() -> None:
     preflight = _preflight()
     restored = TwoHostPreflight.from_dict(preflight.to_dict())
 
@@ -124,8 +119,10 @@ def test_two_host_preflight_keeps_mutable_tailscale_and_ssh_endpoints_distinct()
     assert restored.hosts[0].dds.address == "100.64.0.10"
     assert restored.hosts[1].dds.interface == "tailscale0"
     assert restored.hosts[1].ssh is not None
+    assert restored.hosts[1].ssh.host == "100.64.0.20"
     assert restored.hosts[1].ssh.port == 22
     assert restored.discovery_peers("laptop") == ("100.64.0.20",)
+    assert all("display_name" not in host for host in preflight.to_dict()["hosts"])
 
 
 def test_dds_endpoint_tailscale_provenance_roundtrips_without_a_port() -> None:
@@ -157,17 +154,168 @@ def test_two_host_preflight_is_not_a_robot_deployment_topology() -> None:
         TwoHostPreflight.from_dict(raw)
 
 
-def test_connection_topology_roundtrip_keeps_dds_and_ssh_distinct() -> None:
+def test_connection_topology_roundtrip_uses_advertised_ip_for_ssh() -> None:
     topology = _topology()
     raw = topology.to_dict()
 
     restored = ConnectionTopology.from_dict(raw)
 
     assert restored == topology
+    assert all("display_name" not in host for host in raw["hosts"])
+    assert not hasattr(restored.host("compute"), "display_name")
     assert restored.host("compute").dds.address == "100.64.0.20"
     assert restored.host("compute").ssh is not None
-    assert restored.host("compute").ssh.host == "server.example"
+    assert restored.host("compute").ssh.host == "100.64.0.20"
     assert restored.host("compute").ssh.port == 2222
+
+
+def test_jetson_is_an_equal_host_with_shared_paths_and_distinct_lifecycles() -> None:
+    host = ManagedHost(
+        host_id="jetson",
+        local=False,
+        dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+        ssh=_ssh("jetson.example", port=2201),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"), RoleAssignment("ui", "ui-main")),
+                install_root="/opt/elesim-runtime",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim-robot",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+
+    restored = ManagedHost.from_dict(host.to_dict())
+
+    assert restored == host
+    assert restored.runtime_units[0].install_root == "/opt/elesim-runtime"
+    assert restored.robot_units[0].install_root == "/opt/elesim-runtime"
+    assert restored.robot_units[0].lifecycle == "systemd"
+    assert restored.roles == ("pilot", "ui", "robot")
+
+
+def test_robot_unit_can_share_the_host_installation_path_with_runtime() -> None:
+    host = ManagedHost(
+        host_id="jetson",
+        local=False,
+        dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+        ssh=_ssh("jetson.example"),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"),),
+                install_root="/opt/elesim",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+    assert host.runtime_units[0].install_root == host.robot_units[0].install_root
+
+
+def test_mixed_units_share_the_host_command_path() -> None:
+    host = ManagedHost(
+        host_id="jetson",
+        local=False,
+        dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+        ssh=_ssh("jetson.example"),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"),),
+                install_root="/opt/elesim-runtime",
+                bin_dir="/opt/shared/bin",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim-robot",
+                bin_dir="/opt/shared/bin",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+    assert host.runtime_units[0].bin_dir == host.robot_units[0].bin_dir
+
+
+def test_legacy_mixed_unit_paths_are_normalized_to_the_runtime_path() -> None:
+    host = ManagedHost(
+        host_id="jetson",
+        local=False,
+        dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+        ssh=_ssh("jetson.example"),
+        jetson=True,
+        units=(
+            DeploymentUnit(
+                "runtime",
+                (RoleAssignment("pilot", "pilot-main"),),
+                install_root="/opt/elesim",
+                bin_dir="/opt/elesim/bin",
+            ),
+            DeploymentUnit(
+                "robot-native",
+                (RoleAssignment("robot", "robot-main"),),
+                install_mode="native",
+                install_root="/opt/elesim/robot",
+                bin_dir="/opt/elesim/robot/bin",
+                lifecycle="systemd",
+            ),
+        ),
+    ).validate()
+    assert host.robot_units[0].install_root == "/opt/elesim"
+    assert host.robot_units[0].bin_dir == "/opt/elesim/bin"
+
+
+def test_current_sim_image_is_not_advertised_for_jetson_units() -> None:
+    with pytest.raises(ValueError, match="amd64-only|ARM64"):
+        ManagedHost(
+            host_id="jetson",
+            local=False,
+            dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+            ssh=_ssh("jetson.example"),
+            jetson=True,
+            units=(
+                DeploymentUnit(
+                    "runtime",
+                    (RoleAssignment("sim", "sim-main"),),
+                    install_root="/opt/elesim-runtime",
+                ),
+                DeploymentUnit(
+                    "robot-native",
+                    (RoleAssignment("robot", "robot-main"),),
+                    install_mode="native",
+                    install_root="/opt/elesim-robot",
+                    lifecycle="systemd",
+                ),
+            ),
+        ).validate()
+
+
+def test_jetson_requires_the_mandatory_robot_unit() -> None:
+    with pytest.raises(ValueError, match="mandatory native Robot"):
+        ManagedHost(
+            host_id="jetson",
+            local=False,
+            dds=DdsEndpoint("100.64.0.31", "tailscale0"),
+            ssh=_ssh("jetson.example"),
+            jetson=True,
+            assignments=(RoleAssignment("pilot", "pilot-main"),),
+        ).validate()
 
 
 def test_multicast_rejects_multi_host_tailscale_address_even_when_interface_is_eth0() -> None:
@@ -270,13 +418,13 @@ def test_simulation_only_rejects_robot_and_jetson_hosts() -> None:
 
     raw = _simulation_topology().to_dict()
     raw["hosts"][0].update(
-        {"jetson": True, "install_mode": "native", "lifecycle": "systemd"}
+        {"jetson": True}
     )
     with pytest.raises(ValueError, match="Jetson|container/Compose"):
         ConnectionTopology.from_dict(raw)
 
 
-def test_dds_and_ssh_may_share_a_hostname_without_sharing_port_semantics() -> None:
+def test_changing_advertised_ip_also_changes_the_derived_ssh_destination() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["dds"]["address"] = "server.example"
 
@@ -284,6 +432,7 @@ def test_dds_and_ssh_may_share_a_hostname_without_sharing_port_semantics() -> No
 
     assert restored.host("compute").dds.address == "server.example"
     assert restored.host("compute").ssh is not None
+    assert restored.host("compute").ssh.host == "server.example"
     assert restored.host("compute").ssh.port == 2222
 
 

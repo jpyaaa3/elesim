@@ -1,7 +1,8 @@
 """SSH fingerprint and staged secure-file helpers.
 
-DDS discovery peers and ROS runtime settings never inherit SSH host/port
-values. SROS2 keystore provisioning is intentionally external to this module.
+DDS discovery uses the host's advertised IP; SSH reuses that destination while
+keeping its own management port. SROS2 keystore provisioning is intentionally
+external to this module.
 """
 
 from __future__ import annotations

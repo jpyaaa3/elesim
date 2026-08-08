@@ -16,172 +16,152 @@
     </div>
   </header>
 
-  <div id="error-banner" class="banner error" role="alert" hidden></div>
-  <div id="notice-banner" class="banner notice" role="status" hidden></div>
+  <div id="error-banner" class="banner error" role="alert" hidden>
+    <span class="banner-message"></span>
+    <button type="button" class="banner-close" data-banner-close data-i18n-aria-label="action.dismiss">×</button>
+  </div>
+  <div id="notice-banner" class="banner notice" role="status" hidden>
+    <span class="banner-message"></span>
+    <button type="button" class="banner-close" data-banner-close data-i18n-aria-label="action.dismiss">×</button>
+  </div>
 
   <main>
-    <section class="hero panel">
-      <p class="eyebrow" data-i18n="app.eyebrow"></p>
-      <h1 data-i18n="app.heading"></h1>
-      <p data-i18n="app.intro"></p>
-      <div class="boundary-note">
-        <strong data-i18n="boundary.title"></strong>
-        <span data-i18n="boundary.text"></span>
-      </div>
-    </section>
-
     <section class="panel" aria-labelledby="graph-heading">
       <div class="section-heading">
-        <div><p class="eyebrow" data-i18n="graph.eyebrow"></p><h2 id="graph-heading" data-i18n="graph.title"></h2></div>
-        <p data-i18n="graph.help"></p>
+        <div><h2 id="graph-heading" data-i18n="graph.title"></h2></div>
       </div>
-      <div class="form-grid graph-grid">
-        <label><span data-i18n="mode.title"></span><select id="topology-mode"><option value="full" data-i18n="mode.full"></option><option value="simulation-only" data-i18n="mode.simulation"></option></select></label>
-        <label><span data-i18n="graph.system"></span><input id="system-id" type="text" value="elesim" spellcheck="false"></label>
-        <label><span data-i18n="graph.domain"></span><input id="domain-id" type="number" min="0" max="232" value="0"></label>
-        <label><span data-i18n="graph.rmw"></span><select id="rmw"><option value="rmw_cyclonedds_cpp">rmw_cyclonedds_cpp</option></select></label>
-        <label><span data-i18n="graph.discovery"></span><select id="discovery"><option value="multicast" data-i18n="graph.multicast"></option><option value="static" data-i18n="graph.static"></option></select></label>
-        <label><span data-i18n="graph.security"></span><select id="security"><option value="trusted-network" data-i18n="graph.trusted"></option><option value="sros2" data-i18n="graph.sros2" selected></option></select></label>
+      <div class="graph-grid">
+        <div class="settings-column">
+          <label><span data-i18n="mode.title"></span><select id="topology-mode"><option value="full" data-i18n="mode.full"></option><option value="simulation-only" data-i18n="mode.simulation"></option></select></label>
+          <label><span data-i18n="graph.discovery"></span><select id="discovery"><option value="multicast" data-i18n="graph.multicast"></option><option value="static" data-i18n="graph.static"></option></select></label>
+          <label><span data-i18n="graph.security"></span><select id="security"><option value="trusted-network" data-i18n="graph.trusted"></option><option value="sros2" data-i18n="graph.sros2" selected></option></select></label>
+        </div>
+        <div class="settings-column">
+          <label><span data-i18n="graph.system"></span><input id="system-id" type="text" value="elesim" spellcheck="false"></label>
+          <label><span data-i18n="graph.domain"></span><input id="domain-id" type="number" min="0" max="232" value="0"></label>
+        </div>
       </div>
-      <p class="mode-help" data-i18n="mode.help"></p>
-      <p id="security-warning" class="warning" data-i18n="graph.trusted.warning"></p>
     </section>
 
     <section class="panel" aria-labelledby="hosts-heading">
       <div class="section-heading">
-        <div><p class="eyebrow" data-i18n="hosts.eyebrow"></p><h2 id="hosts-heading" data-i18n="hosts.title"></h2></div>
-        <p data-i18n="hosts.help"></p>
+        <div><h2 id="hosts-heading" data-i18n="hosts.title"></h2></div>
       </div>
-      <div class="drag-help" data-i18n="hosts.drag.help"></div>
 
       <div id="host-grid" class="host-grid">
         <article class="host-card" data-slot="com1">
-          <header><div><span class="slot-name">COM1</span><small data-i18n="host.com"></small></div><label class="unused"><input type="checkbox" data-field="unused"><span data-i18n="host.unused"></span></label></header>
-          <div class="drop-zone" data-drop-slot="com1" aria-label="COM1 application roles"></div>
+          <header><div><span class="slot-name">COM1</span></div><label class="unused"><input type="checkbox" data-field="unused"><span data-i18n="host.unused"></span></label></header>
+          <div class="unit-lanes">
+            <section class="unit-lane runtime-lane"><h3 data-i18n="unit.runtime"></h3><div class="drop-zone" data-drop-slot="com1" data-drop-unit="runtime" aria-label="COM1 runtime roles"></div></section>
+          </div>
           <div class="host-fields">
             <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" value="com1" spellcheck="false"></label>
-            <label><span data-i18n="host.name"></span><input data-field="display-name" type="text" value="COM1"></label>
-            <label class="local-choice"><input type="radio" name="local-host" value="com1" checked><span data-i18n="host.local"></span></label>
             <label><span data-i18n="dds.address"></span><input data-field="dds-address" type="text" placeholder="100.x.y.z" spellcheck="false"></label>
             <label><span data-i18n="dds.interface"></span><input data-field="dds-interface" type="text" placeholder="tailscale0" spellcheck="false"></label>
             <label><span data-i18n="install.root"></span><input data-field="install-root" type="text" value="/opt/elesim" spellcheck="false"></label>
-            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/usr/local/bin" spellcheck="false"></label>
+            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/opt/elesim/bin" spellcheck="false"></label>
+            <label class="local-choice"><input type="radio" name="local-host" value="com1" checked><span data-i18n="host.local"></span></label>
           </div>
-          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><p data-i18n="ssh.help"></p><div class="host-fields">
-            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" spellcheck="false"></label>
+          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><label class="ssh-tailscale-choice"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label><div class="host-fields">
+            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" readonly disabled spellcheck="false"></label>
             <label><span data-i18n="ssh.port"></span><input data-field="ssh-port" type="number" min="1" max="65535" value="22"></label>
             <label><span data-i18n="ssh.user"></span><input data-field="ssh-user" type="text" value="elesim"></label>
-            <label class="wide"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label>
             <label><span data-i18n="ssh.key"></span><input data-field="ssh-key" type="text" spellcheck="false"></label>
             <label class="wide"><span data-i18n="ssh.fingerprint"></span><input data-field="ssh-fingerprint" type="text" readonly spellcheck="false"></label>
-          </div><button type="button" class="secondary probe" data-probe-slot="com1" data-i18n="action.probe"></button></details>
+          </div><button type="button" class="probe" data-probe-slot="com1" data-i18n="action.probe"></button></details>
         </article>
 
         <article class="host-card" data-slot="com2">
-          <header><div><span class="slot-name">COM2</span><small data-i18n="host.com"></small></div><label class="unused"><input type="checkbox" data-field="unused"><span data-i18n="host.unused"></span></label></header>
-          <div class="drop-zone" data-drop-slot="com2" aria-label="COM2 application roles"></div>
+          <header><div><span class="slot-name">COM2</span></div><label class="unused"><input type="checkbox" data-field="unused"><span data-i18n="host.unused"></span></label></header>
+          <div class="unit-lanes">
+            <section class="unit-lane runtime-lane"><h3 data-i18n="unit.runtime"></h3><div class="drop-zone" data-drop-slot="com2" data-drop-unit="runtime" aria-label="COM2 runtime roles"></div></section>
+          </div>
           <div class="host-fields">
             <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" value="com2" spellcheck="false"></label>
-            <label><span data-i18n="host.name"></span><input data-field="display-name" type="text" value="COM2"></label>
-            <label class="local-choice"><input type="radio" name="local-host" value="com2"><span data-i18n="host.local"></span></label>
             <label><span data-i18n="dds.address"></span><input data-field="dds-address" type="text" placeholder="100.x.y.z" spellcheck="false"></label>
             <label><span data-i18n="dds.interface"></span><input data-field="dds-interface" type="text" placeholder="tailscale0" spellcheck="false"></label>
             <label><span data-i18n="install.root"></span><input data-field="install-root" type="text" value="/opt/elesim" spellcheck="false"></label>
-            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/usr/local/bin" spellcheck="false"></label>
+            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/opt/elesim/bin" spellcheck="false"></label>
+            <label class="local-choice"><input type="radio" name="local-host" value="com2"><span data-i18n="host.local"></span></label>
           </div>
-          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><p data-i18n="ssh.help"></p><div class="host-fields">
-            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" spellcheck="false"></label>
+          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><label class="ssh-tailscale-choice"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label><div class="host-fields">
+            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" readonly disabled spellcheck="false"></label>
             <label><span data-i18n="ssh.port"></span><input data-field="ssh-port" type="number" min="1" max="65535" value="22"></label>
             <label><span data-i18n="ssh.user"></span><input data-field="ssh-user" type="text" value="elesim"></label>
-            <label class="wide"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label>
             <label><span data-i18n="ssh.key"></span><input data-field="ssh-key" type="text" spellcheck="false"></label>
             <label class="wide"><span data-i18n="ssh.fingerprint"></span><input data-field="ssh-fingerprint" type="text" readonly spellcheck="false"></label>
-          </div><button type="button" class="secondary probe" data-probe-slot="com2" data-i18n="action.probe"></button></details>
+          </div><button type="button" class="probe" data-probe-slot="com2" data-i18n="action.probe"></button></details>
         </article>
 
         <article class="host-card disabled" data-slot="com3">
-          <header><div><span class="slot-name">COM3</span><small data-i18n="host.com"></small></div><label class="unused"><input type="checkbox" data-field="unused" checked><span data-i18n="host.unused"></span></label></header>
-          <div class="drop-zone" data-drop-slot="com3" aria-label="COM3 application roles"></div>
+          <header><div><span class="slot-name">COM3</span></div><label class="unused"><input type="checkbox" data-field="unused" checked><span data-i18n="host.unused"></span></label></header>
+          <div class="unit-lanes">
+            <section class="unit-lane runtime-lane"><h3 data-i18n="unit.runtime"></h3><div class="drop-zone" data-drop-slot="com3" data-drop-unit="runtime" aria-label="COM3 runtime roles"></div></section>
+          </div>
           <div class="host-fields">
             <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" value="com3" spellcheck="false"></label>
-            <label><span data-i18n="host.name"></span><input data-field="display-name" type="text" value="COM3"></label>
-            <label class="local-choice"><input type="radio" name="local-host" value="com3"><span data-i18n="host.local"></span></label>
             <label><span data-i18n="dds.address"></span><input data-field="dds-address" type="text" placeholder="100.x.y.z" spellcheck="false"></label>
             <label><span data-i18n="dds.interface"></span><input data-field="dds-interface" type="text" placeholder="tailscale0" spellcheck="false"></label>
             <label><span data-i18n="install.root"></span><input data-field="install-root" type="text" value="/opt/elesim" spellcheck="false"></label>
-            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/usr/local/bin" spellcheck="false"></label>
+            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/opt/elesim/bin" spellcheck="false"></label>
+            <label class="local-choice"><input type="radio" name="local-host" value="com3"><span data-i18n="host.local"></span></label>
           </div>
-          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><p data-i18n="ssh.help"></p><div class="host-fields">
-            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" spellcheck="false"></label>
+          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><label class="ssh-tailscale-choice"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label><div class="host-fields">
+            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" readonly disabled spellcheck="false"></label>
             <label><span data-i18n="ssh.port"></span><input data-field="ssh-port" type="number" min="1" max="65535" value="22"></label>
             <label><span data-i18n="ssh.user"></span><input data-field="ssh-user" type="text" value="elesim"></label>
-            <label class="wide"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label>
             <label><span data-i18n="ssh.key"></span><input data-field="ssh-key" type="text" spellcheck="false"></label>
             <label class="wide"><span data-i18n="ssh.fingerprint"></span><input data-field="ssh-fingerprint" type="text" readonly spellcheck="false"></label>
-          </div><button type="button" class="secondary probe" data-probe-slot="com3" data-i18n="action.probe"></button></details>
+          </div><button type="button" class="probe" data-probe-slot="com3" data-i18n="action.probe"></button></details>
         </article>
 
-        <article class="host-card robot" data-slot="robot">
-          <header><div><span class="slot-name">Robot</span><small data-i18n="host.robot"></small></div><span class="fixed" data-i18n="host.fixed"></span></header>
-          <div class="drop-zone fixed-zone" data-drop-slot="robot" aria-label="Robot application role"></div>
+        <article class="host-card disabled" data-slot="com4">
+          <header><div><span class="slot-name">Jetson</span></div></header>
+          <div class="unit-lanes">
+            <section class="unit-lane runtime-lane"><h3 data-i18n="unit.runtime"></h3><div class="drop-zone" data-drop-slot="com4" data-drop-unit="runtime" aria-label="COM4 runtime roles"></div></section>
+            <section class="unit-lane robot-lane"><h3 data-i18n="unit.robot"></h3><div class="drop-zone" data-drop-slot="com4" data-drop-unit="robot" aria-label="COM4 Robot role"></div></section>
+          </div>
           <div class="host-fields">
-            <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" value="robot" spellcheck="false"></label>
-            <label><span data-i18n="host.name"></span><input data-field="display-name" type="text" value="Robot Jetson"></label>
-            <label class="local-choice"><input type="radio" name="local-host" value="robot" disabled><span data-i18n="host.local"></span></label>
+            <label><span data-i18n="host.id"></span><input data-field="host-id" type="text" value="com4" spellcheck="false"></label>
             <label><span data-i18n="dds.address"></span><input data-field="dds-address" type="text" placeholder="100.x.y.z" spellcheck="false"></label>
             <label><span data-i18n="dds.interface"></span><input data-field="dds-interface" type="text" placeholder="tailscale0" spellcheck="false"></label>
-            <label><span data-i18n="install.root"></span><input data-field="install-root" type="text" value="/opt/elesim-robot" spellcheck="false"></label>
-            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/usr/local/bin" spellcheck="false"></label>
+            <label><span data-i18n="install.root"></span><input data-field="install-root" type="text" value="/opt/elesim" spellcheck="false"></label>
+            <label><span data-i18n="install.bin"></span><input data-field="bin-dir" type="text" value="/opt/elesim/bin" spellcheck="false"></label>
+            <label class="local-choice"><input type="radio" name="local-host" value="com4"><span data-i18n="host.local"></span></label>
           </div>
-          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><p data-i18n="ssh.help"></p><div class="host-fields">
-            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" spellcheck="false"></label>
+          <details class="ssh-fields"><summary data-i18n="ssh.title"></summary><label class="ssh-tailscale-choice"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label><div class="host-fields">
+            <label><span data-i18n="ssh.host"></span><input data-field="ssh-host" type="text" readonly disabled spellcheck="false"></label>
             <label><span data-i18n="ssh.port"></span><input data-field="ssh-port" type="number" min="1" max="65535" value="22"></label>
             <label><span data-i18n="ssh.user"></span><input data-field="ssh-user" type="text" value="elesim"></label>
-            <label class="wide"><input data-field="ssh-tailscale" type="checkbox"><span data-i18n="ssh.tailscale"></span></label>
             <label><span data-i18n="ssh.key"></span><input data-field="ssh-key" type="text" spellcheck="false"></label>
             <label class="wide"><span data-i18n="ssh.fingerprint"></span><input data-field="ssh-fingerprint" type="text" readonly spellcheck="false"></label>
-          </div><button type="button" class="secondary probe" data-probe-slot="robot" data-i18n="action.probe"></button></details>
+          </div><button type="button" class="probe" data-probe-slot="com4" data-i18n="action.probe"></button></details>
         </article>
       </div>
-    </section>
-
-    <section class="panel derived" aria-labelledby="derived-heading">
-      <div><h2 id="derived-heading" data-i18n="derived.title"></h2><p data-i18n="derived.help"></p></div>
-      <pre id="derived-peers">—</pre>
     </section>
 
     <section class="panel actions" aria-labelledby="actions-heading">
-      <div><p class="eyebrow" data-i18n="workflow.eyebrow"></p><h2 id="actions-heading" data-i18n="actions.title"></h2><p data-i18n="actions.help"></p></div>
-      <div class="maintenance-actions">
-        <div class="maintenance-heading">
-          <p class="eyebrow" data-i18n="maintenance.eyebrow"></p>
-          <h3 data-i18n="maintenance.title"></h3>
-          <p data-i18n="maintenance.help"></p>
+      <div class="actions-heading"><h2 id="actions-heading" data-i18n="actions.title"></h2></div>
+      <div class="workflow-layout">
+        <div class="workflow-steps">
+          <article class="workflow-step" data-step="save" data-state="pending" data-enabled="true">
+            <div class="step-number">1</div>
+            <div><h3 data-i18n="workflow.save.title"></h3></div>
+            <button id="save" type="button" data-i18n="action.save"></button>
+          </article>
+          <article class="workflow-step" data-step="apply" data-state="pending" data-enabled="false">
+            <div class="step-number">2</div>
+            <div><h3 data-i18n="workflow.apply.title"></h3></div>
+            <button id="apply" type="button" disabled></button>
+          </article>
+          <article class="workflow-step" data-step="start" data-state="pending" data-enabled="false">
+            <div class="step-number">3</div>
+            <div><h3 data-i18n="workflow.start.title"></h3></div>
+            <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
+          </article>
         </div>
-        <div class="action-row">
-          <button id="host-check" type="button" class="secondary" data-i18n="action.host-check"></button>
-          <button id="runtime-stop" type="button" class="secondary" data-i18n="action.stop"></button>
-        </div>
+        <div class="abort-step"><button id="cancel" type="button" class="danger-button" data-i18n="action.cancel" disabled></button></div>
       </div>
-      <div class="workflow-steps">
-        <article class="workflow-step" data-step="save">
-          <div class="step-number">1</div>
-          <div><h3 data-i18n="workflow.save.title"></h3><p data-i18n="workflow.save.help"></p></div>
-          <button id="save" type="button" data-i18n="action.save"></button>
-        </article>
-        <article class="workflow-step" data-step="apply">
-          <div class="step-number">2</div>
-          <div><h3 data-i18n="workflow.apply.title"></h3><p id="apply-help" data-i18n="workflow.apply.help"></p></div>
-          <button id="apply" type="button"></button>
-        </article>
-        <article class="workflow-step" data-step="start">
-          <div class="step-number">3</div>
-          <div><h3 data-i18n="workflow.start.title"></h3><p data-i18n="workflow.start.help"></p></div>
-          <button id="runtime-start" type="button" class="secondary" data-i18n="action.start" disabled></button>
-        </article>
-      </div>
-      <div class="workflow-status"><strong data-i18n="workflow.status"></strong><span id="workflow-stage">—</span></div>
-      <div class="job-actions"><button id="cancel" type="button" class="danger-button" data-i18n="action.cancel" disabled></button></div>
       <div class="host-status"><strong data-i18n="runtime.title"></strong><pre id="runtime-status">—</pre></div>
       <div class="job-status"><strong id="job-status" data-i18n="job.idle"></strong><pre id="job-log"></pre></div>
     </section>

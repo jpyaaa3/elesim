@@ -140,12 +140,16 @@ invoked. The default command directory is `<prefix>/bin`.
 General mode translates to state schema v8 and one of two backends:
 
 - Sim/Pilot/UI generate a Linux host-network Compose project.
-- Robot alone invokes the native role-isolated venv installer on a detected
-  Jetson.
+- Robot invokes the native role-isolated venv installer as its own unit on a
+  detected Jetson. A separate general installation may create a Compose unit
+  for Pilot/UI on that same host; the two prefixes and lifecycles remain
+  independent.
 
 The General wizard presents the four roles as independent checkboxes. Select
 any non-empty combination of Sim, Pilot, and UI; Robot is available
-only on a detected Jetson and must be selected alone. There are no
+only on a detected Jetson and remains a native-only installation, so it must be
+selected alone within that installation. A Jetson can therefore have a second
+container installation for Pilot/UI. There are no
 computer-type presets in the GUI or interactive terminal wizard. For
 automation, repeat `--role` (for example `--role sim --role ui`). The
 legacy `--profile` option remains hidden for compatibility with older scripts
@@ -544,15 +548,11 @@ loopback/token-protected browser UI has two explicit modes:
 Exactly one host is local; a host may own multiple roles. Schema-v1 topology files
 are read as `full` and normalized to schema v3 with an explicit mode.
 
-Each host records two independent paths:
-
-- DDS address and interface: runtime UDP reachability and static-peer
-  derivation;
-- optional remote SSH host, port, user, agent/identity-file choice, and pinned
-  SHA-256 host-key fingerprint: preflight, bundle transfer, lifecycle and logs.
-
-An SSH hostname may equal a DDS address, but neither value is derived from the
-other. SSH port `2222` is an administration example only. Topology state is
+Each host records one advertised DDS IP and interface for runtime UDP
+reachability and static-peer derivation. The connection manager uses that same
+IP for remote SSH, while storing SSH port, user, agent/identity-file choice,
+and pinned SHA-256 host-key fingerprint for management. SSH port `2222` is an
+administration example only. Topology state is
 non-secret: it may retain an identity-file path and host fingerprint, but never
 a password, private-key body, SROS2 key, TURN secret, credential, or token.
 
@@ -565,7 +565,7 @@ the saved-topology host-status button. The `/api/preflight` contract remains
 available for automation and focused Jetson-less tests, but is not an everyday
 GUI action. Enter the current, mutable DDS address (hostname/IP only, no
 `:port`) and interface (`tailscale0` on a Tailscale path), then enter the remote
-host's actual SSH management host, user, and port. Ordinary SSH over Tailscale
+host's advertised IP, SSH user, and port. Ordinary SSH over Tailscale
 uses the sshd port (normally 22, unless that host was configured differently);
 the connection manager does not invent a Tailscale or DDS port. A temporary
 `python3 -m http.server 8080` reachability check is outside this document and
@@ -771,7 +771,7 @@ Setup tests must cover:
 - trusted-network acknowledgement, SROS2 role-scoped enclave validation and
   external/managed state validation, bundle digest/mode/path containment and
   overwrite protection;
-- connection topology validation, separate DDS/SSH endpoints, pinned SSH host
+- connection topology validation, shared DDS/SSH destination IPs, pinned SSH host
   keys, all-host staging, activation and rollback;
 - web asset packaging, token/API boundaries, path containment, and job states;
 - bootstrap extraction and shell invocation;
