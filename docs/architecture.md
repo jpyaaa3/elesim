@@ -191,6 +191,11 @@ fresh Sim descriptor is discovered.
 The UI operator request pump also marks DDS offline immediately on a heartbeat
 reset, so the presentation layer cannot report a stale Pilot connection while
 requests are waiting for their normal bounded timeout.
+The shared UI DDS hub recreates its owned peer after an initial or heartbeat
+transport failure and exposes descriptor readiness to the simulation channel;
+the UI therefore waits for a live Sim boot instead of repeatedly publishing to
+an inactive target. Replies and queued envelopes from the retired boot are
+discarded before the replacement peer is used.
 
 ## Network Security Profiles
 

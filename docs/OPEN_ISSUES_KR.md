@@ -30,6 +30,9 @@
 - UI operator pump도 heartbeat reset 즉시 DDS offline으로 표시한다. 남은 요청은
   bounded timeout/retry 규칙을 따르므로, 오래된 Pilot 연결을 정상으로 표시하지
   않는다.
+- UI 공유 DDS hub도 초기 peer 생성 실패를 재시도하고 heartbeat 실패 뒤 owned
+  peer를 다시 만든다. Sim channel은 live descriptor가 발견될 때까지 기다리며,
+  폐기된 boot의 reply는 버린다. 실제 reconnect timing은 여전히 live gate다.
 
 ### P0. Router 없는 ROS 2/DDS 전환은 live 증명과 typed surface 후속이 필요함
 

@@ -30,6 +30,10 @@ there are historical unless repeated here.
 - The UI operator pump now marks DDS offline immediately on a heartbeat reset;
   outstanding requests retain bounded timeout/retry behavior rather than
   appearing healthy during a stale Pilot connection.
+- The shared UI DDS hub now retries initial peer construction, recreates its
+  owned peer after a heartbeat failure, and exposes live descriptor readiness
+  to the Sim channel. Retired-boot replies are discarded; live reconnect timing
+  remains a manual gate.
 
 ### P0. Router-Free ROS 2/DDS Migration Needs Live Proof And Typed-Surface Follow-Up
 

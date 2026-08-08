@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional
 
 from elesim_protocol import (
     DdsRuntimeSettings,
+    DdsTransportError,
     EndpointDescriptor,
     Envelope,
     PeerClient,
@@ -43,6 +44,11 @@ class UiPeerChannel:
         # The hub owns the only DDS executor and heartbeat cadence.
         return None
 
+    def has_peer(self, endpoint_id: str) -> bool:
+        """Expose live DDS descriptor readiness without owning the peer."""
+
+        return self._hub.has_peer(endpoint_id)
+
     def send(self, message_type: str, **kwargs: Any) -> Envelope:
         return self._hub.send(self.name, message_type, **kwargs)
 
@@ -73,10 +79,10 @@ class UiPeerHub:
             raise ValueError("UI endpoint_id is required")
         self.poll_ms = max(0, int(poll_ms))
         self.max_pending = max(32, int(max_pending))
-        self._client = client or client_factory(
-            EndpointDescriptor(self.endpoint_id, "ui", ()),
-            settings=settings,
-        )
+        self._client = client
+        self._client_factory = client_factory
+        self._settings = settings
+        self._owns_client = client is None
         self._io_lock = threading.Lock()
         self._condition = threading.Condition()
         self._queues: dict[str, deque[Envelope]] = {
@@ -92,7 +98,14 @@ class UiPeerHub:
 
     @property
     def registered(self) -> bool:
-        return not self._stop.is_set() and bool(self._client.registered)
+        if self._stop.is_set():
+            return False
+        with self._io_lock:
+            client = self._client
+            try:
+                return client is not None and bool(client.registered)
+            except Exception:
+                return False
 
     @property
     def last_error(self) -> str:
@@ -101,6 +114,24 @@ class UiPeerHub:
 
     def channel(self, name: str) -> UiPeerChannel:
         return UiPeerChannel(self, str(name))
+
+    def has_peer(self, endpoint_id: str) -> bool:
+        """Return descriptor readiness, never TCP/SSH reachability."""
+
+        with self._io_lock:
+            client = self._client
+            if client is None:
+                return False
+            checker = getattr(client, "has_peer", None)
+            if callable(checker):
+                try:
+                    return bool(checker(str(endpoint_id).strip()))
+                except Exception:
+                    return False
+            try:
+                return bool(client.registered)
+            except Exception:
+                return False
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -122,7 +153,12 @@ class UiPeerHub:
         if channel not in _CHANNELS:
             raise ValueError(f"unknown UI peer channel: {channel}")
         with self._io_lock:
-            envelope = self._client.send(message_type, **kwargs)
+            client = self._client
+            if client is None:
+                raise DdsTransportError(
+                    "UI DDS peer is reconnecting; request will be retried"
+                )
+            envelope = client.send(message_type, **kwargs)
         message_id = str(envelope.message_id)
         if message_id:
             with self._condition:
@@ -154,15 +190,24 @@ class UiPeerHub:
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=3.0)
         with self._io_lock:
-            self._client.close()
+            client = self._client
+            self._client = None
+            if client is not None:
+                client.close()
 
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
                 with self._io_lock:
-                    self._client.heartbeat()
+                    if self._client is None:
+                        self._client = self._client_factory(
+                            EndpointDescriptor(self.endpoint_id, "ui", ()),
+                            settings=self._settings,
+                        )
+                    client = self._client
+                    client.heartbeat()
                     messages = tuple(
-                        self._client.receive(timeout_ms=self.poll_ms)
+                        client.receive(timeout_ms=self.poll_ms)
                     )
                 for message in messages:
                     self._dispatch(message)
@@ -171,7 +216,27 @@ class UiPeerHub:
             except Exception as exc:
                 with self._condition:
                     self._last_error = f"DDS peer failed: {exc}"
+                if self._owns_client:
+                    self._retire_client()
                 self._stop.wait(0.1)
+
+    def _retire_client(self) -> None:
+        with self._io_lock:
+            client = self._client
+            self._client = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        with self._condition:
+            # Replies from the retired boot must never be delivered to a new
+            # PeerClient. Application requests remain bounded in their owners.
+            self._sent_channels.clear()
+            self._sent_order.clear()
+            for queue in self._queues.values():
+                queue.clear()
+            self._condition.notify_all()
 
     def _dispatch(self, message: Envelope) -> None:
         destination = (
