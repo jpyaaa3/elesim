@@ -97,6 +97,24 @@ def test_container_plan_is_router_free(local_state) -> None:
     assert "router" not in {action.title.lower() for action in plan}
 
 
+def test_pending_managed_coturn_does_not_pass_an_empty_external_ip(local_state) -> None:
+    state = local_state(
+        roles=("sim",),
+        dds=DdsSettings(security_profile="sros2", security_provisioning="managed"),
+        turn=TurnSettings(
+            mode="managed",
+            realm="elesim.local",
+            secret_file="/tmp/install/secrets/turn.secret",
+        ),
+    )
+
+    service = ContainerInstaller(state)._coturn_service()
+    command = service["command"][0]
+
+    assert 'if [ -n "$$TURN_PUBLIC_IP" ]' in command
+    assert '--external-ip="$$TURN_PUBLIC_IP"' not in command
+
+
 def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     local_state,
 ) -> None:

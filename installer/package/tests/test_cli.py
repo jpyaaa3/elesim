@@ -293,6 +293,46 @@ def test_interactive_runtime_text_log_archive_is_optional() -> None:
     assert disabled.enabled is False
 
 
+def test_interactive_sros2_sim_leaves_relay_endpoint_for_connection_manager(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    class FakeInstaller:
+        def __init__(self, state, **_kwargs) -> None:
+            captured["state"] = state
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "ContainerInstaller", FakeInstaller)
+    answers = iter(("sim", "", "", "", "3", "", "1", "", "2", "1", "", ""))
+    prompts: list[str] = []
+
+    def input_fn(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    assert (
+        cli.run_wizard(
+            source_root=ROOT,
+            state_path=tmp_path / "install-state.json",
+            input_fn=input_fn,
+        )
+        == 0
+    )
+
+    state = captured["state"]
+    assert state.managed_turn_pending is True
+    assert state.network.turn_urls == ()
+    assert state.turn.public_host == ""
+    assert not any(
+        "Coturn public hostname/IP" in prompt or "TURN URL" in prompt
+        for prompt in prompts
+    )
+
+
 def test_noninteractive_install_dry_run_uses_same_installer(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     result = cli.main(
@@ -534,7 +574,7 @@ def test_noninteractive_container_install_uses_container_backend(
     assert not state_path.exists()
 
 
-def test_noninteractive_sim_rejects_external_or_missing_managed_turn(
+def test_noninteractive_sim_accepts_pending_managed_turn(
     tmp_path: Path,
 ) -> None:
     base = (
@@ -558,7 +598,7 @@ def test_noninteractive_sim_rejects_external_or_missing_managed_turn(
         "--dry-run",
     )
 
-    assert cli.main(base) == 2
+    assert cli.main(base) == 0
 
 
 def test_status_does_not_require_cached_source_to_still_exist(local_state, tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ const jetsonSlot = "com4";
 const slots = [...computerSlots];
 const applicationRoles = ["pilot", "sim", "ui", "robot"];
 const movableRoles = applicationRoles.filter((role) => role !== "robot");
+const dropBandRatio = 0.5;
 
 let catalog = {};
 let language = "ko";
@@ -24,6 +25,9 @@ let roleLocations = {
   ui: "com1",
   robot: "com4"
 };
+// Keep the user's visual order instead of re-sorting roles by application name.
+// The initial value only supplies a sensible order for a new topology.
+let roleOrder = [...applicationRoles];
 // Legacy schema-v3 migration marker: old saved files used roleLocations.robot = "robot".
 let endpointIds = {
   pilot: "pilot-main",
@@ -31,6 +35,7 @@ let endpointIds = {
   ui: "ui-main",
   robot: "robot-go2"
 };
+let dropPreviewKey = "";
 let pollTimer = null;
 let runtimePollTimer = null;
 let workflowSaved = false;
@@ -177,9 +182,10 @@ function isActive(slot) {
 }
 
 function visibleRoles() {
-  return topologyMode === "simulation-only"
+  const allowed = topologyMode === "simulation-only"
     ? applicationRoles.filter((role) => role !== "robot")
     : applicationRoles;
+  return roleOrder.filter((role) => allowed.includes(role));
 }
 
 function activeSlots() {
@@ -239,6 +245,7 @@ function canPlaceRole(role, target, {notify = true} = {}) {
 }
 
 function renderRoleBlocks() {
+  clearDropPreview();
   document.querySelectorAll(".drop-zone").forEach((zone) => zone.replaceChildren());
   visibleRoles().forEach((role) => {
     const slot = roleLocations[role];
@@ -266,17 +273,46 @@ function renderRoleBlocks() {
     block.append(title, endpoint);
     if (role !== "robot") {
       block.addEventListener("dragstart", (event) => {
+        clearDropPreview();
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", role);
         block.classList.add("dragging");
       });
-      block.addEventListener("dragend", () => block.classList.remove("dragging"));
+      block.addEventListener("dragend", () => {
+        block.classList.remove("dragging");
+        clearDropPreview();
+      });
     }
     zone.append(block);
   });
 }
 
-function moveRole(role, target, targetUnit = "runtime") {
+function insertRoleInOrder(role, target, targetUnit, targetRole = "", insertBefore = false) {
+  if (targetRole === role) return;
+  roleOrder = roleOrder.filter((candidate) => candidate !== role);
+  roleLocations[role] = target;
+
+  const targetRoles = roleOrder.filter((candidate) => {
+    if (roleLocations[candidate] !== target) return false;
+    return targetUnit === "robot" ? candidate === "robot" : candidate !== "robot";
+  });
+  let insertionIndex = roleOrder.length;
+  if (targetRole && roleLocations[targetRole] === target) {
+    const targetIndex = roleOrder.indexOf(targetRole);
+    if (targetIndex >= 0) insertionIndex = targetIndex + (insertBefore ? 0 : 1);
+  } else if (targetRoles.length) {
+    insertionIndex = roleOrder.indexOf(targetRoles[targetRoles.length - 1]) + 1;
+  }
+  roleOrder.splice(insertionIndex, 0, role);
+}
+
+function moveRole(
+  role,
+  target,
+  targetUnit = "runtime",
+  targetRole = "",
+  insertBefore = false,
+) {
   if (role === "robot") return;
   if (!movableRoles.includes(role) || !isActive(target)) return;
   if (targetUnit === "robot" && role !== "robot") {
@@ -288,9 +324,100 @@ function moveRole(role, target, targetUnit = "runtime") {
     return;
   }
   if (!canPlaceRole(role, target)) return;
-  roleLocations[role] = target;
+  insertRoleInOrder(role, target, targetUnit, targetRole, insertBefore);
   markWorkflowDirty();
   renderRoleBlocks();
+}
+
+function dropPlacement(zone, pointerY, draggedRole = "") {
+  const blocks = [...zone.querySelectorAll(".role-block")].filter(
+    (block) => block.dataset.role !== draggedRole,
+  );
+  if (!blocks.length) return {targetRole: "", insertBefore: false};
+
+  const zoneRect = zone.getBoundingClientRect();
+  const rects = blocks.map((block) => ({
+    block,
+    rect: block.getBoundingClientRect(),
+  }));
+  const first = rects[0];
+  if (
+    pointerY >= zoneRect.top
+    && pointerY <= first.rect.top + first.rect.height * dropBandRatio
+  ) {
+    return {targetRole: first.block.dataset.role, insertBefore: true};
+  }
+
+  for (let index = 1; index < rects.length; index += 1) {
+    const previous = rects[index - 1].rect;
+    const next = rects[index];
+    const lowerBand = previous.bottom - previous.height * dropBandRatio;
+    const upperBand = next.rect.top + next.rect.height * dropBandRatio;
+    if (pointerY >= lowerBand && pointerY <= upperBand) {
+      return {targetRole: next.block.dataset.role, insertBefore: true};
+    }
+  }
+
+  const last = rects[rects.length - 1].rect;
+  if (
+    pointerY >= last.bottom - last.height * dropBandRatio
+    && pointerY <= zoneRect.bottom
+  ) {
+    return {targetRole: "", insertBefore: false};
+  }
+  return null;
+}
+
+function dropChangesOrder(zone, draggedRole, placement) {
+  const targetUnit = zone.dataset.dropUnit || "runtime";
+  const targetRoles = roleOrder.filter((role) => {
+    if (roleLocations[role] !== zone.dataset.dropSlot) return false;
+    if (targetUnit === "robot") return role === "robot";
+    return role !== "robot";
+  });
+  if (roleLocations[draggedRole] !== zone.dataset.dropSlot) return true;
+
+  const withoutDragged = targetRoles.filter((role) => role !== draggedRole);
+  const insertionIndex = placement.targetRole
+    ? withoutDragged.indexOf(placement.targetRole)
+    : withoutDragged.length;
+  withoutDragged.splice(Math.max(0, insertionIndex), 0, draggedRole);
+  return withoutDragged.some((role, index) => role !== targetRoles[index]);
+}
+
+function clearDropPreview() {
+  document.querySelectorAll(".role-block.drop-shift").forEach((block) => {
+    block.classList.remove("drop-shift");
+  });
+  dropPreviewKey = "";
+}
+
+function updateDropPreview(zone, placement, draggedRole) {
+  if (!placement) {
+    clearDropPreview();
+    return;
+  }
+  const key = [
+    zone.dataset.dropSlot,
+    zone.dataset.dropUnit || "runtime",
+    draggedRole,
+    placement.targetRole,
+    placement.insertBefore,
+  ].join(":");
+  if (key === dropPreviewKey) return;
+
+  clearDropPreview();
+  void zone.offsetHeight;
+  const blocks = [...zone.querySelectorAll(".role-block")].filter(
+    (block) => block.dataset.role !== draggedRole,
+  );
+  const insertionIndex = placement.targetRole
+    ? blocks.findIndex((block) => block.dataset.role === placement.targetRole)
+    : blocks.length;
+  blocks.slice(Math.max(0, insertionIndex)).forEach((block) => {
+    block.classList.add("drop-shift");
+  });
+  dropPreviewKey = key;
 }
 
 function setCardActive(slot) {
@@ -501,6 +628,7 @@ function fillHost(slot, host) {
   units.flatMap((unit) => unit.assignments || []).forEach((assignment) => {
     roleLocations[assignment.role] = slot;
     endpointIds[assignment.role] = assignment.endpoint_id;
+    if (!roleOrder.includes(assignment.role)) roleOrder.push(assignment.role);
   });
 }
 
@@ -541,6 +669,7 @@ function isTailscaleAddress(value) {
 function applyTopology(topology) {
   schemaVersion = topology.schema_version;
   applyTopologyMode(topology.topology_mode || "full");
+  roleOrder = [];
   byId("system-id").value = topology.system_id;
   byId("domain-id").value = topology.dds_graph.domain_id;
   byId("discovery").value = topology.dds_graph.discovery_mode;
@@ -556,6 +685,9 @@ function applyTopology(topology) {
     roleLocations.robot = jetsonSlot;
     setCardActive(jetsonSlot);
   }
+  applicationRoles.forEach((role) => {
+    if (!roleOrder.includes(role)) roleOrder.push(role);
+  });
   updateSshVisibility();
   updateWorkflow();
   renderRoleBlocks();
@@ -724,20 +856,42 @@ function bindEvents() {
     if (zone.dataset.dropUnit === "robot") return;
     zone.addEventListener("dragover", (event) => {
       const target = zone.dataset.dropSlot;
-      const role = event.dataTransfer?.getData("text/plain") || "";
+      const role = event.dataTransfer?.getData("text/plain")
+        || document.querySelector(".role-block.dragging")?.dataset.role
+        || "";
       const targetUnit = zone.dataset.dropUnit || "runtime";
       const unitAllowed = targetUnit === "robot" ? role === "robot" : role !== "robot";
-      if (isActive(target) && unitAllowed && canPlaceRole(role, target, {notify: false})) {
+      const placement = dropPlacement(zone, event.clientY, role);
+      const allowed = movableRoles.includes(role)
+        && isActive(target)
+        && unitAllowed
+        && canPlaceRole(role, target, {notify: false});
+      const previewPlacement = allowed && placement && dropChangesOrder(zone, role, placement)
+        ? placement
+        : null;
+      updateDropPreview(zone, previewPlacement, role);
+      if (placement && allowed) {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
       }
     });
     zone.addEventListener("drop", (event) => {
+      const role = event.dataTransfer.getData("text/plain")
+        || document.querySelector(".role-block.dragging")?.dataset.role
+        || "";
+      const placement = dropPlacement(zone, event.clientY, role);
+      if (!placement) {
+        clearDropPreview();
+        return;
+      }
       event.preventDefault();
+      clearDropPreview();
       moveRole(
-        event.dataTransfer.getData("text/plain"),
+        role,
         zone.dataset.dropSlot,
         zone.dataset.dropUnit || "runtime",
+        placement.targetRole,
+        placement.insertBefore,
       );
     });
   });

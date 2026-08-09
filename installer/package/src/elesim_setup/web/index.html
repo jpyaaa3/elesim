@@ -27,9 +27,8 @@
         <li data-step-link="roles"><span>2</span><b data-i18n="step.roles"></b></li>
         <li data-step-link="paths"><span>3</span><b data-i18n="step.paths"></b></li>
         <li data-step-link="compute"><span>4</span><b data-i18n="step.compute"></b></li>
-        <li data-step-link="network"><span>5</span><b data-i18n="step.network"></b></li>
-        <li data-step-link="review"><span>6</span><b data-i18n="step.review"></b></li>
-        <li data-step-link="install"><span>7</span><b data-i18n="step.install"></b></li>
+        <li data-step-link="review"><span>5</span><b data-i18n="step.review"></b></li>
+        <li data-step-link="install"><span>6</span><b data-i18n="step.install"></b></li>
       </ol>
       <div class="host-facts">
         <strong data-i18n="host.detected"></strong>
@@ -109,7 +108,7 @@
             <small data-i18n="paths.bin.help"></small>
           </div>
           <label class="check-row">
-            <input id="register-path" type="checkbox">
+            <input id="register-path" type="checkbox" checked>
             <span>
               <strong data-i18n="paths.register"></strong>
             </span>
@@ -147,130 +146,6 @@
           </div>
         </section>
 
-        <section class="page" data-step="network">
-          <header class="page-heading">
-            <h1 data-i18n="network.title"></h1>
-            <p data-i18n="network.subtitle"></p>
-          </header>
-          <div class="inline-notice" data-i18n="network.manager.help"></div>
-          <div id="connection-manager-fields" hidden>
-          <div class="form-grid">
-            <div class="field">
-              <label for="dds-system-id" data-i18n="dds.system"></label>
-              <input id="dds-system-id" type="text" spellcheck="false">
-            </div>
-            <div class="field">
-              <label for="dds-domain-id" data-i18n="dds.domain"></label>
-              <input id="dds-domain-id" type="number" min="0" max="232">
-            </div>
-            <div class="field">
-              <label for="dds-rmw" data-i18n="dds.rmw"></label>
-              <select id="dds-rmw">
-                <option value="rmw_cyclonedds_cpp">rmw_cyclonedds_cpp</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="dds-interface" data-i18n="dds.interface"></label>
-              <input id="dds-interface" type="text" spellcheck="false">
-            </div>
-          </div>
-
-          <fieldset>
-            <legend data-i18n="dds.discovery"></legend>
-            <div class="choice-list">
-              <label class="choice">
-                <input type="radio" name="dds-discovery-mode" value="multicast" checked>
-                <span><strong data-i18n="dds.discovery.multicast"></strong><small data-i18n="dds.discovery.multicast.help"></small></span>
-              </label>
-              <label class="choice">
-                <input type="radio" name="dds-discovery-mode" value="static">
-                <span><strong data-i18n="dds.discovery.static"></strong><small data-i18n="dds.discovery.static.help"></small></span>
-              </label>
-            </div>
-            <div id="dds-static-fields" class="field" hidden>
-              <label for="dds-static-peers" data-i18n="dds.peers"></label>
-              <input id="dds-static-peers" type="text" spellcheck="false">
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend data-i18n="dds.security"></legend>
-            <div class="choice-list">
-              <label class="choice danger">
-                <input type="radio" name="dds-security-profile" value="trusted-network">
-                <span><strong data-i18n="dds.security.trusted"></strong><small data-i18n="dds.security.trusted.help"></small></span>
-              </label>
-              <label class="choice">
-                <input type="radio" name="dds-security-profile" value="sros2" checked>
-                <span><strong data-i18n="dds.security.sros2"></strong><small data-i18n="dds.security.sros2.help"></small></span>
-              </label>
-            </div>
-          </fieldset>
-
-          <div id="sros2-fields" class="subsection" hidden>
-            <fieldset>
-              <legend data-i18n="dds.provisioning"></legend>
-              <div class="choice-list">
-                <label class="choice">
-                  <input type="radio" name="dds-security-provisioning" value="managed" checked>
-                  <span><strong data-i18n="dds.provisioning.managed"></strong><small data-i18n="dds.provisioning.managed.help"></small></span>
-                </label>
-                <label class="choice">
-                  <input type="radio" name="dds-security-provisioning" value="external">
-                  <span><strong data-i18n="dds.provisioning.external"></strong><small data-i18n="dds.provisioning.external.help"></small></span>
-                </label>
-              </div>
-            </fieldset>
-            <div id="sros2-external-fields" hidden>
-              <div class="field">
-                <label for="dds-keystore" data-i18n="dds.keystore"></label>
-                <div class="input-action">
-                  <input id="dds-keystore" type="text" spellcheck="false">
-                  <button type="button" class="secondary" data-browse="dds-keystore" data-i18n="action.browse"></button>
-                </div>
-              </div>
-              <div class="field">
-                <label for="dds-enclave" data-i18n="dds.enclave"></label>
-                <input id="dds-enclave" type="text" spellcheck="false">
-              </div>
-            </div>
-          </div>
-
-          <details class="subsection">
-            <summary data-i18n="ssh.admin.title"></summary>
-            <small data-i18n="ssh.admin.help"></small>
-            <div class="form-grid">
-              <div class="field"><label for="ssh-host" data-i18n="ssh.host"></label><input id="ssh-host" type="text"></div>
-              <div class="field"><label for="ssh-port" data-i18n="ssh.port"></label><input id="ssh-port" type="number" value="22" min="1" max="65535"></div>
-              <div class="field"><label for="ssh-user" data-i18n="ssh.user"></label><input id="ssh-user" type="text"></div>
-              <div class="field"><label for="ssh-remote-root" data-i18n="ssh.remote.root"></label><input id="ssh-remote-root" type="text"></div>
-            </div>
-            <div class="field">
-              <label for="ssh-key" data-i18n="ssh.key"></label>
-              <div class="input-action">
-                <input id="ssh-key" type="text" spellcheck="false">
-                <button type="button" class="secondary" data-browse="ssh-key" data-i18n="action.browse"></button>
-              </div>
-            </div>
-            <div class="fingerprint-row">
-              <button id="ssh-probe" type="button" class="secondary" data-i18n="ssh.probe"></button>
-              <code id="ssh-fingerprint" data-i18n="ssh.not.checked"></code>
-            </div>
-          </details>
-          </div>
-
-          <fieldset id="turn-section">
-            <legend data-i18n="turn.title"></legend>
-            <small data-i18n="turn.managed.help"></small>
-            <div id="turn-fields" class="form-grid">
-              <div class="field wide"><label for="turn-url" data-i18n="turn.url"></label><input id="turn-url" type="text" spellcheck="false"></div>
-              <div id="turn-realm-row" class="field"><label for="turn-realm" data-i18n="turn.realm"></label><input id="turn-realm" type="text"></div>
-              <div id="turn-public-row" class="field"><label for="turn-public-host" data-i18n="turn.public"></label><input id="turn-public-host" type="text"></div>
-              <div id="turn-secret-row" class="field"><label for="turn-secret-file" data-i18n="turn.secret"></label><input id="turn-secret-file" type="text"></div>
-            </div>
-          </fieldset>
-        </section>
-
         <section class="page" data-step="review">
           <header class="page-heading">
             <h1 data-i18n="review.title"></h1>
@@ -301,10 +176,7 @@
             </div>
             <div id="post-install-command-row" class="command-row">
               <div>
-                <code id="post-install-command">source ~/.bashrc
-if [ "$(docker inspect -f '{{.State.Running}}' elesim-manager 2&gt;/dev/null)" = false ]; then docker rm elesim-manager; fi
-elesim-connections</code>
-                <small data-i18n="complete.manager.cleanup.help"></small>
+                <code id="post-install-command">elesim-connections</code>
               </div>
               <button type="button" class="secondary copy-command" data-copy-target="post-install-command" data-i18n="action.copy"></button>
             </div>

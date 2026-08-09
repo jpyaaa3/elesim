@@ -227,6 +227,26 @@ def test_managed_turn_is_sim_owned_and_requires_sros2(tmp_path: Path) -> None:
         SetupRequest.from_dict(payload).validate(_capabilities())
 
 
+def test_managed_turn_endpoint_can_be_pending_for_new_sim_install(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    payload.update(
+        {
+            "turn_mode": "managed",
+            "turn_url": "",
+            "turn_realm": "elesim.local",
+            "turn_public_host": "",
+            "dds_security_profile": "sros2",
+            "dds_security_provisioning": "managed",
+        }
+    )
+
+    request = SetupRequest.from_dict(payload).validate(_capabilities())
+
+    assert request.to_install_state().managed_turn_pending is True
+
+
 def test_external_turn_credentials_are_required_only_on_sim_host(
     tmp_path: Path,
 ) -> None:

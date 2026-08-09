@@ -591,6 +591,10 @@ owned by the Sim installation rather than represented as a connection-manager
 card or topology field; the manager reads its non-secret runtime endpoint from
 `elesim-net show` when SROS2 is active and clears it for trusted-network use.
 
+The retired wizard section and its compatibility boundary are recorded as a
+temporary design placeholder in
+`docs/design/installer_network_security_placeholder.md`.
+
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of
 them. Uploaded files are checked against their bundle SHA-256 values. The GUI
@@ -663,17 +667,15 @@ python3 -m elesim_setup.cli \
   --gpu-mode inherit \
   --dds-security-profile sros2 \
   --dds-security-provisioning managed \
-  --turn-mode managed \
-  --turn-public-host sim.example.com \
-  --turn-realm sim.example.com \
-  --turn-url 'turn:sim.example.com:3478?transport=udp'
+  --turn-mode managed
 ```
 
 `--dry-run` validates and prints the plan without writing runtime files.
 With `--dds-security-provisioning external`, credentials must already be
 provisioned. `managed` creates a pending, non-runnable General installation;
-connection-manager SSH preflight, Authority issuance and all-host rollout still
-occur explicitly through `elesim-connections` rather than inside installation.
+the connection manager derives the Sim relay endpoint from the saved topology,
+then performs SSH preflight, Authority issuance and all-host rollout through
+`elesim-connections` rather than inside installation.
 
 ## Address Reconfiguration
 

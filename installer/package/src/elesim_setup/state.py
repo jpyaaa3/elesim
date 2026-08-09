@@ -257,7 +257,12 @@ class TurnSettings:
         if self.mode == "managed":
             if not realm:
                 raise ValueError("managed TURN에는 realm이 필요합니다")
-            _validate_connect_host(public_host, name="TURN public hostname/IP")
+            # A new general install deliberately leaves the endpoint empty.
+            # The connection manager fills it from the Sim host's current
+            # advertised address after the topology is saved.  Once a URL is
+            # present, InstallState.validate requires the public host too.
+            if public_host:
+                _validate_connect_host(public_host, name="TURN public hostname/IP")
             if not secret_file:
                 raise ValueError("managed TURN에는 secret file 경로가 필요합니다")
             if credential_file:
@@ -360,7 +365,20 @@ class InstallState:
         if self.turn.mode == "none" and has_turn_urls:
             raise ValueError("TURN URL에는 managed 또는 external TURN 모드가 필요합니다")
         if self.turn.mode != "none" and not has_turn_urls:
-            raise ValueError(f"{self.turn.mode} TURN 모드에는 TURN URL이 필요합니다")
+            if not self.managed_turn_pending:
+                raise ValueError(f"{self.turn.mode} TURN 모드에는 TURN URL이 필요합니다")
+        if (
+            self.turn.mode == "managed"
+            and has_turn_urls
+            and not self.turn.public_host.strip()
+        ):
+            raise ValueError("configured managed TURN에는 public host가 필요합니다")
+        if (
+            self.turn.mode == "managed"
+            and not has_turn_urls
+            and self.turn.public_host.strip()
+        ):
+            raise ValueError("pending managed TURN에는 public host를 미리 지정할 수 없습니다")
         if self.turn.managed and "sim" not in self.roles:
             raise ValueError(
                 "managed Coturn은 Sim가 설치되는 호스트에서만 사용할 수 있습니다"
@@ -381,6 +399,17 @@ class InstallState:
                 "배포할 수 있습니다"
             )
         return self
+
+    @property
+    def managed_turn_pending(self) -> bool:
+        """Whether the Sim-owned relay awaits a manager-selected endpoint."""
+
+        return (
+            self.turn.mode == "managed"
+            and "sim" in self.roles
+            and not self.network.turn_urls
+            and not self.turn.public_host.strip()
+        )
 
     def require_installable_dds(self) -> "InstallState":
         """Validate artifacts that can be generated before managed provisioning."""

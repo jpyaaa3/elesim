@@ -161,9 +161,10 @@ input[readonly] { background: #f2f4f3; color: #4f5c56; }
 .drop-zone:empty::after { display: grid; min-height: 122px; place-items: center; border: 1px dashed #b7c4bd; border-radius: 6px; color: #849188; content: "Drag & Drop"; }
 .robot-lane .drop-zone:empty::after { border-color: #b2a5ca; background: #fbf9ff; }
 .fixed-zone { background: #fbf9ff; }
-.role-block { margin-bottom: 8px; border: 1px solid #8caecc; border-left: 6px solid var(--accent); border-radius: 5px; padding: 8px 9px; background: #e8f1fc; cursor: grab; box-shadow: 0 2px 4px rgb(25 27 32 / 8%); }
+.role-block { margin-bottom: 8px; border: 1px solid #8caecc; border-left: 6px solid var(--accent); border-radius: 5px; padding: 8px 9px; background: #e8f1fc; cursor: grab; box-shadow: 0 2px 4px rgb(25 27 32 / 8%); transition: transform 140ms ease; }
 .role-block:last-child { margin-bottom: 0; }
 .role-block.dragging { opacity: .5; }
+.role-block.drop-shift { transform: translateY(12px); }
 .role-block strong { display: block; margin-bottom: 6px; }
 .role-block label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; }
 .role-block label span { display: inline; margin: 0; font-size: var(--font-small); }

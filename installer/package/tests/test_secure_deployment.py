@@ -1021,6 +1021,26 @@ def test_managed_turn_secret_must_stay_under_sim_install_root() -> None:
         _managed_turn_from_state(state, host)
 
 
+def test_pending_managed_turn_uses_current_sim_address() -> None:
+    host = _topology().host("server")
+    state = {
+        "network": {"turn_urls": []},
+        "turn": {
+            "mode": "managed",
+            "realm": "elesim.local",
+            "public_host": "",
+            "secret_file": "/opt/elesim/secrets/turn.secret",
+        },
+    }
+
+    assert _managed_turn_from_state(state, host) == {
+        "turn_url": "turn:100.64.0.2:3478?transport=udp",
+        "turn_realm": "elesim.local",
+        "turn_public_host": "100.64.0.2",
+        "turn_secret_file": "/opt/elesim/secrets/turn.secret",
+    }
+
+
 def test_runtime_doctor_requests_strict_peer_json() -> None:
     class DoctorSession:
         def __init__(self) -> None:

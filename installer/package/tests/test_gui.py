@@ -28,6 +28,9 @@ def _capabilities() -> HostCapabilities:
 def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     root = web_root()
     catalog = json.loads((root / "i18n.json").read_text(encoding="utf-8"))
+    html = (root / "index.html").read_text(encoding="utf-8")
+    script = (root / "app.js").read_text(encoding="utf-8")
+    style = (root / "style.css").read_text(encoding="utf-8")
 
     assert (root / "index.html").is_file()
     assert (root / "app.js").is_file()
@@ -38,7 +41,7 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "mode.developer" in catalog["ko"]
     assert catalog["ko"]["mode.general"] == "일반 사용자"
     assert catalog["ko"]["mode.developer"] == "개발자"
-    for section in ("mode", "roles", "paths", "compute", "network", "review", "install"):
+    for section in ("mode", "roles", "paths", "compute", "review", "install"):
         assert catalog["ko"][f"step.{section}"] == catalog["ko"][f"{section}.title"]
         assert catalog["en"][f"step.{section}"] == catalog["en"][f"{section}.title"]
     assert catalog["en"]["mode.developer.help"] == (
@@ -52,21 +55,24 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert catalog["en"]["app.title"] == "Elesim Install Wizard"
     assert 'data-i18n="app.title"' in html
     assert not any(key.startswith("uninstall.") for key in catalog["ko"])
+    assert not any(
+        key.startswith(("network.", "dds.", "ssh.", "turn."))
+        for key in catalog["ko"]
+    )
 
-    script = (root / "app.js").read_text(encoding="utf-8")
-    html = (root / "index.html").read_text(encoding="utf-8")
-    style = (root / "style.css").read_text(encoding="utf-8")
-    assert 'byId("dds-domain-id").value = context.defaults.dds_domain_id;' in script
-    assert '"dds-security-profile"' in script
-    assert '"dds-security-provisioning"' in script
+    assert 'const steps = ["mode", "roles", "paths", "compute", "review", "install"];' in script
+    assert '"dds-security-profile"' not in script
+    assert '"dds-security-provisioning"' not in script
     assert 'const roleOrder = ["sim", "pilot", "ui", "robot"];' in script
-    assert 'id="connection-manager-fields" hidden' in html
-    assert 'data-i18n="network.manager.help"' in html
+    assert 'data-step="network"' not in html
+    assert 'data-step-link="network"' not in html
+    assert 'data-i18n="network.manager.help"' not in html
     assert 'id="post-install-command"' in html
-    assert "source ~/.bashrc" in html
-    assert "elesim-connections" in html
-    assert "complete.manager.cleanup.help" in html
-    assert "complete.manager.cleanup.help" in catalog["ko"]
+    assert "source ~/.bashrc" in script
+    assert 'id="register-path" type="checkbox" checked' in html
+    assert ".command-row code" in style and "white-space: pre-wrap;" in style
+    assert "elesim-connections</code>" in html
+    assert '`${startCommand} && source ~/.bashrc && ${managerCleanup}`' in script
     assert 'const defaultGeneralRoles = ["sim", "pilot", "ui"];' in script
     assert "data-preset" not in script
     assert "applyPreset" not in script
@@ -74,8 +80,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert not any(key.startswith("roles.preset.") for key in catalog["ko"])
     assert '"turn-credential-file"' not in script
     assert 'name="turn-mode"' not in html
-    assert 'data-i18n="turn.managed.help"' in html
+    assert 'data-i18n="turn.managed.help"' not in html
     assert 'data-i18n="turn.external"' not in html
+    assert 'id="turn-section"' not in html
     assert 'runtime_text_logs: {' in script
     assert 'byId("runtime-text-logs").checked' in script
     assert "router-host" not in script
@@ -87,6 +94,8 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "/api/uninstall/guide" not in script
     assert 'byId("close-installer").hidden = !atInstall;' in script
     assert 'id="close-installer"' in html and 'data-i18n="action.close" hidden disabled' in html
+    assert "grid-template-columns: 120px minmax(0, 1fr) 120px;" in style
+    assert ".navigation > #next-button,\n.navigation > #close-installer" in style
     assert ".choice:has(> input:checked)," in style
     assert ".choice:has(> .choice-radio > input:checked)" in style
 

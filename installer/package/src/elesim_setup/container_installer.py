@@ -583,10 +583,14 @@ class ContainerInstaller:
         command = (
             'secret="$$(cat /run/secrets/turn.secret)"; '
             'test -n "$$secret"; '
+            'external_ip_arg=""; '
+            'if [ -n "$$TURN_PUBLIC_IP" ]; then '
+            'external_ip_arg="--external-ip=$$TURN_PUBLIC_IP"; '
+            'fi; '
             "exec turnserver -n --log-file=stdout --fingerprint "
             "--use-auth-secret --no-multicast-peers --no-tls --no-dtls "
             "--min-port=49160 --max-port=49200 "
-            '--realm="$$TURN_REALM" --external-ip="$$TURN_PUBLIC_IP" '
+            '--realm="$$TURN_REALM" $$external_ip_arg '
             '--static-auth-secret="$$secret"'
         )
         return {

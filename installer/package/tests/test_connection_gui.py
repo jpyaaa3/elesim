@@ -215,6 +215,19 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-drop-unit="runtime"' in html
     assert 'data-drop-unit="robot"' in html
     assert "dragstart" in script and "dataTransfer" in script
+    assert "let roleOrder = [...applicationRoles];" in script
+    assert "function insertRoleInOrder" in script
+    assert "roleOrder.splice(insertionIndex, 0, role);" in script
+    assert "const dropBandRatio = 0.5;" in script
+    assert "function dropPlacement(zone, pointerY, draggedRole = \"\")" in script
+    assert "previous.bottom - previous.height * dropBandRatio" in script
+    assert "next.rect.top + next.rect.height * dropBandRatio" in script
+    assert "function dropChangesOrder(zone, draggedRole, placement)" in script
+    assert "const previewPlacement = allowed && placement && dropChangesOrder" in script
+    assert "function updateDropPreview(zone, placement, draggedRole)" in script
+    assert "block.classList.add(\"drop-shift\")" in script
+    assert ".role-block.drop-shift { transform: translateY(12px); }" in style
+    assert "targetRole," in script
     assert 'roleLocations.robot = "robot"' in script
     assert 'sim: "sim-default"' in script
     assert 'robot: "robot-go2"' in script

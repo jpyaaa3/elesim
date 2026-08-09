@@ -843,8 +843,10 @@ def _managed_turn_from_state(
     """Read the non-secret managed TURN endpoint from the Sim installation.
 
     Coturn is a Sim-owned service.  The connection topology therefore does
-    not store its URL, realm, public host, or secret path; the installed
-    ``elesim-net show`` state remains the authority for those values.
+    not store its URL, realm, public host, or secret path.  A freshly installed
+    managed relay has an empty URL/public host; in that one pending state the
+    manager derives the endpoint from the Sim host's current DDS address and
+    writes the completed value back through ``elesim-net configure``.
     """
 
     network = state.get("network")
@@ -881,6 +883,13 @@ def _managed_turn_from_state(
                 continue
             secret_is_contained = True
             break
+    if mode == "managed" and not urls and not public_host:
+        # Fresh general installs intentionally have no mutable relay endpoint.
+        # The topology owns the current Sim address, so derive the endpoint at
+        # the manager boundary and persist it through ``elesim-net configure``.
+        public_host = host.dds.address
+        url_host = f"[{public_host}]" if ":" in public_host else public_host
+        urls = (f"turn:{url_host}:3478?transport=udp",)
     if (
         mode != "managed"
         or len(urls) != 1

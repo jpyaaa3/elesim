@@ -141,6 +141,32 @@ def test_container_managed_turn_uses_sim_owned_secret_mount_path(
     )
 
 
+def test_pending_managed_turn_omits_runtime_credentials_until_manager_configures_it(
+    local_state,
+    tmp_path,
+) -> None:
+    state = local_state(
+        roles=("sim",),
+        install_mode="container",
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+        turn=TurnSettings(
+            mode="managed",
+            realm="elesim.local",
+            secret_file=str(tmp_path / "turn.secret"),
+        ),
+    )
+    copy_role_configs(state)
+
+    sim = _load(generate_role_configs(state)["sim"])
+
+    # Coturn is installed with the Sim role, but the manager must first choose
+    # the current advertised address before Sim receives a usable relay config.
+    assert sim["turn"] == {"urls": []}
+
+
 def test_container_external_turn_mounts_credentials_only_into_sim(
     local_state,
     tmp_path,

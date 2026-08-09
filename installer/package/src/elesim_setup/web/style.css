@@ -691,11 +691,13 @@ fieldset legend {
 }
 
 .command-row code {
+  display: block;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 10px;
   background: var(--surface);
+  white-space: pre-wrap;
   user-select: text;
 }
 
@@ -703,12 +705,18 @@ fieldset legend {
   position: sticky;
   bottom: 0;
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 120px 120px;
+  grid-template-columns: 120px minmax(0, 1fr) 120px;
   align-items: center;
   border-top: 1px solid var(--line);
   padding: 12px 28px;
   background: rgb(255 255 255 / 96%);
   box-shadow: 0 -1px 4px rgb(25 27 32 / 5%);
+}
+
+.navigation > #next-button,
+.navigation > #close-installer {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .navigation span {
@@ -845,7 +853,7 @@ dialog h2 {
   }
 
   .navigation {
-    grid-template-columns: 92px minmax(0, 1fr) 100px 92px;
+    grid-template-columns: 92px minmax(0, 1fr) 100px;
     padding: 10px 14px;
   }
 }

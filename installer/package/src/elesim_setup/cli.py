@@ -228,19 +228,13 @@ def run_wizard(
         and "sim" in roles
         and security_profile == "sros2"
     ):
-        # SROS2 Sim owns the managed WebRTC relay.  Trusted-network Sim uses
+        # SROS2 Sim owns the managed WebRTC relay.  The endpoint is deliberately
+        # left pending here; elesim-connections derives it from the current Sim
+        # host address after the topology is saved.  Trusted-network Sim uses
         # direct ICE and deliberately emits no Coturn service or credentials.
-        public_host = _ask("Coturn public hostname/IP", "", input_fn=input_fn)
-        turn_url = _ask(
-            "TURN URL",
-            f"turn:{public_host}:3478?transport=udp" if public_host else "",
-            input_fn=input_fn,
-        )
-        turn_urls = (turn_url,)
         turn = TurnSettings(
             mode="managed",
             realm=_ask("TURN realm", "elesim.local", input_fn=input_fn),
-            public_host=public_host,
             secret_file=str(prefix / "secrets/turn.secret"),
         )
 
@@ -325,10 +319,6 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
                 "SROS2 Sim 설치는 Coturn을 포함한 managed TURN만 지원합니다"
             )
         turn_mode = "managed"
-        if not turn_urls:
-            raise ValueError(
-                "Sim 설치에는 Coturn public hostname/IP와 --turn-url이 필요합니다"
-            )
         if args.dds_security_profile != "sros2":
             raise ValueError(
                 "Sim에 포함되는 Coturn은 SROS2 보안 profile과 함께 사용해야 합니다"
@@ -380,7 +370,11 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
         ),
         turn=TurnSettings(
             mode=turn_mode,
-            realm=args.turn_realm,
+            realm=(
+                args.turn_realm
+                if args.turn_realm
+                else "elesim.local" if turn_mode == "managed" else ""
+            ),
             public_host=args.turn_public_host,
             secret_file=secret_file,
             credential_file=getattr(args, "turn_credential_file", ""),

@@ -290,7 +290,11 @@ def _sim_config(state: InstallState, source: Path) -> dict[str, Any]:
     raw.pop("security", None)
     turn = dict(raw.get("turn") or {})
     turn["urls"] = list(state.network.turn_urls)
-    if state.turn.managed and state.turn.secret_path is not None:
+    if (
+        state.turn.managed
+        and state.network.turn_urls
+        and state.turn.secret_path is not None
+    ):
         turn["realm"] = state.turn.realm
         turn["static_auth_secret_file"] = (
             "/run/secrets/turn.secret"

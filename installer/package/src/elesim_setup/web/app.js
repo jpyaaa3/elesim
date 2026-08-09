@@ -7,7 +7,7 @@ if (query.get("token")) {
 }
 
 const token = sessionStorage.getItem("elesimSetupToken") || "";
-const steps = ["mode", "roles", "paths", "compute", "network", "review", "install"];
+const steps = ["mode", "roles", "paths", "compute", "review", "install"];
 const roleOrder = ["sim", "pilot", "ui", "robot"];
 // The initial selection is only a convenience; every role remains an explicit
 // checkbox and can be changed independently by the operator.
@@ -18,7 +18,6 @@ let language = "ko";
 let context = null;
 let currentStep = 0;
 let pollTimer = null;
-let acceptedFingerprint = "";
 let browseTarget = "";
 let browseMode = "directory";
 let selectedFile = "";
@@ -123,21 +122,6 @@ function updateMode() {
   byId("runtime-text-logs").disabled = developer;
   byId("general-roles").hidden = developer;
   byId("developer-roles").hidden = !developer;
-  if (developer) {
-    byId("dds-system-id").value = context.defaults.dds_system_id;
-    byId("dds-domain-id").value = context.defaults.dds_domain_id;
-    byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
-    document.querySelector('input[name="dds-discovery-mode"][value="multicast"]').checked = true;
-    document.querySelector(
-      `input[name="dds-security-profile"][value="${context.defaults.dds_security_profile}"]`
-    ).checked = true;
-    byId("dds-static-peers").value = "";
-    byId("dds-interface").value = "";
-    byId("dds-keystore").value = "";
-    byId("dds-enclave").value = "";
-    document.querySelector('input[name="dds-security-provisioning"][value="external"]').checked = true;
-    acceptedFingerprint = "";
-  }
   byId("prefix-help").textContent = t("paths.prefix.help");
   updateConditionalControls();
 }
@@ -149,86 +133,48 @@ function hasSim() {
 function updateConditionalControls() {
   const gpuMode = checkedValue("gpu-mode");
   byId("gpu-device-row").hidden = gpuMode !== "specific";
-
-  const staticDiscovery = checkedValue("dds-discovery-mode") === "static";
-  byId("dds-static-fields").hidden = !staticDiscovery;
-  const developer = checkedValue("edition") === "developer";
-  const sim = hasSim();
-  const sros2 = checkedValue("dds-security-profile") === "sros2";
-  const turnMode = sim && !developer && sros2 ? "managed" : "none";
-  byId("sros2-fields").hidden = !sros2;
-  const managedProvisioning = document.querySelector(
-    'input[name="dds-security-provisioning"][value="managed"]'
-  );
-  managedProvisioning.disabled = developer;
-  if (developer && managedProvisioning.checked) {
-    document.querySelector(
-      'input[name="dds-security-provisioning"][value="external"]'
-    ).checked = true;
-  }
-  const provisioning = checkedValue("dds-security-provisioning") || "managed";
-  byId("sros2-external-fields").hidden = !sros2 || provisioning !== "external";
-
-  byId("turn-section").hidden = developer || !sim || !sros2;
-  byId("turn-fields").hidden = turnMode === "none";
-  byId("turn-realm-row").hidden = turnMode !== "managed";
-  byId("turn-public-row").hidden = turnMode !== "managed";
-  byId("turn-secret-row").hidden = turnMode !== "managed";
-  if (turnMode === "managed") {
-    if (!byId("turn-realm").value) byId("turn-realm").value = "elesim.local";
-    if (!byId("turn-secret-file").value) {
-      byId("turn-secret-file").value = `${byId("prefix").value.trim()}/secrets/turn.secret`;
-    }
-    if (!byId("turn-url").value && byId("turn-public-host").value.trim()) {
-      byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
-    }
-  }
 }
 
 function payload() {
   const edition = checkedValue("edition") || "general";
-  const securityProfile = checkedValue("dds-security-profile") || "trusted-network";
-  const securityProvisioning = securityProfile === "sros2"
-    ? (checkedValue("dds-security-provisioning") || "managed")
-    : "none";
+  const defaults = context.defaults;
+  // Endpoint, discovery and security choices belong to elesim-connections.
+  // The installer emits only the manager-owned baseline and a pending managed
+  // TURN record for a Sim host; no mutable host address is guessed here.
+  const securityProfile = edition === "developer"
+    ? "trusted-network"
+    : (defaults.dds_security_profile || "sros2");
+  const securityProvisioning = edition === "developer"
+    ? "none"
+    : (defaults.dds_security_provisioning || "managed");
   const turnMode = edition === "general" && hasSim() && securityProfile === "sros2"
     ? "managed" : "none";
+  const prefix = byId("prefix").value.trim();
   return {
     language,
     edition,
     roles: edition === "general" ? selectedRoles() : [],
-    prefix: byId("prefix").value.trim(),
+    prefix,
     bin_dir: byId("bin-dir").value.trim(),
     source_root: "",
     gpu_mode: checkedValue("gpu-mode") || "inherit",
     gpu_device: checkedValue("gpu-mode") === "specific" ? byId("gpu-device").value : "",
-    dds_system_id: byId("dds-system-id").value.trim(),
-    dds_domain_id: Number(byId("dds-domain-id").value),
-    dds_rmw_implementation: byId("dds-rmw").value,
-    dds_discovery_mode: checkedValue("dds-discovery-mode") || "multicast",
-    dds_static_peers: checkedValue("dds-discovery-mode") === "static"
-      ? byId("dds-static-peers").value.trim()
-      : "",
-    dds_interface: byId("dds-interface").value.trim(),
+    dds_system_id: defaults.dds_system_id || "elesim",
+    dds_domain_id: Number(defaults.dds_domain_id || 0),
+    dds_rmw_implementation: defaults.dds_rmw_implementation || "rmw_cyclonedds_cpp",
+    dds_discovery_mode: defaults.dds_discovery_mode || "multicast",
+    dds_static_peers: "",
+    dds_interface: "",
     dds_security_profile: securityProfile,
     dds_security_provisioning: securityProvisioning,
-    dds_keystore: securityProfile === "sros2" && securityProvisioning === "external"
-      ? byId("dds-keystore").value.trim() : "",
-    dds_enclave: securityProfile === "sros2" && securityProvisioning === "external"
-      ? byId("dds-enclave").value.trim() : "",
-    ssh: {
-      host: byId("ssh-host").value.trim(),
-      port: Number(byId("ssh-port").value),
-      user: byId("ssh-user").value.trim(),
-      remote_root: byId("ssh-remote-root").value.trim(),
-      identity_file: byId("ssh-key").value.trim(),
-      accepted_fingerprint: acceptedFingerprint
-    },
+    dds_keystore: "",
+    dds_enclave: "",
+    ssh: {},
     turn_mode: turnMode,
-    turn_url: turnMode === "none" ? "" : byId("turn-url").value.trim(),
-    turn_realm: turnMode === "managed" ? byId("turn-realm").value.trim() : "",
-    turn_public_host: turnMode === "managed" ? byId("turn-public-host").value.trim() : "",
-    turn_secret_file: turnMode === "managed" ? byId("turn-secret-file").value.trim() : "",
+    turn_url: "",
+    turn_realm: turnMode === "managed" ? "elesim.local" : "",
+    turn_public_host: "",
+    turn_secret_file: turnMode === "managed" ? `${prefix}/secrets/turn.secret` : "",
     turn_credential_file: "",
     register_path: byId("register-path").checked,
     runtime_text_logs: {
@@ -278,9 +224,7 @@ async function prepareReview() {
     description.textContent = value;
     list.append(term, description);
   });
-  const warning = byId("review-warning");
-  warning.hidden = summary.security_profile !== "trusted-network";
-  warning.textContent = t("dds.security.trusted.help");
+  byId("review-warning").hidden = true;
 }
 
 function updateStep() {
@@ -303,17 +247,11 @@ async function nextStep() {
   try {
     setError("");
     validateCurrentStep();
-    if (
-      checkedValue("edition") === "developer"
-      && steps[currentStep] === "compute"
-    ) {
+    if (steps[currentStep] === "compute") {
       await prepareReview();
       currentStep = steps.indexOf("review");
       updateStep();
       return;
-    }
-    if (steps[currentStep] === "network") {
-      await prepareReview();
     }
     if (steps[currentStep] === "review") {
       currentStep = steps.indexOf("install");
@@ -330,14 +268,7 @@ async function nextStep() {
 
 function previousStep() {
   if (currentStep > 0) {
-    if (
-      checkedValue("edition") === "developer"
-      && steps[currentStep] === "review"
-    ) {
-      currentStep = steps.indexOf("compute");
-    } else {
-      currentStep -= 1;
-    }
+    currentStep -= 1;
     updateStep();
   }
 }
@@ -374,11 +305,18 @@ async function pollJob() {
       byId("install-status").textContent = t("install.completed");
       byId("completion").hidden = false;
       const pendingManaged = checkedValue("edition") === "general"
-        && checkedValue("dds-security-profile") === "sros2"
-        && checkedValue("dds-security-provisioning") === "managed";
-      byId("start-command").textContent = `${byId("bin-dir").value.trim()}/${
-        pendingManaged ? "elesim-connections" : "elesim-up"
-      }`;
+        && hasSim();
+      const binDir = byId("bin-dir").value.trim();
+      const startCommand = `${binDir}/${pendingManaged ? "elesim-connections" : "elesim-up"}`;
+      if (pendingManaged) {
+        const managerCleanup =
+          'if [ "$(docker inspect -f \'{{.State.Running}}\' elesim-manager 2>/dev/null)" = false ]; then docker rm elesim-manager; fi';
+        byId("start-command").textContent =
+          `${startCommand} && source ~/.bashrc && ${managerCleanup}`;
+      } else {
+        byId("start-command").textContent = startCommand;
+      }
+      byId("post-install-command").textContent = "elesim-connections";
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);
       byId("cancel-install").disabled = true;
@@ -453,34 +391,12 @@ async function loadDirectory(path, allowParentFallback = false) {
   }
 }
 
-async function probeSsh() {
-  acceptedFingerprint = "";
-  try {
-    const response = await api("/api/ssh/fingerprint", {
-      method: "POST",
-      body: JSON.stringify({
-        host: byId("ssh-host").value.trim(),
-        port: Number(byId("ssh-port").value)
-      })
-    });
-    const prompt = language === "ko"
-      ? `다음 SSH 호스트 fingerprint를 신뢰합니까?\n${response.fingerprint}`
-      : `Trust this SSH host fingerprint?\n${response.fingerprint}`;
-    if (window.confirm(prompt)) {
-      acceptedFingerprint = response.fingerprint;
-      byId("ssh-fingerprint").textContent = response.fingerprint;
-    }
-  } catch (error) {
-    setError(error);
-  }
-}
-
 function initializeEvents() {
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.addEventListener("click", () => applyLanguage(button.dataset.language));
   });
   document.querySelectorAll('input[name="edition"]').forEach((input) => input.addEventListener("change", updateMode));
-  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="dds-security-provisioning"]')
+  document.querySelectorAll('input[name="gpu-mode"]')
     .forEach((input) => input.addEventListener("change", updateConditionalControls));
   document.querySelectorAll("[data-browse]").forEach((button) => {
     button.addEventListener("click", () => openBrowser(button.dataset.browse));
@@ -499,13 +415,9 @@ function initializeEvents() {
     }
   });
   document.querySelectorAll(".copy-command").forEach((button) => {
-    button.addEventListener("click", () => copyText(byId(button.dataset.copyTarget).textContent));
-  });
-  byId("ssh-probe").addEventListener("click", probeSsh);
-  byId("turn-public-host").addEventListener("input", () => {
-    if (hasSim() && checkedValue("edition") !== "developer") {
-      byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
-    }
+    button.addEventListener("click", () => copyText(
+      byId(button.dataset.copyTarget).textContent.trim()
+    ));
   });
   byId("browse-close").addEventListener("click", () => byId("directory-dialog").close());
   byId("browse-cancel").addEventListener("click", () => byId("directory-dialog").close());
@@ -532,21 +444,6 @@ async function initialize() {
     language = navigator.language.toLowerCase().startsWith("ko") ? "ko" : "en";
     byId("prefix").value = context.defaults.prefix;
     byId("bin-dir").value = context.defaults.bin_dir;
-    byId("dds-system-id").value = context.defaults.dds_system_id;
-    byId("dds-domain-id").value = context.defaults.dds_domain_id;
-    byId("dds-rmw").value = context.defaults.dds_rmw_implementation;
-    byId("dds-interface").value = context.defaults.dds_interface;
-    byId("dds-static-peers").value = context.defaults.dds_static_peers;
-    const securityProfile = document.querySelector(
-      `input[name="dds-security-profile"][value="${context.defaults.dds_security_profile}"]`
-    );
-    if (securityProfile) securityProfile.checked = true;
-    document.querySelector(
-      `input[name="dds-security-provisioning"][value="${context.defaults.dds_security_provisioning}"]`
-    ).checked = true;
-    byId("dds-keystore").value = context.defaults.dds_keystore;
-    byId("dds-enclave").value = context.defaults.dds_enclave;
-    byId("ssh-remote-root").value = context.defaults.prefix;
     byId("host-summary").textContent =
       `${context.capabilities.os_id || "Linux"} ${context.capabilities.os_version || ""} · ${context.capabilities.architecture}`;
     const gpu = byId("gpu-device");
