@@ -34,6 +34,7 @@ from elesim_setup.secure_deployment import (
     TopologyRollout,
     _command_timeout,
     _lifecycle_command,
+    _managed_turn_from_state,
     _ParamikoSession,
     ssh_sha256_fingerprint,
 )
@@ -143,12 +144,16 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "build",
         "sim",
     )
-    assert _lifecycle_command(host, action="launch")[-4:] == (
+    assert _lifecycle_command(host, action="launch")[-5:] == (
         "up",
         "-d",
         "--no-build",
         "--remove-orphans",
+        "sim",
     )
+    assert _lifecycle_command(
+        host, action="start", include_coturn=True
+    )[-3:] == ("start", "sim", "coturn")
 
 
 def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
@@ -862,12 +867,28 @@ class LifecycleSession(FakeSession):
                         "bin_dir": "/usr/local/bin",
                         "install_mode": "container",
                         "dds": {},
-                        "network": {},
+                        "network": {
+                            "turn_urls": [
+                                "turn:100.64.0.2:3478?transport=udp"
+                            ]
+                        },
+                        "turn": {
+                            "mode": "managed",
+                            "realm": "elesim.local",
+                            "public_host": "100.64.0.2",
+                            "secret_file": "/opt/elesim/secrets/turn.secret",
+                        },
                     }
                 ),
             )
         if values[:2] == ("uname", "-m"):
             return RemoteCommandResult(0, "x86_64\n")
+        if values[:2] == ("test", "-f"):
+            return RemoteCommandResult(0)
+        if values[:2] == ("test", "-L"):
+            return RemoteCommandResult(1)
+        if values[-2:] == ("config", "--services"):
+            return RemoteCommandResult(0, "sim coturn\n")
         return RemoteCommandResult(0, "26.1\n" if values[0] == "docker" else "")
 
 
@@ -906,6 +927,7 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     configure = next(
         argv for argv, _check in session.commands if "configure" in argv
     )
+
     assert "--dds-security-provisioning" in configure
     assert configure[configure.index("--dds-security-generation") + 1] == "g2"
     assert configure[configure.index("--dds-security-bundle") + 1] == (
@@ -913,9 +935,16 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     )
     assert configure[configure.index("--dds-enclave") + 1] == "/elesim/lab"
     assert configure[configure.index("--sim-id") + 1] == "sim-main"
-    assert configure[configure.index("--pilot-id") + 1] == "pilot-main"
-    assert configure[configure.index("--ui-id") + 1] == "ui-main"
-    assert configure[configure.index("--robot-id") + 1] == "robot-main"
+    assert "--pilot-id" not in configure
+    assert "--ui-id" not in configure
+    assert "--robot-id" not in configure
+    assert configure[configure.index("--turn-mode") + 1] == "managed"
+    assert configure[configure.index("--turn-url") + 1] == (
+        "turn:100.64.0.2:3478?transport=udp"
+    )
+    assert configure[configure.index("--turn-secret-file") + 1] == (
+        "/opt/elesim/secrets/turn.secret"
+    )
     compose_commands = [
         argv for argv, _check in session.commands if argv[:2] == ("docker", "compose")
     ]
@@ -928,6 +957,7 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "/opt/elesim/containers/compose.yaml",
         "stop",
         "sim",
+        "coturn",
     ) in compose_commands
     assert (
         "docker",
@@ -938,7 +968,57 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "/opt/elesim/containers/compose.yaml",
         "start",
         "sim",
+        "coturn",
     ) in compose_commands
+
+
+def test_lifecycle_preflight_rejects_symlinked_managed_turn_secret() -> None:
+    class SymlinkSession(LifecycleSession):
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            if tuple(argv)[:2] == ("test", "-L"):
+                return RemoteCommandResult(0)
+            return super().run(argv, check=check)
+
+    topology = _topology()
+    with pytest.raises(RuntimeError, match="secret path is a symlink"):
+        InstalledElesimLifecycle(topology).preflight(
+            SymlinkSession(),
+            topology.host("server"),
+            PurePosixPath("/opt/elesim/security"),
+        )
+
+
+def test_lifecycle_preflight_rejects_symlinked_managed_turn_secret_ancestor() -> None:
+    class AncestorSymlinkSession(LifecycleSession):
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(argv)
+            if values[:2] == ("test", "-L") and values[2] == "/opt/elesim/secrets":
+                return RemoteCommandResult(0)
+            return super().run(argv, check=check)
+
+    topology = _topology()
+    with pytest.raises(RuntimeError, match="secret path is a symlink"):
+        InstalledElesimLifecycle(topology).preflight(
+            AncestorSymlinkSession(),
+            topology.host("server"),
+            PurePosixPath("/opt/elesim/security"),
+        )
+
+
+def test_managed_turn_secret_must_stay_under_sim_install_root() -> None:
+    host = _topology().host("server")
+    state = {
+        "network": {"turn_urls": ["turn:100.64.0.2:3478?transport=udp"]},
+        "turn": {
+            "mode": "managed",
+            "realm": "elesim.local",
+            "public_host": "100.64.0.2",
+            "secret_file": "/etc/shadow",
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="under the Sim installation root"):
+        _managed_turn_from_state(state, host)
 
 
 def test_runtime_doctor_requests_strict_peer_json() -> None:
@@ -1029,6 +1109,28 @@ def test_lifecycle_status_ignores_manager_service() -> None:
     assert status["running_roles"] == []
 
 
+def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
+    class SimStatusSession:
+        def __init__(self, services: str) -> None:
+            self.services = services
+
+        def run(self, _argv, *, check=True) -> RemoteCommandResult:
+            return RemoteCommandResult(0, self.services)
+
+    topology = _topology()
+    lifecycle = InstalledElesimLifecycle(topology)
+    without_relay = lifecycle.status(
+        SimStatusSession("sim\n"), topology.host("server")
+    )
+    assert without_relay["state"] == "degraded"
+    assert "managed Coturn" in without_relay["detail"]
+
+    with_relay = lifecycle.status(
+        SimStatusSession("sim\ncoturn\n"), topology.host("server")
+    )
+    assert with_relay["state"] == "running"
+
+
 def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
     topology = ConnectionTopology(
         "lab_sim",
@@ -1059,6 +1161,8 @@ def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:
     )
     assert "--robot-id" not in configure
     assert configure[configure.index("--sim-id") + 1] == "sim-main"
+    assert configure[configure.index("--turn-mode") + 1] == "none"
+    assert "--clear-turn" in configure
 
 
 @dataclass

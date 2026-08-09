@@ -180,7 +180,7 @@ there are historical unless repeated here.
   account/ACL setup and stop deadlines under bridge loss or malformed traffic.
 - Required live evidence: the browser flow on real hosts, production
   RMW/SROS2 enforce mode including unauthorized publish/subscribe denial, a
-  non-default SSH management port and pinned-key failure, full generation
+  non-default SSH management port and pinned key failure, full generation
   rotation/rollback, managed/external Coturn lifecycle, and exact cleanup
   commands.
 
@@ -251,7 +251,7 @@ This records the superseded ZMQ/Router implementation. None of its transport or
 credential choices are part of the final ROS 2/DDS architecture.
 
 - Non-loopback Router and RGBD transport are CurveZMQ protected by default;
-  Router authorizes exact public-key, endpoint-ID and role tuples.
+  Router authorizes exact public key, endpoint-ID and role tuples.
 - UI owns an independent Sim session instead of relaying camera input
   through Pilot.
 - Sim publishes separate observer and hand-eye WebRTC views and applies

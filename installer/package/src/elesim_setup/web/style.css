@@ -1,5 +1,5 @@
 @font-face {
-  font-family: "Noto Sans CJK";
+  font-family: "Elesim Noto";
   src: url("/fonts/NotoSansCJKkr-Regular.otf") format("opentype");
   font-style: normal;
   font-weight: 400;
@@ -8,24 +8,27 @@
 
 :root {
   color-scheme: light;
-  --bg: #f3f5f6;
+  --bg: #eef0f3;
   --surface: #ffffff;
-  --surface-muted: #eef1f2;
-  --line: #ccd2d5;
-  --line-strong: #aab3b7;
-  --text: #172126;
-  --muted: #5f6c72;
-  --accent: #167454;
-  --accent-hover: #0f6045;
-  --accent-soft: #e5f2ed;
-  --focus: #1b68a5;
-  --warning: #8b5a00;
-  --warning-bg: #fff6df;
-  --danger: #a12d2d;
-  --danger-bg: #fff0f0;
+  --surface-muted: #f7f8fa;
+  --line: #c9cdd4;
+  --line-strong: #b5bbc4;
+  --text: #191b20;
+  --muted: #68707b;
+  --accent: #006fe6;
+  --accent-hover: #0059bd;
+  --accent-soft: #e4f0ff;
+  --focus: #2a5f9e;
+  --warning: #a66b17;
+  --warning-bg: #fff4d6;
+  --danger: #9b3037;
+  --danger-bg: #fff0f1;
+  --font-small: 12px;
+  --font-body: 15px;
+  --font-title: 21px;
   --radius: 6px;
-  font-family: "Noto Sans CJK", "Noto Sans KR", "Malgun Gothic", sans-serif;
-  font-size: 16px;
+  font-family: "Elesim Noto", Inter, "Noto Sans CJK", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  font-size: var(--font-body);
   letter-spacing: 0;
 }
 
@@ -48,14 +51,15 @@ select {
 }
 
 button {
-  min-height: 40px;
+  min-height: 36px;
   border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 8px 16px;
+  border-radius: 4px;
+  padding: 7px 14px;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
+  transition: background .12s, border-color .12s, box-shadow .12s, transform .12s;
 }
 
 button:hover {
@@ -65,6 +69,10 @@ button:hover {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button.secondary {
@@ -78,7 +86,7 @@ button.secondary:hover {
 }
 
 button.danger-button {
-  border-color: #d59b9b;
+  border-color: #dda9a5;
   color: var(--danger);
 }
 
@@ -89,8 +97,8 @@ button.danger-button:hover {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-label.choice:has(input:focus-visible) {
-  outline: 3px solid color-mix(in srgb, var(--focus) 35%, transparent);
+.choice:has(input:focus-visible) {
+  outline: 3px solid rgb(42 95 158 / 28%);
   outline-offset: 2px;
 }
 
@@ -99,32 +107,33 @@ label.choice:has(input:focus-visible) {
   z-index: 10;
   top: 0;
   display: flex;
-  min-height: 64px;
+  min-height: 56px;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
-  padding: 0 24px;
-  background: var(--surface);
+  padding: 0 22px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 1px 4px rgb(25 27 32 / 7%);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 18px;
-  font-weight: 700;
+  gap: 10px;
+  font-size: var(--font-body);
+  font-weight: 800;
 }
 
 .brand-mark {
   display: inline-grid;
-  min-width: 36px;
-  padding: 0 8px;
-  height: 36px;
+  width: 32px;
+  padding: 0;
+  height: 32px;
   place-items: center;
-  border-radius: 4px;
-  background: var(--text);
+  border-radius: 5px;
+  background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .language-switch {
@@ -132,13 +141,13 @@ label.choice:has(input:focus-visible) {
 }
 
 .language-switch button {
-  min-height: 34px;
+  min-height: 30px;
   border-color: var(--line);
   border-radius: 0;
-  padding: 5px 11px;
+  padding: 4px 10px;
   background: var(--surface);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 .language-switch button:first-child {
@@ -151,36 +160,36 @@ label.choice:has(input:focus-visible) {
 }
 
 .language-switch button.active {
-  border-color: var(--text);
-  background: var(--text);
+  border-color: var(--accent);
+  background: var(--accent);
   color: #fff;
 }
 
 .error-banner {
   position: fixed;
   z-index: 30;
-  top: 76px;
+  top: 72px;
   right: 20px;
   width: min(520px, calc(100vw - 40px));
   border: 1px solid #e0a8a8;
-  border-radius: var(--radius);
-  padding: 13px 16px;
+  border-radius: 7px;
+  padding: 12px 15px;
   background: var(--danger-bg);
   color: var(--danger);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 10%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 14%);
   white-space: pre-wrap;
 }
 
 .wizard {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  min-height: calc(100vh - 64px);
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: calc(100vh - 56px);
 }
 
 .steps {
   border-right: 1px solid var(--line);
-  padding: 30px 22px;
-  background: #e9edef;
+  padding: 24px 20px;
+  background: var(--surface-muted);
 }
 
 .steps ol {
@@ -192,7 +201,7 @@ label.choice:has(input:focus-visible) {
 .steps li {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
-  min-height: 48px;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
   color: var(--muted);
@@ -200,13 +209,13 @@ label.choice:has(input:focus-visible) {
 
 .steps li span {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 1px solid var(--line-strong);
-  border-radius: 50%;
+  border-radius: 5px;
   background: var(--surface);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 .steps li.active,
@@ -233,21 +242,21 @@ label.choice:has(input:focus-visible) {
   border-top: 1px solid var(--line);
   padding-top: 18px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-small);
 }
 
 .workspace {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  background: var(--surface);
+  background: var(--bg);
 }
 
 #setup-form {
-  width: min(920px, 100%);
+  width: min(980px, 100%);
   min-height: 660px;
   margin: 0 auto;
-  padding: 54px 56px 28px;
+  padding: 40px 48px 28px;
 }
 
 .page {
@@ -259,19 +268,19 @@ label.choice:has(input:focus-visible) {
 }
 
 .page-heading {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .page-heading h1 {
-  margin: 0 0 10px;
-  font-size: 30px;
+  margin: 0 0 8px;
+  font-size: var(--font-title);
   line-height: 1.25;
 }
 
 .page-heading p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.65;
+  line-height: 1.5;
 }
 
 .choice-list {
@@ -284,10 +293,24 @@ label.choice:has(input:focus-visible) {
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: start;
   gap: 12px;
-  min-height: 76px;
+  min-height: 68px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 15px 17px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.developer-choice {
+  display: block;
+  padding: 0;
+}
+
+.choice-radio {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px 0;
   cursor: pointer;
 }
 
@@ -296,9 +319,34 @@ label.choice:has(input:focus-visible) {
   background: #fafbfb;
 }
 
-.choice:has(input:checked) {
+.choice:has(> input:checked),
+.choice:has(> .choice-radio > input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.developer-jaeger {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  margin: 10px 14px 12px 48px;
+  color: var(--text);
+  font-size: var(--font-body);
+}
+
+.developer-jaeger input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.developer-jaeger span {
+  display: block;
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
 }
 
 .choice.danger:has(input:checked) {
@@ -323,12 +371,13 @@ label.choice:has(input:focus-visible) {
 
 .choice strong,
 .check-row strong {
-  font-size: 16px;
+  font-size: var(--font-body);
 }
 
 .choice small,
 .check-row small,
 .field small {
+  font-size: var(--font-small);
   color: var(--muted);
   line-height: 1.55;
 }
@@ -351,12 +400,6 @@ label.choice:has(input:focus-visible) {
   accent-color: var(--accent);
 }
 
-.warning-row {
-  border-color: #e0c27d;
-  background: var(--warning-bg);
-  color: var(--warning);
-}
-
 .role-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -367,10 +410,10 @@ label.choice:has(input:focus-visible) {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 11px;
-  min-height: 100px;
+  min-height: 92px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 15px;
+  padding: 12px 14px;
 }
 
 .role-option:has(input:checked) {
@@ -396,6 +439,7 @@ label.choice:has(input:focus-visible) {
 }
 
 .role-option small {
+  font-size: var(--font-small);
   color: var(--muted);
   line-height: 1.45;
 }
@@ -407,7 +451,7 @@ label.choice:has(input:focus-visible) {
 
 .included-panel h2 {
   margin: 0 0 8px;
-  font-size: 19px;
+  font-size: var(--font-body);
 }
 
 .included-panel p {
@@ -432,8 +476,8 @@ label.choice:has(input:focus-visible) {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 7px;
-  margin-bottom: 20px;
+  gap: 5px;
+  margin-bottom: 16px;
 }
 
 .field label,
@@ -445,10 +489,10 @@ fieldset legend {
 .field select,
 .browser-path input {
   width: 100%;
-  min-height: 42px;
+  min-height: 36px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  padding: 8px 11px;
+  padding: 7px 9px;
   background: var(--surface);
   color: var(--text);
 }
@@ -484,7 +528,7 @@ fieldset {
 
 fieldset legend {
   padding: 0 14px 0 0;
-  font-size: 18px;
+  font-size: var(--font-body);
 }
 
 .subsection {
@@ -495,7 +539,7 @@ fieldset legend {
 
 .subsection h2 {
   margin: 0 0 18px;
-  font-size: 18px;
+  font-size: var(--font-body);
 }
 
 .subsection.nested {
@@ -576,7 +620,7 @@ fieldset legend {
 
 .review-list dt {
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .review-list dd {
@@ -600,7 +644,7 @@ fieldset legend {
 }
 
 .log-toolbar button {
-  min-height: 34px;
+  min-height: 30px;
   padding: 5px 11px;
 }
 
@@ -620,7 +664,7 @@ fieldset legend {
   background: #172126;
   color: #dfe8e5;
   font-family: "DejaVu Sans Mono", monospace;
-  font-size: 13px;
+  font-size: var(--font-small);
   line-height: 1.55;
   white-space: pre-wrap;
   user-select: text;
@@ -636,7 +680,7 @@ fieldset legend {
 
 .completion h2 {
   margin: 0 0 14px;
-  font-size: 17px;
+  font-size: var(--font-body);
 }
 
 .command-row {
@@ -662,14 +706,15 @@ fieldset legend {
   grid-template-columns: 120px minmax(0, 1fr) 120px 120px;
   align-items: center;
   border-top: 1px solid var(--line);
-  padding: 14px 32px;
+  padding: 12px 28px;
   background: rgb(255 255 255 / 96%);
+  box-shadow: 0 -1px 4px rgb(25 27 32 / 5%);
 }
 
 .navigation span {
   color: var(--muted);
   text-align: center;
-  font-size: 13px;
+  font-size: var(--font-small);
 }
 
 dialog {
@@ -703,7 +748,7 @@ dialog > footer {
 
 dialog h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-body);
 }
 
 .close-button {
@@ -713,7 +758,7 @@ dialog h2 {
   padding: 0;
   background: transparent;
   color: var(--text);
-  font-size: 24px;
+  font-size: var(--font-title);
 }
 
 .browser-path {
@@ -778,7 +823,7 @@ dialog h2 {
   }
 
   .steps li b {
-    font-size: 11px;
+    font-size: var(--font-small);
   }
 
   .host-facts {

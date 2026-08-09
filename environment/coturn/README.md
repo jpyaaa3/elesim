@@ -1,9 +1,11 @@
 # Elesim TURN relay
 
-This optional service relays the two sim WebRTC streams when direct ICE
-connectivity is unavailable. WebRTC packets remain DTLS/SRTP protected while
-relayed. Coturn never relays ROS 2/DDS discovery, control/RGBD topics, or the
-DDS WebRTC-signaling exchange.
+This service relays the two Sim WebRTC streams when direct ICE connectivity is
+unavailable. The normal SROS2 Sim installation includes Coturn in its generated
+Compose; `trusted-network` Sim uses direct ICE and does not start a relay. This
+standalone helper is retained for manual or legacy deployments. WebRTC packets
+remain DTLS/SRTP protected while relayed. Coturn never relays ROS 2/DDS
+discovery, control/RGBD topics, or the DDS WebRTC-signaling exchange.
 
 The standalone Compose uses Coturn REST HMAC authentication. Generate its local
 configuration from the repository root:
@@ -32,8 +34,8 @@ writes its secret and `.env` below `$HOME/.local/share/elesim/coturn` (or
 `ELESIM_COTURN_STATE`) rather than into the source checkout.
 
 Elesim's managed-Coturn profile requires SROS2 because the issued credentials
-and WebRTC signaling travel over DDS. `trusted-network` may use direct ICE or
-an external TURN service with separately provisioned credentials.
+and WebRTC signaling travel over DDS. `trusted-network` uses direct ICE only;
+legacy external TURN states may use separately provisioned credentials.
 
 TURN can make WebRTC media work through NAT only after UI and Sim have a
 working DDS path for session and SDP exchange. Ordinary IPv4 NAT, CGNAT and

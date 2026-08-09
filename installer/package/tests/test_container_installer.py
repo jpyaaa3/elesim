@@ -306,6 +306,10 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
 ) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    (tmp_path / "install-state.json").write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
     wrapper = tmp_path / "elesim-up"
     wrapper.write_text(
         _runtime_up_wrapper(
@@ -313,6 +317,8 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
             guard="",
             launch_guard="",
             has_sim=True,
+            runtime_roles=("pilot", "sim", "ui"),
+            state_path=tmp_path / "install-state.json",
             viewer_state=tmp_path / "viewer-xhost",
             viewer_user="simuser",
         ),
@@ -387,6 +393,155 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     assert not (tmp_path / "xhost.permission").exists()
 
 
+def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    state_path = tmp_path / "install-state.json"
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            runtime_roles=("pilot", "sim", "ui"),
+            state_path=state_path,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"${DOCKER_ARGS:?}\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment["DOCKER_ARGS"] = str(tmp_path / "docker.args")
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
+    assert calls[0].endswith("stop coturn")
+    assert calls[-1].endswith("up -d --build --remove-orphans pilot sim ui")
+
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "sros2"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "docker.args").write_text("", encoding="utf-8")
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
+    assert calls[-1].endswith("up -d --build --remove-orphans pilot sim ui coturn")
+
+    (tmp_path / "docker.args").write_text("", encoding="utf-8")
+    result = subprocess.run(
+        (wrapper, "pilot"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
+    assert calls[0].endswith("stop coturn")
+    assert calls[-1].endswith("up -d --build --remove-orphans pilot")
+
+    (tmp_path / "docker.args").write_text("", encoding="utf-8")
+    result = subprocess.run(
+        (wrapper, "sim"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    calls = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
+    assert calls[-1].endswith("up -d --build --remove-orphans sim coturn")
+
+    (tmp_path / "docker.args").write_text("", encoding="utf-8")
+    result = subprocess.run(
+        (wrapper, "coturn"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 64
+    assert not (tmp_path / "docker.args").read_text(encoding="utf-8").strip()
+
+
+def test_runtime_up_rejects_missing_or_unknown_security_state(tmp_path: Path) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    state_path = tmp_path / "install-state.json"
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            runtime_roles=("pilot", "sim", "ui"),
+            state_path=state_path,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "docker.called"
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        f"touch {str(marker)!r}\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+
+    missing = subprocess.run(
+        (wrapper,), env=environment, text=True, capture_output=True, check=False
+    )
+    assert missing.returncode == 78
+    assert not marker.exists()
+
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "unexpected"}}), encoding="utf-8"
+    )
+    unknown = subprocess.run(
+        (wrapper,), env=environment, text=True, capture_output=True, check=False
+    )
+    assert unknown.returncode == 78
+    assert not marker.exists()
+
+
 def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
@@ -440,6 +595,10 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
 ) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    (tmp_path / "install-state.json").write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
     blocked_parent = tmp_path / "blocked"
     blocked_parent.write_text("not a directory", encoding="utf-8")
     wrapper = tmp_path / "elesim-up"
@@ -449,6 +608,8 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
             guard="",
             launch_guard="",
             has_sim=True,
+            runtime_roles=("pilot", "sim", "ui"),
+            state_path=tmp_path / "install-state.json",
             viewer_state=blocked_parent / "viewer-xhost",
             viewer_user="simuser",
         ),
@@ -668,6 +829,36 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     )
     assert unsupported.returncode == 64
     assert "elesim-logs [--save]" in unsupported.stderr
+
+
+def test_managed_coturn_rejects_symlinked_secret_path(local_state, tmp_path: Path) -> None:
+    target = tmp_path / "outside.secret"
+    target.write_text("secret\n", encoding="utf-8")
+    secret = tmp_path / "install/secrets/turn.secret"
+    secret.parent.mkdir(parents=True)
+    secret.symlink_to(target)
+    state = local_state(
+        roles=("sim",),
+        install_mode="container",
+        network=NetworkSettings(
+            turn_urls=("turn:turn.example.com:3478?transport=udp",),
+        ),
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="external",
+            keystore=str(tmp_path / "sros2"),
+            enclave="/elesim",
+        ),
+        turn=TurnSettings(
+            mode="managed",
+            realm="elesim.local",
+            public_host="turn.example.com",
+            secret_file=str(secret),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="symlinked path components"):
+        ContainerInstaller(state).run()
 
 
 def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(

@@ -213,3 +213,19 @@ def test_external_turn_credentials_fail_when_expired(tmp_path: Path) -> None:
             credentials,
             urls=("turn:relay.example.com:3478?transport=udp",),
         )
+
+
+def test_external_turn_credentials_reject_symlinked_path(tmp_path: Path) -> None:
+    target = tmp_path / "credentials.json"
+    target.write_text(
+        '{"username":"lab-user","credential":"lab-password"}\n',
+        encoding="utf-8",
+    )
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+
+    with pytest.raises(ValueError, match="symlinked path components"):
+        validate_external_turn_credentials(
+            link,
+            urls=("turn:relay.example.com:3478?transport=udp",),
+        )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import math
 import os
@@ -148,12 +149,13 @@ class _Handler(socketserver.StreamRequestHandler):
             raise HostHelperError("host Tailscale CLI is unavailable")
         host = request.get("host")
         port = request.get("port")
-        if not isinstance(host, str) or not _HOSTNAME.fullmatch(host):
+        target = _normalize_tailscale_target(host) if isinstance(host, str) else None
+        if target is None:
             raise HostHelperError("invalid Tailscale target")
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise HostHelperError("invalid Tailscale target port")
         process = subprocess.Popen(
-            (str(binary), "nc", host, str(port)),
+            (str(binary), "nc", target, str(port)),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -288,21 +290,66 @@ def _validate_command(
     suffix = tuple(argv[len(prefix) :])
     if suffix in {
         ("config", "--quiet"),
+        ("config", "--services"),
         ("ps", "--status", "running", "--services"),
     }:
         return
     if suffix and suffix[0] in {"start", "stop", "build"}:
-        _validate_roles(suffix[1:])
+        services = suffix[1:]
+        if suffix[0] == "build":
+            _validate_roles(services)
+        else:
+            _validate_runtime_services(services)
         return
     if suffix[:4] == ("up", "-d", "--no-build", "--remove-orphans"):
-        if len(suffix) == 4:
-            return
+        _validate_runtime_services(suffix[4:])
+        return
     raise HostHelperError("Docker command is not an allowed Elesim lifecycle action")
 
 
 def _validate_roles(values: Sequence[str]) -> None:
     if not values or len(set(values)) != len(values) or not set(values).issubset(_ROLES):
         raise HostHelperError("Docker lifecycle role selection is invalid")
+
+
+def _validate_runtime_services(values: Sequence[str]) -> None:
+    """Validate role services plus the Sim-owned managed Coturn service."""
+
+    services = tuple(values)
+    if not services:
+        raise HostHelperError("Docker lifecycle must name at least one service")
+    roles = services
+    if services[-1] == "coturn":
+        roles = services[:-1]
+        if "sim" not in roles:
+            raise HostHelperError("Coturn may only accompany the Sim service")
+    _validate_roles(roles)
+
+
+def _valid_tailscale_target(value: str) -> bool:
+    """Accept Tailscale IPv4/IPv6 literals and bounded DNS names."""
+
+    return _normalize_tailscale_target(value) is not None
+
+
+def _normalize_tailscale_target(value: str) -> str | None:
+    """Normalize an optional bracketed IP literal for the Tailscale CLI."""
+
+    text = str(value).strip()
+    if not text:
+        return None
+    unbracketed = text
+    if text.startswith("[") or text.endswith("]"):
+        if not (text.startswith("[") and text.endswith("]")):
+            return None
+        unbracketed = text[1:-1]
+    try:
+        address = ipaddress.ip_address(unbracketed)
+    except ValueError:
+        return text if _HOSTNAME.fullmatch(text) else None
+    if address.is_unspecified or address.is_multicast:
+        return None
+    return unbracketed
 
 
 def _run_bounded(

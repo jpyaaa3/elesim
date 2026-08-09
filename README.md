@@ -144,8 +144,8 @@ Sim, Pilot, UI는 역할별 Docker 이미지와 하나의 Compose project로
 있지만 새 설치 흐름의 사용자 선택지는 역할 목록이다.
 
 일반 Compose project 이름은 `elesim-runtime`으로 고정된다. 선택한 역할에 따라
-`elesim-pilot`, `elesim-ui`, `elesim-sim`이 생기고, managed TURN을
-선택한 Sim 호스트에만 `elesim-coturn`이 추가된다. Robot은
+`elesim-pilot`, `elesim-ui`, `elesim-sim`이 생긴다. SROS2 Sim 호스트에만
+`elesim-coturn`이 relay fallback으로 추가된다. Robot은
 `elesim-robot` 컨테이너가 아니라 Jetson의 native/systemd 서비스다. 같은
 호스트에 두 번째 일반 설치를 만들면 임의 이름을 붙이지 않고 충돌을 알려준다.
 소스 디렉터리, DDS/설치 역할 키, Python 패키지(`elesim_pilot`·`elesim_sim`),
@@ -258,10 +258,11 @@ SSH server의 포트일 뿐 DDS 설정에 들어가지 않는다.
 elesim-connections
 ```
 
-일반 설치기의 `통신과 보안` 단계는 이제 기본값과 TURN 선택만 보여준다.
+일반 설치기의 `통신과 보안` 단계는 기본값과 보안 profile만 보여준다.
 DDS 주소·인터페이스·SSH endpoint·SROS2 generation은 실행 시점에 바뀌는
 토폴로지이므로 연결 관리자에서 입력한다. 연결 관리자가 SROS2 자료를 생성·배포하므로
-사용자가 AES 값이나 개인키 본문을 설치기에 입력할 필요가 없다.
+사용자가 AES 값이나 개인키 본문을 설치기에 입력할 필요가 없다. Coturn은
+연결관리자 카드나 topology field가 아니라 Sim runtime의 일부다.
 
 연결 관리자는 두 가지 명시적 topology mode를 제공한다.
 
@@ -322,27 +323,23 @@ SROS2 키 발급 자체가 실패하는 것은 아니지만, 런타임 시작은
 
 ### TURN/Coturn
 
-- `미사용`: 같은 LAN 또는 직접 ICE가 가능한 환경.
-- `이 Sim와 Coturn 실행`: Sim 호스트의 생성 Compose에 Coturn을
-  넣는다.
-- `기존 relay 사용`: 별도로 운영 중인 TURN URL을 사용한다.
+Sim은 항상 direct ICE를 먼저 시도한다. `trusted-network`(평문 DDS)에서는
+TURN URL/자격증명 없이 빈 ICE server 목록을 사용하므로 managed Coturn을
+생성하거나 시작하지 않는다. WebRTC media 자체는 두 보안 profile 모두에서
+DTLS/SRTP로 보호된다.
 
-Managed Coturn은 public hostname/IP, realm과 credential 정책이 필요하다.
-REST HMAC을 쓰면 static secret은 Coturn과 같은 호스트의 Sim만 갖고,
-Sim가 활성 session에 묶인 단기 ICE credential을 UI에 발급한다. UI에는
-static secret을 전달하지 않는다. 선택하면 `elesim-up`,
-`elesim-down`, `elesim-logs`가 Coturn까지 함께 관리한다. 필요한 방화벽 경로는
-TCP/UDP `3478`과 UDP `49160-49200`이다. TURN은 WebRTC media relay이며 DDS
-topic이나 signaling을 연결해 주지 않는다. Managed TURN credential과 signaling은
-DDS로 전달되므로 managed mode는 `sros2` profile을 요구한다.
+`sros2` Sim만 Sim과 함께 생성된 Coturn을 relay fallback으로 사용한다.
+REST HMAC static secret은 Coturn과 같은 호스트의 Sim만 갖고, Sim이 활성
+session에 묶인 단기 ICE credential을 UI에 발급한다. UI에는 static secret을
+전달하지 않는다. 이때 `elesim-up`, `elesim-down`, `elesim-logs`가 Coturn까지
+함께 관리한다. 필요한 방화벽 경로는 TCP/UDP `3478`과 UDP `49160-49200`이다.
+TURN은 WebRTC media relay이며 DDS topic이나 signaling을 연결해 주지 않는다.
+managed TURN credential과 signaling이 DDS로 전달되므로 SROS2가 필요하다.
 
-외부 TURN을 Sim 호스트에 설치할 때에는 relay가 발급한 자격증명 JSON도
-선택한다. 파일 형식은
-`{"username":"...","credential":"...","expires_at":4102444800}`이며
-`expires_at`은 장기 credential이면 생략할 수 있다. 이 파일은 Sim
-컨테이너에만 read-only로 mount되고, Pilot/UI 전용 노트북에는 복사되지
-않는다. Sim가 활성 UI session에 필요한 값을 DDS로 전달하므로 공유망에서는
-SROS2를 사용한다.
+Coturn은 다섯 번째 role이나 연결관리자 카드가 아니다. 연결관리자는 Sim
+호스트의 `elesim-net show`에서 비밀이 아닌 endpoint만 읽고, SROS2 적용 시
+검증한 뒤 runtime에 반영한다. 새 설치 관리자는 외부 relay 자격증명 파일을
+받지 않으며, 기존 상태를 읽는 하위 런타임의 external 호환 경로만 유지한다.
 
 ## 설치 후 명령
 
@@ -492,8 +489,8 @@ WebRTC stream이다.
    선택한다.
 4. L2 multicast가 불가능하면 조작 호스트의 reachable 주소를 static peer로 넣는다.
 5. 신뢰 network면 `trusted-network`, 공유 network면 `sros2`를 선택한다.
-6. WebRTC direct ICE가 불가능하면 Coturn을 선택한다. Managed mode를 쓰려면
-   `sros2` profile을 선택한다.
+6. 공유/비신뢰 network에서 SROS2를 선택하면 Sim Compose에 Coturn relay
+   fallback이 포함된다. `trusted-network`는 direct ICE만 사용한다.
 7. Managed SROS2이면 먼저 조작 호스트의 `elesim-connections`에서 모든 host에
    generation을 적용한 뒤 `elesim-up`을 실행한다.
 

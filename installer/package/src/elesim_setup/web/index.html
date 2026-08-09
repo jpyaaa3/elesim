@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Elesim Setup</title>
+  <title data-i18n="app.title">Elesim 설치 마법사</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand" aria-label="Elesim">
-      <span class="brand-mark">Elesim</span>
-      <span>Elesim Setup</span>
+      <span class="brand-mark">EL</span>
+      <span data-i18n="app.title">Elesim 설치 마법사</span>
     </div>
     <div class="language-switch" role="group" aria-label="Language">
       <button type="button" data-language="ko">한국어</button>
@@ -52,26 +52,20 @@
                 <small data-i18n="mode.general.help"></small>
               </span>
             </label>
-            <label class="choice">
-              <input type="radio" name="edition" value="developer">
-              <span>
-                <strong data-i18n="mode.developer"></strong>
-                <small data-i18n="mode.developer.help"></small>
-              </span>
-            </label>
+            <div class="choice developer-choice">
+              <label class="choice-radio">
+                <input type="radio" name="edition" value="developer">
+                <span>
+                  <strong data-i18n="mode.developer"></strong>
+                  <small data-i18n="mode.developer.help"></small>
+                </span>
+              </label>
+              <label id="jaeger-row" class="developer-jaeger" hidden>
+                <input id="jaeger" type="checkbox">
+                <span data-i18n="mode.jaeger"></span>
+              </label>
+            </div>
           </div>
-          <label id="privileged-confirm-row" class="check-row warning-row" hidden>
-            <input id="privileged-confirm" type="checkbox">
-            <span data-i18n="mode.developer.privileged"></span>
-          </label>
-          <label id="jaeger-row" class="check-row" hidden>
-            <input id="jaeger" type="checkbox">
-            <span>
-              <strong data-i18n="mode.jaeger"></strong>
-              <small data-i18n="mode.jaeger.help"></small>
-            </span>
-          </label>
-          <button id="open-uninstall" type="button" class="secondary danger-button" data-i18n="uninstall.open"></button>
         </section>
 
         <section class="page" data-step="roles">
@@ -118,14 +112,12 @@
             <input id="register-path" type="checkbox">
             <span>
               <strong data-i18n="paths.register"></strong>
-              <small data-i18n="paths.register.help"></small>
             </span>
           </label>
           <label id="runtime-text-logs-row" class="check-row">
             <input id="runtime-text-logs" type="checkbox" checked>
             <span>
               <strong data-i18n="paths.logs"></strong>
-              <small data-i18n="paths.logs.help"></small>
             </span>
           </label>
         </section>
@@ -269,24 +261,12 @@
 
           <fieldset id="turn-section">
             <legend data-i18n="turn.title"></legend>
-            <div class="segmented">
-              <label><input type="radio" name="turn-mode" value="none" checked><span data-i18n="turn.none"></span></label>
-              <label id="turn-managed-option"><input type="radio" name="turn-mode" value="managed"><span data-i18n="turn.managed"></span></label>
-              <label><input type="radio" name="turn-mode" value="external"><span data-i18n="turn.external"></span></label>
-            </div>
-            <div id="turn-fields" class="form-grid" hidden>
+            <small data-i18n="turn.managed.help"></small>
+            <div id="turn-fields" class="form-grid">
               <div class="field wide"><label for="turn-url" data-i18n="turn.url"></label><input id="turn-url" type="text" spellcheck="false"></div>
               <div id="turn-realm-row" class="field"><label for="turn-realm" data-i18n="turn.realm"></label><input id="turn-realm" type="text"></div>
               <div id="turn-public-row" class="field"><label for="turn-public-host" data-i18n="turn.public"></label><input id="turn-public-host" type="text"></div>
               <div id="turn-secret-row" class="field"><label for="turn-secret-file" data-i18n="turn.secret"></label><input id="turn-secret-file" type="text"></div>
-              <div id="turn-credential-row" class="field wide" hidden>
-                <label for="turn-credential-file" data-i18n="turn.credential"></label>
-                <div class="input-action">
-                  <input id="turn-credential-file" type="text" spellcheck="false">
-                  <button type="button" class="secondary" data-browse="turn-credential-file" data-i18n="action.browse"></button>
-                </div>
-                <small data-i18n="turn.credential.help"></small>
-              </div>
             </div>
           </fieldset>
         </section>
@@ -335,8 +315,8 @@ elesim-connections</code>
       <footer class="navigation">
         <button id="back-button" type="button" class="secondary" data-i18n="action.back"></button>
         <span id="step-position"></span>
-        <button id="close-installer" type="button" class="secondary" data-i18n="action.close" disabled></button>
         <button id="next-button" type="button" data-i18n="action.next"></button>
+        <button id="close-installer" type="button" class="secondary" data-i18n="action.close" hidden disabled></button>
       </footer>
     </section>
   </main>
@@ -356,38 +336,6 @@ elesim-connections</code>
       <button id="browse-cancel" type="button" class="secondary" data-i18n="action.cancel"></button>
       <button id="browse-select" type="button" data-i18n="browse.select"></button>
     </footer>
-  </dialog>
-
-  <dialog id="uninstall-dialog">
-    <header>
-      <h2 data-i18n="uninstall.title"></h2>
-      <button id="uninstall-close" type="button" class="close-button" aria-label="Close">×</button>
-    </header>
-    <p data-i18n="uninstall.help"></p>
-    <div class="field">
-      <label for="uninstall-prefix" data-i18n="uninstall.prefix"></label>
-      <input id="uninstall-prefix" type="text" spellcheck="false">
-    </div>
-    <label class="check-row">
-      <input id="uninstall-keep-logs" type="checkbox">
-      <span><strong data-i18n="uninstall.keep.logs"></strong><small data-i18n="uninstall.keep.logs.help"></small></span>
-    </label>
-    <label class="check-row">
-      <input id="uninstall-keep-authority" type="checkbox">
-      <span><strong data-i18n="uninstall.keep.authority"></strong><small data-i18n="uninstall.keep.authority.help"></small></span>
-    </label>
-    <button id="build-uninstall-guide" type="button" class="danger-button" data-i18n="uninstall.generate"></button>
-    <div id="uninstall-commands" hidden>
-      <p data-i18n="uninstall.terminal.help"></p>
-      <div class="command-row">
-        <code id="uninstall-plan-command"></code>
-        <button type="button" class="secondary copy-command" data-copy-target="uninstall-plan-command" data-i18n="action.copy"></button>
-      </div>
-      <div class="command-row">
-        <code id="uninstall-execute-command"></code>
-        <button type="button" class="secondary copy-command" data-copy-target="uninstall-execute-command" data-i18n="action.copy"></button>
-      </div>
-    </div>
   </dialog>
 
   <script src="/app.js" defer></script>

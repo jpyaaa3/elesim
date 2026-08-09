@@ -151,12 +151,14 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     catalog = json.loads((root / "i18n.json").read_text(encoding="utf-8"))
     html = (root / "index.html").read_text(encoding="utf-8")
     script = (root / "app.js").read_text(encoding="utf-8")
+    style = (root / "style.css").read_text(encoding="utf-8")
 
     assert set(catalog) == {"ko", "en"}
     assert set(catalog["ko"]) == set(catalog["en"])
     assert all(
         (root / name).is_file() for name in ("index.html", "style.css", "app.js")
     )
+    assert '<title data-i18n="app.title">Elesim 연결 관리자</title>' in html
     assert (installer_web_font_root() / "NotoSansCJKkr-Regular.otf").is_file()
     assert 'url("/fonts/NotoSansCJKkr-Regular.otf")' in (
         root / "style.css"
@@ -166,6 +168,16 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "setTimeout(() => { banner.hidden = true;" not in script
     assert all(label in html for label in ("COM1", "COM2", "COM3", "Robot"))
     assert 'data-field="unused"' in html
+    assert (
+        ".host-card.disabled > .ssh-fields { filter: grayscale(1); opacity: .46; }"
+        in style
+    )
+    assert ".host-card.disabled > .ssh-fields,\n\n.unit-lanes" not in style
+    assert (
+        ".banner.notice { border: 1px solid #9fc4eb; "
+        "background: var(--accent-soft); color: var(--accent-dark); }"
+        in style
+    )
     assert 'id="topology-mode"' in html
     assert "simulation-only" in script
     assert "ensureRoutedDiscovery" in script
@@ -221,8 +233,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert len(ssh_tailscale_fields) == 4
     assert "ssh-tailscale" in script
     assert "ssh.help" not in catalog["ko"]
-    assert catalog["en"]["ssh.title"] == "Private-key authentication via SSH"
+    assert catalog["en"]["ssh.title"] == "Private key authentication via SSH"
     assert html.count('data-field="ssh-host" type="text" readonly disabled') == 4
+    assert html.count('<details class="ssh-fields" open>') == 4
+    assert "coturn-fields" not in html
+    assert "updateCoturnVisibility" not in script
+    assert "updateCoturnSecurity" not in script
+    assert "host.coturn" not in script
     assert "robot-install-root" not in html
     assert "robot-bin-dir" not in html
     assert 'host.ssh.host' not in script
@@ -318,7 +335,7 @@ def test_fingerprint_probe_uses_explicit_non_default_ssh_port(tmp_path: Path) ->
         )
 
     invalid = _application(tmp_path, probe=lambda _host, _port: "SHA256:not-valid")
-    with pytest.raises(RuntimeError, match="invalid host-key"):
+    with pytest.raises(RuntimeError, match="invalid host key"):
         invalid.probe_fingerprint({"host": "compute.example", "port": 2222})
 
 

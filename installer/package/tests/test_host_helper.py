@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from elesim_setup.host_helper import HostHelperError, _Server, _validate_command
+from elesim_setup.host_helper import (
+    HostHelperError,
+    _Server,
+    _validate_command,
+    _valid_tailscale_target,
+)
 from elesim_setup.host_proxy import _upload_stdin
 from elesim_setup.secure_deployment import _run_through_host_helper
 
@@ -29,11 +34,13 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
     )
     for suffix in (
         ("config", "--quiet"),
+        ("config", "--services"),
         ("ps", "--status", "running", "--services"),
         ("build", "pilot", "ui"),
         ("stop", "sim"),
+        ("stop", "sim", "coturn"),
         ("start", "pilot"),
-        ("up", "-d", "--no-build", "--remove-orphans"),
+        ("up", "-d", "--no-build", "--remove-orphans", "pilot", "sim", "coturn"),
     ):
         _validate_command(
             (*prefix, *suffix),
@@ -116,6 +123,19 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
             "start",
             "pilot",
         ),
+        (
+            "docker",
+            "compose",
+            "-p",
+            "elesim-runtime",
+            "-f",
+            "/opt/elesim/containers/compose.yaml",
+            "up",
+            "-d",
+            "--no-build",
+            "--remove-orphans",
+            "coturn",
+        ),
     ),
 )
 def test_host_helper_rejects_daemon_escape_shapes(argv: tuple[str, ...]) -> None:
@@ -157,6 +177,36 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
             bin_dir=bin_dir,
             project="elesim-runtime",
         )
+
+
+def test_host_helper_rejects_unscoped_compose_up() -> None:
+    compose, bin_dir = _paths()
+    with pytest.raises(HostHelperError, match="at least one service"):
+        _validate_command(
+            (
+                "docker",
+                "compose",
+                "-p",
+                "elesim-runtime",
+                "-f",
+                str(compose),
+                "up",
+                "-d",
+                "--no-build",
+                "--remove-orphans",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
+
+
+def test_tailscale_target_accepts_ipv6_and_rejects_path_values() -> None:
+    assert _valid_tailscale_target("fd7a:115c:a1e0::1234")
+    assert _valid_tailscale_target("[fd7a:115c:a1e0::1234]")
+    assert _valid_tailscale_target("sim.example")
+    assert not _valid_tailscale_target("/tmp/socket")
+    assert not _valid_tailscale_target("sim example")
 
 
 def test_tailscale_stream_releases_small_banner_before_eof(tmp_path: Path) -> None:

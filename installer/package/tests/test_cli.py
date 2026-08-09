@@ -310,6 +310,18 @@ def test_noninteractive_install_dry_run_uses_same_installer(tmp_path: Path) -> N
             str(tmp_path / "install"),
             "--bin-dir",
             str(tmp_path / "bin"),
+            "--dds-security-profile",
+            "sros2",
+            "--dds-security-provisioning",
+            "managed",
+            "--turn-mode",
+            "managed",
+            "--turn-url",
+            "turn:turn.example.com:3478?transport=udp",
+            "--turn-public-host",
+            "turn.example.com",
+            "--turn-realm",
+            "elesim.local",
             "--dry-run",
         )
     )
@@ -502,6 +514,18 @@ def test_noninteractive_container_install_uses_container_backend(
             str(tmp_path / "install"),
             "--bin-dir",
             str(tmp_path / "bin"),
+            "--dds-security-profile",
+            "sros2",
+            "--dds-security-provisioning",
+            "managed",
+            "--turn-mode",
+            "managed",
+            "--turn-url",
+            "turn:turn.example.com:3478?transport=udp",
+            "--turn-realm",
+            "elesim.local",
+            "--turn-public-host",
+            "turn.example.com",
             "--dry-run",
         )
     )
@@ -510,14 +534,9 @@ def test_noninteractive_container_install_uses_container_backend(
     assert not state_path.exists()
 
 
-def test_noninteractive_external_turn_requires_sim_credential_path(
+def test_noninteractive_sim_rejects_external_or_missing_managed_turn(
     tmp_path: Path,
 ) -> None:
-    credentials = tmp_path / "turn.json"
-    credentials.write_text(
-        '{"username":"lab-user","credential":"lab-password"}\n',
-        encoding="utf-8",
-    )
     base = (
         "--source-root",
         str(ROOT),
@@ -535,14 +554,11 @@ def test_noninteractive_external_turn_requires_sim_credential_path(
         "--bin-dir",
         str(tmp_path / "bin"),
         "--turn-mode",
-        "external",
-        "--turn-url",
-        "turn:relay.example.com:3478?transport=udp",
+        "managed",
         "--dry-run",
     )
 
     assert cli.main(base) == 2
-    assert cli.main((*base, "--turn-credential-file", str(credentials))) == 0
 
 
 def test_status_does_not_require_cached_source_to_still_exist(local_state, tmp_path: Path) -> None:

@@ -244,7 +244,7 @@ connection-manager container is deliberately bridged and publishes only its
 selected GUI port on host loopback; this keeps the browser reachable on Docker
 Desktop/WSL where container host networking is a separate namespace. The
 wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
-host-key and deployment connections through `tailscale nc` when the bridge
+host key and deployment connections through `tailscale nc` when the bridge
 cannot directly route the WSL `tailscale0` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
 It is an SSH-management fallback only: it does not proxy DDS UDP. A configured
@@ -343,7 +343,7 @@ It then refreshes `.elesim/development` and incrementally builds
 `elesim/dev:local`. Native Robot uses the same ownership validation to refresh
 its owned venv/configuration/systemd inputs but has no Docker image build.
 
-No edition performs a broad delete, Docker prune, branch switch, security-key
+No edition performs a broad delete, Docker prune, branch switch, security key
 rotation, topology inference, or automatic runtime restart.
 
 The image input is `environment/development`. It includes ROS2 Humble, Genesis,
@@ -551,10 +551,10 @@ are read as `full` and normalized to schema v3 with an explicit mode.
 Each host records one advertised DDS IP and interface for runtime UDP
 reachability and static-peer derivation. The connection manager uses that same
 IP for remote SSH, while storing SSH port, user, agent/identity-file choice,
-and pinned SHA-256 host-key fingerprint for management. SSH port `2222` is an
+and pinned SHA-256 host key fingerprint for management. SSH port `2222` is an
 administration example only. Topology state is
 non-secret: it may retain an identity-file path and host fingerprint, but never
-a password, private-key body, SROS2 key, TURN secret, credential, or token.
+a password, private key body, SROS2 key, TURN secret, credential, or token.
 
 When the physical Jetson is unavailable, select `simulation-only` and save the
 active COM topology normally. The GUI's primary maintenance action is now
@@ -584,11 +584,12 @@ networks; DDS still requires a bidirectional UDP path.
 The setup wizard intentionally keeps the shared DDS/security/SSH fields out of
 the normal interaction path. General installs start with a managed SROS2
 pending marker; the operator then enters the mutable host addresses, Tailscale
-interface, SSH mode/user and host-key confirmation in `elesim-connections`.
+interface, SSH mode/user and host key confirmation in `elesim-connections`.
 The manager creates the SROS2 generation and role bundles itself, so an
-operator never types an AES value or private-key body into setup. The optional
-TURN section remains in setup because TURN ownership is Sim-specific and is not
-part of the non-secret connection topology.
+operator never types an AES value or private key body into setup. Coturn is
+owned by the Sim installation rather than represented as a connection-manager
+card or topology field; the manager reads its non-secret runtime endpoint from
+`elesim-net show` when SROS2 is active and clears it for trusted-network use.
 
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of
@@ -605,38 +606,29 @@ Authority-active generation, or to managed-pending when no Authority
 generation is active; ordinary GUI use exposes Abort and Host check rather than
 a separate advanced recovery panel.
 
-## TURN Ownership
+## TURN and ICE Ownership
 
-State schema v8 keeps TURN endpoint URLs separate from relay ownership and
-records an optional Sim-only external credential file:
+The Sim application owns WebRTC ICE policy. Direct ICE candidates are always
+attempted first; WebRTC remains DTLS/SRTP in both DDS security profiles.
 
-- `none`: no TURN URL;
-- `external`: consume an independently managed relay; a Sim installation
-  selects a JSON file containing `username`, `credential`, and optional finite
-  `expires_at`;
-- `managed`: include Coturn in the generated general-user Compose project.
+- `trusted-network` uses direct ICE only. The generated Sim configuration has
+  no TURN URL or credential source, and Compose has no Coturn service.
+- `sros2` adds the managed Coturn fallback to the Sim Compose project. Sim
+  mounts the static REST HMAC secret, issues short-lived credentials bound to
+  the active UI session, and sends only the usable credential to UI over the
+  authenticated DDS session. UI never receives the static secret.
 
-Managed TURN requires a Sim host, realm, public host, one TURN URL, and a
-credential policy. Because credentials and signaling cross DDS, managed mode
-requires the `sros2` profile. The Coturn service uses host networking, a pinned
-image, and UDP relay range `49160-49200`. Because it is in the same Compose
-project, `elesim-up`, `elesim-down`, and `elesim-logs` own its lifecycle. The
-standalone release Coturn Compose remains available only for operators who
-deliberately choose `external`.
+Coturn is not a role, card, or saved connection-topology field. The
+connection manager reads the managed endpoint from the Sim host's
+`elesim-net show`, verifies the secret and service, and configures the Sim
+runtime transactionally. Switching to trusted-network sends `--clear-turn` and
+stops a stale managed relay. Legacy external TURN state remains readable by
+the lower-level runtime for migration, but new setup requests do not expose
+it.
 
-WebRTC remains DTLS/SRTP in both DDS security profiles. Managed Coturn mounts
-its REST HMAC secret into Coturn and the co-located Sim only. Sim
-issues short-lived credentials bound to its active UI session; UI receives the
-issued credential but never the static secret. This makes Sim part of the
-managed TURN trust boundary. For external TURN, setup mounts the selected JSON
-read-only into the Sim container only; Pilot/UI-only installations
-store the URL but do not receive or require the file. Sim sends the
-usable username/password to the active UI as part of the DDS session grant.
-With `trusted-network`, that exchange inherits the controlled-LAN/VPN trust
-assumption; use SROS2 when other users can join or observe the DDS network.
-
-TURN relays WebRTC media only. It cannot make DDS discovery, topics, services,
-actions, or SDP signaling reachable through NAT.
+TURN relays DTLS/SRTP WebRTC media only. It cannot make DDS discovery, topics,
+services, actions, or SDP signaling reachable through NAT; the DDS path must be
+reachable before Sim can exchange WebRTC offers.
 
 Schema-v1/v2 TURN URLs continue to migrate to `external`. Schema v1-v4 states
 have no external credential-file field; they remain inspectable, but a
@@ -671,7 +663,9 @@ python3 -m elesim_setup.cli \
   --gpu-mode inherit \
   --dds-security-profile sros2 \
   --dds-security-provisioning managed \
-  --turn-mode external \
+  --turn-mode managed \
+  --turn-public-host sim.example.com \
+  --turn-realm sim.example.com \
   --turn-url 'turn:sim.example.com:3478?transport=udp'
 ```
 

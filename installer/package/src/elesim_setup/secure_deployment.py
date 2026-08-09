@@ -544,7 +544,7 @@ class ParamikoConnector:
                         "If the ACL uses action=check, approve one interactive "
                         "Tailscale SSH re-authentication first and verify that "
                         "the ACL permits this user. Tailscale SSH uses port 22 "
-                        "and does not use a private-key path."
+                        "and does not use a private key path."
                     ) from exc
             if not authenticated:
                 raise SshAuthenticationError(
@@ -617,7 +617,7 @@ def _verify_pinned_host_key_values(hostname: str, key: object, expected: str) ->
     actual = ssh_sha256_fingerprint(key_bytes)
     if not hmac.compare_digest(actual, expected):
         raise HostKeyVerificationError(
-            f"SSH host-key mismatch for {hostname!r}: expected "
+            f"SSH host key mismatch for {hostname!r}: expected "
             f"{expected}, received {actual}"
         )
 
@@ -835,6 +835,88 @@ def _decode_remote_output(content: bytes, truncated: bool) -> str:
     if not truncated:
         return rendered
     return "[earlier remote output truncated]\n" + rendered
+
+
+def _managed_turn_from_state(
+    state: Mapping[str, Any], host: ManagedHost
+) -> dict[str, str]:
+    """Read the non-secret managed TURN endpoint from the Sim installation.
+
+    Coturn is a Sim-owned service.  The connection topology therefore does
+    not store its URL, realm, public host, or secret path; the installed
+    ``elesim-net show`` state remains the authority for those values.
+    """
+
+    network = state.get("network")
+    turn = state.get("turn")
+    if not isinstance(network, Mapping) or not isinstance(turn, Mapping):
+        raise RuntimeError(
+            f"managed Coturn state is missing on {host.host_id}; "
+            "install/update the Sim runtime with managed Coturn first"
+        )
+    mode = str(turn.get("mode", "")).strip()
+    raw_urls = network.get("turn_urls", ())
+    if isinstance(raw_urls, (str, bytes, bytearray)) or not isinstance(
+        raw_urls, Sequence
+    ):
+        raw_urls = ()
+    urls = tuple(
+        str(value).strip() for value in raw_urls if str(value).strip()
+    )
+    realm = str(turn.get("realm", "")).strip()
+    public_host = str(turn.get("public_host", "")).strip()
+    secret_file = str(turn.get("secret_file", "")).strip()
+    secret_path = PurePosixPath(secret_file)
+    sim_roots = tuple(
+        PurePosixPath(unit.install_root)
+        for unit in host.units
+        if "sim" in unit.roles
+    )
+    secret_is_contained = False
+    if secret_path.is_absolute() and ".." not in secret_path.parts:
+        for root in sim_roots:
+            try:
+                secret_path.relative_to(root)
+            except ValueError:
+                continue
+            secret_is_contained = True
+            break
+    if (
+        mode != "managed"
+        or len(urls) != 1
+        or not realm
+        or not public_host
+        or not secret_file
+        or not secret_is_contained
+    ):
+        raise RuntimeError(
+            f"Sim host {host.host_id} has no complete managed Coturn configuration; "
+            "install/update the Sim runtime with SROS2-managed Coturn first "
+            "and keep its secret file under the Sim installation root"
+        )
+    return {
+        "turn_url": urls[0],
+        "turn_realm": realm,
+        "turn_public_host": public_host,
+        "turn_secret_file": secret_file,
+    }
+
+
+def _remote_path_contains_symlink(session: SshSession, path: str) -> bool:
+    """Check a remote path and every existing ancestor without following it."""
+
+    current = PurePosixPath(path)
+    while True:
+        result = session.run(("test", "-L", str(current)), check=False)
+        if result.exit_status == 0:
+            return True
+        if result.exit_status != 1:
+            raise RuntimeError(
+                f"could not inspect managed Coturn secret path component: {current}"
+            )
+        if current == PurePosixPath("/"):
+            return False
+        current = current.parent
 
 
 class SshHostOperations:
@@ -1495,6 +1577,35 @@ class InstalledElesimLifecycle:
                 self._unit_security_root(host, unit, security_root),
                 unit_state,
             )
+            if "sim" in unit.roles and self._topology.security_profile == "sros2":
+                managed_turn = _managed_turn_from_state(unit_state, host)
+                if _remote_path_contains_symlink(
+                    session, managed_turn["turn_secret_file"]
+                ):
+                    raise RuntimeError(
+                        f"managed Coturn secret path is a symlink or has a symlink ancestor on "
+                        f"{host.host_id}/{unit.unit_id}: "
+                        f"{managed_turn['turn_secret_file']}"
+                    )
+                if session.run(
+                    ("test", "-f", managed_turn["turn_secret_file"]),
+                    check=False,
+                ).exit_status != 0:
+                    raise RuntimeError(
+                        f"managed Coturn secret file is missing on {host.host_id}/{unit.unit_id}: "
+                        f"{managed_turn['turn_secret_file']}"
+                    )
+                if unit.install_mode == "container":
+                    compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
+                    services = session.run(
+                        ("docker", "compose", "-f", str(compose), "config", "--services"),
+                        check=False,
+                    )
+                    if services.exit_status != 0 or "coturn" not in services.stdout.split():
+                        raise RuntimeError(
+                            f"managed Coturn service is missing on {host.host_id}/{unit.unit_id}; "
+                            "run elesim-update after installing Sim with SROS2"
+                        )
 
         writable = all(
             session.run(
@@ -1695,6 +1806,13 @@ class InstalledElesimLifecycle:
         generation: str | None,
         security_root: PurePosixPath,
     ) -> None:
+        installed = self.snapshot(session, host)
+        installed_units = installed.get("units")
+        installed_states = (
+            installed_units
+            if isinstance(installed_units, Mapping)
+            else {host.primary_unit.unit_id: installed}
+        )
         endpoints = {
             assignment.role: assignment.endpoint_id
             for managed_host in self._topology.hosts
@@ -1735,6 +1853,17 @@ class InstalledElesimLifecycle:
                         "enclave": "",
                     }
                 )
+            if "sim" in unit.roles:
+                if self._topology.security_profile == "sros2":
+                    installed_state = installed_states.get(unit.unit_id)
+                    if not isinstance(installed_state, Mapping):
+                        raise RuntimeError(
+                            f"Sim runtime state is missing on {host.host_id}/{unit.unit_id}"
+                        )
+                    values.update(_managed_turn_from_state(installed_state, host))
+                    values["turn_mode"] = "managed"
+                else:
+                    values["turn_mode"] = "none"
             role_ids = {role: endpoints.get(role, "") for role in unit.roles}
             session.run(
                 _configuration_command(
@@ -1791,7 +1920,19 @@ class InstalledElesimLifecycle:
         for unit in units:
             unit_roles = tuple(role for role in unit.roles if role in selected)
             if unit_roles:
-                session.run(_lifecycle_command(unit, action="stop", roles=unit_roles))
+                include_coturn = (
+                    "sim" in unit_roles
+                    and unit.install_mode == "container"
+                    and self._compose_has_service(session, unit, "coturn")
+                )
+                session.run(
+                    _lifecycle_command(
+                        unit,
+                        action="stop",
+                        roles=unit_roles,
+                        include_coturn=include_coturn,
+                    )
+                )
 
     def start(
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
@@ -1801,7 +1942,20 @@ class InstalledElesimLifecycle:
         for unit in units:
             unit_roles = tuple(role for role in unit.roles if role in selected)
             if unit_roles:
-                session.run(_lifecycle_command(unit, action="start", roles=unit_roles))
+                include_coturn = (
+                    self._topology.security_profile == "sros2"
+                    and "sim" in unit_roles
+                    and unit.install_mode == "container"
+                    and self._compose_has_service(session, unit, "coturn")
+                )
+                session.run(
+                    _lifecycle_command(
+                        unit,
+                        action="start",
+                        roles=unit_roles,
+                        include_coturn=include_coturn,
+                    )
+                )
 
     def build(
         self, session: SshSession, host: ManagedHost, output: CommandOutput
@@ -1818,7 +1972,30 @@ class InstalledElesimLifecycle:
     def launch(self, session: SshSession, host: ManagedHost) -> None:
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
-            session.run(_lifecycle_command(unit, action="launch", roles=unit.roles))
+            include_coturn = (
+                self._topology.security_profile == "sros2"
+                and "sim" in unit.roles
+                and unit.install_mode == "container"
+                and self._compose_has_service(session, unit, "coturn")
+            )
+            session.run(
+                _lifecycle_command(
+                    unit,
+                    action="launch",
+                    roles=unit.roles,
+                    include_coturn=include_coturn,
+                )
+            )
+
+    @staticmethod
+    def _compose_has_service(
+        session: SshSession, unit: DeploymentUnit, service: str
+    ) -> bool:
+        result = session.run(
+            (*_compose_command(unit), "config", "--services"),
+            check=False,
+        )
+        return result.exit_status == 0 and service in result.stdout.split()
 
     def runtime_doctor(
         self,
@@ -1873,15 +2050,27 @@ class InstalledElesimLifecycle:
                     check=False,
                 )
                 expected = set(unit.roles)
-                running = tuple(
-                    sorted(value for value in result.stdout.split() if value in expected)
-                )
-                active = expected.issubset(set(running))
+                running_services = set(result.stdout.split())
+                running = tuple(sorted(value for value in running_services if value in expected))
+                relay_ok = True
+                relay_detail = ""
+                if "sim" in expected:
+                    if self._topology.security_profile == "sros2":
+                        relay_ok = "coturn" in running_services
+                        if not relay_ok:
+                            relay_detail = "managed Coturn is not running"
+                    elif "coturn" in running_services:
+                        relay_ok = False
+                        relay_detail = "Coturn must be stopped for plaintext DDS"
+                active = expected.issubset(running_services) and relay_ok
                 state = "running" if active else ("stopped" if not running else "degraded")
+                detail = result.stderr.strip()[:512]
+                if relay_detail:
+                    detail = f"{detail}; {relay_detail}" if detail else relay_detail
                 unit_status[unit.unit_id] = {
                     "state": state,
                     "running_roles": list(running),
-                    "detail": result.stderr.strip()[:512],
+                    "detail": detail,
                 }
             else:
                 result = session.run(
@@ -1954,6 +2143,17 @@ class InstalledElesimLifecycle:
                         "roles are not running on "
                         f"{host.host_id}/{unit.unit_id}: {', '.join(missing)}"
                     )
+                running_services = set(result.stdout.split())
+                if "sim" in unit_selected:
+                    if self._topology.security_profile == "sros2" and "coturn" not in running_services:
+                        raise RuntimeError(
+                            f"managed Coturn is not running on {host.host_id}/{unit.unit_id}"
+                        )
+                    if self._topology.security_profile == "trusted-network" and "coturn" in running_services:
+                        raise RuntimeError(
+                            f"Coturn must be stopped for plaintext DDS on "
+                            f"{host.host_id}/{unit.unit_id}"
+                        )
             elif unit_selected:
                 session.run(
                     (
@@ -1977,6 +2177,50 @@ class InstalledElesimLifecycle:
                         f"DDS {name} did not activate on {host.host_id}/{unit.unit_id}: "
                         f"{actual!r} != {value!r}"
                     )
+            if "sim" in unit.roles:
+                network = unit_state.get("network")
+                turn = unit_state.get("turn")
+                if not isinstance(network, Mapping) or not isinstance(turn, Mapping):
+                    raise RuntimeError(
+                        f"managed Coturn state is missing on {host.host_id}/{unit.unit_id}"
+                    )
+                expected_mode = "managed" if self._topology.security_profile == "sros2" else "none"
+                expected_turn = (
+                    _managed_turn_from_state(unit_state, host)
+                    if expected_mode == "managed"
+                    else None
+                )
+                urls = tuple(str(value) for value in network.get("turn_urls", ()))
+                expected_urls = (
+                    (str(expected_turn["turn_url"]),)
+                    if expected_turn is not None
+                    else ()
+                )
+                if urls != expected_urls:
+                    raise RuntimeError(
+                        f"TURN URL did not activate on {host.host_id}/{unit.unit_id}: "
+                        f"{list(urls)!r} != {list(expected_urls)!r}"
+                    )
+                expected_turn_values = {
+                    "mode": expected_mode,
+                    **(
+                        {
+                            "realm": str(expected_turn["turn_realm"]),
+                            "public_host": str(expected_turn["turn_public_host"]),
+                            "secret_file": str(expected_turn["turn_secret_file"]),
+                        }
+                        if expected_turn is not None
+                        else {}
+                    ),
+                }
+                for name, expected_value in expected_turn_values.items():
+                    actual_value = str(turn.get(name, ""))
+                    if actual_value != expected_value:
+                        raise RuntimeError(
+                            f"TURN {name} did not activate on "
+                            f"{host.host_id}/{unit.unit_id}: "
+                            f"{actual_value!r} != {expected_value!r}"
+                        )
             if generation is not None and str(dds.get("security_generation", "")) != generation:
                 raise RuntimeError(
                     f"security generation did not activate on {host.host_id}/{unit.unit_id}"
@@ -2448,6 +2692,7 @@ def _lifecycle_command(
     *,
     action: str,
     roles: Sequence[str] | None = None,
+    include_coturn: bool = False,
 ) -> tuple[str, ...]:
     if action not in {"start", "stop", "build", "launch"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
@@ -2459,13 +2704,16 @@ def _lifecycle_command(
         selected = unit.roles if roles is None else tuple(str(role) for role in roles)
         if len(set(selected)) != len(selected) or not set(selected).issubset(unit.roles):
             raise ValueError(f"runtime role selection escapes {unit.unit_id!r}: {selected!r}")
+    services = tuple(selected)
+    if include_coturn and "sim" in selected and "coturn" not in services:
+        services = (*services, "coturn")
     if unit.lifecycle == "compose":
         if action == "stop":
-            return (*_compose_command(unit), "stop", *selected)
+            return (*_compose_command(unit), "stop", *services)
         if action == "start":
             # Security/topology transactions resume the exact containers that
             # were running before the switch.  They never build or recreate.
-            return (*_compose_command(unit), "start", *selected)
+            return (*_compose_command(unit), "start", *services)
         if action == "build":
             return (*_compose_build_command(unit), "build", *selected)
         return (
@@ -2474,6 +2722,7 @@ def _lifecycle_command(
             "-d",
             "--no-build",
             "--remove-orphans",
+            *services,
         )
     if action in {"build", "launch"}:
         if action == "build":
@@ -2555,6 +2804,40 @@ def _configuration_command(
         arguments.extend(("--ui-id", ui_id))
     if robot_id:
         arguments.extend(("--robot-id", robot_id))
+    turn_mode = str(dds.get("turn_mode", "")).strip()
+    if not turn_mode:
+        return tuple(arguments)
+    if turn_mode == "managed":
+        turn_values = (
+            "turn_url",
+            "turn_realm",
+            "turn_public_host",
+            "turn_secret_file",
+        )
+        missing_turn = [name for name in turn_values if not str(dds.get(name, "")).strip()]
+        if missing_turn:
+            raise ValueError(
+                "managed Coturn configuration is missing: "
+                + ", ".join(missing_turn)
+            )
+        arguments.extend(
+            (
+                "--turn-mode",
+                "managed",
+                "--turn-url",
+                str(dds["turn_url"]),
+                "--turn-realm",
+                str(dds["turn_realm"]),
+                "--turn-public-host",
+                str(dds["turn_public_host"]),
+                "--turn-secret-file",
+                str(dds["turn_secret_file"]),
+            )
+        )
+    elif turn_mode == "none":
+        arguments.extend(("--turn-mode", "none", "--clear-turn"))
+    else:
+        raise ValueError(f"unsupported managed Sim TURN mode: {turn_mode!r}")
     return tuple(arguments)
 
 

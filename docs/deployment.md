@@ -149,7 +149,7 @@ example `tailscale0`), and the remote SSH user/port. The SSH destination is the
 same advertised IP. For a Tailscale SSH endpoint the port is fixed at 22;
 ordinary OpenSSH uses the
 configured sshd port. It does not save a topology, provision keys, or claim that an
-SSH host-key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
+SSH host key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
 reachability test such as `python3 -m http.server 8080` is outside the runtime
 topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
 requires the Robot role; `simulation-only` deployment intentionally starts the
@@ -239,14 +239,17 @@ aggregate generation keystore. They mount only
 `public/` and `enclaves/` children while the application is stopped.
 Offline hosts therefore stop the rotation before a mixed live graph is created.
 
-Coturn is optional on a flat LAN. The setup GUI's **managed** option places a
-pinned Coturn service in the Sim host's generated Compose project. In
-that case `elesim-up`, `elesim-down`, and `elesim-logs` manage Sim and
-Coturn together. Managed TURN requires the SROS2 profile because ICE
-credentials and signaling cross DDS.
+Sim always attempts direct ICE first. A `trusted-network` (plaintext DDS)
+installation therefore has no managed Coturn service and passes an empty ICE
+server list to aiortc; WebRTC media is still DTLS/SRTP. An `sros2` Sim
+installation includes the pinned, Sim-owned Coturn service as the relay
+fallback. `elesim-up`, `elesim-down`, and `elesim-logs` own that service with
+the Sim container. Pilot/UI-only installs do not receive a Coturn service.
+This coupling keeps relay credentials and DDS signaling inside the SROS2 trust
+boundary.
 
-The standalone release Compose is for an **external** relay that is deliberately
-operated outside the generated Elesim project:
+The standalone release Compose remains a compatibility tool for an independently
+operated relay; the setup wizard does not offer this path for new Sim installs:
 
 ```bash
 docker compose \
@@ -255,22 +258,31 @@ docker compose \
 ```
 
 The four application release contexts intentionally do not copy this standalone
-Coturn project. Managed Coturn is generated into the Sim host's runtime
-Compose project; an external relay remains independently operated from the
-source infrastructure directory above.
+Coturn project. Managed Coturn is generated into the Sim host's runtime Compose
+project. Existing external states can still be inspected by the lower-level
+runtime, but the installer cannot create a new one.
 
 Managed Coturn's REST HMAC secret is mounted into Coturn and the co-located
 Sim only. Sim issues bounded-lifetime credentials for itself and
 the UI, tied to the active simulation session; UI never receives the static
 secret. This explicitly trusts the managed Sim to mint TURN credentials.
-External TURN uses a separately provisioned JSON file with `username`,
-`credential`, and optional `expires_at`. Select it only while installing the
-Sim host. Setup validates it as a small regular private file and mounts
-it read-only into Sim; Pilot/UI-only hosts keep only the TURN URL.
+Legacy external TURN states may use a separately provisioned JSON file with
+`username`, `credential`, and optional `expires_at`; new installer requests do
+not accept that file. When such a legacy state is explicitly retained, setup
+mounts it read-only into Sim; Pilot/UI-only hosts keep only the TURN URL.
 Sim passes the usable credential to its active UI through the DDS
 session grant. TURN relays DTLS/SRTP WebRTC media, not DDS data or signaling.
 If that DDS exchange is on a shared network, select SROS2 rather than
 `trusted-network`.
+
+Coturn is not a fifth role and is not a field in the saved connection topology.
+The Sim installation is its owner. During a managed SROS2 transaction the
+connection manager reads the non-secret TURN endpoint and secret-file path
+from that host's `elesim-net show`, verifies the secret and Compose service,
+then invokes `elesim-net configure --turn-mode managed ...`. For
+`trusted-network`, it sends `--turn-mode none --clear-turn` and stops any stale
+Coturn service. Verification compares the active Sim TURN state and running
+service before the job can commit.
 
 ## Container Roles
 
@@ -470,7 +482,7 @@ defaults (`eth0`, domain `1`) with `ELESIM_UNITREE_INTERFACE` and
 
 `dist/releases/robot` is a separate standalone/manual artifact. Its fixed
 `/opt/elesim-robot` unit and `/etc/elesim/robot.yaml` layout do **not** expose an
-`install-state.json`, `elesim-net`, stable role-key views, or the managed
+`install-state.json`, `elesim-net`, stable role key views, or the managed
 connection-manager lifecycle. Do not register that release tree as a managed
 Robot host. If a deliberately standalone, non-managed deployment is required,
 its legacy layout is:

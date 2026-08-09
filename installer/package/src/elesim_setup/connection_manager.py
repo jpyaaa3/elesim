@@ -2,7 +2,7 @@
 
 Each host has one advertised IP.  That value is used both as the DDS address
 and as the SSH destination; SSH keeps its own port, user, authentication mode,
-and host-key fingerprint because those are management settings rather than DDS
+and host key fingerprint because those are management settings rather than DDS
 settings.
 """
 
@@ -152,7 +152,7 @@ class SshEndpoint:
     identity_file: str
     pinned_fingerprint: str
     # ``openssh`` uses the local agent or an explicitly selected key.  The
-    # ``tailscale`` mode speaks Tailscale SSH directly: it has no private-key
+    # ``tailscale`` mode speaks Tailscale SSH directly: it has no private key
     # file and is restricted to Tailscale's port 22 endpoint.
     auth_mode: str = "openssh"
 
@@ -175,10 +175,10 @@ class SshEndpoint:
             if int(self.port) != 22:
                 raise ValueError("Tailscale SSH uses port 22")
             if identity.strip():
-                raise ValueError("Tailscale SSH must not use a private-key file")
+                raise ValueError("Tailscale SSH must not use a private key file")
         fingerprint = str(self.pinned_fingerprint).strip()
         if not _FINGERPRINT.fullmatch(fingerprint):
-            raise ValueError("SSH pinned_fingerprint must be a SHA256 host-key fingerprint")
+            raise ValueError("SSH pinned_fingerprint must be a SHA256 host key fingerprint")
         return self
 
     @property
@@ -230,7 +230,7 @@ class PreflightSshEndpoint:
 
     The preflight deliberately carries no identity path or pinned fingerprint:
     it only checks that the management target derived from the advertised DDS
-    IP is reachable and, when requested, asks the existing host-key probe to
+    IP is reachable and, when requested, asks the existing host key probe to
     reach it.  The
     full :class:`SshEndpoint` remains mandatory for a saved/deployable
     topology, so this type cannot accidentally weaken rollout pinning.
@@ -744,6 +744,10 @@ class ManagedHost:
                 "install_root",
                 "bin_dir",
                 "lifecycle",
+                # Older schema-v3 files exposed Coturn on the Sim host card.
+                # Coturn is now derived from the Sim installation and this
+                # legacy value is intentionally discarded on the next save.
+                "coturn",
             },
             name="host",
         )
@@ -1023,6 +1027,7 @@ class ConnectionTopology:
     @classmethod
     def load(cls, path: str | os.PathLike[str]) -> "ConnectionTopology":
         candidate = Path(path).expanduser()
+        _ensure_no_symlink_ancestors(candidate, name="connection topology")
         if candidate.is_symlink():
             raise ValueError(f"connection topology must not be a symlink: {candidate}")
         source = candidate.resolve()
@@ -1041,6 +1046,7 @@ class ConnectionTopology:
     def save(self, path: str | os.PathLike[str]) -> Path:
         self.validate()
         candidate = Path(path).expanduser()
+        _ensure_no_symlink_ancestors(candidate, name="connection topology")
         if candidate.is_symlink():
             raise ValueError(f"refusing to replace symlink: {candidate}")
         destination = candidate.parent.resolve() / candidate.name
@@ -1163,6 +1169,26 @@ def _validate_absolute_posix_path(value: Any, *, name: str) -> None:
     path = PurePosixPath(text)
     if not path.is_absolute() or path == PurePosixPath("/") or ".." in path.parts:
         raise ValueError(f"{name} must be a contained absolute POSIX path")
+
+
+def _ensure_no_symlink_ancestors(path: Path, *, name: str) -> None:
+    """Keep topology reads/writes inside the lexical path selected by setup.
+
+    ``Path.resolve()`` alone follows a replaced parent directory.  The
+    connection manager persists deployment authority, so a symlinked parent
+    would let a local attacker redirect the topology file outside the manager
+    state directory between validation and the atomic replace.
+    """
+
+    lexical = Path(os.path.abspath(os.fspath(path.expanduser())))
+    current = lexical
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"{name} path contains a symlink: {current}")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
 
 
 def canonical_endpoint_key(endpoint_id: str) -> str:

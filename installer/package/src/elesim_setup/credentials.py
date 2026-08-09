@@ -23,7 +23,7 @@ from elesim_protocol import TurnCredentials
 
 
 class SshProbeError(RuntimeError):
-    """A host-key probe failed before a fingerprint could be read."""
+    """A host key probe failed before a fingerprint could be read."""
 
 
 def probe_ssh_fingerprint(
@@ -80,7 +80,7 @@ def tailscale_proxy_command(
     see the WSL ``tailscale0`` interface.  The generated wrapper optionally
     exposes a private, allowlisted host-helper socket; using its ``tailscale
     nc`` operation keeps the actual WireGuard path on the host while the
-    manager still owns SSH host-key pinning and Paramiko authentication.  The
+    manager still owns SSH host key pinning and Paramiko authentication.  The
     manager never receives the tailscaled local API socket.  No proxy is
     selected for ordinary addresses or when the wrapper did not provide it.
     Callers that already selected explicit Tailscale SSH may set ``force`` for
@@ -163,7 +163,7 @@ def _probe_failure(host: str, port: int, reason: str) -> str:
         else ""
     )
     return (
-        f"SSH host-key probe가 {origin}에서 {host}:{port}에 대해 {reason}되었습니다."
+        f"SSH host key probe가 {origin}에서 {host}:{port}에 대해 {reason}되었습니다."
         f"{container_hint}{tail}"
     )
 
@@ -202,6 +202,16 @@ def install_staged_credentials(
     return tuple(installed)
 
 
+def _resolve_non_symlink_path(path: Path, *, name: str) -> Path:
+    """Resolve a credential path without allowing symlinked ancestors."""
+
+    lexical = Path(os.path.abspath(os.fspath(path.expanduser())))
+    resolved = lexical.resolve()
+    if lexical != resolved:
+        raise ValueError(f"{name} must not contain symlinked path components: {lexical}")
+    return resolved
+
+
 def validate_external_turn_credentials(
     path: Path,
     *,
@@ -209,7 +219,7 @@ def validate_external_turn_credentials(
 ) -> None:
     """Validate the bounded external-TURN JSON without retaining its secret."""
 
-    source = path.expanduser().resolve()
+    source = _resolve_non_symlink_path(path, name="TURN credential path")
     if not source.exists() or source.is_symlink() or not source.is_file():
         raise ValueError(f"TURN credential path is not a regular file: {source}")
     if source.stat().st_size > 4096:

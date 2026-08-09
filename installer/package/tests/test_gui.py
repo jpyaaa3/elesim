@@ -9,10 +9,6 @@ import pytest
 
 from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.gui import WizardApplication, web_root
-from elesim_setup.ownership import (
-    install_host_uninstaller_bundle,
-    write_ownership_manifest,
-)
 
 
 def _capabilities() -> HostCapabilities:
@@ -40,9 +36,26 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert set(catalog) == {"ko", "en"}
     assert set(catalog["ko"]) == set(catalog["en"])
     assert "mode.developer" in catalog["ko"]
+    assert catalog["ko"]["mode.general"] == "일반 사용자"
+    assert catalog["ko"]["mode.developer"] == "개발자"
+    for section in ("mode", "roles", "paths", "compute", "network", "review", "install"):
+        assert catalog["ko"][f"step.{section}"] == catalog["ko"][f"{section}.title"]
+        assert catalog["en"][f"step.{section}"] == catalog["en"][f"{section}.title"]
+    assert catalog["en"]["mode.developer.help"] == (
+        "Create a complete container with the source and SDKs."
+    )
+    assert catalog["ko"]["mode.developer.help"] == (
+        "전체 소스와 SDK를 포함한 컨테이너를 만듭니다."
+    )
+    assert "mode.developer.privileged" not in catalog["ko"]
+    assert catalog["ko"]["app.title"] == "Elesim 설치 마법사"
+    assert catalog["en"]["app.title"] == "Elesim Install Wizard"
+    assert 'data-i18n="app.title"' in html
+    assert not any(key.startswith("uninstall.") for key in catalog["ko"])
 
     script = (root / "app.js").read_text(encoding="utf-8")
     html = (root / "index.html").read_text(encoding="utf-8")
+    style = (root / "style.css").read_text(encoding="utf-8")
     assert 'byId("dds-domain-id").value = context.defaults.dds_domain_id;' in script
     assert '"dds-security-profile"' in script
     assert '"dds-security-provisioning"' in script
@@ -59,10 +72,23 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert "applyPreset" not in script
     assert "preset-bar" not in (root / "index.html").read_text(encoding="utf-8")
     assert not any(key.startswith("roles.preset.") for key in catalog["ko"])
-    assert '"turn-credential-file"' in script
+    assert '"turn-credential-file"' not in script
+    assert 'name="turn-mode"' not in html
+    assert 'data-i18n="turn.managed.help"' in html
+    assert 'data-i18n="turn.external"' not in html
     assert 'runtime_text_logs: {' in script
     assert 'byId("runtime-text-logs").checked' in script
     assert "router-host" not in script
+    assert 'id="privileged-confirm-row"' not in html
+    assert 'id="open-uninstall"' not in html
+    assert 'id="uninstall-dialog"' not in html
+    assert 'id="jaeger-row"' in html
+    assert 'data-i18n="mode.jaeger.help"' not in html
+    assert "/api/uninstall/guide" not in script
+    assert 'byId("close-installer").hidden = !atInstall;' in script
+    assert 'id="close-installer"' in html and 'data-i18n="action.close" hidden disabled' in html
+    assert ".choice:has(> input:checked)," in style
+    assert ".choice:has(> .choice-radio > input:checked)" in style
 
 
 def test_context_defaults_to_original_invocation_directory(tmp_path: Path) -> None:
@@ -110,35 +136,21 @@ def test_gui_validation_reports_runtime_text_log_choice(tmp_path: Path) -> None:
         "prefix": str(tmp_path / "install"),
         "bin_dir": str(tmp_path / "install/bin"),
         "gpu_mode": "cpu",
-        "dds_security_profile": "trusted-network",
-        "turn_mode": "none",
+        "dds_security_profile": "sros2",
+        "dds_security_provisioning": "managed",
+        "turn_mode": "managed",
+        "turn_url": "turn:203.0.113.10:3478?transport=udp",
+        "turn_realm": "elesim.local",
+        "turn_public_host": "203.0.113.10",
         "runtime_text_logs": {"enabled": False},
     }
 
     assert app.validate_request(payload)["runtime_text_logs"] is False
 
 
-def test_gui_uninstall_guide_validates_manifest_and_emits_host_commands(
-    tmp_path: Path,
-) -> None:
+def test_gui_allows_trusted_sim_without_coturn(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    prefix = tmp_path / "install"
-    bin_dir = tmp_path / "bin"
-    prefix.mkdir()
-    bin_dir.mkdir()
-    generated = prefix / "install-state.json"
-    generated.write_text("{}\n", encoding="utf-8")
-    bundle = install_host_uninstaller_bundle(prefix=prefix, bin_dir=bin_dir)
-    manifest = write_ownership_manifest(
-        prefix=prefix,
-        bin_dir=bin_dir,
-        edition="general",
-        inventory_roots=(generated, bundle.root),
-        managed_roots=(),
-        created_roots=(prefix, bin_dir),
-        wrapper_paths=(bundle.wrapper,),
-    )
     app = WizardApplication(
         source_root=source,
         invocation_dir=tmp_path,
@@ -146,73 +158,23 @@ def test_gui_uninstall_guide_validates_manifest_and_emits_host_commands(
         repository="owner/repo",
         ref="main",
         token="test-token",
-        allowed_roots=(tmp_path,),
         runner=lambda _request, _log: None,
     )
+    payload = {
+        "language": "ko",
+        "edition": "general",
+        "roles": ["sim"],
+        "prefix": str(tmp_path / "install"),
+        "bin_dir": str(tmp_path / "install/bin"),
+        "gpu_mode": "cpu",
+        "dds_security_profile": "trusted-network",
+        "turn_mode": "none",
+    }
 
-    guide = app.uninstall_guide(
-        {
-            "prefix": str(prefix),
-            "keep_logs": True,
-            "keep_authority": True,
-        }
-    )
+    summary = app.validate_request(payload)
 
-    assert guide["install_uuid"] == manifest.install_uuid
-    assert f"--manifest {manifest.path}" in guide["plan_command"]
-    assert guide["plan_command"].endswith("--plan")
-    assert "--confirm-prefix" not in guide["execute_command"]
-    assert "--keep-logs" in guide["execute_command"]
-    assert "--keep-authority" in guide["execute_command"]
-    assert guide["preserves_logs"] is True
-    assert guide["preserves_authority"] is True
-
-    bundle.wrapper.write_text("foreign\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="변경"):
-        app.uninstall_guide({"prefix": str(prefix)})
-
-
-def test_gui_uninstall_guide_finds_developer_nested_manifest(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    source.mkdir()
-    workspace = tmp_path / "workspace"
-    bin_dir = tmp_path / "bin"
-    generated = workspace / ".elesim/development"
-    workspace.mkdir()
-    bin_dir.mkdir()
-    generated.mkdir(parents=True)
-    manifest_path = generated / "install-ownership.json"
-    bundle = install_host_uninstaller_bundle(
-        prefix=workspace,
-        bin_dir=bin_dir,
-        manifest_path=manifest_path,
-        bundle_root=generated / "maintenance",
-    )
-    manifest = write_ownership_manifest(
-        prefix=workspace,
-        bin_dir=bin_dir,
-        edition="developer",
-        inventory_roots=(bundle.root,),
-        managed_roots=(generated,),
-        created_roots=(),
-        wrapper_paths=(bundle.wrapper,),
-        manifest_path=manifest_path,
-    )
-    app = WizardApplication(
-        source_root=source,
-        invocation_dir=tmp_path,
-        capabilities=_capabilities(),
-        repository="owner/repo",
-        ref="main",
-        token="test-token",
-        allowed_roots=(tmp_path,),
-        runner=lambda _request, _log: None,
-    )
-
-    guide = app.uninstall_guide({"prefix": str(workspace)})
-
-    assert guide["install_uuid"] == manifest.install_uuid
-    assert f"--manifest {manifest_path}" in guide["plan_command"]
+    assert summary["security_profile"] == "trusted-network"
+    assert summary["turn_mode"] == "none"
 
 
 def test_directory_browser_cannot_escape_mounted_roots(tmp_path: Path) -> None:
@@ -259,8 +221,12 @@ def test_gui_request_cannot_replace_bootstrap_source_root(tmp_path: Path) -> Non
         "source_root": "/attacker/source",
         "gpu_mode": "cpu",
         "dds_domain_id": 3,
-        "dds_security_profile": "trusted-network",
-        "turn_mode": "none",
+        "dds_security_profile": "sros2",
+        "dds_security_provisioning": "managed",
+        "turn_mode": "managed",
+        "turn_url": "turn:203.0.113.10:3478?transport=udp",
+        "turn_realm": "elesim.local",
+        "turn_public_host": "203.0.113.10",
     }
 
     request = app.build_request(payload)
@@ -296,8 +262,12 @@ def test_running_install_can_be_cooperatively_cancelled(tmp_path: Path) -> None:
         "bin_dir": str(tmp_path / "install/bin"),
         "gpu_mode": "cpu",
         "dds_domain_id": 3,
-        "dds_security_profile": "trusted-network",
-        "turn_mode": "none",
+        "dds_security_profile": "sros2",
+        "dds_security_provisioning": "managed",
+        "turn_mode": "managed",
+        "turn_url": "turn:203.0.113.10:3478?transport=udp",
+        "turn_realm": "elesim.local",
+        "turn_public_host": "203.0.113.10",
     }
 
     app.start_install(payload)
@@ -359,18 +329,13 @@ def test_gui_rejects_credential_and_identity_paths_outside_mounted_roots(
         app.build_request(payload)
 
 
-def test_gui_external_turn_credential_is_sim_only_and_path_contained(
+def test_gui_rejects_external_turn_relay_selection(
     tmp_path: Path,
 ) -> None:
     home = tmp_path / "home"
     home.mkdir()
     source = home / "source"
     source.mkdir()
-    credentials = home / "turn.credentials.json"
-    credentials.write_text(
-        '{"username":"lab-user","credential":"lab-password"}\n',
-        encoding="utf-8",
-    )
     app = WizardApplication(
         source_root=source,
         invocation_dir=home,
@@ -388,20 +353,11 @@ def test_gui_external_turn_credential_is_sim_only_and_path_contained(
         "prefix": str(home / "install"),
         "bin_dir": str(home / "install/bin"),
         "gpu_mode": "cpu",
-        "dds_security_profile": "trusted-network",
+        "dds_security_profile": "sros2",
+        "dds_security_provisioning": "managed",
         "turn_mode": "external",
         "turn_url": "turn:relay.example.com:3478?transport=udp",
-        "turn_credential_file": str(credentials),
     }
 
-    request = app.build_request(payload)
-    assert request.turn.credential_path == credentials.resolve()
-
-    outside = tmp_path / "outside.credentials.json"
-    outside.write_text(
-        '{"username":"other","credential":"secret"}\n',
-        encoding="utf-8",
-    )
-    payload["turn_credential_file"] = str(outside)
-    with pytest.raises(PermissionError):
+    with pytest.raises(ValueError, match="managed TURN"):
         app.build_request(payload)

@@ -169,6 +169,33 @@ def test_connection_topology_roundtrip_uses_advertised_ip_for_ssh() -> None:
     assert restored.host("compute").ssh.port == 2222
 
 
+def test_connection_topology_rejects_symlinked_state_ancestors(tmp_path: Path) -> None:
+    real_root = tmp_path / "real-state"
+    real_root.mkdir()
+    linked_root = tmp_path / "linked-state"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+    topology_path = linked_root / "connections" / "topology.json"
+
+    with pytest.raises(ValueError, match="symlink"):
+        _topology().save(topology_path)
+    with pytest.raises(ValueError, match="symlink"):
+        ConnectionTopology.load(topology_path)
+
+
+def test_legacy_coturn_fields_are_discarded_on_topology_roundtrip() -> None:
+    raw = _topology().to_dict()
+    raw["hosts"][1]["coturn"] = {
+        "url": "turn:100.64.0.20:3478?transport=udp",
+        "public_host": "100.64.0.20",
+        "realm": "elesim.local",
+        "auth_file": "/opt/elesim/secrets/turn.secret",
+    }
+
+    restored = ConnectionTopology.from_dict(raw)
+
+    assert "coturn" not in restored.to_dict()["hosts"][1]
+
+
 def test_jetson_is_an_equal_host_with_shared_paths_and_distinct_lifecycles() -> None:
     host = ManagedHost(
         host_id="jetson",

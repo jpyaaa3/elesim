@@ -223,51 +223,25 @@ def run_wizard(
 
     turn_urls: tuple[str, ...] = ()
     turn = TurnSettings()
-    if _yes_no(
-        "NAT를 넘는 WebRTC용 TURN relay를 사용합니까?",
-        default=False,
-        input_fn=input_fn,
+    if (
+        install_mode == "container"
+        and "sim" in roles
+        and security_profile == "sros2"
     ):
-        managed = (
-            install_mode == "container"
-            and "sim" in roles
-            and _yes_no(
-            "이 Sim 호스트가 Coturn lifecycle도 관리합니까?",
-            default=False,
-            input_fn=input_fn,
-            )
-        )
-        public_host = (
-            _ask("Coturn public hostname/IP", "", input_fn=input_fn)
-            if managed
-            else ""
-        )
+        # SROS2 Sim owns the managed WebRTC relay.  Trusted-network Sim uses
+        # direct ICE and deliberately emits no Coturn service or credentials.
+        public_host = _ask("Coturn public hostname/IP", "", input_fn=input_fn)
         turn_url = _ask(
             "TURN URL",
             f"turn:{public_host}:3478?transport=udp" if public_host else "",
             input_fn=input_fn,
         )
         turn_urls = (turn_url,)
-        turn = (
-            TurnSettings(
-                mode="managed",
-                realm=_ask("TURN realm", "elesim.local", input_fn=input_fn),
-                public_host=public_host,
-                secret_file=str(prefix / "secrets/turn.secret"),
-            )
-            if managed
-            else TurnSettings(
-                mode="external",
-                credential_file=(
-                    _ask(
-                        "External TURN username/credential JSON file",
-                        "",
-                        input_fn=input_fn,
-                    )
-                    if "sim" in roles
-                    else ""
-                ),
-            )
+        turn = TurnSettings(
+            mode="managed",
+            realm=_ask("TURN realm", "elesim.local", input_fn=input_fn),
+            public_host=public_host,
+            secret_file=str(prefix / "secrets/turn.secret"),
         )
 
     state = InstallState(
@@ -340,11 +314,34 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
     )
     peers = tuple(args.dds_static_peer or ())
     turn_urls = tuple(args.turn_url or ())
-    turn_mode = (
-        args.turn_mode
-        if args.turn_mode != "auto"
-        else "external" if turn_urls else "none"
+    sim_turn_required = (
+        install_mode == "container"
+        and "sim" in roles
+        and args.dds_security_profile == "sros2"
     )
+    if sim_turn_required:
+        if args.turn_mode in {"none", "external"}:
+            raise ValueError(
+                "SROS2 Sim 설치는 Coturn을 포함한 managed TURN만 지원합니다"
+            )
+        turn_mode = "managed"
+        if not turn_urls:
+            raise ValueError(
+                "Sim 설치에는 Coturn public hostname/IP와 --turn-url이 필요합니다"
+            )
+        if args.dds_security_profile != "sros2":
+            raise ValueError(
+                "Sim에 포함되는 Coturn은 SROS2 보안 profile과 함께 사용해야 합니다"
+            )
+    else:
+        if args.turn_mode == "managed":
+            raise ValueError("managed Coturn은 Sim 설치에서만 사용할 수 있습니다")
+        if turn_urls:
+            raise ValueError(
+                "새 설치에서는 외부 TURN relay를 지정할 수 없습니다. "
+                "TURN은 Sim과 함께 설치됩니다"
+            )
+        turn_mode = "none"
     secret_file = args.turn_secret_file
     if turn_mode == "managed" and not secret_file:
         secret_file = str(Path(args.prefix).expanduser().resolve() / "secrets/turn.secret")
@@ -386,7 +383,7 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
             realm=args.turn_realm,
             public_host=args.turn_public_host,
             secret_file=secret_file,
-            credential_file=args.turn_credential_file,
+            credential_file=getattr(args, "turn_credential_file", ""),
         ),
         runtime_text_logs=RuntimeTextLogSettings(
             enabled=args.runtime_text_logs,
@@ -474,13 +471,12 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--turn-url", action="append", default=[])
     install.add_argument(
         "--turn-mode",
-        choices=("auto", "none", "managed", "external"),
+        choices=("auto", "managed"),
         default="auto",
     )
     install.add_argument("--turn-realm", default="")
     install.add_argument("--turn-public-host", default="")
     install.add_argument("--turn-secret-file", default="")
-    install.add_argument("--turn-credential-file", default="")
     install.add_argument("--skip-go2-mpc", action="store_true")
     install.add_argument(
         "--runtime-text-logs",

@@ -143,7 +143,7 @@ source ~/.bashrc
 | 역할 체크박스 | 이 컴퓨터에 둘 역할만 체크 | 필요 없는 역할은 체크하지 않는다. |
 | GPU 정책 | GPU 사용이면 `inherit`/`specific`, CPU면 `cpu` | 잘 모르면 `inherit`; CPU-only면 `cpu`. |
 | SROS2/통신 값 | 일반 설치에서는 연결관리자에서 설정 | AES 값, 개인키 내용, DDS 포트는 입력하지 않는다. |
-| TURN | 직접 연결이 안 되고 WebRTC relay가 필요할 때만 | 같은 LAN/직접 ICE면 `미사용`. |
+| TURN/ICE | Sim이 direct ICE를 먼저 시도하고, SROS2에서만 managed Coturn fallback을 사용 | trusted-network는 TURN 없이 동작한다. Coturn은 Sim runtime의 일부이며 별도 호스트 role/card가 아니다. |
 
 설치가 끝난 뒤에는 각 컴퓨터에서 역할을 바로 시작하기보다, managed SROS2를
 선택했다면 먼저 조작 컴퓨터에서 연결관리자의 보안 세대를 적용한다.
@@ -154,18 +154,13 @@ source ~/.bashrc
 겹치므로 숨겨져 있다. 이 항목을 억지로 채우거나 예전 설명서의 값을 복사하지
 말고, 설치 후 `elesim-connections`에서 각 host의 현재 값을 입력한다.
 
-일반 설치에서 보이는 TURN 선택은 다음처럼 처리한다.
-
-| 선택 | 추가 입력 | 생략 방법 |
-| --- | --- | --- |
-| `미사용` | 없음 | 기본값 그대로 둔다. |
-| `이 Sim 호스트에서 Coturn 운영` | Sim host의 public hostname/IP와 realm. secret은 **파일 경로** | Sim을 설치하지 않는 컴퓨터에서는 선택할 수 없다. 기본 secret 경로를 그대로 사용해도 된다. |
-| `기존 relay 사용` | TURN URL과 외부 credential JSON 파일 경로 | 외부 relay가 없으면 선택하지 않는다. JSON 내용을 입력창에 붙이지 않는다. |
-
-TURN은 Sim의 WebRTC media relay일 뿐 DDS를 중계하지 않는다. managed TURN을
-선택하면 보안 profile은 SROS2로 고정된다. `turn.secret`은 파일 자체가 아니라
-설치기가 관리할 파일 경로를 입력하는 칸이며, 개인키나 디렉터리 경로를 넣는
-칸이 아니다.
+TURN은 Sim의 WebRTC media relay일 뿐 DDS를 중계하지 않는다. `trusted-network`는
+direct ICE만 사용하고 Coturn을 만들지 않는다. SROS2를 선택한 Sim은 설치된
+Coturn endpoint를 사용하며, static secret은 Sim과 Coturn에만 남는다. 연결관리자는
+Sim 카드 하단에 relay 입력란을 만들지 않고 Sim 호스트의 `elesim-net show`에서
+endpoint를 읽어 검증한 뒤 적용한다. 새 설치 관리자에서는 외부 relay URL/credential
+파일을 입력할 수 없고, 이전 상태의 external 호환 경로는 하위 런타임에서만
+읽을 수 있다.
 
 `PATH에 등록`은 선택 사항이다. 선택하지 않아도 설치 완료 화면에 나온
 `<prefix>/bin/elesim-up` 같은 절대경로로 실행할 수 있다. `로컬 평문 로그 보관`
@@ -375,7 +370,7 @@ Endpoint ID를 바꾸려면 소문자·숫자·`-`·`_`만 사용하고, 같은 
 tailscale ssh <원격리눅스사용자>@<원격tailscale호스트> true
 ```
 
-재인증/승인 화면을 끝낸 뒤 연결관리자로 돌아와 host-key를 확인한다. Tailscale
+재인증/승인 화면을 끝낸 뒤 연결관리자로 돌아와 host key를 확인한다. Tailscale
 SSH도 호스트키 fingerprint pinning은 필요하다.
 
 #### 일반 OpenSSH를 사용하는 경우
@@ -395,6 +390,19 @@ SSH도 호스트키 fingerprint pinning은 필요하다.
 읽어온다. 화면의 fingerprint가 맞는지 별도 신뢰 경로(관리자가 알려 준 값,
 직접 확인한 콘솔 등)로 확인한 뒤 저장한다. 이 값은 원격 host를 인증하는
 값이지 DDS 암호화 키나 SROS2 개인키가 아니다.
+
+### 5.4 Sim의 ICE와 Coturn
+
+Sim은 direct ICE를 먼저 시도한다. `trusted-network`에서는 TURN URL과
+credential source를 비우고 Coturn을 시작하지 않는다. `sros2`에서는 설치된
+Sim Compose에 Coturn relay fallback이 함께 들어가며, Sim만 static HMAC
+secret을 읽어 짧은 session credential을 발급한다. WebRTC media는 두 경우
+모두 DTLS/SRTP이고, Coturn은 DDS discovery·topic·signaling을 중계하지 않는다.
+
+Coturn은 Sim이 소유하는 내부 서비스라 연결관리자 COM 카드의 별도 영역이나
+저장 topology field가 아니다. 연결관리자는 Sim 호스트의 `elesim-net show`에서
+TURN URL, realm, public host, secret path 같은 비밀이 아닌 값만 읽고 SROS2
+transaction에 반영한다. 사용자는 TURN secret 내용을 입력하거나 복사하지 않는다.
 
 ---
 

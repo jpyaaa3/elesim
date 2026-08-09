@@ -285,7 +285,7 @@ Schema-v1 documents load as `full` and are normalized on save.
 Every host has one advertised IP and interface used for runtime UDP. The same
 IP is the SSH destination; SSH keeps its own port, user, authentication mode
 (`openssh` via agent/key or `tailscale` via Tailscale SSH), and pinned SHA-256
-host-key fingerprint. Tailscale SSH is keyless and uses port 22; Tailscale ACL
+host key fingerprint. Tailscale SSH is keyless and uses port 22; Tailscale ACL
 `check` rules may require an interactive re-authentication before the manager
 can automate commands. An SSH port such as `2222` is never a DDS or WebRTC
 port. Static peers are derived from the active hosts' DDS addresses only.

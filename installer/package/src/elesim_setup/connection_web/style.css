@@ -224,7 +224,7 @@ pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6
 .banner-close { flex: 0 0 auto; width: 26px; min-height: 26px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: currentColor; font-size: var(--font-title); font-weight: 500; line-height: 1; }
 .banner-close:hover { border-color: transparent; background: rgb(0 0 0 / 8%); color: currentColor; }
 .banner.error { border: 1px solid #dda9a5; background: var(--danger-soft); color: var(--danger); }
-.banner.notice { border: 1px solid #9bc7b4; background: var(--accent-soft); color: var(--accent-dark); }
+.banner.notice { border: 1px solid #9fc4eb; background: var(--accent-soft); color: var(--accent-dark); }
 
 @media (max-width: 1250px) {
   .host-grid { grid-template-columns: repeat(2, minmax(280px, 1fr)); }

@@ -95,7 +95,7 @@ thread 등은 독립 배포 client가 아니다. 예를 들어 UI의 operator �
 | boot ID | 매 실행마다 바뀌는 process incarnation | runtime discovery에서 읽기 전용 표시 |
 | DDS locator | 실제 IP, UDP port, transport 정보 | DDS가 discovery로 교환; 고정 설정값이 아님 |
 | SSH IP/포트 | 원격 설치/로그 접근 | IP는 DDS 광고 IP에서 파생, 포트는 관리용이며 DDS/WebRTC 포트가 아님 |
-| TURN URL/credential | WebRTC media relay 설정 | Sim/active UI session용; DDS용이 아님 |
+| WebRTC/ICE policy | Sim이 소유하는 WebRTC media 경로 | `trusted-network`는 direct ICE만, `sros2`는 direct ICE 뒤 managed Coturn fallback; relay 값은 topology에 저장하지 않음 |
 
 특히 `endpoint_id`가 사용자가 말한 “X번 자리”에 해당한다. IP와 UDP port는
 그 endpoint가 현재 어느 host에서 실행되는지에 따라 바뀔 수 있으며, boot ID는
@@ -229,17 +229,22 @@ static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesi
 
 | 설정 | 예시 | 의미 |
 | --- | --- | --- |
-| Host label | `Laptop`, `Compute` | 화면 표시용 |
 | role assignment | UI, Pilot | 해당 host에 설치/실행할 역할 |
 | DDS interface | `eth0`, `wlan0`, `wg0`, `tailscale0` | DDS가 사용할 NIC |
 | DDS 광고 주소 | `100.x.y.z` (포트 없음) | static mode에서 다른 host의 discovery seed로 자동 파생 |
 | SSH management address/port | `server.example:2222` | installer/로그/관리용 |
-| WebRTC/TURN | managed/external TURN | Sim media 구성용 |
+| WebRTC/ICE | Sim runtime에서 관리 | `elesim-net show`의 비밀이 아닌 endpoint를 검증해 SROS2 Sim에만 적용; 평문 전환 시 TURN을 비움 |
 | security profile | trusted-network/SROS2 | graph 보안 profile |
 
 DDS UDP port forwarding은 일반 입력란으로 노출하지 않는다. 실제 UDP locator/port는
 RMW/DDS가 선택·광고하며 고정된 app port 모델이 아니다. 연결관리자는 runtime에서
 발견된 locator를 진단 정보로 보여 줄 수는 있다.
+
+Coturn은 다섯 번째 애플리케이션이 아니다. Sim이 직접 ICE를 먼저 시도하고,
+SROS2 profile일 때만 Sim과 함께 생성된 Coturn을 relay fallback으로 사용한다.
+연결관리자는 COM 카드에 relay 입력을 추가하지 않고 Sim 호스트의 설치 상태를
+읽기 전용으로 확인한다. `trusted-network`로 전환하면 `--clear-turn`으로
+직접 ICE 정책을 복원하고 이전 relay도 정지한다.
 
 ### 7.3 Jetson 없는 두 호스트 사전 점검 (M2-A, API/자동화)
 
@@ -253,7 +258,7 @@ Jetson을 실제로 켤 수 없는 동안에는 API/자동화에서 `COM` 카드
 - local 호스트는 SSH endpoint가 없고, remote 호스트는 광고 IP에서 파생된 SSH
   목적지와 명시적인 user/port를
   갖는가
-- 요청한 경우 remote SSH host-key probe가 그 host와 port에 도달하는가
+- 요청한 경우 remote SSH host key probe가 그 host와 port에 도달하는가
 
 사전 점검의 SSH 포트는 Tailscale의 별도 “DDS 포트”가 아니다. 현재 Elesim은
 일반 OpenSSH/Paramiko 경로를 사용하므로 실제 `sshd` 포트를 입력한다. 기본 sshd가
@@ -341,7 +346,7 @@ Operator host <-> Sim host: WebRTC media는 별도 상태
 ## 10. 구현된 범위와 남은 gate
 
 `elesim-connections`는 loopback/token GUI, role placement, mode-0600 topology,
-SSH host-key pinning, trusted-network 전체 배포, managed SROS2 발급·전체 generation
+SSH host key pinning, trusted-network 전체 배포, managed SROS2 발급·전체 generation
 전환·rollback, read-only Tailscale hint와 bounded lifecycle status/actions를 구현한다.
 DDS static peer는 활성 host의 광고 주소에서 파생한다.
 

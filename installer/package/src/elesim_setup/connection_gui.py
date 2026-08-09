@@ -211,7 +211,7 @@ class ConnectionManagerApplication:
     def validate_preflight(self, payload: Mapping[str, Any]) -> dict[str, object]:
         """Validate two mutable host endpoints without touching saved topology.
 
-        ``probe_ssh`` is an explicit, read-only host-key reachability check. It
+        ``probe_ssh`` is an explicit, read-only host key reachability check. It
         never stores the returned fingerprint and does not turn this temporary
         endpoint document into a deployable topology.
         """
@@ -296,7 +296,7 @@ class ConnectionManagerApplication:
         if not isinstance(fingerprint, str) or not _SSH_FINGERPRINT.fullmatch(
             fingerprint
         ):
-            raise RuntimeError("SSH probe returned an invalid host-key fingerprint")
+            raise RuntimeError("SSH probe returned an invalid host key fingerprint")
         return {"fingerprint": fingerprint}
 
     def start_job(self, action: str) -> dict[str, object]:

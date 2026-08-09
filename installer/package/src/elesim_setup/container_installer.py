@@ -22,7 +22,7 @@ from .configuration import (
     role_keystore_path,
     role_directory,
 )
-from .credentials import validate_external_turn_credentials
+from .credentials import _resolve_non_symlink_path, validate_external_turn_credentials
 from .manager_lifecycle import host_helper_fragment, manager_lifecycle_fragment
 from .ownership import (
     DOCKER_INSTALL_UUID_LABEL,
@@ -771,6 +771,8 @@ class ContainerInstaller:
                 guard=guard,
                 launch_guard=application_guard + runtime_network_guard,
                 has_sim="sim" in self.state.roles,
+                runtime_roles=self.state.roles,
+                state_path=self.state_path,
                 viewer_state=(
                     self.state.prefix_path / "cache/viewer-xhost"
                     if "sim" in self.state.roles
@@ -909,18 +911,24 @@ class ContainerInstaller:
         if self.state.turn.mode == "external":
             if "sim" not in self.state.roles:
                 return
-            credentials = self.state.turn.credential_path
-            if credentials is None:
+            raw_credentials = self.state.turn.credential_file.strip()
+            if not raw_credentials:
                 raise ValueError(
                     "external TURN on Sim requires a credential file"
                 )
+            credentials = _resolve_non_symlink_path(
+                Path(raw_credentials), name="TURN credential path"
+            )
             credentials.chmod(0o600)
             return
         if not self.state.turn.managed:
             return
-        secret = self.state.turn.secret_path
-        if secret is None:
+        raw_secret = self.state.turn.secret_file.strip()
+        if not raw_secret:
             raise ValueError("managed Coturn requires a TURN secret file")
+        secret = _resolve_non_symlink_path(
+            Path(raw_secret), name="TURN secret path"
+        )
         if secret.exists():
             if secret.is_symlink() or not secret.is_file():
                 raise ValueError(f"TURN secret path is not a regular file: {secret}")
@@ -1246,6 +1254,8 @@ def _runtime_up_wrapper(
     guard: str,
     launch_guard: str,
     has_sim: bool,
+    runtime_roles: Sequence[str],
+    state_path: Path,
     viewer_state: Path | None = None,
     viewer_user: str = "root",
 ) -> str:
@@ -1290,6 +1300,30 @@ def _runtime_up_wrapper(
         "  export ELESIM_SIM_VIEWER=\n"
         "fi\n"
     )
+    rendered_roles = " ".join(shlex.quote(str(role)) for role in runtime_roles)
+    if not rendered_roles:
+        raise ValueError("runtime launcher requires at least one role")
+    allowed_role_cases = "|".join(
+        shlex.quote(str(role)) for role in runtime_roles
+    )
+    compose_argument_validation = (
+        "runtime_roles=(" + rendered_roles + ")\n"
+        "if (( ${#compose_args[@]} == 0 )); then\n"
+        "  compose_args=(\"${runtime_roles[@]}\")\n"
+        "else\n"
+        "  for argument in \"${compose_args[@]}\"; do\n"
+        "    case $argument in\n"
+        f"      {allowed_role_cases}) ;;\n"
+        + (
+            "      coturn) ;;\n"
+            if has_sim
+            else "      coturn) printf '이 설치에는 Coturn 서비스가 없습니다.\\n' >&2; exit 64 ;;\n"
+        )
+        + "      *) printf '지원하지 않는 elesim-up 서비스 인자입니다: %s\\n' \"$argument\" >&2; exit 64 ;;\n"
+        "    esac\n"
+        "  done\n"
+        "fi\n"
+    )
     viewer_function = (
         _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
         if has_sim and viewer_state is not None
@@ -1305,6 +1339,71 @@ def _runtime_up_wrapper(
         "fi\n"
         if viewer_function
         else launch_guard
+    )
+    security_profile = (
+        "runtime_security_profile() {\n"
+        "  local state_path="
+        + shlex.quote(str(state_path))
+        + "\n"
+        "  if [[ ! -f \"$state_path\" || -L \"$state_path\" ]]; then\n"
+        "    printf '설치 상태 파일이 없거나 일반 파일이 아닙니다: %s\\n' \"$state_path\" >&2\n"
+        "    return 78\n"
+        "  fi\n"
+        "  local profile\n"
+        "  if profile=\"$(python3 -c 'import json,sys; "
+        "print(json.load(open(sys.argv[1], encoding=\"utf-8\"))"
+        ".get(\"dds\", {}).get(\"security_profile\", \"\"))' "
+        "\"$state_path\" 2>/dev/null)\"; then\n"
+        "    :\n"
+        "  else\n"
+        "    local status=$?\n"
+        "    printf '설치 상태의 DDS 보안 프로필을 읽을 수 없습니다: %s\\n' \"$state_path\" >&2\n"
+        "    return \"$status\"\n"
+        "  fi\n"
+        "  case \"$profile\" in\n"
+        "    sros2|trusted-network) printf '%s' \"$profile\" ;;\n"
+        "    *) printf '알 수 없는 DDS 보안 프로필입니다: %s\\n' \"$profile\" >&2; return 78 ;;\n"
+        "  esac\n"
+        "}\n"
+        if has_sim
+        else ""
+    )
+    coturn_selection = (
+        "  if security_profile=\"$(runtime_security_profile)\"; then\n"
+        "    :\n"
+        "  else\n"
+        "    profile_status=$?\n"
+        "    exit \"$profile_status\"\n"
+        "  fi\n"
+        "  requested_sim=0\n"
+        "  requested_coturn=0\n"
+        "  for argument in \"${compose_args[@]}\"; do\n"
+        "    case $argument in\n"
+        "      sim) requested_sim=1 ;;\n"
+        "      coturn) requested_coturn=1 ;;\n"
+        "    esac\n"
+        "  done\n"
+        "  if (( requested_coturn && ! requested_sim )); then\n"
+        "    printf 'Coturn은 Sim과 함께만 시작할 수 있습니다.\\n' >&2\n"
+        "    exit 64\n"
+        "  fi\n"
+        "  if [[ $security_profile == sros2 && requested_sim -eq 1 ]]; then\n"
+        "    if (( ! requested_coturn )); then\n"
+        "      compose_args+=(coturn)\n"
+        "    fi\n"
+        "  else\n"
+        "    filtered_compose_args=()\n"
+        "    for argument in \"${compose_args[@]}\"; do\n"
+        "      [[ $argument == coturn ]] && continue\n"
+        "      filtered_compose_args+=(\"$argument\")\n"
+        "    done\n"
+        "    compose_args=(\"${filtered_compose_args[@]}\")\n"
+        "    # Coturn is Sim-owned.  Never leave it running when Sim is not\n"
+        "    # part of this explicit launch, including a partial SROS2 start.\n"
+        "    "+command+" stop coturn >/dev/null 2>&1 || true\n"
+        "  fi\n"
+        if has_sim
+        else ""
     )
     compose_run = (
         "compose_status=0\n"
@@ -1322,8 +1421,11 @@ def _runtime_up_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         + guard
+        + security_profile
         + viewer_function
         + view_parse
+        + compose_argument_validation
+        + coturn_selection
         + viewer_action
         + compose_run
     )

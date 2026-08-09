@@ -565,9 +565,13 @@ def _configure_from_args(state: InstallState, args: argparse.Namespace) -> Insta
     if dds.security_profile == "trusted-network":
         dds = replace(dds, keystore="", enclave="")
 
+    # The DDS security profile is the single operator-facing WebRTC policy:
+    # trusted-network/plaintext uses direct ICE and must not leave a managed
+    # Coturn endpoint behind.  This also repairs older installs when an
+    # operator switches profiles without remembering the retired TURN flags.
     turn_urls = (
         ()
-        if args.clear_turn
+        if args.clear_turn or security_profile == "trusted-network"
         else state.network.turn_urls
         if args.turn_url is None
         else tuple(args.turn_url)

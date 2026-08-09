@@ -170,7 +170,7 @@
   Jetson/GO2에서 NIC 격리, 계정/ACL 설정과 bridge 단절·잘못된 packet 시 stop
   deadline을 검증하는 것이다.
 - 필요한 live 근거: 실제 host browser flow, 무권한 publish/subscribe 거부를
-  포함한 production RMW/SROS2 enforce, 기본값이 아닌 SSH 관리 port와 pinned-key
+  포함한 production RMW/SROS2 enforce, 기본값이 아닌 SSH 관리 port와 pinned key
   실패, 전체 generation rotation/rollback, managed/external Coturn lifecycle,
   정확한 cleanup 명령이다.
 

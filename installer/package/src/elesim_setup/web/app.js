@@ -118,7 +118,6 @@ function renderRoles() {
 
 function updateMode() {
   const developer = checkedValue("edition") === "developer";
-  byId("privileged-confirm-row").hidden = !developer;
   byId("jaeger-row").hidden = !developer;
   byId("runtime-text-logs-row").hidden = developer;
   byId("runtime-text-logs").disabled = developer;
@@ -137,7 +136,6 @@ function updateMode() {
     byId("dds-keystore").value = "";
     byId("dds-enclave").value = "";
     document.querySelector('input[name="dds-security-provisioning"][value="external"]').checked = true;
-    document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
     acceptedFingerprint = "";
   }
   byId("prefix-help").textContent = t("paths.prefix.help");
@@ -154,18 +152,11 @@ function updateConditionalControls() {
 
   const staticDiscovery = checkedValue("dds-discovery-mode") === "static";
   byId("dds-static-fields").hidden = !staticDiscovery;
-  const turnMode = checkedValue("turn-mode");
-  if (turnMode === "managed") {
-    document.querySelector(
-      'input[name="dds-security-profile"][value="sros2"]'
-    ).checked = true;
-    document.querySelector(
-      'input[name="dds-security-provisioning"][value="managed"]'
-    ).checked = true;
-  }
-  const sros2 = checkedValue("dds-security-profile") === "sros2";
-  byId("sros2-fields").hidden = !sros2;
   const developer = checkedValue("edition") === "developer";
+  const sim = hasSim();
+  const sros2 = checkedValue("dds-security-profile") === "sros2";
+  const turnMode = sim && !developer && sros2 ? "managed" : "none";
+  byId("sros2-fields").hidden = !sros2;
   const managedProvisioning = document.querySelector(
     'input[name="dds-security-provisioning"][value="managed"]'
   );
@@ -178,25 +169,17 @@ function updateConditionalControls() {
   const provisioning = checkedValue("dds-security-provisioning") || "managed";
   byId("sros2-external-fields").hidden = !sros2 || provisioning !== "external";
 
-  const turnManaged = document.querySelector('input[name="turn-mode"][value="managed"]');
-  const sim = hasSim();
-  turnManaged.disabled = !sim;
-  byId("turn-managed-option").hidden = !sim;
-  byId("turn-section").hidden = checkedValue("edition") === "developer";
-  if (!sim && checkedValue("turn-mode") === "managed") {
-    document.querySelector('input[name="turn-mode"][value="none"]').checked = true;
-  }
+  byId("turn-section").hidden = developer || !sim || !sros2;
   byId("turn-fields").hidden = turnMode === "none";
   byId("turn-realm-row").hidden = turnMode !== "managed";
   byId("turn-public-row").hidden = turnMode !== "managed";
   byId("turn-secret-row").hidden = turnMode !== "managed";
-  byId("turn-credential-row").hidden = turnMode !== "external" || !sim;
   if (turnMode === "managed") {
     if (!byId("turn-realm").value) byId("turn-realm").value = "elesim.local";
     if (!byId("turn-secret-file").value) {
       byId("turn-secret-file").value = `${byId("prefix").value.trim()}/secrets/turn.secret`;
     }
-    if (!byId("turn-url").value) {
+    if (!byId("turn-url").value && byId("turn-public-host").value.trim()) {
       byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
     }
   }
@@ -208,7 +191,8 @@ function payload() {
   const securityProvisioning = securityProfile === "sros2"
     ? (checkedValue("dds-security-provisioning") || "managed")
     : "none";
-  const turnMode = edition === "general" ? (checkedValue("turn-mode") || "none") : "none";
+  const turnMode = edition === "general" && hasSim() && securityProfile === "sros2"
+    ? "managed" : "none";
   return {
     language,
     edition,
@@ -245,9 +229,7 @@ function payload() {
     turn_realm: turnMode === "managed" ? byId("turn-realm").value.trim() : "",
     turn_public_host: turnMode === "managed" ? byId("turn-public-host").value.trim() : "",
     turn_secret_file: turnMode === "managed" ? byId("turn-secret-file").value.trim() : "",
-    turn_credential_file: turnMode === "external" && selectedRoles().includes("sim")
-      ? byId("turn-credential-file").value.trim()
-      : "",
+    turn_credential_file: "",
     register_path: byId("register-path").checked,
     runtime_text_logs: {
       enabled: edition === "general" && byId("runtime-text-logs").checked
@@ -260,9 +242,6 @@ function payload() {
 
 function validateCurrentStep() {
   const step = steps[currentStep];
-  if (step === "mode" && checkedValue("edition") === "developer" && !byId("privileged-confirm").checked) {
-    throw new Error(t("error.privileged"));
-  }
   if (step === "roles" && checkedValue("edition") === "general" && !selectedRoles().length) {
     throw new Error(t("error.roles"));
   }
@@ -305,6 +284,7 @@ async function prepareReview() {
 }
 
 function updateStep() {
+  const atInstall = steps[currentStep] === "install";
   document.querySelectorAll("[data-step]").forEach((page) => {
     page.classList.toggle("active", page.dataset.step === steps[currentStep]);
   });
@@ -312,8 +292,9 @@ function updateStep() {
     item.classList.toggle("active", index === currentStep);
     item.classList.toggle("completed", index < currentStep);
   });
-  byId("back-button").disabled = currentStep === 0 || steps[currentStep] === "install";
-  byId("next-button").hidden = steps[currentStep] === "install";
+  byId("back-button").disabled = currentStep === 0 || atInstall;
+  byId("next-button").hidden = atInstall;
+  byId("close-installer").hidden = !atInstall;
   byId("next-button").textContent = steps[currentStep] === "review" ? t("action.install") : t("action.next");
   byId("step-position").textContent = `${currentStep + 1} / ${steps.length}`;
 }
@@ -426,7 +407,7 @@ async function copyText(text) {
 
 async function openBrowser(target) {
   browseTarget = target;
-  browseMode = ["ssh-key", "turn-credential-file"].includes(target)
+  browseMode = ["ssh-key"].includes(target)
     ? "file"
     : "directory";
   selectedFile = "";
@@ -494,40 +475,12 @@ async function probeSsh() {
   }
 }
 
-function openUninstallGuide() {
-  const prefix = byId("prefix").value.trim() || context.defaults.prefix;
-  byId("uninstall-prefix").value = prefix;
-  byId("uninstall-keep-logs").checked = false;
-  byId("uninstall-keep-authority").checked = false;
-  byId("uninstall-commands").hidden = true;
-  byId("uninstall-dialog").showModal();
-}
-
-async function buildUninstallGuide() {
-  try {
-    setError("");
-    const guide = await api("/api/uninstall/guide", {
-      method: "POST",
-      body: JSON.stringify({
-        prefix: byId("uninstall-prefix").value.trim(),
-        keep_logs: byId("uninstall-keep-logs").checked,
-        keep_authority: byId("uninstall-keep-authority").checked
-      })
-    });
-    byId("uninstall-plan-command").textContent = guide.plan_command;
-    byId("uninstall-execute-command").textContent = guide.execute_command;
-    byId("uninstall-commands").hidden = false;
-  } catch (error) {
-    setError(error);
-  }
-}
-
 function initializeEvents() {
   document.querySelectorAll("[data-language]").forEach((button) => {
     button.addEventListener("click", () => applyLanguage(button.dataset.language));
   });
   document.querySelectorAll('input[name="edition"]').forEach((input) => input.addEventListener("change", updateMode));
-  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="dds-security-provisioning"], input[name="turn-mode"]')
+  document.querySelectorAll('input[name="gpu-mode"], input[name="dds-discovery-mode"], input[name="dds-security-profile"], input[name="dds-security-provisioning"]')
     .forEach((input) => input.addEventListener("change", updateConditionalControls));
   document.querySelectorAll("[data-browse]").forEach((button) => {
     button.addEventListener("click", () => openBrowser(button.dataset.browse));
@@ -549,11 +502,8 @@ function initializeEvents() {
     button.addEventListener("click", () => copyText(byId(button.dataset.copyTarget).textContent));
   });
   byId("ssh-probe").addEventListener("click", probeSsh);
-  byId("open-uninstall").addEventListener("click", openUninstallGuide);
-  byId("uninstall-close").addEventListener("click", () => byId("uninstall-dialog").close());
-  byId("build-uninstall-guide").addEventListener("click", buildUninstallGuide);
   byId("turn-public-host").addEventListener("input", () => {
-    if (checkedValue("turn-mode") === "managed") {
+    if (hasSim() && checkedValue("edition") !== "developer") {
       byId("turn-url").value = `turn:${byId("turn-public-host").value}:3478?transport=udp`;
     }
   });
