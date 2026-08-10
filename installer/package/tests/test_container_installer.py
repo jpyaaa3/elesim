@@ -273,9 +273,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
             assert service["user"] == f"{os.getuid()}:{os.getgid()}"
             assert service["environment"]["HOME"] == "/tmp"
             assert service["environment"]["XDG_CACHE_HOME"] == "/tmp/elesim-cache"
-            assert service["environment"]["NUMBA_CACHE_DIR"] == "/tmp/elesim-numba-cache"
+            assert service["environment"]["NUMBA_CACHE_DIR"] == "/tmp/elesim-cache/numba"
             assert (
-                f"{state.prefix_path / 'cache/genesis'}:/tmp/elesim-cache/genesis:rw"
+                f"{state.prefix_path / 'cache'}:/tmp/elesim-cache:rw"
                 in service["volumes"]
             )
         assert "depends_on" not in service
@@ -869,7 +869,7 @@ def test_container_install_falls_back_when_legacy_cache_is_not_writable(
     assert legacy_marker.read_bytes() == b"keep"
     compose = _compose(state)
     assert (
-        f"{fallback / 'genesis'}:/tmp/elesim-cache/genesis:rw"
+        f"{fallback}:/tmp/elesim-cache:rw"
         in compose["services"]["sim"]["volumes"]
     )
     manifest = json.loads(

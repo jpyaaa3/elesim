@@ -488,12 +488,13 @@ create a GPU context; that remains a post-install check.
 
 The general Sim container is launched with the installing user's numeric
 UID/GID. Viewer mode grants the same installing user's X11 ACL, rather than a
-root ACL. Its Genesis cache is mounted at `/tmp/elesim-cache/genesis` inside the
-container and backed by the install's `cache/genesis` directory. This keeps
-runtime cache writes compatible with a later normal-user `elesim-update` and
-does not grant the application container host-root privileges. If an older
-installation left that cache root-owned, update preserves it and switches to
-the managed `<prefix>/.runtime-cache` subtree instead of deleting data.
+root ACL. Its complete runtime cache is mounted at `/tmp/elesim-cache` inside
+the container and backed by the install's `cache` directory; Genesis uses its
+`genesis` child and Quadrants/Numba use sibling children. This keeps runtime
+cache writes compatible with a later normal-user `elesim-update` and does not
+grant the application container host-root privileges. If an older installation
+left that cache root-owned, update preserves it and switches to the managed
+`<prefix>/.runtime-cache` subtree instead of deleting data.
 
 ## Shell Registration
 
