@@ -202,6 +202,8 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .workflow-step:not(:last-child)::after { position: absolute; z-index: 0; top: 50%; right: -36px; width: 36px; height: 2px; background: var(--line); content: ""; transform: translateY(-50%); }
 .workflow-step h3 { margin: 0; font-size: var(--font-body); line-height: 1.3; }
 .workflow-step button { grid-column: 1 / -1; width: 100%; }
+.workflow-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.workflow-actions button { grid-column: auto; }
 .workflow-step button:disabled { border-color: #c5cbd3; background: #c5cbd3; color: #f7f8fa; opacity: 1; }
 .workflow-step[data-enabled="false"] .step-number { background: #c5cbd3; color: #f7f8fa; }
 .step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 800; }

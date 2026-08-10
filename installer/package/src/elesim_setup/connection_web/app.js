@@ -128,8 +128,19 @@ function setWorkflowStepEnabled(step, enabled) {
   if (button) button.disabled = !enabled;
 }
 
+function setWorkflowButtonsEnabled(step, buttons) {
+  const element = document.querySelector(`.workflow-step[data-step="${step}"]`);
+  if (!element) return;
+  const enabled = Object.values(buttons).some(Boolean);
+  element.dataset.enabled = String(enabled);
+  Object.entries(buttons).forEach(([id, value]) => {
+    const button = byId(id);
+    if (button) button.disabled = !value;
+  });
+}
+
 function workflowStepForAction(action) {
-  if (["prepare", "provision", "deploy", "rotate"].includes(action)) return "apply";
+  if (["prepare", "provision", "deploy", "rotate", "restart"].includes(action)) return "apply";
   if (action === "start") return "start";
   return "";
 }
@@ -698,10 +709,12 @@ function applyTopology(topology) {
 
 function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-status")?.dataset.status || "")) {
   const apply = byId("apply");
-  const sros2 = byId("security").value === "sros2";
-  apply.textContent = t(sros2 ? "action.prepare" : "action.deploy");
+  apply.textContent = t("action.prepare");
   setWorkflowStepEnabled("save", !running && !workflowSaved);
-  setWorkflowStepEnabled("apply", !running && workflowSaved);
+  setWorkflowButtonsEnabled("apply", {
+    apply: !running && workflowSaved && !workflowApplied,
+    restart: !running && workflowSaved && workflowApplied,
+  });
   setWorkflowStepEnabled("start", !running && workflowApplied);
 }
 
@@ -809,7 +822,7 @@ async function pollRuntimeStatus() {
 }
 
 function setJobRunning(running) {
-  ["save", "apply", "topology-mode", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
+  ["save", "topology-mode", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateWorkflow(running);
   byId("cancel").disabled = !running;
 }
@@ -947,6 +960,7 @@ function bindEvents() {
   byId("security").addEventListener("change", updateWorkflow);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
+  byId("restart").addEventListener("click", () => startJob("restart").catch(showError));
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
   byId("cancel").addEventListener("click", async () => {
     try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }

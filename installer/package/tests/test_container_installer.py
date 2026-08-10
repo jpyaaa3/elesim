@@ -471,6 +471,8 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "needslogin|nostate" in tailscale_wrapper
     assert "trap login_cleanup EXIT TERM INT" in tailscale_wrapper
     assert "브라우저 로그인을 기다리는 중" in tailscale_wrapper
+    assert "last_login_message" in tailscale_wrapper
+    assert 'if [[ $last_login_message != "$login_wait_message" ]]' in tailscale_wrapper
     assert 'wait "$login_child"' in tailscale_wrapper
     assert '"BackendState"' in tailscale_wrapper
     assert '"IPv4"' in tailscale_wrapper

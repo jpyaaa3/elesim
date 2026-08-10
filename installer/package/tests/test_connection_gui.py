@@ -318,6 +318,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "ensureRoutedDiscovery" in script
     assert "notice.tailscale.static" in script
     assert 'id="apply"' in html
+    assert 'id="restart"' in html
+    assert 'class="workflow-actions"' in html
     assert 'id="workflow-stage"' not in html
     assert 'data-i18n="advanced.title"' not in html
     assert 'id="host-check"' not in html
@@ -345,7 +347,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'renderDerivedPeers' not in script
     assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
-    assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
+    assert 'apply.textContent = t("action.prepare")' in script
+    assert '["prepare", "provision", "deploy", "rotate", "restart"].includes(action)' in script
+    assert 'restart: !running && workflowSaved && workflowApplied' in script
     assert 'workflow.login.title' not in script and 'workflow.login.title' not in html
     assert 'if (action === "network") return "login";' not in script
     assert 'await startJob("network");' not in script
@@ -353,6 +357,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'byId("tailscale-login").addEventListener' not in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
+    assert 'byId("restart").addEventListener("click", () => startJob("restart").catch(showError))' in script
     assert 'startJob("check")' not in script
     assert 'workflow.stage.' not in script
     assert 'data-drop-slot="com4"' in html
@@ -416,6 +421,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-field="dds-address"' in html
     assert 'placeholder="100.x.y.z"' in html
     assert catalog["ko"]["action.cancel"] == "중단"
+    assert catalog["ko"]["action.prepare"] == "실행 준비"
+    assert catalog["ko"]["action.restart"] == "재시작"
+    assert catalog["en"]["action.prepare"] == "Prepare runtime"
+    assert catalog["en"]["action.restart"] == "Restart"
 
 
 def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) -> None:

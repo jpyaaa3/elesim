@@ -686,6 +686,7 @@ fieldset legend {
 .command-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
   margin-bottom: 9px;
 }
