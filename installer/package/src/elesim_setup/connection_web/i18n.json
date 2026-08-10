@@ -29,7 +29,7 @@
     "ssh.host": "IP",
     "ssh.port": "포트",
     "ssh.user": "유저명",
-    "ssh.tailscale": "테일스케일 사용",
+    "ssh.tailscale": "Tailscale 사용",
     "ssh.key": "개인키 경로",
     "ssh.fingerprint": "고정된 호스트키 SHA-256",
     "ssh.trust": "다음 SSH 호스트키를 직접 확인한 뒤 고정하시겠습니까?",
