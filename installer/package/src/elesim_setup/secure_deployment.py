@@ -1645,13 +1645,19 @@ class InstalledElesimLifecycle:
                             "run elesim-update after installing Sim with SROS2"
                         )
 
-        writable = all(
-            session.run(
-                ("test", "-w", str(PurePosixPath(unit.install_root))),
-                check=False,
-            ).exit_status
-            == 0
+        # The connection-manager container mounts the operator home and the
+        # installation prefix read-only, while exposing only each unit's
+        # security directory as a writable bind.  Checking install_root here
+        # therefore reports a false negative for a local host even though the
+        # exact directory used by staging is writable.  Probe the paths that
+        # the transactional rollout actually creates instead.
+        security_paths = tuple(
+            self._unit_security_root(host, unit, security_root)
             for unit in host.units
+        )
+        writable = all(
+            session.run(("test", "-w", str(path)), check=False).exit_status == 0
+            for path in security_paths
         )
         # The generated wrapper pins the installation's Docker context and
         # Engine ID.  Never fall back to whichever global context happens to
@@ -1692,12 +1698,6 @@ class InstalledElesimLifecycle:
                 sudo_probe.stdout.strip() == "loaded"
             )
 
-        # The root is deliberately below the user-owned install prefix.  It is
-        # created during staging, after every host has passed this read-only probe.
-        if security_root != PurePosixPath(host.primary_unit.install_root) / "security":
-            writable = writable and session.run(
-                ("test", "-w", str(security_root.parent)), check=False
-            ).exit_status == 0
         return RemoteCapabilities(
             docker=docker,
             systemd=systemd,

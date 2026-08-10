@@ -1055,6 +1055,36 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     ) in compose_commands
 
 
+def test_preflight_checks_writable_security_mount_not_read_only_install_prefix() -> None:
+    topology = _topology()
+    host = topology.host("server")
+
+    class ManagerMountSession(LifecycleSession):
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(argv)
+            if values[:2] == ("test", "-w"):
+                self.commands.append((values, check))
+                # The manager sees the installation prefix through a read-only
+                # home mount, while the exact security bind is writable.
+                return RemoteCommandResult(
+                    0 if values[2] == "/opt/elesim/security" else 1
+                )
+            return super().run(argv, check=check)
+
+    session = ManagerMountSession()
+    capabilities = InstalledElesimLifecycle(topology).preflight(
+        session, host, PurePosixPath("/opt/elesim/security")
+    )
+
+    assert capabilities.security_root_writable
+    assert ("test", "-w", "/opt/elesim/security") in {
+        argv for argv, _check in session.commands
+    }
+    assert ("test", "-w", "/opt/elesim") not in {
+        argv for argv, _check in session.commands
+    }
+
+
 def test_lifecycle_preflight_rejects_symlinked_managed_turn_secret() -> None:
     class SymlinkSession(LifecycleSession):
         def run(self, argv, *, check=True) -> RemoteCommandResult:
