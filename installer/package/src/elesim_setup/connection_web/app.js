@@ -38,6 +38,7 @@ let endpointIds = {
 let dropPreviewKey = "";
 let pollTimer = null;
 let runtimePollTimer = null;
+let runtimeRestartable = false;
 let workflowSaved = false;
 let workflowApplied = false;
 const workflowStates = {save: "pending", apply: "pending", start: "pending"};
@@ -140,7 +141,8 @@ function setWorkflowButtonsEnabled(step, buttons) {
 }
 
 function workflowStepForAction(action) {
-  if (["prepare", "provision", "deploy", "rotate", "restart"].includes(action)) return "apply";
+  if (["prepare", "provision", "deploy", "rotate"].includes(action)) return "apply";
+  if (action === "restart") return "start";
   if (action === "start") return "start";
   return "";
 }
@@ -711,11 +713,11 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   const apply = byId("apply");
   apply.textContent = t("action.prepare");
   setWorkflowStepEnabled("save", !running && !workflowSaved);
-  setWorkflowButtonsEnabled("apply", {
-    apply: !running && workflowSaved && !workflowApplied,
-    restart: !running && workflowSaved && workflowApplied,
+  setWorkflowStepEnabled("apply", !running && workflowSaved && !workflowApplied);
+  setWorkflowButtonsEnabled("start", {
+    start: !running && workflowSaved && workflowApplied && !runtimeRestartable,
+    restart: !running && workflowSaved && workflowApplied && runtimeRestartable,
   });
-  setWorkflowStepEnabled("start", !running && workflowApplied);
 }
 
 async function saveTopology({quiet = false, invalidate = true} = {}) {
@@ -730,7 +732,10 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
   }
   workflowSaved = true;
   setWorkflowStepState("save", "success");
-  if (invalidate) workflowApplied = false;
+  if (invalidate) {
+    workflowApplied = false;
+    runtimeRestartable = false;
+  }
   if (invalidate) {
     setWorkflowStepState("apply", "pending");
     setWorkflowStepState("start", "pending");
@@ -762,9 +767,16 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
+  if (action === "restart") {
+    await pollRuntimeStatus();
+    if (!runtimeRestartable) {
+      throw new Error(t("error.restart.unavailable"));
+    }
+  }
   await saveTopology({quiet: true, invalidate: false});
   if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
     workflowApplied = false;
+    runtimeRestartable = false;
     setWorkflowStepState("start", "pending");
   }
   const step = workflowStepForAction(action);
@@ -789,6 +801,7 @@ async function runApplyJob() {
 function markWorkflowDirty() {
   workflowSaved = false;
   workflowApplied = false;
+  runtimeRestartable = false;
   setWorkflowStepState("save", "pending");
   setWorkflowStepState("apply", "pending");
   setWorkflowStepState("start", "pending");
@@ -797,16 +810,23 @@ function markWorkflowDirty() {
 
 function renderRuntimeStatus(result) {
   if (!result?.available) {
+    runtimeRestartable = false;
+    updateWorkflow();
     byId("runtime-status").textContent = result?.reason || t("runtime.unavailable");
     return;
   }
-  const rows = (result.hosts || []).map((host) => {
+  const hosts = Array.isArray(result.hosts) ? result.hosts : [];
+  runtimeRestartable = hosts.length > 0 && hosts.every(
+    (host) => host.reachable !== false && host.containers_present === true
+  );
+  const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
     const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
     const detail = host.detail ? ` — ${host.detail}` : "";
     return `${host.host_id}: ${state} [${roles}]${detail}`;
   });
   byId("runtime-status").textContent = rows.join("\n") || "—";
+  updateWorkflow();
 }
 
 async function pollRuntimeStatus() {
@@ -815,7 +835,9 @@ async function pollRuntimeStatus() {
   try {
     renderRuntimeStatus(await api("/api/runtime"));
   } catch (error) {
+    runtimeRestartable = false;
     byId("runtime-status").textContent = error instanceof Error ? error.message : String(error);
+    updateWorkflow();
   } finally {
     runtimePollInFlight = false;
   }
@@ -852,6 +874,7 @@ async function pollJob() {
       const context = await api("/api/context");
       if (context.topology) applyTopology(context.topology);
       workflowSaved = true;
+      runtimeRestartable = false;
       setWorkflowStepState("save", "success");
       if (!topologyAppliedByThisJob) {
         workflowApplied = false;
@@ -861,7 +884,10 @@ async function pollJob() {
     }
     setJobRunning(running);
     updateWorkflow(running);
-    if (!running && job.action === "check") {
+    if (
+      !running
+      && ["check", "prepare", "provision", "deploy", "rotate", "start", "restart"].includes(job.action)
+    ) {
       pollRuntimeStatus();
     }
     if (!running && pollTimer) {

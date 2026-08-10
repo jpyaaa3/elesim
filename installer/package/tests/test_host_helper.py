@@ -38,6 +38,7 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
     for suffix in (
         ("config", "--quiet"),
         ("config", "--services"),
+        ("ps", "--all", "--services"),
         ("ps", "--status", "running", "--services"),
         ("build", "pilot", "ui"),
         ("stop", "sim"),

@@ -13,6 +13,32 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
+def _configure_numba_cache_dir() -> None:
+    """Give Numba a writable cache before importing Genesis.
+
+    Genesis decorates several functions with ``cache=True``.  The general
+    runtime runs Sim as the installing operator, while the Genesis package is
+    installed under ``/usr/local/lib`` and is therefore not writable.  Without
+    an explicit user cache Numba attempts an in-tree ``__pycache__`` and aborts
+    the entire Sim process with ``no locator available``.
+    """
+
+    configured = os.environ.get("NUMBA_CACHE_DIR", "").strip()
+    if configured:
+        cache_dir = Path(configured).expanduser()
+    else:
+        cache_root = os.environ.get("XDG_CACHE_HOME", "").strip()
+        cache_dir = (
+            Path(cache_root).expanduser() / "numba"
+            if cache_root
+            else Path.home() / ".cache" / "numba"
+        )
+        os.environ["NUMBA_CACHE_DIR"] = str(cache_dir)
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
+_configure_numba_cache_dir()
+
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 import genesis as gs

@@ -1248,6 +1248,7 @@ def test_lifecycle_status_ignores_manager_service() -> None:
 
     assert status["state"] == "stopped"
     assert status["running_roles"] == []
+    assert status["containers_present"] is False
 
 
 def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
@@ -1264,12 +1265,14 @@ def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
         SimStatusSession("sim\n"), topology.host("server")
     )
     assert without_relay["state"] == "degraded"
+    assert without_relay["containers_present"] is True
     assert "managed Coturn" in without_relay["detail"]
 
     with_relay = lifecycle.status(
         SimStatusSession("sim\ncoturn\n"), topology.host("server")
     )
     assert with_relay["state"] == "running"
+    assert with_relay["containers_present"] is True
 
 
 def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:

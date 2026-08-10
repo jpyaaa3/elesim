@@ -2171,13 +2171,28 @@ class InstalledElesimLifecycle:
         unit_status: dict[str, Mapping[str, Any]] = {}
         for unit in host.units:
             if unit.install_mode == "container":
+                all_result = session.run(
+                    (*_compose_command(unit), "ps", "--all", "--services"),
+                    check=False,
+                )
                 result = session.run(
                     (*_compose_command(unit), "ps", "--status", "running", "--services"),
                     check=False,
                 )
                 expected = set(unit.roles)
+                all_services = set(all_result.stdout.split())
                 running_services = set(result.stdout.split())
                 running = tuple(sorted(value for value in running_services if value in expected))
+                required_services = set(expected)
+                if "sim" in expected and self._topology.security_profile == "sros2":
+                    if self._compose_has_service(session, unit, "coturn"):
+                        required_services.add("coturn")
+                if self._compose_has_service(session, unit, "tailscale"):
+                    required_services.add("tailscale")
+                containers_present = (
+                    all_result.exit_status == 0
+                    and required_services.issubset(all_services)
+                )
                 sidecar_ok = True
                 sidecar_detail = ""
                 if self._compose_has_service(session, unit, "tailscale"):
@@ -2224,6 +2239,7 @@ class InstalledElesimLifecycle:
                 unit_status[unit.unit_id] = {
                     "state": state,
                     "running_roles": list(running),
+                    "containers_present": containers_present,
                     "detail": detail,
                 }
             else:
@@ -2236,6 +2252,7 @@ class InstalledElesimLifecycle:
                 unit_status[unit.unit_id] = {
                     "state": "running" if state == "active" else state,
                     "running_roles": list(unit.roles if state == "active" else ()),
+                    "containers_present": True,
                     "detail": result.stderr.strip()[:512],
                 }
         if len(unit_status) == 1:
@@ -2251,7 +2268,14 @@ class InstalledElesimLifecycle:
             if states == {"running"}
             else ("stopped" if states <= {"stopped", "inactive"} else "degraded")
         )
-        return {"state": state, "running_roles": running_roles, "units": unit_status}
+        return {
+            "state": state,
+            "running_roles": running_roles,
+            "containers_present": all(
+                bool(value.get("containers_present")) for value in unit_status.values()
+            ),
+            "units": unit_status,
+        }
 
     def verify(
         self,

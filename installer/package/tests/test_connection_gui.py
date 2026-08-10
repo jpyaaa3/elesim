@@ -320,6 +320,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'id="apply"' in html
     assert 'id="restart"' in html
     assert 'class="workflow-actions"' in html
+    assert html.index('id="runtime-start"') < html.index('id="restart"')
+    assert html.index('data-step="start"') < html.index('id="restart"')
     assert 'id="workflow-stage"' not in html
     assert 'data-i18n="advanced.title"' not in html
     assert 'id="host-check"' not in html
@@ -348,8 +350,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t("action.prepare")' in script
-    assert '["prepare", "provision", "deploy", "rotate", "restart"].includes(action)' in script
-    assert 'restart: !running && workflowSaved && workflowApplied' in script
+    assert 'if (action === "restart") return "start"' in script
+    assert 'start: !running && workflowSaved && workflowApplied && !runtimeRestartable' in script
+    assert 'restart: !running && workflowSaved && workflowApplied && runtimeRestartable' in script
+    assert 'host.containers_present === true' in script
     assert 'workflow.login.title' not in script and 'workflow.login.title' not in html
     assert 'if (action === "network") return "login";' not in script
     assert 'await startJob("network");' not in script

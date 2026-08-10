@@ -273,6 +273,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
             assert service["user"] == f"{os.getuid()}:{os.getgid()}"
             assert service["environment"]["HOME"] == "/tmp"
             assert service["environment"]["XDG_CACHE_HOME"] == "/tmp/elesim-cache"
+            assert service["environment"]["NUMBA_CACHE_DIR"] == "/tmp/elesim-numba-cache"
             assert (
                 f"{state.prefix_path / 'cache/genesis'}:/tmp/elesim-cache/genesis:rw"
                 in service["volumes"]

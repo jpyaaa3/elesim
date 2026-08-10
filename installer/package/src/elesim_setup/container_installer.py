@@ -628,6 +628,10 @@ class ContainerInstaller:
                 {
                     "HOME": "/tmp",
                     "XDG_CACHE_HOME": "/tmp/elesim-cache",
+                    # Keep this outside the nested Genesis bind mount. Docker
+                    # may create the bind's parent as root, while Sim runs as
+                    # the installing user.
+                    "NUMBA_CACHE_DIR": "/tmp/elesim-numba-cache",
                 }
             )
             service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]

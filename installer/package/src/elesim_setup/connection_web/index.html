@@ -152,15 +152,15 @@
           <article class="workflow-step" data-step="apply" data-state="pending" data-enabled="false">
             <div class="step-number">2</div>
             <div><h3 data-i18n="workflow.apply.title"></h3></div>
-            <div class="workflow-actions">
-              <button id="apply" type="button" data-i18n="action.prepare" disabled></button>
-              <button id="restart" type="button" data-i18n="action.restart" disabled></button>
-            </div>
+            <button id="apply" type="button" data-i18n="action.prepare" disabled></button>
           </article>
           <article class="workflow-step" data-step="start" data-state="pending" data-enabled="false">
             <div class="step-number">3</div>
             <div><h3 data-i18n="workflow.start.title"></h3></div>
-            <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
+            <div class="workflow-actions">
+              <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
+              <button id="restart" type="button" data-i18n="action.restart" disabled></button>
+            </div>
           </article>
         </div>
         <div class="abort-step"><button id="cancel" type="button" class="danger-button" data-i18n="action.cancel" disabled></button></div>

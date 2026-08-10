@@ -298,6 +298,7 @@ def _validate_command(
     if suffix in {
         ("config", "--quiet"),
         ("config", "--services"),
+        ("ps", "--all", "--services"),
         ("ps", "--status", "running", "--services"),
     }:
         return
