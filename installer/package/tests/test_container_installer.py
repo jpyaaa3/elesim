@@ -12,6 +12,9 @@ import yaml
 
 from elesim_setup.container_installer import (
     ContainerInstaller,
+    TAILSCALE_CONTAINER_NAME,
+    TAILSCALE_IMAGE,
+    _tailscale_wrapper,
     _runtime_up_wrapper,
     _runtime_down_wrapper,
     _resolve_viewer_user,
@@ -20,14 +23,17 @@ from elesim_setup.container_installer import (
 )
 from elesim_setup.ownership import (
     DOCKER_INSTALL_UUID_LABEL,
+    OwnershipError,
     OwnershipManifest,
 )
 from elesim_setup.state import (
+    ContainerNetworkSettings,
     DdsSettings,
     NetworkSettings,
     RuntimeTextLogSettings,
     TurnSettings,
 )
+from elesim_setup.uninstall import DockerObject, UninstallSafetyError
 
 
 def _compose(state) -> dict:
@@ -41,6 +47,13 @@ def _fake_docker(path: Path) -> Path:
     docker.write_text(
         "#!/usr/bin/env bash\n"
         "set -u\n"
+        "if [[ -n ${ELESIM_FAKE_DOCKER_CALLS:-} ]]; then\n"
+        "  printf '%s\\n' \"$*\" >>\"$ELESIM_FAKE_DOCKER_CALLS\"\n"
+        "fi\n"
+        "if [[ ${1:-} == info ]]; then\n"
+        "  printf '%s\\n' \"${ELESIM_FAKE_ENGINE_ID:-}\"\n"
+        "  exit 0\n"
+        "fi\n"
         "if [[ ${1:-} == container && ${2:-} == inspect ]]; then\n"
         "  exit 1\n"
         "fi\n"
@@ -49,12 +62,27 @@ def _fake_docker(path: Path) -> Path:
         "  printf 'build progress that must not reach stdout\\n'\n"
         "  exit 0\n"
         "fi\n"
-        "if [[ $arguments == *' run --rm -T tools elesim-net '* ]]; then\n"
+        "if [[ $arguments == *' run --rm -T tools elesim-net '* || $arguments == *' run --rm -T runtime-tools elesim-net '* ]]; then\n"
         "  printf '{\"schema_version\":1}\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [[ $arguments == *' exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json '* ]]; then\n"
+        "  printf '{\"BackendState\":\"%s\"}\\n' \"${ELESIM_FAKE_TAILSCALE_STATE:-Running}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [[ $arguments == *' exec -T tailscale tailscale --socket=/tmp/tailscaled.sock ip -4 '* ]]; then\n"
+        "  printf '100.64.0.10\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [[ $arguments == *' ps -q tailscale '* && ${ELESIM_FAKE_TAILSCALE_PRESENT:-0} == 1 ]]; then\n"
+        "  printf 'sidecar-id\\n'\n"
         "  exit 0\n"
         "fi\n"
         "if [[ $arguments == *' ps -aq '* ]]; then\n"
         "  if [[ ${ELESIM_FAKE_RUNTIME_EMPTY:-0} == 1 ]]; then\n"
+        "    if [[ ${ELESIM_FAKE_INFRA_PRESENT:-0} == 1 && $arguments == *' tailscale '* ]]; then\n"
+        "      printf 'sidecar-id\\n'\n"
+        "    fi\n"
         "    exit 0\n"
         "  fi\n"
         "  printf 'container-id\\n'\n"
@@ -164,6 +192,38 @@ def test_pending_managed_coturn_does_not_pass_an_empty_external_ip(local_state) 
 
     assert 'if [ -n "$$TURN_PUBLIC_IP" ]' in command
     assert '--external-ip="$$TURN_PUBLIC_IP"' not in command
+
+
+def test_managed_coturn_shares_the_tailscale_sidecar_namespace(local_state) -> None:
+    prefix = local_state().prefix_path
+    state = local_state(
+        roles=("sim",),
+        dds=DdsSettings(
+            interface="tailscale0",
+            security_profile="sros2",
+            security_provisioning="managed",
+        ),
+        turn=TurnSettings(
+            mode="managed",
+            realm="elesim.local",
+            secret_file=str(prefix / "secrets/turn.secret"),
+        ),
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="desktop-engine-id",
+            tailscale_hostname="elesim-coturn-test",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+
+    service = ContainerInstaller(state)._coturn_service()
+
+    assert service["network_mode"] == "service:tailscale"
+    assert service["depends_on"] == {
+        "tailscale": {"condition": "service_healthy"},
+        "sim": {"condition": "service_started"},
+    }
 
 
 def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
@@ -314,6 +374,454 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+
+
+def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
+    local_state,
+) -> None:
+    prefix = local_state().prefix_path
+    network = ContainerNetworkSettings(
+        mode="tailscale-sidecar",
+        docker_context="default",
+        docker_engine_id="desktop-engine-id",
+        tailscale_hostname="elesim-deadbeef0123",
+        tailscale_state_dir=str(prefix / "secrets/tailscale"),
+    )
+    state = local_state(
+        roles=("pilot", "ui"),
+        container_network=network,
+    )
+
+    ContainerInstaller(state).run()
+    compose = _compose(state)
+    services = compose["services"]
+
+    assert set(services) == {
+        "tailscale",
+        "pilot",
+        "ui",
+        "tools",
+        "runtime-tools",
+        "manager",
+    }
+    tailscale = services["tailscale"]
+    assert tailscale["image"] == TAILSCALE_IMAGE
+    assert tailscale["image"] == (
+        "tailscale/tailscale:v1.98.9@"
+        "sha256:f15d5d3f4a68773a853180b72496f70ba614b64de0878c43fe3da39fe0afba47"
+    )
+    assert tailscale["container_name"] == TAILSCALE_CONTAINER_NAME
+    assert tailscale["devices"] == ["/dev/net/tun:/dev/net/tun"]
+    assert tailscale["cap_add"] == ["NET_ADMIN", "NET_RAW"]
+    assert tailscale["entrypoint"] == ["tailscaled"]
+    assert tailscale["command"] == [
+        "--statedir=/var/lib/tailscale",
+        "--socket=/tmp/tailscaled.sock",
+        "--tun=tailscale0",
+    ]
+    assert "AUTH" not in json.dumps(tailscale).upper()
+    state_dir = prefix / "secrets/tailscale"
+    assert tailscale["volumes"] == [f"{state_dir}:/var/lib/tailscale:rw"]
+    assert state_dir.stat().st_mode & 0o777 == 0o700
+    for role in ("pilot", "ui"):
+        assert services[role]["network_mode"] == "service:tailscale"
+        assert services[role]["depends_on"] == {
+            "tailscale": {"condition": "service_healthy"}
+        }
+    assert services["tools"]["network_mode"] == "host"
+    assert "depends_on" not in services["tools"]
+    assert services["runtime-tools"]["network_mode"] == "service:tailscale"
+    assert "build" not in services["runtime-tools"]
+    assert services["runtime-tools"]["depends_on"] == {
+        "tailscale": {"condition": "service_healthy"}
+    }
+    runtime_tool_volumes = services["runtime-tools"]["volumes"]
+    assert all(volume.endswith(":ro") for volume in runtime_tool_volumes)
+    assert not any(str(state_dir) in volume for volume in runtime_tool_volumes)
+    assert f"{prefix}:{prefix}:rw" not in runtime_tool_volumes
+    assert "network_mode" not in services["manager"]
+    assert "depends_on" not in services["manager"]
+    manager_volumes = services["manager"]["volumes"]
+    assert f"{prefix}:{prefix}:rw" not in manager_volumes
+    assert not any(str(state_dir) in volume for volume in manager_volumes)
+    assert {
+        f"{prefix / name}:{prefix / name}:rw"
+        for name in ("connections", "authority", "security")
+    }.issubset(set(manager_volumes))
+    assert services["manager"]["tmpfs"] == [
+        f"{prefix / 'secrets'}:mode=0700"
+    ]
+    for name in ("connections", "authority", "security", "secrets"):
+        assert (prefix / name).stat().st_mode & 0o777 == 0o700
+
+    compose_wrapper = (state.bin_path / "elesim-compose").read_text(encoding="utf-8")
+    tailscale_wrapper = (state.bin_path / "elesim-tailscale").read_text(
+        encoding="utf-8"
+    )
+    net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    role_wrapper = (state.bin_path / "elesim-pilot").read_text(encoding="utf-8")
+    update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
+    assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
+    assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
+    assert "exec docker compose" in compose_wrapper
+    assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
+    assert "running) exit 0" in tailscale_wrapper
+    assert "needslogin|nostate" in tailscale_wrapper
+    assert "trap login_cleanup EXIT TERM INT" in tailscale_wrapper
+    assert "브라우저 로그인을 기다리는 중" in tailscale_wrapper
+    assert 'wait "$login_child"' in tailscale_wrapper
+    assert '"BackendState"' in tailscale_wrapper
+    assert '"IPv4"' in tailscale_wrapper
+    assert "net_service=runtime-tools" in net_wrapper
+    assert "namespace-check|doctor" in net_wrapper
+    for launcher in (up_wrapper, role_wrapper):
+        assert "elesim-tailscale status --json" in launcher
+        assert "elesim-tailscale login" in launcher
+        assert (
+            launcher.index("elesim-tailscale login")
+            < launcher.index("elesim-tailscale status --json")
+            < launcher.index("elesim-net namespace-check")
+        )
+    assert "pull tailscale" in update_wrapper
+    assert "build pilot ui tools" in update_wrapper
+    assert "elesim-tailscale login" in update_wrapper
+
+    manifest = OwnershipManifest.load(prefix / "install-ownership.json")
+    assert manifest.docker is not None
+    assert TAILSCALE_CONTAINER_NAME in manifest.docker.containers
+    assert TAILSCALE_IMAGE not in manifest.docker.local_images
+    assert manifest.docker.context == "default"
+    assert manifest.docker.engine_id == "desktop-engine-id"
+    for name in ("elesim-compose", "elesim-tailscale", "elesim-update"):
+        assert subprocess.run(
+            ("bash", "-n", str(state.bin_path / name)),
+            check=False,
+        ).returncode == 0
+
+
+def test_sidecar_only_runtime_is_removed_by_down(local_state, tmp_path: Path) -> None:
+    prefix = local_state().prefix_path
+    state = local_state(
+        roles=("ui",),
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="desktop-engine-id",
+            tailscale_hostname="elesim-deadbeef0123",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+    ContainerInstaller(state).run()
+    fake_bin = tmp_path / "fake-sidecar-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    marker = tmp_path / "down-called"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_ENGINE_ID": "desktop-engine-id",
+            "ELESIM_FAKE_RUNTIME_EMPTY": "1",
+            "ELESIM_FAKE_INFRA_PRESENT": "1",
+            "ELESIM_DOWN_MARKER": str(marker),
+        }
+    )
+
+    result = subprocess.run(
+        (state.bin_path / "elesim-down",),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert marker.is_file()
+
+
+def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
+    local_state,
+    tmp_path: Path,
+) -> None:
+    prefix = local_state().prefix_path
+    state = local_state(
+        roles=("ui",),
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="desktop-engine-id",
+            tailscale_hostname="elesim-deadbeef0123",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+    ContainerInstaller(state).run()
+    fake_bin = tmp_path / "fake-down-up-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+            "ELESIM_FAKE_ENGINE_ID": "desktop-engine-id",
+            "ELESIM_FAKE_RUNTIME_EMPTY": "1",
+            "ELESIM_FAKE_INFRA_PRESENT": "1",
+            "ELESIM_FAKE_TAILSCALE_PRESENT": "1",
+            "ELESIM_FAKE_TAILSCALE_STATE": "Running",
+        }
+    )
+
+    stopped = subprocess.run(
+        (state.bin_path / "elesim-down",),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    started = subprocess.run(
+        (state.bin_path / "elesim-up",),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert stopped.returncode == 0, stopped.stderr
+    assert started.returncode == 0, started.stderr
+    rendered = calls.read_text(encoding="utf-8")
+    login_start = rendered.index("up -d --no-deps tailscale")
+    login_status = rendered.index(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json",
+        login_start,
+    )
+    namespace_check = rendered.index(
+        "run --rm -T runtime-tools elesim-net", login_status
+    )
+    runtime_start = rendered.index(
+        "up -d --build --remove-orphans ui", namespace_check
+    )
+    assert login_start < login_status < namespace_check < runtime_start
+
+
+def test_tailscale_state_directory_rejects_symlink_escape(
+    local_state,
+    tmp_path: Path,
+) -> None:
+    prefix = local_state().prefix_path
+    state_path = prefix / "secrets/tailscale"
+    state_path.parent.mkdir(parents=True)
+    external = tmp_path / "external-tailscale-state"
+    external.mkdir()
+    marker = external / "keep"
+    marker.write_text("owned elsewhere\n", encoding="utf-8")
+    state_path.symlink_to(external, target_is_directory=True)
+    state = local_state(
+        roles=("ui",),
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="desktop-engine-id",
+            tailscale_hostname="elesim-symlink-test",
+            tailscale_state_dir=str(state_path),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="실제 directory"):
+        ContainerInstaller(state)._prepare_tailscale_state()
+
+    assert marker.read_text(encoding="utf-8") == "owned elsewhere\n"
+
+
+def test_legacy_unpinned_update_refuses_daemon_without_owned_objects(
+    local_state,
+    monkeypatch,
+) -> None:
+    legacy = local_state(roles=("ui",))
+    ContainerInstaller(legacy).run()
+    prefix = legacy.prefix_path
+    pinned = replace(
+        legacy,
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="new-desktop-engine",
+            tailscale_hostname="elesim-legacy-proof",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.validate_docker_ownership",
+        lambda _ownership: ((), ()),
+    )
+
+    with pytest.raises(ValueError, match="한 번도 build하지 않은 legacy 설치"):
+        ContainerInstaller(pinned).run()
+
+
+def test_legacy_unpinned_update_adopts_only_exact_labeled_daemon(
+    local_state,
+    monkeypatch,
+) -> None:
+    legacy = local_state(roles=("ui",))
+    ContainerInstaller(legacy).run()
+    prefix = legacy.prefix_path
+    pinned = replace(
+        legacy,
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="desktop-linux",
+            docker_engine_id="owned-desktop-engine",
+            tailscale_hostname="elesim-owned-proof",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+    observed = []
+
+    def prove(ownership):
+        observed.append(ownership)
+        return ((DockerObject(name="elesim-ui", object_id="owned-id"),), ())
+
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.validate_docker_ownership",
+        prove,
+    )
+
+    ContainerInstaller(pinned).run()
+
+    assert len(observed) == 1
+    assert observed[0].context == "desktop-linux"
+    assert observed[0].engine_id == "owned-desktop-engine"
+    manifest = OwnershipManifest.load(prefix / "install-ownership.json")
+    assert manifest.docker is not None
+    assert manifest.docker.context == "desktop-linux"
+    assert manifest.docker.engine_id == "owned-desktop-engine"
+
+
+def test_legacy_unpinned_update_rejects_foreign_daemon_labels(
+    local_state,
+    monkeypatch,
+) -> None:
+    legacy = local_state(roles=("ui",))
+    ContainerInstaller(legacy).run()
+    prefix = legacy.prefix_path
+    pinned = replace(
+        legacy,
+        container_network=ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context="default",
+            docker_engine_id="foreign-engine",
+            tailscale_hostname="elesim-foreign-proof",
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        ),
+    )
+
+    def reject(_ownership):
+        raise UninstallSafetyError("fixed container belongs to another install")
+
+    monkeypatch.setattr(
+        "elesim_setup.container_installer.validate_docker_ownership",
+        reject,
+    )
+
+    with pytest.raises(ValueError, match="another install"):
+        ContainerInstaller(pinned).run()
+
+
+def test_tailscale_login_retries_starting_then_is_idempotent_when_running(
+    tmp_path: Path,
+) -> None:
+    calls = tmp_path / "compose.calls"
+    status_count = tmp_path / "status.count"
+    compose_wrapper = tmp_path / "elesim-compose"
+    compose_wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >>\"$ELESIM_TEST_CALLS\"\n"
+        "if [[ \" $* \" == *' status --json '* ]]; then\n"
+        "  if [[ ! -e $ELESIM_TEST_STATUS_COUNT ]]; then\n"
+        "    : >\"$ELESIM_TEST_STATUS_COUNT\"\n"
+        "    printf '{\"BackendState\":\"Starting\"}\\n'\n"
+        "  else\n"
+        "    printf '{\"BackendState\":\"Running\"}\\n'\n"
+        "  fi\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    compose_wrapper.chmod(0o755)
+    wrapper = tmp_path / "elesim-tailscale"
+    wrapper.write_text(
+        _tailscale_wrapper(
+            compose=tmp_path / "compose.yaml",
+            compose_wrapper=compose_wrapper,
+            guard="",
+            hostname="elesim-idempotent",
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    environment = os.environ.copy()
+    environment["ELESIM_TEST_CALLS"] = str(calls)
+    environment["ELESIM_TEST_STATUS_COUNT"] = str(status_count)
+
+    result = subprocess.run(
+        (wrapper, "login"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rendered = calls.read_text(encoding="utf-8")
+    assert "up -d --no-deps tailscale" in rendered
+    assert rendered.count("status --json") >= 2
+    assert " login " not in f" {rendered} "
+
+
+def test_tailscale_login_streams_child_and_preserves_its_status(
+    tmp_path: Path,
+) -> None:
+    compose_wrapper = tmp_path / "elesim-compose"
+    compose_wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \" $* \" == *' status --json '* ]]; then\n"
+        "  printf '{\"BackendState\":\"NeedsLogin\"}\\n'\n"
+        "elif [[ \" $* \" == *' login --hostname=elesim-stream '* ]]; then\n"
+        "  printf 'https://login.tailscale.example/device\\n'\n"
+        "  exit 23\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    compose_wrapper.chmod(0o755)
+    wrapper = tmp_path / "elesim-tailscale"
+    wrapper.write_text(
+        _tailscale_wrapper(
+            compose=tmp_path / "compose.yaml",
+            compose_wrapper=compose_wrapper,
+            guard="",
+            hostname="elesim-stream",
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    syntax = subprocess.run(
+        ("bash", "-n", str(wrapper)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    result = subprocess.run(
+        (wrapper, "login"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert syntax.returncode == 0, syntax.stderr
+    assert result.returncode == 23
+    assert "https://login.tailscale.example/device" in result.stdout
 
 
 def test_container_install_falls_back_when_legacy_cache_is_not_writable(
@@ -752,7 +1260,8 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     assert "build progress" not in result.stdout
     wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "build --quiet tools >/dev/null" in wrapper
-    assert "run --rm -T tools elesim-net" in wrapper
+    assert "net_service=tools" in wrapper
+    assert 'run --rm -T "$net_service" elesim-net' in wrapper
     assert "run --rm --build tools elesim-net" not in wrapper
 
 
@@ -911,7 +1420,10 @@ def test_managed_coturn_is_owned_by_sim_and_shares_only_turn_secret(
     assert "elesim-logs [--save]" in unsupported.stderr
 
 
-def test_managed_coturn_rejects_symlinked_secret_path(local_state, tmp_path: Path) -> None:
+def test_managed_coturn_symlinked_secret_fails_at_unowned_install_boundary(
+    local_state,
+    tmp_path: Path,
+) -> None:
     target = tmp_path / "outside.secret"
     target.write_text("secret\n", encoding="utf-8")
     secret = tmp_path / "install/secrets/turn.secret"
@@ -937,8 +1449,13 @@ def test_managed_coturn_rejects_symlinked_secret_path(local_state, tmp_path: Pat
         ),
     )
 
-    with pytest.raises(ValueError, match="symlinked path components"):
+    with pytest.raises(
+        OwnershipError,
+        match="ownership manifest 없는 기존 Elesim 후보 경로",
+    ):
         ContainerInstaller(state).run()
+
+    assert target.read_text(encoding="utf-8") == "secret\n"
 
 
 def test_pending_managed_sros2_installs_coturn_but_refuses_application_start(

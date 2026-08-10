@@ -14,7 +14,9 @@ def render_update_wrapper(
     prefix: Path,
     state_path: Path,
     compose: Path | None = None,
+    compose_wrapper: Path | None = None,
     build_services: Sequence[str] = (),
+    pull_services: Sequence[str] = (),
     preamble: str = "",
 ) -> str:
     if edition not in {"general", "developer"}:
@@ -60,10 +62,20 @@ def render_update_wrapper(
         )
     )
     if compose is not None:
+        compose_command = (
+            shlex.quote(str(compose_wrapper))
+            if compose_wrapper is not None
+            else "docker compose"
+        )
+        if pull_services:
+            pulls = " ".join(shlex.quote(value) for value in pull_services)
+            lines.append(
+                f"{compose_command} -f {shlex.quote(str(compose))} pull {pulls}"
+            )
         services = " ".join(shlex.quote(value) for value in build_services)
         suffix = f" {services}" if services else ""
         lines.append(
-            "docker compose --progress plain "
+            f"{compose_command} --progress plain "
             f"-f {shlex.quote(str(compose))} build{suffix}"
         )
     if compose is None:
@@ -75,6 +87,10 @@ def render_update_wrapper(
                 "printf '%s\\n' '[elesim-update] running containers were not replaced; run elesim-up to apply.'",
             )
         )
+        if "tailscale" in pull_services:
+            lines.append(
+                "printf '%s\\n' '[elesim-update] before elesim-up, prepare the runtime network in elesim-connections or run elesim-tailscale login.'"
+            )
     lines.append("")
     return "\n".join(lines)
 

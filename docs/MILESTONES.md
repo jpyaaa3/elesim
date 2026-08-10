@@ -52,8 +52,8 @@ typed service/action 정의는 생성되어 있지만 runtime에는 아직 연�
   1~3개 호스트에 배치할 수 있다.
 - GUI, deployment, lifecycle rollback, SROS2 policy가 활성 role 집합만
   사용하도록 했다.
-- schema v1/v2 호환성과 managed SROS2 Authority/host bundle 생성 로직을
-  반영했다.
+- topology schema v1-v3 입력을 v4로 정규화하며 managed SROS2
+  Authority/host bundle 생성 로직을 반영했다.
 
 ### 릴리스·문서·자동 검증
 
@@ -70,10 +70,12 @@ typed service/action 정의는 생성되어 있지만 runtime에는 아직 연�
   `PeerEnvelope` message type의 송수신 역할, QoS, authority와 payload 정책을
   단일 목록으로 제공한다. 빈 lease 갱신/해제와 ack/error 계열은 오타 field를
   거부한다.
-- 연결 관리자는 Tailscale `tailscale0`를 변경 없이 감지·prefill하고, 저장된
-  topology의 SSH와 DDS endpoint를 계속 분리한다. `check`, `start`, `stop`,
-  `restart`는 기존 pinned local/SSH lifecycle을 재사용하며 DDS discovery나
-  WebRTC media의 생존을 SSH 성공으로 추정하지 않는다.
+- 연결 관리자는 선택된 runtime namespace의 Tailscale `tailscale0`를 감지해
+  prefill하고, topology schema v4에서 SSH와 DDS endpoint를 독립적으로
+  저장한다. 설치기는 `direct-host` 또는 `tailscale-sidecar` backend를 자동
+  결정해 고정한다. `check`, `start`, `stop`, `restart`는 기존 pinned local/SSH
+  lifecycle을 재사용하며 DDS discovery나 WebRTC media의 생존을 SSH 성공으로
+  추정하지 않는다.
 - 정적 peer는 tools runtime namespace에서 `iproute2` route 검사를 거친다.
   keyless Tailscale SSH topology에는 같은 namespace의 port-22 도달 실패를
   조기에 보고하는 negative-only probe가 추가되며, 상태·CycloneDDS XML·Compose
@@ -118,10 +120,11 @@ Exit condition:
   sequence 거부, 재발견과 재연결을 확인한다.
 - loss/reorder 상황에서 stop/deadman과 오류 로그가 확인된다.
 - M3는 일반 IPv4 NAT/CGNAT/symmetric NAT 지원 증명이 아니다. 해당 경로는
-  명시적으로 실패하고 actionable diagnostic을 내야 한다. Docker
-  Desktop/WSL에서 WSL의 `tailscale0`가 Docker Linux VM에 전달되지 않는
-  경우도 같은 사전 진단으로 분류하고, 같은 namespace의 Docker Engine 또는
-  실제 routed interface를 사용해야 한다.
+  명시적으로 실패하고 actionable diagnostic을 내야 한다. Docker Desktop/WSL은
+  WSL `tailscale0` 상속이 아니라 Docker VM 내부 kernel-mode sidecar를 사용하고,
+  sidecar 등록·static peer·양방향 DDS를 실제 두 호스트에서 별도로 증명해야 한다.
+  Generated Compose와 namespace guard의 자동검사는 이 실기 exit condition을
+  대신하지 않는다.
 
 ### M4 — 보안·원격 배포·호스트 수용시험
 

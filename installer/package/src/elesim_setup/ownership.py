@@ -112,6 +112,11 @@ class DockerOwnership:
     project: str
     containers: tuple[str, ...]
     local_images: tuple[str, ...]
+    # Empty values preserve schema-v1 manifests created before daemon pinning.
+    # New general installs record both so uninstall/update cannot silently
+    # operate on a different Docker Desktop/native Engine boundary.
+    context: str = ""
+    engine_id: str = ""
 
     def validate(self) -> "DockerOwnership":
         _validate_uuid(self.install_uuid, name="Docker install UUID")
@@ -127,6 +132,14 @@ class DockerOwnership:
         if any(not _LOCAL_IMAGE.fullmatch(value) for value in self.local_images):
             raise OwnershipError(
                 "삭제 가능한 image는 exact elesim/<name>:local 태그뿐입니다"
+            )
+        if self.context and not _DOCKER_NAME.fullmatch(self.context):
+            raise OwnershipError("Docker context 이름이 유효하지 않습니다")
+        if len(self.engine_id) > 256 or "\x00" in self.engine_id or "\n" in self.engine_id:
+            raise OwnershipError("Docker Engine ID가 유효하지 않습니다")
+        if bool(self.context) != bool(self.engine_id):
+            raise OwnershipError(
+                "Docker context와 Engine ID는 함께 지정하거나 모두 비워야 합니다"
             )
         return self
 
@@ -294,6 +307,8 @@ class OwnershipManifest:
                     project=str(values["project"]),
                     containers=tuple(str(value) for value in values["containers"]),
                     local_images=tuple(str(value) for value in values["local_images"]),
+                    context=str(values.get("context", "")),
+                    engine_id=str(values.get("engine_id", "")),
                 )
             manifest = cls(
                 schema_version=int(raw["schema_version"]),
@@ -697,6 +712,16 @@ def _merged_docker(
         previous.install_uuid != current.install_uuid
         or previous.compose_file != current.compose_file
         or previous.project != current.project
+        or (
+            previous.context
+            and current.context
+            and previous.context != current.context
+        )
+        or (
+            previous.engine_id
+            and current.engine_id
+            and previous.engine_id != current.engine_id
+        )
     ):
         raise OwnershipError("refresh에서 기존 Docker ownership 경계를 바꿀 수 없습니다")
     return DockerOwnership(
@@ -705,6 +730,8 @@ def _merged_docker(
         project=current.project,
         containers=tuple(sorted({*previous.containers, *current.containers})),
         local_images=tuple(sorted({*previous.local_images, *current.local_images})),
+        context=current.context or previous.context,
+        engine_id=current.engine_id or previous.engine_id,
     )
 
 

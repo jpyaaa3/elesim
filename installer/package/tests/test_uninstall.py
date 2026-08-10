@@ -34,6 +34,29 @@ def _isolated_uninstall_state(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
 
 
+@pytest.mark.parametrize(
+    ("context", "engine_id"),
+    (("default", ""), ("", "engine-id")),
+)
+def test_docker_ownership_pin_is_all_or_nothing(
+    tmp_path: Path,
+    context: str,
+    engine_id: str,
+) -> None:
+    ownership = DockerOwnership(
+        install_uuid="11111111-1111-4111-8111-111111111111",
+        compose_file=str(tmp_path / "compose.yaml"),
+        project="elesim-runtime",
+        containers=(),
+        local_images=(),
+        context=context,
+        engine_id=engine_id,
+    )
+
+    with pytest.raises(OwnershipError, match="함께"):
+        ownership.validate()
+
+
 def _write(path: Path, value: str = "owned\n", *, executable: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding="utf-8")

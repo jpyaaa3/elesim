@@ -212,6 +212,8 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font-size: var(--font-small); line-height: 1.55; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .job-status { margin-top: 0; }
 .job-status strong { display: block; margin-bottom: 7px; }
+.job-interaction { display: inline-flex; margin: 0 0 8px; border: 1px solid var(--accent); border-radius: 5px; padding: 8px 11px; background: var(--accent); color: #fff; font-weight: 750; text-decoration: none; }
+.job-interaction[hidden] { display: none; }
 #job-log { min-height: 96px; max-height: 360px; }
 
 @keyframes workflow-pulse {

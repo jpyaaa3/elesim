@@ -10,8 +10,9 @@ WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전�
 
 먼저 기억할 한 문장은 이것이다.
 
-> **호스트의 광고 IP가 DDS와 SSH의 목적지다. SSH 포트는 관리용으로 따로
-> 입력하며 DDS/WebRTC 포트가 아니다.**
+> **DDS IP와 SSH IP는 서로 다른 경로다. Native host network에서는 같을 수
+> 있지만, Docker Desktop sidecar에서는 DDS는 sidecar IP를, SSH는 WSL/호스트
+> IP를 사용한다.**
 
 ---
 
@@ -24,22 +25,25 @@ WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전�
 | 물리 Robot 사용 여부 | Jetson을 지금 사용할 수 없으면 `simulation-only`를 선택한다. |
 | 역할 배치 | Pilot, Sim, UI를 어느 컴퓨터에서 실행할지 정한다. Robot은 Jetson 한 대에만 둔다. |
 | 네트워크 | 같은 L2 LAN이면 multicast, Tailscale 같은 routed VPN이면 static을 선택한다. |
-| DDS 주소 | 각 활성 컴퓨터에서 다른 컴퓨터가 도달할 수 있는 IP 또는 hostname을 확인한다. |
+| DDS 주소 | 각 활성 runtime namespace에서 다른 컴퓨터가 도달할 수 있는 IP 또는 hostname을 확인한다. |
 | 관리 경로 | 원격 컴퓨터에는 Tailscale SSH 또는 일반 OpenSSH 중 하나를 정한다. |
 | DDS 보안 | 기본 권장은 `sros2`; 정말 소유한 LAN/VPN에서만 `trusted-network`를 사용한다. |
 
 ### 1.1 사용자가 미리 알아야 하는 정보
 
 - 설치할 각 컴퓨터의 로그인 사용자 이름.
-- 각 컴퓨터의 **현재** Tailscale IP/hostname과 `tailscale0` 인터페이스 여부.
-  Tailscale 주소는 재연결 뒤 바뀔 수 있으므로 예전에 적어 둔 값을 맹신하지
-  않는다.
+- 각 설치가 **Native host network**인지 **Docker Desktop Tailscale sidecar**인지.
+  설치기가 Docker backend를 보고 자동 선택한 뒤 그 결과를 고정한다.
+- Native host network에서는 host의 현재 Tailscale IP/hostname과 `tailscale0`.
+  Sidecar에서는 `elesim-tailscale status`가 보여 주는 별도 sidecar IP와
+  sidecar namespace의 `tailscale0`.
 - 각 컴퓨터에서 실제로 설치된 Elesim prefix와 `bin/` 경로.
   예를 들어 `/home/user/ws/five`와 `/home/user/ws/five/bin`처럼 입력한다.
 - 원격 컴퓨터를 관리할 SSH 사용자와 포트. Tailscale SSH는 포트 `22`를
   사용하고, 일반 OpenSSH는 실제 sshd 포트를 사용한다.
-- Tailscale이 모든 참여 컴퓨터에 설치·로그인되어 있고 서로 `tailscale ping`
-  또는 `tailscale status`에서 보이는지.
+- 모든 DDS runtime node가 같은 tailnet에 등록되어 있는지. Docker Desktop
+  sidecar는 WSL에 로그인된 기존 Tailscale을 물려받지 않으므로 처음 한 번
+  `elesim-tailscale login`으로 별도 등록한다.
 - 원격 SSH에 접근할 수 있는지. ACL에 `action: check`가 있으면 처음 한 번은
   사람이 직접 Tailscale SSH 재인증을 승인해야 할 수 있다.
 
@@ -144,6 +148,20 @@ source ~/.bashrc
 | GPU 정책 | GPU 사용이면 `inherit`/`specific`, CPU면 `cpu` | 잘 모르면 `inherit`; CPU-only면 `cpu`. |
 | SROS2/통신 값 | 일반 설치에서는 연결관리자에서 설정 | AES 값, 개인키 내용, DDS 포트는 입력하지 않는다. |
 | TURN/ICE | Sim이 direct ICE를 먼저 시도하고, SROS2에서만 managed Coturn fallback을 사용 | trusted-network는 TURN 없이 동작한다. Coturn은 Sim runtime의 일부이며 별도 호스트 role/card가 아니다. |
+
+설치기는 Docker backend를 자동 판별해 `direct-host` 또는
+`tailscale-sidecar` 결과만 저장한다. 사용자가 매번 Docker context를 바꾸는
+기능은 아니다. Docker Desktop sidecar가 생성된 컴퓨터에서는 연결관리자를
+열기 전에 다음을 한 번 실행한다.
+
+```bash
+elesim-tailscale login
+elesim-tailscale status
+```
+
+브라우저/device 로그인을 완료하고 `status`의 tailnet IP를 적어 둔다. Elesim은
+Tailscale auth/OAuth key나 브라우저 credential을 저장하지 않는다. 일반적인
+down/up/update는 sidecar node state를 보존하므로 매번 로그인할 필요가 없다.
 
 설치가 끝난 뒤에는 각 컴퓨터에서 역할을 바로 시작하기보다, managed SROS2를
 선택했다면 먼저 조작 컴퓨터에서 연결관리자의 보안 세대를 적용한다.
@@ -271,9 +289,12 @@ COM3이 처음 비활성화되어 있어도 정상이다. 필요한 경우 체�
 나쁨: 127.0.0.1
 ```
 
-Tailscale이면 현재 Tailscale IP 또는 tailnet hostname을 사용한다. 연결관리자가
-로컬 `tailscale0` 주소를 자동 제안할 수 있지만, 이는 읽기 전용 힌트이므로
-저장 전에 현재 값을 확인한다. 주소가 바뀌면 topology에서 다시 저장해야 한다.
+Native host network에서 Tailscale을 쓰면 host의 현재 Tailscale IP 또는
+tailnet hostname을 사용한다. Docker Desktop sidecar에서는 WSL의 주소가 아니라
+`elesim-tailscale status`의 sidecar IP를 사용한다. 연결관리자가 runtime
+namespace의 `tailscale0` 주소를 자동 제안할 수 있지만, 이는 읽기 전용
+힌트이므로 저장 전에 현재 값을 확인한다. 주소가 바뀌면 topology에서 다시
+저장해야 한다.
 
 이 입력란은 DDS discovery와 static peer 생성에 사용된다. 애플리케이션 포트를
 붙이지 않는다.
@@ -283,13 +304,13 @@ Tailscale이면 현재 Tailscale IP 또는 tailnet hostname을 사용한다. 연
 DDS가 실제로 사용할 NIC 이름 하나를 쓴다.
 
 ```text
-Tailscale: tailscale0
+Tailscale (native/sidecar runtime): tailscale0
 일반 LAN:  eth0, eno1, wlan0 등 실제 이름
 VPN:      wg0 등 실제 이름
 ```
 
 `/home/...`, `http://...`, `tailscale0:22`처럼 경로나 포트를 넣지 않는다.
-모든 host ID가 같을 필요는 없지만, 각 host에서 선택한 인터페이스가
+모든 host의 인터페이스 이름이 같을 필요는 없지만, 각 host에서 선택한 인터페이스가
 다른 peer의 광고 주소로 양방향 도달 가능해야 한다.
 
 #### 설치 루트
@@ -348,7 +369,7 @@ Endpoint ID를 바꾸려면 소문자·숫자·`-`·`_`만 사용하고, 같은 
 
 | 입력란 | 필수 여부 | 입력 방법 |
 | --- | --- | --- |
-| SSH 호스트 | 원격 host에서 필수 | IP/hostname만. `:22`를 붙이지 않는다. |
+| SSH 호스트 | 원격 host에서 필수 | 관리 대상 WSL/host의 IP/hostname만. `:22`를 붙이지 않는다. DDS sidecar IP와 달라도 된다. |
 | SSH 포트 | 원격 host에서 필수 | Tailscale SSH면 자동 `22`; 일반 OpenSSH면 실제 sshd 포트. |
 | SSH 사용자 | 원격 host에서 필수 | 원격 Linux 계정. 예: `hckang`, `user`. |
 | Tailscale SSH 사용 | 선택 | Tailscale SSH를 쓸 때 체크. 개인키 칸은 비운다. |
@@ -372,6 +393,11 @@ tailscale ssh <원격리눅스사용자>@<원격tailscale호스트> true
 
 재인증/승인 화면을 끝낸 뒤 연결관리자로 돌아와 host key를 확인한다. Tailscale
 SSH도 호스트키 fingerprint pinning은 필요하다.
+
+`elesim-tailscale login`은 DDS runtime sidecar를 tailnet에 등록하는 명령이고,
+Tailscale SSH는 연결관리자가 WSL/호스트에서 관리 명령을 실행하는 경로다. 둘은
+같은 기능이 아니다. Sidecar 구성에서는 DDS IP에는 sidecar 주소를, SSH
+호스트에는 WSL/호스트 주소를 입력한다.
 
 #### 일반 OpenSSH를 사용하는 경우
 
@@ -465,9 +491,9 @@ managed SROS2 작업의 복구는 내부 안전장치로 유지되며, 일반 �
 
 ## 7. 실제 입력 예시
 
-아래는 “노트북에서 연결관리자를 실행하고, 서버컴에서 Sim을 실행하는
-simulation-only” 예시다. IP는 현재 값의 예시일 뿐이며 Tailscale 재연결 뒤
-바뀔 수 있다.
+아래는 “Docker Desktop 노트북에서 연결관리자를 실행하고, native Docker
+서버컴에서 Sim을 실행하는 simulation-only” 예시다. IP는 서로 다른 node의
+예시일 뿐이며 실제 `status` 결과로 바꿔야 한다.
 
 ### 공통
 
@@ -486,7 +512,7 @@ RMW: rmw_cyclonedds_cpp
 안정적인 호스트 ID: com1
 표시 이름: 노트북
 로컬: 선택
-DDS 광고 주소: 100.109.151.37       # 현재 Tailscale 값의 예시
+DDS 광고 주소: 100.90.10.11         # 노트북 sidecar의 예시 IP
 DDS 인터페이스: tailscale0
 설치 루트: /home/user/ws/five
 명령 디렉터리: /home/user/ws/five/bin
@@ -500,12 +526,12 @@ DDS 인터페이스: tailscale0
 안정적인 호스트 ID: com2
 표시 이름: 서버컴
 로컬: 해제
-DDS 광고 주소: 100.74.222.24        # 현재 Tailscale 값의 예시
+DDS 광고 주소: 100.74.222.24        # 서버 native Tailscale 예시 IP
 DDS 인터페이스: tailscale0
 설치 루트: /home/hckang/continuum_app/six
 명령 디렉터리: /home/hckang/continuum_app/six/bin
 역할: Sim (sim-default)
-SSH 호스트: 100.74.222.24
+SSH 호스트: 100.74.222.24            # 이 native 예시에서는 DDS와 같음
 SSH 사용자: hckang
 Tailscale SSH: 선택
 SSH 포트: Tailscale SSH면 22, 일반 OpenSSH면 실제 포트
@@ -513,23 +539,40 @@ SSH 포트: Tailscale SSH면 22, 일반 OpenSSH면 실제 포트
 호스트키: 확인 버튼으로 채운 SHA256 fingerprint
 ```
 
-`100.74.222.24:8080`처럼 DDS 주소에 포트를 붙이지 않는다. 8080 HTTP 서버를
+서버도 Docker Desktop sidecar라면 DDS 주소에는 그 sidecar IP를 쓰고 SSH
+호스트에는 서버의 WSL/host IP를 별도로 쓴다. `100.74.222.24:8080`처럼 DDS
+주소에 포트를 붙이지 않는다. 8080 HTTP 서버를
 열어 둔 것은 사람이 경로를 시험하는 데만 쓸 수 있고, 연결관리자 입력값이 아니다.
 
 ---
 
 ## 8. Tailscale과 네트워크 점검
 
-Tailscale은 각 컴퓨터를 같은 routed VPN에 넣어 주는 수단이다. 연결관리자는
-Tailscale을 설치하거나 로그인하거나 ACL을 수정하지 않는다.
+Tailscale은 각 runtime node를 같은 routed VPN에 넣어 주는 수단이다.
+Native host network는 host의 Tailscale node를 사용한다. Docker Desktop은
+WSL의 `tailscale0`를 상속하지 않으므로 생성된 kernel-mode sidecar가 별도 node가
+된다. Sidecar는 Elesim role이나 Router가 아니라 그 컴퓨터의 container network
+인프라다.
 
-각 컴퓨터에서 먼저 확인한다.
+Native host network에서는 먼저 확인한다.
 
 ```bash
 tailscale status
 tailscale ip -4
 ip link show tailscale0
 ```
+
+Docker Desktop sidecar에서는 다음을 사용한다.
+
+```bash
+elesim-tailscale login       # 최초 등록 또는 node state를 의도적으로 초기화한 뒤에만
+elesim-tailscale status
+```
+
+로그인은 브라우저/device 승인 방식이며 auth/OAuth key를 Elesim 설정에 넣지
+않는다. Sidecar state는 일반 종료와 업데이트에서 보존된다. DDS role,
+runtime-network doctor와 활성 Sim-owned Coturn은 sidecar namespace를
+공유하지만 SSH 명령은 별도 WSL/host 주소로 간다.
 
 두 host가 서로 ping된다는 것은 좋은 첫 단계지만 DDS 성공을 보장하지 않는다.
 DDS는 선택한 interface로 양방향 UDP가 통과해야 하고, 모든 participant가
@@ -540,13 +583,16 @@ Tailscale에서 다음은 서로 다른 기능이다.
 
 | 기능 | 용도 |
 | --- | --- |
-| `tailscale0` 주소 | DDS runtime P2P 주소 후보 |
+| Native/sidecar `tailscale0` 주소 | DDS runtime P2P 주소 |
+| `elesim-tailscale login/status` | Docker Desktop sidecar node 등록/확인 |
 | Tailscale SSH | 연결관리자의 원격 관리/배포 경로 |
 | SSH `-L` 포워딩 | loopback 설치 GUI를 브라우저로 여는 경로 |
 | TURN/Coturn | WebRTC 영상 media relay |
 
 일반 IPv4 NAT·CGNAT·symmetric NAT를 DDS가 자동으로 통과한다고 가정하지
-않는다. 서로 직접 라우팅되는 VPN이나 검증된 LAN/IPv6가 필요하다.
+않는다. Tailscale graph는 `static` discovery만 사용하고, 각 static peer는
+discovery seed일 뿐 DDS relay가 아니다. 서로 직접 라우팅되는 VPN이나 검증된
+LAN/IPv6가 필요하다.
 
 ---
 
@@ -580,9 +626,23 @@ Tailscale에서 다음은 서로 다른 기능이다.
 2. Tailscale SSH라면 원격 Linux 사용자와 ACL을 확인하고, `action: check`이면
    `tailscale ssh <user>@<host> true`를 한 번 승인한다.
 3. 일반 OpenSSH라면 실제 sshd 포트와 agent/개인키를 확인한다.
-4. `SSH 호스트키 확인`의 IP는 광고 IP에서 자동으로 오며, 관리용 port만 확인한다.
+4. `SSH 호스트키 확인`은 SSH 입력란의 관리 주소를 사용한다. Sidecar DDS IP를
+   WSL/host SSH 주소 대신 넣지 않는다.
 5. SSH가 성공해도 DDS가 자동으로 성공하는 것은 아니므로 interface와 양방향
    UDP 경로를 별도로 확인한다.
+
+### `tailscale0`이 runtime namespace에 없거나 DDS 주소가 할당되지 않았음
+
+- Native host network이면 현재 Docker Engine의 host namespace에 선택한
+  인터페이스가 실제로 있는지 확인한다.
+- Docker Desktop이면 설치가 `tailscale-sidecar`로 고정되었는지 확인하고
+  `elesim-tailscale login`, `elesim-tailscale status`를 실행한다.
+- Sidecar `status`의 IP를 DDS 주소에, WSL/host 주소를 SSH 입력란에 저장한다.
+- routed Tailscale에서 탐색은 `static`이어야 한다.
+
+이 검사를 억지로 우회하거나 SSH helper를 DDS relay처럼 사용하지 않는다.
+namespace/interface/address/route 검사가 성공해도 실제 두 호스트 DDS 성공은
+아니므로 아래 수동 gate를 계속 수행한다.
 
 ### `Address already in use` 또는 `elesim-manager` 이름 충돌
 
@@ -601,6 +661,22 @@ elesim-connections --port 8771
 설치 완료 화면에서 stale manager 정리 명령을 복사할 수도 있다. 이 명령은
 중지된 manager만 지우고 다른 실행 중 연결관리자는 건드리지 않는다. PATH 등록을
 선택했다면 같은 화면에서 `source ~/.bashrc`도 복사해 현재 shell에 반영한다.
+
+### `기존 unpinned Elesim 설치가 현재 Docker daemon에 속한다는 증거가 없습니다`
+
+v1-v8 설치를 처음 업데이트할 때 현재 daemon에 같은 install UUID와 Compose
+label을 가진 기존 container 또는 local image가 하나 이상 있어야 한다. 원래
+설치에 사용한 Docker context를 선택해 다시 실행한다. 한 번도 build하지 않아
+증거가 없는 legacy 설치라면 해당 설치의 검증된 clean uninstall 후 새로
+설치한다. 빈 daemon을 임의로 기존 설치 소유자로 채택하지 않는다.
+
+### `설치 시 고정한 Docker Engine과 현재 daemon이 다릅니다`
+
+다른 Docker context를 선택했거나 Docker Desktop/Engine reset으로 Engine ID가
+바뀐 상태다. Elesim은 자동으로 다른 daemon에 소유권을 옮기지 않는다. 원래
+daemon/context를 복원해 정상 uninstall하거나, 기존 prefix를 건드리지 않고 새
+빈 prefix에 재설치한 뒤 별도 audited cleanup을 진행한다. state/ownership JSON을
+손으로 고치거나 Docker prune으로 우회하지 않는다.
 
 ### `연결관리자에서 호스트 상태는 되지만 DDS가 안 보임`
 
@@ -643,6 +719,12 @@ elesim-uninstall
 로그와 조작 컴퓨터의 이 설치 소유 SROS2 Authority도 기본 삭제된다. 남길 때만
 `--keep-logs`, `--keep-authority`를 추가한다. 외부 source/credential/keystore는
 항상 보존한다. `docker system prune`이나 wildcard 삭제는 사용하지 않는다.
+Docker Desktop sidecar 설치에서는 일반 down/update가
+`<prefix>/secrets/tailscale` login state를 보존하지만, 검증된 완전 제거는 이
+설치가 소유한 exact state directory도 제거한다. 공용 upstream Tailscale
+image나 다른 프로젝트의 data는 제거하지 않는다. 로컬 state 삭제는 tailnet
+control plane의 device record를 revoke하지 않으므로 폐기할 node는 Tailscale
+관리자 콘솔에서도 별도로 제거한다.
 
 ---
 
@@ -655,9 +737,11 @@ elesim-uninstall
 - [ ] 로컬 host는 정확히 하나이고, 로컬 SSH 칸은 비어 있다.
 - [ ] DDS 주소에는 IP/hostname만 있고 `:포트`가 없다.
 - [ ] Tailscale이면 DDS interface가 `tailscale0`이다.
+- [ ] Docker Desktop sidecar이면 `elesim-tailscale status`가 `Running`과 IPv4를 보여 주고 그 IP를 DDS 주소로 썼다.
 - [ ] 모든 host의 system ID, domain, RMW, discovery, security가 호환된다.
+- [ ] Tailscale/routed VPN이면 discovery가 `static`이고 모든 활성 DDS 주소가 peer로 파생된다.
 - [ ] 각 host의 install root/bin이 그 host에 실제 존재하는 절대경로다.
-- [ ] 원격 SSH user/port가 실제 관리 경로와 일치한다. SSH IP는 DDS 광고 IP와 같다.
+- [ ] 원격 SSH 주소/user/port가 실제 관리 경로와 일치한다. Sidecar이면 SSH IP와 DDS IP를 구분했다.
 - [ ] 원격 host의 fingerprint를 확인하고 저장했다.
 - [ ] Tailscale SSH를 쓰면 개인키 칸을 비웠고 포트 22를 사용한다.
 - [ ] OpenSSH를 쓰면 agent 또는 개인키 파일 경로를 준비했다.
@@ -672,6 +756,8 @@ elesim-uninstall
 네트워크에서 별도로 확인해야 한다.
 
 - 다중 host의 실제 DDS discovery/control/RGBD 왕복.
+- Docker Desktop sidecar와 두 번째 실제 host 사이의 static-peer discovery,
+  양방향 DDS, reconnect.
 - SROS2 enforce 권한이 허가·거부하는지.
 - NAT/CGNAT 환경의 실패 진단과 실제 Coturn relay candidate.
 - 실제 WebRTC 두 스트림의 영상 수신.

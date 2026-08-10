@@ -42,7 +42,8 @@ from .security_provisioning import (
 )
 from .security_views import prepare_role_keystore_views
 from .shell import operator_home, write_executable
-from .state import InstallState
+from .state import ContainerNetworkSettings, InstallState
+from .uninstall import UninstallSafetyError, validate_docker_ownership
 from .updater import render_update_wrapper
 
 
@@ -69,6 +70,11 @@ DOCKER_LOGGING = {
     "options": {"max-size": "10m", "max-file": "4"},
 }
 RUNTIME_LOG_RETENTION = 5
+TAILSCALE_IMAGE = (
+    "tailscale/tailscale:v1.98.9@"
+    "sha256:f15d5d3f4a68773a853180b72496f70ba614b64de0878c43fe3da39fe0afba47"
+)
+TAILSCALE_CONTAINER_NAME = "elesim-tailscale"
 
 
 def _resolve_viewer_user() -> str:
@@ -129,11 +135,12 @@ def refresh_compose_dds_environment(state: InstallState) -> None:
         if not isinstance(service, dict) or not isinstance(service.get("environment"), dict):
             raise ValueError(f"Compose service {role!r} has no environment object")
         service["environment"].update(installer._dds_environment(role))
-    tools = services.get("tools")
-    if isinstance(tools, dict) and isinstance(tools.get("environment"), dict):
-        tools["environment"].update(
-            installer._dds_environment(state.roles[0], enclave_override=True)
-        )
+    for service_name in ("tools", "runtime-tools"):
+        tools = services.get(service_name)
+        if isinstance(tools, dict) and isinstance(tools.get("environment"), dict):
+            tools["environment"].update(
+                installer._dds_environment(state.roles[0], enclave_override=True)
+            )
 
     rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     mode = stat.S_IMODE(compose_path.stat().st_mode)
@@ -159,7 +166,10 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
     root = state.prefix_path / "containers"
     actions = [
         ContainerAction("호스트", "기존 Python/APT 환경은 변경하지 않음"),
-        ContainerAction("Compose", f"Linux host-network project: {root / 'compose.yaml'}"),
+        ContainerAction(
+            "Compose",
+            f"{state.container_network.mode} project: {root / 'compose.yaml'}",
+        ),
     ]
     actions.extend(
         ContainerAction(role, f"격리 이미지 context: {root / 'build' / role}")
@@ -220,6 +230,7 @@ class ContainerInstaller:
             edition="general",
             claimed_paths=self._claimed_paths(),
         )
+        self._validate_legacy_docker_adoption(ownership_refresh)
         self._install_uuid = ownership_install_uuid(ownership_refresh)
         prefix_created = not os.path.lexists(self.state.prefix_path)
         bin_created = not os.path.lexists(self.state.bin_path)
@@ -234,15 +245,12 @@ class ContainerInstaller:
         self.log("[1/6] 설치 디렉터리와 runtime data 준비")
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        self._prepare_manager_roots()
         self._runtime_cache_root = self._prepare_runtime_cache()
-        security_root = self.state.prefix_path / "security"
-        if security_root.is_symlink():
-            raise ValueError(f"security root는 symlink일 수 없습니다: {security_root}")
-        security_root.mkdir(mode=0o700, exist_ok=True)
-        security_root.chmod(0o700)
         prepare_role_keystore_views(self.state)
         if self.state.dds.managed_security_pending:
             sync_provisioning_required(self.state)
+        self._prepare_tailscale_state()
         self._prepare_turn_secret()
         self._copy_runtime_data()
         generate_role_configs(self.state)
@@ -321,6 +329,8 @@ class ContainerInstaller:
         if self.state.turn.mode == "external" and self.state.turn.credential_path is not None:
             external_paths.append(self.state.turn.credential_path)
         containers = tuple(ROLE_CONTAINER_NAMES[role] for role in self.state.roles)
+        if self.state.container_network.uses_tailscale_sidecar:
+            containers = (*containers, TAILSCALE_CONTAINER_NAME)
         if self.state.turn.managed:
             containers = (*containers, "elesim-coturn")
         # A crashed one-shot manager is still an exact Compose-owned object.
@@ -334,6 +344,8 @@ class ContainerInstaller:
                 *(f"elesim/{role}:local" for role in self.state.roles),
                 "elesim/tools:local",
             ),
+            context=self.state.container_network.docker_context,
+            engine_id=self.state.container_network.docker_engine_id,
         )
         created_roots = tuple(
             path
@@ -367,6 +379,77 @@ class ContainerInstaller:
             install_uuid=self._install_uuid,
             refresh=refresh,
         )
+
+    def _validate_legacy_docker_adoption(
+        self,
+        refresh: OwnershipRefresh | None,
+    ) -> None:
+        """Fail closed before pinning an unpinned legacy install to a daemon."""
+
+        previous = None if refresh is None else refresh.docker
+        settings = self.state.container_network
+        if (
+            previous is None
+            or previous.context
+            or previous.engine_id
+            or not settings.docker_context
+            or not settings.docker_engine_id
+        ):
+            return
+        candidate = DockerOwnership(
+            install_uuid=previous.install_uuid,
+            compose_file=previous.compose_file,
+            project=previous.project,
+            containers=previous.containers,
+            local_images=previous.local_images,
+            context=settings.docker_context,
+            engine_id=settings.docker_engine_id,
+        )
+        try:
+            containers, images = validate_docker_ownership(candidate)
+        except UninstallSafetyError as exc:
+            raise ValueError(
+                "기존 unpinned Elesim 설치를 현재 Docker daemon에 안전하게 "
+                f"연결할 수 없습니다: {exc}"
+            ) from exc
+        if containers or images:
+            return
+        raise ValueError(
+            "기존 unpinned Elesim 설치가 현재 Docker daemon에 속한다는 증거가 "
+            "없습니다. manifest label/Compose 경계가 일치하는 기존 container 또는 "
+            "image가 하나 이상 필요합니다. 한 번도 build하지 않은 legacy 설치도 "
+            "자동 update할 수 없습니다. 기존 Docker context에서 다시 실행하거나 "
+            "소유권을 확인한 뒤 clean uninstall/reinstall 하십시오."
+        )
+
+    def _prepare_manager_roots(self) -> None:
+        """Create only the private roots mounted writable into the manager."""
+
+        for name in ("connections", "authority", "security", "secrets"):
+            path = self.state.prefix_path / name
+            if os.path.lexists(path):
+                metadata = os.lstat(path)
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                    metadata.st_mode
+                ):
+                    raise ValueError(
+                        f"manager data root는 실제 directory여야 합니다: {path}"
+                    )
+            else:
+                path.mkdir(mode=0o700)
+            try:
+                directory_fd = os.open(
+                    path,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                )
+            except OSError as exc:
+                raise ValueError(
+                    f"manager data root를 안전하게 열 수 없습니다: {path}"
+                ) from exc
+            try:
+                os.fchmod(directory_fd, 0o700)
+            finally:
+                os.close(directory_fd)
 
     def _prepare_runtime_cache(self) -> Path:
         """Prepare a user-owned cache, tolerating legacy root-owned state.
@@ -482,11 +565,15 @@ class ContainerInstaller:
 
     def _write_compose(self) -> None:
         services: dict[str, object] = {}
+        if self.state.container_network.uses_tailscale_sidecar:
+            services["tailscale"] = self._tailscale_service()
         for role in self.state.roles:
             services[role] = self._role_service(role)
         if self.state.turn.managed:
             services["coturn"] = self._coturn_service()
         services["tools"] = self._tools_service()
+        if self.state.container_network.uses_tailscale_sidecar:
+            services["runtime-tools"] = self._runtime_tools_service()
         services["manager"] = self._manager_service()
         payload = {"name": GENERAL_COMPOSE_PROJECT, "services": services}
         destination = self.container_root / "compose.yaml"
@@ -512,7 +599,7 @@ class ContainerInstaller:
                     "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
                 },
             },
-            "network_mode": "host",
+            "network_mode": self._runtime_network_mode(),
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "restart": "unless-stopped" if role != "ui" else "no",
             "logging": {
@@ -528,6 +615,7 @@ class ContainerInstaller:
                 ),
             ],
         }
+        self._apply_tailscale_dependency(service)
         if role == "sim":
             # Genesis writes its cache through ``Path.home()``/XDG.  General
             # role containers used to run as root, which made the host bind
@@ -619,11 +707,11 @@ class ContainerInstaller:
             '--realm="$$TURN_REALM" $$external_ip_arg '
             '--static-auth-secret="$$secret"'
         )
-        return {
+        service: dict[str, object] = {
             "image": "coturn/coturn:4.14.0-r0-alpine",
             "container_name": "elesim-coturn",
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
-            "network_mode": "host",
+            "network_mode": self._runtime_network_mode(),
             # The bind-mounted secret is owned by the installing host user and
             # deliberately remains 0600.  Run Coturn under that exact UID/GID
             # instead of the image's `nobody` account so the mount is readable.
@@ -645,6 +733,58 @@ class ContainerInstaller:
             "tmpfs": ("/var/lib/coturn",),
             "depends_on": ("sim",),
         }
+        if self.state.container_network.uses_tailscale_sidecar:
+            service["depends_on"] = {
+                "tailscale": {"condition": "service_healthy"},
+                "sim": {"condition": "service_started"},
+            }
+        return service
+
+    def _tailscale_service(self) -> dict[str, object]:
+        settings = self.state.container_network
+        state_path = settings.tailscale_state_path
+        if not settings.uses_tailscale_sidecar or state_path is None:
+            raise ValueError("Tailscale sidecar settings are incomplete")
+        return {
+            "image": TAILSCALE_IMAGE,
+            "container_name": TAILSCALE_CONTAINER_NAME,
+            "hostname": settings.tailscale_hostname,
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "restart": "unless-stopped",
+            # Bypass containerboot: the bounded wrapper below exclusively owns
+            # interactive login, while this service starts only the daemon.
+            "entrypoint": ("tailscaled",),
+            "command": (
+                "--statedir=/var/lib/tailscale",
+                "--socket=/tmp/tailscaled.sock",
+                "--tun=tailscale0",
+            ),
+            "devices": ("/dev/net/tun:/dev/net/tun",),
+            "cap_add": ("NET_ADMIN", "NET_RAW"),
+            "volumes": (f"{state_path}:/var/lib/tailscale:rw",),
+            "healthcheck": {
+                "test": (
+                    "CMD-SHELL",
+                    "tailscale --socket=/tmp/tailscaled.sock status --json "
+                    "| grep -Eq '\"BackendState\"[[:space:]]*:[[:space:]]*\"Running\"'",
+                ),
+                "interval": "2s",
+                "timeout": "2s",
+                "retries": 60,
+                "start_period": "2s",
+            },
+        }
+
+    def _runtime_network_mode(self) -> str:
+        if self.state.container_network.uses_tailscale_sidecar:
+            return "service:tailscale"
+        return "host"
+
+    def _apply_tailscale_dependency(self, service: dict[str, object]) -> None:
+        if self.state.container_network.uses_tailscale_sidecar:
+            service["depends_on"] = {
+                "tailscale": {"condition": "service_healthy"}
+            }
 
     def _apply_compute(self, service: dict[str, object]) -> None:
         environment = service["environment"]
@@ -700,7 +840,7 @@ class ContainerInstaller:
         # this service.  The tools image runs as the numeric host UID and
         # deliberately has no host passwd database to resolve it.
         environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
-        return {
+        service: dict[str, object] = {
             "image": "elesim/tools:local",
             "build": {
                 "context": str(context),
@@ -713,19 +853,43 @@ class ContainerInstaller:
             "environment": environment,
             "volumes": volumes,
         }
+        return service
+
+    def _runtime_tools_service(self) -> dict[str, object]:
+        service = self._tools_service()
+        # Admin tools must remain usable before sidecar enrollment. Runtime
+        # namespace checks use this separate service only after login. Give it
+        # only immutable runtime inputs so the sidecar machine identity and
+        # TURN secret are outside its mount namespace.
+        service.pop("build", None)
+        service["network_mode"] = "service:tailscale"
+        service["depends_on"] = {
+            "tailscale": {"condition": "service_healthy"}
+        }
+        role = self.state.roles[0]
+        config_root = role_directory(self.state, role) / "config"
+        dds_config = config_root / "cyclonedds.xml"
+        role_keystore = role_keystore_path(self.state, role)
+        service["volumes"] = [
+            f"{self.state_path}:{self.state_path}:ro",
+            f"{config_root}:{config_root}:ro",
+            f"{dds_config}:/opt/elesim/config/cyclonedds.xml:ro",
+            f"{role_keystore}:{role_keystore}:ro",
+        ]
+        return service
 
     def _manager_service(self) -> dict[str, object]:
         context = self.container_root / "build/tools"
         home = operator_home()
+        manager_roots = tuple(
+            self.state.prefix_path / name
+            for name in ("connections", "authority", "security")
+        )
         volumes = [
             f"{home}:{home}:ro",
-            f"{self.state.prefix_path}:{self.state.prefix_path}:rw",
+            *(f"{path}:{path}:rw" for path in manager_roots),
         ]
-        if not _is_within(self.state_path, self.state.prefix_path):
-            volumes.append(f"{self.state_path.parent}:{self.state_path.parent}:rw")
-        if not _is_within(self.state.bin_path, home) and not _is_within(
-            self.state.bin_path, self.state.prefix_path
-        ):
+        if not _is_within(self.state.bin_path, home):
             volumes.append(f"{self.state.bin_path}:{self.state.bin_path}:ro")
         return {
             "image": "elesim/tools:local",
@@ -746,28 +910,74 @@ class ContainerInstaller:
                 "PYTHONUNBUFFERED": "1",
             },
             "volumes": volumes,
+            # The normal home read-only mount supports SSH keys/known_hosts.
+            # Mask the exact install secrets subtree so it cannot expose the
+            # Tailscale node identity or TURN secret to the manager.
+            "tmpfs": (f"{self.state.prefix_path / 'secrets'}:mode=0700",),
         }
 
     def _write_wrappers(self) -> None:
         compose = self.container_root / "compose.yaml"
-        command = f"docker compose -f {shlex.quote(str(compose))}"
+        compose_wrapper = self.state.bin_path / "elesim-compose"
+        command = (
+            f"{shlex.quote(str(compose_wrapper))} "
+            f"-f {shlex.quote(str(compose))}"
+        )
         viewer_user = _resolve_viewer_user()
-        guard = _compose_owner_guard(
+        backend_guard = _docker_backend_guard(self.state.container_network)
+        owner_guard = _compose_owner_guard(
             compose,
             project=GENERAL_COMPOSE_PROJECT,
             containers=(
                 *ROLE_CONTAINER_NAMES.values(),
                 *LEGACY_ROLE_CONTAINER_NAMES,
+                TAILSCALE_CONTAINER_NAME,
                 "elesim-coturn",
                 "elesim-manager",
             ),
+        )
+        guard = backend_guard + owner_guard
+        write_executable(
+            compose_wrapper,
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            + guard
+            + 'exec docker compose "$@"\n',
         )
         application_guard = launch_guard(provisioning_required_path(self.state))
         # Read the installed state at invocation time instead of embedding
         # static peers in a long-lived wrapper.  ``elesim-net configure`` can
         # change peers/interface without reinstalling the wrapper; its
         # namespace-check command then validates the current state.
-        runtime_network_guard = (
+        runtime_sidecar_guard = ""
+        if self.state.container_network.uses_tailscale_sidecar:
+            tailscale_wrapper = shlex.quote(
+                str(self.state.bin_path / "elesim-tailscale")
+            )
+            runtime_sidecar_guard = (
+                "sidecar_login_status=0\n"
+                f"{tailscale_wrapper} login || sidecar_login_status=$?\n"
+                "if (( sidecar_login_status != 0 )); then\n"
+                "  printf 'Tailscale runtime을 준비하지 못했습니다. 연결관리자의 보안 및 실행 준비를 다시 실행하거나 %s login을 실행하십시오.\\n' "
+                f"{tailscale_wrapper} >&2\n"
+                "  exit \"$sidecar_login_status\"\n"
+                "fi\n"
+                "sidecar_status_json=\n"
+                f"if ! sidecar_status_json=\"$({tailscale_wrapper} status --json "
+                "2>/dev/null)\"; then\n"
+                "  printf 'Tailscale runtime 상태를 확인할 수 없습니다. 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                f"{tailscale_wrapper} >&2\n"
+                "  exit 75\n"
+                "fi\n"
+                "sidecar_backend_state=\"$(printf '%s\\n' \"$sidecar_status_json\" | "
+                "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+                "if [[ ${sidecar_backend_state,,} != running ]]; then\n"
+                "  printf 'Tailscale runtime 로그인이 필요합니다 (상태: %s). 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                '"${sidecar_backend_state:-unknown}" '
+                f"{tailscale_wrapper} >&2\n"
+                "  exit 75\n"
+                "fi\n"
+            )
+        runtime_network_guard = runtime_sidecar_guard + (
             f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
             "namespace-check >/dev/null\n"
         )
@@ -825,8 +1035,16 @@ class ContainerInstaller:
             "#!/usr/bin/env bash\nset -euo pipefail\n"
             + guard
             + _docker_backend_diagnostic()
+            + "net_service=tools\n"
+            + (
+                "case ${1:-} in\n"
+                "  namespace-check|doctor) net_service=runtime-tools ;;\n"
+                "esac\n"
+                if self.state.container_network.uses_tailscale_sidecar
+                else ""
+            )
             + f"{command} build --quiet tools >/dev/null\n"
-            + f"exec {command} run --rm -T tools elesim-net "
+            + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',
         )
@@ -857,12 +1075,28 @@ class ContainerInstaller:
                     else None
                 ),
                 viewer_user=viewer_user,
+                infrastructure_services=(
+                    ("tailscale",)
+                    if self.state.container_network.uses_tailscale_sidecar
+                    else ()
+                ),
             ),
         )
+        if self.state.container_network.uses_tailscale_sidecar:
+            write_executable(
+                self.state.bin_path / "elesim-tailscale",
+                _tailscale_wrapper(
+                    compose=compose,
+                    compose_wrapper=compose_wrapper,
+                    guard=guard,
+                    hostname=self.state.container_network.tailscale_hostname,
+                ),
+            )
         write_executable(
             self.state.bin_path / "elesim-connections",
             _manager_wrapper(
                 compose=compose,
+                compose_wrapper=compose_wrapper,
                 state_path=self.state.prefix_path / "connections/topology.json",
                 authority_root=self.state.prefix_path / "authority",
                 local_install_root=self.state.prefix_path,
@@ -870,6 +1104,7 @@ class ContainerInstaller:
                 maintenance_root=self.state.prefix_path / "maintenance",
                 install_uuid=self._install_uuid,
                 guard=guard,
+                container_network_mode=self.state.container_network.mode,
             ),
         )
         write_executable(
@@ -879,7 +1114,13 @@ class ContainerInstaller:
                 prefix=self.state.prefix_path,
                 state_path=self.state_path,
                 compose=compose,
+                compose_wrapper=compose_wrapper,
                 build_services=(*self.state.roles, "tools"),
+                pull_services=(
+                    ("tailscale",)
+                    if self.state.container_network.uses_tailscale_sidecar
+                    else ()
+                ),
                 preamble=guard,
             ),
         )
@@ -894,8 +1135,11 @@ class ContainerInstaller:
             "elesim-net",
             "elesim-connections",
             "elesim-update",
+            "elesim-compose",
             *(f"elesim-{role}" for role in self.state.roles),
         ]
+        if self.state.container_network.uses_tailscale_sidecar:
+            names.append("elesim-tailscale")
         if include_uninstaller:
             names.append("elesim-uninstall")
         return tuple(self.state.bin_path / name for name in names)
@@ -984,6 +1228,70 @@ class ContainerInstaller:
             temporary = Path(handle.name)
         temporary.chmod(0o600)
         os.replace(temporary, secret)
+
+    def _prepare_tailscale_state(self) -> None:
+        settings = self.state.container_network
+        if not settings.uses_tailscale_sidecar:
+            return
+        state_path = settings.tailscale_state_path
+        if state_path is None:
+            raise ValueError("Tailscale sidecar state directory is missing")
+        secrets_root = self.state.prefix_path / "secrets"
+        if os.path.lexists(secrets_root):
+            metadata = os.lstat(secrets_root)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(
+                    "Tailscale state path는 실제 directory여야 합니다: "
+                    f"{secrets_root}"
+                )
+        else:
+            secrets_root.mkdir(mode=0o700)
+        try:
+            secrets_fd = os.open(
+                secrets_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"Tailscale state path를 안전하게 열 수 없습니다: {secrets_root}"
+            ) from exc
+        try:
+            os.fchmod(secrets_fd, 0o700)
+            try:
+                child_metadata = os.stat(
+                    "tailscale",
+                    dir_fd=secrets_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                os.mkdir("tailscale", mode=0o700, dir_fd=secrets_fd)
+                child_metadata = os.stat(
+                    "tailscale",
+                    dir_fd=secrets_fd,
+                    follow_symlinks=False,
+                )
+            if stat.S_ISLNK(child_metadata.st_mode) or not stat.S_ISDIR(
+                child_metadata.st_mode
+            ):
+                raise ValueError(
+                    f"Tailscale state path는 실제 directory여야 합니다: {state_path}"
+                )
+            try:
+                state_fd = os.open(
+                    "tailscale",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=secrets_fd,
+                )
+            except OSError as exc:
+                raise ValueError(
+                    f"Tailscale state path를 안전하게 열 수 없습니다: {state_path}"
+                ) from exc
+            try:
+                os.fchmod(state_fd, 0o700)
+            finally:
+                os.close(state_fd)
+        finally:
+            os.close(secrets_fd)
 
     def _validate_external_turn_credentials(self) -> None:
         if (
@@ -1110,6 +1418,34 @@ def _compose_owner_guard(
     )
 
 
+def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
+    """Pin every generated lifecycle command to the installed Docker daemon."""
+
+    context = settings.docker_context.strip()
+    engine_id = settings.docker_engine_id.strip()
+    if not context and not engine_id:
+        # Pre-v9 installations are migrated without inventing a daemon pin.
+        return ""
+    if not context or not engine_id:
+        raise ValueError("Docker context and engine ID must be pinned together")
+    return (
+        f"expected_docker_context={shlex.quote(context)}\n"
+        f"expected_docker_engine_id={shlex.quote(engine_id)}\n"
+        "unset DOCKER_HOST\n"
+        "export DOCKER_CONTEXT=\"$expected_docker_context\"\n"
+        "if ! actual_docker_engine_id=\"$(docker info --format '{{.ID}}' 2>/dev/null)\"; then\n"
+        "  printf '설치에 고정된 Docker daemon에 연결할 수 없습니다: context=%s\\n' \"$expected_docker_context\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+        "if [[ $actual_docker_engine_id != \"$expected_docker_engine_id\" ]]; then\n"
+        "  printf '설치에 고정된 Docker daemon과 현재 daemon이 다릅니다.\\n' >&2\n"
+        "  printf '  expected: context=%s engine=%s\\n' \"$expected_docker_context\" \"$expected_docker_engine_id\" >&2\n"
+        "  printf '  actual:   context=%s engine=%s\\n' \"$DOCKER_CONTEXT\" \"${actual_docker_engine_id:-unknown}\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+    )
+
+
 def _docker_backend_diagnostic() -> str:
     """Render a read-only Docker backend report for namespace checks.
 
@@ -1139,6 +1475,7 @@ def _docker_backend_diagnostic() -> str:
 def _manager_wrapper(
     *,
     compose: Path,
+    compose_wrapper: Path,
     state_path: Path,
     authority_root: Path,
     local_install_root: Path,
@@ -1146,7 +1483,21 @@ def _manager_wrapper(
     maintenance_root: Path,
     install_uuid: str,
     guard: str,
+    container_network_mode: str,
 ) -> str:
+    if container_network_mode not in {"direct-host", "tailscale-sidecar"}:
+        raise ValueError(
+            f"unsupported container network mode: {container_network_mode!r}"
+        )
+    tailscale_hint = (
+        "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
+        "tailscale_address=\"\"\n"
+        "if [[ -n $tailscale_interface ]]; then\n"
+        "  tailscale_address=\"$(ip -4 -o addr show dev \"$tailscale_interface\" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)\"\n"
+        "fi\n"
+        if container_network_mode == "direct-host"
+        else "tailscale_interface=\n" "tailscale_address=\n"
+    )
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -1175,13 +1526,12 @@ def _manager_wrapper(
         "  exit 2\n"
         "fi\n"
         "manager_args+=(--host 0.0.0.0)\n"
-        "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
-        "tailscale_address=\"\"\n"
-        "if [[ -n $tailscale_interface ]]; then\n"
-        "  tailscale_address=\"$(ip -4 -o addr show dev \"$tailscale_interface\" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)\"\n"
-        "fi\n"
-        "manager_options=()\n"
+        + tailscale_hint
+        + "manager_options=()\n"
         "manager_options+=( -e ELESIM_CONNECTION_PUBLISHED=1 )\n"
+        "manager_options+=( -e ELESIM_CONTAINER_NETWORK_MODE="
+        + shlex.quote(container_network_mode)
+        + " )\n"
         "manager_options+=( -e \"ELESIM_TAILSCALE_ADDRESS=$tailscale_address\" )\n"
         "manager_options+=( -e \"ELESIM_TAILSCALE_INTERFACE=$tailscale_interface\" )\n"
         + host_helper_fragment(
@@ -1198,7 +1548,8 @@ def _manager_wrapper(
         "fi\n"
         "manager_started=1\n"
         "set +e\n"
-        "docker compose \"${manager_compose_args[@]}\" run --rm --build --name elesim-manager --publish "
+        + shlex.quote(str(compose_wrapper))
+        + " \"${manager_compose_args[@]}\" run --rm --build --name elesim-manager --publish "
         + '"127.0.0.1:${manager_port}:${manager_port}" '
         + '"${manager_options[@]}" manager elesim-connections --state '
         + shlex.quote(str(state_path))
@@ -1211,6 +1562,132 @@ def _manager_wrapper(
         + ' "${manager_args[@]}"\n'
         + "manager_status=$?\n"
         + "exit \"$manager_status\"\n"
+    )
+
+
+def _tailscale_wrapper(
+    *,
+    compose: Path,
+    compose_wrapper: Path,
+    guard: str,
+    hostname: str,
+) -> str:
+    """Render the bounded sidecar enrollment/status operator surface."""
+
+    compose_array = (
+        "tailscale_compose=("
+        + shlex.quote(str(compose_wrapper))
+        + " -f "
+        + shlex.quote(str(compose))
+        + ")\n"
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + compose_array
+        + "case ${1:-} in\n"
+        + "  login)\n"
+        + "    if (( $# != 1 )); then\n"
+        + "      printf '사용법: elesim-tailscale login\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    \"${tailscale_compose[@]}\" up -d --no-deps tailscale\n"
+        + "    sidecar_ready=0\n"
+        + "    login_status_json=\n"
+        + "    login_backend_state=\n"
+        + "    for _attempt in {1..60}; do\n"
+        + "      if login_status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null)\"; then\n"
+        + "        login_backend_state=\"$(printf '%s\\n' \"$login_status_json\" | "
+        + "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "        case ${login_backend_state,,} in\n"
+        + "          running|needslogin|nostate) sidecar_ready=1; break ;;\n"
+        + "          starting|'') ;;\n"
+        + "          *) sidecar_ready=1; break ;;\n"
+        + "        esac\n"
+        + "      fi\n"
+        + "      sleep 0.25\n"
+        + "    done\n"
+        + "    if (( ! sidecar_ready )); then\n"
+        + "      printf 'Tailscale sidecar daemon이 준비되지 않았습니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    case ${login_backend_state,,} in\n"
+        + "      running) exit 0 ;;\n"
+        + "      needslogin|nostate) ;;\n"
+        + "      *)\n"
+        + "        printf 'Tailscale sidecar가 로그인 가능한 상태가 아닙니다: %s\\n' \"${login_backend_state:-unknown}\" >&2\n"
+        + "        exit 75\n"
+        + "        ;;\n"
+        + "    esac\n"
+        + "    login_child=\n"
+        + "    heartbeat_child=\n"
+        + "    login_cleanup() {\n"
+        + "      local status=$?\n"
+        + "      trap - EXIT TERM INT\n"
+        + "      if [[ -n ${heartbeat_child:-} ]]; then\n"
+        + "        kill \"$heartbeat_child\" >/dev/null 2>&1 || true\n"
+        + "        wait \"$heartbeat_child\" >/dev/null 2>&1 || true\n"
+        + "      fi\n"
+        + "      if [[ -n ${login_child:-} ]]; then\n"
+        + "        kill \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "        for _cleanup_attempt in {1..20}; do\n"
+        + "          kill -0 \"$login_child\" >/dev/null 2>&1 || break\n"
+        + "          sleep 0.1\n"
+        + "        done\n"
+        + "        kill -KILL \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "        wait \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "      fi\n"
+        + "      exit \"$status\"\n"
+        + "    }\n"
+        + "    trap login_cleanup EXIT TERM INT\n"
+        + "    \"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock login --hostname="
+        + shlex.quote(hostname)
+        + " &\n"
+        + "    login_child=$!\n"
+        + "    while kill -0 \"$login_child\" >/dev/null 2>&1; do\n"
+        + "      sleep 2 &\n"
+        + "      heartbeat_child=$!\n"
+        + "      wait \"$heartbeat_child\" || true\n"
+        + "      heartbeat_child=\n"
+        + "      if kill -0 \"$login_child\" >/dev/null 2>&1; then\n"
+        + "        printf '[elesim-tailscale] 브라우저 로그인을 기다리는 중...\\n' >&2\n"
+        + "      fi\n"
+        + "    done\n"
+        + "    set +e\n"
+        + "    wait \"$login_child\"\n"
+        + "    login_status=$?\n"
+        + "    set -e\n"
+        + "    login_child=\n"
+        + "    trap - EXIT TERM INT\n"
+        + "    exit \"$login_status\"\n"
+        + "    ;;\n"
+        + "  status)\n"
+        + "    if (( $# > 2 )) || (( $# == 2 )) && [[ $2 != --json ]]; then\n"
+        + "      printf '사용법: elesim-tailscale status [--json]\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps -q tailscale 2>/dev/null)\" || [[ -z $sidecar_id ]]; then\n"
+        + "      printf '{\"BackendState\":\"Stopped\",\"IPv4\":\"\"}\\n'\n"
+        + "      exit 0\n"
+        + "    fi\n"
+        + "    status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null || true)\"\n"
+        + "    backend_state=\"$(printf '%s\\n' \"$status_json\" | "
+        + "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "    ipv4=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock ip -4 2>/dev/null | head -n1 || true)\"\n"
+        + "    [[ $backend_state =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]] || backend_state=Unavailable\n"
+        + "    [[ $ipv4 =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] || ipv4=\n"
+        + "    printf '{\"BackendState\":\"%s\",\"IPv4\":\"%s\"}\\n' \"$backend_state\" \"$ipv4\"\n"
+        + "    ;;\n"
+        + "  *)\n"
+        + "    printf '사용법: elesim-tailscale {login|status [--json]}\\n' >&2\n"
+        + "    exit 64\n"
+        + "    ;;\n"
+        + "esac\n"
     )
 
 
@@ -1613,14 +2090,18 @@ def _runtime_archive_function(
 
 
 def _runtime_presence_function(
-    *, compose: Path, services: tuple[str, ...]
+    *,
+    compose: Path,
+    services: tuple[str, ...],
+    function_name: str = "runtime_has_role_containers",
 ) -> str:
     """Render a bounded role-container presence probe for operator wrappers."""
 
     command = "docker compose -f " + shlex.quote(str(compose))
     rendered_services = " ".join(shlex.quote(service) for service in services)
     return (
-        "runtime_has_role_containers() {\n"
+        function_name
+        + "() {\n"
         "  [[ -n $("
         + command
         + " ps -aq "
@@ -1695,9 +2176,15 @@ def _runtime_down_wrapper(
     guard: str,
     viewer_state: Path | None = None,
     viewer_user: str = "root",
+    infrastructure_services: tuple[str, ...] = (),
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
     presence = _runtime_presence_function(compose=compose, services=services)
+    project_presence = _runtime_presence_function(
+        compose=compose,
+        services=(*services, *infrastructure_services),
+        function_name="runtime_has_project_containers",
+    )
     viewer_function = (
         _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
         if viewer_state is not None
@@ -1711,12 +2198,13 @@ def _runtime_down_wrapper(
                 + guard
                 + viewer_function
                 + presence
+                + project_presence
                 + "if (( $# != 0 )); then\n"
                 + "  printf '사용법: elesim-down\n' >&2\n"
                 + "  exit 64\n"
                 + "fi\n"
                 + "down_status=0\n"
-                + "if runtime_has_role_containers; then\n"
+                + "if runtime_has_project_containers; then\n"
                 + "  set +e\n"
                 + command
                 + " down --remove-orphans\n"
@@ -1737,11 +2225,12 @@ def _runtime_down_wrapper(
             "set -euo pipefail\n"
             + guard
             + presence
+            + project_presence
             + "if (( $# != 0 )); then\n"
             + "  printf '사용법: elesim-down\\n' >&2\n"
             + "  exit 64\n"
             + "fi\n"
-            + "if runtime_has_role_containers; then\n"
+            + "if runtime_has_project_containers; then\n"
             + "  "
             + command
             + " down --remove-orphans\n"
@@ -1756,6 +2245,7 @@ def _runtime_down_wrapper(
         + guard
         + viewer_function
         + presence
+        + project_presence
         + "if (( $# != 0 )); then\n"
         + "  printf '사용법: elesim-down\\n' >&2\n"
         + "  exit 64\n"
@@ -1767,14 +2257,18 @@ def _runtime_down_wrapper(
         )
         + "archive_status=0\n"
         + "runtime_present=0\n"
+        + "project_present=0\n"
         + "if runtime_has_role_containers; then\n"
         + "  runtime_present=1\n"
         + "  archive_runtime_logs || archive_status=$?\n"
         + "else\n"
         + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
         + "fi\n"
+        + "if runtime_has_project_containers; then\n"
+        + "  project_present=1\n"
+        + "fi\n"
         + "down_status=0\n"
-        + "if (( runtime_present )); then\n"
+        + "if (( project_present )); then\n"
         + "  "
         + command
         + " down --remove-orphans || down_status=$?\n"

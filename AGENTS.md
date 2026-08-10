@@ -15,9 +15,10 @@
   rendering, Jetson, and physical hardware behavior remain manual gates.
 - Handoff boundary: do **not** restart or broaden the Router/ZMQ-to-DDS
   refactor. M2-B is complete: the connection manager now has an explicit
-  `full`/`simulation-only` topology mode, schema-v1/v2 compatibility, role-aware
-  deployment and security generation, read-only Tailscale hinting, and explicit
-  lifecycle status/actions. M1 is also complete. New protocol work must first
+  `full`/`simulation-only` topology mode, schema-v1-v3 compatibility, role-aware
+  deployment and security generation, independent DDS/SSH endpoints, fixed
+  Docker-backend selection, and explicit lifecycle status/actions. M1 is also
+  complete. New protocol work must first
   update the DDS contract registry and tests; typed ROS service/action runtime
   wiring remains a separate follow-up.
 - Locked decisions:
@@ -67,10 +68,11 @@
     NIC/domain. `elesim-unitree-bridge` is the only Unitree participant;
     inter-host `elesim-robot` talks to it over bounded credential-checked Unix
     `SOCK_SEQPACKET` IPC. It is not a fifth application or a Router.
-  - Connection topology schema v3 has an explicit `topology_mode`: `full` uses
+  - Connection topology schema v4 has an explicit `topology_mode`: `full` uses
     all four roles across 2..4 hosts, while `simulation-only` uses only
     Pilot/Sim/UI across 1..3 container/Compose hosts and contains no
-    Robot or Jetson placeholder. Schema v1 is loaded as `full` and normalized.
+    Robot or Jetson placeholder. Schemas v1-v3 are loaded and normalized to v4;
+    v1 is interpreted as `full`.
   - Robot/Sim own their motion leases; Sim separately owns its UI
     simulation session. DDS discovery grants neither.
   - RGBD is a latest-only coherent DDS sample. WebRTC signaling is a
@@ -106,27 +108,42 @@
     uses a 64 KiB-bounded JSON Unix packet protocol with `SO_PEERCRED`, boot
     IDs, monotonic sequences, command/parameter allowlists and deadman stop.
     GO2 IPC failure cannot skip arm safe-hold, torque-off or hardware cleanup.
-  - Installer state schema v8 distinguishes externally supplied SROS2
-    keystores from connection-manager-owned generation/bundle state, while
-    retaining managed/external TURN inputs and optional runtime text logging.
+  - Installer state schema v9 retains the v8 distinction between externally
+    supplied SROS2 keystores and connection-manager-owned generation/bundle
+    state, while retaining managed/external TURN inputs and optional runtime
+    text logging. It additionally records the fixed Docker context/Engine
+    identity and the resolved `direct-host` or `tailscale-sidecar` network
+    mode.
     Migrations from v1-v7 disable new log retention. SSH remains setup-only and
     respects non-default ports; the connection manager also supports explicit
     keyless Tailscale SSH on port 22.
   - `elesim-connections` owns the non-secret multi-host topology. DDS
     address/interface and SSH management host/port are separate fields; one is
     never inferred from the other.
-  - The connection manager performs a read-only `tailscale0` address hint (no
-    installation, login or ACL mutation) and exposes bounded `check`, `start`,
-    `stop` and `restart` host-lifecycle jobs. Full `start` builds every host
-    before launching any role; these report Compose/systemd management state
-    only and do not claim DDS discovery or WebRTC media.
+  - The connection manager performs a read-only host `tailscale0` address hint
+    (no host installation, login or ACL mutation). A Docker Desktop install
+    instead owns a kernel-mode `tailscale` sidecar; its explicit one-time
+    browser/device login is exposed through `elesim-tailscale login`, with
+    sanitized status from `elesim-tailscale status`. The manager exposes
+    bounded `check`, `start`, `stop` and `restart` host-lifecycle jobs. Full
+    `start` builds every host before launching any role; these report
+    Compose/systemd management state only and do not claim DDS discovery or
+    WebRTC media.
+  - The privileged Tailscale sidecar image is version-and-index-digest pinned.
+    A v1-v8 unpinned install may acquire a v9 daemon pin only when exact
+    install-labelled Docker artifacts prove ownership on that daemon. Empty or
+    foreign daemons fail closed. A later Engine-ID reset has no automatic
+    rebind; restore the pinned daemon for validated uninstall or reinstall into
+    a new empty prefix pending audited cleanup.
   - The generated connection-manager wrapper publishes its selected GUI port
     on host loopback instead of relying on container host networking. It starts
     a short-lived, private host helper that accepts only the installed Elesim
-    Compose/network commands and an optional bounded `tailscale nc` stream.
+    Compose/network/sidecar commands and an optional bounded host
+    `tailscale nc` stream.
     The manager receives neither `docker.sock` nor the tailscaled local API
-    socket. This is a route fallback for Docker Desktop/WSL; it does not install
-    Tailscale or change its ACLs.
+    socket. The host `tailscale nc` stream is an SSH route fallback for Docker
+    Desktop/WSL and does not install host Tailscale or change its ACLs; the
+    separately generated sidecar is DDS runtime infrastructure.
   - Full runtime start builds every selected host first, then launches with
     `--no-build`. Its actual `docker compose --progress plain build`
     stdout/stderr is streamed from the local allowlisted host helper or remote
@@ -142,7 +159,8 @@
     active COM cards, and serializes exactly one Pilot, Sim, and UI.
     Deployment, lifecycle rollback, and SROS2 policy generation use only those
     active roles; no `robot_id` is emitted for simulation-only rollback.
-  - `TwoHostPreflight` and the loopback `/api/preflight` endpoint are ephemeral
+  - Schema-v2 `TwoHostPreflight` and the loopback `/api/preflight` endpoint are
+    ephemeral
     and role-neutral. They validate exactly two COM host DDS/SSH endpoints for
     the Jetson-less Tailscale test path, never save a topology, issue keys, or
     deploy roles. A saved `ConnectionTopology` uses explicit `full` or
@@ -239,11 +257,12 @@
   - `robot/src/elesim_robot/go2/unitree_ipc*.py` and
     `unitree_bridge_daemon.py`: local bounded UDS boundary, peer credentials,
     replay fencing and bridge-side GO2 deadman stop.
-  - `installer/package/src/elesim_setup/`: state schema v8, role-specific DDS
+  - `installer/package/src/elesim_setup/`: state schema v9, role-specific DDS
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
-    the ephemeral `TwoHostPreflight` contract/API. `connection_manager.py` owns
-    topology schema v3 and its `full`/`simulation-only` invariants;
+    the ephemeral schema-v2 `TwoHostPreflight` contract/API.
+    `connection_manager.py` owns topology schema v4 and its
+    `full`/`simulation-only` invariants;
     `security_policy.py` and `secure_deployment.py` filter SROS2/lifecycle
     operations to the active role set.
     Runtime role keys and source trees are the same names (`pilot` and `sim`).
@@ -290,7 +309,10 @@
     Developer updates require a clean tracked checkout and fast-forward only.
   - General installations expose fixed role container names; Developer
     installations expose only `elesim-dev` and optional `elesim-jaeger`.
-    Managed TURN adds `elesim-coturn` on the Sim host.
+    Managed TURN adds `elesim-coturn` on the Sim host. Docker Desktop container
+    installs add the `tailscale` service/fixed `elesim-tailscale` infrastructure
+    container; enroll it once with `elesim-tailscale login`, inspect its DDS IP
+    with `elesim-tailscale status`, and keep the WSL/host SSH address separate.
   - Use `elesim-uninstall --plan` to inspect or `elesim-uninstall` to validate
     again and remove immediately. Logs and owned operator Authority are removed
     unless their `--keep-*` flags are supplied. On Robot, remove the exact two installed systemd units

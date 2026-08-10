@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,12 @@ from elesim_setup.connections import ConnectionDeploymentRunner
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
+
+
+class _NoopNetworkPreparation:
+    @staticmethod
+    def prepare_runtime_network(_host, _output):
+        return None
 
 
 def _topology(tmp_path: Path, *, security_profile: str) -> ConnectionTopology:
@@ -79,7 +86,12 @@ def test_trusted_network_runner_applies_bundle_free_topology(
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
         "_operations",
-        staticmethod(lambda _topology: {"operator": object(), "jetson": object()}),
+        staticmethod(
+            lambda _topology: {
+                "operator": _NoopNetworkPreparation(),
+                "jetson": _NoopNetworkPreparation(),
+            }
+        ),
     )
     monkeypatch.setattr("elesim_setup.connections.TopologyRollout", FakeRollout)
 
@@ -108,7 +120,12 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
         "_operations",
-        staticmethod(lambda _topology: {"operator": object(), "jetson": object()}),
+        staticmethod(
+            lambda _topology: {
+                "operator": _NoopNetworkPreparation(),
+                "jetson": _NoopNetworkPreparation(),
+            }
+        ),
     )
     monkeypatch.setattr("elesim_setup.connections.TopologyRollout", FakeRollout)
     runner = ConnectionDeploymentRunner(
@@ -127,15 +144,29 @@ def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     assert events[-1] == "verify: operator"
 
 
-def test_trusted_network_rejects_security_actions(tmp_path: Path) -> None:
+def test_trusted_network_rejects_security_actions_before_host_operations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     topology = _topology(tmp_path, security_profile="trusted-network")
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
         local_install_root=tmp_path / "install",
     )
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda _topology: (_ for _ in ()).throw(
+                AssertionError("host operations must not be created")
+            )
+        ),
+    )
 
     with pytest.raises(ValueError, match="deploy"):
         runner(topology, "rotate", lambda _message: None)
+
+    with pytest.raises(ValueError, match="지원하지 않는 연결 작업"):
+        runner(topology, "unknown", lambda _message: None)
 
 
 def test_runtime_start_builds_every_host_before_launching_any_host(
@@ -145,7 +176,7 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     events: list[str] = []
     logs: list[str] = []
 
-    class Operations:
+    class Operations(_NoopNetworkPreparation):
         def __init__(self, host_id: str) -> None:
             self.host_id = host_id
 
@@ -212,7 +243,7 @@ def test_runtime_start_reports_remote_dds_readiness_after_launch(
     events: list[str] = []
     logs: list[str] = []
 
-    class Operations:
+    class Operations(_NoopNetworkPreparation):
         def __init__(self, host_id: str) -> None:
             self.host_id = host_id
 
@@ -274,7 +305,7 @@ def test_runtime_readiness_tolerates_malformed_results_payload(
     topology = _topology(tmp_path, security_profile="trusted-network")
     logs: list[str] = []
 
-    class Operations:
+    class Operations(_NoopNetworkPreparation):
         def __init__(self, host_id: str) -> None:
             self.host_id = host_id
 
@@ -378,6 +409,129 @@ def test_host_check_combines_network_preflight_and_runtime_status(
     assert "status: jetson = stopped [—]" in logs
 
 
+def test_start_persists_changed_sidecar_address_and_requires_prepare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    state_path = tmp_path / "topology.json"
+    topology.save(state_path)
+
+    class Operations(_NoopNetworkPreparation):
+        @staticmethod
+        def prepare_runtime_network(host, _output):
+            return "100.64.0.99" if host.host_id == "operator" else None
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations() for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        topology_state_path=state_path,
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(RuntimeError, match="보안 및 실행 준비"):
+        runner(topology, "start", lambda _message: None)
+
+    saved = ConnectionTopology.load(state_path)
+    assert saved.host("operator").dds.address == "100.64.0.99"
+    assert saved.host("operator").dds.interface == "tailscale0"
+    assert saved.dds_graph.discovery_mode == "static"
+    assert saved.host("jetson").ssh == topology.host("jetson").ssh
+
+
+def test_deploy_persists_sidecar_address_before_remote_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    topology = replace(
+        topology,
+        dds_graph=replace(topology.dds_graph, discovery_mode="static"),
+    ).validate()
+    state_path = tmp_path / "topology.json"
+    topology.save(state_path)
+    observed: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        @staticmethod
+        def prepare_runtime_network(host, _output):
+            return "100.64.0.99" if host.host_id == "operator" else None
+
+    class Rollout:
+        def __init__(self, updated, _operations) -> None:
+            assert updated.host("operator").dds.address == "100.64.0.99"
+            assert ConnectionTopology.load(state_path) == updated
+
+        def apply(self, *, progress) -> None:
+            observed.append("apply")
+            progress("verify", "operator")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations() for host in graph.hosts
+            }
+        ),
+    )
+    monkeypatch.setattr("elesim_setup.connections.TopologyRollout", Rollout)
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        topology_state_path=state_path,
+        local_install_root=tmp_path / "install",
+    )
+
+    updated = runner(topology, "deploy", lambda _message: None)
+
+    assert observed == ["apply"]
+    assert updated.host("operator").dds.address == "100.64.0.99"
+
+
+def test_deploy_rejects_changed_sidecar_address_without_a_state_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    topology = replace(
+        topology,
+        dds_graph=replace(topology.dds_graph, discovery_mode="static"),
+    ).validate()
+
+    class Operations(_NoopNetworkPreparation):
+        @staticmethod
+        def prepare_runtime_network(host, _output):
+            return "100.64.0.99" if host.host_id == "operator" else None
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations() for host in graph.hosts
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "elesim_setup.connections.TopologyRollout",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("remote rollout must not begin before persistence")
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(RuntimeError, match="topology state path"):
+        runner(topology, "deploy", lambda _message: None)
+
+
 def test_sros2_provision_rejects_an_existing_active_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -395,7 +549,12 @@ def test_sros2_provision_rejects_an_existing_active_generation(
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
         "_operations",
-        staticmethod(lambda _topology: {"operator": object(), "jetson": object()}),
+        staticmethod(
+            lambda _topology: {
+                "operator": _NoopNetworkPreparation(),
+                "jetson": _NoopNetworkPreparation(),
+            }
+        ),
     )
     runner = ConnectionDeploymentRunner(
         tmp_path / "authority",
@@ -443,7 +602,12 @@ def test_sros2_prepare_selects_create_or_reissue_automatically(
     monkeypatch.setattr(
         ConnectionDeploymentRunner,
         "_operations",
-        staticmethod(lambda _topology: {"operator": object(), "jetson": object()}),
+        staticmethod(
+            lambda _topology: {
+                "operator": _NoopNetworkPreparation(),
+                "jetson": _NoopNetworkPreparation(),
+            }
+        ),
     )
 
     runner = ConnectionDeploymentRunner(

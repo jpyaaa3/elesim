@@ -99,6 +99,27 @@ uses the separate fixed `elesim-runtime-dev` project with one persistent
 three general-role containers. Managed WebRTC relay adds `elesim-coturn` only
 to the Sim host's general project.
 
+Container installations fix one runtime-network backend when they are
+generated. `direct-host` (shown as **Native host network**) places role and
+tools containers in the selected Docker Engine's host network namespace.
+`tailscale-sidecar` (shown as **Docker Desktop Tailscale sidecar**) runs a
+kernel-mode Tailscale node inside Docker Desktop's Linux VM and places the
+roles, dedicated runtime-network doctor, and active Sim-owned Coturn service in
+that service's namespace.
+The ordinary administrative tools service stays usable before enrollment.
+Docker Desktop does not inherit a WSL distribution's existing `tailscale0`;
+the sidecar therefore has its own `tailscale0`, tailnet IP, and persistent node
+state. It is host network infrastructure, not a fifth application, DDS Router,
+relay, registry, or authorization service.
+
+Backend selection is automatic during installation and the resolved value is
+persisted; runtime wrappers do not silently switch Docker contexts or backends.
+Sidecar enrollment is a one-time browser/device login performed by the
+operator. Elesim stores neither a Tailscale auth/OAuth key nor the browser
+credential. Roles and the runtime-network doctor share the enrolled namespace;
+Coturn may share it as Sim-owned WebRTC infrastructure but never becomes a DDS
+path.
+
 The host boundary is independent from the deployment-unit boundary. A Jetson
 may therefore run the native Robot service and a separate Compose unit for
 validated container roles (currently Pilot/UI) at the same time. Each unit
@@ -230,7 +251,8 @@ to the Robot and Sim RGBD topics; it receives no additional RGBD publish
 permission. This is an explicit operational tradeoff: role credentials are not
 isolated from RGBD observation.
 
-State schema v8 distinguishes two SROS2 provisioning models. `external` points
+State schema v9 retains the two SROS2 provisioning models introduced in v8.
+`external` points
 at a keystore/enclave supplied and maintained outside Elesim. `managed` records
 an Elesim security generation and the local host's role bundle. In managed mode
 the operator laptop holds the complete SROS2 Authority. A runtime host receives
@@ -272,7 +294,8 @@ uses SSH local forwarding, and its SSH port has no relationship to DDS or TURN.
 ## Connection Topology Ownership
 
 `elesim-connections` runs on the operator laptop and persists only non-secret
-topology. Schema v2 records an explicit `topology_mode`:
+topology. Schema v4 records an explicit `topology_mode` and independent DDS and
+SSH addresses:
 
 - `full` assigns Pilot, UI, Sim, and Robot exactly once across two to
   four active hosts; Robot remains constrained to a native Jetson host.
@@ -280,15 +303,20 @@ topology. Schema v2 records an explicit `topology_mode`:
   one to three container/Compose hosts and contains no Robot/Jetson placeholder.
 
 Both modes mark exactly one host local and allow a host to own multiple roles.
-Schema-v1 documents load as `full` and are normalized on save.
+Schema-v1 documents load as `full`; schema-v1-v3 records derive their SSH
+destination from the historical shared address and are normalized on save.
 
-Every host has one advertised IP and interface used for runtime UDP. The same
-IP is the SSH destination; SSH keeps its own port, user, authentication mode
-(`openssh` via agent/key or `tailscale` via Tailscale SSH), and pinned SHA-256
-host key fingerprint. Tailscale SSH is keyless and uses port 22; Tailscale ACL
-`check` rules may require an interactive re-authentication before the manager
-can automate commands. An SSH port such as `2222` is never a DDS or WebRTC
-port. Static peers are derived from the active hosts' DDS addresses only.
+Every host has one advertised DDS address and interface used for runtime UDP.
+Remote management has an independent SSH destination, port, user,
+authentication mode (`openssh` via agent/key or `tailscale` via Tailscale SSH),
+and pinned SHA-256 host key fingerprint. They are commonly the same address on
+a native host network, but differ when a Docker Desktop sidecar owns the DDS
+tailnet identity while SSH still terminates at the WSL/host identity. Tailscale
+SSH is keyless and uses port 22; Tailscale ACL `check` rules may require an
+interactive re-authentication before the manager can automate commands. An SSH
+port such as `2222` is never a DDS or WebRTC port. Static peers are derived
+only from active hosts' DDS addresses. Tailscale and other routed-VPN graphs
+use static discovery; static peers seed discovery and never relay DDS samples.
 
 ## Verification Matrix
 
@@ -356,6 +384,11 @@ python3 misc/tools/release/verify.py dist/releases
 - Setup-tool tests generate trusted-network and SROS2 profiles, exercise safe
   bootstrap extraction, validate the generated DDS graph configuration, and
   validate DDS/STUN probes without importing a sibling deployment.
+- Setup tests may validate backend resolution, generated sidecar/direct Compose
+  structure, namespace/interface/address checks, absence of auth/OAuth keys
+  from generated configuration, and schema migration without pulling images or
+  joining a tailnet. They do not prove a
+  Docker Desktop sidecar can exchange DDS traffic with another real host.
 
 The checked-in `PeerEnvelope` carrier is the current protocol-v6 control and
 signaling wire contract. The additional typed service/action definitions in
@@ -366,7 +399,10 @@ Live release gates must cover discovery convergence, duplicate-ID fail-closed
 behavior, lease expiry and command deadman timing, SROS2 permissions,
 RGBD latency and bandwidth under loss, WebRTC SDP payload limits, routed-VPN
 operation, and explicit failure on unsupported NAT-only layouts. Unit tests do
-not prove any of those network properties.
+not prove any of those network properties. In particular, the Docker Desktop
+sidecar path remains a two-host manual gate: enroll both nodes, verify static
+peer discovery and bidirectional DDS control/RGBD, then separately verify the
+WebRTC direct/relay path.
 
 Generate a role-specific line-execution report without adding a production
 dependency:

@@ -5,6 +5,7 @@ import json
 import re
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from elesim_setup.connection_manager import (
     RoleAssignment,
     SshEndpoint,
 )
+from elesim_setup.connections import _BuildLogForwarder
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -100,7 +102,7 @@ def _simulation_topology() -> ConnectionTopology:
 
 def _preflight_payload() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "discovery_mode": "static",
         "hosts": [
             {
@@ -113,7 +115,11 @@ def _preflight_payload() -> dict[str, object]:
                 "id": "compute",
                 "local": False,
                 "dds": {"address": "100.64.0.20", "interface": "tailscale0"},
-                "ssh": {"host": "100.64.0.20", "port": 22, "user": "elesim"},
+                "ssh": {
+                    "host": "compute-management.example",
+                    "port": 22,
+                    "user": "elesim",
+                },
             },
         ],
         "probe_ssh": True,
@@ -144,6 +150,135 @@ def _wait_for_job(app: ConnectionManagerApplication) -> dict[str, object]:
             return snapshot
         assert time.monotonic() < deadline
         time.sleep(0.01)
+
+
+def test_job_keeps_tailscale_login_url_in_browser_interaction_only(
+    tmp_path: Path,
+) -> None:
+    release = threading.Event()
+
+    def runner(topology: ConnectionTopology, _action: str, log):
+        forwarder = _BuildLogForwarder(
+            topology.host("compute"), log, phase="network"
+        )
+        forwarder("stderr", "https://login.tail")
+        forwarder("stderr", "scale.com/a/abc_123\n")
+        release.wait(timeout=2)
+        return topology
+
+    app = _application(tmp_path, runner=runner)
+    app.save_topology(_topology().to_dict())
+    app.start_job("prepare")
+    deadline = time.monotonic() + 2
+    while app.job_snapshot()["interaction"] is None:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    running = app.job_snapshot()
+    assert running["interaction"] == {
+        "kind": "tailscale-login",
+        "url": "https://login.tailscale.com/a/abc_123",
+        "host": "network compute [stderr]",
+    }
+    assert not any("login.tailscale.com" in line for line in running["logs"])
+    release.set()
+    assert _wait_for_job(app)["status"] == "completed"
+
+
+def test_successful_job_persists_sidecar_discovered_topology(tmp_path: Path) -> None:
+    original = _topology()
+    updated_host = replace(
+        original.host("compute"),
+        dds=replace(
+            original.host("compute").dds,
+            address="100.100.100.42",
+            address_source="tailscale",
+        ),
+    )
+    updated = replace(
+        original,
+        hosts=tuple(
+            updated_host if host.host_id == "compute" else host
+            for host in original.hosts
+        ),
+    ).validate()
+    app = _application(
+        tmp_path,
+        runner=lambda _topology, _action, _log: updated,
+    )
+    app.save_topology(original.to_dict())
+
+    app.start_job("prepare")
+    finished = _wait_for_job(app)
+
+    assert finished["status"] == "completed"
+    assert finished["topology_updated"] is True
+    assert app.load_topology().host("compute").dds.address == "100.100.100.42"
+
+
+def test_job_does_not_resave_a_runner_persisted_topology_after_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = _topology()
+    updated_host = replace(
+        original.host("compute"),
+        dds=replace(original.host("compute").dds, address="100.100.100.43"),
+    )
+    updated = replace(
+        original,
+        hosts=tuple(
+            updated_host if host.host_id == "compute" else host
+            for host in original.hosts
+        ),
+    ).validate()
+    original_save = ConnectionTopology.save
+    app = _application(tmp_path)
+    app.save_topology(original.to_dict())
+
+    def runner(_topology, _action, _log):
+        original_save(updated, app.state_path)
+        return updated
+
+    app.runner = runner
+
+    def unexpected_save(_topology, _path):
+        raise AssertionError("pre-persisted topology must not be saved after commit")
+
+    monkeypatch.setattr(ConnectionTopology, "save", unexpected_save)
+    app.start_job("prepare")
+    finished = _wait_for_job(app)
+
+    assert finished["status"] == "completed"
+    assert finished["topology_updated"] is True
+    assert ConnectionTopology.load(app.state_path) == updated
+
+
+def test_failed_job_reports_a_runner_persisted_topology_update(tmp_path: Path) -> None:
+    original = _topology()
+    updated_host = replace(
+        original.host("compute"),
+        dds=replace(original.host("compute").dds, address="100.100.100.44"),
+    )
+    updated = replace(
+        original,
+        hosts=tuple(
+            updated_host if host.host_id == "compute" else host
+            for host in original.hosts
+        ),
+    ).validate()
+    app = _application(tmp_path)
+    app.save_topology(original.to_dict())
+
+    def runner(_topology, _action, _log):
+        updated.save(app.state_path)
+        raise RuntimeError("run prepare before start")
+
+    app.runner = runner
+    app.start_job("start")
+    finished = _wait_for_job(app)
+
+    assert finished["status"] == "failed"
+    assert finished["topology_updated"] is True
+    assert ConnectionTopology.load(app.state_path) == updated
 
 
 def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
@@ -247,7 +382,12 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "ssh-tailscale" in script
     assert "ssh.help" not in catalog["ko"]
     assert catalog["en"]["ssh.title"] == "Private key authentication via SSH"
-    assert html.count('data-field="ssh-host" type="text" readonly disabled') == 4
+    ssh_host_fields = re.findall(
+        r'<input\b[^>]*data-field="ssh-host"[^>]*>',
+        html,
+    )
+    assert len(ssh_host_fields) == 4
+    assert all("readonly" not in value and "disabled" not in value for value in ssh_host_fields)
     assert html.count('<details class="ssh-fields" open>') == 4
     assert "coturn-fields" not in html
     assert "updateCoturnVisibility" not in script
@@ -255,10 +395,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "host.coturn" not in script
     assert "robot-install-root" not in html
     assert "robot-bin-dir" not in html
-    assert 'host.ssh.host' not in script
+    assert 'host.ssh.host' in script
+    assert "let schemaVersion = 4;" in script
+    assert 'host: field(slot, "ssh-host").value.trim()' in script
+    assert 'const host = field(slot, "ssh-host").value.trim();' in script
+    assert "syncSshAddress" not in script
+    assert 'container_network_mode === "tailscale-sidecar"' in script
+    assert "const topologyAppliedByThisJob =" in script
+    assert "if (!topologyAppliedByThisJob)" in script
     assert 'data-field="dds-address"' in html
     assert 'placeholder="100.x.y.z"' in html
-    assert "Abort" in catalog["ko"]["action.cancel"]
+    assert catalog["ko"]["action.cancel"] == "중단"
 
 
 def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) -> None:
@@ -275,6 +422,7 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     assert context["topology"] == topology.to_dict()
     assert context["manager_transport"]["containerized"] is False
     assert context["manager_transport"]["tailscale_proxy"] is False
+    assert context["manager_transport"]["container_network_mode"] == "direct-host"
     assert context["derived_static_peers"]["compute"] == [
         "100.64.0.10",
         "100.64.0.30",
@@ -287,6 +435,19 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     unsafe["hosts"][1]["ssh"]["private_key"] = "-----BEGIN PRIVATE KEY-----"
     with pytest.raises(ValueError, match="secret material"):
         app.save_topology(unsafe)
+
+
+def test_context_exposes_the_selected_container_network_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ELESIM_CONTAINER_NETWORK_MODE", "tailscale-sidecar")
+
+    context = _application(tmp_path).context()
+
+    assert (
+        context["manager_transport"]["container_network_mode"]
+        == "tailscale-sidecar"
+    )
 
 
 def test_context_restores_managed_generation_without_private_material(
@@ -390,7 +551,8 @@ def test_two_host_preflight_is_ephemeral_and_can_probe_ssh(tmp_path: Path) -> No
         "laptop": ["100.64.0.20"],
         "compute": ["100.64.0.10"],
     }
-    assert calls == [("100.64.0.20", 22)]
+    assert result["ssh_checks"]["compute"]["host"] == "compute-management.example"
+    assert calls == [("compute-management.example", 22)]
     assert result["ssh_checks"]["compute"]["checked"] is True
     assert result["ssh_checks"]["compute"]["fingerprint"] == FINGERPRINT
     assert not (tmp_path / "connections.json").exists()

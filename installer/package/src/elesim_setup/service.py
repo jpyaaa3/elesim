@@ -43,7 +43,7 @@ class SetupService:
                 log=self.log,
             ).run()
         else:
-            state = request.to_install_state()
+            state = request.to_install_state(self.capabilities)
             installer_type = (
                 ContainerInstaller if state.install_mode == "container" else Installer
             )

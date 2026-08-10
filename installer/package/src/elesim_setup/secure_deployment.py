@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import shlex
@@ -48,6 +49,7 @@ _BUILD_COMMAND_TIMEOUT_S = 30 * 60
 # backend.  The old 30-second local default made a valid ``up --no-build``
 # look like a failed rollout and triggered an unnecessary rollback.
 _RUNTIME_LIFECYCLE_TIMEOUT_S = 5 * 60
+_NETWORK_LOGIN_TIMEOUT_S = 10 * 60
 _RUNTIME_LIFECYCLE_ACTIONS = frozenset({"up", "start", "stop"})
 ProgressCallback = Callable[[str, str | None], None]
 CommandOutput = Callable[[str, str], None]
@@ -62,7 +64,16 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
     values = tuple(str(value) for value in argv)
     if "build" in values:
         return max(float(base), float(_BUILD_COMMAND_TIMEOUT_S))
-    if "compose" in values and any(
+    if (
+        values
+        and PurePosixPath(values[0]).name == "elesim-tailscale"
+        and "login" in values[1:]
+    ):
+        return max(float(base), float(_NETWORK_LOGIN_TIMEOUT_S))
+    if any(
+        value == "compose" or PurePosixPath(value).name == "elesim-compose"
+        for value in values
+    ) and any(
         action in values for action in _RUNTIME_LIFECYCLE_ACTIONS
     ):
         return max(float(base), float(_RUNTIME_LIFECYCLE_TIMEOUT_S))
@@ -334,6 +345,13 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost
     ) -> None: ...
 
+    def prepare_runtime_network(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        output: CommandOutput,
+    ) -> str | None: ...
+
     def snapshot(
         self, session: SshSession, host: ManagedHost
     ) -> Mapping[str, Any]: ...
@@ -392,6 +410,10 @@ class HostOperations(Protocol):
     def preflight(self, host: ManagedHost) -> RemoteCapabilities: ...
 
     def runtime_network_check(self, host: ManagedHost) -> None: ...
+
+    def prepare_runtime_network(
+        self, host: ManagedHost, output: CommandOutput
+    ) -> str | None: ...
 
     def capture_state(self, host: ManagedHost) -> HostActivationState: ...
 
@@ -958,6 +980,14 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.runtime_network_check(session, host)
 
+    def prepare_runtime_network(
+        self, host: ManagedHost, output: CommandOutput
+    ) -> str | None:
+        """Start/enroll installation-owned network infrastructure if needed."""
+
+        with self._connect(host) as session:
+            return self._lifecycle.prepare_runtime_network(session, host, output)
+
     def capture_state(self, host: ManagedHost) -> HostActivationState:
         with self._connect(host) as session:
             unit_generations: dict[str, str | None] = {}
@@ -1253,11 +1283,9 @@ class SshHostOperations:
                 "inject local HostOperations instead"
         )
         if self._session is None:
-            # The UI exposes one host IP (the DDS advertised address).  Keep
-            # the transport target derived from that value even when an old
-            # topology carried a stale, separately editable SSH host.
-            endpoint = replace(host.ssh, host=host.dds.address)
-            self._session = self._connector.connect(endpoint)
+            # The management endpoint is independent from the DDS runtime
+            # endpoint.  Docker Desktop sidecars have their own tailnet IP.
+            self._session = self._connector.connect(host.ssh)
             self._session.__enter__()
         return _BorrowedSession(self._session)
 
@@ -1351,7 +1379,9 @@ class _LocalSession:
         timeout_s = _command_timeout(values, self._timeout_s)
         helper_socket = os.environ.get("ELESIM_HOST_HELPER_SOCKET", "").strip()
         if helper_socket and (
-            values[0] == "docker" or Path(values[0]).name == "elesim-net"
+            values[0] == "docker"
+            or Path(values[0]).name
+            in {"elesim-compose", "elesim-net", "elesim-tailscale"}
         ):
             result = _run_through_host_helper(
                 values,
@@ -1605,9 +1635,8 @@ class InstalledElesimLifecycle:
                         f"{managed_turn['turn_secret_file']}"
                     )
                 if unit.install_mode == "container":
-                    compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
                     services = session.run(
-                        ("docker", "compose", "-f", str(compose), "config", "--services"),
+                        (*_compose_command(unit), "config", "--services"),
                         check=False,
                     )
                     if services.exit_status != 0 or "coturn" not in services.stdout.split():
@@ -1624,9 +1653,10 @@ class InstalledElesimLifecycle:
             == 0
             for unit in host.units
         )
-        docker = session.run(
-            ("docker", "version", "--format", "{{.Server.Version}}"), check=False
-        ).exit_status == 0
+        # The generated wrapper pins the installation's Docker context and
+        # Engine ID.  Never fall back to whichever global context happens to
+        # be selected in the operator's current shell.
+        docker = True
         systemd = session.run(
             ("test", "-x", "/usr/bin/systemctl"), check=False
         ).exit_status == 0
@@ -1641,6 +1671,9 @@ class InstalledElesimLifecycle:
                 raise RuntimeError(
                     f"Compose manifest is missing on {host.host_id}/{unit.unit_id}"
                 )
+            docker = docker and session.run(
+                (*_compose_command(unit), "config", "--quiet"), check=False
+            ).exit_status == 0
         for unit in host.robot_units:
             service = _robot_service(unit)
             sudo_probe = session.run(
@@ -1691,17 +1724,16 @@ class InstalledElesimLifecycle:
             for peer in self._topology.discovery_peers(host.host_id)
             for value in ("--dds-peer", peer)
         )
-        # When the operator already authenticated to a remote host through
-        # keyless Tailscale SSH, add a negative-only port-22 probe from the
-        # *runtime* namespace.  A pass never proves DDS/UDP; a failure does
-        # prove that Docker Desktop/WSL cannot even reach the same peer path
-        # and is preferable to starting a graph that waits forever.
+        # A port-22 probe is meaningful only when management SSH and DDS share
+        # one endpoint.  A Docker Desktop Tailscale sidecar deliberately owns
+        # a different tailnet address and normally has no SSH server.
         tailscale_peer_args = tuple(
             value
             for peer in self._topology.discovery_peers(host.host_id)
             if any(
                 other.dds.address == peer
                 and other.ssh is not None
+                and other.ssh.host == other.dds.address
                 and other.ssh.auth_mode == "tailscale"
                 and other.ssh.port == 22
                 for other in self._topology.hosts
@@ -1715,10 +1747,111 @@ class InstalledElesimLifecycle:
                     "namespace-check",
                     "--dds-interface",
                     host.dds.interface,
+                    "--dds-address",
+                    host.dds.address,
                     *peer_args,
                     *tailscale_peer_args,
                 )
             )
+
+    def prepare_runtime_network(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        output: CommandOutput,
+    ) -> str | None:
+        """Converge a Docker-Desktop sidecar before namespace preflight.
+
+        Native installs are a no-op.  The generated wrapper owns image pull,
+        persistent state, browser/device login, and daemon identity checks;
+        this layer only streams its bounded output through the existing SSH or
+        local host-helper channel and verifies the sanitized status document.
+        """
+
+        installed = self.snapshot(session, host)
+        raw_units = installed.get("units")
+        unit_states = (
+            raw_units
+            if isinstance(raw_units, Mapping)
+            else {host.primary_unit.unit_id: installed}
+        )
+        discovered: set[str] = set()
+        for unit in host.runtime_units:
+            raw_state = unit_states.get(unit.unit_id)
+            if not isinstance(raw_state, Mapping):
+                raise RuntimeError(
+                    f"installed state for {host.host_id}/{unit.unit_id} is missing"
+                )
+            settings = raw_state.get("container_network", {})
+            mode = (
+                str(settings.get("mode", "direct-host"))
+                if isinstance(settings, Mapping)
+                else "direct-host"
+            )
+            if mode == "direct-host":
+                continue
+            if mode != "tailscale-sidecar":
+                raise RuntimeError(
+                    f"unsupported container network mode on "
+                    f"{host.host_id}/{unit.unit_id}: {mode!r}"
+                )
+
+            def unit_output(
+                stream: str,
+                text: str,
+            ) -> None:
+                # Streaming callbacks are arbitrary byte-decoding chunks, not
+                # complete lines.  Prefixing each chunk can split a login URL
+                # and bypass the manager's line-level interaction/redaction
+                # handling.  The caller's bounded line buffer already applies
+                # the stable host/phase label after reassembly.
+                output(stream, text)
+
+            status_command = (
+                str(_tailscale_command(unit)),
+                "status",
+                "--json",
+            )
+            result = session.run(status_command, check=False)
+            try:
+                backend, ipv4 = _parse_tailscale_status(result.stdout)
+            except RuntimeError as exc:
+                if result.exit_status == 0:
+                    raise RuntimeError(
+                        f"Elesim Tailscale sidecar status is invalid on "
+                        f"{host.host_id}/{unit.unit_id}"
+                    ) from exc
+                backend, ipv4 = "", ""
+            if (
+                result.exit_status != 0
+                or backend.casefold() != "running"
+                or not ipv4
+            ):
+                session.run_streaming(
+                    (str(_tailscale_command(unit)), "login"),
+                    output=unit_output,
+                )
+                result = session.run(status_command)
+                try:
+                    backend, ipv4 = _parse_tailscale_status(result.stdout)
+                except RuntimeError as exc:
+                    raise RuntimeError(
+                        f"Elesim Tailscale sidecar status is invalid on "
+                        f"{host.host_id}/{unit.unit_id}"
+                    ) from exc
+            if backend.casefold() != "running" or not ipv4:
+                raise RuntimeError(
+                    f"Elesim Tailscale sidecar is not ready on "
+                    f"{host.host_id}/{unit.unit_id}: "
+                    f"backend={backend or 'unknown'}"
+                )
+            discovered.add(ipv4)
+        if len(discovered) > 1:
+            raise RuntimeError(
+                f"runtime units on {host.host_id} reported different Tailscale "
+                f"addresses: {sorted(discovered)!r}"
+            )
+        return next(iter(discovered), None)
 
     @staticmethod
     def _unit_security_root(
@@ -2061,6 +2194,29 @@ class InstalledElesimLifecycle:
                 expected = set(unit.roles)
                 running_services = set(result.stdout.split())
                 running = tuple(sorted(value for value in running_services if value in expected))
+                sidecar_ok = True
+                sidecar_detail = ""
+                if self._compose_has_service(session, unit, "tailscale"):
+                    sidecar = session.run(
+                        (str(_tailscale_command(unit)), "status", "--json"),
+                        check=False,
+                    )
+                    try:
+                        backend, ipv4 = _parse_tailscale_status(sidecar.stdout)
+                    except RuntimeError as exc:
+                        sidecar_ok = False
+                        sidecar_detail = str(exc)
+                    else:
+                        sidecar_ok = (
+                            sidecar.exit_status == 0
+                            and backend.casefold() == "running"
+                            and bool(ipv4)
+                        )
+                        if not sidecar_ok:
+                            sidecar_detail = (
+                                "Tailscale sidecar is not ready "
+                                f"(backend={backend or 'unknown'})"
+                            )
                 relay_ok = True
                 relay_detail = ""
                 if "sim" in expected:
@@ -2071,11 +2227,16 @@ class InstalledElesimLifecycle:
                     elif "coturn" in running_services:
                         relay_ok = False
                         relay_detail = "Coturn must be stopped for plaintext DDS"
-                active = expected.issubset(running_services) and relay_ok
+                active = (
+                    expected.issubset(running_services)
+                    and relay_ok
+                    and sidecar_ok
+                )
                 state = "running" if active else ("stopped" if not running else "degraded")
                 detail = result.stderr.strip()[:512]
-                if relay_detail:
-                    detail = f"{detail}; {relay_detail}" if detail else relay_detail
+                for extra in (relay_detail, sidecar_detail):
+                    if extra:
+                        detail = f"{detail}; {extra}" if detail else extra
                 unit_status[unit.unit_id] = {
                     "state": state,
                     "running_roles": list(running),
@@ -2153,6 +2314,17 @@ class InstalledElesimLifecycle:
                         f"{host.host_id}/{unit.unit_id}: {', '.join(missing)}"
                     )
                 running_services = set(result.stdout.split())
+                if self._compose_has_service(session, unit, "tailscale"):
+                    sidecar = session.run(
+                        (str(_tailscale_command(unit)), "status", "--json")
+                    )
+                    backend, ipv4 = _parse_tailscale_status(sidecar.stdout)
+                    if backend.casefold() != "running" or not ipv4:
+                        raise RuntimeError(
+                            "Tailscale sidecar is not ready on "
+                            f"{host.host_id}/{unit.unit_id}: "
+                            f"backend={backend or 'unknown'}"
+                        )
                 if "sim" in unit_selected:
                     if self._topology.security_profile == "sros2" and "coturn" not in running_services:
                         raise RuntimeError(
@@ -2654,11 +2826,37 @@ def _net_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:
     return PurePosixPath(_unit_for_target(target).bin_dir) / "elesim-net"
 
 
+def _tailscale_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:
+    return PurePosixPath(_unit_for_target(target).bin_dir) / "elesim-tailscale"
+
+
+def _parse_tailscale_status(payload: str) -> tuple[str, str]:
+    """Parse the wrapper's deliberately small, non-secret status document."""
+
+    try:
+        raw = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Tailscale sidecar status is invalid") from exc
+    if not isinstance(raw, Mapping):
+        raise RuntimeError("Tailscale sidecar status is not an object")
+    backend = str(raw.get("BackendState", raw.get("backend_state", ""))).strip()
+    ipv4 = str(raw.get("IPv4", raw.get("ipv4", ""))).strip()
+    if ipv4:
+        try:
+            address = ipaddress.ip_address(ipv4)
+        except ValueError as exc:
+            raise RuntimeError("Tailscale sidecar status has an invalid IPv4") from exc
+        if address.version != 4 or address.is_unspecified or address.is_loopback:
+            raise RuntimeError("Tailscale sidecar status has an unusable IPv4")
+        ipv4 = str(address)
+    return backend, ipv4
+
+
 def _compose_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
-    compose = PurePosixPath(_unit_for_target(target).install_root) / "containers/compose.yaml"
+    unit = _unit_for_target(target)
+    compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
     return (
-        "docker",
-        "compose",
+        str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
         "-p",
         "elesim-runtime",
         "-f",
@@ -2667,10 +2865,10 @@ def _compose_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
 
 
 def _compose_build_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
-    compose = PurePosixPath(_unit_for_target(target).install_root) / "containers/compose.yaml"
+    unit = _unit_for_target(target)
+    compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
     return (
-        "docker",
-        "compose",
+        str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
         "--progress",
         "plain",
         "-p",

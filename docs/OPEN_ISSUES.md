@@ -90,12 +90,13 @@ there are historical unless repeated here.
 - Ordinary IPv4 NAT, CGNAT and symmetric NAT are deliberately unsupported.
   TURN relays WebRTC media only; it must never be presented as DDS traversal.
 
-### P1. Docker Desktop/WSL Routed DDS Discovery And Remote Sim Session Are Not Operational
+### P1. Docker Desktop Tailscale Sidecar Needs Live Two-Host Proof
 
-- Status: open. The Sim container can complete Genesis initialization and create
-  its RGB-D publisher, but Pilot and UI do not discover the `sim-default`
-  descriptor/heartbeat when the Docker Desktop/WSL path is configured through
-  `eth0`.
+- Status: open for live validation. The original Docker Desktop/WSL failure is
+  reproduced: Sim can complete Genesis initialization and create its RGB-D
+  publisher, but Pilot and UI do not discover the `sim-default`
+  descriptor/heartbeat when the Docker Desktop path incorrectly advertises a
+  WSL Tailscale address through Docker VM `eth0`.
 - The observed symptoms are `target peer 'sim-default' is not active`,
   `OBSERVER WAIT`, and `HAND-EYE WAIT`. This is upstream of WebRTC and Coturn:
   the DDS `open_simulation_session` request never reaches Sim, so Coturn has not
@@ -111,8 +112,17 @@ there are historical unless repeated here.
   The live media/control acceptance gate below remains open.
 - Docker Desktop `network_mode: host` uses the separate Docker Linux VM
   namespace, not the WSL namespace containing `tailscale0`. Changing the
-  configured interface to `eth0` may let containers start, but it does not create
-  a DDS UDP route to Tailscale 100.x addresses.
+  configured interface to `eth0` may let containers start, but it does not
+  assign the WSL Tailscale 100.x address to that interface.
+- The supported contract now resolves and fixes either `direct-host` (Native
+  host network) or `tailscale-sidecar` (Docker Desktop Tailscale sidecar) at
+  installation. The sidecar is a kernel-mode Tailscale node inside the Docker
+  VM; roles/tools join its namespace. It is host network infrastructure, not a
+  fifth application, Router, or DDS relay.
+- Sidecar enrollment is the explicit one-time `elesim-tailscale login`
+  browser/device flow; `elesim-tailscale status` reports its DDS address.
+  Elesim stores no auth/OAuth key or browser credential. The sidecar DDS address
+  remains independent from the WSL/host SSH management address.
 - Default multicast discovery does not cross Tailscale/routed VPN. A routed path
   requires static-peer discovery from every host address plus a verified
   bidirectional DDS UDP path. Relaxing the interface check or reusing the SSH/TCP
@@ -132,12 +142,16 @@ there are historical unless repeated here.
   A slow Genesis build remains running and is reported as pending rather than
   being silently treated as a connected graph. This does not replace the live
   session/WebRTC acceptance gate.
-- Still open: a route probe is not a live DDS proof. On a supported path we must
-  verify Sim descriptor discovery, session open, both WebRTC offer/answer
-  exchanges, and actual video reception in order. If Docker Desktop's Linux VM
-  cannot route the 100.x UDP traffic, the supported fix remains a same-namespace
-  Docker Engine or a separately designed routed transport; SSH/Tailscale TCP
-  helper traffic cannot substitute for it.
+- Automated software evidence is limited to schema migration, backend
+  auto-selection/fixation, generated Compose namespace relationships,
+  login/status command shape, exact sidecar state ownership,
+  interface/address/route checks, and auth/OAuth-key absence scans. These checks do not
+  pull/enroll a node or send packets across a real tailnet.
+- Still open: run Docker Desktop/WSL plus a second real host using static peers
+  and verify sidecar enrollment, Sim descriptor discovery, bidirectional
+  control/RGB-D, reconnect, session open, both WebRTC offer/answer exchanges,
+  and actual video reception in order. SSH/Tailscale TCP helper traffic cannot
+  substitute for this DDS/UDP acceptance gate.
 
 ### P1. Remote Genesis Video And Control Need A Live Gate
 
@@ -155,7 +169,7 @@ there are historical unless repeated here.
 ### P1. DDS Security And Remote Setup Need Live Validation
 
 - Status: open; documented operational limitation.
-- State schema v8, the non-secret connection topology, separate DDS/SSH
+- State schema v9, the non-secret connection topology, separate DDS/SSH
   endpoints, SROS2 Authority generations, per-host role bundles, pinned SSH
   host keys and transactional all-host activation/rollback are implemented and
   software-tested. `external` keystores remain distinct from `managed`
@@ -194,13 +208,12 @@ there are historical unless repeated here.
 - Required evidence: clean install/build/start/down on Ubuntu and WSL, repeated
   `elesim-dev` shells proving no temporary container proliferation, fixed-name
   collision diagnostics, NVIDIA/CPU variants, GUI forwarding and Jaeger.
-- Docker Desktop's separate Linux VM may not expose a WSL distro's
-  `tailscale0`. Direct binding is supported and checked before managed
-  provisioning and runtime start when the interface is visible. A supported
-  sidecar/tunnel design still does not exist, so Docker Desktop users need
-  Docker Engine in the same Linux network namespace for direct binding or an
-  explicitly configured container-visible routed interface for a separate NAT
-  mode; the route check alone is not a live DDS acceptance test.
+- Docker Desktop's separate Linux VM does not inherit a WSL distro's
+  `tailscale0`. The generated kernel-mode Tailscale sidecar gives roles, the
+  runtime-network doctor, and active Sim-owned Coturn a Docker-VM-local
+  `tailscale0`; native Engine installs retain direct host networking.
+  Structural tests for both generated backends do not replace the open
+  two-host DDS acceptance gate above.
 
 ### P2. Broad Runtime Fallbacks Need Continued Audit
 

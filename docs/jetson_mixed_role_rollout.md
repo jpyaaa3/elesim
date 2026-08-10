@@ -101,13 +101,13 @@ ownership manifest가 서로의 파일을 소유하거나 삭제하지 않는다
 
 ## 4. 데이터 모델
 
-기존 topology v1-v3은 읽을 수 있어야 하며, 현재 구현은 schema-v3의
-호스트 객체에 `units`를 추가하는 호환 확장으로 저장한다. 다음 schema
-번호를 올릴 때 homogeneous legacy mirror를 제거할 수 있다.
+기존 topology v1-v3은 읽을 수 있어야 하며, 현재 구현은 schema v4의
+호스트 객체에 `units`를 저장한다. v1-v3 입력은 단일 unit으로 정규화하고,
+homogeneous legacy mirror는 읽기 호환 경계에만 남긴다.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "hosts": [
     {
       "id": "jetson-lab",

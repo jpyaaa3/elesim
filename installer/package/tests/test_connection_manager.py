@@ -84,7 +84,7 @@ def _preflight() -> TwoHostPreflight:
                 host_id="compute",
                 local=False,
                 dds=DdsEndpoint("100.64.0.20", "tailscale0"),
-                ssh=PreflightSshEndpoint("100.64.0.20", 22, "elesim"),
+                ssh=PreflightSshEndpoint("compute-management.example", 22, "elesim"),
             ),
         ),
     ).validate()
@@ -111,7 +111,7 @@ def _simulation_topology() -> ConnectionTopology:
     ).validate()
 
 
-def test_two_host_preflight_derives_ssh_destination_from_advertised_ip() -> None:
+def test_two_host_preflight_preserves_independent_ssh_destination() -> None:
     preflight = _preflight()
     restored = TwoHostPreflight.from_dict(preflight.to_dict())
 
@@ -119,10 +119,22 @@ def test_two_host_preflight_derives_ssh_destination_from_advertised_ip() -> None
     assert restored.hosts[0].dds.address == "100.64.0.10"
     assert restored.hosts[1].dds.interface == "tailscale0"
     assert restored.hosts[1].ssh is not None
-    assert restored.hosts[1].ssh.host == "100.64.0.20"
+    assert restored.hosts[1].ssh.host == "compute-management.example"
     assert restored.hosts[1].ssh.port == 22
     assert restored.discovery_peers("laptop") == ("100.64.0.20",)
     assert all("display_name" not in host for host in preflight.to_dict()["hosts"])
+
+
+def test_preflight_schema_v1_migrates_the_legacy_shared_ssh_address() -> None:
+    raw = _preflight().to_dict()
+    raw["schema_version"] = 1
+    raw["hosts"][1]["ssh"]["host"] = "stale-management.example"
+
+    restored = TwoHostPreflight.from_dict(raw)
+
+    assert restored.schema_version == 2
+    assert restored.hosts[1].ssh is not None
+    assert restored.hosts[1].ssh.host == restored.hosts[1].dds.address
 
 
 def test_dds_endpoint_tailscale_provenance_roundtrips_without_a_port() -> None:
@@ -156,7 +168,7 @@ def test_two_host_preflight_is_not_a_robot_deployment_topology() -> None:
         TwoHostPreflight.from_dict(raw)
 
 
-def test_connection_topology_roundtrip_uses_advertised_ip_for_ssh() -> None:
+def test_connection_topology_roundtrip_preserves_independent_ssh_destination() -> None:
     topology = _topology()
     raw = topology.to_dict()
 
@@ -167,7 +179,7 @@ def test_connection_topology_roundtrip_uses_advertised_ip_for_ssh() -> None:
     assert not hasattr(restored.host("compute"), "display_name")
     assert restored.host("compute").dds.address == "100.64.0.20"
     assert restored.host("compute").ssh is not None
-    assert restored.host("compute").ssh.host == "100.64.0.20"
+    assert restored.host("compute").ssh.host == "server.example"
     assert restored.host("compute").ssh.port == 2222
 
 
@@ -417,7 +429,7 @@ def test_simulation_only_topology_accepts_one_host_without_robot() -> None:
     topology = _simulation_topology()
     raw = topology.to_dict()
 
-    assert raw["schema_version"] == 3
+    assert raw["schema_version"] == 4
     assert raw["topology_mode"] == "simulation-only"
     restored = ConnectionTopology.from_dict(raw)
 
@@ -432,9 +444,26 @@ def test_legacy_schema_v1_is_loaded_as_full_and_normalized() -> None:
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.topology_mode == "full"
     assert restored.to_dict()["topology_mode"] == "full"
+    assert restored.host("compute").ssh is not None
+    assert restored.host("compute").ssh.host == "100.64.0.20"
+
+
+@pytest.mark.parametrize("legacy_version", [2, 3])
+def test_legacy_schema_v2_v3_keep_shared_address_semantics(
+    legacy_version: int,
+) -> None:
+    raw = _topology().to_dict()
+    raw["schema_version"] = legacy_version
+    raw["hosts"][1]["ssh"]["host"] = "stale-management.example"
+
+    restored = ConnectionTopology.from_dict(raw)
+
+    assert restored.schema_version == 4
+    assert restored.host("compute").ssh is not None
+    assert restored.host("compute").ssh.host == restored.host("compute").dds.address
 
 
 def test_simulation_only_rejects_robot_and_jetson_hosts() -> None:
@@ -453,13 +482,13 @@ def test_simulation_only_rejects_robot_and_jetson_hosts() -> None:
         ConnectionTopology.from_dict(raw)
 
 
-def test_changing_advertised_ip_also_changes_the_derived_ssh_destination() -> None:
+def test_changing_dds_address_does_not_change_ssh_destination_in_v4() -> None:
     raw = _topology().to_dict()
-    raw["hosts"][1]["dds"]["address"] = "server.example"
+    raw["hosts"][1]["dds"]["address"] = "runtime-sidecar.example"
 
     restored = ConnectionTopology.from_dict(raw)
 
-    assert restored.host("compute").dds.address == "server.example"
+    assert restored.host("compute").dds.address == "runtime-sidecar.example"
     assert restored.host("compute").ssh is not None
     assert restored.host("compute").ssh.host == "server.example"
     assert restored.host("compute").ssh.port == 2222
@@ -529,7 +558,10 @@ def test_every_role_must_be_assigned_exactly_once(role: str) -> None:
             item for item in host["assignments"] if item["role"] != role
         ]
 
-    with pytest.raises(ValueError, match="at least one role|exactly once"):
+    with pytest.raises(
+        ValueError,
+        match="at least one role|exactly once|Jetson host",
+    ):
         ConnectionTopology.from_dict(raw)
 
 
@@ -539,7 +571,10 @@ def test_duplicate_role_assignment_is_rejected() -> None:
         {"role": "pilot", "endpoint_id": "pilot-other"}
     )
 
-    with pytest.raises(ValueError, match="exactly once"):
+    with pytest.raises(
+        ValueError,
+        match="one role more than once|every role must be assigned exactly once",
+    ):
         ConnectionTopology.from_dict(raw)
 
 
@@ -548,7 +583,7 @@ def test_duplicate_role_assignment_is_rejected() -> None:
     [
         (lambda host: host["assignments"].append(
             {"role": "ui", "endpoint_id": "ui-on-robot"}
-        ), "only role"),
+        ), "only Robot"),
         (lambda host: host.update({"jetson": False}), "Jetson"),
         (lambda host: host.update({"install_mode": "container"}), "native"),
     ],

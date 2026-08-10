@@ -38,11 +38,20 @@ def test_amd64_developer_host_reports_gpu_and_never_enables_robot(
         root=root,
         environ={"SSH_AUTH_SOCK": "/tmp/agent.sock"},
         machine="x86_64",
-        command_output=lambda command: (
-            "GPU 0: NVIDIA RTX A6000 (UUID: GPU-deadbeef)\n"
-            if command == ("nvidia-smi", "-L")
-            else ""
-        ),
+        command_output=lambda command: {
+            ("nvidia-smi", "-L"): "GPU 0: NVIDIA RTX A6000 (UUID: GPU-deadbeef)\n",
+            ("docker", "info", "--format", "{{.Name}}"): "docker-desktop\n",
+            ("docker", "context", "show"): "default\n",
+            ("docker", "info", "--format", "{{.ID}}"): "engine-1\n",
+            (
+                "docker",
+                "context",
+                "inspect",
+                "default",
+                "--format",
+                '{{(index .Endpoints "docker").Host}}',
+            ): "unix:///var/run/docker.sock\n",
+        }.get(command, ""),
     )
 
     assert capabilities.developer_installable is True
@@ -50,6 +59,37 @@ def test_amd64_developer_host_reports_gpu_and_never_enables_robot(
     assert capabilities.ssh_agent is True
     assert capabilities.gpu_devices[0].index == "0"
     assert capabilities.gpu_devices[0].uuid == "GPU-deadbeef"
+    assert capabilities.docker_backend == "docker-desktop"
+    assert capabilities.docker_context == "default"
+    assert capabilities.docker_engine_id == "engine-1"
+    assert capabilities.docker_endpoint == "unix:///var/run/docker.sock"
+    assert capabilities.docker_host_override == ""
+
+
+def test_host_capabilities_preserve_docker_host_override_and_remote_endpoint(
+    tmp_path: Path,
+) -> None:
+    capabilities = detect_host_capabilities(
+        root=tmp_path,
+        environ={"DOCKER_HOST": "tcp://docker.example:2376"},
+        machine="x86_64",
+        command_output=lambda command: {
+            ("docker", "info", "--format", "{{.Name}}"): "remote-engine\n",
+            ("docker", "context", "show"): "remote\n",
+            ("docker", "info", "--format", "{{.ID}}"): "remote-id\n",
+            (
+                "docker",
+                "context",
+                "inspect",
+                "remote",
+                "--format",
+                '{{(index .Endpoints "docker").Host}}',
+            ): "ssh://operator@docker.example\n",
+        }.get(command, ""),
+    )
+
+    assert capabilities.docker_endpoint == "ssh://operator@docker.example"
+    assert capabilities.docker_host_override == "tcp://docker.example:2376"
 
 
 def test_missing_optional_host_files_are_not_errors(tmp_path: Path) -> None:
@@ -76,9 +116,19 @@ def test_bootstrap_preserves_wslg_and_display_facts_from_the_host() -> None:
             "ELESIM_HOST_WSLG": "1",
             "ELESIM_HOST_DISPLAY": "1",
             "ELESIM_HOST_GPU_LIST": "",
+            "ELESIM_HOST_DOCKER_BACKEND": "docker-desktop",
+            "ELESIM_HOST_DOCKER_CONTEXT": "default",
+            "ELESIM_HOST_DOCKER_ENGINE_ID": "desktop-engine",
+            "ELESIM_HOST_DOCKER_ENDPOINT": "unix:///var/run/docker.sock",
+            "ELESIM_HOST_DOCKER_HOST_OVERRIDE": "",
         }
     )
 
     assert capabilities.wsl is True
     assert capabilities.wslg_available is True
     assert capabilities.display_available is True
+    assert capabilities.docker_backend == "docker-desktop"
+    assert capabilities.docker_context == "default"
+    assert capabilities.docker_engine_id == "desktop-engine"
+    assert capabilities.docker_endpoint == "unix:///var/run/docker.sock"
+    assert capabilities.docker_host_override == ""

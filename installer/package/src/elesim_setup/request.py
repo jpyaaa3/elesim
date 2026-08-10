@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -10,6 +11,7 @@ from .capabilities import HostCapabilities
 from .profiles import normalize_roles
 from .state import (
     ComputeSettings,
+    ContainerNetworkSettings,
     DdsSettings,
     InstallState,
     NetworkSettings,
@@ -208,21 +210,33 @@ class SetupRequest:
                 "Sim의 external TURN에는 username/credential JSON file이 "
                 "필요합니다"
             )
-        self._state().validate()
+        self._state(capabilities).validate()
         return self
 
-    def to_install_state(self) -> InstallState:
+    def to_install_state(
+        self,
+        capabilities: HostCapabilities | None = None,
+    ) -> InstallState:
         if self.edition != "general":
             raise ValueError("developer request는 runtime InstallState로 변환할 수 없습니다")
-        return self._state().require_installable_dds()
+        return self._state(capabilities).require_installable_dds()
 
-    def _state(self) -> InstallState:
+    def _state(
+        self,
+        capabilities: HostCapabilities | None = None,
+    ) -> InstallState:
         roles = (
             normalize_roles(self.roles)
             if self.roles
             else ("sim",) if self.edition == "developer" else ()
         )
         install_mode = "native" if roles == ("robot",) else "container"
+        container_network = container_network_settings_for_host(
+            capabilities=capabilities,
+            edition=self.edition,
+            install_mode=install_mode,
+            prefix=self.prefix,
+        )
         return InstallState(
             profile="custom",
             roles=roles,
@@ -234,8 +248,65 @@ class SetupRequest:
             compute=self.compute,
             turn=self.turn,
             runtime_text_logs=self.runtime_text_logs,
+            container_network=container_network,
             install_mode=install_mode,
         )
+
+
+def container_network_settings_for_host(
+    *,
+    capabilities: HostCapabilities | None,
+    edition: str,
+    install_mode: str,
+    prefix: Path,
+) -> ContainerNetworkSettings:
+    if capabilities is None or edition != "general" or install_mode != "container":
+        return ContainerNetworkSettings()
+    backend = capabilities.docker_backend.strip()
+    context = capabilities.docker_context.strip()
+    engine_id = capabilities.docker_engine_id.strip()
+    endpoint = capabilities.docker_endpoint.strip()
+    docker_host_override = capabilities.docker_host_override.strip()
+    if docker_host_override:
+        raise ValueError(
+            "DOCKER_HOST override는 지원하지 않습니다. 설치가 고정한 local Docker "
+            "context를 재현할 수 있도록 DOCKER_HOST를 해제하십시오"
+        )
+    if not backend and not context and not engine_id and not endpoint:
+        # Compatibility for direct API users that predate bootstrap-provided
+        # Docker facts. The supported bootstrap always pins new installs.
+        return ContainerNetworkSettings()
+    if backend not in {"native", "docker-desktop"}:
+        raise ValueError(f"지원하지 않는 Docker backend: {backend!r}")
+    if not context or not engine_id or not endpoint:
+        raise ValueError(
+            "Docker context, engine ID와 endpoint를 확인할 수 없습니다. "
+            "설치 bootstrap에서 선택한 Docker daemon을 다시 확인하십시오"
+        )
+    if endpoint.startswith(("ssh://", "tcp://")):
+        raise ValueError(
+            "remote Docker context는 local 설치 경로를 안전하게 bind mount할 수 "
+            f"없어 지원하지 않습니다: {endpoint}"
+        )
+    if not endpoint.startswith(("unix://", "npipe://")):
+        raise ValueError(f"지원하지 않는 Docker context endpoint: {endpoint!r}")
+    if backend == "docker-desktop":
+        stable_input = (
+            engine_id + "\x00" + str(prefix.expanduser().resolve())
+        ).encode("utf-8")
+        hostname = "elesim-" + hashlib.sha256(stable_input).hexdigest()[:12]
+        return ContainerNetworkSettings(
+            mode="tailscale-sidecar",
+            docker_context=context,
+            docker_engine_id=engine_id,
+            tailscale_hostname=hostname,
+            tailscale_state_dir=str(prefix / "secrets/tailscale"),
+        )
+    return ContainerNetworkSettings(
+        mode="direct-host",
+        docker_context=context,
+        docker_engine_id=engine_id,
+    )
 
 
 def _required_path(raw: Mapping[str, Any], name: str) -> Path:
@@ -269,4 +340,5 @@ __all__ = [
     "EDITIONS",
     "SetupRequest",
     "SshCredentialSource",
+    "container_network_settings_for_host",
 ]

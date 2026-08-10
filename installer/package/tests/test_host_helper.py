@@ -22,11 +22,14 @@ def _paths() -> tuple[Path, Path]:
     return Path("/opt/elesim/containers/compose.yaml"), Path("/opt/elesim/bin")
 
 
+def _compose_wrapper(bin_dir: Path) -> str:
+    return str(bin_dir / "elesim-compose")
+
+
 def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
     compose, bin_dir = _paths()
     prefix = (
-        "docker",
-        "compose",
+        _compose_wrapper(bin_dir),
         "-p",
         "elesim-runtime",
         "-f",
@@ -50,8 +53,7 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         )
     _validate_command(
         (
-            "docker",
-            "compose",
+            _compose_wrapper(bin_dir),
             "--progress",
             "plain",
             "-p",
@@ -184,8 +186,7 @@ def test_host_helper_rejects_unscoped_compose_up() -> None:
     with pytest.raises(HostHelperError, match="at least one service"):
         _validate_command(
             (
-                "docker",
-                "compose",
+                _compose_wrapper(bin_dir),
                 "-p",
                 "elesim-runtime",
                 "-f",
@@ -274,6 +275,12 @@ def test_host_helper_streams_actual_command_output(
     compose.write_text("services: {}\n", encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    wrapper = bin_dir / "elesim-compose"
+    wrapper.write_text(
+        "#!/bin/sh\nexec docker compose \"$@\"\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
     docker = bin_dir / "docker"
     docker.write_text(
         "#!/usr/bin/env python3\n"
@@ -299,9 +306,8 @@ def test_host_helper_streams_actual_command_output(
     try:
         result = _run_through_host_helper(
             (
-                "docker",
-                "compose",
-                "--progress",
+                    str(wrapper),
+                    "--progress",
                 "plain",
                 "-p",
                 "elesim-runtime",
@@ -331,6 +337,12 @@ def test_host_helper_enforces_client_command_timeout(
     compose.write_text("services: {}\n", encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    wrapper = bin_dir / "elesim-compose"
+    wrapper.write_text(
+        "#!/bin/sh\nexec docker compose \"$@\"\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
     docker = bin_dir / "docker"
     docker.write_text(
         "#!/usr/bin/env python3\n"
@@ -354,8 +366,7 @@ def test_host_helper_enforces_client_command_timeout(
         with pytest.raises(RuntimeError, match="command timed out"):
             _run_through_host_helper(
                 (
-                    "docker",
-                    "compose",
+                    str(wrapper),
                     "-p",
                     "elesim-runtime",
                     "-f",
@@ -364,6 +375,7 @@ def test_host_helper_enforces_client_command_timeout(
                     "-d",
                     "--no-build",
                     "--remove-orphans",
+                    "pilot",
                 ),
                 socket_path=str(socket_path),
                 timeout_s=0.8,
@@ -381,6 +393,12 @@ def test_host_helper_terminates_command_when_stream_client_disconnects(
     compose.write_text("services: {}\n", encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    wrapper = bin_dir / "elesim-compose"
+    wrapper.write_text(
+        "#!/bin/sh\nexec docker compose \"$@\"\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
     pid_file = tmp_path / "child.pid"
     docker = bin_dir / "docker"
     docker.write_text(
@@ -412,8 +430,7 @@ def test_host_helper_terminates_command_when_stream_client_disconnects(
                 {
                     "operation": "run",
                     "argv": [
-                        "docker",
-                        "compose",
+                        str(wrapper),
                         "--progress",
                         "plain",
                         "-p",

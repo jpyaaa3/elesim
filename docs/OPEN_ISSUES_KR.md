@@ -87,10 +87,11 @@
 - 일반 IPv4 NAT, CGNAT, symmetric NAT는 의도적으로 지원하지 않는다. TURN은
   WebRTC media만 relay하며 DDS 우회 수단으로 안내하면 안 된다.
 
-### P1. Docker Desktop/WSL routed DDS discovery와 원격 Sim 세션이 동작하지 않음
+### P1. Docker Desktop Tailscale sidecar는 실제 두 호스트 증명이 필요함
 
-- 상태: open. Sim 컨테이너 자체는 Genesis 초기화와 RGBD publisher 생성까지
-  완료하지만, Docker Desktop/WSL의 `eth0` 경로에서는 Pilot·UI가
+- 상태: live 검증에 대해 open이다. 원래 Docker Desktop/WSL 실패는 재현된다.
+  Sim 컨테이너 자체는 Genesis 초기화와 RGBD publisher 생성까지 완료하지만,
+  Docker VM의 `eth0`을 통해 WSL Tailscale 주소를 잘못 광고하면 Pilot·UI가
   `sim-default` descriptor/heartbeat를 발견하지 못한다.
 - 관찰 증상은 `target peer 'sim-default' is not active`, `OBSERVER WAIT`,
   `HAND-EYE WAIT`이다. 이는 WebRTC 또는 Coturn 인증 오류가 아니라 DDS
@@ -108,8 +109,17 @@
   아래의 실제 media/control acceptance gate는 여전히 open이다.
 - Docker Desktop의 `network_mode: host`는 WSL의 `tailscale0`가 아니라 별도
   Docker Linux VM의 namespace를 사용한다. `tailscale0`을 `eth0`으로 바꾸면
-  컨테이너가 시작될 수는 있지만, Tailscale 100.x 주소에 대한 DDS UDP 경로가
-  생기는 것은 아니다.
+  컨테이너가 시작될 수는 있지만 WSL Tailscale 100.x 주소가 그 인터페이스에
+  할당되지는 않는다.
+- 지원 계약은 설치 때 `direct-host`(Native host network) 또는
+  `tailscale-sidecar`(Docker Desktop Tailscale sidecar)를 자동 결정하고 결과를
+  고정한다. Sidecar는 Docker VM 안의 kernel-mode Tailscale node이며 role,
+  runtime-network doctor와 활성 Sim-owned Coturn이 그 namespace에 들어간다.
+  다섯 번째 application, Router, DDS relay가 아니다.
+- Sidecar 등록은 명시적 1회 `elesim-tailscale login` browser/device flow이고
+  `elesim-tailscale status`가 DDS 주소를 보여 준다. Elesim은 auth/OAuth key나
+  browser credential을 저장하지 않는다. Sidecar DDS 주소와 WSL/host SSH 관리
+  주소는 독립적이다.
 - 기본 `multicast` discovery는 Tailscale/routed VPN을 건너지 않는다. routed
   경로에서는 모든 호스트 주소를 이용한 static-peer discovery와 실제 양방향
   DDS UDP 검증이 필요하다. 단순히 인터페이스 이름 검사를 완화하거나 SSH/TCP
@@ -128,11 +138,14 @@
   transient-local descriptor를 한 번 점검해 `DDS readiness`를 로그에 남긴다.
   Sim이 Genesis 장면을 만드는 동안에는 런타임을 내리지 않고 대기 상태로
   표시한다. 이 점검은 실제 session/WebRTC 영상의 live gate를 대체하지 않는다.
-- 아직 남은 문제: route probe는 실제 DDS 통신의 증명이 아니다. 지원되는 경로에서
-  Sim descriptor 발견, session open, 두 WebRTC offer/answer, 실제 영상 수신을
-  순서대로 검증해야 한다. Docker Desktop Linux VM이 100.x UDP를 라우팅하지
-  못하면 같은 namespace의 Docker Engine을 쓰거나 별도 routed transport를
-  설계해야 하며, SSH/Tailscale TCP helper는 대체 수단이 아니다.
+- 자동 software 근거는 schema migration, backend 자동 선택·고정, generated
+  Compose namespace 관계, login/status 명령 형태, 정확한 sidecar state ownership,
+  interface/address/route 검사와 auth/OAuth key 부재 검사까지다. 실제 node를 등록하거나
+  tailnet으로 packet을 보내는 검사가 아니다.
+- 아직 남은 문제: Docker Desktop/WSL과 두 번째 실제 host를 static peer로 묶어
+  sidecar 등록, Sim descriptor 발견, 양방향 control/RGBD, reconnect, session open,
+  두 WebRTC offer/answer와 실제 영상 수신을 순서대로 검증해야 한다.
+  SSH/Tailscale TCP helper는 이 DDS/UDP acceptance gate의 대체 수단이 아니다.
 
 ### P1. 원격 Genesis 영상과 조작은 live gate가 필요함
 
@@ -148,7 +161,7 @@
 ### P1. DDS 보안과 원격 설치는 live 검증이 필요함
 
 - 상태: open, 사용자 설명서에 기록한 운영상 한계다.
-- State schema v8, 비밀값 없는 connection topology, 분리된 DDS/SSH endpoint,
+- State schema v9, 비밀값 없는 connection topology, 분리된 DDS/SSH endpoint,
   SROS2 Authority generation, host별 role bundle, pinned SSH host key,
   all-host activation/rollback transaction은 구현하고 software test했다.
   `external` keystore는 `managed` generation과 계속 구분된다.
@@ -184,12 +197,11 @@
 - 필요한 근거: Ubuntu/WSL clean install/build/start/down, 반복 `elesim-dev`
   shell에서 임시 container가 늘지 않음, 고정 이름 충돌 진단, NVIDIA/CPU variant,
   GUI forwarding과 Jaeger다.
-- Docker Desktop의 별도 Linux VM에는 WSL distro의 `tailscale0`가 보이지 않을 수
-  있다. 직접 bind는 해당 namespace에서 interface가 보일 때 managed provisioning
-  전과 런타임 시작 전에 점검한다. 별도의 공식 sidecar/tunnel 설계는 아직
-  없으므로 직접 bind에는 같은 Linux namespace의 Docker Engine이 필요하고,
-  다른 container-visible interface를 쓰는 경우는 별도 routed/NAT 모드로
-  취급한다. route check만으로 live DDS가 증명되지는 않는다.
+- Docker Desktop의 별도 Linux VM은 WSL distro의 `tailscale0`를 상속하지 않는다.
+  생성된 kernel-mode Tailscale sidecar가 role, runtime-network doctor와 활성
+  Sim-owned Coturn에 Docker-VM-local `tailscale0`를 제공하고, native Engine
+  설치는 direct host networking을 유지한다. 두 backend의 generated 구조를
+  검사하는 자동 test는 위의 실제 두 host DDS acceptance gate를 대체하지 않는다.
 
 ### P2. 광범위한 runtime fallback은 계속 감사해야 함
 

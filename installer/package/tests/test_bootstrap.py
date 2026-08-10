@@ -987,11 +987,97 @@ def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() ->
         encoding="utf-8"
     )
 
-    assert "docker info --format '{{.Name}}'" in script
-    assert "docker context show" in script
+    # The bootstrap keeps the selected Docker command in an array so a
+    # temporary sudo fallback is handled without reparsing shell text.
+    assert "info --format '{{.Name}}'" in script
+    assert "info --format '{{.ID}}'" in script
+    assert "context show" in script
+    assert "context inspect" in script
+    assert "DOCKER_HOST overrides are not supported" in script
+    assert "ssh://*|tcp://*" in script
     assert "docker_backend_kind=\"docker-desktop\"" in script
     assert "^tailscale[0-9]+$" in script
-    assert "runtime namespace" in script
+    assert "kernel-mode Tailscale runtime sidecar" in script
+    assert "ELESIM_HOST_DOCKER_BACKEND" in script
+    assert "ELESIM_HOST_DOCKER_CONTEXT" in script
+    assert "ELESIM_HOST_DOCKER_ENGINE_ID" in script
+    assert "ELESIM_HOST_DOCKER_ENDPOINT" in script
+    assert "ELESIM_HOST_DOCKER_HOST_OVERRIDE" in script
+
+
+def test_shell_bootstrap_rejects_docker_host_override(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    docker.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    environment = os.environ.copy()
+    environment.update(
+        HOME=str(home),
+        PATH=os.pathsep.join((str(fake_bin), environment["PATH"])),
+        DOCKER_HOST="tcp://docker.example:2376",
+        ELESIM_CACHE_DIR=str(home / ".cache/elesim/setup"),
+        ELESIM_NO_OPEN="1",
+    )
+
+    completed = subprocess.run(
+        ("bash", str(script)),
+        cwd=tmp_path,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "DOCKER_HOST overrides are not supported" in completed.stdout
+
+
+def test_shell_bootstrap_rejects_remote_docker_context(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  info|'compose version') exit 0 ;;\n"
+        "  'info --format {{.Name}}') printf 'remote-engine\\n' ;;\n"
+        "  'context show') printf 'research-server\\n' ;;\n"
+        "  'info --format {{.ID}}') printf 'remote-id\\n' ;;\n"
+        "  context\\ inspect*) printf 'ssh://docker.example/run/docker.sock\\n' ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    environment = os.environ.copy()
+    environment.pop("DOCKER_HOST", None)
+    environment.update(
+        HOME=str(home),
+        PATH=os.pathsep.join((str(fake_bin), environment["PATH"])),
+        ELESIM_CACHE_DIR=str(home / ".cache/elesim/setup"),
+        ELESIM_NO_OPEN="1",
+    )
+
+    completed = subprocess.run(
+        ("bash", str(script)),
+        cwd=tmp_path,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "remote Docker contexts are not supported" in completed.stdout
+    assert "ssh://docker.example/run/docker.sock" in completed.stdout
 
 
 def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
@@ -1019,6 +1105,14 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     docker = fake_bin / "docker"
     docker.write_text(
         "#!/bin/sh\n"
+        "if [ \"$1\" = context ] && [ \"$2\" = show ]; then\n"
+        "  printf 'default\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = context ] && [ \"$2\" = inspect ]; then\n"
+        "  printf 'unix:///var/run/docker.sock\\n'\n"
+        "  exit 0\n"
+        "fi\n"
         "case \"$1\" in\n"
         "  info|compose) exit 0 ;;\n"
         "esac\n"
@@ -1038,6 +1132,7 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     docker_log = tmp_path / "docker"
     archive_url = "https://archives.example/elesim.tgz?token=secret"
     environment = os.environ.copy()
+    environment.pop("DOCKER_HOST", None)
     environment.update(
         HOME=str(home),
         PATH=os.pathsep.join((str(fake_bin), environment["PATH"])),

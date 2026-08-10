@@ -123,8 +123,7 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     host = _topology().host("server")
 
     assert _lifecycle_command(host, action="start") == (
-        "docker",
-        "compose",
+        "/usr/local/bin/elesim-compose",
         "-p",
         "elesim-runtime",
         "-f",
@@ -133,8 +132,7 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "sim",
     )
     assert _lifecycle_command(host, action="build") == (
-        "docker",
-        "compose",
+        "/usr/local/bin/elesim-compose",
         "--progress",
         "plain",
         "-p",
@@ -452,6 +450,13 @@ def test_paramiko_session_allows_slow_detached_compose_lifecycle() -> None:
 def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> None:
     assert _command_timeout(("docker", "compose", "build", "sim"), 2) == 1800
     assert _command_timeout(("docker", "compose", "up", "-d"), 2) == 300
+    assert _command_timeout(("/usr/local/bin/elesim-tailscale", "login"), 2) == 600
+    assert (
+        _command_timeout(
+            ("/usr/local/bin/elesim-tailscale", "status", "--json"), 2
+        )
+        == 2
+    )
     assert _command_timeout(("elesim-net", "show"), 2) == 2
 
 
@@ -771,6 +776,8 @@ def test_ssh_host_operations_stage_manifest_then_atomically_activate() -> None:
     ]
     assert activation[0][-1] == "/opt/elesim/security/current"
     assert len(connector.endpoints) == 1
+    assert connector.endpoints[0].host == "server.example"
+    assert connector.endpoints[0].host != host.dds.address
     operations.close()
 
 
@@ -892,6 +899,80 @@ class LifecycleSession(FakeSession):
         return RemoteCommandResult(0, "26.1\n" if values[0] == "docker" else "")
 
 
+class SidecarNetworkSession:
+    def __init__(self, statuses: list[dict[str, str]]) -> None:
+        self.statuses = list(statuses)
+        self.events: list[str] = []
+
+    def run(self, argv, *, check=True) -> RemoteCommandResult:
+        values = tuple(argv)
+        if values[-1:] == ("show",):
+            self.events.append("show")
+            return RemoteCommandResult(
+                0,
+                json.dumps(
+                    {
+                        "roles": ["sim"],
+                        "prefix": "/opt/elesim",
+                        "bin_dir": "/usr/local/bin",
+                        "install_mode": "container",
+                        "container_network": {"mode": "tailscale-sidecar"},
+                    }
+                ),
+            )
+        if values[-2:] == ("status", "--json"):
+            self.events.append(f"status:{check}")
+            if not self.statuses:
+                raise AssertionError("unexpected extra Tailscale status call")
+            return RemoteCommandResult(0, json.dumps(self.statuses.pop(0)))
+        raise AssertionError(f"unexpected command: {values!r}")
+
+    def run_streaming(self, argv, *, output, check=True) -> RemoteCommandResult:
+        values = tuple(argv)
+        if values[-1:] != ("login",):
+            raise AssertionError(f"unexpected streaming command: {values!r}")
+        self.events.append("login")
+        output("stdout", "already authenticated\n")
+        return RemoteCommandResult(0)
+
+
+def test_runtime_network_preparation_skips_login_for_a_ready_sidecar() -> None:
+    topology = _topology()
+    host = topology.host("server")
+    session = SidecarNetworkSession(
+        [{"BackendState": "Running", "IPv4": "100.64.0.42"}]
+    )
+    output: list[tuple[str, str]] = []
+
+    address = InstalledElesimLifecycle(topology).prepare_runtime_network(
+        session, host, lambda stream, text: output.append((stream, text))
+    )
+
+    assert address == "100.64.0.42"
+    assert session.events == ["show", "status:False"]
+    assert output == []
+
+
+def test_runtime_network_preparation_logs_in_only_after_not_ready_status() -> None:
+    topology = _topology()
+    host = topology.host("server")
+    session = SidecarNetworkSession(
+        [
+            {"BackendState": "NeedsLogin", "IPv4": ""},
+            {"BackendState": "Running", "IPv4": "100.64.0.43"},
+        ]
+    )
+    output: list[tuple[str, str]] = []
+
+    address = InstalledElesimLifecycle(topology).prepare_runtime_network(
+        session, host, lambda stream, text: output.append((stream, text))
+    )
+
+    assert address == "100.64.0.43"
+    assert session.events == ["show", "status:False", "login", "status:True"]
+    assert output == [("stdout", "already authenticated\n")]
+
+
 def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> None:
     topology = _topology()
     host = topology.host("server")
@@ -917,6 +998,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
             "namespace-check",
             "--dds-interface",
             "tailscale0",
+            "--dds-address",
+            "100.64.0.2",
             "--dds-peer",
             "100.64.0.1",
             "--dds-peer",
@@ -946,11 +1029,12 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "/opt/elesim/secrets/turn.secret"
     )
     compose_commands = [
-        argv for argv, _check in session.commands if argv[:2] == ("docker", "compose")
+        argv
+        for argv, _check in session.commands
+        if PurePosixPath(argv[0]).name == "elesim-compose"
     ]
     assert (
-        "docker",
-        "compose",
+        "/usr/local/bin/elesim-compose",
         "-p",
         "elesim-runtime",
         "-f",
@@ -960,8 +1044,7 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         "coturn",
     ) in compose_commands
     assert (
-        "docker",
-        "compose",
+        "/usr/local/bin/elesim-compose",
         "-p",
         "elesim-runtime",
         "-f",
@@ -1097,7 +1180,7 @@ def test_runtime_doctor_explains_non_json_remote_output() -> None:
         )
 
 
-def test_tailscale_lifecycle_probe_is_added_only_for_tailscale_ssh() -> None:
+def test_tailscale_lifecycle_probe_requires_shared_ssh_and_dds_endpoint() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["ssh"].update(
         {"port": 22, "identity_file": "", "auth_mode": "tailscale"}
@@ -1109,6 +1192,17 @@ def test_tailscale_lifecycle_probe_is_added_only_for_tailscale_ssh() -> None:
         session, topology.host("laptop")
     )
 
+    probe = next(
+        argv for argv, _check in session.commands if "namespace-check" in argv
+    )
+    assert "--tcp-peer" not in probe
+
+    raw["hosts"][1]["ssh"]["host"] = raw["hosts"][1]["dds"]["address"]
+    shared = ConnectionTopology.from_dict(raw)
+    session = LifecycleSession()
+    InstalledElesimLifecycle(shared).runtime_network_check(
+        session, shared.host("laptop")
+    )
     probe = next(
         argv for argv, _check in session.commands if "namespace-check" in argv
     )

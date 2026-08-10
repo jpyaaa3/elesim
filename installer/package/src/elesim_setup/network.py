@@ -172,7 +172,9 @@ def require_runtime_network_namespace(
     state: InstallState,
     *,
     interface: str | None = None,
+    address: str | None = None,
     interface_names: Sequence[str] | None = None,
+    interface_addresses: Mapping[str, Sequence[str]] | None = None,
     peers: Sequence[str] | None = None,
     route_runner: Callable[..., object] | None = None,
 ) -> None:
@@ -216,6 +218,26 @@ def require_runtime_network_namespace(
                 "namespace. A Tailscale 100.x address may still be routable through "
                 "another interface, but that is a separate routed/NAT mode and does "
                 "not satisfy a direct tailscale* bind."
+            )
+
+    configured_address = "" if address is None else str(address).strip()
+    if configured_interface and configured_address:
+        expected_addresses = _resolve_runtime_address(configured_address)
+        assigned_addresses = _runtime_interface_addresses(
+            configured_interface,
+            supplied=interface_addresses,
+            runner=route_runner,
+        )
+        if not expected_addresses.intersection(assigned_addresses):
+            rendered = ", ".join(sorted(assigned_addresses)) or "none"
+            raise RuntimeError(
+                f"configured DDS address {configured_address!r} is not assigned to "
+                f"runtime interface {configured_interface!r} (assigned: {rendered}). "
+                "The DDS address must belong to the selected interface in the same "
+                "network namespace as the runtime roles. A host or WSL Tailscale "
+                "address cannot be advertised from a separate Docker Desktop "
+                "namespace; enroll the Elesim Tailscale sidecar or select the "
+                "native Docker backend that owns that interface."
             )
 
     configured_peers = tuple(
@@ -272,6 +294,88 @@ def require_runtime_network_namespace(
                 "interface or run Docker in the namespace containing the direct "
                 "Tailscale interface."
             )
+
+
+def _resolve_runtime_address(value: str) -> set[str]:
+    """Resolve one advertised DDS endpoint into normalized IP literals."""
+
+    try:
+        return {str(ipaddress.ip_address(value))}
+    except ValueError:
+        pass
+    try:
+        records = socket.getaddrinfo(value, None, type=socket.SOCK_DGRAM)
+    except socket.gaierror as exc:
+        raise RuntimeError(
+            f"configured DDS address {value!r} cannot be resolved in the runtime "
+            "network namespace"
+        ) from exc
+    resolved: set[str] = set()
+    for _family, _type, _proto, _canonical, sockaddr in records:
+        if sockaddr:
+            try:
+                resolved.add(str(ipaddress.ip_address(str(sockaddr[0]))))
+            except ValueError:
+                continue
+    if not resolved:
+        raise RuntimeError(
+            f"configured DDS address {value!r} has no usable runtime IP address"
+        )
+    return resolved
+
+
+def _runtime_interface_addresses(
+    interface: str,
+    *,
+    supplied: Mapping[str, Sequence[str]] | None,
+    runner: Callable[..., object] | None,
+) -> set[str]:
+    """Return normalized addresses assigned to one runtime interface."""
+
+    if supplied is not None:
+        values = supplied.get(interface, ())
+    else:
+        probe = subprocess.run if runner is None else runner
+        try:
+            result = probe(
+                ["ip", "-j", "addr", "show", "dev", interface],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1.5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(
+                f"DDS address assignment could not be inspected on "
+                f"{interface!r}: {exc}"
+            ) from exc
+        if int(getattr(result, "returncode", 1)) != 0:
+            detail = str(getattr(result, "stderr", "") or "").strip()
+            suffix = f": {detail[:512]}" if detail else ""
+            raise RuntimeError(
+                f"DDS address assignment probe failed on {interface!r}{suffix}"
+            )
+        try:
+            raw = json.loads(str(getattr(result, "stdout", "") or ""))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"DDS address assignment probe returned invalid JSON for "
+                f"{interface!r}"
+            ) from exc
+        values = tuple(
+            str(item.get("local", "")).strip()
+            for link in raw if isinstance(raw, list) and isinstance(link, Mapping)
+            for item in link.get("addr_info", ())
+            if isinstance(item, Mapping)
+        )
+    normalized: set[str] = set()
+    for value in values:
+        candidate = str(value).split("%", 1)[0].strip()
+        try:
+            normalized.add(str(ipaddress.ip_address(candidate)))
+        except ValueError:
+            continue
+    return normalized
 
 
 def require_runtime_tcp_reachability(
@@ -667,6 +771,10 @@ def _parser() -> argparse.ArgumentParser:
         help="설치 상태 대신 검사할 pending DDS interface",
     )
     namespace_check.add_argument(
+        "--dds-address",
+        help="선택한 runtime interface에 실제 할당되어야 하는 DDS 주소",
+    )
+    namespace_check.add_argument(
         "--dds-peer",
         action="append",
         default=None,
@@ -776,6 +884,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             require_runtime_network_namespace(
                 state,
                 interface=args.dds_interface,
+                address=args.dds_address,
                 peers=args.dds_peer,
             )
             if args.tcp_peer:

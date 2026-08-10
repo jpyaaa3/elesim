@@ -259,19 +259,25 @@ def _validate_command(
         "doctor",
     }:
         return
+    tailscale = str(bin_dir / "elesim-tailscale")
+    if tuple(argv) in {
+        (tailscale, "login"),
+        (tailscale, "status"),
+        (tailscale, "status", "--json"),
+    }:
+        return
     if tuple(argv) == ("docker", "version", "--format", "{{.Server.Version}}"):
         return
+    compose_wrapper = str(bin_dir / "elesim-compose")
     prefix = (
-        "docker",
-        "compose",
+        compose_wrapper,
         "-p",
         project,
         "-f",
         str(compose),
     )
     progress_prefix = (
-        "docker",
-        "compose",
+        compose_wrapper,
         "--progress",
         "plain",
         "-p",

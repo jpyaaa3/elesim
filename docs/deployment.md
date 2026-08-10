@@ -19,6 +19,9 @@ standard-library download bootstrap, and the independently installable
 setup/doctor/connection-manager package. These are infrastructure, not a fifth
 runtime deployment. The source-only `environment/coturn` project remains an
 external-relay operator input and is not copied into `dist/releases`.
+The Docker Desktop `tailscale` Compose service is likewise generated host
+network infrastructure. It uses a pinned upstream Tailscale image and does not
+create a fifth Elesim release tree or application wheel.
 
 The build command verifies every generated context by default. It performs a
 clean `--no-deps` temporary install, checks wheel ownership, parses the shipped
@@ -134,22 +137,22 @@ one explicit mode before assigning roles:
   one to three container/Compose hosts; no Robot or Jetson host is created.
 
 Both modes mark exactly one host local. For each host, record one advertised
-DDS IP/interface; the connection manager derives the SSH destination from that
-IP and stores only SSH port/user/authentication mode/pinned SHA-256 host
-fingerprint separately. OpenSSH uses an agent or a selected identity path;
-Tailscale SSH is keyless and fixed to port 22. If the Tailscale ACL uses
-`action: check`, approve one interactive Tailscale SSH re-authentication before
-starting a manager job. Static discovery peers come from DDS addresses. Schema-v1
-topology files are loaded as `full` and saved in schema v3 with the explicit mode.
+DDS IP/interface and an independent SSH management destination. OpenSSH uses
+an agent or a selected identity path; Tailscale SSH is keyless and fixed to
+port 22. If the Tailscale ACL uses `action: check`, approve one interactive
+Tailscale SSH re-authentication before starting a manager job. Static discovery
+peers come only from DDS addresses. Schema-v1 topology files are loaded as
+`full`; schema-v1-v3 records derive SSH from their historical shared address
+and are saved as schema v4. The ephemeral preflight contract similarly
+migrates schema v1 to v2.
 
 While the physical Robot host is unavailable, the connection-manager GUI offers
 an ephemeral two-host preflight for exactly two active COM cards. It accepts the
 current mutable advertised IP without a port, the selected interface (for
-example `tailscale0`), and the remote SSH user/port. The SSH destination is the
-same advertised IP. For a Tailscale SSH endpoint the port is fixed at 22;
-ordinary OpenSSH uses the
-configured sshd port. It does not save a topology, provision keys, or claim that an
-SSH host key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
+example `tailscale0`), and the independent remote SSH address/user/port. For a
+Tailscale SSH endpoint the port is fixed at 22; ordinary OpenSSH uses the
+configured sshd port. It does not save a topology, provision keys, or claim
+that an SSH host key probe proves DDS, RGBD, WebRTC, SROS2, or NAT traversal. An HTTP
 reachability test such as `python3 -m http.server 8080` is outside the runtime
 topology and must not be entered as a DDS/SSH endpoint. Only `full` deployment
 requires the Robot role; `simulation-only` deployment intentionally starts the
@@ -171,18 +174,36 @@ remain a separate validated container unit. The connection manager serializes th
 topology state and reads older one-unit files as a single `runtime` or
 `robot-native` unit.
 
+Container installation resolves and persists one network backend. `direct-host`
+(**Native host network**) uses the selected Docker Engine's host namespace.
+`tailscale-sidecar` (**Docker Desktop Tailscale sidecar**) runs the fixed
+`elesim-tailscale` container and places roles, the dedicated runtime-network
+doctor, and active Sim-owned Coturn in the `tailscale` service's namespace. The
+ordinary administrative tools service remains usable before enrollment.
+Docker Desktop cannot inherit the WSL distribution's existing `tailscale0`;
+the kernel-mode sidecar creates its own interface and tailnet IP inside the
+Docker VM. This service is host network infrastructure, not an Elesim
+application, Router, broker, or DDS relay. Its privileged upstream image is
+version-and-digest pinned.
+
+Enroll a generated sidecar once with `elesim-tailscale login` and inspect it
+with `elesim-tailscale status`. Login uses a browser/device flow. Elesim stores
+no Tailscale auth/OAuth key or browser credential; only the enrolled node state
+persists across ordinary down/up/update. Use the sidecar IP as the DDS address
+and the WSL/host IP as SSH management address when they differ. Routed
+Tailscale graphs use static discovery only.
+
 SSH reachability is not DDS reachability. Before managed security material is
 issued, and again before `start` or `restart`, every container host runs the
-lightweight `elesim-net namespace-check` through its installed tools service.
+lightweight `elesim-net namespace-check` through its installed `runtime-tools`
+service.
 The check requires the configured DDS interface to exist in the same network
-namespace used by runtime roles and, for static discovery, checks each DDS peer
-route. It remains a read-only bind/route gate; it does not prove discovery,
-SROS2 authorization, RGB-D, or WebRTC media. A configured `tailscale0` is
-therefore supported for direct binding wherever the runtime namespace exposes
-it. A Docker Desktop Linux VM commonly cannot see a WSL distro's `tailscale0`;
-the Tailscale SSH helper cannot relay DDS UDP. Use Docker Engine in that
-WSL/Linux namespace for direct binding, or explicitly configure a
-container-visible routed interface as a separate mode and use static peers.
+namespace used by runtime roles, requires the advertised address to be assigned
+to that interface, and, for static discovery, checks each DDS peer route. It
+remains a read-only bind/route gate; it does not prove discovery, SROS2
+authorization, RGB-D, or WebRTC media. The Tailscale SSH helper still cannot
+relay DDS UDP; the sidecar path works by sharing the enrolled namespace rather
+than tunneling DDS through SSH.
 For keyless Tailscale SSH hosts the lifecycle also runs a negative-only TCP
 port-22 probe inside the runtime namespace. It is not a DDS/UDP acceptance
 test; it only turns the stronger failure (the runtime cannot reach the same
@@ -220,6 +241,12 @@ reported separately from a slow application start. Use
 `elesim-net doctor --strict-peers --expect-peer <endpoint-id>` for a strict
 application-level discovery gate; this still does not prove RGBD, WebRTC,
 SROS2 authorization, or physical safety.
+
+Generated-Compose assertions, schema migrations, login command shape,
+namespace/interface/address checks, and secret-absence scans are automated
+software gates. A real Docker Desktop/WSL host and a second tailnet host remain
+a manual acceptance gate: confirm sidecar enrollment, static-peer descriptor
+discovery, bidirectional control/RGBD, reconnect, and then both WebRTC streams.
 
 Managed SROS2 rotation creates a complete new generation through the ROS 2
 security CLI. Per-host manifests bind the system, host, generation, assigned
@@ -309,6 +336,20 @@ This is not a rolling multi-host deployment: update each host independently and
 use the connection manager when a protocol or managed-security change requires
 coordinated rollout.
 
+The first update from an unpinned v1-v8 installation accepts the selected
+Docker daemon only if exact install-UUID/Compose labels on at least one prior
+container or local image prove ownership there. It refuses foreign/ambiguous
+objects and also refuses a never-built legacy installation whose daemon cannot
+be proven. Use the original daemon or validated clean uninstall/reinstall; an
+empty daemon is not evidence.
+
+After v9, the selected local context and Engine ID are a fail-closed boundary.
+`DOCKER_HOST` overrides and remote Docker contexts are unsupported because
+generated absolute bind paths are local. A daemon reset/replacement that
+changes Engine ID has no automatic rebind: restore the pinned daemon for
+validated uninstall, or keep the old prefix untouched and reinstall into a new
+empty prefix until an audited manual cleanup is performed.
+
 The generated project uses Linux host networking, read-only role configuration
 mounts, a read-only Sim model mount, and a profile-gated tools container. Sim
 runs with the installing user's UID/GID and writes Genesis through the
@@ -395,9 +436,22 @@ labels, wrapper hashes and—on Robot—both generated systemd unit hashes. A
 foreign container, modified wrapper, nested mount or same-name foreign unit
 aborts before any mutation.
 
-Text log snapshots and the operator laptop's SROS2 Authority are preserved by
-default. Runtime configuration, managed host role keys and generated secrets
-are removed. External credentials/keystores and Developer source checkout are
+A `tailscale-sidecar` install additionally owns the fixed
+`elesim-tailscale` container and exact mode-0700
+`<prefix>/secrets/tailscale` node-state directory. Ordinary `elesim-down` and
+`elesim-update` preserve that directory so device enrollment is not repeated.
+The ownership manifest records the install-owned `<prefix>/secrets` root, which
+contains that exact bind directory and any Elesim-owned TURN secret. Validated
+uninstall removes that root; it does not prune Docker or remove the upstream
+`tailscale/tailscale` image, which may be shared by unrelated projects. Local
+state removal does not revoke the device record from the tailnet control plane;
+decommission that node in the Tailscale admin console as a separate operator
+action.
+
+Text log snapshots and the operator laptop's installation-owned SROS2 Authority
+are removed by default; `--keep-logs` and `--keep-authority` retain them.
+Runtime configuration, managed host role keys and generated secrets are
+removed. External credentials/keystores and Developer source checkout are
 always outside the deletion boundary. Label commands with the host that owns
 them and never substitute a remote prefix into a laptop uninstaller command.
 

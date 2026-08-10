@@ -1,9 +1,10 @@
 # GUI 연결관리자 설계 메모
 
-> 상태: software 구현 완료. 실제 다중 host, SROS2 enforce, VPN/LAN 및 Jetson
-> 검증은 수동 gate다.
+> 상태: 기존 연결관리자 software와 Docker Desktop sidecar 계약은 자동검사
+> 대상으로 관리한다. 실제 sidecar enrollment, 다중 host DDS, SROS2 enforce,
+> VPN/LAN 및 Jetson 검증은 수동 gate다.
 >
-> 갱신일: 2026-08-04
+> 갱신일: 2026-08-10
 
 ## 1. 배경과 목표
 
@@ -27,8 +28,8 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 - UI, Pilot, Sim, Robot의 실행 host 배치를 보여 준다.
 - 각 host의 DDS 네트워크 profile을 일관되게 생성한다.
 - 실제 DDS discovery/control/RGBD 연결성을 검사해 준다.
-- SSH 관리 포트와 DDS/WebRTC 경로를 혼동하지 않되, 한 호스트의 SSH 목적지
-  IP는 그 호스트의 광고 DDS IP에서 자동으로 사용한다.
+- SSH 관리 주소/포트와 DDS/WebRTC 경로를 분리한다. Native host network에서는
+  주소가 같을 수 있지만 Docker Desktop sidecar에서는 반드시 달라질 수 있다.
 
 연결관리자는 다음을 하면 안 된다.
 
@@ -67,8 +68,10 @@ Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통
 
 ### 2.1 명시적 topology mode
 
-연결 상태 파일 schema v3에는 `topology_mode`가 들어간다. schema v1/v2 파일은
-하위 호환을 위해 `full` 또는 저장된 mode로 해석한 뒤 v3으로 정규화한다.
+연결 상태 파일 schema v4에는 `topology_mode`와 독립 DDS/SSH 목적지가 들어간다.
+schema v1-v3 파일은 하위 호환을 위해 기존 shared address에서 SSH 목적지를
+파생한 뒤 v4로 정규화한다. 두 호스트 preflight도 같은 주소 분리를 위해 v1에서
+v2로 정규화한다.
 
 | mode | 허용 role | host 수 | 설치 제약 |
 | --- | --- | --- | --- |
@@ -94,7 +97,7 @@ thread 등은 독립 배포 client가 아니다. 예를 들어 UI의 operator �
 | endpoint ID | `pilot-main` 같은 논리 주소 | role assignment에 저장 |
 | boot ID | 매 실행마다 바뀌는 process incarnation | runtime discovery에서 읽기 전용 표시 |
 | DDS locator | 실제 IP, UDP port, transport 정보 | DDS가 discovery로 교환; 고정 설정값이 아님 |
-| SSH IP/포트 | 원격 설치/로그 접근 | IP는 DDS 광고 IP에서 파생, 포트는 관리용이며 DDS/WebRTC 포트가 아님 |
+| SSH IP/포트 | 원격 설치/로그 접근 | DDS 주소와 독립된 관리 목적지이며 DDS/WebRTC 포트가 아님 |
 | WebRTC/ICE policy | Sim이 소유하는 WebRTC media 경로 | `trusted-network`는 direct ICE만, `sros2`는 direct ICE 뒤 managed Coturn fallback; relay 값은 topology에 저장하지 않음 |
 
 특히 `endpoint_id`가 사용자가 말한 “X번 자리”에 해당한다. IP와 UDP port는
@@ -175,8 +178,10 @@ Sim host             ├─ Tailscale mesh VPN
 Jetson (Robot)            ┘
 ```
 
-각 host에서 Tailscale client/daemon은 필요하지만, 노트북에 inbound port forwarding을
-열 필요는 없다. DDS에는 다음을 사용한다.
+각 DDS runtime namespace에는 Tailscale node가 필요하지만, 노트북에 inbound
+port forwarding을 열 필요는 없다. Native Docker Engine은 host의 node를 쓰고,
+Docker Desktop은 WSL node를 상속할 수 없으므로 Docker VM 내부 sidecar node를
+사용한다. DDS에는 다음을 사용한다.
 
 - DDS interface: `tailscale0`
 - discovery: 보수적으로 `static`
@@ -188,6 +193,30 @@ Tailscale은 transport reachability를 제공할 뿐 DDS role authorization을 �
 않는다. 본인만 쓰는 통제된 tailnet이라면 firewall/ACL을 전제로
 `trusted-network`를 검토할 수 있지만, shared/observable tailnet 또는 shared compute
 network에서는 role-scoped SROS2 enforce mode가 필요하다.
+
+### 6.1 Container network backend
+
+설치기는 선택된 Docker daemon을 보고 자동으로 backend를 결정한 뒤 결과만
+고정 저장한다.
+
+| 저장값 | 사용자 표기 | runtime namespace |
+| --- | --- | --- |
+| `direct-host` | Native host network | role/tools가 Docker Engine host namespace 사용 |
+| `tailscale-sidecar` | Docker Desktop Tailscale sidecar | role/runtime doctor/active Coturn이 `tailscale` service namespace 사용 |
+
+Sidecar Compose service는 `tailscale`, fixed container는
+`elesim-tailscale`이다. `/dev/net/tun`을 사용하는 kernel mode이며, sidecar가
+Docker VM 안에 `tailscale0`와 별도 tailnet IP를 소유한다. Sidecar는 host
+network infra이고 다섯 번째 application, Router, DDS relay, registry가 아니다.
+Static peer는 여전히 discovery seed일 뿐이고 실제 DDS sample을 중계하지 않는다.
+
+사용자는 `elesim-tailscale login`으로 browser/device 승인을 한 번 완료하고
+`elesim-tailscale status`로 sidecar 주소를 확인한다. Elesim은 auth/OAuth key나
+browser credential을 저장하지 않는다. Sidecar node state만 mode-0700
+`<prefix>/secrets/tailscale`에 남겨 일반 down/up/update에서 재사용한다. 이 exact
+bind directory는 ownership manifest의 install-owned `<prefix>/secrets` root 안에
+있다. 자동 backend 선택은 runtime에 Docker context를 임의 전환한다는 뜻이
+아니다.
 
 Tailscale을 모든 DDS host에 설치할 수 없다면 한 host를 subnet/VPN gateway로 두는
 고급 경로가 있다. 그러나 Jetson의 반환 route, source NAT, DDS locator advertisement,
@@ -231,8 +260,8 @@ static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesi
 | --- | --- | --- |
 | role assignment | UI, Pilot | 해당 host에 설치/실행할 역할 |
 | DDS interface | `eth0`, `wlan0`, `wg0`, `tailscale0` | DDS가 사용할 NIC |
-| DDS 광고 주소 | `100.x.y.z` (포트 없음) | static mode에서 다른 host의 discovery seed로 자동 파생 |
-| SSH management address/port | `server.example:2222` | installer/로그/관리용 |
+| DDS 광고 주소 | `100.x.y.z` (포트 없음) | runtime namespace 주소이며 static mode에서 discovery seed로 자동 파생 |
+| SSH management address/port | `server.example:2222` | 독립된 installer/로그/관리용 목적지 |
 | WebRTC/ICE | Sim runtime에서 관리 | `elesim-net show`의 비밀이 아닌 endpoint를 검증해 SROS2 Sim에만 적용; 평문 전환 시 TURN을 비움 |
 | security profile | trusted-network/SROS2 | graph 보안 profile |
 
@@ -255,9 +284,8 @@ Jetson을 실제로 켤 수 없는 동안에는 API/자동화에서 `COM` 카드
 
 - 각 호스트의 DDS 광고 주소가 hostname/IP이고 포트를 붙이지 않았는가
 - 각 호스트의 DDS 인터페이스가 `tailscale0`처럼 한 개의 NIC 이름인가
-- local 호스트는 SSH endpoint가 없고, remote 호스트는 광고 IP에서 파생된 SSH
-  목적지와 명시적인 user/port를
-  갖는가
+- local 호스트는 SSH endpoint가 없고, remote 호스트는 독립적인 SSH 목적지와
+  명시적인 user/port를 갖는가
 - 요청한 경우 remote SSH host key probe가 그 host와 port에 도달하는가
 
 사전 점검의 SSH 포트는 Tailscale의 별도 “DDS 포트”가 아니다. 현재 Elesim은
@@ -306,9 +334,11 @@ graph, topic 표면을 검증한다. `--active`의 RGBD sample 검사는 별도 
 아래 edge matrix와 directed control/motion round-trip은 아직 실제 다중 host 수동
 검증 항목이며 GUI가 성공했다고 추정해서는 안 된다.
 
-연결관리자는 로컬 `tailscale0`의 현재 IPv4를 읽기 전용으로 제안할 수 있지만
-Tailscale 설치·로그인·ACL을 변경하지 않는다. 저장된 topology에는 DDS 주소와 그 IP를
-재사용하는 SSH 목적지, 그리고 별도의 관리 포트/user를 남긴다. 저장 이후에는 `check`, `start`, `stop`, `restart`
+연결관리자는 선택된 runtime namespace의 `tailscale0` IPv4를 읽기 전용으로
+제안할 수 있지만 ACL을 변경하지 않는다. Docker Desktop sidecar 등록은 별도
+명시적 `elesim-tailscale login` 동작이며 GUI 상태에 key/credential을 저장하지
+않는다. 저장된 topology에는 DDS 주소와 독립 SSH 목적지/port/user를 남긴다.
+저장 이후에는 `check`, `start`, `stop`, `restart`
 작업으로 각 host의 Compose/systemd 관리 상태를 확인·조작할 수 있으며, SSH 성공을
 DDS discovery나 WebRTC media 성공으로 해석하지 않는다.
 
@@ -339,16 +369,25 @@ Operator host <-> Sim host: WebRTC media는 별도 상태
 - 중앙 logger/observability collector는 유용하지만 이후 과제로 둔다. 추가하더라도
   DDS broker나 connection manager authority가 아니라, OTLP 같은 단방향 관측 sink여야
   한다. Collector 장애가 control/RGBD/WebRTC를 멈추게 하면 안 된다.
-- Tailscale OAuth/auth key, Authority private key, TURN static secret은 GUI
+- Tailscale OAuth/auth key, browser/device credential, Authority private key,
+  TURN static secret은 GUI
   topology/소스 저장소에 넣지 않는다. Authority는 운영 컴퓨터의 mode-0700
   경로에만 남고, 각 host에는 자기 역할 enclave가 든 제한 bundle만 전달한다.
 
 ## 10. 구현된 범위와 남은 gate
 
-`elesim-connections`는 loopback/token GUI, role placement, mode-0600 topology,
-SSH host key pinning, trusted-network 전체 배포, managed SROS2 발급·전체 generation
-전환·rollback, read-only Tailscale hint와 bounded lifecycle status/actions를 구현한다.
-DDS static peer는 활성 host의 광고 주소에서 파생한다.
+`elesim-connections`의 software contract는 loopback/token GUI, role placement,
+mode-0600 topology, schema-v1-v4 migration, 독립 DDS/SSH 목적지, SSH host key
+pinning, trusted-network 전체 배포, managed SROS2 발급·전체 generation
+전환·rollback, backend-aware Tailscale hint와 bounded lifecycle status/actions를
+포함한다. DDS static peer는 활성 host의 DDS 광고 주소에서만 파생한다.
+
+자동검사는 backend 자동 선택·고정, generated Compose의
+`service:tailscale` namespace 관계, login/status wrapper shape, sidecar state
+ownership, interface/address/route guard, generated configuration의 auth/OAuth
+key 부재와 schema migration을 다룬다.
+이 검사는 image pull, browser/device login 또는 실제 tailnet packet을 요구하지
+않으며 live 성공을 주장하지 않는다.
 
 다음은 구현 성공으로 간주하지 않는다.
 
@@ -356,7 +395,8 @@ DDS static peer는 활성 host의 광고 주소에서 파생한다.
 2. SROS2 enforce에서 허가·거부가 의도대로 작동한다는 실 RMW 증명
 3. 작업 중 process/host 장애를 포함한 다중 host rollback 실증
 4. Jetson native Robot와 물리 안전 deadline
-5. Tailscale 설치·로그인·OAuth provisioning 자동화
+5. Docker Desktop sidecar를 포함한 실제 두 host에서 static-peer discovery,
+   control/RGBD, reconnect와 WebRTC media를 순서대로 확인하는 것
 
 이 gate의 구체적인 절차와 판정 기준은 `docs/setup.md`,
 `docs/deployment.md`, `docs/OPEN_ISSUES_KR.md`가 관리한다.

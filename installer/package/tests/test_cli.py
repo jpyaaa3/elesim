@@ -11,11 +11,12 @@ import pytest
 import yaml
 
 from conftest import ROOT, copy_role_configs
-from elesim_setup import cli, network
+from elesim_setup import capabilities, cli, network
+from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.configuration import generate_role_configs, generated_config_path
 from elesim_setup.container_installer import ContainerInstaller
 from elesim_setup.security_provisioning import sync_provisioning_required
-from elesim_setup.state import DdsSettings, InstallState
+from elesim_setup.state import ContainerNetworkSettings, DdsSettings, InstallState
 
 
 def test_cli_commands_match_bootstrap_contract() -> None:
@@ -55,6 +56,28 @@ def test_runtime_namespace_check_accepts_pending_tailscale_bind(local_state) -> 
         interface="tailscale0",
         interface_names=("lo", "eth0", "tailscale0"),
     )
+
+
+def test_runtime_namespace_check_requires_advertised_address_on_interface(
+    local_state,
+) -> None:
+    state = local_state(dds=DdsSettings(interface="tailscale0"))
+
+    network.require_runtime_network_namespace(
+        state,
+        interface="tailscale0",
+        address="100.101.102.103",
+        interface_names=("lo", "tailscale0"),
+        interface_addresses={"tailscale0": ("100.101.102.103",)},
+    )
+    with pytest.raises(RuntimeError, match="is not assigned to runtime interface"):
+        network.require_runtime_network_namespace(
+            state,
+            interface="tailscale0",
+            address="100.101.102.104",
+            interface_names=("lo", "tailscale0"),
+            interface_addresses={"tailscale0": ("100.101.102.103",)},
+        )
 
 
 def test_runtime_namespace_check_allows_automatic_interface(local_state) -> None:
@@ -199,8 +222,32 @@ def test_update_reuses_installed_general_state_with_new_source(
         ),
         source_root=str(tmp_path / "old-source"),
     )
-    state.save(state_path)
+    raw = state.to_dict()
+    raw["schema_version"] = 8
+    raw.pop("container_network")
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(raw), encoding="utf-8")
     received = []
+
+    monkeypatch.setattr(
+        capabilities,
+        "detect_install_host_capabilities",
+        lambda: HostCapabilities(
+            architecture="x86_64",
+            os_id="ubuntu",
+            os_version="22.04",
+            jetson=False,
+            robot_installable=False,
+            developer_installable=True,
+            display_available=True,
+            ssh_agent=False,
+            gpu_devices=(),
+            docker_backend="docker-desktop",
+            docker_context="default",
+            docker_engine_id="desktop-engine-id",
+            docker_endpoint="unix:///var/run/docker.sock",
+        ),
+    )
 
     class FakeInstaller:
         def __init__(self, updated, **kwargs) -> None:
@@ -226,7 +273,59 @@ def test_update_reuses_installed_general_state_with_new_source(
     assert updated.roles == state.roles
     assert updated.dds == state.dds
     assert updated.network == state.network
+    assert updated.container_network.mode == "tailscale-sidecar"
+    assert updated.container_network.docker_context == "default"
+    assert updated.container_network.docker_engine_id == "desktop-engine-id"
     assert kwargs["state_path"] == state_path.resolve()
+
+
+def test_update_never_redetects_an_existing_v9_docker_pin(
+    local_state,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    prefix = local_state().prefix_path
+    pinned = ContainerNetworkSettings(
+        mode="tailscale-sidecar",
+        docker_context="desktop-linux",
+        docker_engine_id="pinned-engine",
+        tailscale_hostname="elesim-pinned",
+        tailscale_state_dir=str(prefix / "secrets/tailscale"),
+    )
+    state = replace(
+        local_state(container_network=pinned),
+        source_root=str(tmp_path / "old-source"),
+    )
+    state_path = state.save()
+    received = []
+
+    monkeypatch.setattr(
+        capabilities,
+        "detect_install_host_capabilities",
+        lambda: (_ for _ in ()).throw(AssertionError("must not redetect")),
+    )
+
+    class FakeInstaller:
+        def __init__(self, updated, **_kwargs) -> None:
+            received.append(updated)
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(cli, "ContainerInstaller", FakeInstaller)
+
+    result = cli.main(
+        (
+            "--source-root",
+            str(tmp_path / "new-source"),
+            "--state",
+            str(state_path),
+            "update",
+        )
+    )
+
+    assert result == 0
+    assert received[0].container_network == pinned
 
 
 def test_developer_update_state_round_trip(tmp_path: Path) -> None:
@@ -593,6 +692,10 @@ def test_noninteractive_sim_accepts_pending_managed_turn(
         str(tmp_path / "install"),
         "--bin-dir",
         str(tmp_path / "bin"),
+        "--dds-security-profile",
+        "sros2",
+        "--dds-security-provisioning",
+        "managed",
         "--turn-mode",
         "managed",
         "--dry-run",

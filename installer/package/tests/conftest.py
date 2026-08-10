@@ -7,6 +7,7 @@ import pytest
 
 from elesim_setup.state import (
     ComputeSettings,
+    ContainerNetworkSettings,
     DdsSettings,
     InstallState,
     NetworkSettings,
@@ -27,6 +28,7 @@ def local_state(tmp_path: Path):
         network=None,
         compute=None,
         turn=None,
+        container_network=None,
         install_mode=None,
     ) -> InstallState:
         selected_roles = tuple(roles)
@@ -45,6 +47,7 @@ def local_state(tmp_path: Path):
             dds=dds or DdsSettings(),
             compute=compute or ComputeSettings(),
             turn=turn or TurnSettings(),
+            container_network=container_network or ContainerNetworkSettings(),
             install_mode=selected_mode,
         )
 

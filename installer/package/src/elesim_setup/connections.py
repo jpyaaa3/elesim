@@ -9,6 +9,7 @@ import os
 import stat
 import tempfile
 import threading
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
@@ -39,10 +40,10 @@ Log = Callable[[str], None]
 
 
 class _BuildLogForwarder:
-    """Turn arbitrary stdout/stderr chunks into bounded host-labelled lines."""
+    """Turn arbitrary command chunks into bounded host-labelled lines."""
 
-    def __init__(self, host: ManagedHost, log: Log) -> None:
-        self._prefix = f"build {host.host_id}"
+    def __init__(self, host: ManagedHost, log: Log, *, phase: str = "build") -> None:
+        self._prefix = f"{phase} {host.host_id}"
         self._log = log
         self._pending = {"stdout": "", "stderr": ""}
         self._lock = threading.Lock()
@@ -80,10 +81,16 @@ class ConnectionDeploymentRunner:
         self,
         authority_root: Path,
         *,
+        topology_state_path: Path | None = None,
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
     ) -> None:
         self.authority_root = authority_root.expanduser().resolve()
+        self.topology_state_path = (
+            None
+            if topology_state_path is None
+            else topology_state_path.expanduser()
+        )
         self.local_install_root = (
             None
             if local_install_root is None
@@ -98,9 +105,52 @@ class ConnectionDeploymentRunner:
         topology: ConnectionTopology,
         action: str,
         log: Log,
-    ) -> None:
+    ) -> ConnectionTopology:
         topology.validate()
         self._validate_management_host(topology)
+        supported_actions = {
+            "prepare",
+            "provision",
+            "deploy",
+            "rotate",
+            "recover",
+            "start",
+            "stop",
+            "restart",
+            "check",
+        }
+        if action not in supported_actions:
+            raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
+        authority: Sros2Authority | None = None
+        active = None
+        if action not in {"start", "stop", "restart", "check", "recover"}:
+            if topology.security_profile == "trusted-network":
+                if action == "prepare":
+                    action = "deploy"
+                elif action != "deploy":
+                    raise ValueError(
+                        "trusted-network에서는 deploy만 사용할 수 있습니다"
+                    )
+            else:
+                authority = Sros2Authority(
+                    self.authority_root / topology.system_id
+                )
+                active = authority.active()
+                if action == "prepare":
+                    action = "rotate" if active is not None else "provision"
+                if action in {"provision", "deploy"} and active is not None:
+                    raise ValueError(
+                        "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
+                        "rotate로 교체하십시오. provision/deploy를 반복하지 않습니다."
+                    )
+                if action == "rotate" and active is None:
+                    raise ValueError(
+                        "활성 SROS2 generation이 없습니다. 먼저 provision하십시오."
+                    )
+                if action not in {"provision", "deploy", "rotate"}:
+                    raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
+        elif action == "recover" and topology.security_profile != "sros2":
+            raise ValueError("복구는 managed SROS2 topology에서만 사용합니다")
         operations = self._operations(topology)
         journal: dict[str, object] | None = None
 
@@ -115,6 +165,77 @@ class ConnectionDeploymentRunner:
             log(f"{phase}: {host.host_id}")
 
         try:
+            if action in {"provision", "deploy", "rotate", "start", "restart", "recover"}:
+                log("호스트별 런타임 네트워크 인프라를 준비합니다.")
+                discovered_addresses: dict[str, str] = {}
+                for host in topology.hosts:
+                    log(f"network: {host.host_id}")
+                    output = _BuildLogForwarder(host, log, phase="network")
+                    try:
+                        discovered = operations[host.host_id].prepare_runtime_network(
+                            host, output
+                        )
+                        if discovered:
+                            discovered_addresses[host.host_id] = discovered
+                    finally:
+                        output.flush()
+                if discovered_addresses:
+                    updated_hosts = tuple(
+                        replace(
+                            host,
+                            dds=replace(
+                                host.dds,
+                                address=discovered_addresses[host.host_id],
+                                interface="tailscale0",
+                                address_source="tailscale",
+                            ),
+                        )
+                        if host.host_id in discovered_addresses
+                        else host
+                        for host in topology.hosts
+                    )
+                    # A Tailscale node never forwards multicast discovery
+                    # between hosts.  The web form normally switches to
+                    # static discovery as soon as a 100.64/10 address or a
+                    # tailscale* interface is visible, but a freshly enrolled
+                    # Docker Desktop sidecar has no address until this step.
+                    # Normalize that first-enrollment case before validating
+                    # and persisting the factual endpoint update.
+                    updated_graph = topology.dds_graph
+                    if (
+                        len(updated_hosts) > 1
+                        and updated_graph.discovery_mode == "multicast"
+                    ):
+                        updated_graph = replace(
+                            updated_graph,
+                            discovery_mode="static",
+                        )
+                    updated_topology = replace(
+                        topology,
+                        hosts=updated_hosts,
+                        dds_graph=updated_graph,
+                    ).validate()
+                    if updated_topology != topology:
+                        if self.topology_state_path is None:
+                            raise RuntimeError(
+                                "Tailscale sidecar DDS endpoint가 변경되었지만 "
+                                "topology state path가 없어 안전하게 저장할 수 없습니다"
+                            )
+                        updated_topology.save(self.topology_state_path)
+                        self._close_operations(operations)
+                        topology = updated_topology
+                        self._validate_management_host(topology)
+                        operations = self._operations(topology)
+                        for host_id, address in sorted(discovered_addresses.items()):
+                            log(
+                                f"DDS sidecar endpoint: {host_id} = {address} "
+                                "(SSH management endpoint unchanged)"
+                            )
+                        if action in {"start", "restart", "recover"}:
+                            raise RuntimeError(
+                                "Tailscale sidecar DDS endpoint가 변경되어 저장했습니다. "
+                                "실행 전에 '보안 및 실행 준비'를 다시 수행하십시오."
+                            )
             if action == "recover":
                 journal = self._new_transaction_journal(action)
                 self._write_transaction_journal(topology, journal)
@@ -126,11 +247,11 @@ class ConnectionDeploymentRunner:
                     raise
                 journal.update({"status": "completed", "phase": "complete"})
                 self._write_transaction_journal(topology, journal)
-                return
+                return topology
             if action in {"start", "stop", "restart", "check"}:
                 if action == "check":
                     self._check_hosts(topology, operations, log)
-                    return
+                    return topology
                 hosts = list(topology.hosts)
                 if action in {"start", "restart"}:
                     log("모든 호스트의 런타임 네트워크를 사전 점검합니다.")
@@ -179,39 +300,18 @@ class ConnectionDeploymentRunner:
                     for host in hosts:
                         log(f"start: {host.host_id}")
                         operations[host.host_id].start(host)
-                return
+                return topology
             if topology.security_profile == "trusted-network":
-                if action == "prepare":
-                    action = "deploy"
-                if action != "deploy":
-                    raise ValueError(
-                        "trusted-network에서는 deploy만 사용할 수 있습니다"
-                    )
                 log("신뢰 네트워크 DDS 토폴로지 배포를 시작합니다.")
                 TopologyRollout(topology, operations).apply(progress=progress)
                 self._log_committed(
                     log,
                     "모든 호스트의 DDS 토폴로지 검증이 끝났습니다.",
                 )
-                return
+                return topology
 
-            authority = Sros2Authority(
-                self.authority_root / topology.system_id
-            )
-            active = authority.active()
-            if action == "prepare":
-                action = "rotate" if active is not None else "provision"
-            if action in {"provision", "deploy"} and active is not None:
-                raise ValueError(
-                    "이미 활성 SROS2 generation이 있습니다. 새 generation은 "
-                    "rotate로 교체하십시오. provision/deploy를 반복하지 않습니다."
-                )
-            if action == "rotate" and active is None:
-                raise ValueError(
-                    "활성 SROS2 generation이 없습니다. 먼저 provision하십시오."
-                )
-            if action not in {"provision", "deploy", "rotate"}:
-                raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
+            if authority is None:
+                raise RuntimeError("SROS2 Authority was not prepared")
 
             generation = new_generation_id()
             journal = self._new_transaction_journal(action)
@@ -253,6 +353,7 @@ class ConnectionDeploymentRunner:
                 self._write_transaction_journal(topology, journal)
         finally:
             self._close_operations(operations)
+        return topology
 
     @staticmethod
     def _report_runtime_readiness(
@@ -702,6 +803,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     runner = ConnectionDeploymentRunner(
         args.authority_root,
+        topology_state_path=args.state,
         local_install_root=args.local_install_root,
         local_bin_dir=args.local_bin_dir,
     )

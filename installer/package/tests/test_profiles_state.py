@@ -7,6 +7,7 @@ import pytest
 
 from elesim_setup.profiles import normalize_roles, roles_for_profile
 from elesim_setup.state import (
+    ContainerNetworkSettings,
     DdsSettings,
     InstallState,
     NetworkSettings,
@@ -48,7 +49,7 @@ def test_install_mode_is_centralized_by_runtime_topology(local_state) -> None:
         ).validate()
 
 
-def test_state_round_trip_persists_dds_v8_and_runtime_text_logs(
+def test_state_round_trip_persists_dds_v9_and_runtime_text_logs(
     local_state, tmp_path
 ) -> None:
     state = local_state(
@@ -68,7 +69,7 @@ def test_state_round_trip_persists_dds_v8_and_runtime_text_logs(
     path = state.save()
     loaded = InstallState.load(path)
 
-    assert loaded.schema_version == STATE_SCHEMA_VERSION == 8
+    assert loaded.schema_version == STATE_SCHEMA_VERSION == 9
     assert loaded.dds == state.dds
     assert loaded.runtime_text_logs == RuntimeTextLogSettings(enabled=True)
     assert loaded.to_dict()["runtime_text_logs"] == {"enabled": True}
@@ -77,6 +78,33 @@ def test_state_round_trip_persists_dds_v8_and_runtime_text_logs(
         "sim.example.com",
     ]
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_state_v9_round_trip_persists_pinned_tailscale_sidecar(local_state) -> None:
+    prefix = local_state().prefix_path
+    settings = ContainerNetworkSettings(
+        mode="tailscale-sidecar",
+        docker_context="desktop-linux",
+        docker_engine_id="desktop-engine-id",
+        tailscale_hostname="elesim-0123456789ab",
+        tailscale_state_dir=str(prefix / "secrets/tailscale"),
+    )
+    state = local_state(container_network=settings)
+
+    restored = InstallState.from_dict(state.to_dict())
+
+    assert restored.container_network == settings
+    assert "auth" not in json.dumps(restored.to_dict()).lower()
+
+
+def test_v8_migration_preserves_legacy_direct_host_network(local_state) -> None:
+    raw = local_state().to_dict()
+    raw["schema_version"] = 8
+    raw.pop("container_network")
+
+    restored = InstallState.from_dict(raw)
+
+    assert restored.container_network == ContainerNetworkSettings()
 
 
 def test_legacy_controller_simulator_state_is_normalized_to_pilot_sim(local_state) -> None:

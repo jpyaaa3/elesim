@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .container_installer import ContainerInstaller
 from .installer import Installer, preflight_notes
 from .profiles import PROFILES, ROLE_ORDER, normalize_roles, roles_for_profile
-from .request import SetupRequest
+from .request import SetupRequest, container_network_settings_for_host
 from .state import (
     ComputeSettings,
     DEFAULT_BIN_DIR,
@@ -529,6 +529,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_wizard(source_root=source_root, state_path=state_path)
         if args.command == "install":
             state = _build_state(args, source_root)
+            if state.install_mode == "container" and not args.dry_run:
+                from .capabilities import detect_install_host_capabilities
+
+                capabilities = detect_install_host_capabilities()
+                state = replace(
+                    state,
+                    container_network=container_network_settings_for_host(
+                        capabilities=capabilities,
+                        edition="general",
+                        install_mode=state.install_mode,
+                        prefix=state.prefix_path,
+                    ),
+                ).validate()
             installer_type = (
                 ContainerInstaller
                 if state.install_mode == "container"
@@ -557,6 +570,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ).run()
             else:
                 current = InstallState.load(state_path)
+                if (
+                    current.install_mode == "container"
+                    and not current.container_network.docker_context.strip()
+                    and not current.container_network.docker_engine_id.strip()
+                ):
+                    from .capabilities import detect_install_host_capabilities
+
+                    capabilities = detect_install_host_capabilities()
+                    current = replace(
+                        current,
+                        container_network=container_network_settings_for_host(
+                            capabilities=capabilities,
+                            edition="general",
+                            install_mode=current.install_mode,
+                            prefix=current.prefix_path,
+                        ),
+                    )
                 state = replace(current, source_root=str(source_root)).validate()
                 installer_type = (
                     ContainerInstaller

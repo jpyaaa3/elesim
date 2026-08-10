@@ -191,13 +191,26 @@ def execute_uninstall(
             raise UninstallSafetyError("검증 후 PATH block이 변경되어 제거하지 않았습니다")
 
     command_runner = _command_runner(runner)
+    docker_ownership = current.manifest.docker
     for container in current.containers:
+        if docker_ownership is None:
+            raise UninstallSafetyError("Docker ownership disappeared after validation")
         result = command_runner(
-            ("docker", "container", "rm", "--force", container.object_id)
+            _docker_command(
+                docker_ownership,
+                ("docker", "container", "rm", "--force", container.object_id),
+            )
         )
         _require_command(result, action=f"container 제거 {container.name}")
     for image in current.images:
-        result = command_runner(("docker", "image", "rm", image.name))
+        if docker_ownership is None:
+            raise UninstallSafetyError("Docker ownership disappeared after validation")
+        result = command_runner(
+            _docker_command(
+                docker_ownership,
+                ("docker", "image", "rm", image.name),
+            )
+        )
         _require_command(result, action=f"local image 제거 {image.name}")
 
     filesystem_protection = (*current.preserve_paths, current.manifest.path)
@@ -504,13 +517,25 @@ def _validate_docker(
     *,
     runner: CommandRunner | None,
 ) -> tuple[tuple[DockerObject, ...], tuple[DockerObject, ...]]:
-    command_runner = _command_runner(runner)
+    raw_runner = _command_runner(runner)
+
+    def command_runner(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        return raw_runner(_docker_command(ownership, argv))
+
     info = command_runner(("docker", "info", "--format", "{{.ServerVersion}}"))
     if info.returncode != 0:
         raise UninstallSafetyError(
             "Docker daemon에 연결할 수 없어 container/image 소유권을 검증하지 못했습니다: "
             + info.stderr.strip()
         )
+    if ownership.engine_id:
+        identity = command_runner(("docker", "info", "--format", "{{.ID}}"))
+        if identity.returncode != 0 or identity.stdout.strip() != ownership.engine_id:
+            observed = identity.stdout.strip() or "unavailable"
+            raise UninstallSafetyError(
+                "설치 시 고정한 Docker Engine과 현재 daemon이 다릅니다: "
+                f"expected={ownership.engine_id!r} actual={observed!r}"
+            )
     listed_containers = command_runner(
         ("docker", "container", "ls", "--all", "--format", "{{.Names}}")
     )
@@ -621,6 +646,28 @@ def _validate_docker(
             raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
         images.append(DockerObject(name=name, object_id=object_id))
     return tuple(containers), tuple(images)
+
+
+def validate_docker_ownership(
+    ownership: DockerOwnership,
+    *,
+    runner: CommandRunner | None = None,
+) -> tuple[tuple[DockerObject, ...], tuple[DockerObject, ...]]:
+    """Prove exact Docker labels/Compose boundaries without mutating objects."""
+
+    return _validate_docker(ownership.validate(), runner=runner)
+
+
+def _docker_command(
+    ownership: DockerOwnership,
+    argv: Sequence[str],
+) -> tuple[str, ...]:
+    values = tuple(str(value) for value in argv)
+    if not values or values[0] != "docker":
+        raise UninstallSafetyError("internal Docker command is malformed")
+    if not ownership.context:
+        return values
+    return ("docker", "--context", ownership.context, *values[1:])
 
 
 def _inspect_object(stdout: str, *, kind: str, name: str) -> Mapping[str, object]:
@@ -792,4 +839,5 @@ __all__ = [
     "main",
     "plan_uninstall",
     "render_plan",
+    "validate_docker_ownership",
 ]

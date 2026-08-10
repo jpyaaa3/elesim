@@ -1,9 +1,9 @@
 """Persistent, non-secret topology for the Elesim connection manager.
 
-Each host has one advertised IP.  That value is used both as the DDS address
-and as the SSH destination; SSH keeps its own port, user, authentication mode,
-and host key fingerprint because those are management settings rather than DDS
-settings.
+Each host has an advertised DDS address and, for remote management, an
+independent SSH destination.  They are often the same on a direct host network,
+but must remain separate when the runtime has its own network namespace (for
+example a Docker Desktop Tailscale sidecar).
 """
 
 from __future__ import annotations
@@ -21,10 +21,12 @@ from typing import Any, Mapping, Sequence
 from .network import is_tailscale_interface
 
 
-CONNECTION_SCHEMA_VERSION = 3
+CONNECTION_SCHEMA_VERSION = 4
 LEGACY_CONNECTION_SCHEMA_VERSION = 1
-PREVIOUS_CONNECTION_SCHEMA_VERSION = 2
-PREFLIGHT_SCHEMA_VERSION = 1
+INTERMEDIATE_CONNECTION_SCHEMA_VERSION = 2
+PREVIOUS_CONNECTION_SCHEMA_VERSION = 3
+PREFLIGHT_SCHEMA_VERSION = 2
+LEGACY_PREFLIGHT_SCHEMA_VERSION = 1
 ROLES = ("pilot", "sim", "ui", "robot")
 SIMULATION_ROLES = ("pilot", "sim", "ui")
 TOPOLOGY_MODES = frozenset({"full", "simulation-only"})
@@ -291,10 +293,6 @@ class PreflightHost:
     dds: DdsEndpoint
     ssh: PreflightSshEndpoint | None
 
-    def __post_init__(self) -> None:
-        if self.ssh is not None:
-            object.__setattr__(self, "ssh", replace(self.ssh, host=self.dds.address))
-
     def validate(self) -> "PreflightHost":
         if not _STABLE_ID.fullmatch(str(self.host_id)):
             raise ValueError("preflight host_id must be a stable lower-case identifier")
@@ -308,24 +306,24 @@ class PreflightHost:
             raise ValueError("every remote preflight host requires SSH host and port")
         else:
             self.ssh.validate()
-            if self.ssh.host != self.dds.address:
-                raise ValueError(
-                    "preflight SSH IP is derived from the DDS IP; do not configure a separate host"
-                )
         return self
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
-        ssh = None if self.ssh is None else replace(self.ssh, host=self.dds.address)
         return {
             "id": self.host_id,
             "local": self.local,
             "dds": self.dds.to_dict(),
-            "ssh": None if ssh is None else ssh.to_dict(),
+            "ssh": None if self.ssh is None else self.ssh.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, Any]) -> "PreflightHost":
+    def from_dict(
+        cls,
+        raw: Mapping[str, Any],
+        *,
+        derive_ssh_host_from_dds: bool = False,
+    ) -> "PreflightHost":
         values = _strict_object(
             raw,
             required={"id", "local", "dds", "ssh"},
@@ -348,6 +346,11 @@ class PreflightHost:
             if ssh_raw is None
             else PreflightSshEndpoint.from_dict(ssh_raw)
         )
+        if derive_ssh_host_from_dds and ssh is not None:
+            # Schema v1 documented one shared address.  Its serialized SSH
+            # host was a mirror, not an independent authority, so preserve
+            # that meaning even if a stale v1 file contains a different value.
+            ssh = replace(ssh, host=dds.address)
         return cls(
             host_id=_required_string(values["id"], name="preflight host.id"),
             local=values["local"],
@@ -409,15 +412,32 @@ class TwoHostPreflight:
             required={"schema_version", "discovery_mode", "hosts"},
             name="two-host preflight",
         )
+        incoming_version = _required_integer(
+            values["schema_version"], name="preflight schema_version"
+        )
+        if incoming_version not in {
+            LEGACY_PREFLIGHT_SCHEMA_VERSION,
+            PREFLIGHT_SCHEMA_VERSION,
+        }:
+            raise ValueError(
+                f"unsupported preflight schema {incoming_version!r}; expected "
+                f"{LEGACY_PREFLIGHT_SCHEMA_VERSION} or {PREFLIGHT_SCHEMA_VERSION}"
+            )
         hosts_raw = _object_sequence(values["hosts"], name="preflight hosts")
         return cls(
-            schema_version=_required_integer(
-                values["schema_version"], name="preflight schema_version"
-            ),
+            schema_version=PREFLIGHT_SCHEMA_VERSION,
             discovery_mode=_required_string(
                 values["discovery_mode"], name="preflight discovery_mode"
             ),
-            hosts=tuple(PreflightHost.from_dict(item) for item in hosts_raw),
+            hosts=tuple(
+                PreflightHost.from_dict(
+                    item,
+                    derive_ssh_host_from_dds=(
+                        incoming_version == LEGACY_PREFLIGHT_SCHEMA_VERSION
+                    ),
+                )
+                for item in hosts_raw
+            ),
         ).validate()
 
     def discovery_peers(self, host_id: str) -> tuple[str, ...]:
@@ -589,8 +609,6 @@ class ManagedHost:
                 )
                 if tuple(assignments) != flattened:
                     raise ValueError("assignments and units disagree")
-        if ssh is not None:
-            ssh = replace(ssh, host=dds.address)
         if units:
             # Installation and command paths are host-level fields in the GUI.
             # Normalize legacy mixed-unit records here so an old Robot-specific
@@ -671,10 +689,6 @@ class ManagedHost:
             raise ValueError("every remote host requires an explicit SSH endpoint")
         else:
             self.ssh.validate()
-            if self.ssh.host != self.dds.address:
-                raise ValueError(
-                    "SSH IP is derived from the DDS IP; do not configure a separate host"
-                )
         if not isinstance(self.jetson, bool):
             raise ValueError("host.jetson must be boolean")
         if not self.units:
@@ -731,7 +745,12 @@ class ManagedHost:
         return result
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, Any]) -> "ManagedHost":
+    def from_dict(
+        cls,
+        raw: Mapping[str, Any],
+        *,
+        derive_ssh_host_from_dds: bool = False,
+    ) -> "ManagedHost":
         values = _strict_object(
             raw,
             required={"id", "local", "dds", "ssh", "jetson"},
@@ -832,11 +851,18 @@ class ManagedHost:
                     lifecycle=_required_string(values["lifecycle"], name="lifecycle"),
                 ),
             )
+        dds = DdsEndpoint.from_dict(values["dds"])
+        ssh = None if ssh_raw is None else SshEndpoint.from_dict(ssh_raw)
+        if derive_ssh_host_from_dds and ssh is not None:
+            # Connection schemas v1-v3 exposed one shared address.  Keep that
+            # historical contract during migration; only v4 gives ssh.host
+            # independent authority.
+            ssh = replace(ssh, host=dds.address)
         return cls(
             host_id=_required_string(values["id"], name="host.id"),
             local=values["local"],
-            dds=DdsEndpoint.from_dict(values["dds"]),
-            ssh=None if ssh_raw is None else SshEndpoint.from_dict(ssh_raw),
+            dds=dds,
+            ssh=ssh,
             jetson=values["jetson"],
             units=units,
         ).validate()
@@ -997,7 +1023,11 @@ class ConnectionTopology:
                 raw, required=common_fields, name="connection topology"
             )
             topology_mode = "full"
-        elif incoming_version in (PREVIOUS_CONNECTION_SCHEMA_VERSION, CONNECTION_SCHEMA_VERSION):
+        elif incoming_version in (
+            INTERMEDIATE_CONNECTION_SCHEMA_VERSION,
+            PREVIOUS_CONNECTION_SCHEMA_VERSION,
+            CONNECTION_SCHEMA_VERSION,
+        ):
             values = _strict_object(
                 raw,
                 required=common_fields | {"topology_mode"},
@@ -1010,6 +1040,7 @@ class ConnectionTopology:
             raise ValueError(
                 f"unsupported connection schema {incoming_version!r}; "
                 f"expected {LEGACY_CONNECTION_SCHEMA_VERSION}, "
+                f"{INTERMEDIATE_CONNECTION_SCHEMA_VERSION}, "
                 f"{PREVIOUS_CONNECTION_SCHEMA_VERSION} or {CONNECTION_SCHEMA_VERSION}"
             )
         hosts_raw = _object_sequence(values["hosts"], name="hosts")
@@ -1022,7 +1053,15 @@ class ConnectionTopology:
             security_profile=_required_string(
                 values["security_profile"], name="security_profile"
             ),
-            hosts=tuple(ManagedHost.from_dict(item) for item in hosts_raw),
+            hosts=tuple(
+                ManagedHost.from_dict(
+                    item,
+                    derive_ssh_host_from_dds=(
+                        incoming_version != CONNECTION_SCHEMA_VERSION
+                    ),
+                )
+                for item in hosts_raw
+            ),
             dds_graph=DdsGraphSettings.from_dict(values["dds_graph"]),
         ).validate()
 
@@ -1246,8 +1285,10 @@ def _reject_secret_fields(value: Any, *, path: str = "root") -> None:
 __all__ = [
     "CONNECTION_SCHEMA_VERSION",
     "LEGACY_CONNECTION_SCHEMA_VERSION",
+    "INTERMEDIATE_CONNECTION_SCHEMA_VERSION",
     "PREVIOUS_CONNECTION_SCHEMA_VERSION",
     "PREFLIGHT_SCHEMA_VERSION",
+    "LEGACY_PREFLIGHT_SCHEMA_VERSION",
     "INSTALL_MODES",
     "LIFECYCLES",
     "ROLES",

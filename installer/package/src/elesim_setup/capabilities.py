@@ -37,6 +37,11 @@ class HostCapabilities:
     gpu_devices: tuple[GpuDevice, ...]
     wsl: bool = False
     wslg_available: bool = False
+    docker_backend: str = ""
+    docker_context: str = ""
+    docker_engine_id: str = ""
+    docker_endpoint: str = ""
+    docker_host_override: str = ""
 
     def to_dict(self) -> dict[str, object]:
         raw = asdict(self)
@@ -65,6 +70,33 @@ def detect_host_capabilities(
     )
     output = _run_output if command_output is None else command_output
     gpu_devices = _parse_gpu_devices(_optional_output(output, ("nvidia-smi", "-L")))
+    docker_name = _optional_output(
+        output,
+        ("docker", "info", "--format", "{{.Name}}"),
+    ).strip()
+    docker_context = _optional_output(
+        output,
+        ("docker", "context", "show"),
+    ).strip()
+    docker_engine_id = _optional_output(
+        output,
+        ("docker", "info", "--format", "{{.ID}}"),
+    ).strip()
+    docker_endpoint = (
+        _optional_output(
+            output,
+            (
+                "docker",
+                "context",
+                "inspect",
+                docker_context,
+                "--format",
+                '{{(index .Endpoints "docker").Host}}',
+            ),
+        ).strip()
+        if docker_context
+        else ""
+    )
     amd64 = architecture in {"amd64", "x86_64"}
     ubuntu = os_release.get("ID", "").lower() == "ubuntu"
     return HostCapabilities(
@@ -82,6 +114,11 @@ def detect_host_capabilities(
         gpu_devices=gpu_devices,
         wsl=wsl,
         wslg_available=wslg_available,
+        docker_backend=_docker_backend(docker_name, docker_context),
+        docker_context=docker_context,
+        docker_engine_id=docker_engine_id,
+        docker_endpoint=docker_endpoint,
+        docker_host_override=environment.get("DOCKER_HOST", "").strip(),
     )
 
 
@@ -120,6 +157,27 @@ def detect_install_host_capabilities(
         "ELESIM_HOST_DISPLAY",
         detected.display_available,
     )
+    docker_backend = (
+        environment.get("ELESIM_HOST_DOCKER_BACKEND", "").strip()
+        or detected.docker_backend
+    )
+    docker_context = (
+        environment.get("ELESIM_HOST_DOCKER_CONTEXT", "").strip()
+        or detected.docker_context
+    )
+    docker_engine_id = (
+        environment.get("ELESIM_HOST_DOCKER_ENGINE_ID", "").strip()
+        or detected.docker_engine_id
+    )
+    docker_endpoint = (
+        environment.get("ELESIM_HOST_DOCKER_ENDPOINT", "").strip()
+        or detected.docker_endpoint
+    )
+    docker_host_override = (
+        environment.get("ELESIM_HOST_DOCKER_HOST_OVERRIDE", "").strip()
+        if "ELESIM_HOST_DOCKER_HOST_OVERRIDE" in environment
+        else detected.docker_host_override
+    )
     amd64 = architecture.lower() in {"amd64", "x86_64"}
     return HostCapabilities(
         architecture=architecture,
@@ -133,7 +191,20 @@ def detect_install_host_capabilities(
         gpu_devices=gpu_devices,
         wsl=wsl,
         wslg_available=wslg_available,
+        docker_backend=docker_backend,
+        docker_context=docker_context,
+        docker_engine_id=docker_engine_id,
+        docker_endpoint=docker_endpoint,
+        docker_host_override=docker_host_override,
     )
+
+
+def _docker_backend(name: str, context: str) -> str:
+    if name == "docker-desktop" or context == "desktop-linux":
+        return "docker-desktop"
+    if name or context:
+        return "native"
+    return ""
 
 
 def _environment_flag(

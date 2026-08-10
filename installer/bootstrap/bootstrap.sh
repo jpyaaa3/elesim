@@ -57,6 +57,10 @@ if ! command -v docker >/dev/null 2>&1; then
   fi
 fi
 
+if [[ -n ${DOCKER_HOST:-} ]]; then
+  fail "DOCKER_HOST overrides are not supported because an Elesim install pins a local Docker context and exact daemon. Unset DOCKER_HOST and rerun setup."
+fi
+
 if ! docker info >/dev/null 2>&1; then
   if sudo docker info >/dev/null 2>&1; then
     docker_cmd=(sudo docker)
@@ -70,11 +74,23 @@ fi
 "${docker_cmd[@]}" compose version >/dev/null 2>&1 || \
   fail "Docker Compose v2 plugin ('docker compose') is required"
 
-# Docker Desktop and a native Engine use the same CLI.  Record the selected
-# backend without changing the user's context; runtime namespace-check remains
-# the authoritative test for whether a tailscale* interface is bindable.
+# Docker Desktop and a native Engine use the same CLI. Record the selected
+# backend without changing the user's context; setup pins that daemon and
+# generates the matching direct-host or Tailscale-sidecar runtime.
 docker_backend_name="$("${docker_cmd[@]}" info --format '{{.Name}}' 2>/dev/null || true)"
 docker_context_name="$("${docker_cmd[@]}" context show 2>/dev/null || true)"
+docker_engine_id="$("${docker_cmd[@]}" info --format '{{.ID}}' 2>/dev/null || true)"
+docker_context_endpoint="$("${docker_cmd[@]}" context inspect "$docker_context_name" --format '{{(index .Endpoints "docker").Host}}' 2>/dev/null || true)"
+docker_host_override="${DOCKER_HOST:-}"
+case "$docker_context_endpoint" in
+  unix://*|npipe://*) ;;
+  ssh://*|tcp://*)
+    fail "remote Docker contexts are not supported because Elesim mounts local absolute installation paths: context=${docker_context_name} endpoint=${docker_context_endpoint}"
+    ;;
+  *)
+    fail "Docker context endpoint is missing or unsupported: context=${docker_context_name:-unknown} endpoint=${docker_context_endpoint:-unknown}"
+    ;;
+esac
 docker_backend_kind="native"
 if [[ "$docker_backend_name" == "docker-desktop" || "$docker_context_name" == "desktop-linux" ]]; then
   docker_backend_kind="docker-desktop"
@@ -83,11 +99,11 @@ tailscale_interfaces=""
 if command -v ip >/dev/null 2>&1; then
   tailscale_interfaces="$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {printf "%s%s", separator, $2; separator=","}' || true)"
 fi
-printf '%s\n' "[bootstrap] Docker backend=${docker_backend_kind} name=${docker_backend_name:-unknown} context=${docker_context_name:-unknown}"
+printf '%s\n' "[bootstrap] Docker backend=${docker_backend_kind} name=${docker_backend_name:-unknown} context=${docker_context_name:-unknown} endpoint=${docker_context_endpoint} engine=${docker_engine_id:-unknown}"
 if [[ -n "$tailscale_interfaces" ]]; then
   printf '%s\n' "[bootstrap] host tailscale interfaces=${tailscale_interfaces}"
   if [[ "$docker_backend_kind" == "docker-desktop" ]]; then
-    printf '%s\n' "[bootstrap] Docker Desktop/WSL may not expose these interfaces inside runtime containers; a same-namespace native Engine is required for direct tailscale* DDS binding."
+    printf '%s\n' "[bootstrap] Docker Desktop does not inherit the WSL tailscale interface; setup will generate a separate kernel-mode Tailscale runtime sidecar."
   fi
 else
   printf '%s\n' "[bootstrap] host tailscale interfaces=none"
@@ -203,6 +219,11 @@ docker_args=(
   --env "ELESIM_HOST_DISPLAY=$host_display"
   --env "ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
   --env "ELESIM_HOST_GPU_LIST=$host_gpu_list"
+  --env "ELESIM_HOST_DOCKER_BACKEND=$docker_backend_kind"
+  --env "ELESIM_HOST_DOCKER_CONTEXT=$docker_context_name"
+  --env "ELESIM_HOST_DOCKER_ENGINE_ID=$docker_engine_id"
+  --env "ELESIM_HOST_DOCKER_ENDPOINT=$docker_context_endpoint"
+  --env "ELESIM_HOST_DOCKER_HOST_OVERRIDE=$docker_host_override"
   --volume "$HOME:$HOME"
   --volume "$bootstrap_file:/tmp/elesim-bootstrap.py:ro"
 )

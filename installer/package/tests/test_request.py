@@ -8,7 +8,15 @@ from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.request import SetupRequest
 
 
-def _capabilities(*, jetson: bool = False) -> HostCapabilities:
+def _capabilities(
+    *,
+    jetson: bool = False,
+    docker_backend: str = "",
+    docker_context: str = "",
+    docker_engine_id: str = "",
+    docker_endpoint: str = "",
+    docker_host_override: str = "",
+) -> HostCapabilities:
     return HostCapabilities(
         architecture="aarch64" if jetson else "x86_64",
         os_id="ubuntu",
@@ -19,6 +27,14 @@ def _capabilities(*, jetson: bool = False) -> HostCapabilities:
         display_available=True,
         ssh_agent=True,
         gpu_devices=(),
+        docker_backend=docker_backend,
+        docker_context=docker_context,
+        docker_engine_id=docker_engine_id,
+        docker_endpoint=(
+            docker_endpoint
+            or ("unix:///var/run/docker.sock" if docker_context else "")
+        ),
+        docker_host_override=docker_host_override,
     )
 
 
@@ -62,6 +78,72 @@ def test_general_request_translates_to_router_free_state(tmp_path: Path) -> None
     assert state.runtime_text_logs.enabled is True
     assert state.network.ui_id == "ui-west"
     assert state.network.robot_id == "robot-west"
+
+
+def test_general_request_selects_network_from_actual_docker_daemon(
+    tmp_path: Path,
+) -> None:
+    request = SetupRequest.from_dict(_payload(tmp_path))
+    desktop = _capabilities(
+        docker_backend="docker-desktop",
+        docker_context="default",
+        docker_engine_id="desktop-engine-id",
+    )
+    native = _capabilities(
+        docker_backend="native",
+        docker_context="native-elesim",
+        docker_engine_id="native-engine-id",
+    )
+
+    desktop_state = request.validate(desktop).to_install_state(desktop)
+    native_state = request.validate(native).to_install_state(native)
+
+    assert desktop_state.container_network.mode == "tailscale-sidecar"
+    assert desktop_state.container_network.docker_context == "default"
+    assert desktop_state.container_network.docker_engine_id == "desktop-engine-id"
+    assert desktop_state.container_network.tailscale_hostname.startswith("elesim-")
+    assert desktop_state.container_network.tailscale_state_path == (
+        desktop_state.prefix_path / "secrets/tailscale"
+    )
+    assert native_state.container_network.mode == "direct-host"
+    assert native_state.container_network.docker_context == "native-elesim"
+    assert native_state.container_network.docker_engine_id == "native-engine-id"
+    assert native_state.container_network.tailscale_hostname == ""
+
+    second_payload = _payload(tmp_path)
+    second_payload["prefix"] = str(tmp_path / "other-install")
+    second = SetupRequest.from_dict(second_payload).to_install_state(desktop)
+    assert (
+        second.container_network.tailscale_hostname
+        != desktop_state.container_network.tailscale_hostname
+    )
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "docker_host", "pattern"),
+    (
+        ("ssh://operator@docker.example", "", "remote Docker context"),
+        ("tcp://docker.example:2376", "", "remote Docker context"),
+        ("http://docker.example", "", "지원하지 않는 Docker context endpoint"),
+        ("unix:///var/run/docker.sock", "tcp://override:2376", "DOCKER_HOST"),
+    ),
+)
+def test_general_request_rejects_nonlocal_or_overridden_docker_daemon(
+    tmp_path: Path,
+    endpoint: str,
+    docker_host: str,
+    pattern: str,
+) -> None:
+    capabilities = _capabilities(
+        docker_backend="native",
+        docker_context="unsafe",
+        docker_engine_id="engine-id",
+        docker_endpoint=endpoint,
+        docker_host_override=docker_host,
+    )
+
+    with pytest.raises(ValueError, match=pattern):
+        SetupRequest.from_dict(_payload(tmp_path)).validate(capabilities)
 
 
 def test_general_request_defaults_use_connection_manager_endpoint_ids(

@@ -14,12 +14,15 @@ from .profiles import normalize_roles
 
 
 # v8 is the first state format whose application roles are named ``pilot`` and
-# ``sim``.  Older files are accepted only at this input boundary and are
-# normalized to v8 before anything is generated.
-STATE_SCHEMA_VERSION = 8
-SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6, 7, STATE_SCHEMA_VERSION})
+# ``sim``.  v9 pins the Docker daemon used by a generated container install and
+# records whether DDS uses that daemon's host namespace or an Elesim-owned
+# kernel-mode Tailscale sidecar.  Older files are accepted only at this input
+# boundary and retain their pre-v9 direct-host behavior.
+STATE_SCHEMA_VERSION = 9
+SUPPORTED_STATE_SCHEMAS = frozenset({1, 2, 3, 4, 5, 6, 7, 8, STATE_SCHEMA_VERSION})
 GPU_MODES = frozenset({"inherit", "specific", "cpu"})
 INSTALL_MODES = frozenset({"native", "container"})
+CONTAINER_NETWORK_MODES = frozenset({"direct-host", "tailscale-sidecar"})
 TURN_MODES = frozenset({"none", "managed", "external"})
 DDS_DISCOVERY_MODES = frozenset({"multicast", "static"})
 DDS_SECURITY_PROFILES = frozenset({"trusted-network", "sros2"})
@@ -30,6 +33,7 @@ DEFAULT_BIN_DIR = Path("~/.local/bin").expanduser()
 _ROS_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _RMW_NAME = re.compile(r"^rmw_[a-z0-9_]{1,120}$")
 _SECURITY_GENERATION = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,95}$")
+_TAILSCALE_HOSTNAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 @dataclass(frozen=True)
@@ -297,6 +301,85 @@ class TurnSettings:
 
 
 @dataclass(frozen=True)
+class ContainerNetworkSettings:
+    """Non-secret Docker daemon and runtime-network selection.
+
+    ``docker_context`` and ``docker_engine_id`` are an all-or-nothing daemon
+    pin.  The sidecar stores its private machine state only at the exact path
+    recorded here; authentication material is deliberately absent from this
+    schema.
+    """
+
+    mode: str = "direct-host"
+    docker_context: str = ""
+    docker_engine_id: str = ""
+    tailscale_hostname: str = ""
+    tailscale_state_dir: str = ""
+
+    def validate(self) -> "ContainerNetworkSettings":
+        if self.mode not in CONTAINER_NETWORK_MODES:
+            raise ValueError(
+                f"지원하지 않는 container network mode: {self.mode!r}"
+            )
+        context = _bounded_single_line(
+            self.docker_context,
+            name="Docker context",
+            maximum=255,
+        )
+        engine_id = _bounded_single_line(
+            self.docker_engine_id,
+            name="Docker engine ID",
+            maximum=256,
+        )
+        if bool(context) != bool(engine_id):
+            raise ValueError(
+                "Docker context와 engine ID는 함께 지정하거나 모두 비워야 합니다"
+            )
+        hostname = _bounded_single_line(
+            self.tailscale_hostname,
+            name="Tailscale hostname",
+            maximum=63,
+        )
+        state_dir = _bounded_single_line(
+            self.tailscale_state_dir,
+            name="Tailscale state directory",
+            maximum=4096,
+        )
+        if self.mode == "tailscale-sidecar":
+            if not context or not engine_id:
+                raise ValueError(
+                    "Tailscale sidecar에는 고정 Docker context와 engine ID가 필요합니다"
+                )
+            if not hostname or not _TAILSCALE_HOSTNAME.fullmatch(hostname):
+                raise ValueError(
+                    "Tailscale hostname은 1..63자의 소문자 DNS label이어야 합니다"
+                )
+            if not state_dir or not Path(state_dir).expanduser().is_absolute():
+                raise ValueError(
+                    "Tailscale state directory는 절대 경로여야 합니다"
+                )
+        elif hostname or state_dir:
+            raise ValueError(
+                "direct-host mode에는 Tailscale sidecar hostname/state를 지정할 수 없습니다"
+            )
+        return self
+
+    @property
+    def uses_tailscale_sidecar(self) -> bool:
+        return self.mode == "tailscale-sidecar"
+
+    @property
+    def tailscale_state_path(self) -> Path | None:
+        value = self.tailscale_state_dir.strip()
+        if not value:
+            return None
+        # Preserve the exact lexical child path. Resolving here would follow a
+        # malicious ``secrets/tailscale`` symlink and make the escaped target
+        # appear equal to an also-resolved expected path.
+        return Path(os.path.abspath(Path(value).expanduser()))
+
+
+@dataclass(frozen=True)
 class InstallState:
     profile: str
     roles: tuple[str, ...]
@@ -309,6 +392,9 @@ class InstallState:
     turn: TurnSettings = field(default_factory=TurnSettings)
     runtime_text_logs: RuntimeTextLogSettings = field(
         default_factory=RuntimeTextLogSettings
+    )
+    container_network: ContainerNetworkSettings = field(
+        default_factory=ContainerNetworkSettings
     )
     install_mode: str = "container"
     install_go2_mpc: bool = True
@@ -344,6 +430,7 @@ class InstallState:
         self.compute.validate()
         self.turn.validate()
         self.runtime_text_logs.validate()
+        self.container_network.validate()
         if self.install_mode not in INSTALL_MODES:
             raise ValueError(f"지원하지 않는 설치 방식: {self.install_mode!r}")
         if "robot" in roles and roles != ("robot",):
@@ -361,6 +448,18 @@ class InstallState:
                 "Sim, Pilot과 UI는 일반 Docker/Compose 설치만 "
                 "지원합니다; native 설치는 Robot Jetson 단독 전용입니다"
             )
+        if (
+            self.container_network.uses_tailscale_sidecar
+            and self.install_mode != "container"
+        ):
+            raise ValueError("Tailscale sidecar에는 container 설치가 필요합니다")
+        if self.container_network.uses_tailscale_sidecar:
+            expected_state = self.prefix_path / "secrets/tailscale"
+            if self.container_network.tailscale_state_path != expected_state:
+                raise ValueError(
+                    "Tailscale sidecar state directory는 설치 prefix의 "
+                    f"정확한 경로여야 합니다: {expected_state}"
+                )
         has_turn_urls = bool(self.network.turn_urls)
         if self.turn.mode == "none" and has_turn_urls:
             raise ValueError("TURN URL에는 managed 또는 external TURN 모드가 필요합니다")
@@ -467,6 +566,7 @@ class InstallState:
         turn_raw = raw.get("turn", {})
         dds_raw = raw.get("dds", {})
         runtime_text_logs_raw = raw.get("runtime_text_logs", {})
+        container_network_raw = raw.get("container_network", {})
         if not all(
             isinstance(value, Mapping)
             for value in (
@@ -475,10 +575,12 @@ class InstallState:
                 turn_raw,
                 dds_raw,
                 runtime_text_logs_raw,
+                container_network_raw,
             )
         ):
             raise ValueError(
-                "설치 상태의 network/dds/compute/turn/runtime_text_logs가 "
+                "설치 상태의 network/dds/compute/turn/runtime_text_logs/"
+                "container_network가 "
                 "object가 아닙니다"
             )
 
@@ -585,6 +687,11 @@ class InstallState:
                 if source_schema < 7
                 else RuntimeTextLogSettings(**dict(runtime_text_logs_raw))
             ),
+            container_network=(
+                ContainerNetworkSettings()
+                if source_schema < 9
+                else ContainerNetworkSettings(**dict(container_network_raw))
+            ),
             install_mode=install_mode,
             install_go2_mpc=bool(raw.get("install_go2_mpc", True)),
             schema_version=STATE_SCHEMA_VERSION,
@@ -652,6 +759,13 @@ def _validate_identifier(value: object, *, name: str) -> None:
         raise ValueError(f"{name}은 1..128자의 공백 없는 값이어야 합니다")
 
 
+def _bounded_single_line(value: object, *, name: str, maximum: int) -> str:
+    text = str(value).strip()
+    if len(text) > maximum or "\n" in text or "\r" in text or "\x00" in text:
+        raise ValueError(f"{name}은 {maximum}자 이하의 한 줄 문자열이어야 합니다")
+    return text
+
+
 __all__ = [
     "DDS_DISCOVERY_MODES",
     "DDS_RMW_IMPLEMENTATIONS",
@@ -660,6 +774,8 @@ __all__ = [
     "DEFAULT_BIN_DIR",
     "DEFAULT_PREFIX",
     "ComputeSettings",
+    "CONTAINER_NETWORK_MODES",
+    "ContainerNetworkSettings",
     "DdsSettings",
     "GPU_MODES",
     "INSTALL_MODES",

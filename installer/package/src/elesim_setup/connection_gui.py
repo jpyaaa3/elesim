@@ -32,7 +32,7 @@ from .connection_manager import (
 
 ConnectionRunner = Callable[
     [ConnectionTopology, str, Callable[[str], None]],
-    None,
+    ConnectionTopology | None,
 ]
 StatusProvider = Callable[[ConnectionTopology], Mapping[str, object]]
 FingerprintProbe = Callable[[str, int], str]
@@ -61,6 +61,9 @@ _SECRET_ASSIGNMENT = re.compile(
     re.IGNORECASE,
 )
 _BEARER_VALUE = re.compile(r"\bbearer\s+\S+", re.IGNORECASE)
+_TAILSCALE_LOGIN_URL = re.compile(
+    r"https://login\.tailscale\.com/a/[A-Za-z0-9_-]+"
+)
 
 
 class ConnectionJobCancelled(RuntimeError):
@@ -91,6 +94,8 @@ class ConnectionJob:
     error: str = ""
     started_at: float | None = None
     finished_at: float | None = None
+    interaction: dict[str, str] | None = None
+    topology_updated: bool = False
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -100,6 +105,8 @@ class ConnectionJob:
             "error": self.error,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "interaction": None if self.interaction is None else dict(self.interaction),
+            "topology_updated": self.topology_updated,
         }
 
 
@@ -163,6 +170,9 @@ class ConnectionManagerApplication:
             "manager_transport": {
                 "containerized": os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1",
                 "tailscale_proxy": os.environ.get("ELESIM_TAILSCALE_PROXY") == "1",
+                "container_network_mode": os.environ.get(
+                    "ELESIM_CONTAINER_NETWORK_MODE", "direct-host"
+                ),
             },
             "tailscale": tailscale,
         }
@@ -226,7 +236,7 @@ class ConnectionManagerApplication:
             if host.ssh is None:
                 continue
             check: dict[str, object] = {
-                "host": host.dds.address,
+                "host": host.ssh.host,
                 "port": host.ssh.port,
                 "user": host.ssh.user,
                 "checked": False,
@@ -234,7 +244,7 @@ class ConnectionManagerApplication:
             if probe_ssh:
                 result = self.probe_fingerprint(
                     {
-                        "host": host.dds.address,
+                        "host": host.ssh.host,
                         "port": host.ssh.port,
                         "auth_mode": host.ssh.auth_mode,
                     }
@@ -376,6 +386,20 @@ class ConnectionManagerApplication:
         def log(message: str) -> None:
             if self._cancel_event.is_set():
                 raise ConnectionJobCancelled("connection-manager job cancelled")
+            login = _TAILSCALE_LOGIN_URL.search(str(message))
+            if login is not None:
+                # A device-login URL is a short-lived browser interaction, not
+                # durable job output.  Keep it out of the mirrored terminal and
+                # persisted topology while exposing it to the token-protected
+                # loopback UI for the lifetime of this job.
+                prefix = str(message)[: login.start()].strip()
+                with self._job_lock:
+                    self.job.interaction = {
+                        "kind": "tailscale-login",
+                        "url": login.group(0),
+                        "host": prefix[:256],
+                    }
+                return
             safe = self._safe_status_text(message)
             with self._job_lock:
                 self.job.logs.append(safe)
@@ -388,25 +412,47 @@ class ConnectionManagerApplication:
                 raise ConnectionJobCancelled("connection-manager job cancelled")
 
         try:
-            self.runner(topology, action, log)
+            updated = self.runner(topology, action, log)
+            if isinstance(updated, ConnectionTopology) and updated != topology:
+                with self._state_lock:
+                    current = ConnectionTopology.load(self.state_path)
+                    if current != updated:
+                        updated.save(self.state_path)
+                with self._job_lock:
+                    self.job.topology_updated = True
         except ConnectionJobCancelled:
+            topology_updated = self._persisted_topology_changed(topology)
             with self._job_lock:
                 self.job.status = "cancelled"
+                self.job.interaction = None
+                self.job.topology_updated = topology_updated
                 self.job.finished_at = time.time()
             return
         except Exception as exc:  # The browser reports a bounded, redacted failure.
+            topology_updated = self._persisted_topology_changed(topology)
             with self._job_lock:
                 self.job.status = "failed"
                 self.job.error = self._safe_status_text(exc)
+                self.job.interaction = None
+                self.job.topology_updated = topology_updated
                 self.job.finished_at = time.time()
             return
         with self._job_lock:
             self.job.status = "completed"
+            self.job.interaction = None
             self.job.finished_at = time.time()
+
+    def _persisted_topology_changed(self, original: ConnectionTopology) -> bool:
+        try:
+            current = self.load_topology(required=True)
+        except (FileNotFoundError, OSError, ValueError):
+            return False
+        return current is not None and current != original
 
     def _safe_status_text(self, value: object) -> str:
         text = str(value).replace("\x00", "").replace("\r", " ")
         text = text[:_MAX_LOG_LINE]
+        text = _TAILSCALE_LOGIN_URL.sub("[Tailscale login URL redacted]", text)
         if self.token:
             text = text.replace(self.token, "[redacted]")
         if _PEM_LOG.search(text):

@@ -17,7 +17,7 @@ const dropBandRatio = 0.5;
 let catalog = {};
 let language = "ko";
 let runtimePollInFlight = false;
-let schemaVersion = 3;
+let schemaVersion = 4;
 let topologyMode = "full";
 let roleLocations = {
   pilot: "com1",
@@ -475,20 +475,11 @@ function setCardActive(slot) {
 function updateSshVisibility() {
   const local = document.querySelector('input[name="local-host"]:checked')?.value;
   slots.forEach((slot) => {
-    syncSshAddress(slot);
     const details = card(slot).querySelector(".ssh-fields");
     details.hidden = !isActive(slot) || local === slot;
     card(slot).classList.toggle("local", local === slot && isActive(slot));
     updateSshMode(slot);
   });
-}
-
-function syncSshAddress(slot) {
-  const address = field(slot, "dds-address").value.trim();
-  const sshHost = field(slot, "ssh-host");
-  sshHost.value = address;
-  sshHost.disabled = true;
-  sshHost.readOnly = true;
 }
 
 function updateSshMode(slot) {
@@ -572,7 +563,7 @@ function topologyFromForm() {
     };
     if (!local) {
       host.ssh = {
-        host: field(slot, "dds-address").value.trim(),
+        host: field(slot, "ssh-host").value.trim(),
         port: sshPort(slot),
         user: field(slot, "ssh-user").value.trim(),
         identity_file: field(slot, "ssh-tailscale").checked
@@ -601,7 +592,6 @@ function fillHost(slot, host) {
   field(slot, "host-id").value = host.id;
   field(slot, "dds-address").value = host.dds.address;
   field(slot, "dds-interface").value = host.dds.interface;
-  syncSshAddress(slot);
   const units = Array.isArray(host.units) ? host.units : [{
     id: host.install_mode === "native" ? "robot-native" : "runtime",
     assignments: host.assignments || [],
@@ -615,6 +605,7 @@ function fillHost(slot, host) {
   field(slot, "bin-dir").value = pathUnit?.bin_dir || "/opt/elesim/bin";
   document.querySelector(`input[name="local-host"][value="${slot}"]`).checked = host.local;
   if (host.ssh) {
+    field(slot, "ssh-host").value = host.ssh.host;
     field(slot, "ssh-port").value = host.ssh.port;
     field(slot, "ssh-user").value = host.ssh.user;
     field(slot, "ssh-tailscale").checked = host.ssh.auth_mode === "tailscale";
@@ -622,6 +613,7 @@ function fillHost(slot, host) {
     field(slot, "ssh-fingerprint").value = host.ssh.pinned_fingerprint;
     updateSshMode(slot);
   } else {
+    field(slot, "ssh-host").value = "";
     field(slot, "ssh-tailscale").checked = false;
     updateSshMode(slot);
   }
@@ -633,6 +625,13 @@ function fillHost(slot, host) {
 }
 
 function applyLocalTailscaleHint(context) {
+  if (context?.manager_transport?.container_network_mode === "tailscale-sidecar") {
+    if (activeSlots().length > 1 && byId("discovery").value === "multicast") {
+      byId("discovery").value = "static";
+      showNotice("notice.tailscale.static");
+    }
+    return;
+  }
   const hint = context?.tailscale;
   if (!hint?.available || !Array.isArray(hint.addresses) || !hint.addresses.length) return;
   const local = document.querySelector('input[name="local-host"]:checked')?.value || "com1";
@@ -732,7 +731,7 @@ async function probeSsh(slot) {
   if (document.querySelector('input[name="local-host"]:checked')?.value === slot) {
     throw new Error(t("error.local.probe"));
   }
-  const host = field(slot, "dds-address").value.trim();
+  const host = field(slot, "ssh-host").value.trim();
   const port = sshPort(slot);
   const result = await api("/api/ssh/fingerprint", {
     method: "POST",
@@ -817,17 +816,40 @@ async function pollJob() {
     const key = `job.${job.status}`;
     byId("job-status").dataset.status = job.status;
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
+    const interaction = byId("job-interaction");
+    if (job.interaction?.kind === "tailscale-login" && job.interaction.url) {
+      interaction.href = job.interaction.url;
+      interaction.textContent = t("action.tailscale.login");
+      interaction.hidden = false;
+    } else {
+      interaction.removeAttribute("href");
+      interaction.hidden = true;
+    }
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
     const step = workflowStepForAction(job.action);
+    const topologyAppliedByThisJob =
+      job.status === "completed" &&
+      ["prepare", "provision", "deploy", "rotate"].includes(job.action);
     if (step && running) setWorkflowStepState(step, "running");
     if (step && !running && job.status === "completed") setWorkflowStepState(step, "success");
     if (step && !running && ["failed", "cancelled"].includes(job.status)) setWorkflowStepState(step, "error");
-    if (job.status === "completed" && ["prepare", "provision", "deploy", "rotate"].includes(job.action)) {
+    if (topologyAppliedByThisJob) {
       workflowSaved = true;
       workflowApplied = true;
       setWorkflowStepState("save", "success");
       setWorkflowStepState("apply", "success");
+    }
+    if (!running && job.topology_updated) {
+      const context = await api("/api/context");
+      if (context.topology) applyTopology(context.topology);
+      workflowSaved = true;
+      setWorkflowStepState("save", "success");
+      if (!topologyAppliedByThisJob) {
+        workflowApplied = false;
+        setWorkflowStepState("apply", "pending");
+        setWorkflowStepState("start", "pending");
+      }
     }
     setJobRunning(running);
     updateWorkflow(running);
@@ -906,20 +928,12 @@ function bindEvents() {
     input.addEventListener("change", updateSshVisibility);
   });
   slots.forEach((slot) => {
-    ["ssh-port"].forEach((name) => {
+    ["ssh-host", "ssh-port"].forEach((name) => {
       field(slot, name).addEventListener("input", () => { field(slot, "ssh-fingerprint").value = ""; });
     });
     field(slot, "ssh-tailscale").addEventListener("change", () => {
       updateSshMode(slot);
       field(slot, "ssh-fingerprint").value = "";
-    });
-    ["host-id", "dds-address"].forEach((name) => {
-      if (name === "dds-address") {
-        field(slot, name).addEventListener("input", () => {
-          syncSshAddress(slot);
-          field(slot, "ssh-fingerprint").value = "";
-        });
-      }
     });
     field(slot, "dds-interface").addEventListener("input", () => {
       ensureRoutedDiscovery();
