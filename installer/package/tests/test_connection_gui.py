@@ -328,6 +328,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'class="workflow-layout"' in html
     assert 'data-step="login"' in html
     assert 'id="tailscale-login"' in html
+    assert html.index('data-step="save"') < html.index('data-step="login"')
+    assert html.index('data-step="login"') < html.index('data-step="apply"')
+    assert html.index('data-step="apply"') < html.index('data-step="start"')
     assert "grid-template-columns: repeat(4" in style
     assert 'data-state="pending"' in html
     assert 'id="cancel"' in html
@@ -345,6 +348,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
     assert 'workflow.login.title' in script or 'workflow.login.title' in html
+    assert 'if (action === "network") return "login";' in script
+    assert 'await startJob("network");' in script
     assert 'sidecarLoginRequired' in script
     assert 'byId("tailscale-login").addEventListener' in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script

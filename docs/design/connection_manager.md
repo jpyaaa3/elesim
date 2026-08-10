@@ -218,6 +218,11 @@ bind directory는 ownership manifest의 install-owned `<prefix>/secrets` root �
 있다. 자동 backend 선택은 runtime에 Docker context를 임의 전환한다는 뜻이
 아니다.
 
+연결관리자 GUI에서는 sidecar가 필요한 경우 Tailscale 로그인 단계를 보안 자료
+준비보다 먼저 수행한다. 이 단계는 `network` 작업으로 각 host의 runtime
+namespace와 sidecar를 준비하며, 이미 등록된 sidecar에서는 즉시 완료된다. 보안
+세대 발급과 DDS 설정 적용은 로그인 단계가 성공한 뒤에만 활성화된다.
+
 Tailscale을 모든 DDS host에 설치할 수 없다면 한 host를 subnet/VPN gateway로 두는
 고급 경로가 있다. 그러나 Jetson의 반환 route, source NAT, DDS locator advertisement,
 static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesim이 자동 생성하거나
