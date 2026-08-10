@@ -24,6 +24,7 @@ let selectedFile = "";
 
 const byId = (id) => document.getElementById(id);
 const checkedValue = (name) => document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 
 function t(key) {
   return catalog[language]?.[key] || key;
@@ -304,18 +305,11 @@ async function pollJob() {
       byId("close-installer").disabled = false;
       byId("install-status").textContent = t("install.completed");
       byId("completion").hidden = false;
-      const pendingManaged = checkedValue("edition") === "general"
-        && hasSim();
       const binDir = byId("bin-dir").value.trim();
-      const startCommand = `${binDir}/${pendingManaged ? "elesim-connections" : "elesim-up"}`;
-      if (pendingManaged) {
-        const managerCleanup =
-          'if [ "$(docker inspect -f \'{{.State.Running}}\' elesim-manager 2>/dev/null)" = false ]; then docker rm elesim-manager; fi';
-        byId("start-command").textContent =
-          `${startCommand} && source ~/.bashrc && ${managerCleanup}`;
-      } else {
-        byId("start-command").textContent = startCommand;
-      }
+      const managerCleanup =
+        'if [ "$(docker inspect -f \'{{.State.Running}}\' elesim-manager 2>/dev/null)" = false ]; then docker rm elesim-manager; fi';
+      byId("start-command").textContent =
+        `cd ${shellQuote(binDir)} && source ~/.bashrc && ${managerCleanup}`;
       byId("post-install-command").textContent = "elesim-connections";
     } else if (job.status === "failed") {
       window.clearInterval(pollTimer);

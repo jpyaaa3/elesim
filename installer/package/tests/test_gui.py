@@ -72,7 +72,10 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert 'id="register-path" type="checkbox" checked' in html
     assert ".command-row code" in style and "white-space: pre-wrap;" in style
     assert "elesim-connections</code>" in html
-    assert '`${startCommand} && source ~/.bashrc && ${managerCleanup}`' in script
+    assert '`${binDir}/elesim-connections && source ~/.bashrc && ${managerCleanup}`' not in script
+    assert '`cd ${shellQuote(binDir)} && source ~/.bashrc && ${managerCleanup}`' in script
+    assert "const shellQuote =" in script
+    assert "const pendingManaged" not in script
     assert 'const defaultGeneralRoles = ["sim", "pilot", "ui"];' in script
     assert "data-preset" not in script
     assert "applyPreset" not in script
