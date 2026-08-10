@@ -114,9 +114,11 @@ relay, registry, or authorization service.
 
 Backend selection is automatic during installation and the resolved value is
 persisted; runtime wrappers do not silently switch Docker contexts or backends.
-Sidecar enrollment is a one-time browser/device login performed by the
-operator. Elesim stores neither a Tailscale auth/OAuth key nor the browser
-credential. Roles and the runtime-network doctor share the enrolled namespace;
+Sidecar enrollment is an explicit browser/device login performed by the
+operator. Repeating `elesim-tailscale login` re-authenticates a stale `Running`
+node; runtime launch uses an idempotent check and does not open a browser.
+Elesim stores neither a Tailscale auth/OAuth key nor the browser credential.
+Roles and the runtime-network doctor share the enrolled namespace;
 Coturn may share it as Sim-owned WebRTC infrastructure but never becomes a DDS
 path.
 

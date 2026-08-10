@@ -119,8 +119,9 @@ there are historical unless repeated here.
   installation. The sidecar is a kernel-mode Tailscale node inside the Docker
   VM; roles/tools join its namespace. It is host network infrastructure, not a
   fifth application, Router, or DDS relay.
-- Sidecar enrollment is the explicit one-time `elesim-tailscale login`
-  browser/device flow; `elesim-tailscale status` reports its DDS address.
+- Sidecar enrollment is the explicit `elesim-tailscale login` browser/device
+  flow; repeating it re-authenticates stale local node state.
+  `elesim-tailscale status` reports its DDS address.
   Elesim stores no auth/OAuth key or browser credential. The sidecar DDS address
   remains independent from the WSL/host SSH management address.
 - Default multicast discovery does not cross Tailscale/routed VPN. A routed path

@@ -186,8 +186,10 @@ Docker VM. This service is host network infrastructure, not an Elesim
 application, Router, broker, or DDS relay. Its privileged upstream image is
 version-and-digest pinned.
 
-Enroll a generated sidecar once with `elesim-tailscale login` and inspect it
-with `elesim-tailscale status`. Login uses a browser/device flow. Elesim stores
+Enroll a generated sidecar with `elesim-tailscale login` and inspect it
+with `elesim-tailscale status`. Login uses a browser/device flow; an explicit
+repeat of `login` re-authenticates a stale `Running` node. Runtime launch uses
+an idempotent internal check and does not open a browser. Elesim stores
 no Tailscale auth/OAuth key or browser credential; only the enrolled node state
 persists across ordinary down/up/update. Use the sidecar IP as the DDS address
 and the WSL/host IP as SSH management address when they differ. Routed

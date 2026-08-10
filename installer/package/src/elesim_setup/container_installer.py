@@ -955,7 +955,12 @@ class ContainerInstaller:
             )
             runtime_sidecar_guard = (
                 "sidecar_login_status=0\n"
-                f"{tailscale_wrapper} login || sidecar_login_status=$?\n"
+                # Runtime launch must not open a browser or force a new
+                # Tailscale authentication.  The explicit operator command
+                # ``elesim-tailscale login`` owns that interaction; the
+                # idempotent mode only starts the sidecar and accepts an
+                # already-running node.
+                f"{tailscale_wrapper} login --if-needed || sidecar_login_status=$?\n"
                 "if (( sidecar_login_status != 0 )); then\n"
                 "  printf 'Tailscale runtime을 준비하지 못했습니다. 연결관리자의 보안 및 실행 준비를 다시 실행하거나 %s login을 실행하십시오.\\n' "
                 f"{tailscale_wrapper} >&2\n"
@@ -1588,8 +1593,11 @@ def _tailscale_wrapper(
         + compose_array
         + "case ${1:-} in\n"
         + "  login)\n"
-        + "    if (( $# != 1 )); then\n"
-        + "      printf '사용법: elesim-tailscale login\\n' >&2\n"
+        + "    login_if_needed=0\n"
+        + "    if (( $# == 2 )) && [[ $2 == --if-needed ]]; then\n"
+        + "      login_if_needed=1\n"
+        + "    elif (( $# != 1 )); then\n"
+        + "      printf '사용법: elesim-tailscale login [--if-needed]\\n' >&2\n"
         + "      exit 64\n"
         + "    fi\n"
         + "    \"${tailscale_compose[@]}\" up -d --no-deps tailscale\n"
@@ -1614,8 +1622,20 @@ def _tailscale_wrapper(
         + "      exit 75\n"
         + "    fi\n"
         + "    case ${login_backend_state,,} in\n"
-        + "      running) exit 0 ;;\n"
-        + "      needslogin|nostate) ;;\n"
+        + "      running)\n"
+        + "        if (( login_if_needed )); then\n"
+        + "          exit 0\n"
+        + "        fi\n"
+        + "        login_action=(up --force-reauth --hostname="
+        + shlex.quote(hostname)
+        + ")\n"
+        + "        ;;\n"
+        + "      needslogin|nostate)\n"
+        + "        if (( login_if_needed )); then\n"
+        + "          printf 'Tailscale sidecar 로그인이 필요합니다. 먼저 elesim-tailscale login을 실행하십시오.\\n' >&2\n"
+        + "          exit 75\n"
+        + "        fi\n"
+        + "        ;;\n"
         + "      *)\n"
         + "        printf 'Tailscale sidecar가 로그인 가능한 상태가 아닙니다: %s\\n' \"${login_backend_state:-unknown}\" >&2\n"
         + "        exit 75\n"
@@ -1642,10 +1662,13 @@ def _tailscale_wrapper(
         + "      exit \"$status\"\n"
         + "    }\n"
         + "    trap login_cleanup EXIT TERM INT\n"
-        + "    \"${tailscale_compose[@]}\" exec -T tailscale "
-        + "tailscale --socket=/tmp/tailscaled.sock login --hostname="
+        + "    if [[ -z ${login_action+x} ]]; then\n"
+        + "      login_action=(login --hostname="
         + shlex.quote(hostname)
-        + " &\n"
+        + ")\n"
+        + "    fi\n"
+        + "    \"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock \"${login_action[@]}\" &\n"
         + "    login_child=$!\n"
         + "    while kill -0 \"$login_child\" >/dev/null 2>&1; do\n"
         + "      sleep 2 &\n"
@@ -1684,7 +1707,7 @@ def _tailscale_wrapper(
         + "    printf '{\"BackendState\":\"%s\",\"IPv4\":\"%s\"}\\n' \"$backend_state\" \"$ipv4\"\n"
         + "    ;;\n"
         + "  *)\n"
-        + "    printf '사용법: elesim-tailscale {login|status [--json]}\\n' >&2\n"
+        + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]}\\n' >&2\n"
         + "    exit 64\n"
         + "    ;;\n"
         + "esac\n"

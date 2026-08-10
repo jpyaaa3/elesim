@@ -568,7 +568,7 @@ ip link show tailscale0
 Docker Desktop sidecar에서는 다음을 사용한다.
 
 ```bash
-elesim-tailscale login       # 최초 등록 또는 node state를 의도적으로 초기화한 뒤에만
+elesim-tailscale login       # 브라우저/device 등록 또는 stale node 재인증
 elesim-tailscale status
 ```
 

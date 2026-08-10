@@ -210,8 +210,9 @@ Docker VM 안에 `tailscale0`와 별도 tailnet IP를 소유한다. Sidecar는 h
 network infra이고 다섯 번째 application, Router, DDS relay, registry가 아니다.
 Static peer는 여전히 discovery seed일 뿐이고 실제 DDS sample을 중계하지 않는다.
 
-사용자는 `elesim-tailscale login`으로 browser/device 승인을 한 번 완료하고
-`elesim-tailscale status`로 sidecar 주소를 확인한다. Elesim은 auth/OAuth key나
+사용자는 `elesim-tailscale login`으로 browser/device 승인을 완료하고
+`elesim-tailscale status`로 sidecar 주소를 확인한다. `Running`인 stale node에서
+명시적으로 login을 다시 실행하면 재인증한다. Elesim은 auth/OAuth key나
 browser credential을 저장하지 않는다. Sidecar node state만 mode-0700
 `<prefix>/secrets/tailscale`에 남겨 일반 down/up/update에서 재사용한다. 이 exact
 bind directory는 ownership manifest의 install-owned `<prefix>/secrets` root 안에

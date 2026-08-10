@@ -466,7 +466,8 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
     assert "exec docker compose" in compose_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
-    assert "running) exit 0" in tailscale_wrapper
+    assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
+    assert "login [--if-needed]" in tailscale_wrapper
     assert "needslogin|nostate" in tailscale_wrapper
     assert "trap login_cleanup EXIT TERM INT" in tailscale_wrapper
     assert "브라우저 로그인을 기다리는 중" in tailscale_wrapper
@@ -729,7 +730,7 @@ def test_legacy_unpinned_update_rejects_foreign_daemon_labels(
         ContainerInstaller(pinned).run()
 
 
-def test_tailscale_login_retries_starting_then_is_idempotent_when_running(
+def test_tailscale_login_retries_starting_then_supports_idempotent_mode_when_running(
     tmp_path: Path,
 ) -> None:
     calls = tmp_path / "compose.calls"
@@ -765,7 +766,7 @@ def test_tailscale_login_retries_starting_then_is_idempotent_when_running(
     environment["ELESIM_TEST_STATUS_COUNT"] = str(status_count)
 
     result = subprocess.run(
-        (wrapper, "login"),
+        (wrapper, "login", "--if-needed"),
         env=environment,
         text=True,
         capture_output=True,
@@ -776,7 +777,24 @@ def test_tailscale_login_retries_starting_then_is_idempotent_when_running(
     rendered = calls.read_text(encoding="utf-8")
     assert "up -d --no-deps tailscale" in rendered
     assert rendered.count("status --json") >= 2
-    assert " login " not in f" {rendered} "
+    assert " up --force-reauth " not in f" {rendered} "
+    assert " login --hostname=" not in f" {rendered} "
+
+    # The explicit operator command must still open a browser/device flow (or
+    # reauthenticate a stale Running node) instead of silently accepting the
+    # cached local state.
+    forced = subprocess.run(
+        (wrapper, "login"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert forced.returncode == 0, forced.stderr
+    rendered = calls.read_text(encoding="utf-8")
+    assert " up --force-reauth --hostname=elesim-idempotent " in (
+        f" {rendered} "
+    )
 
 
 def test_tailscale_login_streams_child_and_preserves_its_status(

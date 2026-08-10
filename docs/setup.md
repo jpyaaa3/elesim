@@ -311,7 +311,11 @@ elesim-tailscale login
 elesim-tailscale status
 ```
 
-`login` presents a browser/device authorization flow. Elesim does not request
+`login` presents a browser/device authorization flow. If the local sidecar
+still reports `Running`, an explicit `login` performs Tailscale
+re-authentication so a node removed from the admin console cannot be silently
+accepted from stale local state. Runtime launch uses an idempotent internal
+check and does not open a browser. Elesim does not request
 or persist a Tailscale auth/OAuth key or browser credential. The mode-0700
 `<prefix>/secrets/tailscale` directory retains only the sidecar's node state so
 normal `elesim-down`, `elesim-up`, and `elesim-update` do not require repeated
@@ -680,7 +684,8 @@ connection manager performs a read-only address probe and may prefill the
 current IPv4 address/interface. This is only a convenience hint: it never
 changes ACLs or hard-codes an address, and the operator must refresh the value
 after the node identity changes. Sidecar enrollment remains the explicit
-one-time `elesim-tailscale login` action. A routed VPN is recommended for hosts
+`elesim-tailscale login` action; repeating it re-authenticates stale local
+state. A routed VPN is recommended for hosts
 on different networks; use static discovery and remember that the automated
 namespace/route probe is not a bidirectional DDS proof.
 

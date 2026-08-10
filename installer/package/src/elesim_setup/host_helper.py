@@ -262,6 +262,7 @@ def _validate_command(
     tailscale = str(bin_dir / "elesim-tailscale")
     if tuple(argv) in {
         (tailscale, "login"),
+        (tailscale, "login", "--if-needed"),
         (tailscale, "status"),
         (tailscale, "status", "--json"),
     }:
