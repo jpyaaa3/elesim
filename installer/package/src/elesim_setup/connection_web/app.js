@@ -40,7 +40,9 @@ let pollTimer = null;
 let runtimePollTimer = null;
 let workflowSaved = false;
 let workflowApplied = false;
-const workflowStates = {save: "pending", apply: "pending", start: "pending"};
+let sidecarLoginRequired = false;
+let tailscaleLoginUrl = "";
+const workflowStates = {save: "pending", apply: "pending", login: "pending", start: "pending"};
 
 const byId = (id) => document.getElementById(id);
 const card = (slot) => document.querySelector(`.host-card[data-slot="${slot}"]`);
@@ -702,6 +704,16 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   apply.textContent = t(sros2 ? "action.prepare" : "action.deploy");
   setWorkflowStepEnabled("save", !running && !workflowSaved);
   setWorkflowStepEnabled("apply", !running && workflowSaved);
+  if (!sidecarLoginRequired) {
+    setWorkflowStepState("login", "success");
+    setWorkflowStepEnabled("login", false);
+  } else if (tailscaleLoginUrl) {
+    setWorkflowStepState("login", workflowApplied ? "success" : "running");
+    setWorkflowStepEnabled("login", !["cancelling"].includes(byId("job-status")?.dataset.status || ""));
+  } else {
+    setWorkflowStepState("login", workflowApplied ? "success" : "pending");
+    setWorkflowStepEnabled("login", false);
+  }
   setWorkflowStepEnabled("start", !running && workflowApplied);
 }
 
@@ -720,7 +732,9 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
   if (invalidate) workflowApplied = false;
   if (invalidate) {
     setWorkflowStepState("apply", "pending");
+    setWorkflowStepState("login", sidecarLoginRequired ? "pending" : "success");
     setWorkflowStepState("start", "pending");
+    tailscaleLoginUrl = "";
   }
   updateWorkflow();
   if (!quiet) showNotice("notice.saved");
@@ -774,7 +788,9 @@ function markWorkflowDirty() {
   workflowApplied = false;
   setWorkflowStepState("save", "pending");
   setWorkflowStepState("apply", "pending");
+  setWorkflowStepState("login", sidecarLoginRequired ? "pending" : "success");
   setWorkflowStepState("start", "pending");
+  tailscaleLoginUrl = "";
   updateWorkflow();
 }
 
@@ -816,14 +832,13 @@ async function pollJob() {
     const key = `job.${job.status}`;
     byId("job-status").dataset.status = job.status;
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
-    const interaction = byId("job-interaction");
     if (job.interaction?.kind === "tailscale-login" && job.interaction.url) {
-      interaction.href = job.interaction.url;
-      interaction.textContent = t("action.tailscale.login");
-      interaction.hidden = false;
-    } else {
-      interaction.removeAttribute("href");
-      interaction.hidden = true;
+      tailscaleLoginUrl = job.interaction.url;
+      byId("tailscale-login").dataset.url = tailscaleLoginUrl;
+      setWorkflowStepState("login", "running");
+    } else if (job.status === "completed" && ["prepare", "provision", "deploy", "rotate"].includes(job.action)) {
+      tailscaleLoginUrl = "";
+      byId("tailscale-login").removeAttribute("data-url");
     }
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
@@ -839,6 +854,7 @@ async function pollJob() {
       workflowApplied = true;
       setWorkflowStepState("save", "success");
       setWorkflowStepState("apply", "success");
+      setWorkflowStepState("login", "success");
     }
     if (!running && job.topology_updated) {
       const context = await api("/api/context");
@@ -952,6 +968,10 @@ function bindEvents() {
   byId("security").addEventListener("change", updateWorkflow);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
+  byId("tailscale-login").addEventListener("click", () => {
+    const url = byId("tailscale-login").dataset.url;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  });
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
   byId("cancel").addEventListener("click", async () => {
     try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }
@@ -968,6 +988,7 @@ async function initialize() {
     computerSlots.forEach(setCardActive);
     const context = await api("/api/context");
     schemaVersion = context.schema_version;
+    sidecarLoginRequired = context.manager_transport?.container_network_mode === "tailscale-sidecar";
     applyTopologyMode(context.topology?.topology_mode || "full");
     if (!context.topology) {
       setCardActive(jetsonSlot);
@@ -976,11 +997,13 @@ async function initialize() {
       workflowSaved = true;
       setWorkflowStepState("save", "success");
       setWorkflowStepState("apply", "pending");
+      setWorkflowStepState("login", sidecarLoginRequired ? "pending" : "success");
       setWorkflowStepState("start", "pending");
       applyTopology(context.topology);
       if (context.security?.managed_generation) {
         workflowApplied = true;
         setWorkflowStepState("apply", "success");
+        setWorkflowStepState("login", "success");
       }
     } else if (context.local_defaults) {
       if (context.local_defaults.install_root) {

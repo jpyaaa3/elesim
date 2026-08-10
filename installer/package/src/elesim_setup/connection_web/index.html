@@ -154,8 +154,13 @@
             <div><h3 data-i18n="workflow.apply.title"></h3></div>
             <button id="apply" type="button" disabled></button>
           </article>
-          <article class="workflow-step" data-step="start" data-state="pending" data-enabled="false">
+          <article class="workflow-step" data-step="login" data-state="pending" data-enabled="false">
             <div class="step-number">3</div>
+            <div><h3 data-i18n="workflow.login.title"></h3></div>
+            <button id="tailscale-login" type="button" data-i18n="action.tailscale.login" disabled></button>
+          </article>
+          <article class="workflow-step" data-step="start" data-state="pending" data-enabled="false">
+            <div class="step-number">4</div>
             <div><h3 data-i18n="workflow.start.title"></h3></div>
             <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
           </article>
@@ -165,7 +170,6 @@
       <div class="host-status"><strong data-i18n="runtime.title"></strong><pre id="runtime-status">—</pre></div>
       <div class="job-status">
         <strong id="job-status" data-i18n="job.idle"></strong>
-        <a id="job-interaction" class="job-interaction" target="_blank" rel="noopener noreferrer" hidden></a>
         <pre id="job-log"></pre>
       </div>
     </section>

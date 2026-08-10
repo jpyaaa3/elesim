@@ -326,6 +326,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'id="recover"' not in html
     assert 'id="runtime-restart"' not in html
     assert 'class="workflow-layout"' in html
+    assert 'data-step="login"' in html
+    assert 'id="tailscale-login"' in html
+    assert "grid-template-columns: repeat(4" in style
     assert 'data-state="pending"' in html
     assert 'id="cancel"' in html
     assert 'data-i18n="actions.title"' in html
@@ -341,6 +344,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t(sros2 ? "action.prepare" : "action.deploy")' in script
+    assert 'workflow.login.title' in script or 'workflow.login.title' in html
+    assert 'sidecarLoginRequired' in script
+    assert 'byId("tailscale-login").addEventListener' in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
     assert 'startJob("check")' not in script

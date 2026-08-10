@@ -193,7 +193,7 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .actions-heading { margin: 0; }
 .actions-heading h2 { margin: 0; font-size: var(--font-title); line-height: 1.3; }
 .workflow-layout { display: flex; min-width: 0; align-items: stretch; gap: 16px; }
-.workflow-steps { display: grid; min-width: 0; flex: 1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; }
+.workflow-steps { display: grid; min-width: 0; flex: 1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 36px; }
 .workflow-step { position: relative; z-index: 1; display: grid; min-width: 0; min-height: 132px; grid-template-columns: 34px minmax(0, 1fr); grid-template-rows: 1fr auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 20px 11px 11px; background: var(--surface-2); }
 .workflow-step::before { position: absolute; top: 0; right: 0; left: 0; height: 6px; border-radius: 5px 5px 0 0; background: #c5cbd3; content: ""; }
 .workflow-step[data-state="success"]::before { background: #42ad70; }
@@ -212,8 +212,6 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font-size: var(--font-small); line-height: 1.55; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 .job-status { margin-top: 0; }
 .job-status strong { display: block; margin-bottom: 7px; }
-.job-interaction { display: inline-flex; margin: 0 0 8px; border: 1px solid var(--accent); border-radius: 5px; padding: 8px 11px; background: var(--accent); color: #fff; font-weight: 750; text-decoration: none; }
-.job-interaction[hidden] { display: none; }
 #job-log { min-height: 96px; max-height: 360px; }
 
 @keyframes workflow-pulse {
