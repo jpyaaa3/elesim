@@ -563,7 +563,7 @@ function topologyFromForm() {
       dds: {
         address: field(slot, "dds-address").value.trim(),
         interface: field(slot, "dds-interface").value.trim(),
-        ...(field(slot, "dds-interface").value.trim() === "tailscale0"
+        ...(isTailscaleInterface(field(slot, "dds-interface").value)
           ? {address_source: "tailscale"} : {})
       },
       ssh: null,
@@ -648,7 +648,7 @@ function applyLocalTailscaleHint(context) {
 function ensureRoutedDiscovery({notify = true} = {}) {
   const active = activeSlots();
   const usesTailscale = active.some((slot) =>
-    field(slot, "dds-interface").value.trim().toLowerCase() === "tailscale0" ||
+    isTailscaleInterface(field(slot, "dds-interface").value) ||
     isTailscaleAddress(field(slot, "dds-address").value)
   );
   if (active.length > 1 && usesTailscale && byId("discovery").value === "multicast") {
@@ -657,6 +657,10 @@ function ensureRoutedDiscovery({notify = true} = {}) {
     return true;
   }
   return false;
+}
+
+function isTailscaleInterface(value) {
+  return /^tailscale[0-9]+$/i.test(String(value || "").trim());
 }
 
 function isTailscaleAddress(value) {

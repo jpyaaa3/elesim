@@ -36,9 +36,12 @@ The shell bootstrap:
 
 1. Checks Docker Engine and Compose v2. If Docker is absent on Ubuntu, it asks
    before installing Docker packages; declining leaves the host unchanged.
-2. Records host-only facts that would otherwise disappear inside the setup
+2. Reports host-only facts that would otherwise disappear inside the setup
    container: OS/architecture, Jetson, WSL/WSLg, display availability,
-   `nvidia-smi -L`, invocation directory, user, and SSH agent socket.
+   `nvidia-smi -L`, invocation directory, user, SSH agent socket, the selected
+   Docker backend/context, and any host `tailscale*` interfaces. These Docker
+   and interface facts are diagnostic only; runtime namespace-check remains
+   authoritative.
 3. Downloads the standard-library `bootstrap.py` to a temporary file in the
    setup cache and atomically publishes the complete download.
 4. Runs it as the calling UID/GID in a disposable `python:3.10-slim`
@@ -247,10 +250,10 @@ selected GUI port on host loopback; this keeps the browser reachable on Docker
 Desktop/WSL where container host networking is a separate namespace. The
 wrapper also detects a local Tailscale CLI/socket and can proxy Tailscale SSH
 host key and deployment connections through `tailscale nc` when the bridge
-cannot directly route the WSL `tailscale0` interface. This is read-only with
+cannot directly route the WSL `tailscale*` interface. This is read-only with
 respect to Tailscale configuration and is only a path fallback.
 It is an SSH-management fallback only: it does not proxy DDS UDP. A configured
-`tailscale0` remains a valid direct DDS bind and is preserved in the generated
+`tailscale*` remains a valid direct DDS bind and is preserved in the generated
 CycloneDDS XML. The lightweight `elesim-net namespace-check` runs in the same
 network namespace as the role containers, both before managed security material
 is issued and immediately before an actual runtime start (including generated
@@ -258,11 +261,11 @@ launch wrappers). For static discovery it also checks that every configured DDS
 peer has a route through the selected interface. These are read-only bind/route
 checks, not proof that DDS discovery or application traffic is working. If a
 check fails, provisioning stops before it leaves a fresh security generation
-behind for an unusable graph. For Docker Desktop plus WSL, direct `tailscale0`
+behind for an unusable graph. For Docker Desktop plus WSL, direct `tailscale*`
 binding requires a Docker Engine running inside the same WSL/Linux network
 namespace as Tailscale; a routed/NAT path through another container-visible
 interface is a separate configuration and does not become a direct
-`tailscale0` bind automatically. SSH/Tailscale TCP success never substitutes
+`tailscale*` bind automatically. SSH/Tailscale TCP success never substitutes
 for the DDS UDP route check. When a topology uses keyless Tailscale SSH, the
 manager also performs a negative-only port-22 probe from the runtime namespace:
 a failure proves that the runtime cannot reach the same peer path used for
@@ -270,6 +273,42 @@ management and stops lifecycle startup before an opaque discovery wait; a pass
 is still not DDS/UDP evidence. The tools image includes `iproute2` for the route
 probe, and `elesim-net namespace-check` rejects stale state/XML/Compose values
 before touching a running role.
+
+#### Docker backend and direct Tailscale binding
+
+The installer does not install, stop, or switch Docker for the host. It uses
+the Docker daemon selected by the current `docker` CLI context and reports that
+backend during `elesim-net namespace-check`. Before choosing a direct
+`tailscale*` DDS interface, make sure the selected daemon is a native Docker
+Engine in the same WSL/Linux network namespace as Tailscale:
+
+```bash
+docker info --format 'name={{.Name}} os={{.OperatingSystem}}'
+docker context show
+ip -br addr | awk '$1 ~ /^tailscale[0-9]+$/ {print}'
+```
+
+If the first command reports `docker-desktop` or the context is
+`desktop-linux`, Docker Desktop's Linux VM is the selected backend. Its
+`network_mode: host` namespace is not the WSL namespace, so a WSL
+`tailscale0`/`tailscale1` interface is not directly bindable there. Select a
+native Engine/context first, or use a separately routed container-visible
+interface with static DDS peers. The connection-manager Tailscale SSH helper
+cannot solve this: it carries setup/control TCP only and never DDS UDP.
+
+After installation (the setup wizard intentionally does not build or start
+runtime images), run the lightweight check on the machine owning the role:
+
+```bash
+elesim-net namespace-check --dds-interface tailscale0
+```
+
+Replace `tailscale0` with the current `tailscale*` interface if a reconnect
+created another suffix. The check enumerates the runtime container namespace,
+not just the host, and fails before security material is issued when the
+interface is absent. No Docker socket, Tailscale login, or ACL mutation is
+performed by the installer.
+
 For a full lifecycle start, the same private helper accepts only the fixed
 Elesim Compose build shape and streams its actual
 `docker compose --progress plain build` stdout/stderr back to the manager. A
@@ -566,18 +605,20 @@ job. This replaces the old split between the ephemeral two-host preflight and
 the saved-topology host-status button. The `/api/preflight` contract remains
 available for automation and focused Jetson-less tests, but is not an everyday
 GUI action. Enter the current, mutable DDS address (hostname/IP only, no
-`:port`) and interface (`tailscale0` on a Tailscale path), then enter the remote
-host's advertised IP, SSH user, and port. Ordinary SSH over Tailscale
-uses the sshd port (normally 22, unless that host was configured differently);
-the connection manager does not invent a Tailscale or DDS port. A temporary
+`:port`) and interface (`tailscale0` is the usual Tailscale path name), then
+enter the remote host's advertised IP, SSH user, and port. Ordinary SSH over
+Tailscale uses the sshd port (normally 22, unless that host was configured
+differently); the connection manager does not invent a Tailscale or DDS port.
+A temporary
 `python3 -m http.server 8080` reachability check is outside this document and
 must not be entered as a DDS or SSH port. Host check is not a proof of
 bidirectional DDS, SROS2, RGBD, WebRTC, or NAT traversal. Only `full`
 deployment requires the Robot role; `simulation-only` deployment intentionally
 starts the three simulation roles without a physical Robot.
 
-If `tailscale0` is present, the connection manager performs a read-only local
-`ip -j -4 addr` probe and may prefill the current IPv4 address/interface. This
+If a `tailscale*` interface is present, the connection manager performs a
+read-only local `ip -j -4 addr` probe and may prefill the current IPv4
+address/interface. This
 is only a convenience hint: it never installs Tailscale, logs in, changes ACLs,
 or hard-codes an address, and the operator must refresh the value after a
 Tailscale reconnect. A routed VPN is recommended for hosts on different

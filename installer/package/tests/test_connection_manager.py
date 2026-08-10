@@ -132,10 +132,12 @@ def test_dds_endpoint_tailscale_provenance_roundtrips_without_a_port() -> None:
 
     assert restored == endpoint
     assert "port" not in endpoint.to_dict()
-    with pytest.raises(ValueError, match="tailscale0"):
+    with pytest.raises(ValueError, match="tailscale\\*"):
         DdsEndpoint.from_dict(
             {"address": "100.64.0.10", "interface": "eth0", "address_source": "tailscale"}
         )
+
+    assert DdsEndpoint("100.64.0.11", "tailscale1", "tailscale").validate().interface == "tailscale1"
 
 
 def test_two_host_preflight_does_not_accept_http_port_in_dds_address() -> None:

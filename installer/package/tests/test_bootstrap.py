@@ -982,6 +982,18 @@ def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> N
     assert not tuple(cache.glob(".bootstrap.py.*"))
 
 
+def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() -> None:
+    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docker info --format '{{.Name}}'" in script
+    assert "docker context show" in script
+    assert "docker_backend_kind=\"docker-desktop\"" in script
+    assert "^tailscale[0-9]+$" in script
+    assert "runtime namespace" in script
+
+
 def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     tmp_path: Path,
 ) -> None:

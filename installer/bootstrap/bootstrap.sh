@@ -70,6 +70,29 @@ fi
 "${docker_cmd[@]}" compose version >/dev/null 2>&1 || \
   fail "Docker Compose v2 plugin ('docker compose') is required"
 
+# Docker Desktop and a native Engine use the same CLI.  Record the selected
+# backend without changing the user's context; runtime namespace-check remains
+# the authoritative test for whether a tailscale* interface is bindable.
+docker_backend_name="$("${docker_cmd[@]}" info --format '{{.Name}}' 2>/dev/null || true)"
+docker_context_name="$("${docker_cmd[@]}" context show 2>/dev/null || true)"
+docker_backend_kind="native"
+if [[ "$docker_backend_name" == "docker-desktop" || "$docker_context_name" == "desktop-linux" ]]; then
+  docker_backend_kind="docker-desktop"
+fi
+tailscale_interfaces=""
+if command -v ip >/dev/null 2>&1; then
+  tailscale_interfaces="$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {printf "%s%s", separator, $2; separator=","}' || true)"
+fi
+printf '%s\n' "[bootstrap] Docker backend=${docker_backend_kind} name=${docker_backend_name:-unknown} context=${docker_context_name:-unknown}"
+if [[ -n "$tailscale_interfaces" ]]; then
+  printf '%s\n' "[bootstrap] host tailscale interfaces=${tailscale_interfaces}"
+  if [[ "$docker_backend_kind" == "docker-desktop" ]]; then
+    printf '%s\n' "[bootstrap] Docker Desktop/WSL may not expose these interfaces inside runtime containers; a same-namespace native Engine is required for direct tailscale* DDS binding."
+  fi
+else
+  printf '%s\n' "[bootstrap] host tailscale interfaces=none"
+fi
+
 mkdir -p "$cache_dir" "$HOME/.local/share/elesim" "$HOME/.local/bin"
 bootstrap_tmp="$(mktemp "$cache_dir/.bootstrap.py.XXXXXX")"
 curl -fsSL "$raw_url" -o "$bootstrap_tmp"

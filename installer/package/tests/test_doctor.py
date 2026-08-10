@@ -49,8 +49,25 @@ def test_tailscale_probe_is_read_only_and_returns_current_ipv4() -> None:
     assert detection.available is True
     assert detection.interface == "tailscale0"
     assert detection.addresses == ("100.64.0.10",)
-    assert calls[0][0] == ["ip", "-j", "-4", "addr", "show", "dev", "tailscale0"]
+    assert calls[0][0] == ["ip", "-j", "-4", "addr", "show"]
     assert calls[0][1]["check"] is False
+
+
+def test_tailscale_probe_accepts_reconnect_suffixes_and_prefers_tailscale0() -> None:
+    class Result:
+        returncode = 0
+        stdout = (
+            '[{"ifname":"tailscale1","addr_info":['
+            '{"family":"inet","local":"100.100.0.2"}]},'
+            '{"ifname":"tailscale0","addr_info":['
+            '{"family":"inet","local":"100.100.0.1"}]}]'
+        )
+
+    detection = detect_tailscale(runner=lambda *_args, **_kwargs: Result())
+
+    assert detection.available is True
+    assert detection.interface == "tailscale0"
+    assert detection.addresses == ("100.100.0.1", "100.100.0.2")
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from .network import is_tailscale_interface
+
 
 CONNECTION_SCHEMA_VERSION = 3
 LEGACY_CONNECTION_SCHEMA_VERSION = 1
@@ -69,8 +71,8 @@ class DdsEndpoint:
             raise ValueError("DDS interface must be an interface name, not a path")
         if self.address_source not in {"manual", "tailscale"}:
             raise ValueError("DDS address_source must be manual or tailscale")
-        if self.address_source == "tailscale" and interface != "tailscale0":
-            raise ValueError("a tailscale DDS address must bind tailscale0")
+        if self.address_source == "tailscale" and not is_tailscale_interface(interface):
+            raise ValueError("a tailscale DDS address must bind a tailscale* interface")
         return self
 
     def to_dict(self) -> dict[str, str]:
@@ -880,7 +882,7 @@ class ConnectionTopology:
         routed_addresses = any(
             host.dds.address_source == "tailscale"
             or _is_tailscale_ipv4(host.dds.address)
-            or host.dds.interface.casefold() == "tailscale0"
+            or is_tailscale_interface(host.dds.interface)
             for host in self.hosts
         )
         if (

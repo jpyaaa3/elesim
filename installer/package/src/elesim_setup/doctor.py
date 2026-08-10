@@ -419,7 +419,7 @@ class NetworkDoctor:
                 "Tailscale",
                 WARN,
                 tailscale.detail,
-                "Tailscale을 쓸 때만 설치·로그인한 뒤 현재 tailscale0 주소를 입력하십시오",
+                "Tailscale을 쓸 때만 설치·로그인한 뒤 현재 tailscale* 주소를 입력하십시오",
             )
         report.add(
             "DDS configuration",

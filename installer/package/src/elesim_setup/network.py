@@ -7,6 +7,7 @@ import base64
 import ipaddress
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -31,6 +32,21 @@ from .security_provisioning import (
     sync_provisioning_required,
 )
 from .state import DdsSettings, InstallState, NetworkSettings, TurnSettings, default_state_path
+
+
+_TAILSCALE_INTERFACE = re.compile(r"^tailscale[0-9]+$")
+
+
+def is_tailscale_interface(value: object) -> bool:
+    """Return whether *value* names a kernel Tailscale interface.
+
+    Tailscale normally creates ``tailscale0``, but the suffix is not a stable
+    contract: an old interface can remain while a reconnect creates
+    ``tailscale1``.  Keep the accepted shape narrow so an arbitrary string
+    beginning with ``tailscale`` cannot silently opt into routed discovery.
+    """
+
+    return bool(_TAILSCALE_INTERFACE.fullmatch(str(value).strip()))
 
 
 @dataclass(frozen=True)
@@ -60,7 +76,7 @@ def detect_tailscale(
     *,
     runner: Callable[..., object] | None = None,
 ) -> TailscaleDetection:
-    """Return the current ``tailscale0`` IPv4 addresses without side effects.
+    """Return current ``tailscale*`` IPv4 addresses without side effects.
 
     ``ip`` is used instead of parsing ``tailscale status`` so this works on a
     minimal host and does not require the local user to have Tailscale admin
@@ -81,8 +97,13 @@ def detect_tailscale(
         if addresses:
             return TailscaleDetection(
                 True,
-                interface=os.environ.get("ELESIM_TAILSCALE_INTERFACE", "tailscale0")
-                or "tailscale0",
+                interface=(
+                    os.environ.get("ELESIM_TAILSCALE_INTERFACE", "tailscale0")
+                    if is_tailscale_interface(
+                        os.environ.get("ELESIM_TAILSCALE_INTERFACE", "tailscale0")
+                    )
+                    else "tailscale0"
+                ),
                 addresses=tuple(addresses),
                 detail="read-only Tailscale address hint supplied by the host wrapper",
             )
@@ -90,7 +111,7 @@ def detect_tailscale(
     probe = subprocess.run if runner is None else runner
     try:
         result = probe(
-            ["ip", "-j", "-4", "addr", "show", "dev", "tailscale0"],
+            ["ip", "-j", "-4", "addr", "show"],
             capture_output=True,
             text=True,
             check=False,
@@ -101,32 +122,47 @@ def detect_tailscale(
     if int(getattr(result, "returncode", 1)) != 0:
         return TailscaleDetection(
             False,
-            detail="tailscale0 interface was not found; enter a routed-VPN or LAN address manually",
+            detail="tailscale* interface was not found; enter a routed-VPN or LAN address manually",
         )
     try:
         raw = json.loads(str(getattr(result, "stdout", "") or ""))
     except (TypeError, ValueError):
-        return TailscaleDetection(False, detail="ip returned invalid JSON for tailscale0")
-    addresses: list[str] = []
+        return TailscaleDetection(False, detail="ip returned invalid JSON for tailscale*")
+    addresses_by_interface: dict[str, list[str]] = {}
     if isinstance(raw, list):
         for link in raw:
             if not isinstance(link, dict):
                 continue
+            interface = str(link.get("ifname", "")).strip()
+            if not is_tailscale_interface(interface):
+                continue
+            interface_addresses = addresses_by_interface.setdefault(interface, [])
             for item in link.get("addr_info", ()):
                 if not isinstance(item, dict) or item.get("family") != "inet":
                     continue
                 address = str(item.get("local", "")).strip()
-                if address and address not in addresses:
-                    addresses.append(address)
+                if address and address not in interface_addresses:
+                    interface_addresses.append(address)
+    preferred = os.environ.get("ELESIM_TAILSCALE_INTERFACE", "tailscale0").strip()
+    ordered_interfaces = sorted(
+        addresses_by_interface,
+        key=lambda name: (0 if name == preferred else 1, 0 if name == "tailscale0" else 1, name),
+    )
+    interface = ordered_interfaces[0] if ordered_interfaces else preferred
+    addresses: list[str] = []
+    for name in ordered_interfaces:
+        for address in addresses_by_interface[name]:
+            if address not in addresses:
+                addresses.append(address)
     if not addresses:
         return TailscaleDetection(
             False,
-            interface="tailscale0",
-            detail="tailscale0 exists but has no IPv4 address; use IPv6 or enter a current address manually",
+            interface=interface if is_tailscale_interface(interface) else "",
+            detail="tailscale* exists but has no IPv4 address; use IPv6 or enter a current address manually",
         )
     return TailscaleDetection(
         True,
-        interface="tailscale0",
+        interface=interface,
         addresses=tuple(addresses),
         detail="read-only Tailscale address hint; no installation or login was performed",
     )
@@ -144,7 +180,7 @@ def require_runtime_network_namespace(
 
     Container installs execute this through the tools service, so the names
     describe the same network namespace that the runtime roles will use.  This
-    is intentionally a direct-bind check: a configured ``tailscale0`` remains
+    is intentionally a direct-bind check: a configured ``tailscale*`` remains
     a valid request and passes wherever that interface is visible.  The
     optional override is used by the connection manager so a pending topology
     is checked instead of a stale installed state.
@@ -179,7 +215,7 @@ def require_runtime_network_namespace(
                 "namespace. Docker Desktop/WSL may place the WSL interface in another "
                 "namespace. A Tailscale 100.x address may still be routable through "
                 "another interface, but that is a separate routed/NAT mode and does "
-                "not satisfy a direct tailscale0 bind."
+                "not satisfy a direct tailscale* bind."
             )
 
     configured_peers = tuple(
@@ -269,7 +305,7 @@ def require_runtime_tcp_reachability(
                 f"{peer}:{port}: {exc}. This negative TCP check is not a DDS "
                 "proof, but it confirms that the runtime path is broken. "
                 "Docker Desktop/WSL host networking commonly isolates the Docker "
-                "Linux VM from WSL tailscale0; use Docker Engine in the same "
+                "Linux VM from WSL tailscale*; use Docker Engine in the same "
                 "namespace as Tailscale or configure a genuinely routed, "
                 "container-visible DDS interface."
             ) from exc

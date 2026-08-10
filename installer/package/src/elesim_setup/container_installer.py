@@ -103,7 +103,7 @@ def refresh_compose_dds_environment(state: InstallState) -> None:
     The network configurator owns the installed state and role XML, while the
     Compose file is generated during installation.  Updating only the former
     leaves stale ``ELESIM_DDS_*`` values behind (notably after switching from
-    a direct ``tailscale0`` attempt to a routed ``eth0``/static-peer setup).
+    a direct ``tailscale*`` attempt to a routed ``eth0``/static-peer setup).
     Keep the generated manifest self-consistent without rebuilding images or
     touching running containers; the next lifecycle start will read it.
     """
@@ -824,6 +824,7 @@ class ContainerInstaller:
             self.state.bin_path / "elesim-net",
             "#!/usr/bin/env bash\nset -euo pipefail\n"
             + guard
+            + _docker_backend_diagnostic()
             + f"{command} build --quiet tools >/dev/null\n"
             + f"exec {command} run --rm -T tools elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
@@ -1109,6 +1110,32 @@ def _compose_owner_guard(
     )
 
 
+def _docker_backend_diagnostic() -> str:
+    """Render a read-only Docker backend report for namespace checks.
+
+    Docker Desktop and a native Engine expose the same CLI, so the actual
+    interface probe remains authoritative.  This diagnostic makes the
+    selected daemon/context visible when that probe fails, without changing a
+    user's global Docker context or attempting to install/stop Docker.
+    """
+
+    return (
+        "if [[ ${1:-} == namespace-check ]]; then\n"
+        "  docker_backend_name=\"$(docker info --format '{{.Name}}' 2>/dev/null || true)\"\n"
+        "  docker_context_name=\"$(docker context show 2>/dev/null || true)\"\n"
+        "  docker_backend_kind=native\n"
+        "  if [[ $docker_backend_name == docker-desktop || $docker_context_name == desktop-linux ]]; then\n"
+        "    docker_backend_kind=docker-desktop\n"
+        "  fi\n"
+        "  if [[ -n $docker_backend_name || -n $docker_context_name ]]; then\n"
+        "    printf '[elesim-net] Docker backend: %s (name=%s context=%s)\\n' \"$docker_backend_kind\" \"${docker_backend_name:-unknown}\" \"${docker_context_name:-unknown}\" >&2\n"
+        "  else\n"
+        "    printf '[elesim-net] Docker backend could not be inspected with the current Docker CLI.\\n' >&2\n"
+        "  fi\n"
+        "fi\n"
+    )
+
+
 def _manager_wrapper(
     *,
     compose: Path,
@@ -1148,10 +1175,15 @@ def _manager_wrapper(
         "  exit 2\n"
         "fi\n"
         "manager_args+=(--host 0.0.0.0)\n"
-        "tailscale_address=\"$(ip -4 -o addr show dev tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)\"\n"
+        "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
+        "tailscale_address=\"\"\n"
+        "if [[ -n $tailscale_interface ]]; then\n"
+        "  tailscale_address=\"$(ip -4 -o addr show dev \"$tailscale_interface\" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)\"\n"
+        "fi\n"
         "manager_options=()\n"
         "manager_options+=( -e ELESIM_CONNECTION_PUBLISHED=1 )\n"
         "manager_options+=( -e \"ELESIM_TAILSCALE_ADDRESS=$tailscale_address\" )\n"
+        "manager_options+=( -e \"ELESIM_TAILSCALE_INTERFACE=$tailscale_interface\" )\n"
         + host_helper_fragment(
             maintenance_root=maintenance_root,
             compose_argument=shlex.quote(str(compose)),

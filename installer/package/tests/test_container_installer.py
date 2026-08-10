@@ -298,6 +298,14 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "viewer_xhost_select_state" in up_wrapper
     assert "XDG_RUNTIME_DIR" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
+    net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
+    assert "docker_backend_name" in net_wrapper
+    assert "docker_backend_kind=docker-desktop" in net_wrapper
+    manager_wrapper = (state.bin_path / "elesim-connections").read_text(
+        encoding="utf-8"
+    )
+    assert "tailscale[0-9]+" in manager_wrapper
+    assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
     assert "down --remove-orphans" in down_wrapper
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
     assert "viewer_xhost_cleanup" in down_wrapper
