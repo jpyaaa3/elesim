@@ -14,6 +14,7 @@ from elesim_setup.container_installer import (
     ContainerInstaller,
     _runtime_up_wrapper,
     _runtime_down_wrapper,
+    _resolve_viewer_user,
     build_container_plan,
     refresh_compose_dds_environment,
 )
@@ -95,6 +96,56 @@ def test_container_plan_is_router_free(local_state) -> None:
     assert "sim" in rendered
     assert "pilot" in rendered
     assert "router" not in {action.title.lower() for action in plan}
+
+
+def test_viewer_user_uses_bootstrap_host_user_without_passwd_entry(monkeypatch) -> None:
+    monkeypatch.setenv("ELESIM_HOST_USER", "hckang")
+    monkeypatch.delenv("USER", raising=False)
+    monkeypatch.delenv("LOGNAME", raising=False)
+
+    def missing_passwd_entry(uid: int):
+        raise KeyError(f"getpwuid(): uid not found: {uid}")
+
+    monkeypatch.setattr(pwd, "getpwuid", missing_passwd_entry)
+
+    assert _resolve_viewer_user() == "hckang"
+
+
+def test_viewer_user_has_numeric_fallback_when_account_metadata_is_missing(
+    monkeypatch,
+):
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        monkeypatch.delenv(variable, raising=False)
+
+    def missing_passwd_entry(uid: int):
+        raise KeyError(f"getpwuid(): uid not found: {uid}")
+
+    monkeypatch.setattr(pwd, "getpwuid", missing_passwd_entry)
+
+    assert _resolve_viewer_user() == str(os.getuid())
+
+
+def test_container_install_survives_missing_passwd_entry(
+    local_state, monkeypatch
+) -> None:
+    monkeypatch.setenv("ELESIM_HOST_USER", "hckang")
+    monkeypatch.delenv("USER", raising=False)
+    monkeypatch.delenv("LOGNAME", raising=False)
+
+    def missing_passwd_entry(uid: int):
+        raise KeyError(f"getpwuid(): uid not found: {uid}")
+
+    monkeypatch.setattr(pwd, "getpwuid", missing_passwd_entry)
+    state = local_state(roles=("sim",), install_mode="container")
+
+    ContainerInstaller(state).run()
+
+    compose = _compose(state)
+    assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
+        "hckang"
+    )
+    wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    assert "viewer_xhost_user=hckang" in wrapper
 
 
 def test_pending_managed_coturn_does_not_pass_an_empty_external_ip(local_state) -> None:
@@ -197,6 +248,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     tools = state.prefix_path / "containers/build/tools"
     assert (tools / "interfaces/elesim_interfaces/msg/RgbdFrame.msg").is_file()
     assert compose["services"]["tools"]["image"] == "elesim/tools:local"
+    assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
+        _resolve_viewer_user()
+    )
     assert "container_name" not in compose["services"]["tools"]
     manager = compose["services"]["manager"]
     assert manager["profiles"] == ["manager"]
@@ -237,7 +291,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
     assert "DISPLAY" in up_wrapper
     assert (
-        f"viewer_xhost_user={pwd.getpwuid(os.getuid()).pw_name}" in up_wrapper
+        f"viewer_xhost_user={_resolve_viewer_user()}" in up_wrapper
     )
     assert 'xhost +si:localuser:"$viewer_xhost_user"' in up_wrapper
     assert "viewer-xhost" in up_wrapper

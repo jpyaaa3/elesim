@@ -43,7 +43,9 @@ The shell bootstrap:
    setup cache and atomically publishes the complete download.
 4. Runs it as the calling UID/GID in a disposable `python:3.10-slim`
    container. The container receives the user's home and invocation directory,
-   but never the Docker socket.
+   but never the Docker socket. Bootstrap also passes the outer account name
+   as `ELESIM_HOST_USER`; the numeric UID is not assumed to exist in the
+   disposable image's `/etc/passwd`.
 5. Downloads and safely extracts the requested GitHub source archive, creates a
    cached setup venv, and starts `elesim-setup gui`.
 6. Publishes the GUI on host loopback only. Port `8765` is preferred; the

@@ -71,6 +71,32 @@ DOCKER_LOGGING = {
 RUNTIME_LOG_RETENTION = 5
 
 
+def _resolve_viewer_user() -> str:
+    """Return the host account used for opt-in X11 Viewer access.
+
+    The setup package normally runs in a disposable container as the calling
+    UID/GID.  That container intentionally does not mount the host
+    ``/etc/passwd``, so ``pwd.getpwuid`` is not a reliable primary lookup
+    there.  Bootstrap passes the host account explicitly; direct invocations
+    still have the usual shell variables available.  Keep the passwd lookup
+    only as a compatibility fallback and never let a missing passwd entry
+    abort an otherwise valid installation.
+    """
+
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            return value
+    try:
+        return pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        # The supported bootstrap path always supplies ELESIM_HOST_USER.  A
+        # numeric fallback keeps direct/minimal environments installable; an
+        # explicit Viewer launch can then report an X11 ACL error if that
+        # environment cannot resolve the account name.
+        return str(os.getuid())
+
+
 def refresh_compose_dds_environment(state: InstallState) -> None:
     """Refresh generated Compose DDS variables after ``elesim-net configure``.
 
@@ -670,6 +696,10 @@ class ContainerInstaller:
         )
         environment["HOME"] = "/tmp"
         environment["ELESIM_OPERATOR_HOME"] = str(operator_home())
+        # Preserve the outer host account for setup/update runs launched from
+        # this service.  The tools image runs as the numeric host UID and
+        # deliberately has no host passwd database to resolve it.
+        environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
         return {
             "image": "elesim/tools:local",
             "build": {
@@ -721,7 +751,7 @@ class ContainerInstaller:
     def _write_wrappers(self) -> None:
         compose = self.container_root / "compose.yaml"
         command = f"docker compose -f {shlex.quote(str(compose))}"
-        viewer_user = pwd.getpwuid(os.getuid()).pw_name
+        viewer_user = _resolve_viewer_user()
         guard = _compose_owner_guard(
             compose,
             project=GENERAL_COMPOSE_PROJECT,

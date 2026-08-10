@@ -1064,6 +1064,7 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert '--workdir "$invocation_dir"' in script
     assert '"ELESIM_HOST_ARCH=$host_arch"' in script
     assert '"ELESIM_HOST_WSLG=$host_wslg"' in script
+    assert '"ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"' in script
     assert '"ELESIM_VERIFY_BOOTSTRAP_SOURCE=1"' in script
     assert "port_is_in_use" in script
     assert "selected another available port" in script
