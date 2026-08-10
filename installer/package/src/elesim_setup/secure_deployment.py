@@ -1760,12 +1760,13 @@ class InstalledElesimLifecycle:
         host: ManagedHost,
         output: CommandOutput,
     ) -> str | None:
-        """Converge a Docker-Desktop sidecar before namespace preflight.
+        """Check a Docker-Desktop sidecar before namespace preflight.
 
-        Native installs are a no-op.  The generated wrapper owns image pull,
-        persistent state, browser/device login, and daemon identity checks;
-        this layer only streams its bounded output through the existing SSH or
-        local host-helper channel and verifies the sanitized status document.
+        Native installs are a no-op.  Sidecar image pull and browser/device
+        enrollment are explicit installation commands; the connection manager
+        only verifies the resulting status document and discovers its runtime
+        DDS address.  Keeping enrollment outside this job prevents a hidden
+        browser wait when the GUI has no login step.
         """
 
         installed = self.snapshot(session, host)
@@ -1796,17 +1797,6 @@ class InstalledElesimLifecycle:
                     f"{host.host_id}/{unit.unit_id}: {mode!r}"
                 )
 
-            def unit_output(
-                stream: str,
-                text: str,
-            ) -> None:
-                # Streaming callbacks are arbitrary byte-decoding chunks, not
-                # complete lines.  Prefixing each chunk can split a login URL
-                # and bypass the manager's line-level interaction/redaction
-                # handling.  The caller's bounded line buffer already applies
-                # the stable host/phase label after reassembly.
-                output(stream, text)
-
             status_command = (
                 str(_tailscale_command(unit)),
                 "status",
@@ -1827,18 +1817,12 @@ class InstalledElesimLifecycle:
                 or backend.casefold() != "running"
                 or not ipv4
             ):
-                session.run_streaming(
-                    (str(_tailscale_command(unit)), "login"),
-                    output=unit_output,
+                raise RuntimeError(
+                    f"Elesim Tailscale sidecar is not ready on "
+                    f"{host.host_id}/{unit.unit_id}. Run "
+                    f"elesim-tailscale login on that host, then retry "
+                    f"elesim-connections (backend={backend or 'unknown'})"
                 )
-                result = session.run(status_command)
-                try:
-                    backend, ipv4 = _parse_tailscale_status(result.stdout)
-                except RuntimeError as exc:
-                    raise RuntimeError(
-                        f"Elesim Tailscale sidecar status is invalid on "
-                        f"{host.host_id}/{unit.unit_id}"
-                    ) from exc
             if backend.casefold() != "running" or not ipv4:
                 raise RuntimeError(
                     f"Elesim Tailscale sidecar is not ready on "

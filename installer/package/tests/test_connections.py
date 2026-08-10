@@ -105,46 +105,6 @@ def test_trusted_network_runner_applies_bundle_free_topology(
     assert "verify: operator" in events
 
 
-def test_network_action_only_prepares_runtime_network(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    topology = _topology(tmp_path, security_profile="sros2")
-    calls: list[str] = []
-
-    class Operations(_NoopNetworkPreparation):
-        @staticmethod
-        def prepare_runtime_network(host, _output):
-            calls.append(host.host_id)
-            return None
-
-    monkeypatch.setattr(
-        ConnectionDeploymentRunner,
-        "_operations",
-        staticmethod(
-            lambda graph: {
-                host.host_id: Operations() for host in graph.hosts
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        "elesim_setup.connections.GenerationRollout",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("network action must not issue security material")
-        ),
-    )
-
-    events: list[str] = []
-    result = ConnectionDeploymentRunner(
-        tmp_path / "authority",
-        local_install_root=tmp_path / "install",
-    )(topology, "network", events.append)
-
-    assert result == topology
-    assert calls == ["operator", "jetson"]
-    assert "호스트별 런타임 네트워크 인프라를 준비합니다." in events
-    assert "Tailscale 런타임 네트워크 준비가 완료되었습니다." in events
-
-
 def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

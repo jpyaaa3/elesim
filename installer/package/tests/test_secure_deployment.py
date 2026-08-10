@@ -953,24 +953,21 @@ def test_runtime_network_preparation_skips_login_for_a_ready_sidecar() -> None:
     assert output == []
 
 
-def test_runtime_network_preparation_logs_in_only_after_not_ready_status() -> None:
+def test_runtime_network_preparation_requires_explicit_sidecar_login() -> None:
     topology = _topology()
     host = topology.host("server")
     session = SidecarNetworkSession(
-        [
-            {"BackendState": "NeedsLogin", "IPv4": ""},
-            {"BackendState": "Running", "IPv4": "100.64.0.43"},
-        ]
+        [{"BackendState": "NeedsLogin", "IPv4": ""}]
     )
     output: list[tuple[str, str]] = []
 
-    address = InstalledElesimLifecycle(topology).prepare_runtime_network(
-        session, host, lambda stream, text: output.append((stream, text))
-    )
+    with pytest.raises(RuntimeError, match="elesim-tailscale login"):
+        InstalledElesimLifecycle(topology).prepare_runtime_network(
+            session, host, lambda stream, text: output.append((stream, text))
+        )
 
-    assert address == "100.64.0.43"
-    assert session.events == ["show", "status:False", "login", "status:True"]
-    assert output == [("stdout", "already authenticated\n")]
+    assert session.events == ["show", "status:False"]
+    assert output == []
 
 
 def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> None:

@@ -444,9 +444,9 @@ transaction에 반영한다. 사용자는 TURN secret 내용을 입력하거나 
 5. 로컬 카드 하나를 선택하고, 원격 카드의 SSH를 채운다.
 6. 각 원격 카드에서 `SSH 호스트키 확인`을 눌러 fingerprint를 채운다.
 7. `검증 후 저장`을 누른다. fingerprint를 새로 채웠다면 다시 저장한다.
-8. Docker Desktop sidecar를 사용하는 경우 `Tailscale 로그인` 단계를 먼저 누른다.
-   sidecar가 이미 등록되어 있으면 즉시 완료되고, 삭제되었거나 로그인되지
-   않았으면 브라우저 승인을 기다린다.
+8. Docker Desktop sidecar를 사용하는 경우 설치 마법사가 마지막에 보여 준
+   `elesim-tailscale login`을 해당 host에서 먼저 실행하고 브라우저/device 승인을
+   완료한다.
 9. 보안 profile이 `sros2`이면 `보안 및 실행 준비`를 누른다.
    첫 실행은 키 생성·검증으로, 이미 세대가 있으면 새 세대 재발급·검증으로
    자동 분기한다.

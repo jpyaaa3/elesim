@@ -104,6 +104,7 @@ function renderRoles() {
         byId("role-robot").checked = false;
       }
       updateConditionalControls();
+      updateTailscaleLoginCommand();
     });
     const text = document.createElement("span");
     const title = document.createElement("strong");
@@ -124,7 +125,17 @@ function updateMode() {
   byId("general-roles").hidden = developer;
   byId("developer-roles").hidden = !developer;
   byId("prefix-help").textContent = t("paths.prefix.help");
+  updateTailscaleLoginCommand();
   updateConditionalControls();
+}
+
+function updateTailscaleLoginCommand() {
+  const row = byId("tailscale-login-command-row");
+  if (!row) return;
+  const isGeneral = checkedValue("edition") === "general";
+  const hasContainerRole = selectedRoles().some((role) => role !== "robot");
+  const usesDockerDesktop = context?.capabilities?.docker_backend === "docker-desktop";
+  row.hidden = !(isGeneral && hasContainerRole && usesDockerDesktop);
 }
 
 function hasSim() {
@@ -457,6 +468,7 @@ async function initialize() {
     renderRoles();
     applyLanguage(language);
     updateMode();
+    updateTailscaleLoginCommand();
   } catch (error) {
     setError(error);
   }

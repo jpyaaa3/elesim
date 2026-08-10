@@ -42,7 +42,6 @@ _MAX_JOB_LOGS = 2_048
 _MAX_LOG_LINE = 4_096
 _JOB_ACTIONS = frozenset(
     {
-        "network",
         "prepare",
         "provision",
         "deploy",

@@ -68,12 +68,23 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert 'data-step-link="network"' not in html
     assert 'data-i18n="network.manager.help"' not in html
     assert 'id="post-install-command"' in html
+    assert 'id="tailscale-login-command-row"' in html
+    assert 'id="tailscale-login-command">elesim-tailscale login</code>' in html
+    assert 'data-i18n="complete.tailscale.help"' in html
+    assert catalog["en"]["complete.tailscale.help"] == (
+        "If you need to use Tailscale, please login to get assigned your own IP."
+    )
+    assert catalog["ko"]["complete.tailscale.help"] == (
+        "Tailscale을 사용할 시 로그인하여 IP를 할당받아야 합니다."
+    )
     assert "source ~/.bashrc" in script
     assert 'id="register-path" type="checkbox" checked' in html
     assert ".command-row code" in style and "white-space: pre-wrap;" in style
     assert "elesim-connections</code>" in html
     assert '`${binDir}/elesim-connections && source ~/.bashrc && ${managerCleanup}`' not in script
     assert '`cd ${shellQuote(binDir)} && source ~/.bashrc && ${managerCleanup}`' in script
+    assert "function updateTailscaleLoginCommand()" in script
+    assert "usesDockerDesktop" in script
     assert "const shellQuote =" in script
     assert "const pendingManaged" not in script
     assert 'const defaultGeneralRoles = ["sim", "pilot", "ui"];' in script

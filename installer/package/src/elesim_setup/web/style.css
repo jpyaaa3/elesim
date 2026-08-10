@@ -701,6 +701,13 @@ fieldset legend {
   user-select: text;
 }
 
+.command-help {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: var(--font-small);
+}
+
 .navigation {
   position: sticky;
   bottom: 0;

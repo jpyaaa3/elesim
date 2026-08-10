@@ -109,7 +109,6 @@ class ConnectionDeploymentRunner:
         topology.validate()
         self._validate_management_host(topology)
         supported_actions = {
-            "network",
             "prepare",
             "provision",
             "deploy",
@@ -124,7 +123,7 @@ class ConnectionDeploymentRunner:
             raise ValueError(f"지원하지 않는 연결 작업: {action!r}")
         authority: Sros2Authority | None = None
         active = None
-        if action not in {"network", "start", "stop", "restart", "check", "recover"}:
+        if action not in {"start", "stop", "restart", "check", "recover"}:
             if topology.security_profile == "trusted-network":
                 if action == "prepare":
                     action = "deploy"
@@ -167,7 +166,6 @@ class ConnectionDeploymentRunner:
 
         try:
             if action in {
-                "network",
                 "provision",
                 "deploy",
                 "rotate",
@@ -245,9 +243,6 @@ class ConnectionDeploymentRunner:
                                 "Tailscale sidecar DDS endpoint가 변경되어 저장했습니다. "
                                 "실행 전에 '보안 및 실행 준비'를 다시 수행하십시오."
                             )
-            if action == "network":
-                log("Tailscale 런타임 네트워크 준비가 완료되었습니다.")
-                return topology
             if action == "recover":
                 journal = self._new_transaction_journal(action)
                 self._write_transaction_journal(topology, journal)
