@@ -4,7 +4,7 @@
 
 <p align="center">테스트용 글자</p>
 
-<br><br>
+<br>
 
 ## 1. 설치 방법
 
