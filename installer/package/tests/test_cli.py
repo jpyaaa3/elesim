@@ -108,6 +108,62 @@ def test_runtime_namespace_check_validates_static_peer_route(local_state) -> Non
     assert calls == [["ip", "-j", "route", "get", "100.74.222.24"]]
 
 
+def test_runtime_namespace_check_allows_configured_dds_address_as_self_peer(
+    local_state,
+) -> None:
+    calls: list[list[str]] = []
+
+    def route_runner(argv, **_kwargs):
+        calls.append(list(argv))
+        return SimpleNamespace(
+            returncode=0,
+            stdout='[{"dst":"100.74.222.24","dev":"tailscale0"}]',
+            stderr="",
+        )
+
+    network.require_runtime_network_namespace(
+        local_state(dds=DdsSettings(interface="tailscale0")),
+        interface="tailscale0",
+        address="100.86.3.4",
+        interface_names=("lo", "tailscale0"),
+        interface_addresses={"tailscale0": ("100.86.3.4",)},
+        peers=("100.86.3.4", "100.74.222.24"),
+        route_runner=route_runner,
+    )
+
+    assert calls == [["ip", "-j", "route", "get", "100.74.222.24"]]
+
+
+def test_runtime_namespace_check_allows_local_route_for_state_self_peer(
+    local_state,
+) -> None:
+    calls: list[list[str]] = []
+
+    def route_runner(argv, **_kwargs):
+        calls.append(list(argv))
+        peer = argv[-1]
+        device = "lo" if peer == "100.86.3.4" else "tailscale0"
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps([{"dst": peer, "dev": device}]),
+            stderr="",
+        )
+
+    network.require_runtime_network_namespace(
+        local_state(dds=DdsSettings(interface="tailscale0")),
+        interface="tailscale0",
+        interface_names=("lo", "tailscale0"),
+        interface_addresses={"tailscale0": ("100.86.3.4",)},
+        peers=("100.86.3.4", "100.74.222.24"),
+        route_runner=route_runner,
+    )
+
+    assert calls == [
+        ["ip", "-j", "route", "get", "100.86.3.4"],
+        ["ip", "-j", "route", "get", "100.74.222.24"],
+    ]
+
+
 def test_runtime_namespace_check_rejects_peer_on_other_interface(local_state) -> None:
     result = SimpleNamespace(
         returncode=0,

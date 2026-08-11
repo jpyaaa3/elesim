@@ -221,6 +221,8 @@ def require_runtime_network_namespace(
             )
 
     configured_address = "" if address is None else str(address).strip()
+    local_dds_address = ""
+    assigned_addresses: set[str] = set()
     if configured_interface and configured_address:
         expected_addresses = _resolve_runtime_address(configured_address)
         assigned_addresses = _runtime_interface_addresses(
@@ -239,6 +241,13 @@ def require_runtime_network_namespace(
                 "namespace; enroll the Elesim Tailscale sidecar or select the "
                 "native Docker backend that owns that interface."
             )
+        # ``ip route get`` intentionally reports a local address through
+        # ``lo``.  A co-located role is allowed to list its own DDS address as
+        # a static discovery seed so that multicast-disabled participants in
+        # one namespace can discover one another.  The interface/address
+        # assignment check above is the authoritative validation for this
+        # self peer; it must not be rejected as an off-interface remote route.
+        local_dds_address = configured_address.casefold()
 
     configured_peers = tuple(
         str(value).strip()
@@ -250,6 +259,8 @@ def require_runtime_network_namespace(
 
     probe = subprocess.run if route_runner is None else route_runner
     for peer in configured_peers:
+        if local_dds_address and peer.casefold() == local_dds_address:
+            continue
         try:
             result = probe(
                 ["ip", "-j", "route", "get", peer],
@@ -288,6 +299,25 @@ def require_runtime_network_namespace(
                 f"runtime route probe returned no interface for DDS peer {peer!r}"
             )
         if configured_interface and device != configured_interface:
+            if device == "lo":
+                # Linux uses the local routing table and reports ``dev lo``
+                # for an address assigned to any local interface.  When the
+                # caller did not pass ``--dds-address`` (the normal installed
+                # up wrapper), verify that this peer is actually assigned to
+                # the configured interface before accepting that local route
+                # as a self peer.
+                if not assigned_addresses:
+                    assigned_addresses = _runtime_interface_addresses(
+                        configured_interface,
+                        supplied=interface_addresses,
+                        runner=route_runner,
+                    )
+                try:
+                    peer_addresses = _resolve_runtime_address(peer)
+                except RuntimeError:
+                    peer_addresses = set()
+                if peer_addresses.intersection(assigned_addresses):
+                    continue
             raise RuntimeError(
                 f"DDS peer {peer!r} routes through {device!r}, not configured "
                 f"interface {configured_interface!r}. Bind DDS to the routed "
