@@ -4,7 +4,7 @@
 
 ## 1. 설치 방법
 
-### 설치 마법사 실행
+### 🚀 설치 마법사 실행
 
 Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
 
@@ -16,7 +16,7 @@ Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge
     | ELESIM_REF=refactoring bash
    ```
 
-### Docker Desktop을 사용 중일 경우
+### 🐳 Docker Desktop을 사용 중일 경우
 
 Docker Desktop 사용 중 발급된 Tailscale IP는 DDS 통신을 위한 인터페이스 사용이 제한됩니다.
 
@@ -41,7 +41,7 @@ SSH는 Docker Desktop 사용 여부와 무관합니다.
 
 역할들은 중앙 Router 없이 ROS 2/DDS로 직접 통신합니다. 영상은 WebRTC를 사용합니다.
 
-### 자주 쓰는 명령
+### 💻 자주 쓰는 명령
 
 ```bash
 elesim-update       # 설치 파일과 이미지를 업데이트
