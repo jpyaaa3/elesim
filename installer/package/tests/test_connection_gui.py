@@ -381,7 +381,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t("action.prepare")' in script
     assert 'if (action === "restart") return "start"' in script
-    assert 'start: !running && workflowSaved && workflowApplied && !runtimeRestartable' in script
+    assert '"runtime-start": !running && workflowSaved && workflowApplied && !runtimeRestartable' in script
     assert 'restart: !running && workflowSaved && workflowApplied && runtimeRestartable' in script
     assert 'let workflowRequiresFreshSave = true;' in script
     assert 'if (topologyAppliedByThisJob && !workflowRequiresFreshSave)' in script
@@ -408,10 +408,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'control.closest(".boot-options")' in script
     assert 'device.disabled = runtimeOptionsLocked || !inherit.checked' in script
     assert ".boot-options" in style
-    assert "min-height: 94px" in style
-    assert "grid-column: 3; grid-row: 1 / 3" in style
+    assert "min-height: 120px" in style
+    assert "grid-column: 3; grid-row: 1" in style
     assert "flex-direction: column" in style
-    assert ".workflow-actions { display: grid; grid-column: 1 / 3" in style
+    assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
     assert '.boot-gpu-option input[type="number"]:disabled' in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style

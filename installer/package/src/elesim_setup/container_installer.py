@@ -1047,7 +1047,10 @@ class ContainerInstaller:
             self.state.bin_path / "elesim-up",
             _runtime_up_wrapper(
                 compose=compose,
-                guard=guard,
+                compose_wrapper=compose_wrapper,
+                # Every Docker operation below goes through elesim-compose,
+                # which owns the daemon pin and Compose ownership guard.
+                guard="",
                 launch_guard=application_guard + runtime_network_guard,
                 has_sim="sim" in self.state.roles,
                 runtime_roles=self.state.roles,
@@ -1468,7 +1471,15 @@ def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
         f"expected_docker_engine_id={shlex.quote(engine_id)}\n"
         "unset DOCKER_HOST\n"
         "export DOCKER_CONTEXT=\"$expected_docker_context\"\n"
-        "if ! actual_docker_engine_id=\"$(docker info --format '{{.ID}}' 2>/dev/null)\"; then\n"
+        "actual_docker_engine_id=\n"
+        "for _docker_guard_attempt in {1..5}; do\n"
+        "  if candidate_docker_engine_id=\"$(docker info --format '{{.ID}}' 2>/dev/null)\" && [[ -n $candidate_docker_engine_id ]]; then\n"
+        "    actual_docker_engine_id=$candidate_docker_engine_id\n"
+        "    break\n"
+        "  fi\n"
+        "  sleep 0.2\n"
+        "done\n"
+        "if [[ -z $actual_docker_engine_id ]]; then\n"
         "  printf '설치에 고정된 Docker daemon에 연결할 수 없습니다: context=%s\\n' \"$expected_docker_context\" >&2\n"
         "  exit 78\n"
         "fi\n"
@@ -1857,6 +1868,7 @@ def _runtime_up_wrapper(
     has_sim: bool,
     runtime_roles: Sequence[str],
     state_path: Path,
+    compose_wrapper: Path | None = None,
     viewer_state: Path | None = None,
     viewer_user: str = "root",
 ) -> str:
@@ -1868,7 +1880,11 @@ def _runtime_up_wrapper(
     to the runtime's ``--viewer`` flag.
     """
 
-    command = "docker compose -f " + shlex.quote(str(compose))
+    command = (
+        shlex.quote(str(compose_wrapper))
+        if compose_wrapper is not None
+        else "docker compose"
+    ) + " -f " + shlex.quote(str(compose))
     unsupported = (
         "    printf '이 설치에는 Sim 역할이 없어 --view를 사용할 수 없습니다.\\n' >&2\n"
         "    exit 64\n"

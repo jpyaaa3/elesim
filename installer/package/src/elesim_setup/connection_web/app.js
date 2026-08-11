@@ -721,7 +721,7 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   setWorkflowStepEnabled("save", !running && !workflowSaved);
   setWorkflowStepEnabled("apply", !running && workflowSaved && !workflowApplied);
   setWorkflowButtonsEnabled("start", {
-    start: !running && workflowSaved && workflowApplied && !runtimeRestartable,
+    "runtime-start": !running && workflowSaved && workflowApplied && !runtimeRestartable,
     restart: !running && workflowSaved && workflowApplied && runtimeRestartable,
   });
 }
