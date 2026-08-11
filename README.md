@@ -1,6 +1,6 @@
 <p align="center"><img src="./assets/branding/icon.png" width="180" alt="Elesim logo"></p>
 
-<h1 align="center">Elesim</h1>
+<h1 align="center" style="border-bottom: none;">Elesim</h1>
 
 ## 1. 설치 방법
 
@@ -28,7 +28,7 @@ SSH는 Docker Desktop 사용 여부와 무관합니다.
    elesim-tailscale login
    ```
 
----
+<br>
 
 ## 2. 어플리케이션
 
@@ -52,7 +52,7 @@ elesim-connections  # 여러 컴퓨터의 연결·보안·실행 관리
 elesim-uninstall --plan  # 삭제될 항목만 미리 확인
 ```
 
----
+<br>
 
 ## 3. 문서
 
