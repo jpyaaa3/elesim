@@ -253,6 +253,7 @@ def _validate_command(
     net = str(bin_dir / "elesim-net")
     if argv[0] == net and len(argv) >= 2 and argv[1] in {
         "show",
+        "configuration-check",
         "namespace-check",
         "configure",
         "restore-snapshot",

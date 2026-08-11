@@ -231,6 +231,12 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
         project="elesim-runtime",
     )
     _validate_command(
+        (str(bin_dir / "elesim-net"), "configuration-check"),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
+    _validate_command(
         (str(bin_dir / "elesim-net"), "namespace-check"),
         compose=compose,
         bin_dir=bin_dir,
