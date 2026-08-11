@@ -1043,7 +1043,7 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         True,
     ) in session.commands
     assert (
-        (("/usr/local/bin/elesim-net", "namespace-check"), True)
+        (("/usr/local/bin/elesim-net", "configuration-check"), True)
         in session.commands
     )
     configure = next(

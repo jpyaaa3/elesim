@@ -1845,7 +1845,7 @@ class InstalledElesimLifecycle:
         """Run each unit's no-override launch guard before any mutation."""
 
         for unit in host.units:
-            session.run((str(_net_command(unit)), "namespace-check"))
+            session.run((str(_net_command(unit)), "configuration-check"))
 
     def prepare_runtime_network(
         self,

@@ -948,6 +948,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("show", help="현재 DDS/TURN 설정 출력")
+    subparsers.add_parser(
+        "configuration-check",
+        help="설치된 역할별 DDS/SROS2 생성물 일관성 확인",
+    )
     namespace_check = subparsers.add_parser(
         "namespace-check",
         help="런타임 네임스페이스에서 설정된 DDS interface 확인",
@@ -1065,13 +1069,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "show":
             print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
             return 0
+        if args.command == "configuration-check":
+            require_generated_dds_configuration(state)
+            print("generated DDS/SROS2 configuration is consistent")
+            return 0
         if args.command == "namespace-check":
-            # Connection-manager preflight passes a pending interface/peer
-            # override before it has configured the host.  In that mode the
-            # installed generated files are expected to be old; the normal
-            # launch wrapper has no override and must reject stale files.
-            if args.dds_interface is None and args.dds_peer is None:
-                require_generated_dds_configuration(state)
             require_runtime_network_namespace(
                 state,
                 interface=args.dds_interface,

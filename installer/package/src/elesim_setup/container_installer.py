@@ -1012,6 +1012,8 @@ class ContainerInstaller:
             )
         runtime_network_guard = runtime_sidecar_guard + (
             f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
+            "configuration-check >/dev/null\n"
+            f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
             "namespace-check >/dev/null\n"
         )
         wrappers: dict[str, tuple[str, bool]] = {

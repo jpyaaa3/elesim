@@ -358,6 +358,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
     assert "XDG_RUNTIME_DIR" in up_wrapper
+    assert "elesim-net configuration-check >/dev/null" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "docker_backend_name" in net_wrapper
@@ -371,6 +372,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
     assert "viewer_xhost_cleanup" in down_wrapper
     assert "up --remove-orphans sim" in role_wrapper
+    assert "elesim-net configuration-check >/dev/null" in role_wrapper
     assert "elesim-net namespace-check >/dev/null" in role_wrapper
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
@@ -484,12 +486,14 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert '"IPv4"' in tailscale_wrapper
     assert "net_service=runtime-tools" in net_wrapper
     assert "namespace-check|doctor" in net_wrapper
+    assert "configuration-check|namespace-check|doctor" not in net_wrapper
     for launcher in (up_wrapper, role_wrapper):
         assert "elesim-tailscale status --json" in launcher
         assert "elesim-tailscale login" in launcher
         assert (
             launcher.index("elesim-tailscale login")
             < launcher.index("elesim-tailscale status --json")
+            < launcher.index("elesim-net configuration-check")
             < launcher.index("elesim-net namespace-check")
         )
     assert "pull tailscale" in update_wrapper
