@@ -77,7 +77,8 @@
     "error.local": "활성 호스트 중 정확히 하나를 로컬 컴퓨터로 선택하십시오.",
     "error.local.robot": "Authority를 보관하는 로컬 컴퓨터에는 Robot을 배치할 수 없습니다.",
     "error.local.probe": "로컬 컴퓨터에는 설치용 SSH endpoint가 필요하지 않습니다.",
-    "error.restart.unavailable": "기존 런타임 컨테이너가 없어 재시작할 수 없습니다. 전체 시작을 사용하십시오."
+    "error.restart.unavailable": "기존 런타임 컨테이너가 없어 재시작할 수 없습니다. 전체 시작을 사용하십시오.",
+    "error.workflow.incomplete": "연결 확인과 실행 준비를 먼저 완료하십시오."
   },
   "en": {
     "app.title": "Elesim Connection Manager",
@@ -157,6 +158,7 @@
     "error.local": "Select exactly one active host as the local computer.",
     "error.local.robot": "Robot cannot be placed on the local Authority computer.",
     "error.local.probe": "The local computer does not need an installation SSH endpoint.",
-    "error.restart.unavailable": "Existing runtime containers are absent, so Restart cannot be used. Choose Start all."
+    "error.restart.unavailable": "Existing runtime containers are absent, so Restart cannot be used. Choose Start all.",
+    "error.workflow.incomplete": "Complete Check Connections and Prepare runtime first."
   }
 }

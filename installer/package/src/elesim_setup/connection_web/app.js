@@ -41,6 +41,11 @@ let runtimePollTimer = null;
 let runtimeRestartable = false;
 let workflowSaved = false;
 let workflowApplied = false;
+// A browser session always revalidates the loaded form before it can proceed.
+// The topology fields are still restored from disk, but a previous session's
+// visual stage must never unlock Booting just because the local Authority has
+// an active generation; that does not prove every host has its role bundle.
+let workflowRequiresFreshSave = true;
 const workflowStates = {save: "pending", apply: "pending", start: "pending"};
 
 const byId = (id) => document.getElementById(id);
@@ -747,6 +752,7 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
     throw error;
   }
   workflowSaved = true;
+  workflowRequiresFreshSave = false;
   setWorkflowStepState("save", "success");
   if (invalidate) {
     workflowApplied = false;
@@ -783,6 +789,9 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
+  if (["start", "restart"].includes(action) && (!workflowSaved || !workflowApplied)) {
+    throw new Error(t("error.workflow.incomplete"));
+  }
   if (action === "restart") {
     await pollRuntimeStatus();
     if (!runtimeRestartable) {
@@ -819,6 +828,7 @@ async function runApplyJob() {
 
 function markWorkflowDirty() {
   workflowSaved = false;
+  workflowRequiresFreshSave = true;
   workflowApplied = false;
   runtimeRestartable = false;
   setWorkflowStepState("save", "pending");
@@ -883,7 +893,7 @@ async function pollJob() {
     if (step && running) setWorkflowStepState(step, "running");
     if (step && !running && job.status === "completed") setWorkflowStepState(step, "success");
     if (step && !running && ["failed", "cancelled"].includes(job.status)) setWorkflowStepState(step, "error");
-    if (topologyAppliedByThisJob) {
+    if (topologyAppliedByThisJob && !workflowRequiresFreshSave) {
       workflowSaved = true;
       workflowApplied = true;
       setWorkflowStepState("save", "success");
@@ -892,9 +902,12 @@ async function pollJob() {
     if (!running && job.topology_updated) {
       const context = await api("/api/context");
       if (context.topology) applyTopology(context.topology);
-      workflowSaved = true;
+      // A sidecar-discovered address is factual input, not an implicit save.
+      // Keep the form populated but require the operator to validate/save it
+      // before another security or runtime action can be enabled.
+      workflowSaved = !workflowRequiresFreshSave;
       runtimeRestartable = false;
-      setWorkflowStepState("save", "success");
+      setWorkflowStepState("save", workflowRequiresFreshSave ? "pending" : "success");
       if (!topologyAppliedByThisJob) {
         workflowApplied = false;
         setWorkflowStepState("apply", "pending");
@@ -1030,15 +1043,17 @@ async function initialize() {
       setCardActive(jetsonSlot);
     }
     if (context.topology) {
-      workflowSaved = true;
-      setWorkflowStepState("save", "success");
+      // Restore all values, but deliberately restart the operator workflow at
+      // validation/save.  A local active generation can outlive a failed or
+      // partial remote rollout, so it is not sufficient to unlock Booting.
+      workflowSaved = false;
+      workflowApplied = false;
+      runtimeRestartable = false;
+      workflowRequiresFreshSave = true;
+      setWorkflowStepState("save", "pending");
       setWorkflowStepState("apply", "pending");
       setWorkflowStepState("start", "pending");
       applyTopology(context.topology);
-      if (context.security?.managed_generation) {
-        workflowApplied = true;
-        setWorkflowStepState("apply", "success");
-      }
     } else if (context.local_defaults) {
       if (context.local_defaults.install_root) {
         field("com1", "install-root").value = context.local_defaults.install_root;

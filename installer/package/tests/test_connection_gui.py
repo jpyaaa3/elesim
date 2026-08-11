@@ -383,6 +383,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'if (action === "restart") return "start"' in script
     assert 'start: !running && workflowSaved && workflowApplied && !runtimeRestartable' in script
     assert 'restart: !running && workflowSaved && workflowApplied && runtimeRestartable' in script
+    assert 'let workflowRequiresFreshSave = true;' in script
+    assert 'if (topologyAppliedByThisJob && !workflowRequiresFreshSave)' in script
+    assert 'workflowRequiresFreshSave = false;' in script
+    assert 'error.workflow.incomplete' in script
     assert 'host.containers_present === true' in script
     assert 'workflow.login.title' not in script and 'workflow.login.title' not in html
     assert 'if (action === "network") return "login";' not in script
