@@ -851,18 +851,20 @@ absent are `SKIP` or `WARN`.
 
 The full-start action also performs one bounded, read-only application-level
 readiness probe after detached launch. It listens for transient-local DDS
-endpoint descriptors for the remote endpoint IDs in the saved topology. A
-missing descriptor is logged as `DDS readiness` pending/unavailable instead of
-being hidden behind a successful `docker compose up -d`; the runtime is left
-running so a slow Genesis scene can finish building. To make this check strict
-and repeatable, pass endpoint IDs (not IP addresses or SSH names):
+endpoint descriptors and live volatile heartbeats for every endpoint ID in the
+saved topology, including roles co-located on the probing host. A descriptor
+without a heartbeat is stale and does not count as readiness; missing
+co-located or remote heartbeats fail the start and roll back launched roles.
+To make this check strict and repeatable, pass endpoint IDs (not IP addresses
+or SSH names):
 
 ```bash
 elesim-net doctor --json --strict-peers \
   --expect-peer sim-default --timeout 8
 ```
 
-An endpoint descriptor proves application-level DDS discovery only. It does not
+An endpoint descriptor plus a live heartbeat proves only bounded application-level
+DDS discovery/readiness. It does not
 prove RGBD frame delivery, WebRTC ICE/DTLS-SRTP, SROS2 authorization, or
 physical safety.
 

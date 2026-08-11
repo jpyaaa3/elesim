@@ -235,14 +235,15 @@ management reachability and process state only; DDS discovery and WebRTC media
 are not inferred from a successful SSH command. The UI polls the read-only
 status while open and keeps deployment and rotation jobs separate from that poll.
 
-After launch, the manager performs one bounded read-only DDS endpoint-descriptor
-probe for each host with remote assignments. It logs `DDS readiness` as found,
-pending, or unavailable and does not tear down a runtime merely because Sim is
-still constructing its Genesis scene. Docker Desktop/WSL namespace isolation is
-reported separately from a slow application start. Use
-`elesim-net doctor --strict-peers --expect-peer <endpoint-id>` for a strict
-application-level discovery gate; this still does not prove RGBD, WebRTC,
-SROS2 authorization, or physical safety.
+After launch, the manager performs one bounded read-only DDS endpoint
+descriptor/heartbeat probe for every active endpoint from each host. A
+transient-local descriptor can survive a dead process, so readiness requires a
+live volatile heartbeat as well. A missing co-located or remote heartbeat
+fails the start and rolls back launched roles; Docker Desktop/WSL namespace
+isolation and broken DDS UDP paths are reported as actionable readiness
+failures. Use `elesim-net doctor --strict-peers --expect-peer <endpoint-id>` for
+the same strict application-level discovery gate; this still does not prove
+RGBD, WebRTC, SROS2 authorization, or physical safety.
 
 Generated-Compose assertions, schema migrations, login command shape,
 namespace/interface/address checks, and secret-absence scans are automated

@@ -157,6 +157,14 @@
           <article class="workflow-step" data-step="start" data-state="pending" data-enabled="false">
             <div class="step-number">3</div>
             <div><h3 data-i18n="workflow.start.title"></h3></div>
+            <div class="boot-options" aria-label="Runtime boot options">
+              <div class="boot-gpu-option">
+                <label><input id="gpu-inherit" type="checkbox" checked><span data-i18n="boot.gpu.inherit"></span></label>
+                <span class="boot-colon" aria-hidden="true">:</span>
+                <input id="gpu-device" type="number" min="0" max="65535" step="1" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="GPU index">
+              </div>
+              <label class="boot-viewer-option"><input id="use-viewer" type="checkbox"><span data-i18n="boot.viewer"></span></label>
+            </div>
             <div class="workflow-actions">
               <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
               <button id="restart" type="button" data-i18n="action.restart" disabled></button>

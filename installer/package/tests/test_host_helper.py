@@ -70,6 +70,70 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         project="elesim-runtime",
     )
 
+    _validate_command(
+        (
+            _compose_wrapper(bin_dir),
+            "--elesim-cuda-visible-devices",
+            "2",
+            "--elesim-sim-viewer",
+            "1",
+            *prefix[1:],
+            "up",
+            "-d",
+            "--no-build",
+            "--remove-orphans",
+            "sim",
+        ),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
+
+
+def test_host_helper_bounds_runtime_launch_options() -> None:
+    compose, bin_dir = _paths()
+    prefix = (
+        _compose_wrapper(bin_dir),
+        "-p",
+        "elesim-runtime",
+        "-f",
+        str(compose),
+    )
+    for options in (
+        ("--elesim-cuda-visible-devices", "gpu0"),
+        ("--elesim-sim-viewer", "2"),
+    ):
+        with pytest.raises(HostHelperError):
+            _validate_command(
+                (
+                    _compose_wrapper(bin_dir),
+                    *options,
+                    *prefix[1:],
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "--remove-orphans",
+                    "sim",
+                ),
+                compose=compose,
+                bin_dir=bin_dir,
+                project="elesim-runtime",
+            )
+    with pytest.raises(HostHelperError, match="only for an up"):
+        _validate_command(
+            (
+                _compose_wrapper(bin_dir),
+                "--elesim-cuda-visible-devices",
+                "2",
+                *prefix[1:],
+                "start",
+                "sim",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
+
 
 @pytest.mark.parametrize(
     "argv",

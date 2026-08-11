@@ -28,6 +28,7 @@ from .connection_manager import (
     TOPOLOGY_MODES,
     TwoHostPreflight,
 )
+from .secure_deployment import RuntimeLaunchOptions
 
 
 ConnectionRunner = Callable[
@@ -309,9 +310,20 @@ class ConnectionManagerApplication:
             raise RuntimeError("SSH probe returned an invalid host key fingerprint")
         return {"fingerprint": fingerprint}
 
-    def start_job(self, action: str) -> dict[str, object]:
+    def start_job(
+        self,
+        action: str,
+        options: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
         if action not in _JOB_ACTIONS:
             raise ValueError(f"unsupported connection-manager action: {action!r}")
+        if action not in {"start", "restart"} and options:
+            raise ValueError("runtime launch options are only valid for start/restart")
+        runtime_options = (
+            RuntimeLaunchOptions.from_payload(options)
+            if action in {"start", "restart"}
+            else None
+        )
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError("a connection-manager job is already running")
@@ -330,7 +342,7 @@ class ConnectionManagerApplication:
             )
         thread = threading.Thread(
             target=self._run_job,
-            args=(topology, action),
+            args=(topology, action, runtime_options),
             name=f"elesim-connection-{action}",
             daemon=True,
         )
@@ -382,7 +394,12 @@ class ConnectionManagerApplication:
         if thread is not None and thread.is_alive():
             thread.join(timeout=30.0)
 
-    def _run_job(self, topology: ConnectionTopology, action: str) -> None:
+    def _run_job(
+        self,
+        topology: ConnectionTopology,
+        action: str,
+        runtime_options: RuntimeLaunchOptions | None,
+    ) -> None:
         def log(message: str) -> None:
             if self._cancel_event.is_set():
                 raise ConnectionJobCancelled("connection-manager job cancelled")
@@ -412,6 +429,13 @@ class ConnectionManagerApplication:
                 raise ConnectionJobCancelled("connection-manager job cancelled")
 
         try:
+            set_options = getattr(self.runner, "set_runtime_launch_options", None)
+            if callable(set_options):
+                set_options(runtime_options)
+            elif runtime_options is not None:
+                raise RuntimeError(
+                    "the connection runner does not support runtime launch options"
+                )
             updated = self.runner(topology, action, log)
             if isinstance(updated, ConnectionTopology) and updated != topology:
                 with self._state_lock:
@@ -552,8 +576,10 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
             action = path.removeprefix("/api/job/")
 
             def start() -> Mapping[str, object]:
-                self._require_empty_body()
-                return self.server.application.start_job(action)
+                payload = self._body()
+                if action not in {"start", "restart"} and payload:
+                    raise ValueError("this action does not accept request fields")
+                return self.server.application.start_job(action, payload or None)
 
             self._call(start, status=HTTPStatus.ACCEPTED)
             return

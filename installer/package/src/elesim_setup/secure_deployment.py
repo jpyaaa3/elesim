@@ -58,6 +58,63 @@ _PRIVATE_AUTHORITY_FILES = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class RuntimeLaunchOptions:
+    """Ephemeral options for one browser-requested runtime launch.
+
+    These values are intentionally not part of the saved topology.  The
+    Compose wrapper receives bounded flags and turns them into environment
+    values only for the requested ``up`` operation.
+    """
+
+    gpu_inherit: bool
+    gpu_device: str
+    viewer: bool
+
+    @classmethod
+    def from_payload(
+        cls, payload: Mapping[str, object] | None
+    ) -> "RuntimeLaunchOptions | None":
+        if payload is None or not payload:
+            return None
+        allowed = {"gpu_inherit", "gpu_device", "viewer"}
+        unknown = set(payload) - allowed
+        if unknown:
+            raise ValueError(
+                "runtime launch options contain unsupported fields: "
+                f"{sorted(str(value) for value in unknown)!r}"
+            )
+        gpu_inherit = payload.get("gpu_inherit", False)
+        viewer = payload.get("viewer", False)
+        if not isinstance(gpu_inherit, bool) or not isinstance(viewer, bool):
+            raise ValueError("gpu_inherit and viewer must be boolean")
+        raw_device = payload.get("gpu_device", "")
+        if isinstance(raw_device, bool) or not isinstance(raw_device, (str, int)):
+            raise ValueError("gpu_device must be a non-negative GPU number")
+        gpu_device = str(raw_device).strip()
+        if gpu_device and (
+            len(gpu_device) > 6
+            or not all("0" <= char <= "9" for char in gpu_device)
+            or int(gpu_device) > 65535
+        ):
+            raise ValueError("gpu_device must be a non-negative GPU number")
+        if gpu_inherit and not gpu_device:
+            raise ValueError("gpu_device is required when GPU inherit is enabled")
+        if not gpu_inherit:
+            gpu_device = ""
+        return cls(gpu_inherit, gpu_device, viewer)
+
+    def compose_flags(self) -> tuple[str, ...]:
+        """Return wrapper-only flags; never expose arbitrary environment names."""
+
+        return (
+            "--elesim-cuda-visible-devices",
+            self.gpu_device if self.gpu_inherit else "",
+            "--elesim-sim-viewer",
+            "1" if self.viewer else "0",
+        )
+
+
 def _command_timeout(argv: Sequence[str], base: float) -> float:
     """Return a bounded timeout appropriate for one managed command."""
 
@@ -383,7 +440,12 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost, output: CommandOutput
     ) -> None: ...
 
-    def launch(self, session: SshSession, host: ManagedHost) -> None: ...
+    def launch(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        runtime_options: RuntimeLaunchOptions | None = None,
+    ) -> None: ...
 
     def runtime_doctor(
         self,
@@ -431,7 +493,11 @@ class HostOperations(Protocol):
 
     def build(self, host: ManagedHost, output: CommandOutput) -> None: ...
 
-    def launch(self, host: ManagedHost) -> None: ...
+    def launch(
+        self,
+        host: ManagedHost,
+        runtime_options: RuntimeLaunchOptions | None = None,
+    ) -> None: ...
 
     def runtime_doctor(
         self,
@@ -1098,9 +1164,16 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.build(session, host, output)
 
-    def launch(self, host: ManagedHost) -> None:
+    def launch(
+        self,
+        host: ManagedHost,
+        runtime_options: RuntimeLaunchOptions | None = None,
+    ) -> None:
         with self._connect(host) as session:
-            self._lifecycle.launch(session, host)
+            if runtime_options is None:
+                self._lifecycle.launch(session, host)
+            else:
+                self._lifecycle.launch(session, host, runtime_options)
 
     def runtime_doctor(
         self,
@@ -2095,7 +2168,12 @@ class InstalledElesimLifecycle:
                 output=unit_output,
             )
 
-    def launch(self, session: SshSession, host: ManagedHost) -> None:
+    def launch(
+        self,
+        session: SshSession,
+        host: ManagedHost,
+        runtime_options: RuntimeLaunchOptions | None = None,
+    ) -> None:
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
             include_coturn = (
@@ -2110,6 +2188,7 @@ class InstalledElesimLifecycle:
                     action="launch",
                     roles=unit.roles,
                     include_coturn=include_coturn,
+                    runtime_options=runtime_options,
                 )
             )
 
@@ -2860,11 +2939,17 @@ def _parse_tailscale_status(payload: str) -> tuple[str, str]:
     return backend, ipv4
 
 
-def _compose_command(target: ManagedHost | DeploymentUnit) -> tuple[str, ...]:
+def _compose_command(
+    target: ManagedHost | DeploymentUnit,
+    *,
+    runtime_options: RuntimeLaunchOptions | None = None,
+) -> tuple[str, ...]:
     unit = _unit_for_target(target)
     compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
+    option_flags = () if runtime_options is None else runtime_options.compose_flags()
     return (
         str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
+        *option_flags,
         "-p",
         "elesim-runtime",
         "-f",
@@ -2908,6 +2993,7 @@ def _lifecycle_command(
     action: str,
     roles: Sequence[str] | None = None,
     include_coturn: bool = False,
+    runtime_options: RuntimeLaunchOptions | None = None,
 ) -> tuple[str, ...]:
     if action not in {"start", "stop", "build", "launch"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
@@ -2932,7 +3018,7 @@ def _lifecycle_command(
         if action == "build":
             return (*_compose_build_command(unit), "build", *selected)
         return (
-            *_compose_command(unit),
+            *_compose_command(unit, runtime_options=runtime_options),
             "up",
             "-d",
             "--no-build",

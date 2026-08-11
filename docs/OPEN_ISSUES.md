@@ -138,11 +138,11 @@ there are historical unless repeated here.
   keyless Tailscale SSH, a negative-only port-22 probe from the runtime namespace
   fails early if that namespace cannot reach the management peer. A successful
   TCP probe is intentionally not treated as DDS/UDP evidence.
-- Full start now performs one bounded, read-only transient-local endpoint
-  descriptor probe for each host's remote endpoint IDs and logs `DDS readiness`.
-  A slow Genesis build remains running and is reported as pending rather than
-  being silently treated as a connected graph. This does not replace the live
-  session/WebRTC acceptance gate.
+- Full start now performs one bounded, read-only endpoint descriptor plus live
+  heartbeat probe for every endpoint ID from each host, including co-located
+  roles. A stale descriptor without a heartbeat fails the start and rolls back
+  launched roles instead of presenting a partitioned graph as ready. This does
+  not replace the live session/WebRTC acceptance gate.
 - Automated software evidence is limited to schema migration, backend
   auto-selection/fixation, generated Compose namespace relationships,
   login/status command shape, exact sidecar state ownership,

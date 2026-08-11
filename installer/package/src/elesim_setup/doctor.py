@@ -55,6 +55,14 @@ class DdsGraphSnapshot:
     services: Mapping[str, tuple[str, ...]]
 
 
+@dataclass(frozen=True)
+class DdsPeerProbe:
+    """Descriptor and heartbeat observations from one bounded DDS probe."""
+
+    descriptors: tuple[str, ...]
+    heartbeats: tuple[str, ...]
+
+
 def _rclpy_import() -> Any:
     """Import rclpy lazily so lightweight installer commands stay stdlib-only."""
 
@@ -273,23 +281,47 @@ def probe_dds_peers(
     The ROS graph can contain a node while the application-level peer
     descriptor is still absent.  Runtime control addresses endpoint IDs, so a
     node/topic snapshot alone cannot explain ``target peer ... is not active``.
-    This bounded transient-local subscription observes the same descriptor
-    carrier used by :class:`DdsPeerNode` without opening a control session.
+    This compatibility wrapper preserves the descriptor-only API; strict
+    readiness uses :func:`probe_dds_peer_state` and requires both descriptor
+    and heartbeat observations.
+    """
+
+    return probe_dds_peer_state(
+        state,
+        timeout_s=timeout_s,
+        import_rclpy=import_rclpy,
+    ).descriptors
+
+
+def probe_dds_peer_state(
+    state: InstallState,
+    *,
+    timeout_s: float,
+    import_rclpy: Callable[[], Any] | None = None,
+) -> DdsPeerProbe:
+    """Observe descriptors and live heartbeats on the application carrier.
+
+    A transient-local descriptor can outlive the process that published it.
+    The application peer directory therefore requires a subsequent volatile
+    heartbeat before it considers an endpoint active.  The doctor mirrors
+    that distinction so a stale descriptor cannot make a broken UDP path look
+    healthy.
     """
 
     _prepare_dds_environment(state)
     try:
-        from elesim_interfaces.msg import EndpointDescriptor
+        from elesim_interfaces.msg import EndpointDescriptor, EndpointHeartbeat
         from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     except ImportError as exc:
         raise RuntimeError(
-            "ROS 2 overlay에서 elesim_interfaces EndpointDescriptor를 찾을 수 없습니다"
+            "ROS 2 overlay에서 Elesim discovery message를 찾을 수 없습니다"
         ) from exc
 
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
     context = _rclpy_context(rclpy, state)
     node = None
-    found: set[str] = set()
+    descriptor_ids: set[str] = set()
+    heartbeat_ids: set[str] = set()
     try:
         node = rclpy.create_node(
             "elesim_peer_doctor",
@@ -308,19 +340,41 @@ def probe_dds_peers(
             peer = getattr(message, "peer", None)
             endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
             if endpoint_id:
-                found.add(endpoint_id)
+                descriptor_ids.add(endpoint_id)
 
-        subscription = node.create_subscription(
+        def on_heartbeat(message: Any) -> None:
+            peer = getattr(message, "peer", None)
+            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
+            if endpoint_id:
+                heartbeat_ids.add(endpoint_id)
+
+        descriptor_subscription = node.create_subscription(
             EndpointDescriptor,
             f"/{state.dds.system_id}/v6/discovery/endpoints",
             on_descriptor,
             qos,
         )
+        heartbeat_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=64,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        heartbeat_subscription = node.create_subscription(
+            EndpointHeartbeat,
+            f"/{state.dds.system_id}/v6/discovery/heartbeats",
+            on_heartbeat,
+            heartbeat_qos,
+        )
         deadline = time.monotonic() + max(0.2, float(timeout_s))
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=min(0.1, deadline - time.monotonic()))
-        node.destroy_subscription(subscription)
-        return tuple(sorted(found))
+        node.destroy_subscription(descriptor_subscription)
+        node.destroy_subscription(heartbeat_subscription)
+        return DdsPeerProbe(
+            descriptors=tuple(sorted(descriptor_ids)),
+            heartbeats=tuple(sorted(heartbeat_ids)),
+        )
     finally:
         if node is not None:
             node.destroy_node()
@@ -462,12 +516,10 @@ class NetworkDoctor:
 
     def _peer_results(self, report: DoctorReport) -> None:
         if not self.expected_peers:
-            report.add("DDS peers", SKIP, "기대하는 원격 endpoint가 지정되지 않음")
+            report.add("DDS peers", SKIP, "기대하는 endpoint가 지정되지 않음")
             return
         try:
-            discovered = set(
-                probe_dds_peers(self.state, timeout_s=self.timeout_s)
-            )
+            probe = probe_dds_peer_state(self.state, timeout_s=self.timeout_s)
         except Exception as exc:
             report.add(
                 "DDS peers",
@@ -476,20 +528,40 @@ class NetworkDoctor:
                 "ROS 2 overlay와 DDS discovery carrier를 확인하십시오",
             )
             return
-        missing = tuple(peer for peer in self.expected_peers if peer not in discovered)
+        descriptors = set(probe.descriptors)
+        heartbeats = set(probe.heartbeats)
+        missing_descriptors = tuple(
+            peer for peer in self.expected_peers if peer not in descriptors
+        )
+        missing_heartbeats = tuple(
+            peer for peer in self.expected_peers if peer not in heartbeats
+        )
+        missing = tuple(
+            peer
+            for peer in self.expected_peers
+            if peer in missing_descriptors or peer in missing_heartbeats
+        )
         if not missing:
             report.add(
                 "DDS peers",
                 PASS,
-                f"{len(self.expected_peers)}개 endpoint 발견: {', '.join(self.expected_peers)}",
+                f"{len(self.expected_peers)}개 endpoint의 descriptor/heartbeat 확인: "
+                f"{', '.join(self.expected_peers)}",
             )
             return
         status = FAIL if self.strict_peers else WARN
-        discovered_text = ", ".join(sorted(discovered)) or "없음"
+        descriptor_text = ", ".join(sorted(descriptors)) or "없음"
+        heartbeat_text = ", ".join(sorted(heartbeats)) or "없음"
+        detail_parts = [f"미발견: {', '.join(missing)}"]
+        if missing_descriptors:
+            detail_parts.append(f"descriptor 없음: {', '.join(missing_descriptors)}")
+        if missing_heartbeats:
+            detail_parts.append(f"heartbeat 없음: {', '.join(missing_heartbeats)}")
         report.add(
             "DDS peers",
             status,
-            f"미발견: {', '.join(missing)} (발견: {discovered_text})",
+            "; ".join(detail_parts)
+            + f" (descriptor: {descriptor_text}; heartbeat: {heartbeat_text})",
             (
                 "모든 호스트가 같은 DDS domain/RMW/security를 사용하고, "
                 "런타임 namespace에서 선택 interface와 static peer 경로가 실제로 "
@@ -614,6 +686,7 @@ __all__ = [
     "RGBD_TYPE",
     "SKIP",
     "WARN",
+    "DdsPeerProbe",
     "DdsGraphSnapshot",
     "DoctorReport",
     "NetworkDoctor",
@@ -625,6 +698,7 @@ __all__ = [
     "parse_turn_url",
     "probe_dds_graph",
     "probe_dds_peers",
+    "probe_dds_peer_state",
     "probe_rgbd_frame",
     "tcp_connect",
     "udp_stun_probe",

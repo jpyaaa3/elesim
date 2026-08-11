@@ -918,8 +918,9 @@ class ConnectionTopology:
         ):
             raise ValueError(
                 "multicast DDS discovery cannot cross Tailscale/routed VPN hosts; "
-                "select static discovery so every host uses the other hosts' DDS "
-                "addresses as direct peers"
+                "select static discovery so every host uses active-host DDS "
+                "addresses (including its own when roles are co-located) as "
+                "direct peers"
             )
         if sum(host.local for host in self.hosts) != 1:
             raise ValueError("exactly one managed host must be local")
@@ -975,10 +976,24 @@ class ConnectionTopology:
         """Return validated static discovery seeds for one active host."""
 
         self.validate()
-        self.host(host_id)
+        host = self.host(host_id)
         if self.dds_graph.discovery_mode == "multicast":
             return ()
-        return tuple(host.dds.address for host in self.hosts if host.host_id != host_id)
+        peers: list[str] = []
+        # A host may carry multiple application participants in one runtime
+        # namespace.  With routed/static discovery and an explicitly selected
+        # interface, multicast cannot introduce those co-located participants
+        # to one another.  Seed the host's own advertised address only when it
+        # actually owns more than one role; single-role hosts do not need a
+        # self peer and retain the leaner legacy list.
+        if len(host.assignments) > 1:
+            peers.append(host.dds.address)
+        peers.extend(
+            other.dds.address
+            for other in self.hosts
+            if other.host_id != host_id
+        )
+        return tuple(dict.fromkeys(peers))
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()

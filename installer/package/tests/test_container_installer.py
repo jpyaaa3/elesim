@@ -465,6 +465,11 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
     assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
+    assert "--elesim-cuda-visible-devices" in compose_wrapper
+    assert "--elesim-sim-viewer" in compose_wrapper
+    assert "10#$runtime_cuda_visible > 65535" in compose_wrapper
+    assert "export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible" in compose_wrapper
+    assert "export ELESIM_SIM_VIEWER=$runtime_sim_viewer" in compose_wrapper
     assert "exec docker compose" in compose_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper

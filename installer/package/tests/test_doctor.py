@@ -11,6 +11,7 @@ from elesim_setup.doctor import (
     SKIP,
     WARN,
     DdsGraphSnapshot,
+    DdsPeerProbe,
     DoctorReport,
     NetworkDoctor,
     _prepare_dds_environment,
@@ -144,8 +145,11 @@ def test_doctor_reports_expected_peer_descriptors(
     graph = DdsGraphSnapshot(nodes=("/elesim/v6/sim",), topics={}, services={})
     monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", lambda *_args, **_kwargs: graph)
     monkeypatch.setattr(
-        "elesim_setup.doctor.probe_dds_peers",
-        lambda *_args, **_kwargs: ("sim-default",),
+        "elesim_setup.doctor.probe_dds_peer_state",
+        lambda *_args, **_kwargs: DdsPeerProbe(
+            descriptors=("sim-default",),
+            heartbeats=("sim-default",),
+        ),
     )
 
     report = NetworkDoctor(
@@ -166,8 +170,11 @@ def test_doctor_strict_peer_probe_fails_when_target_is_missing(
     graph = DdsGraphSnapshot(nodes=(), topics={}, services={})
     monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", lambda *_args, **_kwargs: graph)
     monkeypatch.setattr(
-        "elesim_setup.doctor.probe_dds_peers",
-        lambda *_args, **_kwargs: (),
+        "elesim_setup.doctor.probe_dds_peer_state",
+        lambda *_args, **_kwargs: DdsPeerProbe(
+            descriptors=(),
+            heartbeats=(),
+        ),
     )
 
     report = NetworkDoctor(
@@ -179,6 +186,31 @@ def test_doctor_strict_peer_probe_fails_when_target_is_missing(
     result = next(item for item in report.results if item.name == "DDS peers")
     assert result.status == FAIL
     assert not report.ok
+
+
+def test_doctor_strict_peer_probe_rejects_stale_descriptor_without_heartbeat(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = DdsGraphSnapshot(nodes=(), topics={}, services={})
+    monkeypatch.setattr("elesim_setup.doctor.probe_dds_graph", lambda *_args, **_kwargs: graph)
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_peer_state",
+        lambda *_args, **_kwargs: DdsPeerProbe(
+            descriptors=("sim-default",),
+            heartbeats=(),
+        ),
+    )
+
+    report = NetworkDoctor(
+        local_state(),
+        expected_peers=("sim-default",),
+        strict_peers=True,
+    ).run()
+
+    result = next(item for item in report.results if item.name == "DDS peers")
+    assert result.status == FAIL
+    assert "heartbeat 없음" in result.detail
 
 
 def test_doctor_dds_failure_skips_dependent_checks(

@@ -134,10 +134,11 @@
   산출물을 거부한다. keyless Tailscale SSH topology에서는 runtime namespace에서
   22번 포트의 negative-only probe도 수행해 같은 관리 peer에조차 닿지 못하는
   경우 즉시 실패시킨다. TCP 성공을 DDS/UDP 성공으로 간주하지는 않는다.
-- 전체 시작은 이제 detached Compose 성공만 보고 끝내지 않고, 원격 endpoint ID의
-  transient-local descriptor를 한 번 점검해 `DDS readiness`를 로그에 남긴다.
-  Sim이 Genesis 장면을 만드는 동안에는 런타임을 내리지 않고 대기 상태로
-  표시한다. 이 점검은 실제 session/WebRTC 영상의 live gate를 대체하지 않는다.
+- 전체 시작은 이제 detached Compose 성공만 보고 끝내지 않고, 각 host에서 모든
+  endpoint ID(같은 host에 함께 놓인 role 포함)의 transient-local descriptor와
+  live heartbeat를 한 번 점검한다. descriptor만 남고 heartbeat가 끊긴 stale
+  peer는 준비 완료로 취급하지 않고 시작한 role을 되돌린다. 이 점검은 실제
+  session/WebRTC 영상의 live gate를 대체하지 않는다.
 - 자동 software 근거는 schema migration, backend 자동 선택·고정, generated
   Compose namespace 관계, login/status 명령 형태, 정확한 sidecar state ownership,
   interface/address/route 검사와 auth/OAuth key 부재 검사까지다. 실제 node를 등록하거나

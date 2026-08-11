@@ -28,6 +28,7 @@ from elesim_setup.secure_deployment import (
     RemoteCapabilities,
     RemoteCommandResult,
     RolloutError,
+    RuntimeLaunchOptions,
     SecurityBundle,
     SecurityFile,
     SshHostOperations,
@@ -152,6 +153,39 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     assert _lifecycle_command(
         host, action="start", include_coturn=True
     )[-3:] == ("start", "sim", "coturn")
+
+
+def test_runtime_launch_options_are_bounded_and_scoped_to_compose_launch() -> None:
+    host = _topology().host("server")
+    options = RuntimeLaunchOptions.from_payload(
+        {"gpu_inherit": True, "gpu_device": "3", "viewer": True}
+    )
+    assert options is not None
+    assert options.compose_flags() == (
+        "--elesim-cuda-visible-devices",
+        "3",
+        "--elesim-sim-viewer",
+        "1",
+    )
+    assert _lifecycle_command(host, action="launch", runtime_options=options)[:9] == (
+        "/usr/local/bin/elesim-compose",
+        "--elesim-cuda-visible-devices",
+        "3",
+        "--elesim-sim-viewer",
+        "1",
+        "-p",
+        "elesim-runtime",
+        "-f",
+        "/opt/elesim/containers/compose.yaml",
+    )
+    with pytest.raises(ValueError, match="gpu_device"):
+        RuntimeLaunchOptions.from_payload(
+            {"gpu_inherit": True, "gpu_device": "gpu0", "viewer": False}
+        )
+    with pytest.raises(ValueError, match="unsupported fields"):
+        RuntimeLaunchOptions.from_payload(
+            {"gpu_inherit": False, "gpu_device": "", "viewer": False, "env": {}}
+        )
 
 
 def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:

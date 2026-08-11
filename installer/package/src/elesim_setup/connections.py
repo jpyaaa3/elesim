@@ -29,6 +29,7 @@ from .secure_deployment import (
     LocalHostOperations,
     ParamikoConnector,
     RolloutError,
+    RuntimeLaunchOptions,
     Sros2BundleIssuer,
     SshHostOperations,
     TopologyRollout,
@@ -99,6 +100,14 @@ class ConnectionDeploymentRunner:
         self.local_bin_dir = (
             None if local_bin_dir is None else local_bin_dir.expanduser().resolve()
         )
+        self._runtime_launch_options: RuntimeLaunchOptions | None = None
+
+    def set_runtime_launch_options(
+        self, options: RuntimeLaunchOptions | None
+    ) -> None:
+        """Set one browser-requested launch override for the next job only."""
+
+        self._runtime_launch_options = options
 
     def __call__(
         self,
@@ -106,6 +115,8 @@ class ConnectionDeploymentRunner:
         action: str,
         log: Log,
     ) -> ConnectionTopology:
+        runtime_options = self._runtime_launch_options
+        self._runtime_launch_options = None
         topology.validate()
         self._validate_management_host(topology)
         supported_actions = {
@@ -292,7 +303,10 @@ class ConnectionDeploymentRunner:
                         log("활성 역할의 런타임을 시작합니다.")
                         for host in hosts:
                             log(f"start: {host.host_id}")
-                            operations[host.host_id].launch(host)
+                            if runtime_options is None:
+                                operations[host.host_id].launch(host)
+                            else:
+                                operations[host.host_id].launch(host, runtime_options)
                             launched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
                     except BaseException:
@@ -304,9 +318,23 @@ class ConnectionDeploymentRunner:
                         raise
                 elif action == "restart":
                     log("활성 역할의 런타임을 시작합니다.")
-                    for host in hosts:
-                        log(f"start: {host.host_id}")
-                        operations[host.host_id].start(host)
+                    relaunched = []
+                    try:
+                        for host in hosts:
+                            log(f"start: {host.host_id}")
+                            if runtime_options is None:
+                                operations[host.host_id].start(host)
+                            else:
+                                operations[host.host_id].launch(host, runtime_options)
+                            relaunched.append(host)
+                        self._report_runtime_readiness(topology, operations, hosts, log)
+                    except BaseException:
+                        for host in reversed(relaunched):
+                            try:
+                                operations[host.host_id].stop(host)
+                            except BaseException:
+                                pass
+                        raise
                 return topology
             if topology.security_profile == "trusted-network":
                 log("신뢰 네트워크 DDS 토폴로지 배포를 시작합니다.")
@@ -373,76 +401,130 @@ class ConnectionDeploymentRunner:
 
         ``docker compose up -d`` only proves that containers were created.  A
         Sim process may still be building a Genesis scene, and a Docker
-        Desktop/WSL namespace may be unable to receive the remote descriptor.
-        Keep this probe best-effort so a slow but healthy Sim is not torn down;
-        make either case visible instead of presenting a silent successful
-        start.  The strict, read-only form remains available through
+        Desktop/WSL namespace may be unable to receive a peer heartbeat.  The
+        DDS endpoint thread starts before the Sim scene build, so a bounded
+        strict probe is safe here: a missing co-located or remote endpoint must
+        fail the start instead of presenting a silently partitioned graph.
+        The same read-only probe remains available through
         ``elesim-net doctor --strict-peers``.
         """
 
         log("DDS endpoint 준비 상태를 확인합니다 (컨테이너 시작과 별도).")
+        failures: list[str] = []
         for host in hosts:
-            local_ids = {assignment.endpoint_id for assignment in host.assignments}
             expected = tuple(
                 sorted(
                     assignment.endpoint_id
                     for peer_host in topology.hosts
-                    if peer_host.host_id != host.host_id
                     for assignment in peer_host.assignments
-                    if assignment.endpoint_id not in local_ids
                 )
             )
             if not expected:
-                log(f"DDS readiness: {host.host_id} — local-only")
+                log(f"DDS readiness: {host.host_id} — 검사할 endpoint 없음")
                 continue
             checker = getattr(operations[host.host_id], "runtime_doctor", None)
             if not callable(checker):
+                detail = (
+                    f"{host.host_id}: 검사기 없음; 컨테이너 로그에서 실제 상태를 "
+                    "확인하십시오"
+                )
+                failures.append(detail)
                 log(
                     f"DDS readiness: {host.host_id} — "
-                    "검사기 없음; 컨테이너 로그에서 실제 상태를 확인하십시오"
+                    f"실패: {detail}"
                 )
                 continue
             try:
                 report = checker(host, expected, timeout_s=8.0)
+            except ConnectionJobCancelled:
+                raise
             except BaseException as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
+                failures.append(f"{host.host_id}: {detail[:768]}")
                 log(
                     f"DDS readiness: {host.host_id} — "
                     f"검사 실패: {detail[:768]}"
                 )
                 continue
             if not isinstance(report, Mapping):
+                detail = f"{host.host_id}: 검사 결과 형식이 올바르지 않음"
+                failures.append(detail)
                 log(
                     f"DDS readiness: {host.host_id} — "
-                    "검사 결과 형식이 올바르지 않음; 컨테이너 로그를 확인하십시오"
+                    "실패: 검사 결과 형식이 올바르지 않음; 컨테이너 로그를 "
+                    "확인하십시오"
                 )
                 continue
-            if bool(report.get("ok")):
+            if ConnectionDeploymentRunner._runtime_report_ok(report):
                 log(
                     f"DDS readiness: {host.host_id} — "
-                    f"원격 endpoint {', '.join(expected)} 발견"
+                    f"endpoint descriptor/heartbeat 확인: {', '.join(expected)}"
                 )
                 continue
-            raw_results = report.get("results", ())
+            detail = ConnectionDeploymentRunner._runtime_report_detail(report)
+            failures.append(f"{host.host_id}: {detail[:768]}")
+            log(
+                f"DDS readiness: {host.host_id} — "
+                f"실패: {detail[:768]}; Sim 장면 빌드 또는 Docker Desktop/WSL "
+                "네트워크 namespace와 DDS UDP 경로를 확인하십시오"
+            )
+        if failures:
+            raise RuntimeError(
+                "DDS readiness failed; expected co-located and remote peer "
+                "heartbeats were not observed: "
+                + "; ".join(failures)[:4096]
+            )
+
+    @staticmethod
+    def _runtime_report_ok(report: Mapping[str, object]) -> bool:
+        """Accept both one-unit and multi-unit doctor report envelopes."""
+
+        if "ok" in report:
+            return report.get("ok") is True
+        units = report.get("units")
+        if not isinstance(units, Mapping) or not units:
+            return False
+        return all(
+            isinstance(unit_report, Mapping) and unit_report.get("ok") is True
+            for unit_report in units.values()
+        )
+
+    @staticmethod
+    def _runtime_report_detail(report: Mapping[str, object]) -> str:
+        """Extract a bounded peer failure from either doctor report shape."""
+
+        def from_one(value: object) -> str | None:
+            if not isinstance(value, Mapping):
+                return None
+            raw_results = value.get("results", ())
             results = raw_results if isinstance(raw_results, (list, tuple)) else ()
             peer_result = next(
                 (
                     result
                     for result in results
-                    if isinstance(result, Mapping) and result.get("name") == "DDS peers"
+                    if isinstance(result, Mapping)
+                    and result.get("name") == "DDS peers"
                 ),
                 None,
             )
-            detail = (
-                str(peer_result.get("detail", ""))
-                if isinstance(peer_result, Mapping)
-                else "expected endpoint가 아직 발견되지 않음"
-            )
-            log(
-                f"DDS readiness: {host.host_id} — "
-                f"대기 중: {detail[:768]}; Sim 장면 빌드 또는 Docker Desktop/WSL "
-                "네트워크 namespace를 확인하십시오"
-            )
+            if isinstance(peer_result, Mapping):
+                detail = str(peer_result.get("detail", "")).strip()
+                if detail:
+                    return detail
+            if value.get("ok") is False:
+                return "expected endpoint가 아직 발견되지 않음"
+            return None
+
+        direct = from_one(report)
+        if direct:
+            return direct
+        units = report.get("units")
+        if isinstance(units, Mapping):
+            for unit_id, unit_report in units.items():
+                detail = from_one(unit_report)
+                if detail:
+                    return f"{unit_id}: {detail}"
+        return "expected endpoint가 아직 발견되지 않음"
 
     @staticmethod
     def _check_hosts(

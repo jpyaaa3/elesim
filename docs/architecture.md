@@ -317,8 +317,11 @@ tailnet identity while SSH still terminates at the WSL/host identity. Tailscale
 SSH is keyless and uses port 22; Tailscale ACL `check` rules may require an
 interactive re-authentication before the manager can automate commands. An SSH
 port such as `2222` is never a DDS or WebRTC port. Static peers are derived
-only from active hosts' DDS addresses. Tailscale and other routed-VPN graphs
-use static discovery; static peers seed discovery and never relay DDS samples.
+from active hosts' DDS addresses. A host that carries more than one role also
+seeds its own advertised DDS address: with multicast disabled, that self-seed
+lets co-located Pilot/UI/Sim participants discover one another. Tailscale and
+other routed-VPN graphs use static discovery; static peers seed discovery and
+never relay DDS samples.
 
 ## Verification Matrix
 

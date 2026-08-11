@@ -505,6 +505,22 @@ def test_static_discovery_peers_are_generated_from_other_active_hosts() -> None:
     )
 
 
+def test_static_discovery_peers_seed_co_located_roles() -> None:
+    topology = _topology()
+
+    assert topology.discovery_peers("laptop") == (
+        "100.64.0.10",
+        "100.64.0.20",
+        "100.64.0.30",
+    )
+
+
+def test_static_discovery_peers_seed_one_host_simulation_roles() -> None:
+    topology = _simulation_topology()
+
+    assert topology.discovery_peers("sim-laptop") == ("100.64.0.40",)
+
+
 def test_duplicate_dds_addresses_are_rejected() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["dds"]["address"] = raw["hosts"][0]["dds"]["address"]

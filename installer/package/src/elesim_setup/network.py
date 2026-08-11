@@ -854,7 +854,7 @@ def _parser() -> argparse.ArgumentParser:
         "--expect-peer",
         action="append",
         default=[],
-        help="기대하는 원격 Elesim endpoint ID (반복 가능)",
+        help="기대하는 Elesim endpoint ID (반복 가능)",
     )
     doctor.add_argument(
         "--strict-peers",

@@ -25,6 +25,7 @@ from elesim_setup.connection_manager import (
     SshEndpoint,
 )
 from elesim_setup.connections import _BuildLogForwarder
+from elesim_setup.secure_deployment import RuntimeLaunchOptions
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -281,6 +282,31 @@ def test_failed_job_reports_a_runner_persisted_topology_update(tmp_path: Path) -
     assert ConnectionTopology.load(app.state_path) == updated
 
 
+def test_start_job_forwards_ephemeral_runtime_launch_options(tmp_path: Path) -> None:
+    class Runner:
+        def __init__(self) -> None:
+            self.options: list[RuntimeLaunchOptions | None] = []
+
+        def set_runtime_launch_options(
+            self, options: RuntimeLaunchOptions | None
+        ) -> None:
+            self.options.append(options)
+
+        def __call__(self, topology, _action, _log):
+            return topology
+
+    runner = Runner()
+    app = _application(tmp_path, runner=runner)
+    app.save_topology(_topology().to_dict())
+
+    app.start_job(
+        "start",
+        {"gpu_inherit": True, "gpu_device": "2", "viewer": True},
+    )
+    assert _wait_for_job(app)["status"] == "completed"
+    assert runner.options == [RuntimeLaunchOptions(True, "2", True)]
+
+
 def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     root = connection_web_root()
     catalog = json.loads((root / "i18n.json").read_text(encoding="utf-8"))
@@ -338,6 +364,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-state="pending"' in html
     assert 'id="cancel"' in html
     assert 'data-i18n="actions.title"' in html
+    assert 'id="gpu-inherit"' in html
+    assert 'id="gpu-device"' in html
+    assert 'id="use-viewer"' in html
+    assert 'class="boot-options"' in html
     assert 'data-i18n="actions.help"' not in html
     assert 'maintenance-actions' not in html
     assert 'workflow.save.help' not in html
@@ -362,6 +392,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
     assert 'byId("restart").addEventListener("click", () => startJob("restart").catch(showError))' in script
+    assert "function runtimeLaunchOptions()" in script
+    assert "gpu_inherit: gpuInherit" in script
+    assert 'gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : ""' in script
+    assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
+    assert "JSON.stringify(payload)" in script
+    assert 'control.closest(".boot-options")' in script
+    assert 'device.disabled = !inherit.checked' in script
+    assert ".boot-options" in style
+    assert '.boot-gpu-option input[type="number"]:disabled' in style
+    assert ".workflow-steps" in style and "align-items: stretch" in style
+    assert ".abort-step button" in style and "height: 100%" in style
     assert 'startJob("check")' not in script
     assert 'workflow.stage.' not in script
     assert 'data-drop-slot="com4"' in html

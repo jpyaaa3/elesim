@@ -185,7 +185,9 @@ Docker Desktop은 WSL node를 상속할 수 없으므로 Docker VM 내부 sideca
 
 - DDS interface: `tailscale0`
 - discovery: 보수적으로 `static`
-- static peers: 각 host의 Tailscale IP/hostname
+- static peers: 각 host의 Tailscale IP/hostname. 한 host에 여러 role이
+  있으면 자기 DDS 주소도 포함하여 multicast 없이 같은 namespace의
+  Pilot/Sim/UI가 서로 발견할 수 있게 한다.
 - graph settings: 같은 `system_id`, `domain_id`, RMW, discovery mode,
   security profile
 
@@ -330,7 +332,8 @@ UDP locator를 설정값으로 저장하지 않는다.
 
 1. 선택한 interface, DNS/IP, VPN/Tailscale 상태 확인
 2. 선택 사항으로 SSH 관리 연결 확인
-3. DDS `EndpointDescriptor`/heartbeat 상호 발견 확인
+3. DDS `EndpointDescriptor`/heartbeat 상호 발견 확인. descriptor만 남고
+   heartbeat가 끊긴 stale peer는 성공으로 취급하지 않는다.
 4. directed control round-trip, motion lease, simulation session 확인
 5. active RGBD frame 하나 수신 확인
 6. UI의 실제 WebRTC offer/answer/decoded-frame 검증은 별도 live test로 표시
@@ -347,6 +350,12 @@ graph, topic 표면을 검증한다. `--active`의 RGBD sample 검사는 별도 
 저장 이후에는 `check`, `start`, `stop`, `restart`
 작업으로 각 host의 Compose/systemd 관리 상태를 확인·조작할 수 있으며, SSH 성공을
 DDS discovery나 WebRTC media 성공으로 해석하지 않는다.
+
+부팅 카드의 GPU 상속 번호와 Viewer 선택은 저장 topology가 아닌 일회성 실행
+옵션이다. `start`/`restart` 요청에만 bounded Compose wrapper flag로 전달하며,
+GPU 상속을 끄면 `CUDA_VISIBLE_DEVICES`를 비우고 Viewer를 끄면 Sim의 `--viewer`
+경로를 사용하지 않는다. 입력값은 GPU 번호와 boolean만 허용하고 다른 환경변수나
+임의 Compose 인자는 전달하지 않는다.
 
 ```text
 Operator host <-> Sim host: DDS discovery / control / RGBD / WebRTC signaling

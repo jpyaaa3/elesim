@@ -15,6 +15,7 @@ from elesim_setup.connection_manager import (
 )
 from elesim_setup.connection_gui import ConnectionJobCancelled
 from elesim_setup.connections import ConnectionDeploymentRunner
+from elesim_setup.secure_deployment import RuntimeLaunchOptions
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
@@ -175,6 +176,7 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     topology = _topology(tmp_path, security_profile="trusted-network")
     events: list[str] = []
     logs: list[str] = []
+    received_options: list[RuntimeLaunchOptions | None] = []
 
     class Operations(_NoopNetworkPreparation):
         def __init__(self, host_id: str) -> None:
@@ -198,8 +200,14 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         def runtime_network_check(self, _host) -> None:
             events.append(f"network-check:{self.host_id}")
 
-        def launch(self, _host) -> None:
+        def launch(self, _host, runtime_options=None) -> None:
+            received_options.append(runtime_options)
             events.append(f"launch:{self.host_id}")
+
+        @staticmethod
+        def runtime_doctor(_host, _expected_peer_ids, *, timeout_s):
+            assert timeout_s == 8
+            return {"ok": True, "results": []}
 
         def stop(self, _host) -> None:
             events.append(f"stop:{self.host_id}")
@@ -218,6 +226,8 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         local_install_root=tmp_path / "install",
     )
 
+    options = RuntimeLaunchOptions(True, "1", True)
+    runner.set_runtime_launch_options(options)
     runner(topology, "start", logs.append)
 
     assert events == [
@@ -234,9 +244,10 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     assert "build operator [stderr] operator-step-2" in logs
     assert "build 완료: operator" in logs
     assert "build 완료: jetson" in logs
+    assert received_options == [options, options]
 
 
-def test_runtime_start_reports_remote_dds_readiness_after_launch(
+def test_runtime_start_reports_dds_readiness_after_launch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     topology = _topology(tmp_path, security_profile="trusted-network")
@@ -292,14 +303,14 @@ def test_runtime_start_reports_remote_dds_readiness_after_launch(
     assert events == [
         "launch:operator",
         "launch:jetson",
-        "doctor:operator:robot-go2:8",
-        "doctor:jetson:pilot-main,sim-main,ui-main:8",
+        "doctor:operator:pilot-main,robot-go2,sim-main,ui-main:8",
+        "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:8",
     ]
     assert any("DDS endpoint 준비 상태" in message for message in logs)
-    assert any("원격 endpoint robot-go2 발견" in message for message in logs)
+    assert any("endpoint descriptor/heartbeat 확인" in message for message in logs)
 
 
-def test_runtime_readiness_tolerates_malformed_results_payload(
+def test_runtime_readiness_fails_on_malformed_results_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     topology = _topology(tmp_path, security_profile="trusted-network")
@@ -347,9 +358,50 @@ def test_runtime_readiness_tolerates_malformed_results_payload(
         local_install_root=tmp_path / "install",
     )
 
-    runner(topology, "start", logs.append)
+    with pytest.raises(RuntimeError, match="DDS readiness failed"):
+        runner(topology, "start", logs.append)
 
     assert any("expected endpoint가 아직 발견되지 않음" in message for message in logs)
+
+
+def test_runtime_readiness_accepts_multi_unit_doctor_envelope() -> None:
+    report = {
+        "state": "ready",
+        "units": {
+            "compose": {"ok": True, "results": []},
+            "robot": {"ok": True, "results": []},
+        },
+    }
+
+    assert ConnectionDeploymentRunner._runtime_report_ok(report)
+    assert (
+        ConnectionDeploymentRunner._runtime_report_detail(report)
+        == "expected endpoint가 아직 발견되지 않음"
+    )
+
+
+def test_runtime_readiness_reports_failed_unit_from_multi_unit_envelope() -> None:
+    report = {
+        "state": "ready",
+        "units": {
+            "compose": {"ok": True, "results": []},
+            "robot": {
+                "ok": False,
+                "results": [
+                    {
+                        "name": "DDS peers",
+                        "detail": "heartbeat 없음: sim-main",
+                    }
+                ],
+            },
+        },
+    }
+
+    assert not ConnectionDeploymentRunner._runtime_report_ok(report)
+    assert (
+        ConnectionDeploymentRunner._runtime_report_detail(report)
+        == "robot: heartbeat 없음: sim-main"
+    )
 
 
 def test_host_check_combines_network_preflight_and_runtime_status(

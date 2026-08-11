@@ -270,8 +270,30 @@ def _validate_command(
     if tuple(argv) == ("docker", "version", "--format", "{{.Server.Version}}"):
         return
     compose_wrapper = str(bin_dir / "elesim-compose")
+    option_end = 1
+    while option_end < len(argv):
+        option = argv[option_end]
+        if option == "--elesim-cuda-visible-devices":
+            if option_end + 1 >= len(argv):
+                raise HostHelperError("CUDA_VISIBLE_DEVICES option is missing a value")
+            value = str(argv[option_end + 1])
+            if value and (
+                len(value) > 6
+                or not all("0" <= char <= "9" for char in value)
+                or int(value) > 65535
+            ):
+                raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
+            option_end += 2
+            continue
+        if option == "--elesim-sim-viewer":
+            if option_end + 1 >= len(argv) or argv[option_end + 1] not in {"0", "1"}:
+                raise HostHelperError("Sim viewer option is invalid")
+            option_end += 2
+            continue
+        break
     prefix = (
         compose_wrapper,
+        *argv[1:option_end],
         "-p",
         project,
         "-f",
@@ -295,6 +317,16 @@ def _validate_command(
     if tuple(argv[: len(prefix)]) != prefix:
         raise HostHelperError("Docker command escapes the managed Compose project")
     suffix = tuple(argv[len(prefix) :])
+    has_runtime_options = option_end > 1
+    if has_runtime_options and suffix[:4] != (
+        "up",
+        "-d",
+        "--no-build",
+        "--remove-orphans",
+    ):
+        raise HostHelperError(
+            "runtime launch options are allowed only for an up lifecycle"
+        )
     if suffix in {
         ("config", "--quiet"),
         ("config", "--services"),

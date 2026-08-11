@@ -720,6 +720,22 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   });
 }
 
+function runtimeLaunchOptions() {
+  const gpuInherit = Boolean(byId("gpu-inherit")?.checked);
+  return {
+    gpu_inherit: gpuInherit,
+    gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : "",
+    viewer: Boolean(byId("use-viewer")?.checked),
+  };
+}
+
+function updateRuntimeOptions() {
+  const inherit = byId("gpu-inherit");
+  const device = byId("gpu-device");
+  if (!inherit || !device) return;
+  device.disabled = !inherit.checked;
+}
+
 async function saveTopology({quiet = false, invalidate = true} = {}) {
   let topology;
   let result;
@@ -782,7 +798,10 @@ async function startJob(action) {
   const step = workflowStepForAction(action);
   if (step) setWorkflowStepState(step, "running");
   try {
-    await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify({})});
+    const payload = ["start", "restart"].includes(action)
+      ? runtimeLaunchOptions()
+      : {};
+    await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify(payload)});
   } catch (error) {
     if (step) setWorkflowStepState(step, "error");
     throw error;
@@ -974,9 +993,11 @@ function bindEvents() {
     });
   });
   document.querySelectorAll("input, select").forEach((control) => {
+    if (control.closest(".boot-options")) return;
     control.addEventListener("input", markWorkflowDirty);
     control.addEventListener("change", markWorkflowDirty);
   });
+  byId("gpu-inherit").addEventListener("change", updateRuntimeOptions);
   document.querySelectorAll("[data-probe-slot]").forEach((button) => {
     button.addEventListener("click", () => probeSsh(button.dataset.probeSlot).catch(showError));
   });
@@ -999,6 +1020,7 @@ async function initialize() {
     catalog = await fetch("/i18n.json", {cache: "no-store"}).then((response) => response.json());
     normalizeHostCards();
     bindEvents();
+    updateRuntimeOptions();
     applyLanguage("ko");
     computerSlots.forEach(setCardActive);
     const context = await api("/api/context");
