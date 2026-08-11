@@ -2,7 +2,9 @@
 
 <h1 align="center">Elesim</h1>
 
-### 설치 마법사
+## 1. 설치 방법
+
+### 설치 마법사 실행
 
 Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
 
@@ -13,7 +15,6 @@ Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge
    curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
     | ELESIM_REF=refactoring bash
    ```
----
 
 ### Docker Desktop을 사용 중일 경우
 
@@ -29,7 +30,7 @@ SSH는 Docker Desktop 사용 여부와 무관합니다.
 
 ---
 
-### 어플리케이션
+## 2. 어플리케이션
 
 | 역할 | 하는 일 |
 | --- | --- |
@@ -39,8 +40,6 @@ SSH는 Docker Desktop 사용 여부와 무관합니다.
 | Robot | 실제 로봇을 움직이고 안전을 관리합니다. |
 
 역할들은 중앙 Router 없이 ROS 2/DDS로 직접 통신합니다. 영상은 WebRTC를 사용합니다.
-
----
 
 ### 자주 쓰는 명령
 
@@ -55,7 +54,7 @@ elesim-uninstall --plan  # 삭제될 항목만 미리 확인
 
 ---
 
-### 문서
+## 3. 문서
 
 [처음부터 끝까지](docs/zero2omega.md) ·
 [설치](docs/setup.md) ·
