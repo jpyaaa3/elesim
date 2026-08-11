@@ -20,7 +20,7 @@ Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge
 
 Docker Desktop 사용 중 발급된 Tailscale IP는 DDS 통신을 위한 인터페이스 사용이 제한됩니다.
 
-Elesim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 발급하십시오.
+Elesim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 생성하십시오.
 
 SSH는 Docker Desktop 사용 여부와 무관합니다.
 
