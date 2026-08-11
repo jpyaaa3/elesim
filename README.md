@@ -4,12 +4,15 @@
 
 ### 설치 마법사
 
-Elesim을 설치할 폴더에서 다음 명령을 실행합니다.
+Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh | bash
    ```
-
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
+    | ELESIM_REF=refactoring bash
+   ```
 ---
 
 ### Docker Desktop을 사용 중일 경우
