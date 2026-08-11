@@ -2,7 +2,7 @@
 
 <h1 align="center">Elesim</h1>
 
-<h4 align="center">테스트용 글자</h4>
+<p align="center">테스트용 글자</p>
 
 <br><br>
 
