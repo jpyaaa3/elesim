@@ -688,6 +688,10 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
                 connection_web_root() / "i18n.json",
                 "application/json; charset=utf-8",
             ),
+            "icon.svg": (
+                connection_web_root() / "icon.svg",
+                "image/svg+xml",
+            ),
             "fonts/NotoSansCJKkr-Regular.otf": (
                 installer_web_font_root() / "NotoSansCJKkr-Regular.otf",
                 "font/otf",

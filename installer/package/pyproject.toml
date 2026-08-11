@@ -34,11 +34,13 @@ elesim_setup = [
   "web/*.css",
   "web/*.js",
   "web/*.json",
+  "web/*.svg",
   "web/fonts/*.otf",
   "connection_web/*.html",
   "connection_web/*.css",
   "connection_web/*.js",
   "connection_web/*.json",
+  "connection_web/*.svg",
 ]
 
 [tool.pytest.ini_options]

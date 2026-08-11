@@ -389,6 +389,7 @@ class WizardRequestHandler(BaseHTTPRequestHandler):
             "app.js",
             "style.css",
             "i18n.json",
+            "icon.svg",
             "fonts/NotoSansCJKkr-Regular.otf",
         }:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -402,6 +403,7 @@ class WizardRequestHandler(BaseHTTPRequestHandler):
             ".js": "text/javascript; charset=utf-8",
             ".css": "text/css; charset=utf-8",
             ".json": "application/json; charset=utf-8",
+            ".svg": "image/svg+xml",
             ".otf": "font/otf",
         }
         body = path.read_bytes()

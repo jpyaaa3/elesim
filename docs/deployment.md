@@ -231,8 +231,12 @@ be a failed security rollout and trigger an avoidable rollback.
 The final launch uses the installed `elesim-up --no-build` wrapper rather than
 bypassing it with a raw Compose invocation. A checked Viewer option therefore
 uses the wrapper's real `--view` path, including `DISPLAY` validation and the
-temporary bounded `xhost` grant. The optional GPU number is passed through the
-same wrapper as a one-shot `CUDA_VISIBLE_DEVICES` value.
+temporary bounded `xhost` grant. For a non-interactive connection-manager SSH
+launch, the wrapper probes only the invoking user's current display, actual
+`/tmp/.X11-unix/X<n>` sockets (at most 16), `:0`, and that user's normal or GDM
+Xauthority paths. It starts Sim only after one exact combination passes an
+`xhost` connection check. The optional GPU number is passed through the same
+wrapper as a one-shot `CUDA_VISIBLE_DEVICES` value.
 Security deployment and rotation never build or recreate
 containers; they resume exactly the role containers that were running before
 the switch. Their badges describe
@@ -485,6 +489,10 @@ keeping the observer and hand-eye render cameras enabled.
 일반 설치에서 실제 그래픽 세션이 있는 Sim 호스트라면 `elesim-up --view`로
 이번 실행에 한해 native Viewer를 켤 수 있다. `DISPLAY`와 X11 인증/WSLg가
 준비되어 있어야 하며, 설정 파일이나 보안 generation은 변경하지 않는다.
+연결관리자가 비대화형 SSH로 실행해 `DISPLAY`를 상속받지 못한 경우에는 Sim
+호스트의 실제 X11 Unix socket과 설치 사용자의 `.Xauthority` 또는 GDM
+Xauthority를 제한적으로 확인한다. 접속 가능한 조합이 검증되지 않으면 Sim을
+시작하기 전에 실패한다.
 실행 시 Sim 컨테이너를 실행하는 설치 사용자의 X11 권한을 필요할 때만 임시로
 추가하고, `elesim-down` 시 Elesim이 기록한 권한만 회수한다. 기존에 있던
 권한은 유지한다. Sim은 설치 사용자의 UID/GID로 실행되므로 root ACL을

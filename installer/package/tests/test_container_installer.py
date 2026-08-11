@@ -924,7 +924,7 @@ def test_compose_dds_environment_refresh_tracks_configured_state(local_state) ->
         assert environment["ELESIM_DDS_STATIC_PEERS"] == "100.74.222.24"
 
 
-def test_runtime_up_view_switch_is_one_shot_and_requires_display(
+def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     tmp_path: Path,
 ) -> None:
     compose = tmp_path / "compose.yaml"
@@ -962,6 +962,8 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     xhost = fake_bin / "xhost"
     xhost.write_text(
         "#!/usr/bin/env bash\n"
+        "[[ ${DISPLAY:-} == :0 ]] || exit 1\n"
+        "[[ ${XAUTHORITY:-} == ${EXPECTED_XAUTHORITY:?} ]] || exit 1\n"
         "if (( $# == 0 )); then\n"
         "  if [[ -e ${XHOST_PERMISSION_MARKER:?} ]]; then\n"
         "    printf 'SI:localuser:simuser\\n'\n"
@@ -982,19 +984,29 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     environment["CUDA_MARKER"] = str(tmp_path / "cuda.marker")
     environment["DOCKER_ARGS_MARKER"] = str(tmp_path / "docker.args")
     environment["XHOST_PERMISSION_MARKER"] = str(tmp_path / "xhost.permission")
+    viewer_home = tmp_path / "viewer-home"
+    viewer_home.mkdir()
+    xauthority = viewer_home / ".Xauthority"
+    xauthority.write_text("cookie\n", encoding="utf-8")
+    environment["HOME"] = str(viewer_home)
+    environment["EXPECTED_XAUTHORITY"] = str(xauthority)
     environment.pop("DISPLAY", None)
-    missing_display = subprocess.run(
+    environment.pop("XAUTHORITY", None)
+    discovered_display = subprocess.run(
         (wrapper, "--view"),
         env=environment,
         text=True,
         capture_output=True,
         check=False,
     )
-    assert missing_display.returncode == 64
-    assert "DISPLAY" in missing_display.stderr
-    assert not Path(environment["VIEWER_MARKER"]).exists()
+    assert discovered_display.returncode == 0
+    assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
+    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
+        f":0\n{xauthority}\n"
+    )
 
     environment["DISPLAY"] = ":0"
+    environment["XAUTHORITY"] = str(xauthority)
     viewed = subprocess.run(
         (wrapper, "--no-build", "--cuda-visible-devices", "2", "--view"),
         env=environment,
@@ -1008,7 +1020,9 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     assert "up -d --no-build --remove-orphans" in Path(
         environment["DOCKER_ARGS_MARKER"]
     ).read_text(encoding="utf-8")
-    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == ":0\n\n"
+    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
+        f":0\n{xauthority}\n"
+    )
     assert (tmp_path / "xhost.permission").is_file()
 
     normal = subprocess.run(
@@ -1022,6 +1036,23 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == ""
     assert not (tmp_path / "viewer-xhost").exists()
     assert not (tmp_path / "xhost.permission").exists()
+
+    xauthority.unlink()
+    environment.pop("DISPLAY", None)
+    environment.pop("XAUTHORITY", None)
+    Path(environment["VIEWER_MARKER"]).unlink()
+    unavailable = subprocess.run(
+        (wrapper, "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert unavailable.returncode == 64
+    assert "X11 세션" in unavailable.stderr
+    assert "up -d" not in Path(environment["DOCKER_ARGS_MARKER"]).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_runtime_up_selects_sim_owned_coturn_from_security_profile(

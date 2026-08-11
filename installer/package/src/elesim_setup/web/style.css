@@ -131,10 +131,11 @@ select:focus-visible,
   height: 32px;
   place-items: center;
   border-radius: 5px;
-  background: var(--accent);
-  color: #fff;
-  font-size: var(--font-small);
+  background: rgb(200 200 100);
+  overflow: hidden;
 }
+
+.brand-mark img { display: block; width: 30px; height: 30px; }
 
 .language-switch {
   display: flex;

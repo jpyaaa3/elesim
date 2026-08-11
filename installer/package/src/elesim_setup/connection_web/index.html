@@ -4,12 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title data-i18n="app.title">Elesim 연결 관리자</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">EL</span><span data-i18n="app.title"></span></div>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><img src="/icon.svg" alt=""></span>
+      <span data-i18n="app.title"></span>
+    </div>
     <div class="language-switch" role="group" aria-label="Language">
       <button type="button" data-language="ko">한국어</button>
       <button type="button" data-language="en">English</button>

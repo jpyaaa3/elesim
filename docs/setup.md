@@ -355,6 +355,9 @@ to be a failed security rollout and trigger an avoidable rollback.
 The connection manager performs that launch through the generated
 `elesim-up --no-build` wrapper. Its one-shot Viewer option becomes `--view`,
 so the normal `DISPLAY` check and temporary `xhost` grant are not bypassed;
+for a remote non-interactive SSH launch the host wrapper resolves only bounded
+local X11 socket and same-user Xauthority candidates, failing before Compose
+when none is usable;
 its bounded GPU-number option becomes `--cuda-visible-devices` and sets
 `CUDA_VISIBLE_DEVICES` only for that launch.
 The generated project name is `elesim-runtime`; images are

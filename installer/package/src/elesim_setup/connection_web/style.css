@@ -84,7 +84,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 }
 
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; }
-.brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 5px; background: var(--accent); color: #fff; font-size: var(--font-small); letter-spacing: -.04em; }
+.brand-mark { display: grid; width: 32px; height: 32px; place-items: center; overflow: hidden; border-radius: 5px; background: rgb(200 200 100); }
+.brand-mark img { display: block; width: 30px; height: 30px; }
 .language-switch { display: flex; }
 .language-switch button { min-height: 30px; border-color: var(--line); border-radius: 0; padding: 4px 10px; background: #fff; color: var(--muted); font-size: var(--font-small); }
 .language-switch button:first-child { border-radius: 5px 0 0 5px; }

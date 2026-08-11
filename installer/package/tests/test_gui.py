@@ -35,6 +35,7 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert (root / "index.html").is_file()
     assert (root / "app.js").is_file()
     assert (root / "style.css").is_file()
+    assert (root / "icon.svg").is_file()
     assert (root / "fonts/NotoSansCJKkr-Regular.otf").is_file()
     assert set(catalog) == {"ko", "en"}
     assert set(catalog["ko"]) == set(catalog["en"])
@@ -54,6 +55,9 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert catalog["ko"]["app.title"] == "Elesim 설치 마법사"
     assert catalog["en"]["app.title"] == "Elesim Install Wizard"
     assert 'data-i18n="app.title"' in html
+    assert '<img src="/icon.svg" alt="">' in html
+    assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html
+    assert "background: rgb(200 200 100);" in style
     assert not any(key.startswith("uninstall.") for key in catalog["ko"])
     assert not any(
         key.startswith(("network.", "dds.", "ssh.", "turn."))
