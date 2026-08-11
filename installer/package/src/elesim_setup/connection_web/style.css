@@ -212,7 +212,14 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .boot-colon { color: var(--muted); font-size: var(--font-small); font-weight: 700; }
 .workflow-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .workflow-actions button { grid-column: auto; }
-.workflow-step button:disabled { border-color: #c5cbd3; background: #c5cbd3; color: #f7f8fa; opacity: 1; }
+.workflow-step button:disabled,
+.workflow-step[data-enabled="false"] button {
+  border-color: #c5cbd3;
+  background: #c5cbd3;
+  color: #f7f8fa;
+  opacity: 1;
+  cursor: not-allowed;
+}
 .workflow-step[data-enabled="false"] .step-number { background: #c5cbd3; color: #f7f8fa; }
 .step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 800; }
 .abort-step { display: flex; flex: 0 0 132px; align-items: stretch; }

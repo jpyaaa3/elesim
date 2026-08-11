@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import struct
+import sys
+import types
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +21,7 @@ from elesim_setup.doctor import (
     build_stun_binding_request,
     parse_tcp_endpoint,
     parse_turn_url,
+    probe_dds_peer_state,
     validate_stun_response,
 )
 from elesim_setup.network import detect_tailscale
@@ -161,6 +165,128 @@ def test_doctor_reports_expected_peer_descriptors(
     result = next(item for item in report.results if item.name == "DDS peers")
     assert result.status == PASS
     assert report.ok
+
+
+def test_readiness_only_doctor_runs_only_strict_peer_probe(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[float, tuple[str, ...]]] = []
+
+    def peer_probe(_state, *, timeout_s, expected_peers):
+        observed.append((timeout_s, tuple(expected_peers)))
+        return DdsPeerProbe(
+            descriptors=("sim-default",),
+            heartbeats=("sim-default",),
+        )
+
+    monkeypatch.setattr("elesim_setup.doctor.probe_dds_peer_state", peer_probe)
+    monkeypatch.setattr(
+        "elesim_setup.doctor.probe_dds_graph",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("readiness must not inspect the full DDS graph")
+        ),
+    )
+
+    report = NetworkDoctor(
+        local_state(),
+        timeout_s=60,
+        expected_peers=("sim-default",),
+        strict_peers=True,
+        readiness_only=True,
+    ).run()
+
+    assert report.ok
+    assert [result.name for result in report.results] == ["DDS peers"]
+    assert observed == [(60.0, ("sim-default",))]
+
+
+def test_readiness_only_doctor_requires_strict_expected_peers(local_state) -> None:
+    with pytest.raises(ValueError, match="strict peer"):
+        NetworkDoctor(local_state(), readiness_only=True)
+    with pytest.raises(ValueError, match="expected peers"):
+        NetworkDoctor(local_state(), strict_peers=True, readiness_only=True)
+
+
+def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EndpointDescriptor:
+        pass
+
+    class EndpointHeartbeat:
+        pass
+
+    message_module = types.ModuleType("elesim_interfaces.msg")
+    message_module.EndpointDescriptor = EndpointDescriptor
+    message_module.EndpointHeartbeat = EndpointHeartbeat
+    package_module = types.ModuleType("elesim_interfaces")
+    package_module.msg = message_module
+    monkeypatch.setitem(sys.modules, "elesim_interfaces", package_module)
+    monkeypatch.setitem(sys.modules, "elesim_interfaces.msg", message_module)
+
+    qos_module = types.ModuleType("rclpy.qos")
+    qos_module.DurabilityPolicy = SimpleNamespace(
+        TRANSIENT_LOCAL="transient", VOLATILE="volatile"
+    )
+    qos_module.HistoryPolicy = SimpleNamespace(KEEP_LAST="keep-last")
+    qos_module.ReliabilityPolicy = SimpleNamespace(RELIABLE="reliable")
+    qos_module.QoSProfile = lambda **values: values
+    monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
+
+    class Context:
+        def shutdown(self) -> None:
+            return None
+
+    class Node:
+        def __init__(self) -> None:
+            self.callbacks = {}
+
+        def create_subscription(self, message_type, _topic, callback, _qos):
+            self.callbacks[message_type] = callback
+            return message_type
+
+        def destroy_subscription(self, _subscription) -> None:
+            return None
+
+        def destroy_node(self) -> None:
+            return None
+
+    class FakeRclpy:
+        context = SimpleNamespace(Context=Context)
+
+        def __init__(self) -> None:
+            self.node = Node()
+            self.spin_calls = 0
+
+        @staticmethod
+        def init(**_kwargs) -> None:
+            return None
+
+        def create_node(self, *_args, **_kwargs):
+            return self.node
+
+        def spin_once(self, node, **_kwargs) -> None:
+            self.spin_calls += 1
+            message = SimpleNamespace(
+                peer=SimpleNamespace(endpoint_id="sim-default")
+            )
+            node.callbacks[EndpointDescriptor](message)
+            node.callbacks[EndpointHeartbeat](message)
+
+    fake = FakeRclpy()
+    result = probe_dds_peer_state(
+        local_state(),
+        timeout_s=60,
+        expected_peers=("sim-default",),
+        import_rclpy=lambda: fake,
+    )
+
+    assert result == DdsPeerProbe(
+        descriptors=("sim-default",), heartbeats=("sim-default",)
+    )
+    assert fake.spin_calls == 1
 
 
 def test_doctor_strict_peer_probe_fails_when_target_is_missing(

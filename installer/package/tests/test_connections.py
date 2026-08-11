@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -24,6 +25,10 @@ FINGERPRINT = "SHA256:" + "A" * 43
 class _NoopNetworkPreparation:
     @staticmethod
     def prepare_runtime_network(_host, _output):
+        return None
+
+    @staticmethod
+    def runtime_launch_preflight(_host):
         return None
 
 
@@ -200,13 +205,16 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
         def runtime_network_check(self, _host) -> None:
             events.append(f"network-check:{self.host_id}")
 
+        def runtime_launch_preflight(self, _host) -> None:
+            events.append(f"launch-preflight:{self.host_id}")
+
         def launch(self, _host, runtime_options=None) -> None:
             received_options.append(runtime_options)
             events.append(f"launch:{self.host_id}")
 
         @staticmethod
         def runtime_doctor(_host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 8
+            assert timeout_s == 60
             return {"ok": True, "results": []}
 
         def stop(self, _host) -> None:
@@ -233,8 +241,10 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     assert events == [
         "network-check:operator",
         "preflight:operator",
+        "launch-preflight:operator",
         "network-check:jetson",
         "preflight:jetson",
+        "launch-preflight:jetson",
         "build:operator",
         "build:jetson",
         "launch:operator",
@@ -300,14 +310,76 @@ def test_runtime_start_reports_dds_readiness_after_launch(
 
     runner(topology, "start", logs.append)
 
-    assert events == [
-        "launch:operator",
-        "launch:jetson",
-        "doctor:operator:pilot-main,robot-go2,sim-main,ui-main:8",
-        "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:8",
-    ]
+    assert events[:2] == ["launch:operator", "launch:jetson"]
+    assert set(events[2:]) == {
+        "doctor:operator:pilot-main,robot-go2,sim-main,ui-main:60",
+        "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:60",
+    }
     assert any("DDS endpoint 준비 상태" in message for message in logs)
     assert any("endpoint descriptor/heartbeat 확인" in message for message in logs)
+
+
+def test_runtime_readiness_checks_hosts_concurrently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    barrier = threading.Barrier(len(topology.hosts))
+
+    class Operations(_NoopNetworkPreparation):
+        def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
+            assert timeout_s == 60
+            barrier.wait(timeout=1)
+            return {"ok": True, "results": []}
+
+    operations = {host.host_id: Operations() for host in topology.hosts}
+    ConnectionDeploymentRunner._report_runtime_readiness(
+        topology, operations, topology.hosts, lambda _message: None
+    )
+
+
+def test_runtime_launch_preflight_fails_before_build_or_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, host) -> None:
+            events.append(f"network:{host.host_id}")
+
+        def runtime_launch_preflight(self, host) -> None:
+            events.append(f"guard:{host.host_id}")
+            raise RuntimeError("stale installed enclave")
+
+        def build(self, host, _output) -> None:
+            events.append(f"build:{host.host_id}")
+
+        def launch(self, host) -> None:
+            events.append(f"launch:{host.host_id}")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {host.host_id: Operations() for host in graph.hosts}
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority", local_install_root=tmp_path / "install"
+    )
+
+    with pytest.raises(RuntimeError, match="stale installed enclave"):
+        runner(topology, "start", lambda _message: None)
+
+    assert events == ["network:operator", "guard:operator"]
 
 
 def test_runtime_readiness_fails_on_malformed_results_payload(
@@ -338,7 +410,7 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
             return None
 
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 8
+            assert timeout_s == 60
             return {"ok": False, "results": None}
 
         def stop(self, _host) -> None:
@@ -362,6 +434,7 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
         runner(topology, "start", logs.append)
 
     assert any("expected endpoint가 아직 발견되지 않음" in message for message in logs)
+    assert any("런타임을 롤백합니다" in message for message in logs)
 
 
 def test_runtime_readiness_accepts_multi_unit_doctor_envelope() -> None:

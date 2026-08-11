@@ -14,7 +14,10 @@ from conftest import ROOT, copy_role_configs
 from elesim_setup import capabilities, cli, network
 from elesim_setup.capabilities import HostCapabilities
 from elesim_setup.configuration import generate_role_configs, generated_config_path
-from elesim_setup.container_installer import ContainerInstaller
+from elesim_setup.container_installer import (
+    ContainerInstaller,
+    refresh_compose_dds_environment,
+)
 from elesim_setup.security_provisioning import sync_provisioning_required
 from elesim_setup.state import ContainerNetworkSettings, DdsSettings, InstallState
 
@@ -262,6 +265,73 @@ def test_generated_dds_xml_must_match_state(local_state) -> None:
     )
 
     with pytest.raises(RuntimeError, match="generated DDS XML"):
+        network.require_generated_dds_configuration(state)
+
+
+def test_generated_role_enclave_and_key_must_match_state(local_state) -> None:
+    initial = local_state(roles=("sim",))
+    ContainerInstaller(initial).run()
+    role_keystore = initial.prefix_path / "security/roles/sim"
+    state = replace(
+        initial,
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation="g1",
+            security_bundle=str(role_keystore),
+            keystore=str(role_keystore),
+            enclave="/elesim/elesim",
+        ),
+    )
+    generate_role_configs(state)
+    refresh_compose_dds_environment(state)
+    enclave = role_keystore / "enclaves/elesim/elesim/sim/sim_default"
+    public = role_keystore / "public"
+    enclave.mkdir(parents=True, exist_ok=True)
+    public.mkdir(parents=True, exist_ok=True)
+    for path in (
+        public / "identity_ca.cert.pem",
+        public / "permissions_ca.cert.pem",
+        enclave / "cert.pem",
+        enclave / "key.pem",
+        enclave / "identity_ca.cert.pem",
+        enclave / "permissions_ca.cert.pem",
+        enclave / "governance.p7s",
+        enclave / "permissions.p7s",
+    ):
+        path.write_text("material", encoding="utf-8")
+
+    network.require_generated_dds_configuration(state)
+
+    runtime_path = generated_config_path(state, "sim")
+    runtime = yaml.safe_load(runtime_path.read_text(encoding="utf-8"))
+    runtime["dds"]["enclave"] = "/elesim/elesim/sim/sim_default_f9062d10"
+    runtime_path.write_text(
+        yaml.safe_dump(runtime, sort_keys=False), encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="DDS enclave"):
+        network.require_generated_dds_configuration(state)
+
+
+def test_generated_sros2_role_key_must_exist(local_state) -> None:
+    initial = local_state(roles=("sim",))
+    ContainerInstaller(initial).run()
+    role_keystore = initial.prefix_path / "security/roles/sim"
+    state = replace(
+        initial,
+        dds=DdsSettings(
+            security_profile="sros2",
+            security_provisioning="managed",
+            security_generation="g1",
+            security_bundle=str(role_keystore),
+            keystore=str(role_keystore),
+            enclave="/elesim/elesim",
+        ),
+    )
+    generate_role_configs(state)
+    refresh_compose_dds_environment(state)
+
+    with pytest.raises(RuntimeError, match="enclave material is missing"):
         network.require_generated_dds_configuration(state)
 
 

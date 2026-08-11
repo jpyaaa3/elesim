@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import copy
 import json
 import os
@@ -12,7 +13,7 @@ import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .connection_gui import ConnectionJobCancelled, run_connection_gui
 from .connection_manager import (
@@ -38,6 +39,7 @@ from .security_authority import Sros2Authority, new_generation_id
 
 
 Log = Callable[[str], None]
+_DDS_READINESS_TIMEOUT_S = 60.0
 
 
 class _BuildLogForwarder:
@@ -283,6 +285,7 @@ class ConnectionDeploymentRunner:
                         operations[host.host_id].runtime_network_check(host)
                         capabilities = operations[host.host_id].preflight(host)
                         capabilities.require_for(host)
+                        operations[host.host_id].runtime_launch_preflight(host)
                 if action in {"stop", "restart"}:
                     log("활성 역할의 런타임을 정지합니다.")
                     for host in reversed(hosts):
@@ -310,6 +313,12 @@ class ConnectionDeploymentRunner:
                             launched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
                     except BaseException:
+                        if launched:
+                            log(
+                                "런타임 시작 또는 DDS readiness 확인 실패로 이번 "
+                                "작업에서 시작한 "
+                                "런타임을 롤백합니다."
+                            )
                         for host in reversed(launched):
                             try:
                                 operations[host.host_id].stop(host)
@@ -329,6 +338,12 @@ class ConnectionDeploymentRunner:
                             relaunched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
                     except BaseException:
+                        if relaunched:
+                            log(
+                                "런타임 시작 또는 DDS readiness 확인 실패로 이번 "
+                                "작업에서 시작한 "
+                                "런타임을 롤백합니다."
+                            )
                         for host in reversed(relaunched):
                             try:
                                 operations[host.host_id].stop(host)
@@ -411,35 +426,44 @@ class ConnectionDeploymentRunner:
 
         log("DDS endpoint 준비 상태를 확인합니다 (컨테이너 시작과 별도).")
         failures: list[str] = []
-        for host in hosts:
-            expected = tuple(
-                sorted(
-                    assignment.endpoint_id
-                    for peer_host in topology.hosts
-                    for assignment in peer_host.assignments
-                )
+        expected = tuple(
+            sorted(
+                assignment.endpoint_id
+                for peer_host in topology.hosts
+                for assignment in peer_host.assignments
             )
-            if not expected:
+        )
+        if not expected:
+            for host in hosts:
                 log(f"DDS readiness: {host.host_id} — 검사할 endpoint 없음")
-                continue
+            return
+
+        def check_host(host: ManagedHost) -> Mapping[str, Any]:
             checker = getattr(operations[host.host_id], "runtime_doctor", None)
             if not callable(checker):
-                detail = (
-                    f"{host.host_id}: 검사기 없음; 컨테이너 로그에서 실제 상태를 "
-                    "확인하십시오"
+                raise RuntimeError(
+                    "검사기 없음; 컨테이너 로그에서 실제 상태를 확인하십시오"
                 )
-                failures.append(detail)
-                log(
-                    f"DDS readiness: {host.host_id} — "
-                    f"실패: {detail}"
-                )
-                continue
-            try:
-                report = checker(host, expected, timeout_s=8.0)
-            except ConnectionJobCancelled:
-                raise
-            except BaseException as exc:
-                detail = str(exc).strip() or exc.__class__.__name__
+            return checker(host, expected, timeout_s=_DDS_READINESS_TIMEOUT_S)
+
+        reports: dict[str, Mapping[str, Any] | BaseException] = {}
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, len(hosts)),
+            thread_name_prefix="elesim-dds-readiness",
+        ) as executor:
+            futures = {executor.submit(check_host, host): host for host in hosts}
+            for future, host in futures.items():
+                try:
+                    reports[host.host_id] = future.result()
+                except BaseException as exc:
+                    reports[host.host_id] = exc
+
+        for host in hosts:
+            report = reports[host.host_id]
+            if isinstance(report, BaseException):
+                if isinstance(report, ConnectionJobCancelled):
+                    raise report
+                detail = str(report).strip() or report.__class__.__name__
                 failures.append(f"{host.host_id}: {detail[:768]}")
                 log(
                     f"DDS readiness: {host.host_id} — "

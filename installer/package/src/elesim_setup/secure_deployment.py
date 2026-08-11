@@ -402,6 +402,10 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost
     ) -> None: ...
 
+    def runtime_launch_preflight(
+        self, session: SshSession, host: ManagedHost
+    ) -> None: ...
+
     def prepare_runtime_network(
         self,
         session: SshSession,
@@ -473,6 +477,8 @@ class HostOperations(Protocol):
 
     def runtime_network_check(self, host: ManagedHost) -> None: ...
 
+    def runtime_launch_preflight(self, host: ManagedHost) -> None: ...
+
     def prepare_runtime_network(
         self, host: ManagedHost, output: CommandOutput
     ) -> str | None: ...
@@ -503,7 +509,7 @@ class HostOperations(Protocol):
         self,
         host: ManagedHost,
         expected_peer_ids: Sequence[str],
-        timeout_s: float = 8.0,
+        timeout_s: float = 60.0,
     ) -> Mapping[str, Any]: ...
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]: ...
@@ -1046,6 +1052,12 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.runtime_network_check(session, host)
 
+    def runtime_launch_preflight(self, host: ManagedHost) -> None:
+        """Validate the installed files through the normal launch guard."""
+
+        with self._connect(host) as session:
+            self._lifecycle.runtime_launch_preflight(session, host)
+
     def prepare_runtime_network(
         self, host: ManagedHost, output: CommandOutput
     ) -> str | None:
@@ -1179,7 +1191,7 @@ class SshHostOperations:
         self,
         host: ManagedHost,
         expected_peer_ids: Sequence[str],
-        timeout_s: float = 8.0,
+        timeout_s: float = 60.0,
     ) -> Mapping[str, Any]:
         if timeout_s <= 0:
             raise ValueError("runtime doctor timeout must be positive")
@@ -1827,6 +1839,14 @@ class InstalledElesimLifecycle:
                 )
             )
 
+    def runtime_launch_preflight(
+        self, session: SshSession, host: ManagedHost
+    ) -> None:
+        """Run each unit's no-override launch guard before any mutation."""
+
+        for unit in host.units:
+            session.run((str(_net_command(unit)), "namespace-check"))
+
     def prepare_runtime_network(
         self,
         session: SshSession,
@@ -2212,14 +2232,29 @@ class InstalledElesimLifecycle:
         if timeout_s <= 0:
             raise ValueError("runtime doctor timeout must be positive")
         payloads: dict[str, Mapping[str, Any]] = {}
+        deadline = time.monotonic() + float(timeout_s)
         for unit in host.units:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                payloads[unit.unit_id] = {
+                    "ok": False,
+                    "results": [
+                        {
+                            "name": "DDS peers",
+                            "status": "fail",
+                            "detail": "공통 DDS readiness 제한 시간이 만료됨",
+                        }
+                    ],
+                }
+                continue
             argv = [
                 str(_net_command(unit)),
                 "doctor",
                 "--timeout",
-                f"{float(timeout_s):g}",
+                f"{remaining:g}",
                 "--json",
                 "--strict-peers",
+                "--readiness-only",
             ]
             for endpoint_id in expected_peer_ids:
                 value = str(endpoint_id).strip()

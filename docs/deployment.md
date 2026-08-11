@@ -235,14 +235,27 @@ management reachability and process state only; DDS discovery and WebRTC media
 are not inferred from a successful SSH command. The UI polls the read-only
 status while open and keeps deployment and rotation jobs separate from that poll.
 
+Before lifecycle mutation, the manager runs each installed unit's normal
+no-override launch guard. The guard rejects disagreement among role YAML,
+CycloneDDS XML, Compose DDS/security environment, canonical SROS2 enclave, and
+role-private key material.
+
 After launch, the manager performs one bounded read-only DDS endpoint
-descriptor/heartbeat probe for every active endpoint from each host. A
+descriptor/heartbeat probe for every active endpoint from each host. Host
+probes run concurrently and each host's units share one 60-second deadline. A
 transient-local descriptor can survive a dead process, so readiness requires a
 live volatile heartbeat as well. A missing co-located or remote heartbeat
 fails the start and rolls back launched roles; Docker Desktop/WSL namespace
 isolation and broken DDS UDP paths are reported as actionable readiness
-failures. Use `elesim-net doctor --strict-peers --expect-peer <endpoint-id>` for
-the same strict application-level discovery gate; this still does not prove
+failures. Use the following command for the same strict application-level
+discovery gate:
+
+```bash
+elesim-net doctor --strict-peers --readiness-only \
+  --expect-peer <endpoint-id> --timeout 60
+```
+
+This still does not prove
 RGBD, WebRTC, SROS2 authorization, or physical safety.
 
 Generated-Compose assertions, schema migrations, login command shape,

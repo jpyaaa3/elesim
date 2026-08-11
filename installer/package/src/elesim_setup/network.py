@@ -21,10 +21,12 @@ from typing import Callable, Mapping, Sequence
 import yaml
 
 from .configuration import (
+    dds_enclave,
     generate_role_configs,
     generated_app_config_path,
     generated_config_path,
     generated_dds_config_path,
+    role_keystore_path,
 )
 from .doctor import NetworkDoctor
 from .security_provisioning import (
@@ -463,6 +465,86 @@ def require_generated_dds_configuration(state: InstallState) -> None:
     expected_multicast = state.dds.discovery_mode == "multicast"
 
     for role in state.roles:
+        runtime_path = generated_config_path(state, role)
+        if runtime_path.is_symlink() or not runtime_path.is_file():
+            raise RuntimeError(
+                f"generated role config is missing for role {role!r}: "
+                f"{runtime_path}. Run elesim-net configure or elesim-update "
+                "before starting."
+            )
+        try:
+            runtime_payload = yaml.safe_load(runtime_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise RuntimeError(
+                f"generated role config is unreadable for role {role!r}: "
+                f"{runtime_path}"
+            ) from exc
+        runtime_dds = (
+            runtime_payload.get("dds")
+            if isinstance(runtime_payload, Mapping)
+            else None
+        )
+        if not isinstance(runtime_dds, Mapping):
+            raise RuntimeError(
+                f"generated role config has no DDS section for role {role!r}: "
+                f"{runtime_path}"
+            )
+        expected_keystore = (
+            str(role_keystore_path(state, role))
+            if state.dds.security_profile == "sros2"
+            else ""
+        )
+        expected_enclave = (
+            dds_enclave(state, role)
+            if state.dds.security_profile == "sros2"
+            else ""
+        )
+        expected_runtime = {
+            "system_id": state.dds.system_id,
+            "domain_id": state.dds.domain_id,
+            "rmw_implementation": state.dds.rmw_implementation,
+            "discovery_mode": state.dds.discovery_mode,
+            "static_peers": list(expected_peers),
+            "network_interface": expected_interface,
+            "security_profile": state.dds.security_profile,
+            "security_provisioning": state.dds.security_provisioning,
+            "security_generation": state.dds.security_generation,
+            "keystore": expected_keystore,
+            "enclave": expected_enclave,
+        }
+        for name, expected in expected_runtime.items():
+            actual = runtime_dds.get(name)
+            if name == "static_peers":
+                actual = (
+                    list(actual or ())
+                    if isinstance(actual, (list, tuple))
+                    else actual
+                )
+            if name == "network_interface":
+                actual = _normalized_interface(actual)
+            if actual != expected:
+                raise RuntimeError(
+                    f"generated role DDS {name} for role {role!r} is stale: "
+                    f"{actual!r} != {expected!r}. Run the connection manager's "
+                    "Prepare runtime step again before starting."
+                )
+        if "enclave_base" in runtime_dds:
+            raise RuntimeError(
+                f"generated role config for {role!r} relies on an SROS2 enclave "
+                "fallback. Run the connection manager's Prepare runtime step "
+                "again before starting."
+            )
+
+        if (
+            state.dds.security_profile == "sros2"
+            and not state.dds.managed_security_pending
+        ):
+            _require_role_enclave_material(
+                role_keystore_path(state, role),
+                expected_enclave,
+                role=role,
+            )
+
         xml_path = generated_dds_config_path(state, role)
         if xml_path.is_symlink() or not xml_path.is_file():
             raise RuntimeError(
@@ -550,6 +632,80 @@ def require_generated_dds_configuration(state: InstallState) -> None:
             raise RuntimeError(
                 f"generated Compose DDS discovery values for role {role!r} are "
                 "stale; run elesim-update before starting."
+            )
+        expected_security_environment = {
+            "ELESIM_DDS_SECURITY_PROFILE": state.dds.security_profile,
+            "ROS_SECURITY_ENABLE": (
+                "true" if state.dds.security_profile == "sros2" else "false"
+            ),
+            "ROS_SECURITY_STRATEGY": (
+                "Enforce" if state.dds.security_profile == "sros2" else ""
+            ),
+            "ROS_SECURITY_KEYSTORE": (
+                str(role_keystore_path(state, role))
+                if state.dds.security_profile == "sros2"
+                else ""
+            ),
+            "ELESIM_DDS_ENCLAVE": (
+                dds_enclave(state, role)
+                if state.dds.security_profile == "sros2"
+                else ""
+            ),
+        }
+        for name, expected in expected_security_environment.items():
+            actual = str(environment.get(name, "")).strip()
+            if actual != expected:
+                raise RuntimeError(
+                    f"generated Compose {name} for role {role!r} is stale: "
+                    f"{actual!r} != {expected!r}. Run the connection manager's "
+                    "Prepare runtime step again before starting."
+                )
+
+
+def _require_role_enclave_material(
+    role_keystore: Path,
+    enclave: str,
+    *,
+    role: str,
+) -> None:
+    """Require one canonical, non-symlinked role-private SROS2 identity."""
+
+    relative = Path(*Path(enclave).parts[1:])
+    enclave_root = role_keystore / "enclaves" / relative
+    public_root = role_keystore / "public"
+    required = (
+        public_root / "identity_ca.cert.pem",
+        public_root / "permissions_ca.cert.pem",
+        enclave_root / "cert.pem",
+        enclave_root / "key.pem",
+        enclave_root / "identity_ca.cert.pem",
+        enclave_root / "permissions_ca.cert.pem",
+        enclave_root / "governance.p7s",
+        enclave_root / "permissions.p7s",
+    )
+    if role_keystore.resolve(strict=False) != role_keystore:
+        raise RuntimeError(
+            f"SROS2 role material contains a symlinked ancestor for role "
+            f"{role!r}: {role_keystore}"
+        )
+    candidates = [role_keystore, role_keystore / "enclaves"]
+    current = role_keystore / "enclaves"
+    for part in relative.parts:
+        current /= part
+        candidates.append(current)
+    candidates.extend((public_root, *required))
+    for candidate in candidates:
+        if candidate.is_symlink():
+            raise RuntimeError(
+                f"SROS2 role material contains a symlink for role "
+                f"{role!r}: {candidate}"
+            )
+    for path in required:
+        if not path.is_file():
+            raise RuntimeError(
+                f"SROS2 enclave material is missing for role {role!r}: "
+                f"{path}. Run the connection manager's Prepare runtime step "
+                "again before starting."
             )
 
 
@@ -891,6 +1047,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="기대 endpoint 미발견을 실패로 반환",
     )
+    doctor.add_argument(
+        "--readiness-only",
+        action="store_true",
+        help="기대 endpoint descriptor/heartbeat만 검사",
+    )
     doctor.add_argument("--timeout", type=float, default=4.0)
     doctor.add_argument("--json", action="store_true", help="기계 판독용 JSON 출력")
     return parser
@@ -1013,6 +1174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 active=args.active,
                 expected_peers=args.expect_peer,
                 strict_peers=args.strict_peers,
+                readiness_only=args.readiness_only,
             ).run()
             print(
                 json.dumps(report.to_dict(), ensure_ascii=False, indent=2)

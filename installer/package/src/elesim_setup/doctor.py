@@ -7,7 +7,7 @@ import socket
 import struct
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qs, urlsplit
 
 from .configuration import (
@@ -297,6 +297,7 @@ def probe_dds_peer_state(
     state: InstallState,
     *,
     timeout_s: float,
+    expected_peers: Sequence[str] = (),
     import_rclpy: Callable[[], Any] | None = None,
 ) -> DdsPeerProbe:
     """Observe descriptors and live heartbeats on the application carrier.
@@ -322,6 +323,9 @@ def probe_dds_peer_state(
     node = None
     descriptor_ids: set[str] = set()
     heartbeat_ids: set[str] = set()
+    expected_ids = {
+        str(value).strip() for value in expected_peers if str(value).strip()
+    }
     try:
         node = rclpy.create_node(
             "elesim_peer_doctor",
@@ -368,7 +372,14 @@ def probe_dds_peer_state(
         )
         deadline = time.monotonic() + max(0.2, float(timeout_s))
         while time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=min(0.1, deadline - time.monotonic()))
+            remaining = max(0.0, deadline - time.monotonic())
+            rclpy.spin_once(node, timeout_sec=min(0.1, remaining))
+            if (
+                expected_ids
+                and expected_ids.issubset(descriptor_ids)
+                and expected_ids.issubset(heartbeat_ids)
+            ):
+                break
         node.destroy_subscription(descriptor_subscription)
         node.destroy_subscription(heartbeat_subscription)
         return DdsPeerProbe(
@@ -446,6 +457,7 @@ class NetworkDoctor:
         active: bool = False,
         expected_peers: Sequence[str] = (),
         strict_peers: bool = False,
+        readiness_only: bool = False,
     ) -> None:
         self.state = state.require_runnable_dds()
         self.timeout_s = max(0.2, float(timeout_s))
@@ -454,9 +466,19 @@ class NetworkDoctor:
             sorted({str(value).strip() for value in expected_peers if str(value).strip()})
         )
         self.strict_peers = bool(strict_peers)
+        self.readiness_only = bool(readiness_only)
+        if self.readiness_only and not self.strict_peers:
+            raise ValueError("readiness-only doctor requires strict peer checks")
+        if self.readiness_only and not self.expected_peers:
+            raise ValueError("readiness-only doctor requires expected peers")
+        if self.readiness_only and self.active:
+            raise ValueError("readiness-only doctor cannot run active media checks")
 
     def run(self) -> DoctorReport:
         report = DoctorReport()
+        if self.readiness_only:
+            self._peer_results(report)
+            return report
         # Imported lazily because the CLI module also imports NetworkDoctor.
         from .network import detect_tailscale
 
@@ -519,7 +541,11 @@ class NetworkDoctor:
             report.add("DDS peers", SKIP, "기대하는 endpoint가 지정되지 않음")
             return
         try:
-            probe = probe_dds_peer_state(self.state, timeout_s=self.timeout_s)
+            probe = probe_dds_peer_state(
+                self.state,
+                timeout_s=self.timeout_s,
+                expected_peers=self.expected_peers,
+            )
         except Exception as exc:
             report.add(
                 "DDS peers",

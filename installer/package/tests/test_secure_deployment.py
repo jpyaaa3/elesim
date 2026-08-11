@@ -760,6 +760,9 @@ class FakeLifecycle:
     def runtime_network_check(self, _session, _host) -> None:
         pass
 
+    def runtime_launch_preflight(self, _session, _host) -> None:
+        pass
+
     def snapshot(self, _session, host):
         return {"roles": list(host.roles)}
 
@@ -1015,6 +1018,7 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
     )
     assert not any("namespace-check" in argv for argv, _check in session.commands)
     lifecycle.runtime_network_check(session, host)
+    lifecycle.runtime_launch_preflight(session, host)
     lifecycle.configure(
         session, host, "g2", PurePosixPath("/opt/elesim/security")
     )
@@ -1038,6 +1042,10 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
         ),
         True,
     ) in session.commands
+    assert (
+        (("/usr/local/bin/elesim-net", "namespace-check"), True)
+        in session.commands
+    )
     configure = next(
         argv for argv, _check in session.commands if "configure" in argv
     )
@@ -1218,6 +1226,7 @@ def test_runtime_doctor_requests_strict_peer_json() -> None:
                 "8",
                 "--json",
                 "--strict-peers",
+                "--readiness-only",
                 "--expect-peer",
                 "pilot-main",
                 "--expect-peer",

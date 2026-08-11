@@ -39,6 +39,7 @@ let dropPreviewKey = "";
 let pollTimer = null;
 let runtimePollTimer = null;
 let runtimeRestartable = false;
+let runtimeOptionsLocked = false;
 let workflowSaved = false;
 let workflowApplied = false;
 // A browser session always revalidates the loaded form before it can proceed.
@@ -738,7 +739,15 @@ function updateRuntimeOptions() {
   const inherit = byId("gpu-inherit");
   const device = byId("gpu-device");
   if (!inherit || !device) return;
-  device.disabled = !inherit.checked;
+  inherit.disabled = runtimeOptionsLocked;
+  device.disabled = runtimeOptionsLocked || !inherit.checked;
+  const viewer = byId("use-viewer");
+  if (viewer) viewer.disabled = runtimeOptionsLocked;
+}
+
+function setRuntimeOptionsLocked(locked) {
+  runtimeOptionsLocked = Boolean(locked);
+  updateRuntimeOptions();
 }
 
 async function saveTopology({quiet = false, invalidate = true} = {}) {
@@ -789,36 +798,42 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
-  if (["start", "restart"].includes(action) && (!workflowSaved || !workflowApplied)) {
-    throw new Error(t("error.workflow.incomplete"));
-  }
-  if (action === "restart") {
-    await pollRuntimeStatus();
-    if (!runtimeRestartable) {
-      throw new Error(t("error.restart.unavailable"));
-    }
-  }
-  await saveTopology({quiet: true, invalidate: false});
-  if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
-    workflowApplied = false;
-    runtimeRestartable = false;
-    setWorkflowStepState("start", "pending");
-  }
-  const step = workflowStepForAction(action);
-  if (step) setWorkflowStepState(step, "running");
+  const locksRuntimeOptions = ["start", "restart"].includes(action);
+  if (locksRuntimeOptions) setRuntimeOptionsLocked(true);
+  let submitted = false;
+  let step = "";
   try {
+    if (locksRuntimeOptions && (!workflowSaved || !workflowApplied)) {
+      throw new Error(t("error.workflow.incomplete"));
+    }
+    if (action === "restart") {
+      await pollRuntimeStatus();
+      if (!runtimeRestartable) {
+        throw new Error(t("error.restart.unavailable"));
+      }
+    }
+    await saveTopology({quiet: true, invalidate: false});
+    if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
+      workflowApplied = false;
+      runtimeRestartable = false;
+      setWorkflowStepState("start", "pending");
+    }
+    step = workflowStepForAction(action);
+    if (step) setWorkflowStepState(step, "running");
     const payload = ["start", "restart"].includes(action)
       ? runtimeLaunchOptions()
       : {};
     await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify(payload)});
+    submitted = true;
+    setJobRunning(true);
+    if (pollTimer) window.clearInterval(pollTimer);
+    pollTimer = window.setInterval(pollJob, 500);
+    await pollJob();
   } catch (error) {
     if (step) setWorkflowStepState(step, "error");
+    if (locksRuntimeOptions && !submitted) setRuntimeOptionsLocked(false);
     throw error;
   }
-  setJobRunning(true);
-  if (pollTimer) window.clearInterval(pollTimer);
-  pollTimer = window.setInterval(pollJob, 500);
-  await pollJob();
 }
 
 async function runApplyJob() {
@@ -876,6 +891,7 @@ function setJobRunning(running) {
   ["save", "topology-mode", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateWorkflow(running);
   byId("cancel").disabled = !running;
+  if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);
 }
 
 async function pollJob() {

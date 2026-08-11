@@ -400,13 +400,18 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "gpu_inherit: gpuInherit" in script
     assert 'gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : ""' in script
     assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
+    assert "let runtimeOptionsLocked = false;" in script
+    assert "function setRuntimeOptionsLocked(locked)" in script
+    assert "if (locksRuntimeOptions) setRuntimeOptionsLocked(true);" in script
+    assert "if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);" in script
     assert "JSON.stringify(payload)" in script
     assert 'control.closest(".boot-options")' in script
-    assert 'device.disabled = !inherit.checked' in script
+    assert 'device.disabled = runtimeOptionsLocked || !inherit.checked' in script
     assert ".boot-options" in style
     assert '.boot-gpu-option input[type="number"]:disabled' in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style
+    assert '.workflow-step[data-enabled="false"] button' in style
     assert 'startJob("check")' not in script
     assert 'workflow.stage.' not in script
     assert 'data-drop-slot="com4"' in html

@@ -850,8 +850,10 @@ missing requested frames are `FAIL`. Optional services that are intentionally
 absent are `SKIP` or `WARN`.
 
 The full-start action also performs one bounded, read-only application-level
-readiness probe after detached launch. It listens for transient-local DDS
-endpoint descriptors and live volatile heartbeats for every endpoint ID in the
+readiness probe after detached launch. Host probes run concurrently under one
+60-second deadline; multi-unit hosts share that same deadline. The probe
+listens only for transient-local DDS endpoint descriptors and live volatile
+heartbeats for every endpoint ID in the
 saved topology, including roles co-located on the probing host. A descriptor
 without a heartbeat is stale and does not count as readiness; missing
 co-located or remote heartbeats fail the start and roll back launched roles.
@@ -859,9 +861,14 @@ To make this check strict and repeatable, pass endpoint IDs (not IP addresses
 or SSH names):
 
 ```bash
-elesim-net doctor --json --strict-peers \
-  --expect-peer sim-default --timeout 8
+elesim-net doctor --json --strict-peers --readiness-only \
+  --expect-peer sim-default --timeout 60
 ```
+
+Before build, stop, or launch, the connection manager also invokes the normal
+no-override installed launch guard. It cross-checks each role YAML, CycloneDDS
+XML, Compose security/DDS environment, canonical enclave, and role-private key
+material. A stale hashed fallback enclave is rejected before runtime mutation.
 
 An endpoint descriptor plus a live heartbeat proves only bounded application-level
 DDS discovery/readiness. It does not
