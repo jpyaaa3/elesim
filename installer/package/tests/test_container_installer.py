@@ -477,6 +477,7 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "exec docker compose" in compose_wrapper
     assert str(state.bin_path / "elesim-compose") in up_wrapper
     assert "actual_docker_engine_id" not in up_wrapper
+    assert "sidecar_login_status == 78" in up_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "login [--if-needed]" in tailscale_wrapper

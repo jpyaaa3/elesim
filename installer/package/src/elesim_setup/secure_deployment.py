@@ -1470,7 +1470,7 @@ class _LocalSession:
         if helper_socket and (
             values[0] == "docker"
             or Path(values[0]).name
-            in {"elesim-compose", "elesim-net", "elesim-tailscale"}
+            in {"elesim-compose", "elesim-net", "elesim-tailscale", "elesim-up"}
         ):
             result = _run_through_host_helper(
                 values,

@@ -990,6 +990,12 @@ class ContainerInstaller:
                 # already-running node.
                 f"{tailscale_wrapper} login --if-needed || sidecar_login_status=$?\n"
                 "if (( sidecar_login_status != 0 )); then\n"
+                # Exit 78 is emitted by the pinned Docker backend guard.  It
+                # is not an enrollment failure, so preserve its actionable
+                # diagnostic instead of obscuring it with a login hint.
+                "  if (( sidecar_login_status == 78 )); then\n"
+                "    exit \"$sidecar_login_status\"\n"
+                "  fi\n"
                 "  printf 'Tailscale runtime을 준비하지 못했습니다. 연결관리자의 보안 및 실행 준비를 다시 실행하거나 %s login을 실행하십시오.\\n' "
                 f"{tailscale_wrapper} >&2\n"
                 "  exit \"$sidecar_login_status\"\n"

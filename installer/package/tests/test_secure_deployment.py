@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import elesim_setup.secure_deployment as secure_deployment
 from elesim_setup.connection_manager import (
     ConnectionTopology,
     DdsEndpoint,
@@ -36,6 +37,7 @@ from elesim_setup.secure_deployment import (
     _command_timeout,
     _lifecycle_command,
     _managed_turn_from_state,
+    _LocalSession,
     _ParamikoSession,
     ssh_sha256_fingerprint,
 )
@@ -508,6 +510,39 @@ def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> 
         == 2
     )
     assert _command_timeout(("elesim-net", "show"), 2) == 2
+
+
+def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[tuple[tuple[str, ...], str, float]] = []
+
+    def fake_helper(
+        argv,
+        *,
+        socket_path: str,
+        timeout_s: float,
+        output=None,
+    ) -> RemoteCommandResult:
+        assert output is None
+        forwarded.append((tuple(argv), socket_path, timeout_s))
+        return RemoteCommandResult(0, "started\n", "")
+
+    monkeypatch.setenv("ELESIM_HOST_HELPER_SOCKET", "/run/elesim-helper.sock")
+    monkeypatch.setattr(secure_deployment, "_run_through_host_helper", fake_helper)
+
+    result = _LocalSession(timeout_s=2).run(
+        ("/opt/elesim/bin/elesim-up", "--no-build", "sim")
+    )
+
+    assert result.stdout == "started\n"
+    assert forwarded == [
+        (
+            ("/opt/elesim/bin/elesim-up", "--no-build", "sim"),
+            "/run/elesim-helper.sock",
+            300,
+        )
+    ]
 
 
 def test_paramiko_session_streams_live_channel_output() -> None:
