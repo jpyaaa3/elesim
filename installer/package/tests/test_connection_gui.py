@@ -409,8 +409,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'device.disabled = runtimeOptionsLocked || !inherit.checked' in script
     assert ".boot-options" in style
     assert "min-height: 94px" in style
-    assert "grid-column: 3; grid-row: 1" in style
-    assert "justify-content: flex-end" in style
+    assert "grid-column: 3; grid-row: 1 / 3" in style
+    assert "flex-direction: column" in style
+    assert ".workflow-actions { display: grid; grid-column: 1 / 3" in style
     assert '.boot-gpu-option input[type="number"]:disabled' in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style

@@ -1,8 +1,9 @@
 """Short-lived host broker for the containerized connection manager.
 
 The manager receives neither the Docker daemon socket nor the tailscaled local
-API.  This stdlib-only broker accepts only the generated Elesim Compose command
-shapes and an optional bounded Tailscale TCP proxy on a private Unix socket.
+API.  This stdlib-only broker accepts only the generated Elesim runtime/Compose
+command shapes and an optional bounded Tailscale TCP proxy on a private Unix
+socket.
 """
 
 from __future__ import annotations
@@ -269,6 +270,47 @@ def _validate_command(
     }:
         return
     if tuple(argv) == ("docker", "version", "--format", "{{.Server.Version}}"):
+        return
+    runtime_up = str(bin_dir / "elesim-up")
+    if argv[0] == runtime_up:
+        option_end = 1
+        no_build = False
+        viewer = False
+        cuda_visible = False
+        while option_end < len(argv):
+            option = argv[option_end]
+            if option == "--no-build":
+                if no_build:
+                    raise HostHelperError("--no-build may only be specified once")
+                no_build = True
+                option_end += 1
+                continue
+            if option == "--view":
+                if viewer:
+                    raise HostHelperError("--view may only be specified once")
+                viewer = True
+                option_end += 1
+                continue
+            if option == "--cuda-visible-devices":
+                if cuda_visible or option_end + 1 >= len(argv):
+                    raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
+                value = str(argv[option_end + 1])
+                if value and (
+                    len(value) > 6
+                    or not all("0" <= char <= "9" for char in value)
+                    or int(value) > 65535
+                ):
+                    raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
+                cuda_visible = True
+                option_end += 2
+                continue
+            break
+        if not no_build:
+            raise HostHelperError("connection-manager launches must use --no-build")
+        services = tuple(argv[option_end:])
+        _validate_runtime_services(services)
+        if viewer and "sim" not in services:
+            raise HostHelperError("--view requires the Sim service")
         return
     compose_wrapper = str(bin_dir / "elesim-compose")
     option_end = 1

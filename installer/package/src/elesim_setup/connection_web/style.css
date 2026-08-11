@@ -202,7 +202,7 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .workflow-step:not(:last-child)::after { position: absolute; z-index: 0; top: 50%; right: -36px; width: 36px; height: 2px; background: var(--line); content: ""; transform: translateY(-50%); }
 .workflow-step h3 { margin: 0; font-size: var(--font-body); line-height: 1.3; }
 .workflow-step button { grid-column: 1 / -1; width: 100%; }
-.boot-options { display: flex; min-width: 0; grid-column: 3; grid-row: 1; align-items: center; justify-content: flex-end; gap: 10px; }
+.boot-options { display: flex; min-width: 0; grid-column: 3; grid-row: 1 / 3; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; }
 .boot-gpu-option { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .boot-gpu-option label, .boot-viewer-option { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .boot-gpu-option label span, .boot-viewer-option span { margin: 0; color: var(--ink); font-size: var(--font-small); font-weight: 700; white-space: nowrap; }
@@ -210,7 +210,7 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .boot-gpu-option input[type="number"] { width: 76px; min-height: 30px; padding: 4px 7px; font-size: var(--font-small); }
 .boot-gpu-option input[type="number"]:disabled { border-color: #c5cbd3; background: #e4e6e9; color: #9aa1a9; opacity: 1; }
 .boot-colon { color: var(--muted); font-size: var(--font-small); font-weight: 700; }
-.workflow-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.workflow-actions { display: grid; grid-column: 1 / 3; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .workflow-actions button { grid-column: auto; }
 .workflow-step button:disabled,
 .workflow-step[data-enabled="false"] button {
@@ -260,7 +260,7 @@ pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6
   .workflow-step { grid-template-columns: 30px 1fr; }
   .workflow-step::after { display: none; }
   .workflow-step button { grid-column: 1 / -1; justify-self: stretch; }
-  .boot-options { grid-column: 1 / -1; grid-row: auto; justify-content: flex-start; }
+  .boot-options { grid-column: 1 / -1; grid-row: auto; align-items: flex-start; justify-content: flex-start; }
   .abort-step { min-height: 64px; margin-top: 10px; }
   .abort-step button { min-height: 64px; }
   .job-status { margin-top: 16px; }

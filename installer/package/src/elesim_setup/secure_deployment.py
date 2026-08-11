@@ -104,15 +104,14 @@ class RuntimeLaunchOptions:
             gpu_device = ""
         return cls(gpu_inherit, gpu_device, viewer)
 
-    def compose_flags(self) -> tuple[str, ...]:
-        """Return wrapper-only flags; never expose arbitrary environment names."""
+    def launcher_flags(self) -> tuple[str, ...]:
+        """Return bounded ``elesim-up`` flags for this one launch."""
 
-        return (
-            "--elesim-cuda-visible-devices",
+        flags = (
+            "--cuda-visible-devices",
             self.gpu_device if self.gpu_inherit else "",
-            "--elesim-sim-viewer",
-            "1" if self.viewer else "0",
         )
+        return (*flags, "--view") if self.viewer else flags
 
 
 def _command_timeout(argv: Sequence[str], base: float) -> float:
@@ -127,11 +126,16 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
         and "login" in values[1:]
     ):
         return max(float(base), float(_NETWORK_LOGIN_TIMEOUT_S))
-    if any(
-        value == "compose" or PurePosixPath(value).name == "elesim-compose"
-        for value in values
-    ) and any(
-        action in values for action in _RUNTIME_LIFECYCLE_ACTIONS
+    command_name = PurePosixPath(values[0]).name if values else ""
+    if (
+        command_name == "elesim-up"
+        or (
+            any(
+                value == "compose" or PurePosixPath(value).name == "elesim-compose"
+                for value in values
+            )
+            and any(action in values for action in _RUNTIME_LIFECYCLE_ACTIONS)
+        )
     ):
         return max(float(base), float(_RUNTIME_LIFECYCLE_TIMEOUT_S))
     return float(base)
@@ -2202,13 +2206,24 @@ class InstalledElesimLifecycle:
                 and unit.install_mode == "container"
                 and self._compose_has_service(session, unit, "coturn")
             )
+            unit_runtime_options = runtime_options
+            if (
+                runtime_options is not None
+                and runtime_options.viewer
+                and "sim" not in unit.roles
+            ):
+                unit_runtime_options = RuntimeLaunchOptions(
+                    gpu_inherit=runtime_options.gpu_inherit,
+                    gpu_device=runtime_options.gpu_device,
+                    viewer=False,
+                )
             session.run(
                 _lifecycle_command(
                     unit,
                     action="launch",
                     roles=unit.roles,
                     include_coturn=include_coturn,
-                    runtime_options=runtime_options,
+                    runtime_options=unit_runtime_options,
                 )
             )
 
@@ -2976,15 +2991,11 @@ def _parse_tailscale_status(payload: str) -> tuple[str, str]:
 
 def _compose_command(
     target: ManagedHost | DeploymentUnit,
-    *,
-    runtime_options: RuntimeLaunchOptions | None = None,
 ) -> tuple[str, ...]:
     unit = _unit_for_target(target)
     compose = PurePosixPath(unit.install_root) / "containers/compose.yaml"
-    option_flags = () if runtime_options is None else runtime_options.compose_flags()
     return (
         str(PurePosixPath(unit.bin_dir) / "elesim-compose"),
-        *option_flags,
         "-p",
         "elesim-runtime",
         "-f",
@@ -3052,12 +3063,13 @@ def _lifecycle_command(
             return (*_compose_command(unit), "start", *services)
         if action == "build":
             return (*_compose_build_command(unit), "build", *selected)
+        launch_flags = (
+            () if runtime_options is None else runtime_options.launcher_flags()
+        )
         return (
-            *_compose_command(unit, runtime_options=runtime_options),
-            "up",
-            "-d",
+            str(PurePosixPath(unit.bin_dir) / "elesim-up"),
             "--no-build",
-            "--remove-orphans",
+            *launch_flags,
             *services,
         )
     if action in {"build", "launch"}:

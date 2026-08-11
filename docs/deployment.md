@@ -228,6 +228,11 @@ After all images are built, the detached Compose lifecycle step uses a bounded
 five-minute command timeout. This is separate from the thirty-minute image
 build limit, so a slow Docker backend does not make `up --no-build` appear to
 be a failed security rollout and trigger an avoidable rollback.
+The final launch uses the installed `elesim-up --no-build` wrapper rather than
+bypassing it with a raw Compose invocation. A checked Viewer option therefore
+uses the wrapper's real `--view` path, including `DISPLAY` validation and the
+temporary bounded `xhost` grant. The optional GPU number is passed through the
+same wrapper as a one-shot `CUDA_VISIBLE_DEVICES` value.
 Security deployment and rotation never build or recreate
 containers; they resume exactly the role containers that were running before
 the switch. Their badges describe

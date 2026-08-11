@@ -143,11 +143,9 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
         "build",
         "sim",
     )
-    assert _lifecycle_command(host, action="launch")[-5:] == (
-        "up",
-        "-d",
+    assert _lifecycle_command(host, action="launch") == (
+        "/usr/local/bin/elesim-up",
         "--no-build",
-        "--remove-orphans",
         "sim",
     )
     assert _lifecycle_command(
@@ -155,28 +153,24 @@ def test_compose_build_and_launch_are_separate_from_security_resume() -> None:
     )[-3:] == ("start", "sim", "coturn")
 
 
-def test_runtime_launch_options_are_bounded_and_scoped_to_compose_launch() -> None:
+def test_runtime_launch_options_are_bounded_and_use_normal_runtime_launcher() -> None:
     host = _topology().host("server")
     options = RuntimeLaunchOptions.from_payload(
         {"gpu_inherit": True, "gpu_device": "3", "viewer": True}
     )
     assert options is not None
-    assert options.compose_flags() == (
-        "--elesim-cuda-visible-devices",
+    assert options.launcher_flags() == (
+        "--cuda-visible-devices",
         "3",
-        "--elesim-sim-viewer",
-        "1",
+        "--view",
     )
-    assert _lifecycle_command(host, action="launch", runtime_options=options)[:9] == (
-        "/usr/local/bin/elesim-compose",
-        "--elesim-cuda-visible-devices",
+    assert _lifecycle_command(host, action="launch", runtime_options=options) == (
+        "/usr/local/bin/elesim-up",
+        "--no-build",
+        "--cuda-visible-devices",
         "3",
-        "--elesim-sim-viewer",
-        "1",
-        "-p",
-        "elesim-runtime",
-        "-f",
-        "/opt/elesim/containers/compose.yaml",
+        "--view",
+        "sim",
     )
     with pytest.raises(ValueError, match="gpu_device"):
         RuntimeLaunchOptions.from_payload(
@@ -186,6 +180,27 @@ def test_runtime_launch_options_are_bounded_and_scoped_to_compose_launch() -> No
         RuntimeLaunchOptions.from_payload(
             {"gpu_inherit": False, "gpu_device": "", "viewer": False, "env": {}}
         )
+
+
+def test_viewer_launch_flag_is_scoped_to_the_sim_unit() -> None:
+    topology = _topology()
+    options = RuntimeLaunchOptions(True, "2", True)
+    session = FakeSession()
+
+    InstalledElesimLifecycle(topology).launch(
+        session,
+        topology.host("laptop"),
+        options,
+    )
+
+    command = session.commands[-1][0]
+    assert command[:4] == (
+        "/usr/local/bin/elesim-up",
+        "--no-build",
+        "--cuda-visible-devices",
+        "2",
+    )
+    assert "--view" not in command
 
 
 def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
@@ -484,6 +499,7 @@ def test_paramiko_session_allows_slow_detached_compose_lifecycle() -> None:
 def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> None:
     assert _command_timeout(("docker", "compose", "build", "sim"), 2) == 1800
     assert _command_timeout(("docker", "compose", "up", "-d"), 2) == 300
+    assert _command_timeout(("/usr/local/bin/elesim-up", "--no-build", "sim"), 2) == 300
     assert _command_timeout(("/usr/local/bin/elesim-tailscale", "login"), 2) == 600
     assert (
         _command_timeout(

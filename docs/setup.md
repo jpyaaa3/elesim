@@ -352,6 +352,11 @@ socket. After all images are built, the detached Compose lifecycle step uses a
 bounded five-minute command timeout. This is separate from the thirty-minute
 image build limit, so a slow Docker backend does not make `up --no-build` appear
 to be a failed security rollout and trigger an avoidable rollback.
+The connection manager performs that launch through the generated
+`elesim-up --no-build` wrapper. Its one-shot Viewer option becomes `--view`,
+so the normal `DISPLAY` check and temporary `xhost` grant are not bypassed;
+its bounded GPU-number option becomes `--cuda-visible-devices` and sets
+`CUDA_VISIBLE_DEVICES` only for that launch.
 The generated project name is `elesim-runtime`; images are
 `elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and

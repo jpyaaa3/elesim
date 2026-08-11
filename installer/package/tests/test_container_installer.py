@@ -948,7 +948,9 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     docker = fake_bin / "docker"
     docker.write_text(
         "#!/usr/bin/env bash\n"
-        "printf '%s' \"${ELESIM_SIM_VIEWER-UNSET}\" > \"$VIEWER_MARKER\"\n",
+        "printf '%s' \"${ELESIM_SIM_VIEWER-UNSET}\" > \"$VIEWER_MARKER\"\n"
+        "printf '%s' \"${CUDA_VISIBLE_DEVICES-UNSET}\" > \"$CUDA_MARKER\"\n"
+        "printf '%s\\n' \"$*\" > \"$DOCKER_ARGS_MARKER\"\n",
         encoding="utf-8",
     )
     docker.chmod(0o755)
@@ -972,6 +974,8 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
     environment["VIEWER_MARKER"] = str(tmp_path / "viewer.marker")
+    environment["CUDA_MARKER"] = str(tmp_path / "cuda.marker")
+    environment["DOCKER_ARGS_MARKER"] = str(tmp_path / "docker.args")
     environment["XHOST_PERMISSION_MARKER"] = str(tmp_path / "xhost.permission")
     environment.pop("DISPLAY", None)
     missing_display = subprocess.run(
@@ -987,7 +991,7 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
 
     environment["DISPLAY"] = ":0"
     viewed = subprocess.run(
-        (wrapper, "--view"),
+        (wrapper, "--no-build", "--cuda-visible-devices", "2", "--view"),
         env=environment,
         text=True,
         capture_output=True,
@@ -995,6 +999,10 @@ def test_runtime_up_view_switch_is_one_shot_and_requires_display(
     )
     assert viewed.returncode == 0
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
+    assert Path(environment["CUDA_MARKER"]).read_text(encoding="utf-8") == "2"
+    assert "up -d --no-build --remove-orphans" in Path(
+        environment["DOCKER_ARGS_MARKER"]
+    ).read_text(encoding="utf-8")
     assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == ":0\n\n"
     assert (tmp_path / "xhost.permission").is_file()
 
