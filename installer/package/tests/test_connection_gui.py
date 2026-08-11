@@ -401,6 +401,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : ""' in script
     assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
     assert "let runtimeOptionsLocked = false;" in script
+    assert "let jobSubmissionPending = false;" in script
+    assert "if (jobSubmissionPending) return;" in script
+    assert "jobSubmissionPending = true;" in script
+    assert "updateWorkflow(true);" in script
+    assert "jobSubmissionPending = false;" in script
     assert "function setRuntimeOptionsLocked(locked)" in script
     assert "if (locksRuntimeOptions) setRuntimeOptionsLocked(true);" in script
     assert "if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);" in script

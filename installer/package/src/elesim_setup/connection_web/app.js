@@ -40,6 +40,7 @@ let pollTimer = null;
 let runtimePollTimer = null;
 let runtimeRestartable = false;
 let runtimeOptionsLocked = false;
+let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
 // A browser session always revalidates the loaded form before it can proceed.
@@ -798,7 +799,13 @@ async function probeSsh(slot) {
 }
 
 async function startJob(action) {
+  if (jobSubmissionPending) return;
   const locksRuntimeOptions = ["start", "restart"].includes(action);
+  jobSubmissionPending = true;
+  // Disable every workflow action before the first asynchronous status/save
+  // request.  Otherwise a second click can race the first accepted job and
+  // attempt to save topology after the server has entered its running state.
+  updateWorkflow(true);
   if (locksRuntimeOptions) setRuntimeOptionsLocked(true);
   let submitted = false;
   let step = "";
@@ -833,6 +840,9 @@ async function startJob(action) {
     if (step) setWorkflowStepState(step, "error");
     if (locksRuntimeOptions && !submitted) setRuntimeOptionsLocked(false);
     throw error;
+  } finally {
+    jobSubmissionPending = false;
+    if (!submitted) updateWorkflow();
   }
 }
 
