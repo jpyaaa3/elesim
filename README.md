@@ -1,6 +1,8 @@
 <p align="center"><img src="./assets/branding/icon.png" width="180" alt="Elesim logo"></p>
 
-<h1 align="center" style="border-bottom: none;">Elesim</h1>
+<p align="center">
+  <font size="6">Elesim</font>
+</p>
 
 ## 1. 설치 방법
 
