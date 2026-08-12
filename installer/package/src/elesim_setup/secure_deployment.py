@@ -1401,13 +1401,18 @@ class SshHostOperations:
             # The management endpoint is independent from the DDS runtime
             # endpoint.  Docker Desktop sidecars have their own tailnet IP.
             self._session = self._connector.connect(host.ssh)
-            self._session.__enter__()
         return _BorrowedSession(self._session)
 
     def close(self) -> None:
         session, self._session = self._session, None
         if session is not None:
-            session.__exit__(None, None, None)
+            close_context = getattr(session, "__exit__", None)
+            if callable(close_context):
+                close_context(None, None, None)
+                return
+            close_socket = getattr(session, "close", None)
+            if callable(close_socket):
+                close_socket()
 
 
 class LocalHostOperations(SshHostOperations):
