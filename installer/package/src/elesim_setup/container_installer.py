@@ -508,6 +508,7 @@ class ContainerInstaller:
             root / "installer/package/pyproject.toml",
             root / "environment/containers/Dockerfile.app",
             root / "environment/containers/Dockerfile.tools",
+            root / "environment/containers/tools-entrypoint",
             root / "environment/containers/robotpkg.asc",
         ]
         required.extend(
@@ -558,6 +559,11 @@ class ContainerInstaller:
             shutil.rmtree(context)
         context.mkdir(parents=True)
         shutil.copy2(root / "environment/containers/Dockerfile.tools", context / "Dockerfile")
+        shutil.copy2(
+            root / "environment/containers/tools-entrypoint",
+            context / "tools-entrypoint",
+        )
+        (context / "tools-entrypoint").chmod(0o755)
         setup = root / "installer/package"
         for name in ("requirements.lock",):
             shutil.copy2(setup / name, context / name)

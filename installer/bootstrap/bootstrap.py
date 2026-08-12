@@ -52,6 +52,7 @@ _BOOTSTRAP_SOURCE_FILES = frozenset(
         PurePosixPath("packages/elesim_interfaces/package.xml"),
         PurePosixPath("environment/containers/Dockerfile.app"),
         PurePosixPath("environment/containers/Dockerfile.tools"),
+        PurePosixPath("environment/containers/tools-entrypoint"),
         PurePosixPath("environment/containers/robotpkg.asc"),
         PurePosixPath("environment/development/Dockerfile"),
         PurePosixPath("environment/development/requirements.lock"),

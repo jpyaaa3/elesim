@@ -58,7 +58,13 @@ SOURCE_ONLY_WHEEL_COMPONENTS = frozenset(
 )
 EXPECTED_INFRA_FILES = {
     "containers": frozenset(
-        ("Dockerfile.app", "Dockerfile.tools", "README.md", "robotpkg.asc")
+        (
+            "Dockerfile.app",
+            "Dockerfile.tools",
+            "README.md",
+            "robotpkg.asc",
+            "tools-entrypoint",
+        )
     ),
     "development": frozenset(
         (

@@ -108,6 +108,7 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         ).encode("utf-8"),
         "environment/containers/Dockerfile.app": b"FROM scratch\n",
         "environment/containers/Dockerfile.tools": b"FROM scratch\n",
+        "environment/containers/tools-entrypoint": b"#!/bin/sh\n",
         "environment/containers/robotpkg.asc": b"public key\n",
         "environment/development/Dockerfile": b"FROM scratch\n",
         "environment/development/requirements.lock": b"",
