@@ -509,9 +509,6 @@ class DeveloperInstaller:
         wrappers: dict[str, str] = {
             "elesim-build": f"{command} build dev",
             "elesim-up": f"{command} up -d --build --remove-orphans dev",
-            "elesim-down": (
-                f"{command} --profile observability down --remove-orphans"
-            ),
             "elesim-logs": f"{command} --profile observability logs -f",
         }
         if self.request.jaeger:
@@ -535,6 +532,10 @@ class DeveloperInstaller:
                 + body
                 + ' "$@"\n',
             )
+        write_executable(
+            self.request.bin_dir / "elesim-down",
+            _developer_down_wrapper(compose=compose, guard=guard),
+        )
         write_executable(
             self.request.bin_dir / "elesim-dev",
             (
@@ -635,6 +636,42 @@ def _valid_workspace(workspace: Path) -> bool:
     return all(
         (workspace / project / marker).is_file()
         for project, marker in _REQUIRED_PROJECTS
+    )
+
+
+def _developer_down_wrapper(*, compose: Path, guard: str) -> str:
+    """Render the developer shutdown wrapper with optional manager purge."""
+
+    command = "docker compose -f " + shlex.quote(str(compose))
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + "purge_requested=0\n"
+        "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
+        "  purge_requested=1\n"
+        "  shift\n"
+        "fi\n"
+        "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        "down_status=0\n"
+        "set +e\n"
+        + command
+        + " --profile observability down --remove-orphans\n"
+        "down_status=$?\n"
+        "set -e\n"
+        "purge_status=0\n"
+        "if (( purge_requested )) && docker container inspect elesim-manager >/dev/null 2>&1; then\n"
+        "  docker rm -f elesim-manager >/dev/null || purge_status=$?\n"
+        "fi\n"
+        "if (( down_status != 0 )); then\n"
+        "  exit \"$down_status\"\n"
+        "fi\n"
+        "if (( purge_status != 0 )); then\n"
+        "  exit \"$purge_status\"\n"
+        "fi\n"
     )
 
 

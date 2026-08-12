@@ -545,6 +545,12 @@ one service file per snapshot below `<prefix>/logs/runs/<UTC timestamp>`.
 `elesim-down` snapshots before shutdown when archiving is enabled, still runs
 the stop operation after an archive failure, and returns nonzero when the
 snapshot failed. Native Robot exports both Robot and bridge journald units.
+On container and Developer installations, `elesim-down --purge` performs the
+same runtime shutdown and then force-removes only the exact
+`elesim-manager` container. It is an explicit interruption of a running
+connection-manager job; the default `elesim-down` leaves that management
+container alone. Images, caches, topology, security material and logs are not
+purged by this option.
 When no selected role container exists, `elesim-logs` and `--save` fail with an
 actionable `elesim-up` message, while `elesim-down` is a successful no-op and
 does not emit a Compose "No resource found" warning.

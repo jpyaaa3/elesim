@@ -2563,6 +2563,24 @@ def _runtime_down_wrapper(
     infrastructure_services: tuple[str, ...] = (),
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
+    manager_purge = (
+        "manager_purge_requested=0\n"
+        "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
+        "  manager_purge_requested=1\n"
+        "  shift\n"
+        "fi\n"
+        "purge_manager() {\n"
+        "  (( manager_purge_requested )) || return 0\n"
+        "  if ! docker container inspect elesim-manager >/dev/null 2>&1; then\n"
+        "    return 0\n"
+        "  fi\n"
+        "  docker rm -f elesim-manager >/dev/null\n"
+        "}\n"
+    )
+    manager_purge_action = (
+        "manager_purge_status=0\n"
+        "purge_manager || manager_purge_status=$?\n"
+    )
     presence = _runtime_presence_function(compose=compose, services=services)
     project_presence = _runtime_presence_function(
         compose=compose,
@@ -2581,10 +2599,11 @@ def _runtime_down_wrapper(
                 "set -euo pipefail\n"
                 + guard
                 + viewer_function
+                + manager_purge
                 + presence
                 + project_presence
                 + "if (( $# != 0 )); then\n"
-                + "  printf '사용법: elesim-down\n' >&2\n"
+                + "  printf '사용법: elesim-down [--purge]\n' >&2\n"
                 + "  exit 64\n"
                 + "fi\n"
                 + "down_status=0\n"
@@ -2597,6 +2616,10 @@ def _runtime_down_wrapper(
                 + "else\n"
                 + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
                 + "fi\n"
+                + manager_purge_action
+                + "if (( manager_purge_status != 0 )); then\n"
+                + "  exit \"$manager_purge_status\"\n"
+                + "fi\n"
                 + "viewer_status=0\n"
                 + "viewer_xhost_cleanup || viewer_status=$?\n"
                 + "if (( down_status != 0 )); then\n"
@@ -2608,18 +2631,29 @@ def _runtime_down_wrapper(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             + guard
+            + manager_purge
             + presence
             + project_presence
             + "if (( $# != 0 )); then\n"
-            + "  printf '사용법: elesim-down\\n' >&2\n"
+            + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
             + "  exit 64\n"
             + "fi\n"
             + "if runtime_has_project_containers; then\n"
-            + "  "
+            + "  set +e\n"
             + command
             + " down --remove-orphans\n"
+            + "  down_status=$?\n"
+            + "  set -e\n"
             + "else\n"
             + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            + "  down_status=0\n"
+            + "fi\n"
+            + manager_purge_action
+            + "if (( down_status != 0 )); then\n"
+            + "  exit \"$down_status\"\n"
+            + "fi\n"
+            + "if (( manager_purge_status != 0 )); then\n"
+            + "  exit \"$manager_purge_status\"\n"
             + "fi\n"
         )
     return (
@@ -2628,10 +2662,11 @@ def _runtime_down_wrapper(
         "umask 077\n"
         + guard
         + viewer_function
+        + manager_purge
         + presence
         + project_presence
         + "if (( $# != 0 )); then\n"
-        + "  printf '사용법: elesim-down\\n' >&2\n"
+        + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
         + "  exit 64\n"
         + "fi\n"
         + _runtime_archive_function(
@@ -2659,6 +2694,7 @@ def _runtime_down_wrapper(
         + "else\n"
         + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
         + "fi\n"
+        + manager_purge_action
         + "viewer_status=0\n"
         + (
             "viewer_xhost_cleanup || viewer_status=$?\n"
@@ -2667,6 +2703,9 @@ def _runtime_down_wrapper(
         )
         + "if (( down_status != 0 )); then\n"
         + "  exit \"$down_status\"\n"
+        + "fi\n"
+        + "if (( manager_purge_status != 0 )); then\n"
+        + "  exit \"$manager_purge_status\"\n"
         + "fi\n"
         + "if (( archive_status != 0 )); then\n"
         + "  exit \"$archive_status\"\n"

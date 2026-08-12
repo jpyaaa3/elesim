@@ -180,6 +180,9 @@ def test_developer_shell_reuses_the_persistent_container(tmp_path: Path) -> None
     assert "down --remove-orphans" in (
         request.bin_dir / "elesim-down"
     ).read_text(encoding="utf-8")
+    down_wrapper = (request.bin_dir / "elesim-down").read_text(encoding="utf-8")
+    assert "elesim-down [--purge]" in down_wrapper
+    assert "docker rm -f elesim-manager" in down_wrapper
 
 
 def test_developer_wrapper_rejects_a_container_owned_by_another_install(

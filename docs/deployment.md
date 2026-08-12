@@ -451,7 +451,9 @@ The connection GUI runs, when requested, in a removable `elesim-manager`
 one-shot container. A private host-side helper exposes only allowlisted EleSim
 Compose/network commands and optional `tailscale nc`; the manager receives no
 Docker or tailscaled daemon socket. It does not become a fifth persistent
-development/runtime application.
+development/runtime application. The generated `elesim-down` leaves an active
+manager alone by default; `elesim-down --purge` explicitly stops the runtime
+and force-removes only that exact manager container.
 
 This mode mounts `/dev`, uses host network/IPC, and is privileged. Use it only
 on an owned Ubuntu/WSL amd64 workstation. WSLg mounts are generated only when

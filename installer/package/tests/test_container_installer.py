@@ -70,7 +70,16 @@ def _fake_docker(path: Path) -> Path:
         "  exit 0\n"
         "fi\n"
         "if [[ ${1:-} == container && ${2:-} == inspect ]]; then\n"
+        "  if [[ ${3:-} == elesim-manager && ${ELESIM_FAKE_MANAGER_PRESENT:-0} == 1 ]]; then\n"
+        "    exit 0\n"
+        "  fi\n"
         "  exit 1\n"
+        "fi\n"
+        "if [[ ${1:-} == rm && ${2:-} == -f && ${3:-} == elesim-manager ]]; then\n"
+        "  if [[ -n ${ELESIM_MANAGER_PURGED_MARKER:-} ]]; then\n"
+        "    : >\"$ELESIM_MANAGER_PURGED_MARKER\"\n"
+        "  fi\n"
+        "  exit \"${ELESIM_MANAGER_PURGE_STATUS:-0}\"\n"
         "fi\n"
         "arguments=\" $* \"\n"
         "if [[ $arguments == *' build --quiet tools '* ]]; then\n"
@@ -511,6 +520,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
     assert "down --remove-orphans" in down_wrapper
+    assert "elesim-down [--purge]" in down_wrapper
+    assert "docker rm -f elesim-manager" in down_wrapper
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
     assert "viewer_xhost_cleanup" in down_wrapper
     assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
@@ -1582,6 +1593,54 @@ def test_runtime_down_revokes_owned_xhost_without_inheriting_stale_authority(
     assert result.returncode == 0
     assert (tmp_path / "xhost.revoked").read_text(encoding="utf-8") == ":7"
     assert not (tmp_path / "viewer-xhost").exists()
+
+
+def test_runtime_down_purge_removes_only_the_exact_manager_container(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    wrapper = tmp_path / "elesim-down"
+    wrapper.write_text(
+        _runtime_down_wrapper(
+            compose=compose,
+            logs_root=tmp_path / "logs",
+            services=("sim",),
+            archive_enabled=False,
+            guard="",
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_MANAGER_PRESENT": "1",
+            "ELESIM_DOWN_MARKER": str(tmp_path / "down-called"),
+            "ELESIM_MANAGER_PURGED_MARKER": str(tmp_path / "manager-purged"),
+        }
+    )
+
+    normal = subprocess.run(
+        (wrapper,), env=environment, text=True, capture_output=True, check=False
+    )
+    assert normal.returncode == 0
+    assert (tmp_path / "down-called").exists()
+    assert not (tmp_path / "manager-purged").exists()
+
+    purged = subprocess.run(
+        (wrapper, "--purge"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert purged.returncode == 0
+    assert (tmp_path / "manager-purged").exists()
 
 
 def test_runtime_up_refuses_xhost_before_unwritable_state_is_mutated(
