@@ -5,6 +5,7 @@ set -euo pipefail
 # manager.  Unlike the application images it has no role entrypoint, so it
 # must explicitly source both ROS overlays before importing generated
 # elesim_interfaces Python modules.
+set +u
 source /opt/ros/humble/setup.bash
 if [[ -f /opt/elesim/ros/install/setup.bash ]]; then
   source /opt/elesim/ros/install/setup.bash
@@ -15,4 +16,5 @@ else
   exit 70
 fi
 
+set -u
 exec "$@"
