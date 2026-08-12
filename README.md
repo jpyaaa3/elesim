@@ -2,7 +2,7 @@
 
 <h1 align="center">EleSim</h1>
 
-<p align="center">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+<p align="center">https://doi.org/10.1109/LRA.2026.3663818</p>
 
 <br>
 
