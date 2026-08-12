@@ -1,7 +1,7 @@
 """Short-lived host broker for the containerized connection manager.
 
 The manager receives neither the Docker daemon socket nor the tailscaled local
-API.  This stdlib-only broker accepts only the generated Elesim runtime/Compose
+API.  This stdlib-only broker accepts only the generated EleSim runtime/Compose
 command shapes and an optional bounded Tailscale TCP proxy on a private Unix
 socket.
 """
@@ -271,6 +271,9 @@ def _validate_command(
         return
     if tuple(argv) == ("docker", "version", "--format", "{{.Server.Version}}"):
         return
+    viewer_cleanup = str(bin_dir / "elesim-viewer-cleanup")
+    if tuple(argv) == (viewer_cleanup,):
+        return
     runtime_up = str(bin_dir / "elesim-up")
     if argv[0] == runtime_up:
         option_end = 1
@@ -387,7 +390,7 @@ def _validate_command(
     if suffix[:4] == ("up", "-d", "--no-build", "--remove-orphans"):
         _validate_runtime_services(suffix[4:])
         return
-    raise HostHelperError("Docker command is not an allowed Elesim lifecycle action")
+    raise HostHelperError("Docker command is not an allowed EleSim lifecycle action")
 
 
 def _validate_roles(values: Sequence[str]) -> None:

@@ -3,7 +3,7 @@
 > 설치 화면에서 무엇을 알고 있어야 하는지, 연결관리자의 빈칸을 어떻게
 > 채우는지, 무엇을 비워 두어도 되는지를 처음부터 끝까지 설명하는 문서다.
 
-이 문서에서 **Zero2Omega**는 현재 Elesim의 설치·연결·실행 흐름을 가리키는
+이 문서에서 **Zero2Omega**는 현재 EleSim의 설치·연결·실행 흐름을 가리키는
 사용자용 이름으로 사용한다. 현재 구조는 중앙 Router나 ZMQ를 사용하지 않고,
 Pilot·Sim·UI·Robot이 ROS 2/DDS로 직접 통신한다. 카메라 영상의 픽셀만
 WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전달된다.
@@ -37,7 +37,7 @@ WebRTC(DTLS/SRTP)로 전달되고, WebRTC의 연결 협상도 DDS를 통해 전�
 - Native host network에서는 host의 현재 Tailscale IP/hostname과 `tailscale0`.
   Sidecar에서는 `elesim-tailscale status`가 보여 주는 별도 sidecar IP와
   sidecar namespace의 `tailscale0`.
-- 각 컴퓨터에서 실제로 설치된 Elesim prefix와 `bin/` 경로.
+- 각 컴퓨터에서 실제로 설치된 EleSim prefix와 `bin/` 경로.
   예를 들어 `/home/user/ws/five`와 `/home/user/ws/five/bin`처럼 입력한다.
 - 원격 컴퓨터를 관리할 SSH 사용자와 포트. Tailscale SSH는 포트 `22`를
   사용하고, 일반 OpenSSH는 실제 sshd 포트를 사용한다.
@@ -100,7 +100,7 @@ Jetson      ── Robot (native/systemd) + 선택적 Pilot/UI (별도 Compose u
 설치할 컴퓨터에서 원하는 디렉터리로 이동해 bootstrap을 실행한다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/install.sh \
   | ELESIM_REF=refactoring bash
 ```
 
@@ -159,7 +159,7 @@ elesim-tailscale login
 elesim-tailscale status
 ```
 
-브라우저/device 로그인을 완료하고 `status`의 tailnet IP를 적어 둔다. Elesim은
+브라우저/device 로그인을 완료하고 `status`의 tailnet IP를 적어 둔다. EleSim은
 Tailscale auth/OAuth key나 브라우저 credential을 저장하지 않는다. 일반적인
 down/up/update는 sidecar node state를 보존하므로 매번 로그인할 필요가 없다.
 
@@ -186,7 +186,7 @@ endpoint를 읽어 검증한 뒤 적용한다. 새 설치 관리자에서는 외
 기능이며, 중앙 서버로 전송하지 않는다.
 
 SROS2 provisioning은 `managed`가 기본이다. 이 경우 keystore 경로와 base
-enclave를 비워 두고 연결관리자가 generation을 만든다. 이미 Elesim 밖에서
+enclave를 비워 두고 연결관리자가 generation을 만든다. 이미 EleSim 밖에서
 관리하는 keystore를 쓰는 고급 `external` 경로를 의도적으로 선택한 경우에만
 기존 keystore 디렉터리와 base enclave(예: `/elesim`)를 지정한다. 새 키를 이
 설치기에 붙여 넣거나 managed/external을 실행 중에 임의로 섞지 않는다.
@@ -315,7 +315,7 @@ VPN:      wg0 등 실제 이름
 
 #### 설치 루트
 
-그 host에서 Elesim이 실제로 설치된 **절대경로**를 입력한다.
+그 host에서 EleSim이 실제로 설치된 **절대경로**를 입력한다.
 
 ```text
 /home/user/ws/five
@@ -554,7 +554,7 @@ SSH 포트: Tailscale SSH면 22, 일반 OpenSSH면 실제 포트
 Tailscale은 각 runtime node를 같은 routed VPN에 넣어 주는 수단이다.
 Native host network는 host의 Tailscale node를 사용한다. Docker Desktop은
 WSL의 `tailscale0`를 상속하지 않으므로 생성된 kernel-mode sidecar가 별도 node가
-된다. Sidecar는 Elesim role이나 Router가 아니라 그 컴퓨터의 container network
+된다. Sidecar는 EleSim role이나 Router가 아니라 그 컴퓨터의 container network
 인프라다.
 
 Native host network에서는 먼저 확인한다.
@@ -572,7 +572,7 @@ elesim-tailscale login       # 브라우저/device 등록 또는 stale node 재�
 elesim-tailscale status
 ```
 
-로그인은 브라우저/device 승인 방식이며 auth/OAuth key를 Elesim 설정에 넣지
+로그인은 브라우저/device 승인 방식이며 auth/OAuth key를 EleSim 설정에 넣지
 않는다. Sidecar state는 일반 종료와 업데이트에서 보존된다. DDS role,
 runtime-network doctor와 활성 Sim-owned Coturn은 sidecar namespace를
 공유하지만 SSH 명령은 별도 WSL/host 주소로 간다.
@@ -665,7 +665,7 @@ elesim-connections --port 8771
 중지된 manager만 지우고 다른 실행 중 연결관리자는 건드리지 않는다. PATH 등록을
 선택했다면 같은 화면에서 `source ~/.bashrc`도 복사해 현재 shell에 반영한다.
 
-### `기존 unpinned Elesim 설치가 현재 Docker daemon에 속한다는 증거가 없습니다`
+### `기존 unpinned EleSim 설치가 현재 Docker daemon에 속한다는 증거가 없습니다`
 
 v1-v8 설치를 처음 업데이트할 때 현재 daemon에 같은 install UUID와 Compose
 label을 가진 기존 container 또는 local image가 하나 이상 있어야 한다. 원래
@@ -676,7 +676,7 @@ label을 가진 기존 container 또는 local image가 하나 이상 있어야 �
 ### `설치 시 고정한 Docker Engine과 현재 daemon이 다릅니다`
 
 다른 Docker context를 선택했거나 Docker Desktop/Engine reset으로 Engine ID가
-바뀐 상태다. Elesim은 자동으로 다른 daemon에 소유권을 옮기지 않는다. 원래
+바뀐 상태다. EleSim은 자동으로 다른 daemon에 소유권을 옮기지 않는다. 원래
 daemon/context를 복원해 정상 uninstall하거나, 기존 prefix를 건드리지 않고 새
 빈 prefix에 재설치한 뒤 별도 audited cleanup을 진행한다. state/ownership JSON을
 손으로 고치거나 Docker prune으로 우회하지 않는다.
@@ -767,4 +767,4 @@ control plane의 device record를 revoke하지 않으므로 폐기할 node는 Ta
 - NVIDIA/WSLg 렌더링과 Jetson/Unitree 물리 안전 동작.
 
 따라서 `SSH 호스트키 확인`, ping, `python3 -m http.server 8080` 중 하나가
-성공했다고 해서 Elesim 전체가 연결된 것으로 간주하지 않는다.
+성공했다고 해서 EleSim 전체가 연결된 것으로 간주하지 않는다.

@@ -12,13 +12,17 @@ from misc.tools.release.build import build_wheel, copy_infrastructure
 def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[4] / "environment"
     release_root = tmp_path / "releases"
+    stale_package = release_root / "infra/setup/package"
+    stale_package.mkdir(parents=True)
+    (stale_package / "requirements-media.lock").write_text("stale\n", encoding="utf-8")
+    (stale_package / "tests").mkdir()
 
     copy_infrastructure(source, release_root)
 
     assert not (release_root / "infra/bootstrap_security.py").exists()
     assert not (release_root / "infra/coturn").exists()
     assert (release_root / "infra/setup/bootstrap.py").is_file()
-    assert (release_root / "infra/setup/bootstrap.sh").is_file()
+    assert (release_root / "infra/setup/install.sh").is_file()
     assert (release_root / "infra/setup/bootstrap-contract.json").is_file()
     assert (release_root / "infra/containers/Dockerfile.app").is_file()
     assert (release_root / "infra/development/Dockerfile").is_file()
@@ -27,9 +31,16 @@ def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) ->
         release_root
         / "infra/setup/package/src/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf"
     ).is_file()
-    assert not (release_root / "infra/setup/package/build").exists()
-    assert not tuple((release_root / "infra/setup/package").rglob("*.egg-info"))
-    assert not tuple((release_root / "infra/setup/package").rglob("__pycache__"))
+    package = release_root / "infra/setup/package"
+    assert {path.name for path in package.iterdir()} == {
+        "pyproject.toml",
+        "requirements.lock",
+        "src",
+    }
+    assert not (package / "tests").exists()
+    assert not (package / "requirements-media.lock").exists()
+    assert not tuple(package.rglob("*.egg-info"))
+    assert not tuple(package.rglob("__pycache__"))
 
 
 def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> None:

@@ -56,26 +56,78 @@ def _archive_payload(
     root: str = "elesim-main",
     project: bytes = b'[project]\nversion = "0.2.1"\n',
     commit: str | None = None,
+    extra_members: dict[str, bytes] | None = None,
 ) -> bytes:
     archive = tmp_path / f"{root}.tgz"
+    members = {
+        f"{root}/{relative}": payload
+        for relative, payload in _minimal_snapshot_members(project=project).items()
+    }
+    members.update(
+        {f"{root}/{name}": payload for name, payload in (extra_members or {}).items()}
+    )
     _archive(
         archive,
-        {
-            f"{root}/installer/package/pyproject.toml": project,
-            f"{root}/installer/package/requirements.lock": b"",
-            f"{root}/packages/protocol/pyproject.toml": b"[project]\n",
-            f"{root}/installer/bootstrap/bootstrap.py": b"# bootstrap\n",
-            f"{root}/installer/bootstrap/bootstrap-contract.json": json.dumps(
-                {
-                    "schema_version": 1,
-                    "bootstrap_api": 1,
-                    "required_commands": ["wizard", "gui", "install", "update", "status"],
-                }
-            ).encode("utf-8"),
-        },
+        members,
         commit=commit,
     )
     return archive.read_bytes()
+
+
+def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, bytes]:
+    members: dict[str, bytes] = {
+        "installer/package/pyproject.toml": project,
+        "installer/package/requirements.lock": b"",
+        "installer/package/src/elesim_setup/__init__.py": b"",
+        "installer/package/src/elesim_setup/cli.py": b"",
+        "installer/package/src/elesim_setup/network.py": b"",
+        "installer/package/src/elesim_setup/connections.py": b"",
+        "installer/package/src/elesim_setup/uninstall.py": b"",
+        "installer/package/src/elesim_setup/host_proxy.py": b"",
+        "packages/protocol/pyproject.toml": b"[project]\n",
+        "packages/protocol/src/elesim_protocol/__init__.py": b"",
+        "packages/elesim_interfaces/CMakeLists.txt": (
+            b"rosidl_generate_interfaces(${PROJECT_NAME}\n"
+            b'  "msg/RgbdFrame.msg"\n'
+            b'  "srv/OpenSimulationSession.srv"\n'
+            b'  "action/RunOperatorWorkflow.action"\n'
+            b")\n"
+        ),
+        "packages/elesim_interfaces/package.xml": b"",
+        "packages/elesim_interfaces/msg/RgbdFrame.msg": b"",
+        "packages/elesim_interfaces/srv/OpenSimulationSession.srv": b"",
+        "packages/elesim_interfaces/action/RunOperatorWorkflow.action": b"",
+        "installer/bootstrap/bootstrap.py": b"# bootstrap\n",
+        "installer/bootstrap/install.sh": b"#!/bin/sh\n",
+        "installer/bootstrap/bootstrap-contract.json": json.dumps(
+            {
+                "schema_version": 1,
+                "bootstrap_api": 1,
+                "required_commands": ["wizard", "gui", "install", "update", "status"],
+            }
+        ).encode("utf-8"),
+        "environment/containers/Dockerfile.app": b"FROM scratch\n",
+        "environment/containers/Dockerfile.tools": b"FROM scratch\n",
+        "environment/containers/robotpkg.asc": b"public key\n",
+        "environment/development/Dockerfile": b"FROM scratch\n",
+        "environment/development/requirements.lock": b"",
+        "environment/development/entrypoint.sh": b"#!/bin/sh\n",
+        "environment/development/dev-env.sh": b"#!/bin/sh\n",
+        "model/bundles/default/bundle.json": b"{}\n",
+    }
+    for role in ("pilot", "sim", "ui", "robot"):
+        members[f"{role}/pyproject.toml"] = b"[project]\n"
+        members[f"{role}/requirements.lock"] = b""
+        members[f"{role}/src/elesim_{role}/__init__.py"] = b""
+    for relative in bootstrap_module._BOOTSTRAP_SETUP_PYTHON_FILES:
+        members.setdefault(relative.as_posix(), b"")
+    for relative in bootstrap_module._BOOTSTRAP_PROTOCOL_PYTHON_FILES:
+        members.setdefault(relative.as_posix(), b"")
+    for relative in bootstrap_module._BOOTSTRAP_ROLE_ENTRYPOINT_FILES:
+        members.setdefault(relative.as_posix(), b"")
+    for relative in bootstrap_module._BOOTSTRAP_ROLE_CONFIG_FILES:
+        members.setdefault(relative.as_posix(), b"{}\n")
+    return members
 
 
 class _Response(io.BytesIO):
@@ -126,24 +178,138 @@ def _headers(request: urllib.request.Request) -> dict[str, str]:
 
 def _write_valid_snapshot(snapshot: Path, root_name: str = "elesim-main") -> None:
     root = snapshot / root_name
-    (root / "installer/package").mkdir(parents=True)
-    (root / "installer/package/pyproject.toml").write_text("[project]\n")
-    (root / "installer/package/requirements.lock").write_text("")
-    (root / "packages/protocol").mkdir(parents=True)
-    (root / "packages/protocol/pyproject.toml").write_text("[project]\n")
-    (root / "installer/bootstrap").mkdir(parents=True)
-    (root / "installer/bootstrap/bootstrap.py").write_text("# bootstrap\n")
-    (root / "installer/bootstrap/bootstrap-contract.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "bootstrap_api": 1,
-                "required_commands": ["wizard", "gui", "install", "update", "status"],
-            }
-        ),
+    for relative, payload in _minimal_snapshot_members().items():
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+    (snapshot / ".elesim-source-complete").write_text(root_name + "\n")
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "installer/package/src/elesim_setup/cli.py",
+        "installer/package/src/elesim_setup/network.py",
+        "installer/package/src/elesim_setup/connections.py",
+        "installer/package/src/elesim_setup/uninstall.py",
+        "installer/package/src/elesim_setup/host_proxy.py",
+        "installer/package/src/elesim_setup/ownership.py",
+        "installer/package/src/elesim_setup/shell.py",
+    ),
+)
+def test_source_snapshot_requires_every_setup_console_target(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / relative).unlink()
+
+    with pytest.raises(BootstrapError, match=Path(relative).name):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+def test_source_snapshot_rejects_unowned_setup_python_module(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / "installer/package/src/elesim_setup/dummy.py").write_text(
+        "", encoding="utf-8"
+    )
+
+    with pytest.raises(BootstrapError, match="unexpected setup Python"):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+def test_source_snapshot_rejects_nested_setup_python_package(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    rogue = root / "installer/package/src/elesim_setup/rogue"
+    rogue.mkdir()
+    (rogue / "__init__.py").write_text("", encoding="utf-8")
+    (rogue / "payload.py").write_text("", encoding="utf-8")
+
+    with pytest.raises(BootstrapError, match="unexpected setup Python"):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "pilot/src/elesim_pilot/main.py",
+        "robot/src/elesim_robot/go2/unitree_bridge_daemon.py",
+        "pilot/config/runtime.yaml",
+        "sim/config/runtime.yaml",
+    ),
+)
+def test_source_snapshot_requires_role_entrypoints_and_runtime_configs(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / relative).unlink()
+
+    with pytest.raises(BootstrapError, match=Path(relative).name):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+def test_source_snapshot_rejects_unowned_protocol_python_module(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    (root / "packages/protocol/src/elesim_protocol/dummy.py").write_text(
+        "", encoding="utf-8"
+    )
+
+    with pytest.raises(BootstrapError, match="unexpected protocol Python"):
+        bootstrap_module._validate_source_snapshot(root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "msg/Extra.msg",
+        "srv/Extra.srv",
+        "action/Extra.action",
+    ),
+)
+def test_source_snapshot_requires_every_cmake_declared_rosidl_source(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    interfaces = root / "packages/elesim_interfaces"
+    (interfaces / "CMakeLists.txt").write_text(
+        "rosidl_generate_interfaces(${PROJECT_NAME}\n"
+        '  "msg/RgbdFrame.msg"\n'
+        '  "srv/OpenSimulationSession.srv"\n'
+        '  "action/RunOperatorWorkflow.action"\n'
+        '  "msg/Extra.msg"\n'
+        '  "srv/Extra.srv"\n'
+        '  "action/Extra.action"\n'
+        ")\n",
         encoding="utf-8",
     )
-    (snapshot / ".elesim-source-complete").write_text(root_name + "\n")
+    for extra in ("msg/Extra.msg", "srv/Extra.srv", "action/Extra.action"):
+        source = interfaces / extra
+        source.parent.mkdir(exist_ok=True)
+        source.write_text("", encoding="utf-8")
+    (interfaces / relative).unlink()
+
+    with pytest.raises(BootstrapError, match=Path(relative).name):
+        bootstrap_module._validate_source_snapshot(root)
 
 
 def test_archive_url_uses_configurable_repository_and_ref() -> None:
@@ -200,6 +366,63 @@ def test_download_source_uses_full_url_hash_and_ignores_legacy_cache(
     assert "signature=secret" not in root.parents[2].joinpath("current.json").read_text()
 
 
+def test_download_source_caches_only_install_source_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _archive_payload(
+        tmp_path,
+        extra_members={
+            "environment/development/Dockerfile": b"FROM ubuntu:22.04\n",
+            "environment/development/requirements.lock": b"pytest==8.4.2\n",
+            "environment/development/entrypoint.sh": b"#!/bin/sh\n",
+            "environment/development/dev-env.sh": b"#!/bin/sh\n",
+            "environment/containers/robotpkg.asc": b"public key\n",
+            "installer/package/src/elesim_setup/__init__.py": b"",
+            "packages/protocol/src/elesim_protocol/__init__.py": b"",
+            "packages/elesim_interfaces/action/RunOperatorWorkflow.action": b"",
+            "pilot/src/elesim_pilot/main.py": b"def main(): pass\n",
+            "pilot/config/perception/detector.yolo.example.json": b"{}\n",
+            "pilot/config/runtime.public.example.yaml": b"public: true\n",
+            "sim/config/runtime.public.example.yaml": b"public: true\n",
+            "ui/config/public.example.yaml": b"public: true\n",
+            "robot/config/public.example.yaml": b"public: true\n",
+            "model/bundles/default/bundle.json": b"{}\n",
+            "pilot/tests/test_dummy.py": b"raise AssertionError\n",
+            "installer/package/tests/test_dummy.py": b"raise AssertionError\n",
+            "misc/research/dummy.bin": b"research-only\n",
+        },
+    )
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        _URLSequence(_Response(payload)),
+    )
+
+    root = download_source("https://archives.example/elesim.tar.gz", tmp_path)
+
+    assert (root / "environment/development/Dockerfile").is_file()
+    assert (root / "environment/development/requirements.lock").is_file()
+    assert (root / "environment/development/entrypoint.sh").is_file()
+    assert (root / "environment/development/dev-env.sh").is_file()
+    assert (root / "environment/containers/robotpkg.asc").is_file()
+    assert (root / "installer/package/src/elesim_setup/__init__.py").is_file()
+    assert (root / "packages/protocol/src/elesim_protocol/__init__.py").is_file()
+    assert (
+        root / "packages/elesim_interfaces/action/RunOperatorWorkflow.action"
+    ).is_file()
+    assert (root / "pilot/src/elesim_pilot/main.py").is_file()
+    assert (root / "pilot/config/perception/detector.yolo.example.json").is_file()
+    assert not (root / "pilot/config/runtime.public.example.yaml").exists()
+    assert not (root / "sim/config/runtime.public.example.yaml").exists()
+    assert not (root / "ui/config/public.example.yaml").exists()
+    assert not (root / "robot/config/public.example.yaml").exists()
+    assert (root / "model/bundles/default/bundle.json").is_file()
+    assert not (root / "pilot/tests").exists()
+    assert not (root / "installer/package/tests").exists()
+    assert not (root / "misc/research").exists()
+
+
 def test_download_source_validates_completed_snapshot_with_conditional_get(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -227,6 +450,33 @@ def test_download_source_validates_completed_snapshot_with_conditional_get(
         "if-none-match": '"revision-1"',
         "if-modified-since": "Fri, 24 Jul 2026 00:00:00 GMT",
     }
+
+
+def test_download_source_replaces_legacy_snapshot_outside_install_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _archive_payload(tmp_path)
+    opener = _URLSequence(
+        _Response(payload, headers={"ETag": '"revision-1"'}),
+        _Response(status=304),
+        _Response(payload, headers={"ETag": '"revision-1"'}),
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    url = "https://archives.example/elesim.tar.gz"
+    first = download_source(url, tmp_path)
+    legacy = first / "misc/research/legacy.txt"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("source-only\n", encoding="utf-8")
+    (first / "tests").mkdir()
+
+    second = download_source(url, tmp_path)
+
+    assert second == first
+    assert not (second / "misc").exists()
+    assert not (second / "tests").exists()
+    assert _headers(opener.requests[1]) == {"if-none-match": '"revision-1"'}
+    assert _headers(opener.requests[2]) == {}
 
 
 def test_download_source_handles_real_urllib_304_and_closes_it(
@@ -934,7 +1184,7 @@ def test_main_forwards_trusted_gui_source_metadata(
 
 
 def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -983,7 +1233,7 @@ def test_failed_shell_download_preserves_previous_bootstrap(tmp_path: Path) -> N
 
 
 def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() -> None:
-    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh").read_text(
+    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
         encoding="utf-8"
     )
 
@@ -1006,7 +1256,7 @@ def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() ->
 
 
 def test_shell_bootstrap_rejects_docker_host_override(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -1038,7 +1288,7 @@ def test_shell_bootstrap_rejects_docker_host_override(tmp_path: Path) -> None:
 
 
 def test_shell_bootstrap_rejects_remote_docker_context(tmp_path: Path) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -1083,7 +1333,7 @@ def test_shell_bootstrap_rejects_remote_docker_context(tmp_path: Path) -> None:
 def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
     tmp_path: Path,
 ) -> None:
-    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh"
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh"
     bootstrap_source = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.py"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -1161,7 +1411,7 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
 
 
 def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None:
-    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.sh").read_text(
+    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
         encoding="utf-8"
     )
     assert "python:3.10-slim" in script

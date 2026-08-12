@@ -1,4 +1,4 @@
-"""Render the host-side self-update wrapper for an owned Elesim install."""
+"""Render the host-side self-update wrapper for an owned EleSim install."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def render_update_wrapper(
             (
                 f"if ! git -C {workspace} diff --quiet || "
                 f"! git -C {workspace} diff --cached --quiet; then",
-                "  printf '%s\\n' 'Elesim update refused: tracked workspace changes must be committed or stashed.' >&2",
+                "  printf '%s\\n' 'EleSim update refused: tracked workspace changes must be committed or stashed.' >&2",
                 "  exit 73",
                 "fi",
                 f"git -C {workspace} fetch --prune origin \"$ref\"",
@@ -50,7 +50,7 @@ def render_update_wrapper(
         )
     raw_url = (
         '"https://raw.githubusercontent.com/${repository}/${ref}/'
-        'installer/bootstrap/bootstrap.sh"'
+        'installer/bootstrap/install.sh"'
     )
     lines.extend(
         (

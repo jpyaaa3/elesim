@@ -1,4 +1,4 @@
-"""Loopback-only browser wizard for Elesim installation."""
+"""Loopback-only browser wizard for EleSim installation."""
 
 from __future__ import annotations
 

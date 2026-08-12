@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from elesim_setup.configuration import (
+    copy_role_config_tree,
     dds_enclave,
     dds_node_key,
     generate_role_configs,
@@ -20,6 +21,32 @@ from conftest import copy_role_configs
 
 def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_runtime_config_copy_excludes_only_public_templates(tmp_path: Path) -> None:
+    templates = {
+        "pilot": "runtime.public.example.yaml",
+        "sim": "runtime.public.example.yaml",
+        "ui": "public.example.yaml",
+        "robot": "public.example.yaml",
+    }
+    for role, template in templates.items():
+        source = tmp_path / "source" / role / "config"
+        perception = source / "perception"
+        perception.mkdir(parents=True)
+        (source / "default.yaml").write_text("runtime: true\n", encoding="utf-8")
+        (source / template).write_text("public: true\n", encoding="utf-8")
+        yolo = perception / "detector.yolo.example.json"
+        yolo.write_text("{}\n", encoding="utf-8")
+        destination = tmp_path / "destination" / role / "config"
+        destination.mkdir(parents=True)
+        (destination / template).write_text("stale: true\n", encoding="utf-8")
+
+        copy_role_config_tree(source, destination, role)
+
+        assert (destination / "default.yaml").is_file()
+        assert not (destination / template).exists()
+        assert (destination / "perception/detector.yolo.example.json").is_file()
 
 
 def test_generated_configs_use_dds_and_remove_router_tcp_fields(local_state) -> None:

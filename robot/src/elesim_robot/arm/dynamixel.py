@@ -13,13 +13,22 @@ from elesim_robot.tracing import sampled_traced, traced
 if TYPE_CHECKING:
     from elesim_robot.config import HardwareConfig
 
-try:
-    from dynamixel_sdk import GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler
-except Exception:  # pragma: no cover - optional on dev machines
-    GroupSyncRead = None  # type: ignore
-    GroupSyncWrite = None  # type: ignore
-    PacketHandler = None  # type: ignore
-    PortHandler = None  # type: ignore
+def _load_dynamixel_sdk() -> tuple[Any, Any, Any, Any]:
+    try:
+        from dynamixel_sdk import (
+            GroupSyncRead,
+            GroupSyncWrite,
+            PacketHandler,
+            PortHandler,
+        )
+    except ModuleNotFoundError as exc:  # pragma: no cover - optional on dev machines
+        if exc.name != "dynamixel_sdk":
+            raise
+        return None, None, None, None
+    return GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler
+
+
+GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler = _load_dynamixel_sdk()
 
 
 ADDR_TORQUE_ENABLE = 64

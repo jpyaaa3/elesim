@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pseudo-realtime ImGui viewer for Elesim structured trace logs."""
+"""Pseudo-realtime ImGui viewer for EleSim structured trace logs."""
 
 from __future__ import annotations
 
@@ -274,7 +274,7 @@ class TraceViewer:
     def _visible_text(self) -> str:
         visible = self._visible_records()
         self._last_text = "\n".join(format_record(record) for record in visible)
-        return self._last_text or "표시할 로그가 없습니다. Elesim 프로세스를 실행하거나 필터를 확인하세요."
+        return self._last_text or "표시할 로그가 없습니다. EleSim 프로세스를 실행하거나 필터를 확인하세요."
 
     @staticmethod
     def _readonly_multiline(identifier: str, text: str, height: float) -> None:
@@ -401,7 +401,7 @@ class TraceViewer:
         cond = getattr(imgui, "ALWAYS", 0)
         imgui.set_next_window_position(0.0, 0.0, cond)
         imgui.set_next_window_size(float(io.display_size.x), float(io.display_size.y), cond)
-        imgui.begin("Elesim Trace Viewer###trace_viewer_root", True, flags=getattr(imgui, "WINDOW_NO_TITLE_BAR", 0))
+        imgui.begin("EleSim Trace Viewer###trace_viewer_root", True, flags=getattr(imgui, "WINDOW_NO_TITLE_BAR", 0))
         try:
             self._draw_left()
             imgui.same_line()
@@ -418,7 +418,7 @@ class TraceViewer:
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        window = glfw.create_window(WINDOW_W, WINDOW_H, "Elesim Trace Viewer", None, None)
+        window = glfw.create_window(WINDOW_W, WINDOW_H, "EleSim Trace Viewer", None, None)
         if not window:
             glfw.terminate()
             raise SystemExit("GLFW 창 생성에 실패했습니다.")
@@ -443,7 +443,7 @@ class TraceViewer:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Elesim JSONL trace 로그 GUI viewer")
+    parser = argparse.ArgumentParser(description="EleSim JSONL trace 로그 GUI viewer")
     parser.add_argument("--log-dir", default=str(ROOT / "logs/tracing"), help="trace JSONL 디렉터리")
     args = parser.parse_args()
     TraceViewer(Path(args.log_dir)).run()

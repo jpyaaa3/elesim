@@ -1,4 +1,4 @@
-"""Versioned wire contract shared by independently deployed Elesim nodes."""
+"""Versioned wire contract shared by independently deployed EleSim nodes."""
 
 from .authority import (
     AuthorityError,
@@ -58,6 +58,8 @@ from .serde import decode_value, encode_value, state_snapshot
 from .rgbd import (
     DdsRgbdPublisher,
     DdsRgbdSubscriber,
+    RgbdFrame,
+    RgbdIntrinsics,
     RgbdIntrinsicsSample,
     RgbdSample,
 )

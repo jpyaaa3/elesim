@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Download an Elesim source archive and start the Elesim setup wizard.
+"""Download an EleSim source archive and start the EleSim setup wizard.
 
 This file intentionally uses only the Python standard library. It can therefore
-be piped directly from GitHub before Elesim or its dependencies are installed.
+be piped directly from GitHub before EleSim or its dependencies are installed.
 """
 
 from __future__ import annotations
@@ -36,10 +36,214 @@ REQUIRED_SETUP_COMMANDS = ("wizard", "gui", "install", "update", "status")
 VERIFY_BOOTSTRAP_SOURCE_ENV = "ELESIM_VERIFY_BOOTSTRAP_SOURCE"
 _FULL_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
 _REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})")
+# The curl cache is installation input, not a source checkout. Developer setup
+# still clones the complete repository into its requested workspace; it only
+# consumes the four development-context files retained here before that clone.
+_BOOTSTRAP_ROLES = ("pilot", "sim", "ui", "robot")
+_BOOTSTRAP_SOURCE_FILES = frozenset(
+    {
+        PurePosixPath("installer/bootstrap/bootstrap.py"),
+        PurePosixPath("installer/bootstrap/install.sh"),
+        PurePosixPath("installer/bootstrap/bootstrap-contract.json"),
+        PurePosixPath("installer/package/pyproject.toml"),
+        PurePosixPath("installer/package/requirements.lock"),
+        PurePosixPath("packages/protocol/pyproject.toml"),
+        PurePosixPath("packages/elesim_interfaces/CMakeLists.txt"),
+        PurePosixPath("packages/elesim_interfaces/package.xml"),
+        PurePosixPath("environment/containers/Dockerfile.app"),
+        PurePosixPath("environment/containers/Dockerfile.tools"),
+        PurePosixPath("environment/containers/robotpkg.asc"),
+        PurePosixPath("environment/development/Dockerfile"),
+        PurePosixPath("environment/development/requirements.lock"),
+        PurePosixPath("environment/development/entrypoint.sh"),
+        PurePosixPath("environment/development/dev-env.sh"),
+        *(PurePosixPath(role) / "pyproject.toml" for role in _BOOTSTRAP_ROLES),
+        *(PurePosixPath(role) / "requirements.lock" for role in _BOOTSTRAP_ROLES),
+    }
+)
+_BOOTSTRAP_SOURCE_TREES = (
+    PurePosixPath("installer/package/src"),
+    PurePosixPath("packages/protocol/src"),
+    PurePosixPath("packages/elesim_interfaces/msg"),
+    PurePosixPath("packages/elesim_interfaces/srv"),
+    PurePosixPath("packages/elesim_interfaces/action"),
+    *(PurePosixPath(role) / "src" for role in _BOOTSTRAP_ROLES),
+    *(PurePosixPath(role) / "config" for role in _BOOTSTRAP_ROLES),
+    PurePosixPath("model/bundles/default"),
+)
+_BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
+    PurePosixPath("installer/package/src/elesim_setup") / f"{name}.py"
+    for name in (
+        "__init__",
+        "_security_storage",
+        "capabilities",
+        "cli",
+        "configuration",
+        "connection_gui",
+        "connection_manager",
+        "connections",
+        "container_installer",
+        "credentials",
+        "developer",
+        "doctor",
+        "gui",
+        "host_helper",
+        "host_proxy",
+        "installer",
+        "manager_lifecycle",
+        "network",
+        "ownership",
+        "profiles",
+        "request",
+        "secure_deployment",
+        "security_authority",
+        "security_policy",
+        "security_provisioning",
+        "security_views",
+        "service",
+        "shell",
+        "state",
+        "uninstall",
+        "updater",
+    )
+)
+_BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
+    PurePosixPath("packages/protocol/src/elesim_protocol") / f"{name}.py"
+    for name in (
+        "__init__",
+        "authority",
+        "contracts",
+        "dds_transport",
+        "messages",
+        "operator",
+        "payloads",
+        "peer",
+        "rgbd",
+        "serde",
+        "transport",
+    )
+)
+_BOOTSTRAP_ROLE_ENTRYPOINT_FILES = frozenset(
+    {
+        PurePosixPath("pilot/src/elesim_pilot/main.py"),
+        PurePosixPath("sim/src/elesim_sim/main.py"),
+        PurePosixPath("ui/src/elesim_ui/main.py"),
+        PurePosixPath("robot/src/elesim_robot/main.py"),
+        PurePosixPath(
+            "robot/src/elesim_robot/go2/unitree_bridge_daemon.py"
+        ),
+    }
+)
+_BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
+    PurePosixPath(role) / "config" / relative
+    for role, relatives in {
+        "pilot": (
+            "arm_model.json",
+            "calibration/hand_eye.camera.json",
+            "config.jetson.yaml",
+            "config.pc.yaml",
+            "config.yaml",
+            "default.yaml",
+            "perception/detector.real_green_hsv.json",
+            "perception/detector.sim_hsv.json",
+            "perception/detector.yolo.example.json",
+            "runtime.yaml",
+            "sag/no_sag.json",
+            "sag/sag_model.json",
+        ),
+        "sim": (
+            "calibration/hand_eye.camera.json",
+            "config.jetson.yaml",
+            "config.pc.yaml",
+            "config.remote.yaml",
+            "config.yaml",
+            "default.yaml",
+            "runtime.yaml",
+        ),
+        "ui": (
+            "default.yaml",
+            "perception/detector.real_green_hsv.json",
+            "perception/detector.sim_hsv.json",
+            "perception/detector.yolo.example.json",
+            "sag/no_sag.json",
+            "sag/sag_model.json",
+        ),
+        "robot": ("default.yaml",),
+    }.items()
+    for relative in relatives
+)
+_BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
+    {
+        *_BOOTSTRAP_SETUP_PYTHON_FILES,
+        *_BOOTSTRAP_PROTOCOL_PYTHON_FILES,
+        *_BOOTSTRAP_ROLE_ENTRYPOINT_FILES,
+        *_BOOTSTRAP_ROLE_CONFIG_FILES,
+        PurePosixPath("packages/elesim_interfaces/msg/RgbdFrame.msg"),
+        PurePosixPath(
+            "packages/elesim_interfaces/srv/OpenSimulationSession.srv"
+        ),
+        PurePosixPath(
+            "packages/elesim_interfaces/action/RunOperatorWorkflow.action"
+        ),
+        PurePosixPath("model/bundles/default/bundle.json"),
+        *(
+            PurePosixPath(role) / "src" / f"elesim_{role}" / "__init__.py"
+            for role in _BOOTSTRAP_ROLES
+        ),
+    }
+)
+_BOOTSTRAP_EXCLUDED_CONFIG_FILES = frozenset(
+    {
+        PurePosixPath("pilot/config/runtime.public.example.yaml"),
+        PurePosixPath("sim/config/runtime.public.example.yaml"),
+        PurePosixPath("ui/config/public.example.yaml"),
+        PurePosixPath("robot/config/public.example.yaml"),
+    }
+)
+_BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
+    ("tests", "fixtures", "__pycache__", ".pytest_cache")
+)
 
 
 class BootstrapError(RuntimeError):
     pass
+
+
+_ROSIDL_SOURCE_RE = re.compile(
+    r'"((?:msg/[A-Za-z][A-Za-z0-9_]*\.msg|'
+    r'srv/[A-Za-z][A-Za-z0-9_]*\.srv|'
+    r'action/[A-Za-z][A-Za-z0-9_]*\.action))"'
+)
+
+
+def _bootstrap_source_path_allowed(relative: PurePosixPath) -> bool:
+    if (
+        relative in _BOOTSTRAP_EXCLUDED_CONFIG_FILES
+        or relative.name.endswith(".pyc")
+        or _BOOTSTRAP_SOURCE_ONLY_COMPONENTS.intersection(relative.parts)
+        or any(part.endswith(".egg-info") for part in relative.parts)
+    ):
+        return False
+    if relative in _BOOTSTRAP_SOURCE_FILES:
+        return True
+    return any(
+        tree == relative or tree in relative.parents
+        for tree in _BOOTSTRAP_SOURCE_TREES
+    )
+
+
+def _bootstrap_source_directory_allowed(relative: PurePosixPath) -> bool:
+    if (
+        _BOOTSTRAP_SOURCE_ONLY_COMPONENTS.intersection(relative.parts)
+        or any(part.endswith(".egg-info") for part in relative.parts)
+    ):
+        return False
+    return any(relative in path.parents for path in _BOOTSTRAP_SOURCE_FILES) or any(
+        tree == relative
+        or tree in relative.parents
+        or relative in tree.parents
+        for tree in _BOOTSTRAP_SOURCE_TREES
+    )
 
 
 def archive_url(repository: str, ref: str) -> str:
@@ -51,7 +255,7 @@ def archive_url(repository: str, ref: str) -> str:
 
 
 def safe_extract_archive(archive: Path, destination: Path) -> Path:
-    """Extract regular files/directories only and return the single source root."""
+    """Extract safe install-source files only and return the single source root."""
 
     destination.mkdir(parents=True, exist_ok=True)
     roots: set[str] = set()
@@ -76,9 +280,11 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
             except ValueError as exc:
                 raise BootstrapError(f"archive escaped destination: {member.name!r}") from exc
             if member.isdir():
-                resolved.mkdir(parents=True, exist_ok=True)
                 continue
             if not member.isfile():
+                continue
+            source_relative = PurePosixPath(*relative.parts[1:])
+            if not _bootstrap_source_path_allowed(source_relative):
                 continue
             resolved.parent.mkdir(parents=True, exist_ok=True)
             source = bundle.extractfile(member)
@@ -90,7 +296,7 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
 
     root = destination / next(iter(roots))
     if not (root / "installer/package/pyproject.toml").is_file():
-        raise BootstrapError("downloaded archive does not contain the Elesim setup package")
+        raise BootstrapError("downloaded archive does not contain the EleSim setup package")
     return root
 
 
@@ -153,12 +359,12 @@ def _index_text(index: Mapping[str, object], key: str) -> str | None:
 
 
 def _validate_source_snapshot(root: Path) -> None:
-    required_files = (
-        root / "installer/package/pyproject.toml",
-        root / "installer/package/requirements.lock",
-        root / "packages/protocol/pyproject.toml",
-        root / "installer/bootstrap/bootstrap.py",
-        root / "installer/bootstrap/bootstrap-contract.json",
+    required_files = tuple(
+        root.joinpath(*relative.parts)
+        for relative in sorted(
+            _BOOTSTRAP_SOURCE_FILES | _BOOTSTRAP_REQUIRED_TREE_FILES,
+            key=lambda value: value.as_posix(),
+        )
     )
     missing = [str(path.relative_to(root)) for path in required_files if not path.is_file()]
     if missing:
@@ -166,7 +372,89 @@ def _validate_source_snapshot(root: Path) -> None:
             "downloaded archive is missing required setup files: "
             + ", ".join(missing)
         )
+    setup_root = root / "installer/package/src/elesim_setup"
+    actual_setup_python = frozenset(
+        PurePosixPath(path.relative_to(root).as_posix())
+        for path in setup_root.rglob("*.py")
+    )
+    if actual_setup_python != _BOOTSTRAP_SETUP_PYTHON_FILES:
+        raise BootstrapError(
+            "unexpected setup Python module manifest: "
+            f"missing={sorted(_BOOTSTRAP_SETUP_PYTHON_FILES - actual_setup_python)!r}; "
+            f"unexpected={sorted(actual_setup_python - _BOOTSTRAP_SETUP_PYTHON_FILES)!r}"
+        )
+    protocol_root = root / "packages/protocol/src/elesim_protocol"
+    actual_protocol_python = frozenset(
+        PurePosixPath(path.relative_to(root).as_posix())
+        for path in protocol_root.rglob("*.py")
+    )
+    if actual_protocol_python != _BOOTSTRAP_PROTOCOL_PYTHON_FILES:
+        raise BootstrapError(
+            "unexpected protocol Python module manifest: "
+            f"missing={sorted(_BOOTSTRAP_PROTOCOL_PYTHON_FILES - actual_protocol_python)!r}; "
+            f"unexpected={sorted(actual_protocol_python - _BOOTSTRAP_PROTOCOL_PYTHON_FILES)!r}"
+        )
+    actual_role_configs = frozenset(
+        PurePosixPath(path.relative_to(root).as_posix())
+        for role in _BOOTSTRAP_ROLES
+        for path in (root / role / "config").rglob("*")
+        if path.is_file()
+    )
+    if actual_role_configs != _BOOTSTRAP_ROLE_CONFIG_FILES:
+        raise BootstrapError(
+            "unexpected role config manifest: "
+            f"missing={sorted(_BOOTSTRAP_ROLE_CONFIG_FILES - actual_role_configs)!r}; "
+            f"unexpected={sorted(actual_role_configs - _BOOTSTRAP_ROLE_CONFIG_FILES)!r}"
+        )
+    _validate_rosidl_source_manifest(root / "packages/elesim_interfaces")
+    unexpected: list[str] = []
+    for path in root.rglob("*"):
+        relative = PurePosixPath(path.relative_to(root).as_posix())
+        if path.is_symlink():
+            unexpected.append(relative.as_posix())
+        elif path.is_dir():
+            if not _bootstrap_source_directory_allowed(relative):
+                unexpected.append(relative.as_posix())
+        elif not path.is_file() or not _bootstrap_source_path_allowed(relative):
+            unexpected.append(relative.as_posix())
+        if len(unexpected) >= 5:
+            break
+    if unexpected:
+        raise BootstrapError(
+            "downloaded archive contains files outside the install source boundary: "
+            + ", ".join(unexpected)
+        )
     validate_bootstrap_contract(root)
+
+
+def _validate_rosidl_source_manifest(interface_root: Path) -> None:
+    cmake = interface_root / "CMakeLists.txt"
+    try:
+        declared_values = _ROSIDL_SOURCE_RE.findall(cmake.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError) as exc:
+        raise BootstrapError(f"cannot read ROSIDL manifest: {cmake}") from exc
+    declared = frozenset(declared_values)
+    if not declared or len(declared) != len(declared_values):
+        raise BootstrapError(
+            f"ROSIDL CMake manifest is empty or contains duplicates: {cmake}"
+        )
+    actual: set[str] = set()
+    for directory, suffix in (("msg", ".msg"), ("srv", ".srv"), ("action", ".action")):
+        source_dir = interface_root / directory
+        try:
+            sources = tuple(source_dir.iterdir())
+        except OSError as exc:
+            raise BootstrapError(f"missing ROSIDL source directory: {source_dir}") from exc
+        for source in sources:
+            if not source.is_file() or source.suffix != suffix:
+                raise BootstrapError(f"unexpected ROSIDL source member: {source}")
+            actual.add(source.relative_to(interface_root).as_posix())
+    if actual != declared:
+        raise BootstrapError(
+            "ROSIDL source manifest mismatch: "
+            f"missing={sorted(declared - actual)!r}; "
+            f"unexpected={sorted(actual - declared)!r}"
+        )
 
 
 def _snapshots_directory(cache: Path) -> Path:

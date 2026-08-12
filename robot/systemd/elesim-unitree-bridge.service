@@ -1,5 +1,5 @@
 [Unit]
-Description=Elesim local Unitree DDS bridge
+Description=EleSim local Unitree DDS bridge
 After=network-online.target
 Wants=network-online.target
 PartOf=elesim-robot.service

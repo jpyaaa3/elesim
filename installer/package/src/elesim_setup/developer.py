@@ -1,4 +1,4 @@
-"""Generate the single-container Elesim coding environment."""
+"""Generate the single-container EleSim coding environment."""
 
 from __future__ import annotations
 
@@ -17,7 +17,11 @@ import yaml
 
 from .capabilities import HostCapabilities
 from .configuration import write_cyclonedds_config
-from .manager_lifecycle import host_helper_fragment, manager_lifecycle_fragment
+from .manager_lifecycle import (
+    compose_owner_guard,
+    host_helper_fragment,
+    manager_lifecycle_fragment,
+)
 from .ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
@@ -275,7 +279,7 @@ class DeveloperInstaller:
         if workspace.exists() and any(workspace.iterdir()):
             if not (workspace / ".git").is_dir() or not _valid_workspace(workspace):
                 raise ValueError(
-                    f"비어 있지 않은 경로는 기존 Elesim Git workspace여야 합니다: {workspace}"
+                    f"비어 있지 않은 경로는 기존 EleSim Git workspace여야 합니다: {workspace}"
                 )
             self.log("[workspace] existing checkout reused without pull/reset")
             return
@@ -298,7 +302,7 @@ class DeveloperInstaller:
                 branch=self.request.ref.encode("utf-8"),
             )
             if not _valid_workspace(staging):
-                raise RuntimeError("cloned repository is not a complete Elesim workspace")
+                raise RuntimeError("cloned repository is not a complete EleSim workspace")
             for child in tuple(staging.iterdir()):
                 child.replace(workspace / child.name)
             staging.rmdir()
@@ -497,7 +501,7 @@ class DeveloperInstaller:
     def _write_wrappers(self) -> None:
         compose = self.generated_root / "compose.yaml"
         command = f"docker compose -f {shlex.quote(str(compose))}"
-        guard = _compose_owner_guard(
+        guard = compose_owner_guard(
             compose,
             project=DEVELOPER_COMPOSE_PROJECT,
             containers=("elesim-dev", "elesim-jaeger", "elesim-manager"),
@@ -558,6 +562,7 @@ class DeveloperInstaller:
                 maintenance_root=self.generated_root / "maintenance",
                 install_uuid=self._install_uuid,
                 guard=guard,
+                gpu_mode=self.request.compute.gpu_mode,
             ),
         )
         write_executable(
@@ -633,47 +638,6 @@ def _valid_workspace(workspace: Path) -> bool:
     )
 
 
-def _compose_owner_guard(
-    compose: Path,
-    *,
-    project: str,
-    containers: tuple[str, ...],
-) -> str:
-    rendered_containers = " ".join(shlex.quote(name) for name in containers)
-    return (
-        f"expected_compose={shlex.quote(str(compose))}\n"
-        f"expected_project={shlex.quote(project)}\n"
-        f"for container in {rendered_containers}; do\n"
-        "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
-        "    continue\n"
-        "  fi\n"
-        "  metadata=\"$(docker container inspect --format "
-        "'{{ index .Config.Labels \"com.docker.compose.project\" }}|"
-        "{{ index .Config.Labels \"com.docker.compose.project.config_files\" }}' "
-        "\"$container\")\"\n"
-        "  actual_project=\"${metadata%%|*}\"\n"
-        "  actual_compose=\"${metadata#*|}\"\n"
-        "  compose_match=0\n"
-        "  IFS=',' read -r -a compose_files <<<\"$actual_compose\"\n"
-        "  for compose_file in \"${compose_files[@]}\"; do\n"
-        "    if [[ \"$compose_file\" == \"$expected_compose\" ]]; then\n"
-        "      compose_match=1\n"
-        "      break\n"
-        "    fi\n"
-        "  done\n"
-        "  if [[ \"$actual_project\" != \"$expected_project\" || $compose_match != 1 ]]; then\n"
-        "    printf 'Elesim 고정 컨테이너 이름 충돌: %s\\n' \"$container\" >&2\n"
-        "    printf '  기존 소유자: project=%s compose=%s\\n' "
-        "\"$actual_project\" \"$actual_compose\" >&2\n"
-        "    printf '  현재 설치: project=%s compose=%s\\n' "
-        "\"$expected_project\" \"$expected_compose\" >&2\n"
-        "    printf '기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오.\\n' >&2\n"
-        "    exit 73\n"
-        "  fi\n"
-        "done\n"
-    )
-
-
 def _development_manager_wrapper(
     *,
     compose: Path,
@@ -685,7 +649,10 @@ def _development_manager_wrapper(
     maintenance_root: Path,
     install_uuid: str,
     guard: str,
+    gpu_mode: str,
 ) -> str:
+    if gpu_mode not in {"inherit", "specific", "cpu"}:
+        raise ValueError(f"unsupported GPU mode: {gpu_mode!r}")
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -697,13 +664,13 @@ def _development_manager_wrapper(
         + shlex.quote(str(default_local_bin_dir))
         + "}\n"
         "if [[ $local_install_root != /* || ! -d $local_install_root ]]; then\n"
-        "  printf '로컬 Elesim install root가 없거나 절대경로가 아닙니다: %s\\n' "
+        "  printf '로컬 EleSim install root가 없거나 절대경로가 아닙니다: %s\\n' "
         "\"$local_install_root\" >&2\n"
         "  printf 'ELESIM_LOCAL_INSTALL_ROOT로 일반 설치 prefix를 지정하십시오.\\n' >&2\n"
         "  exit 2\n"
         "fi\n"
         "if [[ $local_bin_dir != /* || ! -d $local_bin_dir ]]; then\n"
-        "  printf '로컬 Elesim bin dir가 없거나 절대경로가 아닙니다: %s\\n' "
+        "  printf '로컬 EleSim bin dir가 없거나 절대경로가 아닙니다: %s\\n' "
         "\"$local_bin_dir\" >&2\n"
         "  printf 'ELESIM_LOCAL_BIN_DIR로 일반 설치 명령 디렉터리를 지정하십시오.\\n' >&2\n"
         "  exit 2\n"
@@ -739,6 +706,9 @@ def _development_manager_wrapper(
         "fi\n"
         "manager_options=(\n"
         "  -e ELESIM_CONNECTION_PUBLISHED=1\n"
+        "  -e ELESIM_INSTALL_GPU_MODE="
+        + shlex.quote(gpu_mode)
+        + "\n"
         "  -e \"ELESIM_TAILSCALE_ADDRESS=$tailscale_address\"\n"
         "  -e \"ELESIM_TAILSCALE_INTERFACE=$tailscale_interface\"\n"
         "  -v \"$local_install_root:$local_install_root:rw\"\n"

@@ -58,9 +58,6 @@ button {
 button:hover { background: var(--accent-dark); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { cursor: not-allowed; opacity: .45; }
-button.secondary { border-color: #b9bec7; background: #eef0f3; color: var(--ink); }
-button.secondary:hover { border-color: #9ca4af; background: #e2e6eb; }
-button.warning-button { border-color: #b77a16; background: #9b6410; }
 button.danger-button { border-color: var(--danger); background: var(--danger); }
 button.danger-button:hover { background: #7f2525; }
 

@@ -30,7 +30,7 @@ class SecurityAuthorityError(RuntimeError):
 
 @dataclass(frozen=True, order=True)
 class EnclaveIdentity:
-    """One deployable role identity in an Elesim DDS system."""
+    """One deployable role identity in an EleSim DDS system."""
 
     system_id: str
     role: str

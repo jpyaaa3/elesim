@@ -8,7 +8,7 @@
 
 ## 1. 배경과 목표
 
-Elesim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통신으로
+EleSim은 ZMQ Router를 제거하고 ROS 2/DDS 기반의 직접 peer-to-peer 통신으로
 전환했다. 따라서 배포 프로그램은 다른 프로그램의 Python 메서드를 직접
 호출하지 않는다. 각 프로그램은 versioned wire contract에 따라 다음처럼
 주소가 지정된 메시지를 주고받는다.
@@ -154,7 +154,7 @@ Compute host/Jetson -> Operator host : 불가능
 노트북이 UDP packet 하나를 outbound로 보낸다고 해도 그것만으로는 충분하지 않다.
 NAT mapping은 시간 제한이 있을 수 있고, 상대는 공인 mapping address/port를 알아야
 하며, DDS가 사설 locator를 광고할 수 있고, symmetric NAT는 destination마다
-mapping을 달리할 수 있다. 현재 Elesim DDS에는 STUN/ICE/hole-punching/DDS relay가
+mapping을 달리할 수 있다. 현재 EleSim DDS에는 STUN/ICE/hole-punching/DDS relay가
 없다.
 
 다음은 DDS NAT traversal 해결책이 아니다.
@@ -214,7 +214,7 @@ Static peer는 여전히 discovery seed일 뿐이고 실제 DDS sample을 중계
 
 사용자는 `elesim-tailscale login`으로 browser/device 승인을 완료하고
 `elesim-tailscale status`로 sidecar 주소를 확인한다. `Running`인 stale node에서
-명시적으로 login을 다시 실행하면 재인증한다. Elesim은 auth/OAuth key나
+명시적으로 login을 다시 실행하면 재인증한다. EleSim은 auth/OAuth key나
 browser credential을 저장하지 않는다. Sidecar node state만 mode-0700
 `<prefix>/secrets/tailscale`에 남겨 일반 down/up/update에서 재사용한다. 이 exact
 bind directory는 ownership manifest의 install-owned `<prefix>/secrets` root 안에
@@ -228,7 +228,7 @@ DDS 주소를 발견하고, 로그인되지 않은 host에는 실행 명령을 �
 
 Tailscale을 모든 DDS host에 설치할 수 없다면 한 host를 subnet/VPN gateway로 두는
 고급 경로가 있다. 그러나 Jetson의 반환 route, source NAT, DDS locator advertisement,
-static discovery를 모두 실제로 검증해야 한다. 이것은 현재 Elesim이 자동 생성하거나
+static discovery를 모두 실제로 검증해야 한다. 이것은 현재 EleSim이 자동 생성하거나
 지원한다고 주장하면 안 되는 수동 네트워크 과제다.
 
 ## 7. GUI 연결관리자
@@ -296,7 +296,7 @@ Jetson을 실제로 켤 수 없는 동안에는 API/자동화에서 `COM` 카드
   명시적인 user/port를 갖는가
 - 요청한 경우 remote SSH host key probe가 그 host와 port에 도달하는가
 
-사전 점검의 SSH 포트는 Tailscale의 별도 “DDS 포트”가 아니다. 현재 Elesim은
+사전 점검의 SSH 포트는 Tailscale의 별도 “DDS 포트”가 아니다. 현재 EleSim은
 일반 OpenSSH/Paramiko 경로를 사용하므로 실제 `sshd` 포트를 입력한다. 기본 sshd가
 22이면 22를 쓰고, 다른 포트를 쓰면 그 값을 그대로 입력한다. SSH fingerprint는
 정식 저장/배포 topology에서 다시 고정해야 하며, 사전 점검 결과는 저장하지 않는다.
@@ -353,9 +353,12 @@ DDS discovery나 WebRTC media 성공으로 해석하지 않는다.
 
 부팅 카드의 GPU 상속 번호와 Viewer 선택은 저장 topology가 아닌 일회성 실행
 옵션이다. `start`/`restart` 요청에만 bounded Compose wrapper flag로 전달하며,
-GPU 상속을 끄면 `CUDA_VISIBLE_DEVICES`를 비우고 Viewer를 끄면 Sim의 `--viewer`
-경로를 사용하지 않는다. 입력값은 GPU 번호와 boolean만 허용하고 다른 환경변수나
-임의 Compose 인자는 전달하지 않는다.
+GPU 상속 입력은 연결관리자를 설치할 때 GPU 모드로 `inherit`를 선택한 경우에만
+활성화한다. `cpu` 또는 `specific` 설치에서는 체크를 해제하고 입력과 함께
+비활성화하며, 조작된 HTTP 요청도 거부한다. GPU 상속을 끄면
+`CUDA_VISIBLE_DEVICES`를 비우고 Viewer를 끄면 Sim의 `--viewer` 경로를 사용하지
+않는다. 입력값은 GPU 번호와 boolean만 허용하고 다른 환경변수나 임의 Compose
+인자는 전달하지 않는다.
 
 ```text
 Operator host <-> Sim host: DDS discovery / control / RGBD / WebRTC signaling

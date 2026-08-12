@@ -1,6 +1,6 @@
 """Transport-independent peer identity and discovery state.
 
-DDS discovery establishes reachability, not Elesim authority.  These value
+DDS discovery establishes reachability, not EleSim authority.  These value
 objects keep the application identity and boot generation explicit while
 ``PeerDirectory`` derives a fail-closed local view from advertisements and
 fresh heartbeats.

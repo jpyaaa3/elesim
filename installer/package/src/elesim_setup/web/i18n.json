@@ -1,6 +1,6 @@
 {
   "ko": {
-    "app.title": "Elesim 설치 마법사",
+    "app.title": "EleSim 설치 마법사",
     "step.mode": "설치 방식",
     "step.roles": "프로그램 선택",
     "step.paths": "설치 위치",
@@ -9,7 +9,7 @@
     "step.install": "마무리",
     "host.detected": "감지된 호스트",
     "mode.title": "설치 방식",
-    "mode.subtitle": "이 컴퓨터에서 Elesim을 어떻게 사용할지 선택하십시오.",
+    "mode.subtitle": "이 컴퓨터에서 EleSim을 어떻게 사용할지 선택하십시오.",
     "mode.general": "일반 사용자",
     "mode.general.help": "선택한 실행 프로그램만 격리된 환경으로 배치합니다.",
     "mode.developer": "개발자",
@@ -31,7 +31,7 @@
     "paths.title": "설치 위치",
     "paths.subtitle": "실행 데이터와 터미널 명령을 둘 위치를 지정하십시오.",
     "paths.prefix": "설치 위치",
-    "paths.prefix.help": "개발자 모드에서는 이 위치가 Elesim Git workspace가 됩니다.",
+    "paths.prefix.help": "개발자 모드에서는 이 위치가 EleSim Git workspace가 됩니다.",
     "paths.bin": "터미널 명령 위치",
     "paths.bin.help": "elesim-up, elesim-net과 역할별 실행 명령이 생성됩니다.",
     "paths.register": "PATH에 등록",
@@ -84,7 +84,7 @@
     "error.generic": "입력을 확인하십시오."
   },
   "en": {
-    "app.title": "Elesim Install Wizard",
+    "app.title": "EleSim Install Wizard",
     "step.mode": "Installation",
     "step.roles": "Applications",
     "step.paths": "Paths",
@@ -93,7 +93,7 @@
     "step.install": "Finish",
     "host.detected": "Detected host",
     "mode.title": "Installation",
-    "mode.subtitle": "Select how Elesim will be used on this computer.",
+    "mode.subtitle": "Select how EleSim will be used on this computer.",
     "mode.general": "General user",
     "mode.general.help": "Deploy only the selected applications in isolated environments.",
     "mode.developer": "Developer",
@@ -115,7 +115,7 @@
     "paths.title": "Paths",
     "paths.subtitle": "Choose where runtime data and terminal commands are written.",
     "paths.prefix": "Installation directory",
-    "paths.prefix.help": "In developer mode, this directory becomes the Elesim Git workspace.",
+    "paths.prefix.help": "In developer mode, this directory becomes the EleSim Git workspace.",
     "paths.bin": "Command directory",
     "paths.bin.help": "elesim-up, elesim-net, and role commands are generated here.",
     "paths.register": "Add to PATH",

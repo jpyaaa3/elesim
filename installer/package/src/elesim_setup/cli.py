@@ -1,4 +1,4 @@
-"""Interactive and non-interactive Elesim installer entry point."""
+"""Interactive and non-interactive EleSim installer entry point."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def run_wizard(
     state_path: Path | None = None,
     input_fn: Input = input,
 ) -> int:
-    print("\nElesim 설치 마법사")
+    print("\nEleSim 설치 마법사")
     print("선택한 실행 역할과 ROS 2/DDS 구성을 격리된 환경에 설치합니다.")
     profile_name = "custom"
     roles = _ask_roles(input_fn=input_fn)
@@ -289,7 +289,7 @@ def _source_root(explicit: str, state_path: Path) -> Path:
         and (candidate / "packages/elesim_interfaces/package.xml").is_file()
     ):
         return candidate
-    raise FileNotFoundError("--source-root를 지정하거나 Elesim 저장소 루트에서 실행하십시오")
+    raise FileNotFoundError("--source-root를 지정하거나 EleSim 저장소 루트에서 실행하십시오")
 
 
 def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
@@ -389,7 +389,7 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-root", default="", help="Elesim source archive/checkout root")
+    parser.add_argument("--source-root", default="", help="EleSim source archive/checkout root")
     parser.add_argument("--state", default=str(default_state_path()), help="install-state.json path")
     subparsers = parser.add_subparsers(dest="command")
 

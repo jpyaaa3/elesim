@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -19,6 +20,12 @@ GENERATED_RUNTIME = "runtime.installed.yaml"
 GENERATED_APP = "app.installed.yaml"
 GENERATED_DDS = "cyclonedds.xml"
 _INVALID_ROS_NAME = re.compile(r"[^a-z0-9_]+")
+PUBLIC_CONFIG_TEMPLATES = {
+    "pilot": "runtime.public.example.yaml",
+    "sim": "runtime.public.example.yaml",
+    "ui": "public.example.yaml",
+    "robot": "public.example.yaml",
+}
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,31 @@ class RobotHostSettings:
 
 def role_directory(state: InstallState, role: str) -> Path:
     return state.prefix_path / "roles" / role
+
+
+def copy_role_config_tree(source: Path, destination: Path, role: str) -> None:
+    try:
+        excluded = PUBLIC_CONFIG_TEMPLATES[role]
+    except KeyError as exc:
+        raise ValueError(f"unknown role: {role!r}") from exc
+    if not source.is_dir():
+        raise FileNotFoundError(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    excluded_destination = destination / excluded
+    if excluded_destination.is_symlink() or excluded_destination.is_file():
+        excluded_destination.unlink()
+    elif excluded_destination.exists():
+        raise ValueError(
+            f"public config template destination must not be a directory: {excluded_destination}"
+        )
+    source_root = source.resolve()
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        if Path(directory).resolve() == source_root and excluded in names:
+            return {excluded}
+        return set()
+
+    shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
 
 
 def generated_config_path(state: InstallState, role: str) -> Path:
@@ -414,6 +446,7 @@ __all__ = [
     "GENERATED_DDS",
     "GENERATED_RUNTIME",
     "RobotHostSettings",
+    "copy_role_config_tree",
     "dds_enclave",
     "dds_node_key",
     "generate_role_configs",

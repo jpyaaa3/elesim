@@ -105,6 +105,7 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert f'ELESIM_OPERATOR_HOME={Path.home().resolve()}' in manager_wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in manager_wrapper
     assert "manager_args+=(--host 0.0.0.0)" in manager_wrapper
+    assert "ELESIM_INSTALL_GPU_MODE=inherit" in manager_wrapper
     assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-host-proxy" in manager_wrapper
     assert "/var/run/tailscale/tailscaled.sock" not in manager_wrapper
     assert "elesim_setup.host_helper" in manager_wrapper
@@ -237,6 +238,10 @@ def test_cpu_developer_install_does_not_request_gpu(tmp_path: Path) -> None:
     assert compose["services"]["dev"]["environment"]["CUDA_VISIBLE_DEVICES"] == ""
     assert "jaeger" not in compose["services"]
     assert compose["services"]["dev"]["build"]["args"]["COMPUTE_MODE"] == "cpu"
+    manager_wrapper = (request.bin_dir / "elesim-connections").read_text(
+        encoding="utf-8"
+    )
+    assert "ELESIM_INSTALL_GPU_MODE=cpu" in manager_wrapper
 
 
 def test_specific_gpu_developer_install_reserves_only_selected_device(
@@ -270,6 +275,10 @@ def test_specific_gpu_developer_install_reserves_only_selected_device(
     assert reservation["device_ids"] == ["GPU-deadbeef"]
     assert "gpus" not in service
     assert "CUDA_VISIBLE_DEVICES" not in service["environment"]
+    manager_wrapper = (request.bin_dir / "elesim-connections").read_text(
+        encoding="utf-8"
+    )
+    assert "ELESIM_INSTALL_GPU_MODE=specific" in manager_wrapper
 
 
 def test_developer_install_never_reuses_unrelated_nonempty_directory(

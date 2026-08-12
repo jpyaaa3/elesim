@@ -66,6 +66,8 @@ def test_robot_wrapper_and_unit_use_only_generated_install_paths(
 
     installer._install_role("robot")
     role_root = role_directory(state, "robot")
+    assert (role_root / "config/default.yaml").is_file()
+    assert not (role_root / "config/public.example.yaml").exists()
     assert not (role_root / "systemd").exists()
     assert not (role_root / "install.sh").exists()
 

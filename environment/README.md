@@ -1,7 +1,7 @@
 # Environment inputs
 
 `environment/` contains source inputs used to construct runtime environments.
-It is not an additional Elesim application and is not imported by Pilot, Sim,
+It is not an additional EleSim application and is not imported by Pilot, Sim,
 UI or Robot at runtime.
 
 - `containers/`: role image Dockerfiles and pinned image-build assets

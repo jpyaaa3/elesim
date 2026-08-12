@@ -105,7 +105,7 @@ def run_profile(
         raise RuntimeError(f"coverage test run failed for {role}")
     records = parse_project_summary(completed.stdout)
     if not records:
-        raise RuntimeError(f"coverage report contained no Elesim modules for {role}")
+        raise RuntimeError(f"coverage report contained no EleSim modules for {role}")
     return records
 
 

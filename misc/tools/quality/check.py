@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Elesim's software-only verification matrix.
+"""Run EleSim's software-only verification matrix.
 
 Each check gets only the source roots that its deployment is allowed to import.
 This makes the command useful both as a local test runner and as a lightweight

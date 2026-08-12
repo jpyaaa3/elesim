@@ -1,7 +1,7 @@
 # elesim-protocol
 
 Protocol-v6 DTOs, authority rules, peer discovery helpers, and ROS 2/DDS
-transport adapters shared by every Elesim deployment artifact. Endpoint
+transport adapters shared by every EleSim deployment artifact. Endpoint
 discovery and RGBD use typed ROS messages. The current control and WebRTC
 signaling path uses the bounded `elesim_interfaces/PeerEnvelope` DDS message;
 the typed service/action definitions in `packages/elesim_interfaces` are not

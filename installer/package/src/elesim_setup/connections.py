@@ -8,12 +8,13 @@ import copy
 import json
 import os
 import stat
+import sys
 import tempfile
 import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .connection_gui import ConnectionJobCancelled, run_connection_gui
 from .connection_manager import (
@@ -40,6 +41,53 @@ from .security_authority import Sros2Authority, new_generation_id
 
 Log = Callable[[str], None]
 _DDS_READINESS_TIMEOUT_S = 60.0
+
+
+class RuntimeRollbackError(RuntimeError):
+    """A runtime transition and one or more compensating actions failed."""
+
+    def __init__(
+        self,
+        cause: BaseException,
+        rollback_errors: Sequence[tuple[str, BaseException]],
+        *,
+        rollback_action: str = "stop",
+    ) -> None:
+        failures = tuple(rollback_errors)
+        details = "; ".join(
+            f"{host_id}: {str(error)[:512]}" for host_id, error in failures
+        )
+        super().__init__(
+            f"runtime lifecycle failed: {cause}; rollback {rollback_action} "
+            f"also failed: {details}"
+        )
+        self.cause = cause
+        self.rollback_errors = failures
+        self.rollback_action = rollback_action
+
+
+class OperationCloseError(RuntimeError):
+    """One or more host-operation sessions failed to close."""
+
+    def __init__(
+        self,
+        cause: BaseException | None,
+        close_errors: Sequence[tuple[str, BaseException]],
+    ) -> None:
+        failures = tuple(close_errors)
+        details = "; ".join(
+            f"{host_id}: {str(error)[:512]}" for host_id, error in failures
+        )
+        if cause is None:
+            message = f"host operation cleanup failed: {details}"
+        else:
+            message = (
+                f"host operation failed: {cause}; "
+                f"session cleanup also failed: {details}"
+            )
+        super().__init__(message)
+        self.cause = cause
+        self.close_errors = failures
 
 
 class _BuildLogForwarder:
@@ -242,7 +290,9 @@ class ConnectionDeploymentRunner:
                                 "topology state path가 없어 안전하게 저장할 수 없습니다"
                             )
                         updated_topology.save(self.topology_state_path)
-                        self._close_operations(operations)
+                        previous_operations = operations
+                        operations = {}
+                        self._close_operations(previous_operations)
                         topology = updated_topology
                         self._validate_management_host(topology)
                         operations = self._operations(topology)
@@ -286,11 +336,81 @@ class ConnectionDeploymentRunner:
                         capabilities = operations[host.host_id].preflight(host)
                         capabilities.require_for(host)
                         operations[host.host_id].runtime_launch_preflight(host)
-                if action in {"stop", "restart"}:
+                previous_running: dict[str, tuple[str, ...]] = {}
+                if action == "start":
+                    for host in hosts:
+                        running_roles = self._status_running_roles(
+                            host,
+                            operations[host.host_id].status(host),
+                        )
+                        if running_roles:
+                            raise RuntimeError(
+                                f"{host.host_id}에서 이미 실행 중인 역할이 있습니다: "
+                                f"{', '.join(running_roles)}. 전체 시작 대신 재시작을 "
+                                "사용하십시오."
+                            )
+                if action == "restart":
+                    previous_running = {
+                        host.host_id: self._status_running_roles(
+                            host,
+                            operations[host.host_id].status(host),
+                        )
+                        for host in hosts
+                    }
+                if action == "stop":
                     log("활성 역할의 런타임을 정지합니다.")
+                    stop_errors: list[tuple[str, str, BaseException]] = []
                     for host in reversed(hosts):
                         log(f"stop: {host.host_id}")
-                        operations[host.host_id].stop(host)
+                        try:
+                            operations[host.host_id].stop(host)
+                        except BaseException as exc:
+                            stop_errors.append((host.host_id, "stop", exc))
+                            continue
+                        # A terminal manager stop must revoke the temporary
+                        # X11 local-user grant created by a Viewer launch.
+                        # Security-rotation stop/start paths deliberately do
+                        # not call this because the same Viewer resumes.
+                        try:
+                            operations[host.host_id].cleanup_viewer(host)
+                        except BaseException as exc:
+                            stop_errors.append(
+                                (host.host_id, "viewer-cleanup", exc)
+                            )
+                    if stop_errors:
+                        details = "; ".join(
+                            f"{host_id}/{phase}: {str(error)[:512]}"
+                            for host_id, phase, error in stop_errors
+                        )
+                        raise RuntimeError(
+                            "runtime stop or Viewer ACL cleanup failed: "
+                            + details
+                        ) from stop_errors[0][2]
+                elif action == "restart":
+                    log("활성 역할의 런타임을 정지합니다.")
+                    stop_attempted: list[ManagedHost] = []
+                    try:
+                        for host in reversed(hosts):
+                            log(f"stop: {host.host_id}")
+                            stop_attempted.append(host)
+                            operations[host.host_id].stop(host)
+                    except BaseException as exc:
+                        log(
+                            "런타임 정지 실패로 이미 정지한 역할을 원래 상태로 "
+                            "복구합니다."
+                        )
+                        restore_errors = self._restore_runtime_hosts(
+                            operations,
+                            reversed(stop_attempted),
+                            previous_running,
+                        )
+                        if restore_errors:
+                            raise RuntimeRollbackError(
+                                exc,
+                                restore_errors,
+                                rollback_action="start",
+                            ) from exc
+                        raise
                 if action == "start":
                     log("모든 호스트의 이미지를 먼저 준비합니다.")
                     for host in hosts:
@@ -306,24 +426,29 @@ class ConnectionDeploymentRunner:
                         log("활성 역할의 런타임을 시작합니다.")
                         for host in hosts:
                             log(f"start: {host.host_id}")
+                            # A host launch can start one unit/container before a
+                            # later unit fails. Record the attempt first so the
+                            # compensating stop also covers that partial host.
+                            launched.append(host)
                             if runtime_options is None:
                                 operations[host.host_id].launch(host)
                             else:
                                 operations[host.host_id].launch(host, runtime_options)
-                            launched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
-                    except BaseException:
+                    except BaseException as exc:
                         if launched:
                             log(
                                 "런타임 시작 또는 DDS readiness 확인 실패로 이번 "
                                 "작업에서 시작한 "
                                 "런타임을 롤백합니다."
                             )
-                        for host in reversed(launched):
-                            try:
-                                operations[host.host_id].stop(host)
-                            except BaseException:
-                                pass
+                        rollback_errors = self._rollback_runtime_hosts(
+                            operations,
+                            launched,
+                            cleanup_viewer=True,
+                        )
+                        if rollback_errors:
+                            raise RuntimeRollbackError(exc, rollback_errors) from exc
                         raise
                 elif action == "restart":
                     log("활성 역할의 런타임을 시작합니다.")
@@ -331,24 +456,37 @@ class ConnectionDeploymentRunner:
                     try:
                         for host in hosts:
                             log(f"start: {host.host_id}")
+                            # ``start`` may likewise fail after a subset of the
+                            # host's units has resumed.
+                            relaunched.append(host)
                             if runtime_options is None:
                                 operations[host.host_id].start(host)
                             else:
                                 operations[host.host_id].launch(host, runtime_options)
-                            relaunched.append(host)
                         self._report_runtime_readiness(topology, operations, hosts, log)
-                    except BaseException:
+                    except BaseException as exc:
                         if relaunched:
                             log(
                                 "런타임 시작 또는 DDS readiness 확인 실패로 이번 "
                                 "작업에서 시작한 "
                                 "런타임을 롤백합니다."
                             )
-                        for host in reversed(relaunched):
-                            try:
-                                operations[host.host_id].stop(host)
-                            except BaseException:
-                                pass
+                        rollback_errors = list(self._rollback_runtime_hosts(
+                            operations, relaunched
+                        ))
+                        rollback_errors.extend(
+                            self._restore_runtime_hosts(
+                                operations,
+                                hosts,
+                                previous_running,
+                            )
+                        )
+                        if rollback_errors:
+                            raise RuntimeRollbackError(
+                                exc,
+                                rollback_errors,
+                                rollback_action="compensation",
+                            ) from exc
                         raise
                 return topology
             if topology.security_profile == "trusted-network":
@@ -404,6 +542,69 @@ class ConnectionDeploymentRunner:
         finally:
             self._close_operations(operations)
         return topology
+
+    @staticmethod
+    def _rollback_runtime_hosts(
+        operations: Mapping[str, HostOperations],
+        hosts: Sequence[ManagedHost],
+        *,
+        cleanup_viewer: bool = False,
+    ) -> tuple[tuple[str, BaseException], ...]:
+        errors: list[tuple[str, BaseException]] = []
+        for host in reversed(hosts):
+            try:
+                operations[host.host_id].stop(host)
+                if cleanup_viewer:
+                    operations[host.host_id].cleanup_viewer(host)
+            except BaseException as exc:
+                errors.append((host.host_id, exc))
+        return tuple(errors)
+
+    @staticmethod
+    def _restore_runtime_hosts(
+        operations: Mapping[str, HostOperations],
+        hosts: Iterable[ManagedHost],
+        running_roles: Mapping[str, Sequence[str]],
+    ) -> tuple[tuple[str, BaseException], ...]:
+        errors: list[tuple[str, BaseException]] = []
+        for host in hosts:
+            roles = tuple(running_roles.get(host.host_id, ()))
+            if not roles:
+                continue
+            try:
+                operations[host.host_id].start(host, roles)
+            except BaseException as exc:
+                errors.append((host.host_id, exc))
+        return tuple(errors)
+
+    @staticmethod
+    def _status_running_roles(
+        host: ManagedHost,
+        status_payload: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        raw_roles = status_payload.get("running_roles", ())
+        if not isinstance(raw_roles, (list, tuple)):
+            raise RuntimeError(
+                f"runtime status for {host.host_id} has invalid running_roles"
+            )
+        normalized = tuple(str(role) for role in raw_roles)
+        allowed = set(host.roles)
+        unexpected = sorted(set(normalized) - allowed)
+        if unexpected:
+            raise RuntimeError(
+                f"runtime status for {host.host_id} contains unknown roles: "
+                + ", ".join(unexpected)
+            )
+        roles = tuple(
+            sorted(
+                {
+                    role
+                    for role in normalized
+                    if role in allowed
+                }
+            )
+        )
+        return roles
 
     @staticmethod
     def _report_runtime_readiness(
@@ -786,10 +987,20 @@ class ConnectionDeploymentRunner:
 
     @staticmethod
     def _close_operations(operations: Mapping[str, HostOperations]) -> None:
-        for operation in operations.values():
+        primary_error = sys.exc_info()[1]
+        close_errors: list[tuple[str, BaseException]] = []
+        for host_id, operation in operations.items():
             close = getattr(operation, "close", None)
             if close is not None:
-                close()
+                try:
+                    close()
+                except BaseException as exc:
+                    close_errors.append((host_id, exc))
+        if close_errors:
+            error = OperationCloseError(primary_error, close_errors)
+            if primary_error is not None:
+                raise error from primary_error
+            raise error
 
     @staticmethod
     def _new_transaction_journal(action: str) -> dict[str, object]:
@@ -897,12 +1108,17 @@ class ConnectionDeploymentRunner:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="elesim-connections",
-        description="Elesim DDS/SROS2 연결관리자 GUI",
+        description="EleSim DDS/SROS2 연결관리자 GUI",
     )
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--authority-root", type=Path, required=True)
     parser.add_argument("--local-install-root", type=Path)
     parser.add_argument("--local-bin-dir", type=Path)
+    parser.add_argument(
+        "--gpu-mode",
+        choices=("inherit", "specific", "cpu"),
+        default=os.environ.get("ELESIM_INSTALL_GPU_MODE", "cpu"),
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument(
@@ -930,7 +1146,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         local_install_root=args.local_install_root,
         local_bin_dir=args.local_bin_dir,
         authority_root=args.authority_root,
+        gpu_mode=args.gpu_mode,
     )
 
 
-__all__ = ["ConnectionDeploymentRunner", "main"]
+__all__ = [
+    "ConnectionDeploymentRunner",
+    "OperationCloseError",
+    "RuntimeRollbackError",
+    "main",
+]

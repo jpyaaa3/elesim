@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
 
 
 class Go2MpcImportTests(unittest.TestCase):
@@ -16,10 +18,6 @@ class Go2MpcImportTests(unittest.TestCase):
         self.assertNotIn("convex_mpc", sys.modules)
 
     def test_controller_patches_convex_mpc_go2_urdf_path(self) -> None:
-        if importlib.util.find_spec("convex_mpc") is None:
-            self.skipTest("convex_mpc is not installed")
-        if importlib.util.find_spec("pinocchio") is None:
-            self.skipTest("pinocchio is not installed")
         controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
         root = Path(__file__).resolve().parents[5]
         expected = root / "model/bundles/default/assets/go2/go2.urdf"
@@ -32,6 +30,31 @@ class Go2MpcImportTests(unittest.TestCase):
         self.assertEqual(urdf_path.parent.name, "go2")
         pin_model = data.PinGo2Model()
         self.assertGreaterEqual(pin_model.base_id, 0)
+
+    def test_solver_failure_is_not_hidden_behind_stale_forces(self) -> None:
+        controller_module = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
+        controller = controller_module.ConvexMpcGenesisController.__new__(
+            controller_module.ConvexMpcGenesisController
+        )
+
+        class FailingMpc:
+            @staticmethod
+            def solve_QP(*_args):
+                raise RuntimeError("qp failed")
+
+        controller._mpc = FailingMpc()
+        controller._pin = object()
+        controller._traj = SimpleNamespace(N=1, generate_traj=lambda *_args, **_kwargs: None)
+        controller._gait = object()
+        controller._sim_time = 0.0
+        controller._config = SimpleNamespace(mpc_dt_s=0.02, force_filter_alpha=0.35)
+        controller._force_filt = np.full(12, 3.0, dtype=float)
+        controller._U_opt = np.full((12, 1), 7.0, dtype=float)
+        controller._apply_payload_pitch_trim = lambda _vx: None
+
+        with self.assertRaisesRegex(RuntimeError, "qp failed"):
+            controller._solve_mpc(0.0, 0.0, 0.3, 0.0)
+        np.testing.assert_array_equal(controller._U_opt, np.full((12, 1), 7.0))
 
 
 if __name__ == "__main__":

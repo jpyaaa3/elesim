@@ -1,4 +1,4 @@
-"""Persistent, non-secret topology for the Elesim connection manager.
+"""Persistent, non-secret topology for the EleSim connection manager.
 
 Each host has an advertised DDS address and, for remote management, an
 independent SSH destination.  They are often the same on a direct host network,

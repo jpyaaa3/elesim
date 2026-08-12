@@ -15,7 +15,7 @@ from .profiles import normalize_roles
 
 # v8 is the first state format whose application roles are named ``pilot`` and
 # ``sim``.  v9 pins the Docker daemon used by a generated container install and
-# records whether DDS uses that daemon's host namespace or an Elesim-owned
+# records whether DDS uses that daemon's host namespace or an EleSim-owned
 # kernel-mode Tailscale sidecar.  Older files are accepted only at this input
 # boundary and retain their pre-v9 direct-host behavior.
 STATE_SCHEMA_VERSION = 9
@@ -64,7 +64,7 @@ class NetworkSettings:
 
 @dataclass(frozen=True)
 class DdsSettings:
-    """Shared ROS 2/DDS runtime settings for all hosts in one Elesim system."""
+    """Shared ROS 2/DDS runtime settings for all hosts in one EleSim system."""
 
     system_id: str = "elesim"
     domain_id: int = 0

@@ -276,7 +276,7 @@ def probe_dds_peers(
     timeout_s: float,
     import_rclpy: Callable[[], Any] | None = None,
 ) -> tuple[str, ...]:
-    """Collect endpoint IDs advertised on the Elesim discovery carrier.
+    """Collect endpoint IDs advertised on the EleSim discovery carrier.
 
     The ROS graph can contain a node while the application-level peer
     descriptor is still absent.  Runtime control addresses endpoint IDs, so a
@@ -315,7 +315,7 @@ def probe_dds_peer_state(
         from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     except ImportError as exc:
         raise RuntimeError(
-            "ROS 2 overlay에서 Elesim discovery message를 찾을 수 없습니다"
+            "ROS 2 overlay에서 EleSim discovery message를 찾을 수 없습니다"
         ) from exc
 
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
@@ -528,7 +528,7 @@ class NetworkDoctor:
             report.add(
                 "DDS graph",
                 WARN,
-                "같은 domain에서 Elesim peer를 찾지 못함",
+                "같은 domain에서 EleSim peer를 찾지 못함",
                 "상대 프로세스, ROS_DOMAIN_ID와 DDS discovery 설정을 확인하십시오",
             )
         self._peer_results(report)

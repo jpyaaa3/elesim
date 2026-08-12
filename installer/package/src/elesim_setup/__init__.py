@@ -1,4 +1,4 @@
-"""Elesim installation and network setup tools."""
+"""EleSim installation and network setup tools."""
 
 from .profiles import PROFILES, ROLE_ORDER, Profile, roles_for_profile
 from .state import (

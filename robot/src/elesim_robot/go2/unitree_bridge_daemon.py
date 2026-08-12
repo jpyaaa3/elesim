@@ -22,7 +22,7 @@ _WORKSPACE_READY = "ELESIM_UNITREE_WORKSPACE_READY"
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Elesim Unitree local DDS bridge")
+    parser = argparse.ArgumentParser(description="EleSim Unitree local DDS bridge")
     parser.add_argument(
         "--config",
         default=os.environ.get("ELESIM_ROBOT_CONFIG", str(PROJECT_CONFIG)),

@@ -26,14 +26,6 @@ def _world_to_body(pos_world: np.ndarray, base_pos: np.ndarray, base_rot: Rot) -
     return base_rot.inv().apply(np.asarray(pos_world, dtype=float).reshape(3) - np.asarray(base_pos, dtype=float).reshape(3))
 
 
-def _limit_step(cur: np.ndarray, target: np.ndarray, max_step: float) -> np.ndarray:
-    delta = np.asarray(target, dtype=float).reshape(3) - np.asarray(cur, dtype=float).reshape(3)
-    step = float(np.linalg.norm(delta))
-    if step <= max_step or step <= 1e-12:
-        return np.asarray(target, dtype=float).reshape(3)
-    return np.asarray(cur, dtype=float).reshape(3) + delta * (max_step / step)
-
-
 class RaibertTrotController:
     """Stage-1 trot: gait schedule, Raibert placement, swing parabola, Genesis IK, joint PD."""
 

@@ -603,7 +603,7 @@ class UnitreeRos2Bridge:
             if domain_id is not None:
                 raise RuntimeError(
                     "this rclpy build cannot create the explicit Unitree ROS "
-                    "domain; upgrade ROS 2 because sharing the Elesim DDS "
+                    "domain; upgrade ROS 2 because sharing the EleSim DDS "
                     "domain is forbidden"
                 )
             self._context.init(args=list(self._ros_args))

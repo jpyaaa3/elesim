@@ -61,7 +61,7 @@ def launch_guard(marker: Path) -> str:
     quoted = shlex.quote(str(marker))
     return (
         f"if [[ -e {quoted} || -L {quoted} ]]; then\n"
-        "  printf 'Elesim 실행 거부: managed SROS2 role bundle이 아직 "
+        "  printf 'EleSim 실행 거부: managed SROS2 role bundle이 아직 "
         "provision되지 않았습니다.\\n' >&2\n"
         "  printf 'operator laptop에서 elesim-connections를 실행해 "
         "전체 host generation을 적용하십시오.\\n' >&2\n"

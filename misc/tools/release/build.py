@@ -13,7 +13,12 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from misc.tools.release.verify import ROBOT_SYSTEMD_UNITS, verify_release_tree
+from misc.tools.release.verify import (
+    PUBLIC_CONFIG_TEMPLATES,
+    ROBOT_SYSTEMD_UNITS,
+    assert_rosidl_source_manifest,
+    verify_release_tree,
+)
 
 
 RELEASE_PROJECTS = ("pilot", "ui", "robot", "sim")
@@ -92,18 +97,39 @@ def copy_sim_bundle(model_root: Path, release: Path) -> None:
     copy_tree(source, release / "model/bundles/default")
 
 
+def copy_role_config(project: Path, release: Path, role: str) -> None:
+    try:
+        excluded = PUBLIC_CONFIG_TEMPLATES[role]
+    except KeyError as exc:
+        raise ValueError(f"unsupported release role: {role}") from exc
+    source = project / "config"
+    source_root = source.resolve()
+    destination = release / "config"
+    excluded_destination = destination / excluded
+    if excluded_destination.is_symlink() or excluded_destination.is_file():
+        excluded_destination.unlink()
+    elif excluded_destination.exists():
+        raise ValueError(
+            f"public config template destination must not be a directory: {excluded_destination}"
+        )
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        if Path(directory).resolve() == source_root and excluded in names:
+            return {excluded}
+        return set()
+
+    copy_tree(source, destination, ignore=ignore)
+
+
 def copy_interfaces(source: Path, release: Path) -> None:
-    required = (
-        source / "package.xml",
-        source / "CMakeLists.txt",
-        source / "msg/RgbdFrame.msg",
-    )
+    required = (source / "package.xml", source / "CMakeLists.txt")
     missing = [path for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError(
             "ROS interface package is incomplete: "
             + ", ".join(str(path) for path in missing)
         )
+    assert_rosidl_source_manifest(source)
     copy_tree(
         source,
         release / "interfaces/elesim_interfaces",
@@ -152,29 +178,34 @@ def copy_infrastructure(source: Path, release_root: Path) -> None:
         setup_destination / "bootstrap.py",
     )
     shutil.copy2(
-        source.parent / "installer/bootstrap/bootstrap.sh",
-        setup_destination / "bootstrap.sh",
+        source.parent / "installer/bootstrap/install.sh",
+        setup_destination / "install.sh",
     )
     shutil.copy2(
         source.parent / "installer/bootstrap/bootstrap-contract.json",
         setup_destination / "bootstrap-contract.json",
     )
     copy_tree(source / "containers", destination / "containers")
+    setup_project = source.parent / "installer/package"
+    package_destination = setup_destination / "package"
+    if package_destination.exists():
+        shutil.rmtree(package_destination)
+    package_destination.mkdir(parents=True, exist_ok=True)
+    for name in ("pyproject.toml", "requirements.lock"):
+        shutil.copy2(setup_project / name, package_destination / name)
     copy_tree(
-        source.parent / "installer/package",
-        setup_destination / "package",
+        setup_project / "src",
+        package_destination / "src",
         ignore=shutil.ignore_patterns(
             "__pycache__",
             "*.pyc",
-            ".pytest_cache",
-            "build",
             "*.egg-info",
         ),
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build isolated Elesim release contexts")
+    parser = argparse.ArgumentParser(description="Build isolated EleSim release contexts")
     parser.add_argument("--output", default="dist/releases")
     parser.add_argument(
         "--no-verify",
@@ -200,7 +231,7 @@ def main() -> None:
         wheels.mkdir(parents=True)
         shutil.copy2(protocol_wheel, wheels / protocol_wheel.name)
         shutil.copy2(app_wheel, wheels / app_wheel.name)
-        copy_tree(project / "config", release / "config")
+        copy_role_config(project, release, role)
         if (project / "requirements.lock").is_file():
             shutil.copy2(project / "requirements.lock", release / "requirements.lock")
         if (project / "Dockerfile").is_file():

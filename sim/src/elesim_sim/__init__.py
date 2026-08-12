@@ -1,2 +1,1 @@
-"""Core Elesim engine package."""
-
+"""Core EleSim engine package."""

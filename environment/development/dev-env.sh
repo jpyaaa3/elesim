@@ -34,12 +34,12 @@ done
 
 for project in "${projects[@]}"; do
   if [[ ! -f "$project/pyproject.toml" ]]; then
-    printf 'missing Elesim development project: %s\n' "$project" >&2
+    printf 'missing EleSim development project: %s\n' "$project" >&2
     exit 2
   fi
 done
 if [[ ! -f "$interfaces/package.xml" || ! -f "$interfaces/CMakeLists.txt" ]]; then
-  printf 'missing Elesim ROS interface package: %s\n' "$interfaces" >&2
+  printf 'missing EleSim ROS interface package: %s\n' "$interfaces" >&2
   exit 2
 fi
 

@@ -225,7 +225,7 @@ def _validate_go2(
     if not elesim_interface:
         raise ValueError(
             "dds.network_interface is required when GO2 is enabled so the "
-            "Unitree and Elesim graphs cannot overlap"
+            "Unitree and EleSim graphs cannot overlap"
         )
     if unitree_interface == elesim_interface:
         raise ValueError(

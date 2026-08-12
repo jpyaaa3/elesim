@@ -324,16 +324,13 @@ class ConvexMpcGenesisController:
             time_step=float(self._config.mpc_dt_s),
         )
         self._apply_payload_pitch_trim(vx)
-        try:
-            sol = self._mpc.solve_QP(self._pin, self._traj, False)
-            w_opt = sol["x"].full().flatten()
-            n = int(self._traj.N)
-            force_new = w_opt[12 * n : 12 * n + 12]
-            alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
-            self._force_filt = alpha * force_new + (1.0 - alpha) * self._force_filt
-            self._U_opt[:, 0] = self._force_filt
-        except Exception:
-            pass
+        sol = self._mpc.solve_QP(self._pin, self._traj, False)
+        w_opt = sol["x"].full().flatten()
+        n = int(self._traj.N)
+        force_new = w_opt[12 * n : 12 * n + 12]
+        alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
+        self._force_filt = alpha * force_new + (1.0 - alpha) * self._force_filt
+        self._U_opt[:, 0] = self._force_filt
 
     def _command_scale(self) -> float:
         ramp_s = max(1e-3, float(self._config.command_ramp_s))

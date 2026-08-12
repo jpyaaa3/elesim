@@ -124,13 +124,16 @@ def load_sag_model_or_empty(path: str) -> dict[str, Any]:
 
 
 def resolve_initial_sag_model() -> dict[str, Any]:
+    """Compatibility API: return no initial model when the optional file is absent.
+
+    Malformed or unreadable model files are real configuration failures and are
+    deliberately not hidden behind the historical empty-model fallback.
+    """
+
     try:
-        model = load_sag_model_or_empty(DEFAULT_SAG_MODEL_PATH)
-        if isinstance(model, dict) and model:
-            return model
-    except Exception:
-        pass
-    return {}
+        return load_sag_model_or_empty(DEFAULT_SAG_MODEL_PATH)
+    except FileNotFoundError:
+        return {}
 
 
 class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActions, GazeActions):
@@ -2008,12 +2011,30 @@ class _MotionFeedbackActions(_VisualSearchActions):
     def _refresh_lji_state(self) -> Optional[HostState]:
         if self.client is None:
             return None
-        refresh = getattr(self.client, "refresh_lji_state", None)
-        if callable(refresh):
-            state = refresh()
-        else:
-            state = self.client.refresh_state()
+        refresh = (
+            getattr(self.client, "refresh_lji_state", None)
+            if self._host_native_lji_runtime()
+            else None
+        )
+        state = refresh() if callable(refresh) else self.client.refresh_state()
         return state if isinstance(state, HostState) else None
+
+    def _stop_lji_velocity_control(self, reason: str) -> None:
+        """Stop only the explicit host-native test/adapter contract.
+
+        The normal DDS ``ControlClient`` owns no on-device LJI loop.  Calling
+        its compatibility method and swallowing the resulting RuntimeError hid
+        both that boundary and real stop failures from an actual adapter.
+        """
+
+        if not self._host_native_lji_runtime():
+            return
+        stop = getattr(self.client, "stop_lji_velocity_control", None)
+        if not callable(stop):
+            raise RuntimeError(
+                "host-native LJI adapter must implement stop_lji_velocity_control"
+            )
+        stop(reason=str(reason))
 
     def _clamp_q(self, q: np.ndarray) -> np.ndarray:
         arr = np.asarray(q, dtype=float).reshape(4).copy()

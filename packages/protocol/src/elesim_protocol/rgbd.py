@@ -24,6 +24,54 @@ from .dds_transport import (
 
 
 @dataclass(frozen=True)
+class RgbdIntrinsics:
+    """Application-side camera intrinsics shared by RGB-D producers."""
+
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class RgbdFrame:
+    """Application-side frame accepted by :class:`DdsRgbdPublisher`."""
+
+    color_bgr: Any
+    depth_raw: Any
+    depth_scale: float
+    intrinsics: RgbdIntrinsics
+    seq: int = 0
+    ts: float = 0.0
+    arm_q: Optional[tuple[float, float, float, float]] = None
+    camera_world_origin: Optional[tuple[float, float, float]] = None
+    camera_world_look: Optional[tuple[float, float, float]] = None
+    camera_world_right: Optional[tuple[float, float, float]] = None
+
+    def to_meta_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "t": "rgbd_frame",
+            "seq": int(self.seq),
+            "ts": float(self.ts),
+            "width": int(self.intrinsics.width),
+            "height": int(self.intrinsics.height),
+            "fx": float(self.intrinsics.fx),
+            "fy": float(self.intrinsics.fy),
+            "cx": float(self.intrinsics.cx),
+            "cy": float(self.intrinsics.cy),
+            "depth_scale": float(self.depth_scale),
+            "arm_q": None if self.arm_q is None else [float(value) for value in self.arm_q],
+        }
+        for key in ("camera_world_origin", "camera_world_look", "camera_world_right"):
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = [float(component) for component in value]
+        return result
+
+
+@dataclass(frozen=True)
 class RgbdIntrinsicsSample:
     fx: float
     fy: float
@@ -73,6 +121,16 @@ def _timestamp(message: Any) -> float:
     return float(message.sec) + float(message.nanosec) / 1_000_000_000.0
 
 
+def _fixed_float_vector(value: object, size: int, label: str) -> list[float]:
+    try:
+        result = [float(component) for component in value]  # type: ignore[union-attr]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"RGB-D {label} must contain {size} numbers") from exc
+    if len(result) != size:
+        raise ValueError(f"RGB-D {label} must contain {size} numbers")
+    return result
+
+
 class _RgbdRosEndpoint:
     def __init__(
         self,
@@ -103,7 +161,7 @@ class _RgbdRosEndpoint:
         except ImportError as exc:
             raise DdsTransportError(
                 "ROS 2 RGB-D transport is unavailable. Source the ROS 2 and "
-                "Elesim interfaces overlays before starting this role."
+                "EleSim interfaces overlays before starting this role."
             ) from exc
         self._RosRgbdFrame = RosRgbdFrame
         self._context = Context()
@@ -179,6 +237,7 @@ class DdsRgbdPublisher(_RgbdRosEndpoint):
         self.wall_clock = wall_clock
         self.published = 0
         self.dropped = 0
+        self.last_drop_reason = ""
         self._publisher = self._node.create_publisher(
             self._RosRgbdFrame,
             self.topic,
@@ -210,108 +269,120 @@ class DdsRgbdPublisher(_RgbdRosEndpoint):
                 depth = np.ascontiguousarray(depth, dtype=np.uint16)
                 depth_encoding = "16UC1"
 
-            message = self._RosRgbdFrame()
-            message.source.endpoint_id = self.endpoint_id
-            message.source.boot_id = self.boot_id
-            message.frame_sequence = int(getattr(frame, "seq", 0))
-            timestamp = float(getattr(frame, "ts", 0.0) or self.wall_clock())
-            message.header.frame_id = self.endpoint_id
-            _stamp(message.header.stamp, timestamp)
-
-            message.color.header = message.header
-            message.color.height = height
-            message.color.width = width
-            message.color.encoding = "bgr8"
-            message.color.is_bigendian = False
-            message.color.step = width * 3
-            message.color.data = color.tobytes()
-
-            message.depth.header = message.header
-            message.depth.height = height
-            message.depth.width = width
-            message.depth.encoding = depth_encoding
-            message.depth.is_bigendian = False
-            message.depth.step = width * int(depth.dtype.itemsize)
-            message.depth.data = depth.tobytes() if self.send_depth else b""
-
-            intrinsics = frame.intrinsics
-            message.camera_info.header = message.header
-            message.camera_info.height = height
-            message.camera_info.width = width
-            message.camera_info.distortion_model = "plumb_bob"
-            message.camera_info.d = []
-            message.camera_info.k = [
-                float(intrinsics.fx),
-                0.0,
-                float(intrinsics.cx),
-                0.0,
-                float(intrinsics.fy),
-                float(intrinsics.cy),
-                0.0,
-                0.0,
-                1.0,
-            ]
-            message.camera_info.r = [
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-            ]
-            message.camera_info.p = [
-                float(intrinsics.fx),
-                0.0,
-                float(intrinsics.cx),
-                0.0,
-                0.0,
-                float(intrinsics.fy),
-                float(intrinsics.cy),
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-            ]
-            message.depth_scale = float(frame.depth_scale)
-
+            sequence = int(getattr(frame, "seq", 0))
+            if not 0 <= sequence <= (1 << 64) - 1:
+                raise ValueError("RGB-D frame sequence must fit uint64")
             arm_q = getattr(frame, "arm_q", None)
-            message.has_arm_q = arm_q is not None
-            message.arm_q = (
-                [float(value) for value in arm_q]
+            arm_values = (
+                _fixed_float_vector(arm_q, 4, "arm_q")
                 if arm_q is not None
                 else [0.0, 0.0, 0.0, 0.0]
             )
-            origin = getattr(frame, "camera_world_origin", None)
-            look = getattr(frame, "camera_world_look", None)
-            right = getattr(frame, "camera_world_right", None)
-            message.has_camera_pose = (
-                origin is not None and look is not None and right is not None
-            )
-            message.camera_world_origin = (
-                [float(value) for value in origin]
-                if origin is not None
-                else [0.0, 0.0, 0.0]
-            )
-            message.camera_world_look = (
-                [float(value) for value in look]
-                if look is not None
-                else [0.0, 0.0, 0.0]
-            )
-            message.camera_world_right = (
-                [float(value) for value in right]
-                if right is not None
-                else [0.0, 0.0, 0.0]
-            )
-            self._publisher.publish(message)
-            self.published += 1
-            return True
-        except Exception:
+            pose_values: dict[str, list[float]] = {}
+            pose_present: dict[str, bool] = {}
+            for field in (
+                "camera_world_origin",
+                "camera_world_look",
+                "camera_world_right",
+            ):
+                value = getattr(frame, field, None)
+                pose_present[field] = value is not None
+                pose_values[field] = (
+                    _fixed_float_vector(value, 3, field)
+                    if value is not None
+                    else [0.0, 0.0, 0.0]
+                )
+            timestamp = float(getattr(frame, "ts", 0.0) or self.wall_clock())
+            intrinsics = frame.intrinsics
+            camera_k = [
+                float(intrinsics.fx),
+                0.0,
+                float(intrinsics.cx),
+                0.0,
+                float(intrinsics.fy),
+                float(intrinsics.cy),
+                0.0,
+                0.0,
+                1.0,
+            ]
+            camera_r = [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ]
+            camera_p = [
+                float(intrinsics.fx),
+                0.0,
+                float(intrinsics.cx),
+                0.0,
+                0.0,
+                float(intrinsics.fy),
+                float(intrinsics.cy),
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ]
+            depth_scale = float(frame.depth_scale)
+        except (AttributeError, TypeError, ValueError, OverflowError) as exc:
             self.dropped += 1
+            self.last_drop_reason = f"{exc.__class__.__name__}: {exc}"[:512]
             return False
+
+        # ROSIDL construction, field setters and DDS/RMW publish are outside
+        # the malformed-input boundary.  An old generated interface or broken
+        # RMW must reach the role lifecycle instead of looking like a dropped
+        # camera sample and degrading into an opaque readiness timeout.
+        message = self._RosRgbdFrame()
+        message.source.endpoint_id = self.endpoint_id
+        message.source.boot_id = self.boot_id
+        message.frame_sequence = sequence
+        message.header.frame_id = self.endpoint_id
+        _stamp(message.header.stamp, timestamp)
+
+        message.color.header = message.header
+        message.color.height = height
+        message.color.width = width
+        message.color.encoding = "bgr8"
+        message.color.is_bigendian = False
+        message.color.step = width * 3
+        message.color.data = color.tobytes()
+
+        message.depth.header = message.header
+        message.depth.height = height
+        message.depth.width = width
+        message.depth.encoding = depth_encoding
+        message.depth.is_bigendian = False
+        message.depth.step = width * int(depth.dtype.itemsize)
+        message.depth.data = depth.tobytes() if self.send_depth else b""
+
+        message.camera_info.header = message.header
+        message.camera_info.height = height
+        message.camera_info.width = width
+        message.camera_info.distortion_model = "plumb_bob"
+        message.camera_info.d = []
+        message.camera_info.k = camera_k
+        message.camera_info.r = camera_r
+        message.camera_info.p = camera_p
+        message.depth_scale = depth_scale
+
+        message.has_arm_q = arm_q is not None
+        message.arm_q = arm_values
+        message.has_camera_pose = all(pose_present.values())
+        message.camera_world_origin = pose_values["camera_world_origin"]
+        message.camera_world_look = pose_values["camera_world_look"]
+        message.camera_world_right = pose_values["camera_world_right"]
+        self._publisher.publish(message)
+        self.published += 1
+        self.last_drop_reason = ""
+        return True
 
 
 class DdsRgbdSubscriber(_RgbdRosEndpoint):
@@ -513,6 +584,8 @@ class DdsRgbdSubscriber(_RgbdRosEndpoint):
 __all__ = [
     "DdsRgbdPublisher",
     "DdsRgbdSubscriber",
+    "RgbdFrame",
+    "RgbdIntrinsics",
     "RgbdIntrinsicsSample",
     "RgbdSample",
 ]

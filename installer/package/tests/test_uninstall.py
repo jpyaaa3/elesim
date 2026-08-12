@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import pytest
 
@@ -70,6 +70,8 @@ def _manifest(
     *,
     docker: DockerOwnership | None = None,
     systemd_units: tuple[SystemdUnitOwnership, ...] = (),
+    viewer_cleanup: bool = False,
+    viewer_state: bool = False,
 ):
     prefix = tmp_path / "install"
     bin_dir = tmp_path / "bin"
@@ -88,10 +90,25 @@ def _manifest(
     _write(authority / "private/identity_ca.key.pem")
     _write(external / "do-not-delete.pem")
     _write(prefix / "install-state.json", "{}\n")
-    wrappers = (
+    wrapper_paths = [
         _write(bin_dir / "elesim-up", "#!/bin/sh\n", executable=True),
         _write(bin_dir / "elesim-uninstall", "#!/bin/sh\n", executable=True),
-    )
+    ]
+    cache = prefix / "cache"
+    runtime_cache = prefix / ".runtime-cache"
+    if viewer_cleanup or viewer_state:
+        cache.mkdir()
+        runtime_cache.mkdir()
+    if viewer_cleanup:
+        wrapper_paths.append(
+            _write(
+                bin_dir / "elesim-viewer-cleanup",
+                "#!/bin/sh\nexit 0\n",
+                executable=True,
+            )
+        )
+    if viewer_state:
+        _write(cache / "viewer-xhost", ":0\n\n")
     bashrc = _write(
         tmp_path / ".bashrc",
         "export EDITOR=vim\n" + managed_path_block(bin_dir),
@@ -100,10 +117,20 @@ def _manifest(
         prefix=prefix,
         bin_dir=bin_dir,
         edition="general",
-        inventory_roots=(containers, security, static, prefix / "install-state.json"),
-        managed_roots=(containers, security),
+        inventory_roots=(
+            containers,
+            security,
+            static,
+            prefix / "install-state.json",
+            *((cache, runtime_cache) if viewer_cleanup or viewer_state else ()),
+        ),
+        managed_roots=(
+            containers,
+            security,
+            *((cache, runtime_cache) if viewer_cleanup or viewer_state else ()),
+        ),
         created_roots=(prefix, bin_dir),
-        wrapper_paths=wrappers,
+        wrapper_paths=wrapper_paths,
         log_roots=(logs,),
         authority_roots=(authority,),
         external_paths=(external,),
@@ -168,6 +195,151 @@ def test_changed_wrapper_aborts_before_any_mutation(tmp_path: Path) -> None:
     assert manifest.path.is_file()
     assert wrapper.read_text(encoding="utf-8") == "foreign\n"
     assert "Elesim managed PATH" in bashrc.read_text(encoding="utf-8")
+
+
+def test_uninstall_runs_exact_owned_viewer_cleanup_before_any_other_mutation(
+    tmp_path: Path,
+) -> None:
+    manifest, bashrc, *_ = _manifest(
+        tmp_path,
+        viewer_cleanup=True,
+        viewer_state=True,
+    )
+    cleanup = Path(manifest.bin_dir) / "elesim-viewer-cleanup"
+    state = Path(manifest.prefix) / "cache/viewer-xhost"
+    commands: list[tuple[str, ...]] = []
+
+    def runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        commands.append(values)
+        assert values == (str(cleanup),)
+        assert manifest.path.is_file()
+        assert state.is_file()
+        assert (Path(manifest.prefix) / "install-state.json").is_file()
+        assert "Elesim managed PATH" in bashrc.read_text(encoding="utf-8")
+        return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    assert plan.viewer_cleanup == cleanup
+    execute_uninstall(
+        plan,
+        confirm_prefix=manifest.prefix,
+        runner=runner,
+    )
+
+    assert commands == [(str(cleanup),)]
+    assert not manifest.path.exists()
+
+
+def test_uninstall_stops_exact_sim_container_before_viewer_cleanup(
+    tmp_path: Path,
+) -> None:
+    docker = DockerOwnership(
+        install_uuid="77777777-7777-4777-8777-777777777777",
+        compose_file=str(tmp_path / "install/containers/compose.yaml"),
+        project="elesim-runtime",
+        containers=("elesim-sim",),
+        local_images=(),
+    )
+    manifest, *_ = _manifest(
+        tmp_path,
+        docker=docker,
+        viewer_cleanup=True,
+        viewer_state=True,
+    )
+    cleanup = Path(manifest.bin_dir) / "elesim-viewer-cleanup"
+    docker_runner = _DockerRunner(docker)
+    events: list[tuple[str, ...]] = []
+
+    def runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        events.append(values)
+        if values == (str(cleanup),):
+            assert docker_runner.commands[-1][:3] == (
+                "docker",
+                "container",
+                "stop",
+            )
+            assert (Path(manifest.prefix) / "cache/viewer-xhost").is_file()
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        return docker_runner(values)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    mutation_events = [
+        values
+        for values in events
+        if values == (str(cleanup),)
+        or values[:3]
+        in {
+            ("docker", "container", "stop"),
+            ("docker", "container", "rm"),
+        }
+    ]
+    assert mutation_events[0][:3] == ("docker", "container", "stop")
+    assert mutation_events[1] == (str(cleanup),)
+    assert mutation_events[2][:3] == ("docker", "container", "rm")
+
+
+def test_viewer_cleanup_failure_aborts_before_uninstall_mutation(tmp_path: Path) -> None:
+    manifest, bashrc, *_ = _manifest(
+        tmp_path,
+        viewer_cleanup=True,
+        viewer_state=True,
+    )
+    cleanup = Path(manifest.bin_dir) / "elesim-viewer-cleanup"
+
+    def runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        assert values == (str(cleanup),)
+        return subprocess.CompletedProcess(
+            values,
+            74,
+            stdout="",
+            stderr="cannot revoke ACL",
+        )
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    with pytest.raises(UninstallSafetyError, match="X11 Viewer ACL 회수 실패"):
+        execute_uninstall(
+            plan,
+            confirm_prefix=manifest.prefix,
+            runner=runner,
+        )
+
+    assert manifest.path.is_file()
+    assert cleanup.is_file()
+    assert (Path(manifest.prefix) / "cache/viewer-xhost").is_file()
+    assert (Path(manifest.prefix) / "install-state.json").is_file()
+    assert "Elesim managed PATH" in bashrc.read_text(encoding="utf-8")
+
+
+def test_viewer_state_without_owned_exact_cleanup_fails_closed(tmp_path: Path) -> None:
+    manifest, bashrc, *_ = _manifest(tmp_path, viewer_state=True)
+    foreign = _write(
+        Path(manifest.bin_dir) / "elesim-viewer-cleanup",
+        "#!/bin/sh\nexit 0\n",
+        executable=True,
+    )
+
+    with pytest.raises(UninstallSafetyError, match="ownership manifest에 없습니다"):
+        plan_uninstall(manifest.path)
+
+    assert manifest.path.is_file()
+    assert foreign.is_file()
+    assert "Elesim managed PATH" in bashrc.read_text(encoding="utf-8")
+
+
+def test_missing_owned_viewer_cleanup_wrapper_fails_closed(tmp_path: Path) -> None:
+    manifest, *_ = _manifest(tmp_path, viewer_cleanup=True)
+    cleanup = Path(manifest.bin_dir) / "elesim-viewer-cleanup"
+    cleanup.unlink()
+
+    with pytest.raises(UninstallSafetyError, match="cleanup wrapper가 없습니다"):
+        plan_uninstall(manifest.path)
+
+    assert manifest.path.is_file()
 
 
 def test_exact_prefix_confirmation_is_required(tmp_path: Path) -> None:
@@ -380,11 +552,538 @@ class _DockerRunner:
                 stderr="",
             )
         if values[:3] in {
+            ("docker", "container", "stop"),
             ("docker", "container", "rm"),
             ("docker", "image", "rm"),
         }:
             return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
         raise AssertionError(values)
+
+
+class _TailscaleDockerRunner:
+    image_digest = "sha256:" + "b" * 64
+    image_id = "sha256:" + "c" * 64
+    container_id = "d" * 64
+    image_ref = f"tailscale/tailscale:v1.98.9@{image_digest}"
+
+    def __init__(
+        self,
+        docker: DockerOwnership,
+        state_path: Path,
+        *,
+        running: bool = True,
+        present: bool = True,
+        mount_source: Path | None = None,
+        mounted_state_path: Path | None = None,
+        helper_failure: bool = False,
+        helper_failure_message: str = "refusing non-regular Tailscale state",
+        after_helper: Callable[[], None] | None = None,
+        remove_failure: bool = False,
+        resume_failure: bool = False,
+        start_failure: bool = False,
+    ) -> None:
+        self.docker = docker
+        self.state_path = state_path
+        self.running = running
+        self.present = present
+        self.mount_source = state_path if mount_source is None else mount_source
+        self.mounted_state_path = (
+            state_path if mounted_state_path is None else mounted_state_path
+        )
+        self.helper_failure = helper_failure
+        self.helper_failure_message = helper_failure_message
+        self.after_helper = after_helper
+        self.remove_failure = remove_failure
+        self.resume_failure = resume_failure
+        self.start_failure = start_failure
+        self.pid_stopped = False
+        self.commands: list[tuple[str, ...]] = []
+
+    def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        values = tuple(command)
+        self.commands.append(values)
+        if values[:2] == ("docker", "info"):
+            return subprocess.CompletedProcess(values, 0, stdout="26.0\n", stderr="")
+        if values[:3] == ("docker", "container", "ls"):
+            names = "elesim-tailscale\n" if self.present else ""
+            return subprocess.CompletedProcess(values, 0, stdout=names, stderr="")
+        if values[:3] == ("docker", "container", "inspect"):
+            payload = [
+                {
+                    "Id": self.container_id,
+                    "Image": self.image_id,
+                    "State": {"Running": self.running},
+                    "Mounts": [
+                        {
+                            "Type": "bind",
+                            "Source": str(self.mount_source),
+                            "Destination": "/var/lib/tailscale",
+                            "RW": True,
+                        }
+                    ],
+                    "Config": {
+                        "Image": self.image_ref,
+                        "User": "",
+                        "Entrypoint": ["tailscaled"],
+                        "Cmd": [
+                            "--statedir=/var/lib/tailscale",
+                            "--socket=/tmp/tailscaled.sock",
+                            "--tun=tailscale0",
+                        ],
+                        "Labels": {
+                            "com.docker.compose.project": self.docker.project,
+                            "com.docker.compose.project.config_files": self.docker.compose_file,
+                            "com.docker.compose.service": "tailscale",
+                            DOCKER_INSTALL_UUID_LABEL: self.docker.install_uuid,
+                        },
+                    },
+                }
+            ]
+            return subprocess.CompletedProcess(
+                values, 0, stdout=json.dumps(payload), stderr=""
+            )
+        if values[:3] == ("docker", "image", "inspect"):
+            payload = [
+                {
+                    "Id": self.image_id,
+                    "RepoDigests": [f"tailscale/tailscale@{self.image_digest}"],
+                }
+            ]
+            return subprocess.CompletedProcess(
+                values, 0, stdout=json.dumps(payload), stderr=""
+            )
+        if values[:3] == ("docker", "image", "ls"):
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        if values[:3] == ("docker", "container", "exec"):
+            sentinel_name, sentinel_value = values[-4:-2]
+            sentinel = self.mounted_state_path / sentinel_name
+            if (
+                not sentinel.is_file()
+                or sentinel.read_text(encoding="ascii") != sentinel_value
+            ):
+                return subprocess.CompletedProcess(
+                    values,
+                    70,
+                    stdout="",
+                    stderr="Tailscale state mount identity mismatch",
+                )
+            if self.helper_failure:
+                return subprocess.CompletedProcess(
+                    values,
+                    70,
+                    stdout="",
+                    stderr=self.helper_failure_message,
+                )
+            self.pid_stopped = True
+            for path in (
+                self.mounted_state_path,
+                *self.mounted_state_path.rglob("*"),
+            ):
+                if path.is_symlink():
+                    continue
+                path.chmod(0o700 if path.is_dir() else 0o600)
+            if self.after_helper is not None:
+                self.after_helper()
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        if values[:3] == ("docker", "container", "kill"):
+            if self.resume_failure:
+                return subprocess.CompletedProcess(
+                    values, 1, stdout="", stderr="injected resume failure"
+                )
+            self.pid_stopped = False
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        if values[:3] == ("docker", "container", "start"):
+            if self.start_failure:
+                return subprocess.CompletedProcess(
+                    values, 1, stdout="", stderr="injected start failure"
+                )
+            self.present = True
+            self.running = True
+            self.pid_stopped = False
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        if values[:3] == ("docker", "container", "rm"):
+            if self.remove_failure:
+                return subprocess.CompletedProcess(
+                    values, 1, stdout="", stderr="injected remove failure"
+                )
+            self.present = False
+            self.running = False
+            self.pid_stopped = False
+            return subprocess.CompletedProcess(values, 0, stdout="", stderr="")
+        raise AssertionError(values)
+
+
+def _tailscale_manifest(tmp_path: Path):
+    prefix = tmp_path / "install"
+    bin_dir = tmp_path / "bin"
+    compose = prefix / "containers/compose.yaml"
+    state_path = prefix / "secrets/tailscale"
+    prefix.mkdir()
+    bin_dir.mkdir()
+    _write(compose)
+    _write(state_path / "files/profile.json", "state\n")
+    wrapper = _write(bin_dir / "elesim-uninstall", "#!/bin/sh\n", executable=True)
+    bashrc = _write(tmp_path / ".bashrc", managed_path_block(bin_dir))
+    docker = DockerOwnership(
+        install_uuid="66666666-6666-4666-8666-666666666666",
+        compose_file=str(compose),
+        project="elesim-runtime",
+        containers=("elesim-tailscale",),
+        local_images=(),
+    )
+    manifest = write_ownership_manifest(
+        prefix=prefix,
+        bin_dir=bin_dir,
+        edition="general",
+        inventory_roots=(prefix / "containers",),
+        managed_roots=(prefix / "containers", prefix / "secrets"),
+        created_roots=(prefix, bin_dir),
+        wrapper_paths=(wrapper,),
+        shell_bashrc=bashrc,
+        docker=docker,
+        install_uuid=docker.install_uuid,
+    )
+    return manifest, docker, state_path
+
+
+def test_uninstall_normalizes_exact_owned_tailscale_bind_before_removal(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    state_path.joinpath("files/profile.json").chmod(0)
+    state_path.joinpath("files").chmod(0)
+    runner = _TailscaleDockerRunner(docker, state_path, running=True)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    helpers = [
+        values
+        for values in runner.commands
+        if values[:3] == ("docker", "container", "exec")
+    ]
+    assert len(helpers) == 1
+    helper = helpers[0]
+    assert helper[helper.index("--user") + 1] == "0:0"
+    assert runner.container_id in helper
+    script = next(
+        value for value in helper if value.startswith("state=/var/lib/tailscale")
+    )
+    assert 'if ! test -d "$state" || test -L "$state"' in script
+    assert "kill -STOP 1" in script
+    assert "-type f -links +1" in script
+    assert "chmod u+rwx" in script
+    assert "chmod u+rw" in script
+    assert not any(
+        values[:3] == ("docker", "container", "stop")
+        for values in runner.commands
+    )
+    assert not runner.present
+    assert not state_path.parent.exists()
+
+
+def test_stopped_tailscale_sidecar_needs_no_helper_for_host_removable_state(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(docker, state_path, running=False)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert not any(
+        values[:3]
+        in {
+            ("docker", "container", "exec"),
+            ("docker", "container", "stop"),
+        }
+        for values in runner.commands
+    )
+    assert not state_path.parent.exists()
+
+
+def test_tailscale_cleanup_rejects_foreign_bind_before_mutation(tmp_path: Path) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    outside = tmp_path / "foreign-state"
+    outside.mkdir()
+    runner = _TailscaleDockerRunner(docker, state_path, mount_source=outside)
+
+    with pytest.raises(UninstallSafetyError, match="exact 경계와 다릅니다"):
+        plan_uninstall(manifest.path, runner=runner)
+
+    assert manifest.path.is_file()
+    assert not any(
+        values[:3]
+        in {
+            ("docker", "container", "stop"),
+            ("docker", "container", "exec"),
+            ("docker", "container", "rm"),
+        }
+        for values in runner.commands
+    )
+
+
+def test_tailscale_cleanup_rejects_nested_symlink_and_restores_running_sidecar(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    outside = _write(tmp_path / "outside/keep.txt", "keep\n")
+    state_path.joinpath("escape").symlink_to(outside)
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        helper_failure=True,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="ownership 복구 실패"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert outside.read_text(encoding="utf-8") == "keep\n"
+    assert manifest.path.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "kill")
+        for values in runner.commands
+    )
+    assert not any(
+        values[:3] == ("docker", "container", "rm")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_cleanup_rejects_hardlink_and_restores_running_sidecar(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    outside = _write(tmp_path / "outside/keep.txt", "keep\n")
+    hardlink = state_path / "outside-hardlink"
+    hardlink.hardlink_to(outside)
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        helper_failure=True,
+        helper_failure_message="refusing hard-linked Tailscale state",
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="ownership 복구 실패"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert outside.read_text(encoding="utf-8") == "keep\n"
+    assert hardlink.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "kill")
+        for values in runner.commands
+    )
+    assert not any(
+        values[:3] == ("docker", "container", "rm")
+        for values in runner.commands
+    )
+
+
+def test_missing_owned_tailscale_state_needs_no_helper(tmp_path: Path) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    state_path.joinpath("files/profile.json").unlink()
+    state_path.joinpath("files").rmdir()
+    state_path.rmdir()
+    runner = _TailscaleDockerRunner(docker, state_path, running=True)
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+    execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert not any(
+        values[:3] in {
+            ("docker", "container", "stop"),
+            ("docker", "container", "exec"),
+        }
+        for values in runner.commands
+    )
+    assert not state_path.parent.exists()
+
+
+def test_inaccessible_tailscale_state_without_owned_sidecar_fails_closed(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    inaccessible = state_path / "files"
+    inaccessible.chmod(0)
+    runner = _TailscaleDockerRunner(docker, state_path, present=False)
+    try:
+        with pytest.raises(UninstallSafetyError, match="ownership repair"):
+            plan_uninstall(manifest.path, runner=runner)
+    finally:
+        inaccessible.chmod(0o700)
+
+    assert manifest.path.is_file()
+    assert not any(
+        values[:3] == ("docker", "container", "exec")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_cleanup_rejects_host_path_swap_after_existing_mount_helper(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    outside = _write(tmp_path / "outside/keep.txt", "keep\n")
+    detached = state_path.with_name("tailscale-detached")
+
+    def swap_path() -> None:
+        state_path.rename(detached)
+        state_path.symlink_to(outside.parent, target_is_directory=True)
+
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        after_helper=swap_path,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="inode.*변경"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert outside.read_text(encoding="utf-8") == "keep\n"
+    assert manifest.path.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "kill")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_cleanup_rejects_stale_container_bind_inode(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    mounted = state_path.with_name("tailscale-mounted")
+    state_path.rename(mounted)
+    _write(state_path / "files/profile.json", "replacement\n")
+    original_mode = mounted.joinpath("files/profile.json").stat().st_mode
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        mounted_state_path=mounted,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="mount identity mismatch"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert mounted.joinpath("files/profile.json").stat().st_mode == original_mode
+    assert manifest.path.is_file()
+    assert not any(
+        values[:3] == ("docker", "container", "rm")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_container_remove_failure_resumes_quiesced_sidecar(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        remove_failure=True,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="sidecar 제거 실패"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert runner.present
+    assert runner.running
+    assert not runner.pid_stopped
+    assert manifest.path.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "kill")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_container_remove_failure_starts_sidecar_when_resume_fails(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        remove_failure=True,
+        resume_failure=True,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(UninstallSafetyError, match="sidecar 제거 실패"):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert runner.present
+    assert runner.running
+    assert not runner.pid_stopped
+    assert manifest.path.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "start")
+        for values in runner.commands
+    )
+
+
+def test_tailscale_container_remove_failure_reports_resume_and_start_failure(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        remove_failure=True,
+        resume_failure=True,
+        start_failure=True,
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    with pytest.raises(
+        UninstallSafetyError,
+        match="sidecar resume/start도 실패: injected start failure",
+    ):
+        execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+
+    assert runner.present
+    assert runner.pid_stopped
+    assert manifest.path.is_file()
+
+
+def test_tailscale_cleanup_resumes_sidecar_when_host_postcheck_fails(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    child = state_path / "files"
+
+    runner = _TailscaleDockerRunner(
+        docker,
+        state_path,
+        running=True,
+        after_helper=lambda: child.chmod(0),
+    )
+    plan = plan_uninstall(manifest.path, runner=runner)
+    try:
+        with pytest.raises(UninstallSafetyError, match="안전하게 제거"):
+            execute_uninstall(plan, confirm_prefix=manifest.prefix, runner=runner)
+    finally:
+        child.chmod(0o700)
+
+    assert manifest.path.is_file()
+    assert any(
+        values[:3] == ("docker", "container", "kill")
+        for values in runner.commands
+    )
+    assert not any(
+        values[:3] == ("docker", "container", "rm")
+        for values in runner.commands
+    )
 
 
 def test_docker_deletes_only_exact_manifest_objects(tmp_path: Path) -> None:

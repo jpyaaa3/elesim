@@ -65,7 +65,7 @@ DEVELOPER_CONTAINER = "elesim-dev"
 
 
 class DockerOwnerConflict(RuntimeError):
-    """A fixed Elesim container name belongs to another Compose context."""
+    """A fixed EleSim container name belongs to another Compose context."""
 
 
 @dataclass(frozen=True)
@@ -485,7 +485,7 @@ class TestGui:
         ):
             return
         raise DockerOwnerConflict(
-            "Elesim 고정 컨테이너 이름 충돌: "
+            "EleSim 고정 컨테이너 이름 충돌: "
             f"{DEVELOPER_CONTAINER}\n"
             f"  기존 소유자: project={actual_project} compose={actual_compose}\n"
             f"  현재 설치: project={DEVELOPER_PROJECT} compose={expected_compose}\n"
@@ -746,12 +746,12 @@ def main() -> int:
         "--runner",
         choices=("local", "docker"),
         default="local",
-        help="pytest를 로컬 또는 Elesim Developer 컨테이너로 실행합니다",
+        help="pytest를 로컬 또는 EleSim Developer 컨테이너로 실행합니다",
     )
     ap.add_argument(
         "--docker-compose",
         default=str(ROOT / ".elesim/development/compose.yaml"),
-        help="--runner=docker일 때 사용할 Elesim Developer compose 파일",
+        help="--runner=docker일 때 사용할 EleSim Developer compose 파일",
     )
     args = ap.parse_args()
     TestGui(runner=args.runner, docker_compose=args.docker_compose).run()

@@ -25,7 +25,6 @@ from elesim_ui.helpers import (
 )
 
 
-_CAPTURE_SOURCES = (("camera", "Real"), ("sim", "Virtual"))
 _PERCEPTION_LABEL_W = 88.0
 _TRACK_BUTTON_W = 124.0
 _TRACK_DEMO_BUTTON_W = 132.0
@@ -218,11 +217,6 @@ def _draw_gaze_tuning_controls(panel) -> None:
     imgui.text_disabled("Pitch preview")
     for key, label, lo, hi, fmt in _GAZE_PREVIEW_FIELDS:
         _draw_gaze_float(panel, key, label, lo, hi, fmt)
-
-
-def _checkbox(panel, label: str, identifier: str, value: bool) -> tuple[bool, bool]:
-    _control_label(panel, label)
-    return imgui.checkbox(f"##{identifier}", bool(value))
 
 
 def _mode_button(
@@ -618,48 +612,6 @@ def _draw_tracking_controls(panel) -> None:
         panel.service.start_demo4_stop_and_grasp()
 
 
-def _draw_pick_play_button(panel, *, disabled: bool) -> bool:
-    size = scaled(panel, _BUTTON_H)
-    if not callable(getattr(imgui, "invisible_button", None)) or not callable(getattr(imgui, "get_window_draw_list", None)):
-        return (not disabled) and bool(imgui.button("Play##pick_full", size, size))
-
-    x, y = _xy(imgui.get_cursor_screen_pos())
-    clicked = bool(imgui.invisible_button("##pick_full_play", float(size), float(size)))
-    active = bool(imgui.is_item_active())
-    hovered = bool(getattr(imgui, "is_item_hovered", lambda: False)())
-    draw_list = imgui.get_window_draw_list()
-
-    if disabled:
-        bg_fill = (0.72, 0.75, 0.80)
-        fg_fill = (0.48, 0.51, 0.56)
-    else:
-        bg_fill = (0.66, 0.70, 0.76) if active else (0.76, 0.79, 0.84) if hovered else (0.82, 0.84, 0.87)
-        fg_fill = (0.12, 0.14, 0.17)
-    _draw_rect_filled(
-        draw_list,
-        x,
-        y,
-        x + size,
-        y + size,
-        _color_u32(*bg_fill, 1.0),
-        scaled(panel, 4.0),
-    )
-    cx = x + size * 0.52
-    cy = y + size * 0.50
-    tri_w = size * 0.38
-    tri_h = size * 0.48
-    _draw_triangle_filled(
-        draw_list,
-        (
-            (cx - tri_w * 0.42, cy - tri_h * 0.50),
-            (cx - tri_w * 0.42, cy + tri_h * 0.50),
-            (cx + tri_w * 0.58, cy),
-        ),
-        _color_u32(*fg_fill, 1.0),
-    )
-    return (not disabled) and clicked
-
-
 def _draw_pick_stop_button(panel, *, disabled: bool) -> bool:
     size = scaled(panel, _BUTTON_H)
     if not callable(getattr(imgui, "invisible_button", None)) or not callable(getattr(imgui, "get_window_draw_list", None)):
@@ -843,14 +795,6 @@ def _end_section() -> None:
     token = getattr(_begin_section, "_last_token", None)
     end_collapsible_section(token)
     setattr(_begin_section, "_last_token", None)
-
-
-def _capture_source_index(mode: str) -> int:
-    key = str(mode).strip().lower()
-    for idx, (value, _label) in enumerate(_CAPTURE_SOURCES):
-        if key == value:
-            return idx
-    return 0
 
 
 def _local_detector_mode(detector: str) -> str:

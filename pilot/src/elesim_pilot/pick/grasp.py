@@ -1357,12 +1357,7 @@ class GraspLjiRuntimeActions(GraspLjiSafetyActions):
                 est.clear()
                 self._grasp_lji_last_dq_cmd = None
                 self._grasp_lji_command_q = None
-                stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
-                if callable(stop_lji_velocity):
-                    try:
-                        stop_lji_velocity(reason="lji_motion_mismatch")
-                    except Exception:
-                        pass
+                self._stop_lji_velocity_control("lji_motion_mismatch")
                 self._grasp_lji_pending_sample = None
                 return SampleRejectReason.MOTION_MISMATCH
             est.push(delta_q, delta_s)
@@ -4367,12 +4362,9 @@ class GraspActions(GraspGuidedActions):
                         self._grasp_lji_last_dq_cmd = None
                         self._grasp_lji_command_q = None
                         self._grasp_lji_force_reacquire_reason = bad_motion_reason
-                        stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
-                        if callable(stop_lji_velocity):
-                            try:
-                                stop_lji_velocity(reason="lji_%s" % bad_motion_reason)
-                            except Exception:
-                                pass
+                        self._stop_lji_velocity_control(
+                            "lji_%s" % bad_motion_reason
+                        )
                         transition = "%s|reacquire" % bad_motion_reason
                         print(
                             "[Grasp] LJI bad motion | reason=%s sample=%s -> reacquire"
@@ -4499,21 +4491,23 @@ class GraspActions(GraspGuidedActions):
                 claw_label="grasp lji pre-contact",
             )
         finally:
-            stop_lji_velocity = getattr(self.client, "stop_lji_velocity_control", None)
-            if callable(stop_lji_velocity):
-                try:
-                    stop_lji_velocity(reason="grasp_lji_done")
-                except Exception:
-                    pass
-            self._grasp_lji_log_close()
-            self._grasp_uv_only_mode = False
-            cancelled = bool(self._pick_stop_event.is_set() or self._pick_e2e_cancel.is_set())
-            if (
-                not cancelled
-                and self._perception_capture is not None
-                and self._perception_capture.is_running()
-            ):
-                self.stop_perception_capture(stop_recording=not bool(self.state.perception_recording))
-            if not success and not self.state.pick_failed and not cancelled:
-                self._set_pick_failure("grasp lji failed")
-            self._ik_worker = None
+            try:
+                self._stop_lji_velocity_control("grasp_lji_done")
+            finally:
+                self._grasp_lji_log_close()
+                self._grasp_uv_only_mode = False
+                cancelled = bool(
+                    self._pick_stop_event.is_set()
+                    or self._pick_e2e_cancel.is_set()
+                )
+                if (
+                    not cancelled
+                    and self._perception_capture is not None
+                    and self._perception_capture.is_running()
+                ):
+                    self.stop_perception_capture(
+                        stop_recording=not bool(self.state.perception_recording)
+                    )
+                if not success and not self.state.pick_failed and not cancelled:
+                    self._set_pick_failure("grasp lji failed")
+                self._ik_worker = None

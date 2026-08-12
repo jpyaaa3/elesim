@@ -350,11 +350,6 @@ select:focus-visible,
   font-size: inherit;
 }
 
-.choice.danger:has(input:checked) {
-  border-color: var(--danger);
-  background: var(--danger-bg);
-}
-
 .choice input {
   width: 18px;
   height: 18px;
@@ -465,14 +460,6 @@ select:focus-visible,
   line-height: 1.9;
 }
 
-.inline-notice {
-  margin: 0 0 24px;
-  border-left: 4px solid var(--accent);
-  padding: 6px 16px;
-  color: var(--muted);
-  line-height: 1.65;
-}
-
 .field {
   display: flex;
   min-width: 0;
@@ -509,16 +496,6 @@ fieldset legend {
   gap: 8px;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(130px, 1fr);
-  gap: 0 18px;
-}
-
-.form-grid .wide {
-  grid-column: 1 / -1;
-}
-
 fieldset {
   min-width: 0;
   margin: 16px 0 28px;
@@ -530,79 +507,6 @@ fieldset {
 fieldset legend {
   padding: 0 14px 0 0;
   font-size: var(--font-body);
-}
-
-.subsection {
-  margin: 22px 0;
-  border-left: 3px solid var(--line-strong);
-  padding: 4px 0 4px 18px;
-}
-
-.subsection h2 {
-  margin: 0 0 18px;
-  font-size: var(--font-body);
-}
-
-.subsection.nested {
-  margin-left: 4px;
-  border-color: var(--accent);
-}
-
-.segmented {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  margin-bottom: 18px;
-}
-
-.segmented label {
-  position: relative;
-}
-
-.segmented input {
-  position: absolute;
-  opacity: 0;
-}
-
-.segmented span {
-  display: block;
-  min-height: 38px;
-  border: 1px solid var(--line-strong);
-  border-right: 0;
-  padding: 8px 13px;
-  background: var(--surface);
-  cursor: pointer;
-}
-
-.segmented label:first-child span {
-  border-radius: 4px 0 0 4px;
-}
-
-.segmented label:last-child span {
-  border-right: 1px solid var(--line-strong);
-  border-radius: 0 4px 4px 0;
-}
-
-.segmented input:checked + span {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.segmented label:has(input:disabled) span {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.fingerprint-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.fingerprint-row code {
-  overflow-wrap: anywhere;
-  color: var(--muted);
 }
 
 .review-list {
@@ -852,8 +756,7 @@ dialog h2 {
     padding: 32px 20px 22px;
   }
 
-  .role-grid,
-  .form-grid {
+  .role-grid {
     grid-template-columns: 1fr;
   }
 

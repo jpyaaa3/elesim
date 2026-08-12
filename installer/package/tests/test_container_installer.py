@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pwd
+import socket
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +16,8 @@ from elesim_setup.container_installer import (
     ContainerInstaller,
     TAILSCALE_CONTAINER_NAME,
     TAILSCALE_IMAGE,
+    _entrypoint,
+    _viewer_cleanup_wrapper,
     _tailscale_wrapper,
     _runtime_up_wrapper,
     _runtime_down_wrapper,
@@ -40,6 +44,17 @@ def _compose(state) -> dict:
     return yaml.safe_load(
         (state.prefix_path / "containers/compose.yaml").read_text(encoding="utf-8")
     )
+
+
+def _create_x11_socket(directory: Path, display: int = 0) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"X{display}"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        listener.bind(str(path))
+    finally:
+        listener.close()
+    return path
 
 
 def _fake_docker(path: Path) -> Path:
@@ -111,6 +126,89 @@ def _fake_docker(path: Path) -> Path:
     )
     docker.chmod(0o755)
     return docker
+
+
+def test_sim_entrypoint_preflights_x11_before_dds_and_passes_viewer_flag(
+    tmp_path: Path,
+) -> None:
+    entrypoint = tmp_path / "entrypoint"
+    # The generated image supplies these two overlays.  Replace only their
+    # fixed source statements so this host-side shell test can exercise the
+    # generated control flow without a ROS installation.
+    entrypoint.write_text(
+        _entrypoint("sim")
+        .replace("source /opt/ros/humble/setup.bash", "true")
+        .replace("source /opt/elesim/ros/install/setup.bash", "true"),
+        encoding="utf-8",
+    )
+    entrypoint.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    python = fake_bin / "python3"
+    python.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >>\"${PYTHON_CALLS:?}\"\n"
+        "exit \"${PYTHON_STATUS:-0}\"\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    sim = fake_bin / "elesim-sim"
+    sim.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >\"${SIM_ARGS:?}\"\n",
+        encoding="utf-8",
+    )
+    sim.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "DISPLAY": ":7",
+            "ELESIM_SIM_VIEWER": "1",
+            "PYTHON_CALLS": str(tmp_path / "python.calls"),
+            "SIM_ARGS": str(tmp_path / "sim.args"),
+        }
+    )
+
+    preflight = subprocess.run(
+        (entrypoint, "--elesim-viewer-preflight"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert preflight.returncode == 0
+    assert "pyglet.window" in (tmp_path / "python.calls").read_text(
+        encoding="utf-8"
+    )
+    assert not (tmp_path / "sim.args").exists()
+
+    launched = subprocess.run(
+        (entrypoint, "--probe"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert launched.returncode == 0
+    sim_args = (tmp_path / "sim.args").read_text(encoding="utf-8")
+    assert "--viewer --probe" in sim_args
+    assert (tmp_path / "python.calls").read_text(encoding="utf-8").count(
+        "pyglet.window"
+    ) == 2
+
+    (tmp_path / "sim.args").unlink()
+    environment["PYTHON_STATUS"] = "9"
+    rejected = subprocess.run(
+        (entrypoint,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert rejected.returncode == 69
+    assert "X11/GL context" in rejected.stderr
+    assert not (tmp_path / "sim.args").exists()
 
 
 def test_container_plan_is_router_free(local_state) -> None:
@@ -228,7 +326,12 @@ def test_managed_coturn_shares_the_tailscale_sidecar_namespace(local_state) -> N
 
 def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     local_state,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    install_time_authority = tmp_path / "install.Xauthority"
+    install_time_authority.write_text("stale-cookie\n", encoding="utf-8")
+    monkeypatch.setenv("XAUTHORITY", str(install_time_authority))
     state = local_state(
         roles=("sim", "pilot", "ui"),
         install_mode="container",
@@ -295,6 +398,19 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         assert role_keystore.stat().st_mode & 0o777 == 0o700
         context = state.prefix_path / f"containers/build/{role}"
         assert (context / "interfaces/elesim_interfaces/package.xml").is_file()
+        assert not (context / "application/tests").exists()
+        assert not (context / "protocol/tests").exists()
+        installed_config = state.prefix_path / "roles" / role / "config"
+        public_template = (
+            "runtime.public.example.yaml"
+            if role in {"pilot", "sim"}
+            else "public.example.yaml"
+        )
+        assert not (installed_config / public_template).exists()
+        if role in {"pilot", "ui"}:
+            assert (
+                installed_config / "perception/detector.yolo.example.json"
+            ).is_file()
         entrypoint = (context / "entrypoint").read_text(encoding="utf-8")
         assert "set +u\nsource /opt/ros/humble/setup.bash" in entrypoint
         assert "source /opt/elesim/ros/install/setup.bash\nset -u" in entrypoint
@@ -304,10 +420,30 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
             )
             assert service["environment"]["DISPLAY"] == "${DISPLAY:-:0}"
             assert "/tmp/.X11-unix:/tmp/.X11-unix:rw" in service["volumes"]
+            assert "XAUTHORITY" not in service["environment"]
+            assert not any(
+                str(install_time_authority) in volume
+                for volume in service["volumes"]
+            )
             assert 'ELESIM_SIM_VIEWER:-' in entrypoint
+            assert "--elesim-viewer-preflight" in entrypoint
+            assert "Window(width=1, height=1, visible=False)" in entrypoint
             assert "sim_args+=(--viewer)" in entrypoint
+            assert entrypoint.index("Window(width=1") < entrypoint.index(
+                "exec elesim-sim"
+            )
+        if role == "ui":
+            assert service["environment"]["XAUTHORITY"] == str(
+                install_time_authority
+            )
+            assert (
+                f"{install_time_authority}:{install_time_authority}:ro"
+                in service["volumes"]
+            )
     tools = state.prefix_path / "containers/build/tools"
     assert (tools / "interfaces/elesim_interfaces/msg/RgbdFrame.msg").is_file()
+    assert not (tools / "protocol/tests").exists()
+    assert not (tools / "setup/tests").exists()
     assert compose["services"]["tools"]["image"] == "elesim/tools:local"
     assert compose["services"]["tools"]["environment"]["ELESIM_HOST_USER"] == (
         _resolve_viewer_user()
@@ -324,6 +460,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "--name elesim-manager" in wrapper
     assert '--publish "127.0.0.1:${manager_port}:${manager_port}"' in wrapper
     assert "manager_args+=(--host 0.0.0.0)" in wrapper
+    assert "ELESIM_INSTALL_GPU_MODE=inherit" in wrapper
     assert "ELESIM_TAILSCALE_PROXY_BIN=/usr/local/bin/elesim-host-proxy" in wrapper
     assert "/var/run/tailscale/tailscaled.sock" not in wrapper
     assert "elesim_setup.host_helper" in wrapper
@@ -342,6 +479,9 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "compose_match != 1" in wrapper
     assert f"--local-install-root {state.prefix_path}" in wrapper
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
+    viewer_cleanup_wrapper = (
+        state.bin_path / "elesim-viewer-cleanup"
+    ).read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
     role_wrapper = (state.bin_path / "elesim-sim").read_text(
@@ -355,9 +495,11 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
         f"viewer_xhost_user={_resolve_viewer_user()}" in up_wrapper
     )
     assert 'xhost +si:localuser:"$viewer_xhost_user"' in up_wrapper
+    assert "run --rm -T --build --no-deps sim --elesim-viewer-preflight" in up_wrapper
+    assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in up_wrapper
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
-    assert "XDG_RUNTIME_DIR" in up_wrapper
+    assert ".runtime-cache/viewer-xhost" in up_wrapper
     assert "elesim-net configuration-check >/dev/null" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
@@ -371,12 +513,27 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "down --remove-orphans" in down_wrapper
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
     assert "viewer_xhost_cleanup" in down_wrapper
+    assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
+    assert "docker" not in viewer_cleanup_wrapper
     assert "up --remove-orphans sim" in role_wrapper
     assert "elesim-net configuration-check >/dev/null" in role_wrapper
     assert "elesim-net namespace-check >/dev/null" in role_wrapper
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
+    for generated_wrapper in (
+        state.bin_path / "elesim-up",
+        state.bin_path / "elesim-down",
+        state.bin_path / "elesim-viewer-cleanup",
+    ):
+        assert subprocess.run(
+            ("bash", "-n", str(generated_wrapper)),
+            check=False,
+        ).returncode == 0
+    manifest = OwnershipManifest.load(state.prefix_path / "install-ownership.json")
+    assert str(state.bin_path / "elesim-viewer-cleanup") in {
+        wrapper.path for wrapper in manifest.wrappers
+    }
 
 
 def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
@@ -809,9 +966,7 @@ def test_tailscale_login_retries_starting_then_supports_idempotent_mode_when_run
     )
     assert forced.returncode == 0, forced.stderr
     rendered = calls.read_text(encoding="utf-8")
-    assert " up --force-reauth --hostname=elesim-idempotent " in (
-        f" {rendered} "
-    )
+    assert "up --force-reauth --hostname=elesim-idempotent" in rendered
 
 
 def test_tailscale_login_streams_child_and_preserves_its_status(
@@ -934,6 +1089,8 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
         encoding="utf-8",
     )
     wrapper = tmp_path / "elesim-up"
+    x11_socket_dir = tmp_path / ".X11-unix"
+    _create_x11_socket(x11_socket_dir)
     wrapper.write_text(
         _runtime_up_wrapper(
             compose=compose,
@@ -944,6 +1101,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
             state_path=tmp_path / "install-state.json",
             viewer_state=tmp_path / "viewer-xhost",
             viewer_user="simuser",
+            viewer_x11_socket_dir=x11_socket_dir,
         ),
         encoding="utf-8",
     )
@@ -955,7 +1113,9 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
         "#!/usr/bin/env bash\n"
         "printf '%s' \"${ELESIM_SIM_VIEWER-UNSET}\" > \"$VIEWER_MARKER\"\n"
         "printf '%s' \"${CUDA_VISIBLE_DEVICES-UNSET}\" > \"$CUDA_MARKER\"\n"
-        "printf '%s\\n' \"$*\" > \"$DOCKER_ARGS_MARKER\"\n",
+        "printf '%s\\n' \"$*\" > \"$DOCKER_ARGS_MARKER\"\n"
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_CALLS_MARKER\"\n"
+        "if [[ -n ${FAIL_HEADLESS_UP:-} && -z ${ELESIM_SIM_VIEWER:-} && $* == *' up -d '* ]]; then exit 71; fi\n",
         encoding="utf-8",
     )
     docker.chmod(0o755)
@@ -965,6 +1125,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
         "[[ ${DISPLAY:-} == :0 ]] || exit 1\n"
         "[[ ${XAUTHORITY:-} == ${EXPECTED_XAUTHORITY:?} ]] || exit 1\n"
         "if (( $# == 0 )); then\n"
+        "  printf 'SI:localuser:simuser-extra\\n'\n"
         "  if [[ -e ${XHOST_PERMISSION_MARKER:?} ]]; then\n"
         "    printf 'SI:localuser:simuser\\n'\n"
         "  fi\n"
@@ -983,6 +1144,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     environment["VIEWER_MARKER"] = str(tmp_path / "viewer.marker")
     environment["CUDA_MARKER"] = str(tmp_path / "cuda.marker")
     environment["DOCKER_ARGS_MARKER"] = str(tmp_path / "docker.args")
+    environment["DOCKER_CALLS_MARKER"] = str(tmp_path / "docker.calls")
     environment["XHOST_PERMISSION_MARKER"] = str(tmp_path / "xhost.permission")
     viewer_home = tmp_path / "viewer-home"
     viewer_home.mkdir()
@@ -990,8 +1152,20 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     xauthority.write_text("cookie\n", encoding="utf-8")
     environment["HOME"] = str(viewer_home)
     environment["EXPECTED_XAUTHORITY"] = str(xauthority)
-    environment.pop("DISPLAY", None)
+    # An inherited SSH-forwarded display must be ignored because only the
+    # local Unix socket is mounted into the Sim container.
+    environment["DISPLAY"] = "localhost:10.0"
     environment.pop("XAUTHORITY", None)
+    missing_sim = subprocess.run(
+        (wrapper, "--view", "pilot"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert missing_sim.returncode == 64
+    assert "Sim 서비스" in missing_sim.stderr
+    assert not Path(environment["DOCKER_CALLS_MARKER"]).exists()
     discovered_display = subprocess.run(
         (wrapper, "--view"),
         env=environment,
@@ -1003,6 +1177,13 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert Path(environment["VIEWER_MARKER"]).read_text(encoding="utf-8") == "1"
     assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
         f":0\n{xauthority}\n"
+    )
+    first_calls = Path(environment["DOCKER_CALLS_MARKER"]).read_text(
+        encoding="utf-8"
+    )
+    assert "run --rm -T --build --no-deps sim --elesim-viewer-preflight" in first_calls
+    assert first_calls.index("--elesim-viewer-preflight") < first_calls.index(
+        "up -d --build --remove-orphans"
     )
 
     environment["DISPLAY"] = ":0"
@@ -1020,10 +1201,73 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert "up -d --no-build --remove-orphans" in Path(
         environment["DOCKER_ARGS_MARKER"]
     ).read_text(encoding="utf-8")
+    assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in Path(
+        environment["DOCKER_CALLS_MARKER"]
+    ).read_text(encoding="utf-8")
     assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
         f":0\n{xauthority}\n"
     )
     assert (tmp_path / "xhost.permission").is_file()
+
+    # The grant belongs to the X server, not to one screen suffix or the
+    # authority file that happened to authenticate the host-side xhost call.
+    # A failed restart must preserve it for manager compensation.
+    replacement_authority = viewer_home / "replacement.Xauthority"
+    replacement_authority.write_text("new-cookie\n", encoding="utf-8")
+    environment["DISPLAY"] = ":0.0"
+    environment["XAUTHORITY"] = str(replacement_authority)
+    environment["EXPECTED_XAUTHORITY"] = str(replacement_authority)
+    environment["FAIL_VIEWER_PREFLIGHT"] = "1"
+    docker.write_text(
+        docker.read_text(encoding="utf-8").replace(
+            "if [[ -n ${FAIL_HEADLESS_UP:-}",
+            "if [[ -n ${FAIL_VIEWER_PREFLIGHT:-} && $* == *--elesim-viewer-preflight* ]]; then exit 69; fi\n"
+            "if [[ -n ${FAIL_HEADLESS_UP:-}",
+        ),
+        encoding="utf-8",
+    )
+    failed_viewer_restart = subprocess.run(
+        (wrapper, "--no-build", "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert failed_viewer_restart.returncode == 69
+    assert (tmp_path / "viewer-xhost").is_file()
+    assert (tmp_path / "xhost.permission").is_file()
+    environment.pop("FAIL_VIEWER_PREFLIGHT")
+    environment["DISPLAY"] = ":0"
+    environment["XAUTHORITY"] = str(xauthority)
+    environment["EXPECTED_XAUTHORITY"] = str(xauthority)
+
+    # Starting an unrelated role must not revoke the ACL of an already
+    # running Sim Viewer.
+    partial = subprocess.run(
+        (wrapper, "--no-build", "pilot"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert partial.returncode == 0
+    assert (tmp_path / "viewer-xhost").is_file()
+    assert (tmp_path / "xhost.permission").is_file()
+
+    # A failed headless transition likewise preserves the exact grant so the
+    # connection manager can resume the previously stopped Viewer container.
+    environment["FAIL_HEADLESS_UP"] = "1"
+    failed_headless = subprocess.run(
+        (wrapper, "--no-build", "sim"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert failed_headless.returncode == 71
+    assert (tmp_path / "viewer-xhost").is_file()
+    assert (tmp_path / "xhost.permission").is_file()
+    environment.pop("FAIL_HEADLESS_UP")
 
     normal = subprocess.run(
         (wrapper,),
@@ -1053,6 +1297,88 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert "up -d" not in Path(environment["DOCKER_ARGS_MARKER"]).read_text(
         encoding="utf-8"
     )
+
+
+def test_runtime_up_view_preflight_failure_revokes_acl_and_never_starts(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    state_path = tmp_path / "install-state.json"
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
+    x11_socket_dir = tmp_path / ".X11-unix"
+    _create_x11_socket(x11_socket_dir)
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            runtime_roles=("sim",),
+            state_path=state_path,
+            viewer_state=tmp_path / "viewer-xhost",
+            viewer_user="simuser",
+            viewer_x11_socket_dir=x11_socket_dir,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ $* == *--elesim-viewer-preflight* ]]; then exit 69; fi\n"
+        "if [[ $* == *' up -d '* ]]; then : >\"${UP_MARKER:?}\"; fi\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ ${DISPLAY:-} == :0 ]] || exit 1\n"
+        "if (( $# == 0 )); then\n"
+        "  [[ -e ${XHOST_PERMISSION_MARKER:?} ]] && printf 'SI:localuser:simuser\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "case $1 in\n"
+        "  +si:localuser:simuser) : >\"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "  -si:localuser:simuser) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\";;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    viewer_home = tmp_path / "home"
+    viewer_home.mkdir()
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "DISPLAY": ":0",
+            "HOME": str(viewer_home),
+            "UP_MARKER": str(tmp_path / "up.marker"),
+            "XHOST_PERMISSION_MARKER": str(tmp_path / "xhost.permission"),
+        }
+    )
+    environment.pop("XAUTHORITY", None)
+
+    result = subprocess.run(
+        (wrapper, "--no-build", "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 69
+    assert "X11/GL 사전 점검" in result.stderr
+    assert not (tmp_path / "up.marker").exists()
+    assert not (tmp_path / "viewer-xhost").exists()
+    assert not (tmp_path / "xhost.permission").exists()
 
 
 def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
@@ -1204,7 +1530,9 @@ def test_runtime_up_rejects_missing_or_unknown_security_state(tmp_path: Path) ->
     assert not marker.exists()
 
 
-def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> None:
+def test_runtime_down_revokes_owned_xhost_without_inheriting_stale_authority(
+    tmp_path: Path,
+) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
     wrapper = tmp_path / "elesim-down"
@@ -1221,7 +1549,9 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
-    (tmp_path / "viewer-xhost").write_text(":7\n/tmp/auth\n", encoding="utf-8")
+    (tmp_path / "viewer-xhost").write_text(":7\n\n", encoding="utf-8")
+    (tmp_path / "viewer-xhost").chmod(0o600)
+    tmp_path.chmod(0o700)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     _fake_docker(fake_bin)
@@ -1229,6 +1559,7 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
     xhost.write_text(
         "#!/usr/bin/env bash\n"
         "if [[ $1 == -si:localuser:simuser ]]; then\n"
+        "  [[ -z ${XAUTHORITY+x} ]] || exit 19\n"
         "  printf '%s' \"${DISPLAY:?}\" > \"${XHOST_REVOKED:?}\"\n"
         "fi\n",
         encoding="utf-8",
@@ -1237,6 +1568,7 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
     environment["XHOST_REVOKED"] = str(tmp_path / "xhost.revoked")
+    environment["XAUTHORITY"] = "/stale/caller/authority"
     environment.pop("DISPLAY", None)
 
     result = subprocess.run(
@@ -1252,7 +1584,7 @@ def test_runtime_down_revokes_owned_xhost_with_saved_display(tmp_path: Path) -> 
     assert not (tmp_path / "viewer-xhost").exists()
 
 
-def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
+def test_runtime_up_refuses_xhost_before_unwritable_state_is_mutated(
     tmp_path: Path,
 ) -> None:
     compose = tmp_path / "compose.yaml"
@@ -1264,6 +1596,8 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
     blocked_parent = tmp_path / "blocked"
     blocked_parent.write_text("not a directory", encoding="utf-8")
     wrapper = tmp_path / "elesim-up"
+    x11_socket_dir = tmp_path / ".X11-unix"
+    _create_x11_socket(x11_socket_dir)
     wrapper.write_text(
         _runtime_up_wrapper(
             compose=compose,
@@ -1274,6 +1608,7 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
             state_path=tmp_path / "install-state.json",
             viewer_state=blocked_parent / "viewer-xhost",
             viewer_user="simuser",
+            viewer_x11_socket_dir=x11_socket_dir,
         ),
         encoding="utf-8",
     )
@@ -1309,6 +1644,248 @@ def test_runtime_up_rolls_back_xhost_when_state_cannot_be_written(
     assert result.returncode == 74
     assert "상태를 기록할 수 없습니다" in result.stderr
     assert not (tmp_path / "xhost.permission").exists()
+
+
+def test_runtime_up_retains_recovery_state_when_xhost_grant_reports_failure(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    state_path = tmp_path / "install-state.json"
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
+    x11_socket_dir = tmp_path / ".X11-unix"
+    _create_x11_socket(x11_socket_dir)
+    viewer_state = tmp_path / "cache/viewer-xhost"
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            runtime_roles=("sim",),
+            state_path=state_path,
+            viewer_state=viewer_state,
+            viewer_user="simuser",
+            viewer_x11_socket_dir=x11_socket_dir,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        ": >\"${DOCKER_CALLED:?}\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "if (( $# == 0 )); then exit 0; fi\n"
+        "if [[ $1 == +si:localuser:simuser ]]; then\n"
+        "  : >\"${XHOST_PERMISSION_MARKER:?}\"\n"
+        "  exit 17\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "DISPLAY": ":0",
+            "HOME": str(tmp_path / "home"),
+            "DOCKER_CALLED": str(tmp_path / "docker.called"),
+            "XHOST_PERMISSION_MARKER": str(tmp_path / "xhost.permission"),
+        }
+    )
+    environment.pop("XAUTHORITY", None)
+
+    result = subprocess.run(
+        (wrapper, "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 64
+    assert viewer_state.read_text(encoding="utf-8") == ":0\n\n"
+    assert viewer_state.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "xhost.permission").is_file()
+    assert not (tmp_path / "docker.called").exists()
+
+
+def test_viewer_cleanup_finds_fixed_fallback_after_cache_becomes_writable(
+    tmp_path: Path,
+) -> None:
+    canonical = tmp_path / "cache/viewer-xhost"
+    fallback = tmp_path / ".runtime-cache/viewer-xhost"
+    fallback.parent.mkdir()
+    fallback.parent.chmod(0o700)
+    fallback.write_text(":4\n\n", encoding="utf-8")
+    fallback.chmod(0o600)
+    canonical.parent.mkdir()
+    wrapper = tmp_path / "elesim-viewer-cleanup"
+    wrapper.write_text(
+        _viewer_cleanup_wrapper(canonical, xhost_user="simuser"),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ ${DISPLAY:-} == :4 ]] || exit 18\n"
+        "[[ -z ${XAUTHORITY+x} ]] || exit 19\n"
+        "[[ $1 == -si:localuser:simuser ]] || exit 20\n"
+        ": >\"${REVOKED:?}\"\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "XDG_RUNTIME_DIR": str(tmp_path / "different-runtime-dir"),
+            "XAUTHORITY": "/stale/caller/authority",
+            "REVOKED": str(tmp_path / "revoked"),
+        }
+    )
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "revoked").is_file()
+    assert not fallback.exists()
+    assert not canonical.exists()
+
+
+def test_viewer_cleanup_revokes_all_current_and_legacy_recovery_records(
+    tmp_path: Path,
+) -> None:
+    canonical = tmp_path / "install/cache/viewer-xhost"
+    fallback = tmp_path / "install/.runtime-cache/viewer-xhost"
+    runtime_dir = tmp_path / "runtime"
+    legacy_name = (
+        "viewer-xhost-"
+        + hashlib.sha256(str(canonical).encode("utf-8")).hexdigest()[:16]
+    )
+    legacy = runtime_dir / "elesim" / legacy_name
+    for state, display in (
+        (canonical, ":1"),
+        (fallback, ":2"),
+        (legacy, ":3"),
+    ):
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.parent.chmod(0o700)
+        state.write_text(f"{display}\n\n", encoding="utf-8")
+        state.chmod(0o600)
+    wrapper = tmp_path / "elesim-viewer-cleanup"
+    rendered = _viewer_cleanup_wrapper(canonical, xhost_user="simuser")
+    assert f"viewer_xhost_legacy_tmp=/tmp/elesim/{legacy_name}" in rendered
+    wrapper.write_text(rendered, encoding="utf-8")
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ $1 == -si:localuser:simuser ]] || exit 20\n"
+        "printf '%s\\n' \"${DISPLAY:?}\" >>\"${REVOKED:?}\"\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "REVOKED": str(tmp_path / "revoked"),
+        }
+    )
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "revoked").read_text(encoding="utf-8").splitlines() == [
+        ":1",
+        ":2",
+        ":3",
+    ]
+    assert not canonical.exists()
+    assert not fallback.exists()
+    assert not legacy.exists()
+
+
+def test_viewer_cleanup_rejects_unsafe_legacy_recovery_provenance(
+    tmp_path: Path,
+) -> None:
+    canonical = tmp_path / "install/cache/viewer-xhost"
+    runtime_dir = tmp_path / "runtime"
+    legacy_name = (
+        "viewer-xhost-"
+        + hashlib.sha256(str(canonical).encode("utf-8")).hexdigest()[:16]
+    )
+    legacy = runtime_dir / "elesim" / legacy_name
+    legacy.parent.mkdir(parents=True)
+    legacy.parent.chmod(0o755)
+    legacy.write_text(":5\n\n", encoding="utf-8")
+    legacy.chmod(0o600)
+    wrapper = tmp_path / "elesim-viewer-cleanup"
+    wrapper.write_text(
+        _viewer_cleanup_wrapper(canonical, xhost_user="simuser"),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n: >\"${XHOST_CALLED:?}\"\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "XHOST_CALLED": str(tmp_path / "xhost.called"),
+        }
+    )
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 74
+    assert "소유자/권한이 안전하지 않습니다" in result.stderr
+    assert legacy.is_file()
+    assert not (tmp_path / "xhost.called").exists()
 
 
 def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Path) -> None:
@@ -1525,7 +2102,7 @@ def test_managed_coturn_symlinked_secret_fails_at_unowned_install_boundary(
 
     with pytest.raises(
         OwnershipError,
-        match="ownership manifest 없는 기존 Elesim 후보 경로",
+        match="ownership manifest 없는 기존 EleSim 후보 경로",
     ):
         ContainerInstaller(state).run()
 
@@ -1727,6 +2304,10 @@ def test_specific_gpu_uses_one_compose_device_reservation(local_state) -> None:
     device = service["deploy"]["resources"]["reservations"]["devices"][0]
     assert device["device_ids"] == ["GPU-abc"]
     assert "CUDA_VISIBLE_DEVICES" not in service["environment"]
+    manager_wrapper = (state.bin_path / "elesim-connections").read_text(
+        encoding="utf-8"
+    )
+    assert "ELESIM_INSTALL_GPU_MODE=specific" in manager_wrapper
 
 
 def test_container_dry_run_does_not_write_prefix(local_state) -> None:

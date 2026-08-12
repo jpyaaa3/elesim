@@ -1,4 +1,4 @@
-# Elesim development container
+# EleSim development container
 
 This input is copied by the GUI/CLI setup package into a generated Compose
 project. It creates one privileged amd64 Ubuntu/ROS2 workspace containing the

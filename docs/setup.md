@@ -29,7 +29,7 @@ SSH preflight and managed SROS2 rollout belong to the separate
 On a clean Ubuntu or WSL host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
 ```
 
 The shell bootstrap:
@@ -126,7 +126,7 @@ the complete archive again. When using the piped shell bootstrap, pass the
 option to `bash` after `-s --`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/install.sh \
   | ELESIM_REF=refactoring bash -s -- --refresh
 ```
 
@@ -177,7 +177,7 @@ amd64 image.
 The native installer writes two host-specific units:
 
 - `elesim-robot.service` runs as the invoking host account, joins the
-  `elesim-unitree` supplementary group, and owns the Elesim DDS/SROS2
+  `elesim-unitree` supplementary group, and owns the EleSim DDS/SROS2
   participant, arm/camera I/O and local safety.
 - `elesim-unitree-bridge.service` runs as the dedicated `elesim-unitree`
   account, owns only local/plaintext Unitree DDS on its configured private
@@ -200,7 +200,7 @@ Setup never invokes `sudo`. It prints exact commands to create/reuse the
 dedicated account/group, grant the required read/traverse ACLs, register both
 units, reload systemd and enable the Robot unit. A managed-SROS2 pending
 install is enabled without `--now` and cannot start until provisioning removes
-the marker. The bridge wrapper receives no Elesim SROS2 environment; its daemon
+the marker. The bridge wrapper receives no EleSim SROS2 environment; its daemon
 clears inherited security variables before binding CycloneDDS to the Unitree
 NIC/domain.
 
@@ -271,7 +271,7 @@ The automatic decision is made during installation and only the resolved
 backend is saved; generated wrappers do not switch Docker contexts on every
 start. Docker Desktop does not inherit the WSL distribution's existing
 `tailscale0`, so the sidecar is a separate tailnet node with its own address and
-persistent node state. It is host network infrastructure, not a fifth Elesim
+persistent node state. It is host network infrastructure, not a fifth EleSim
 application, Router, DDS relay, or SSH endpoint.
 
 The transient connection-manager container remains bridged and publishes only
@@ -315,7 +315,7 @@ elesim-tailscale status
 still reports `Running`, an explicit `login` performs Tailscale
 re-authentication so a node removed from the admin console cannot be silently
 accepted from stale local state. Runtime launch uses an idempotent internal
-check and does not open a browser. Elesim does not request
+check and does not open a browser. EleSim does not request
 or persist a Tailscale auth/OAuth key or browser credential. The mode-0700
 `<prefix>/secrets/tailscale` directory retains only the sidecar's node state so
 normal `elesim-down`, `elesim-up`, and `elesim-update` do not require repeated
@@ -325,7 +325,7 @@ the independent SSH management destination when they differ.
 
 On a native Docker Engine, `direct-host` continues to use the host's existing
 interface. The operator may deliberately select a different Docker context
-before installation, but Elesim never toggles between native Engine and Docker
+before installation, but EleSim never toggles between native Engine and Docker
 Desktop behind other projects' backs.
 
 After installation (the setup wizard intentionally does not build or start
@@ -342,7 +342,7 @@ container namespace, not merely WSL or the outer host. The installer itself
 does not receive a Docker socket and never changes Tailscale ACLs.
 
 For a full lifecycle start, the same private helper accepts only the fixed
-Elesim Compose build shape and streams its actual
+EleSim Compose build shape and streams its actual
 `docker compose --progress plain build` stdout/stderr back to the manager. A
 remote host streams the same output over its already authenticated SSH channel.
 The GUI job log and the terminal that launched `elesim-connections` therefore
@@ -357,7 +357,13 @@ The connection manager performs that launch through the generated
 so the normal `DISPLAY` check and temporary `xhost` grant are not bypassed;
 for a remote non-interactive SSH launch the host wrapper resolves only bounded
 local X11 socket and same-user Xauthority candidates, failing before Compose
-when none is usable;
+when none is usable. Inherited SSH-forwarded/TCP displays are rejected because
+the Sim container receives only the local `/tmp/.X11-unix` socket mount. After
+the grant, a one-shot Sim container running with the installed image and UID/GID
+must open a hidden X11/GL context before the detached runtime is started. The
+normal Sim entrypoint repeats that check before starting DDS, so a display
+failure cannot masquerade briefly as DDS readiness. A connection-manager Stop
+or failed full Start revokes the same EleSim-owned grant after Sim is stopped;
 its bounded GPU-number option becomes `--cuda-visible-devices` and sets
 `CUDA_VISIBLE_DEVICES` only for that launch.
 The generated project name is `elesim-runtime`; images are
@@ -396,7 +402,7 @@ Developer mode requires Ubuntu/WSL amd64 and generates:
     └── elesim-jaeger-{up,down}       # optional
 ```
 
-An existing nonempty path is reused only when it is a complete Elesim Git
+An existing nonempty path is reused only when it is a complete EleSim Git
 checkout. The installer never pulls, resets, or deletes it. An existing empty
 path is populated through a staging checkout inside that directory so a bind
 mount/current working directory is not removed. An unrelated nonempty path is
@@ -449,7 +455,7 @@ IPC, `/dev`, X11, and privileged mode. On a bootstrap-detected WSLg host it
 also mounts `/mnt/wslg` and forwards the runtime and Pulse endpoints.
 
 The persistent development home owns `$HOME/.venv`. The entrypoint creates that
-venv with system scientific packages visible, installs all Elesim projects
+venv with system scientific packages visible, installs all EleSim projects
 editable into it, prepends it to `PATH`, and then executes the requested
 command. This avoids non-root writes to the image's global Python and keeps
 console scripts available across restarts.
@@ -464,7 +470,7 @@ adds `elesim-jaeger`. The `elesim-dev` wrapper starts the persistent container
 when necessary and enters it with Compose `exec`, so opening more terminals
 does not create randomly named `run --rm` development containers.
 `elesim-connections` uses an explicit, removable `elesim-manager` one-shot
-container. A short-lived private host helper allows only the generated Elesim
+container. A short-lived private host helper allows only the generated EleSim
 Compose/network operations and optional `tailscale nc`; the manager receives
 neither the Docker daemon socket nor the tailscaled local API socket. It is a
 management tool, not another persistent development service. In Developer mode it targets the ordinary
@@ -496,7 +502,11 @@ create a GPU context; that remains a post-install check.
 
 The general Sim container is launched with the installing user's numeric
 UID/GID. Viewer mode grants the same installing user's X11 ACL, rather than a
-root ACL. Its complete runtime cache is mounted at `/tmp/elesim-cache` inside
+root ACL. Before returning launch success it also checks that the Sim image can
+open an X11/GL context through the mounted Unix socket. This software preflight
+does not replace the manual acceptance test that the native Genesis window is
+visible and interactive on the intended Ubuntu/WSLg display. Its complete
+runtime cache is mounted at `/tmp/elesim-cache` inside
 the container and backed by the install's `cache` directory; Genesis uses its
 `genesis` child and Quadrants/Numba use sibling children. This keeps runtime
 cache writes compatible with a later normal-user `elesim-update` and does not
@@ -555,6 +565,25 @@ For `tailscale-sidecar`, the ownership manifest also records the exact fixed
 container and the install-owned `<prefix>/secrets` root containing the
 mode-0700 `<prefix>/secrets/tailscale` node-state directory. Normal down/update
 preserves the directory; validated uninstall removes that install-owned root.
+Because `tailscaled` may create mode-0700 children as its container user, the
+host uninstaller first proves the exact install UUID/Compose service, pinned
+image digest and sole read-write state bind. For a running sidecar it reuses the
+container's already-established mount namespace. A no-follow host directory
+descriptor and one random mount-identity token prove that the container bind
+and the currently validated host path are the same directory. It then suspends
+`tailscaled`, returns only that bind tree to the invoking host UID/GID, and
+removes that exact sidecar as the final container mutation. It never resolves
+the host bind again through a new helper mount. If normalization or sidecar
+removal fails before that commit point, PID 1 is resumed (or the exact stopped
+container is restarted) and the ownership manifest is retained.
+The helper restores owner read/write and directory traversal bits after the
+ownership change. Symlinks, special files, hard-linked regular files, a
+foreign/additional mount, an unavailable image, or an inaccessible tree without
+the owned running sidecar fail closed before filesystem removal; no broad host
+deletion or Docker prune is used. A stopped/absent sidecar proceeds only when
+the host can already traverse and remove the exact tree; otherwise start that
+exact sidecar and rerun uninstall. An already absent state directory needs no
+repair.
 This local cleanup does not revoke the device record from the tailnet control
 plane; remove the old node in the Tailscale admin console when decommissioning
 it. The upstream `tailscale/tailscale` image is not install-owned and is never
@@ -568,6 +597,19 @@ deletion channel. The host CLI always plans and revalidates before mutation:
 elesim-uninstall --plan
 elesim-uninstall
 ```
+
+If a Sim installation owns the generated `elesim-viewer-cleanup` wrapper, the
+uninstaller verifies that wrapper's exact manifest path and SHA-256, stops the
+exact validated Sim container first, and then invokes the wrapper with no
+arguments before changing PATH, removing containers/images, or deleting install
+files. Cleanup consumes every exact canonical, fixed-fallback, and bounded
+legacy runtime record for that installation, so an update cannot orphan an ACL
+created by an older wrapper. A remaining managed Viewer record without that
+exact owned wrapper, or a cleanup failure against any saved display, aborts
+further removal and preserves the ownership manifest so the ACL can be
+recovered with `elesim-update` or the same installation's `elesim-down`. The
+Sim container may remain stopped after such a failure; no similarly named
+foreign command is run.
 
 The default removes runtime text logs and the operator SROS2 Authority owned by
 that installation. `--keep-logs` and `--keep-authority` are explicit retention
@@ -584,7 +626,7 @@ SHA-256 match the generated copy.
 
 The generated DDS runtime profile contains:
 
-- a ROS-safe `system_id` shared by one Elesim graph;
+- a ROS-safe `system_id` shared by one EleSim graph;
 - `domain_id` and a pinned `rmw_implementation`;
 - `multicast` or `static` discovery;
 - reachable static peer addresses when multicast is not routed;
@@ -608,7 +650,7 @@ graph overlap only; it is not a security control.
 provisioning distinction introduced in v8:
 
 - `external`: the operator supplies and maintains a local keystore/base
-  enclave. Elesim records no managed generation and does not rotate it;
+  enclave. EleSim records no managed generation and does not rotate it;
 - `managed`: `elesim-connections` keeps the complete Authority on the operator
   laptop, creates a string generation through `ros2 security`, and installs a
   host bundle as the runtime keystore.

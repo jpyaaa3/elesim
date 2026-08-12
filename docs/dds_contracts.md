@@ -1,4 +1,4 @@
-# Elesim DDS PeerEnvelope 계약 목록
+# EleSim DDS PeerEnvelope 계약 목록
 
 기준 protocol major는 6이다. 아래 목록은 `packages/protocol/src/elesim_protocol/contracts.py`의
 `DDS_CONTRACTS`가 실행 시 검사하는 단일 source of truth이다. `PeerEnvelope`는

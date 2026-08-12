@@ -1,6 +1,6 @@
 # System tests
 
-These tests are run by developers and CI, not by deployed Elesim processes.
+These tests are run by developers and CI, not by deployed EleSim processes.
 They launch or construct multiple runtime participants and verify the system
 boundaries between them.
 

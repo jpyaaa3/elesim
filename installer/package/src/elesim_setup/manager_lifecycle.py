@@ -6,6 +6,49 @@ import shlex
 from pathlib import Path
 
 
+def compose_owner_guard(
+    compose: Path,
+    *,
+    project: str,
+    containers: tuple[str, ...],
+) -> str:
+    """Reject fixed-name containers owned by another Compose installation."""
+
+    rendered_containers = " ".join(shlex.quote(name) for name in containers)
+    return (
+        f"expected_compose={shlex.quote(str(compose))}\n"
+        f"expected_project={shlex.quote(project)}\n"
+        f"for container in {rendered_containers}; do\n"
+        "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
+        "    continue\n"
+        "  fi\n"
+        "  metadata=\"$(docker container inspect --format "
+        "'{{ index .Config.Labels \"com.docker.compose.project\" }}|"
+        "{{ index .Config.Labels \"com.docker.compose.project.config_files\" }}' "
+        "\"$container\")\"\n"
+        "  actual_project=\"${metadata%%|*}\"\n"
+        "  actual_compose=\"${metadata#*|}\"\n"
+        "  compose_match=0\n"
+        "  IFS=',' read -r -a compose_files <<<\"$actual_compose\"\n"
+        "  for compose_file in \"${compose_files[@]}\"; do\n"
+        "    if [[ \"$compose_file\" == \"$expected_compose\" ]]; then\n"
+        "      compose_match=1\n"
+        "      break\n"
+        "    fi\n"
+        "  done\n"
+        "  if [[ \"$actual_project\" != \"$expected_project\" || $compose_match != 1 ]]; then\n"
+        "    printf 'EleSim 고정 컨테이너 이름 충돌: %s\\n' \"$container\" >&2\n"
+        "    printf '  기존 소유자: project=%s compose=%s\\n' "
+        "\"$actual_project\" \"$actual_compose\" >&2\n"
+        "    printf '  현재 설치: project=%s compose=%s\\n' "
+        "\"$expected_project\" \"$expected_compose\" >&2\n"
+        "    printf '기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오.\\n' >&2\n"
+        "    exit 73\n"
+        "  fi\n"
+        "done\n"
+    )
+
+
 def manager_lifecycle_fragment(install_uuid: str) -> str:
     """Return shell code that protects and cleans ``elesim-manager``.
 
@@ -88,13 +131,13 @@ def host_helper_fragment(
         "for _helper_attempt in {1..100}; do\n"
         "  [[ -S $host_helper_socket ]] && break\n"
         "  if ! kill -0 \"$host_helper_pid\" 2>/dev/null; then\n"
-        "    printf 'Elesim host helper가 시작 전에 종료되었습니다.\\n' >&2\n"
+        "    printf 'EleSim host helper가 시작 전에 종료되었습니다.\\n' >&2\n"
         "    exit 2\n"
         "  fi\n"
         "  sleep 0.05\n"
         "done\n"
         "if [[ ! -S $host_helper_socket ]]; then\n"
-        "  printf 'Elesim host helper socket 준비가 시간 초과되었습니다.\\n' >&2\n"
+        "  printf 'EleSim host helper socket 준비가 시간 초과되었습니다.\\n' >&2\n"
         "  exit 2\n"
         "fi\n"
         "manager_options+=(\n"
@@ -111,4 +154,8 @@ def host_helper_fragment(
     )
 
 
-__all__ = ["host_helper_fragment", "manager_lifecycle_fragment"]
+__all__ = [
+    "compose_owner_guard",
+    "host_helper_fragment",
+    "manager_lifecycle_fragment",
+]

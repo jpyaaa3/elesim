@@ -117,7 +117,7 @@
   runtime-network doctor와 활성 Sim-owned Coturn이 그 namespace에 들어간다.
   다섯 번째 application, Router, DDS relay가 아니다.
 - Sidecar 등록은 명시적 1회 `elesim-tailscale login` browser/device flow이고
-  `elesim-tailscale status`가 DDS 주소를 보여 준다. Elesim은 auth/OAuth key나
+  `elesim-tailscale status`가 DDS 주소를 보여 준다. EleSim은 auth/OAuth key나
   browser credential을 저장하지 않는다. Sidecar DDS 주소와 WSL/host SSH 관리
   주소는 독립적이다.
 - 기본 `multicast` discovery는 Tailscale/routed VPN을 건너지 않는다. routed
@@ -131,9 +131,9 @@
   설정 단계에서 막는다.
 - tools image에는 이제 `iproute2`가 포함되며, 시작 전
   `install-state.json`·CycloneDDS XML·Compose DDS 설정이 서로 다른 구형
-  산출물을 거부한다. keyless Tailscale SSH topology에서는 runtime namespace에서
-  22번 포트의 negative-only probe도 수행해 같은 관리 peer에조차 닿지 못하는
-  경우 즉시 실패시킨다. TCP 성공을 DDS/UDP 성공으로 간주하지는 않는다.
+  산출물을 거부한다. 관리 SSH는 같은 Tailscale 주소를 쓰더라도 DDS와 별도
+  경로이므로 runtime preflight는 22번 포트를 DDS gate로 사용하지 않는다.
+  interface/address/route 검사 뒤 실제 endpoint heartbeat readiness로 판단한다.
 - 전체 시작은 이제 detached Compose 성공만 보고 끝내지 않고, 각 host에서 모든
   endpoint ID(같은 host에 함께 놓인 role 포함)의 transient-local descriptor와
   live heartbeat를 한 번 점검한다. descriptor만 남고 heartbeat가 끊긴 stale
@@ -180,7 +180,7 @@
   해결했다. 전용 `elesim-unitree-bridge` daemon이 분리된 private NIC/domain의
   stock local/plaintext Unitree DDS를 소유하고, Robot은 credential을 확인하는
   bounded Unix IPC만 사용하면서 유일한 inter-host SROS2 participant로 남는다.
-  Unitree topic은 Elesim policy에 추가하지 않았다. 남은 근거는 실제
+  Unitree topic은 EleSim policy에 추가하지 않았다. 남은 근거는 실제
   Jetson/GO2에서 NIC 격리, 계정/ACL 설정과 bridge 단절·잘못된 packet 시 stop
   deadline을 검증하는 것이다.
 - 필요한 live 근거: 실제 host browser flow, 무권한 publish/subscribe 거부를
@@ -228,7 +228,7 @@
 - GO2 neutral qpos와 neutral self-collision filtering은 live contact/dynamics로
   판단해야 한다. inertia frame 해석도 미결이다.
 - `hppfcl` -> `coal` warning은 Pinocchio/convex-MPC dependency chain에서 오며,
-  Elesim은 `hppfcl`을 직접 import하지 않는다.
+  EleSim은 `hppfcl`을 직접 import하지 않는다.
 
 ### 2026-07-20 refactor에서 닫힌 항목
 

@@ -83,6 +83,12 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         bin_dir=bin_dir,
         project="elesim-runtime",
     )
+    _validate_command(
+        (str(bin_dir / "elesim-viewer-cleanup"),),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
 
     _validate_command(
         (
@@ -157,6 +163,13 @@ def test_host_helper_bounds_runtime_launch_options() -> None:
     with pytest.raises(HostHelperError, match="requires the Sim"):
         _validate_command(
             (str(bin_dir / "elesim-up"), "--no-build", "--view", "pilot"),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
+    with pytest.raises(HostHelperError):
+        _validate_command(
+            (str(bin_dir / "elesim-viewer-cleanup"), "--all"),
             compose=compose,
             bin_dir=bin_dir,
             project="elesim-runtime",

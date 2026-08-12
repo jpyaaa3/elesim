@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the Elesim installer in a disposable Python container.
+# Start the EleSim installer in a disposable Python container.
 set -euo pipefail
 
 repository="${ELESIM_REPOSITORY:-jpyaaa3/elesim}"
@@ -14,7 +14,7 @@ archive_env_file=""
 browser_pid=""
 
 fail() {
-  printf 'Elesim bootstrap error: %s\n' "$*" >&2
+  printf 'EleSim bootstrap error: %s\n' "$*" >&2
   exit 2
 }
 
@@ -58,7 +58,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 if [[ -n ${DOCKER_HOST:-} ]]; then
-  fail "DOCKER_HOST overrides are not supported because an Elesim install pins a local Docker context and exact daemon. Unset DOCKER_HOST and rerun setup."
+  fail "DOCKER_HOST overrides are not supported because an EleSim install pins a local Docker context and exact daemon. Unset DOCKER_HOST and rerun setup."
 fi
 
 if ! docker info >/dev/null 2>&1; then
@@ -85,7 +85,7 @@ docker_host_override="${DOCKER_HOST:-}"
 case "$docker_context_endpoint" in
   unix://*|npipe://*) ;;
   ssh://*|tcp://*)
-    fail "remote Docker contexts are not supported because Elesim mounts local absolute installation paths: context=${docker_context_name} endpoint=${docker_context_endpoint}"
+    fail "remote Docker contexts are not supported because EleSim mounts local absolute installation paths: context=${docker_context_name} endpoint=${docker_context_endpoint}"
     ;;
   *)
     fail "Docker context endpoint is missing or unsupported: context=${docker_context_name:-unknown} endpoint=${docker_context_endpoint:-unknown}"
@@ -260,7 +260,7 @@ if ((gui_mode)); then
   printf '%s\n' "[bootstrap] ${gui_url}"
   printf '%s\n' "[remote] ssh -L ${gui_port}:127.0.0.1:${gui_port} -p <ssh-port> <user>@<server>"
 else
-  printf '%s\n' "[bootstrap] 호스트 Python 환경을 건드리지 않고 Elesim setup을 시작합니다."
+  printf '%s\n' "[bootstrap] 호스트 Python 환경을 건드리지 않고 EleSim setup을 시작합니다."
 fi
 if ((gui_mode)) && [[ "$no_open" != "1" ]] && \
    command -v xdg-open >/dev/null 2>&1 && \

@@ -27,6 +27,7 @@ from elesim_setup.secure_deployment import (
     LocalHostOperations,
     ParamikoConnector,
     RemoteCapabilities,
+    RemoteCommandError,
     RemoteCommandResult,
     RolloutError,
     RuntimeLaunchOptions,
@@ -203,6 +204,25 @@ def test_viewer_launch_flag_is_scoped_to_the_sim_unit() -> None:
         "2",
     )
     assert "--view" not in command
+
+
+def test_viewer_cleanup_is_scoped_to_the_container_sim_unit() -> None:
+    topology = _topology()
+    lifecycle = InstalledElesimLifecycle(topology)
+    session = FakeSession()
+
+    lifecycle.cleanup_viewer(session, topology.host("server"), ("sim",))
+
+    assert session.commands[-1][0] == (
+        "/usr/local/bin/elesim-viewer-cleanup",
+    )
+    command_count = len(session.commands)
+    lifecycle.cleanup_viewer(
+        session,
+        topology.host("laptop"),
+        ("pilot", "ui"),
+    )
+    assert len(session.commands) == command_count
 
 
 def test_mixed_host_lifecycle_commands_remain_unit_scoped() -> None:
@@ -545,6 +565,38 @@ def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
     ]
 
 
+def test_local_viewer_cleanup_is_forwarded_to_the_host_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[tuple[tuple[str, ...], str, float]] = []
+
+    def fake_helper(
+        argv,
+        *,
+        socket_path: str,
+        timeout_s: float,
+        output=None,
+    ) -> RemoteCommandResult:
+        assert output is None
+        forwarded.append((tuple(argv), socket_path, timeout_s))
+        return RemoteCommandResult(0, "", "")
+
+    monkeypatch.setenv("ELESIM_HOST_HELPER_SOCKET", "/run/elesim-helper.sock")
+    monkeypatch.setattr(secure_deployment, "_run_through_host_helper", fake_helper)
+
+    _LocalSession(timeout_s=2).run(
+        ("/opt/elesim/bin/elesim-viewer-cleanup",)
+    )
+
+    assert forwarded == [
+        (
+            ("/opt/elesim/bin/elesim-viewer-cleanup",),
+            "/run/elesim-helper.sock",
+            2,
+        )
+    ]
+
+
 def test_paramiko_session_streams_live_channel_output() -> None:
     class Channel:
         def __init__(self) -> None:
@@ -719,6 +771,9 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
         def asbytes(self) -> bytes:
             return key_bytes
 
+    class AuthenticationException(Exception):
+        pass
+
     class Transport:
         def __init__(self, _connection) -> None:
             self.closed = False
@@ -730,10 +785,10 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
             return Key()
 
         def auth_none(self, username):
-            raise RuntimeError("EOF")
+            raise AuthenticationException("rejected")
 
         def auth_password(self, username, password):
-            raise RuntimeError("EOF")
+            raise AuthenticationException("rejected")
 
         def is_authenticated(self) -> bool:
             return False
@@ -744,7 +799,11 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
     monkeypatch.setitem(
         sys.modules,
         "paramiko",
-        SimpleNamespace(Transport=Transport, SSHClient=lambda: object()),
+        SimpleNamespace(
+            AuthenticationException=AuthenticationException,
+            Transport=Transport,
+            SSHClient=lambda: object(),
+        ),
     )
     endpoint = SshEndpoint(
         "100.64.0.20",
@@ -757,6 +816,70 @@ def test_paramiko_connector_reports_tailscale_check_reauth_failure(
 
     with pytest.raises(RuntimeError, match="Tailscale SSH authentication failed.*action=check"):
         ParamikoConnector(timeout_s=4).connect(endpoint)
+
+
+def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import elesim_setup.secure_deployment as secure_deployment
+
+    key_bytes = b"tailscale-server-key"
+    raw_socket = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(
+        secure_deployment.socket,
+        "create_connection",
+        lambda address, timeout: raw_socket,
+    )
+
+    class AuthenticationException(Exception):
+        pass
+
+    class Key:
+        def asbytes(self) -> bytes:
+            return key_bytes
+
+    class Transport:
+        password_attempted = False
+
+        def __init__(self, _connection) -> None:
+            pass
+
+        def start_client(self, timeout) -> None:
+            pass
+
+        def get_remote_server_key(self):
+            return Key()
+
+        def auth_none(self, username):
+            raise RuntimeError("transport EOF")
+
+        def auth_password(self, username, password):
+            self.__class__.password_attempted = True
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(
+            AuthenticationException=AuthenticationException,
+            Transport=Transport,
+            SSHClient=lambda: object(),
+        ),
+    )
+    endpoint = SshEndpoint(
+        "100.64.0.20",
+        22,
+        "operator",
+        "",
+        ssh_sha256_fingerprint(key_bytes),
+        auth_mode="tailscale",
+    )
+
+    with pytest.raises(RuntimeError, match="transport EOF"):
+        ParamikoConnector(timeout_s=4).connect(endpoint)
+    assert Transport.password_attempted is False
 
 
 class FakeSession:
@@ -1301,7 +1424,7 @@ def test_runtime_doctor_explains_non_json_remote_output() -> None:
         )
 
 
-def test_tailscale_lifecycle_probe_requires_shared_ssh_and_dds_endpoint() -> None:
+def test_runtime_network_check_never_mixes_ssh_ports_into_dds_preflight() -> None:
     raw = _topology().to_dict()
     raw["hosts"][1]["ssh"].update(
         {"port": 22, "identity_file": "", "auth_mode": "tailscale"}
@@ -1317,6 +1440,7 @@ def test_tailscale_lifecycle_probe_requires_shared_ssh_and_dds_endpoint() -> Non
         argv for argv, _check in session.commands if "namespace-check" in argv
     )
     assert "--tcp-peer" not in probe
+    assert "100.64.0.2" in probe
 
     raw["hosts"][1]["ssh"]["host"] = raw["hosts"][1]["dds"]["address"]
     shared = ConnectionTopology.from_dict(raw)
@@ -1327,7 +1451,8 @@ def test_tailscale_lifecycle_probe_requires_shared_ssh_and_dds_endpoint() -> Non
     probe = next(
         argv for argv, _check in session.commands if "namespace-check" in argv
     )
-    assert probe[-2:] == ("--tcp-peer", "100.64.0.2")
+    assert "--tcp-peer" not in probe
+    assert "100.64.0.2" in probe
 
 
 def test_lifecycle_status_ignores_manager_service() -> None:
@@ -1367,6 +1492,35 @@ def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
     )
     assert with_relay["state"] == "running"
     assert with_relay["containers_present"] is True
+
+
+@pytest.mark.parametrize(
+    "failed_tail",
+    (
+        ("ps", "--all", "--services"),
+        ("ps", "--status", "running", "--services"),
+        ("config", "--services"),
+    ),
+)
+def test_lifecycle_status_surfaces_compose_query_failures(
+    failed_tail: tuple[str, ...],
+) -> None:
+    class FailedStatusSession:
+        @staticmethod
+        def run(argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(argv)
+            if values[-len(failed_tail) :] == failed_tail:
+                return RemoteCommandResult(7, "", "compose query failed\n")
+            return RemoteCommandResult(0, "pilot\nui\n")
+
+    topology = _topology()
+    with pytest.raises(RemoteCommandError, match="compose query failed") as captured:
+        InstalledElesimLifecycle(topology).status(
+            FailedStatusSession(), topology.host("laptop")
+        )
+
+    assert captured.value.argv[-len(failed_tail) :] == failed_tail
+    assert captured.value.result.exit_status == 7
 
 
 def test_simulation_only_configuration_does_not_emit_robot_endpoint() -> None:

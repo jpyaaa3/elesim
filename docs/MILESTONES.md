@@ -1,4 +1,4 @@
-# Elesim 마일스톤 및 남은 인수시험
+# EleSim 마일스톤 및 남은 인수시험
 
 기준일: 2026-08-04
 기준 브랜치: `refactoring`
@@ -77,8 +77,8 @@ typed service/action 정의는 생성되어 있지만 runtime에는 아직 연�
   lifecycle을 재사용하며 DDS discovery나 WebRTC media의 생존을 SSH 성공으로
   추정하지 않는다.
 - 정적 peer는 tools runtime namespace에서 `iproute2` route 검사를 거친다.
-  keyless Tailscale SSH topology에는 같은 namespace의 port-22 도달 실패를
-  조기에 보고하는 negative-only probe가 추가되며, 상태·CycloneDDS XML·Compose
+  관리 SSH는 DDS와 독립적으로 검증하며 runtime namespace의 port 22를 DDS
+  gate로 사용하지 않는다. 상태·CycloneDDS XML·Compose
   DDS 값이 어긋난 구형 산출물은 실행 전에 거부한다. 어느 probe도 DDS/UDP
   discovery의 실기 수용을 대신하지 않는다.
 - Observer camera 조작은 pinned Genesis 1.2.0 Trackball 의미(왼쪽 orbit,
@@ -157,7 +157,7 @@ Exit condition:
 
 - JetPack/ROS2 Unitree workspace, dedicated account/group/ACL, 두 systemd
   unit의 `BindsTo`/`PartOf` lifecycle이 실제 설치된다.
-- Unitree DDS가 private NIC/domain에만 묶이고 Elesim inter-host DDS와
+- Unitree DDS가 private NIC/domain에만 묶이고 EleSim inter-host DDS와
   섞이지 않는다.
 - UDS peer credential, malformed packet, sequence/boot replay, bridge
   disconnect가 모두 거부·정지 동작으로 이어진다.

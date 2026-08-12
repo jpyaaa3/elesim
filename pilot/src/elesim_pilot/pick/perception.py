@@ -47,16 +47,6 @@ class PerceptionActions:
             self._pick_frozen_world_xyz = tuple(p_world)
         return p_world
 
-    def _start_remote_preview(self) -> None:
-        self.state.set_perception_status(
-            running=False,
-            failed=True,
-            msg=(
-                "remote perception preview was removed with the legacy media "
-                "transport; Robot publishes RGB-D and Pilot owns perception"
-            ),
-        )
-
     def _stop_remote_preview(self) -> None:
         return
 

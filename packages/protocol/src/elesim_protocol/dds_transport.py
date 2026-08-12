@@ -146,7 +146,7 @@ class DdsRuntimeSettings:
 
     ``trusted-network`` deliberately performs no DDS encryption.  It is for a
     loopback, private LAN, or routed VPN whose membership is controlled outside
-    Elesim.  ``sros2`` enables fail-closed DDS Security and requires a keystore
+    EleSim.  ``sros2`` enables fail-closed DDS Security and requires a keystore
     and enclave.
     """
 
@@ -434,7 +434,7 @@ class DdsPeerNode:
         except ImportError as exc:
             raise DdsTransportError(
                 "ROS 2/DDS runtime is unavailable. Source /opt/ros/humble/setup.bash "
-                "and the Elesim interfaces overlay before starting this role."
+                "and the EleSim interfaces overlay before starting this role."
             ) from exc
 
         self._rclpy = rclpy

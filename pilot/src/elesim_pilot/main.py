@@ -80,7 +80,7 @@ class _ControlFacade:
 
 
 def _run() -> None:
-    parser = argparse.ArgumentParser(description="Elesim control computation agent")
+    parser = argparse.ArgumentParser(description="EleSim control computation agent")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
     parser.add_argument("--id", default="")

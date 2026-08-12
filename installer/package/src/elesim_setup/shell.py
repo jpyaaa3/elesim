@@ -23,7 +23,7 @@ class PathRegistration:
 
 @dataclass(frozen=True)
 class PathUnregistration:
-    """Result of conservatively removing one exact Elesim PATH block."""
+    """Result of conservatively removing one exact EleSim PATH block."""
 
     changed: bool
     matched: bool

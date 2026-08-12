@@ -1,4 +1,4 @@
-# Elesim Maintenance Guide
+# EleSim Maintenance Guide
 
 ## Current Work Handoff
 
@@ -137,7 +137,7 @@
     a new empty prefix pending audited cleanup.
   - The generated connection-manager wrapper publishes its selected GUI port
     on host loopback instead of relying on container host networking. It starts
-    a short-lived, private host helper that accepts only the installed Elesim
+    a short-lived, private host helper that accepts only the installed EleSim
     Compose/network/sidecar commands and an optional bounded host
     `tailscale nc` stream.
     The manager receives neither `docker.sock` nor the tailscaled local API
@@ -190,7 +190,7 @@
     registration.
   - `gui.py` and `web/` remain token-protected, loopback-published,
     Korean/English, size-limited, path-contained, and cooperatively cancellable.
-  - `bootstrap.sh` preserves the invocation directory, selects a free loopback
+  - `install.sh` preserves the invocation directory, selects a free loopback
     port, records outer-host GPU/display facts, and fail-closes rather than
     running a stale cached setup package.
   - Connection-manager SSH transfer uses an agent, an explicitly selected key,
@@ -207,7 +207,7 @@
     create random `run --rm` development containers.
   - Ownership refresh must fail closed when legacy generated paths exist
     without a manifest. Never auto-adopt them. Managed roots are exact
-    Elesim-only subtrees, never the whole Developer checkout, home, or bin
+    EleSim-only subtrees, never the whole Developer checkout, home, or bin
     parent. Do not add prune, wildcard deletion, or upstream-image removal.
   - Runtime log archivers reject direct and ancestor symlinks. Archive failure
     must not prevent `elesim-down` from attempting shutdown, and must still
@@ -337,7 +337,7 @@
     hostname/IP values without ports; `tailscale0` is an interface example.
     SSH uses the remote sshd port (normally 22) for ordinary OpenSSH. The
     explicit Tailscale SSH mode is keyless and fixed at port 22; an HTTP test on
-    8080 is not an Elesim endpoint and is not saved.
+    8080 is not an EleSim endpoint and is not saved.
   - SSH port forwarding such as `ssh -L 8765:127.0.0.1:8765 -p 2222 ...` is
     only for reaching the loopback-bound installer GUI. Port 2222 has no DDS or
     WebRTC runtime meaning.
@@ -388,7 +388,7 @@ before changing release or multi-host behavior.
 
 ## Runtime Topology
 
-Elesim has four independently deployable applications:
+EleSim has four independently deployable applications:
 
 - `pilot`: perception, IK, Pick, Gaze, Vision, and target generation
 - `ui`: operator presentation, intent, remote video, and simulation controls
@@ -491,11 +491,11 @@ fifth application and not part of inter-host DDS.
   session-bound credentials and UI receives no static secret. External TURN
   uses a private JSON credential file mounted only into Sim; UI receives
   the usable value through the active DDS session grant.
-- SSH/`scp` is only a credential transfer mechanism and is not part of Elesim media
+- SSH/`scp` is only a credential transfer mechanism and is not part of EleSim media
   or control transport. Ordinary OpenSSH respects non-default ports; Tailscale
   SSH uses its keyless port-22 mode.
 - Unitree DDS remains plaintext only on the private Jetson-GO2 NIC/domain. The
-  bridge receives no Elesim enclave or CA material; do not widen SROS2 policy
+  bridge receives no EleSim enclave or CA material; do not widen SROS2 policy
   for Unitree topics or expose that participant on Tailscale/shared LAN.
 - Revoke temporary X access such as `xhost +si:localuser:root` after stopping a
   Viewer-enabled container.

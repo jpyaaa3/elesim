@@ -1,4 +1,4 @@
-# Elesim TURN relay
+# EleSim TURN relay
 
 This service relays the two Sim WebRTC streams when direct ICE connectivity is
 unavailable. The normal SROS2 Sim installation includes Coturn in its generated
@@ -33,7 +33,7 @@ service can instead use pre-provisioned credentials. The standalone helper
 writes its secret and `.env` below `$HOME/.local/share/elesim/coturn` (or
 `ELESIM_COTURN_STATE`) rather than into the source checkout.
 
-Elesim's managed-Coturn profile requires SROS2 because the issued credentials
+EleSim's managed-Coturn profile requires SROS2 because the issued credentials
 and WebRTC signaling travel over DDS. `trusted-network` uses direct ICE only;
 legacy external TURN states may use separately provisioned credentials.
 

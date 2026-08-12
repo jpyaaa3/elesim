@@ -25,7 +25,7 @@ python3 -m venv --system-site-packages "${root}/venv"
 "${root}/venv/bin/python" -m pip install --upgrade pip
 "${root}/venv/bin/python" -m pip install -r "${root}/requirements.lock"
 "${root}/venv/bin/python" -m pip install --no-deps "${root}"/wheels/elesim_protocol-*.whl "${root}"/wheels/elesim_robot-*.whl
-printf 'Installed Elesim Robot runtime and ROSIDL overlay under %s\n' "${root}"
+printf 'Installed EleSim Robot runtime and ROSIDL overlay under %s\n' "${root}"
 printf 'Installed executables:\n'
 printf '  %s/venv/bin/elesim-unitree-bridge\n' "${root}"
 printf '  %s/venv/bin/elesim-robot\n' "${root}"
@@ -38,6 +38,6 @@ printf '%s\n' \
   '  1. Provide the elesim Robot account and the dedicated elesim-unitree account/group.' \
   '  2. Add the elesim Robot account to the elesim-unitree supplementary group.' \
   '  3. Install and edit /etc/elesim/robot.yaml; go2.ros_workspace/install/setup.bash must exist.' \
-  '  4. Keep the Unitree DDS interface/domain private and distinct from the Elesim DDS graph.' \
+  '  4. Keep the Unitree DDS interface/domain private and distinct from the EleSim DDS graph.' \
   '  5. Install both service files, reload systemd, and then enable/start elesim-robot.service.' \
   'The Robot service is bound to the bridge; stopping or losing the bridge stops Robot.'

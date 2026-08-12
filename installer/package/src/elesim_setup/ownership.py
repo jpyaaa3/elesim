@@ -1,7 +1,7 @@
 """Install ownership records used by the host-only safe uninstaller.
 
 The manifest is deliberately independent from :mod:`elesim_setup.state`.
-Runtime state is mutable and describes how to run Elesim; this file records
+Runtime state is mutable and describes how to run EleSim; this file records
 which host resources one exact installation is allowed to remove.
 """
 
@@ -608,7 +608,7 @@ def prepare_ownership_refresh(
         if existing:
             rendered = "\n".join(f"  - {path}" for path in existing)
             raise OwnershipError(
-                "ownership manifest 없는 기존 Elesim 후보 경로를 자동 인수하지 "
+                "ownership manifest 없는 기존 EleSim 후보 경로를 자동 인수하지 "
                 "않습니다. 파일을 정확히 백업·정리하거나 기존 설치기의 clean "
                 f"uninstall을 먼저 실행하십시오:\n{rendered}"
             )
@@ -834,7 +834,7 @@ def install_host_uninstaller_bundle(
     package_root.mkdir(parents=True, exist_ok=True)
     files: list[Path] = []
     init = package_root / "__init__.py"
-    _atomic_text(init, '"""Elesim host-only uninstall maintenance bundle."""\n', mode=0o644)
+    _atomic_text(init, '"""EleSim host-only uninstall maintenance bundle."""\n', mode=0o644)
     files.append(init)
     for name in ("ownership.py", "shell.py", "uninstall.py", "host_helper.py"):
         source_file = source / name
@@ -849,7 +849,7 @@ def install_host_uninstaller_bundle(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "if ! command -v python3 >/dev/null 2>&1; then\n"
-        "  printf 'host python3가 없어 Elesim 안전 제거기를 실행할 수 없습니다.\\n' >&2\n"
+        "  printf 'host python3가 없어 EleSim 안전 제거기를 실행할 수 없습니다.\\n' >&2\n"
         "  exit 127\n"
         "fi\n"
         f"export PYTHONPATH={shlex.quote(str(bundle_path))}\n"

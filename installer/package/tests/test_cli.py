@@ -198,31 +198,6 @@ def test_runtime_namespace_check_rejects_route_without_device(local_state) -> No
         )
 
 
-def test_tailscale_tcp_probe_is_negative_only() -> None:
-    calls: list[tuple[object, object]] = []
-
-    class Connection:
-        def close(self) -> None:
-            return None
-
-    def connector(address, **kwargs):
-        calls.append((address, kwargs.get("timeout")))
-        return Connection()
-
-    network.require_runtime_tcp_reachability(
-        ("100.74.222.24",), connector=connector
-    )
-    assert calls == [(('100.74.222.24', 22), 1.5)]
-
-    def blocked(_address, **_kwargs):
-        raise TimeoutError("timed out")
-
-    with pytest.raises(RuntimeError, match="runtime namespace cannot reach"):
-        network.require_runtime_tcp_reachability(
-            ("100.74.222.24",), connector=blocked
-        )
-
-
 def test_generated_dds_views_must_match_state(local_state) -> None:
     state = local_state(
         roles=("pilot",),

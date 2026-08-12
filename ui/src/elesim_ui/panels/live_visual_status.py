@@ -9,7 +9,6 @@ from elesim_ui.helpers import _color_u32, _draw_line, _draw_text, _imgui_scale, 
 
 
 _HOST_STALE_S = 2.0
-_STATUS_LABEL_W = 82.0
 _CURRENT_YELLOW_COLOR = (1.0, 0.67, 0.08)
 _CURRENT_RED_COLOR = (1.0, 0.18, 0.18)
 _DEFAULT_TEXT_COLOR = (0.10, 0.11, 0.13, 1.0)
@@ -134,13 +133,6 @@ def _text_value(value: object, *, color: tuple[float, float, float] | None = Non
         imgui.text(_blank(value))
     else:
         imgui.text_colored(_blank(value), float(color[0]), float(color[1]), float(color[2]))
-
-
-def _readonly_text_field(label: str, value: object, identifier: str) -> None:
-    text = _blank(value)
-    imgui.text(str(label))
-    imgui.same_line(_scaled_px(_STATUS_LABEL_W))
-    _readonly_text_value(text, identifier)
 
 
 def _readonly_text_value(value: object, identifier: str) -> None:
@@ -946,20 +938,3 @@ def draw_resolution_panel(panel) -> None:
     if not panel_header("Resolution", visible=True)[0]:
         return
     _draw_ui_resolution_controls(panel)
-
-
-def draw_gaze_status_compact(panel) -> None:
-    st = panel.state
-    tag = "RUNNING" if bool(st.gaze_running) else "OFF"
-    imgui.text(
-        "Gaze [%s] mode=%s updates=%d u_err=%+.3f v_err=%+.3f"
-        % (
-            tag,
-            str(st.gaze_mode) or "idle",
-            int(st.gaze_update_count),
-            float(st.gaze_u_err),
-            float(st.gaze_v_err),
-        )
-    )
-    if str(st.gaze_status_msg).strip():
-        imgui.text_wrapped(str(st.gaze_status_msg))

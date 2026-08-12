@@ -1,4 +1,4 @@
-"""Loopback-only browser connection manager for an Elesim DDS graph.
+"""Loopback-only browser connection manager for an EleSim DDS graph.
 
 The browser edits only the non-secret :class:`ConnectionTopology` document.
 Provisioning and rollout work is injected so this HTTP boundary never needs to
@@ -29,6 +29,7 @@ from .connection_manager import (
     TwoHostPreflight,
 )
 from .secure_deployment import RuntimeLaunchOptions
+from .state import GPU_MODES
 
 
 ConnectionRunner = Callable[
@@ -97,6 +98,7 @@ class ConnectionJob:
     finished_at: float | None = None
     interaction: dict[str, str] | None = None
     topology_updated: bool = False
+    runtime_options: dict[str, object] | None = None
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -108,6 +110,9 @@ class ConnectionJob:
             "finished_at": self.finished_at,
             "interaction": None if self.interaction is None else dict(self.interaction),
             "topology_updated": self.topology_updated,
+            "runtime_options": (
+                None if self.runtime_options is None else dict(self.runtime_options)
+            ),
         }
 
 
@@ -126,6 +131,7 @@ class ConnectionManagerApplication:
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
         authority_root: Path | None = None,
+        gpu_mode: str = "cpu",
     ) -> None:
         self.state_path = state_path.expanduser()
         self.token = str(token)
@@ -146,6 +152,9 @@ class ConnectionManagerApplication:
         self.authority_root = (
             None if authority_root is None else authority_root.expanduser().resolve()
         )
+        self.gpu_mode = str(gpu_mode).strip()
+        if self.gpu_mode not in GPU_MODES:
+            raise ValueError(f"unsupported installed GPU mode: {self.gpu_mode!r}")
         self.job = ConnectionJob()
         self._job_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -164,6 +173,9 @@ class ConnectionManagerApplication:
             "topology": None if topology is None else topology.to_dict(),
             "derived_static_peers": self._derived_peers(topology),
             "security": self._security_context(topology),
+            "runtime_options": {
+                "gpu_inherit_available": self.gpu_mode == "inherit",
+            },
             "local_defaults": {
                 "install_root": self.local_install_root,
                 "bin_dir": self.local_bin_dir,
@@ -324,6 +336,14 @@ class ConnectionManagerApplication:
             if action in {"start", "restart"}
             else None
         )
+        if (
+            runtime_options is not None
+            and runtime_options.gpu_inherit
+            and self.gpu_mode != "inherit"
+        ):
+            raise ValueError(
+                "CUDA_VISIBLE_DEVICES override requires an inherit-mode installation"
+            )
         with self._job_lock:
             if self.job.status in {"running", "cancelling"}:
                 raise RuntimeError("a connection-manager job is already running")
@@ -339,6 +359,15 @@ class ConnectionManagerApplication:
                 status="running",
                 action=action,
                 started_at=time.time(),
+                runtime_options=(
+                    None
+                    if runtime_options is None
+                    else {
+                        "gpu_inherit": runtime_options.gpu_inherit,
+                        "gpu_device": runtime_options.gpu_device,
+                        "viewer": runtime_options.viewer,
+                    }
+                ),
             )
         thread = threading.Thread(
             target=self._run_job,
@@ -772,6 +801,7 @@ def run_connection_gui(
     local_install_root: Path | None = None,
     local_bin_dir: Path | None = None,
     authority_root: Path | None = None,
+    gpu_mode: str = "cpu",
 ) -> int:
     session_token = token or secrets.token_urlsafe(32)
     application = ConnectionManagerApplication(
@@ -783,6 +813,7 @@ def run_connection_gui(
         local_install_root=local_install_root,
         local_bin_dir=local_bin_dir,
         authority_root=authority_root,
+        gpu_mode=gpu_mode,
     )
     server = ConnectionManagerServer(
         (host, int(port)),

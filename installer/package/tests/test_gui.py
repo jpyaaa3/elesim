@@ -52,8 +52,8 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
         "전체 소스와 SDK를 포함한 컨테이너를 만듭니다."
     )
     assert "mode.developer.privileged" not in catalog["ko"]
-    assert catalog["ko"]["app.title"] == "Elesim 설치 마법사"
-    assert catalog["en"]["app.title"] == "Elesim Install Wizard"
+    assert catalog["ko"]["app.title"] == "EleSim 설치 마법사"
+    assert catalog["en"]["app.title"] == "EleSim Install Wizard"
     assert 'data-i18n="app.title"' in html
     assert '<img src="/icon.svg" alt="">' in html
     assert '<link rel="icon" href="/icon.svg" type="image/svg+xml">' in html

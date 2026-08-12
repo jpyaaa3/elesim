@@ -15,7 +15,11 @@ from elesim_setup.connection_manager import (
     SshEndpoint,
 )
 from elesim_setup.connection_gui import ConnectionJobCancelled
-from elesim_setup.connections import ConnectionDeploymentRunner
+from elesim_setup.connections import (
+    ConnectionDeploymentRunner,
+    OperationCloseError,
+    RuntimeRollbackError,
+)
 from elesim_setup.secure_deployment import RuntimeLaunchOptions
 
 
@@ -29,6 +33,14 @@ class _NoopNetworkPreparation:
 
     @staticmethod
     def runtime_launch_preflight(_host):
+        return None
+
+    @staticmethod
+    def status(_host):
+        return {"state": "stopped", "running_roles": []}
+
+    @staticmethod
+    def cleanup_viewer(_host, _roles=None):
         return None
 
 
@@ -257,6 +269,92 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
     assert received_options == [options, options]
 
 
+def test_runtime_stop_revokes_viewer_acl_only_after_sim_has_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+
+        def cleanup_viewer(self, host, _roles=None) -> None:
+            if "sim" in host.roles:
+                events.append(f"viewer-cleanup:{self.host_id}")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    runner(topology, "stop", lambda _message: None)
+
+    assert events == [
+        "stop:jetson",
+        "stop:operator",
+        "viewer-cleanup:operator",
+    ]
+
+
+def test_runtime_stop_continues_other_hosts_after_viewer_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = _topology(tmp_path, security_profile="trusted-network")
+    # Put the Sim host last so the reverse stop order encounters its cleanup
+    # failure before the other host.  The remaining stop must still run.
+    topology = replace(original, hosts=tuple(reversed(original.hosts)))
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+
+        def cleanup_viewer(self, host, _roles=None) -> None:
+            if "sim" not in host.roles:
+                return
+            events.append(f"viewer-cleanup:{self.host_id}")
+            raise RuntimeError("X server is gone")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {
+                host.host_id: Operations(host.host_id) for host in graph.hosts
+            }
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(RuntimeError, match="operator/viewer-cleanup"):
+        runner(topology, "stop", lambda _message: None)
+
+    assert events == [
+        "stop:operator",
+        "viewer-cleanup:operator",
+        "stop:jetson",
+    ]
+
+
 def test_runtime_start_reports_dds_readiness_after_launch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -435,6 +533,347 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
 
     assert any("expected endpoint가 아직 발견되지 않음" in message for message in logs)
     assert any("런타임을 롤백합니다" in message for message in logs)
+
+
+@pytest.mark.parametrize("action", ("start", "restart"))
+def test_runtime_readiness_preserves_compensating_stop_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    logs: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+            self.stop_calls = 0
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def build(self, _host, _output) -> None:
+            return None
+
+        def launch(self, _host) -> None:
+            return None
+
+        def start(self, _host) -> None:
+            return None
+
+        def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
+            assert timeout_s == 60
+            return {"ok": False, "results": None}
+
+        def stop(self, _host) -> None:
+            self.stop_calls += 1
+            initial_restart_stops = 1 if action == "restart" else 0
+            if self.stop_calls > initial_restart_stops:
+                raise RuntimeError(f"cannot stop {self.host_id}")
+
+    operations = {
+        host.host_id: Operations(host.host_id) for host in topology.hosts
+    }
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(lambda _graph: operations),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(RuntimeRollbackError) as captured:
+        runner(topology, action, logs.append)
+
+    assert isinstance(captured.value.cause, RuntimeError)
+    assert "DDS readiness failed" in str(captured.value.cause)
+    assert captured.value.__cause__ is captured.value.cause
+    assert [host_id for host_id, _error in captured.value.rollback_errors] == [
+        "jetson",
+        "operator",
+    ]
+    assert all(
+        isinstance(error, RuntimeError)
+        for _host_id, error in captured.value.rollback_errors
+    )
+    assert "jetson: cannot stop jetson" in str(captured.value)
+    assert "operator: cannot stop operator" in str(captured.value)
+
+
+@pytest.mark.parametrize("action", ("start", "restart"))
+def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def runtime_launch_preflight(self, _host) -> None:
+            return None
+
+        def build(self, _host, _output) -> None:
+            return None
+
+        def launch(self, _host) -> None:
+            events.append(f"launch:{self.host_id}")
+            raise RuntimeError(f"partial launch on {self.host_id}")
+
+        def start(self, _host) -> None:
+            events.append(f"start:{self.host_id}")
+            raise RuntimeError(f"partial start on {self.host_id}")
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+
+        def cleanup_viewer(self, _host, _roles=None) -> None:
+            events.append(f"viewer-cleanup:{self.host_id}")
+
+    operations = {
+        host.host_id: Operations(host.host_id) for host in topology.hosts
+    }
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(lambda _graph: operations),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority",
+        local_install_root=tmp_path / "install",
+    )
+
+    with pytest.raises(RuntimeError, match="partial"):
+        runner(topology, action, lambda _message: None)
+
+    initial_stop = ["stop:jetson", "stop:operator"] if action == "restart" else []
+    attempted = "launch:operator" if action == "start" else "start:operator"
+    rollback_cleanup = ["viewer-cleanup:operator"] if action == "start" else []
+    assert events == [
+        *initial_stop,
+        attempted,
+        "stop:operator",
+        *rollback_cleanup,
+    ]
+
+
+def test_runtime_second_host_partial_launch_rolls_back_both_in_reverse_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def build(self, _host, _output) -> None:
+            return None
+
+        def launch(self, _host) -> None:
+            events.append(f"launch:{self.host_id}")
+            if self.host_id == "jetson":
+                raise RuntimeError("partial second host")
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+
+    operations = {
+        host.host_id: Operations(host.host_id) for host in topology.hosts
+    }
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(lambda _graph: operations),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority", local_install_root=tmp_path / "install"
+    )
+
+    with pytest.raises(RuntimeError, match="partial second host"):
+        runner(topology, "start", lambda _message: None)
+
+    assert events == [
+        "launch:operator",
+        "launch:jetson",
+        "stop:jetson",
+        "stop:operator",
+    ]
+
+
+def test_runtime_start_rejects_mixed_running_state_before_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def status(self, host):
+            return {
+                "state": "running",
+                "running_roles": [host.roles[0]],
+            }
+
+        def build(self, host, _output) -> None:
+            events.append(f"build:{host.host_id}")
+
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(
+            lambda graph: {host.host_id: Operations() for host in graph.hosts}
+        ),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority", local_install_root=tmp_path / "install"
+    )
+
+    with pytest.raises(RuntimeError, match="재시작"):
+        runner(topology, "start", lambda _message: None)
+
+    assert events == []
+
+
+def test_restart_stop_failure_restores_previously_running_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    events: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def preflight(self, _host):
+            class Capabilities:
+                @staticmethod
+                def require_for(_managed_host) -> None:
+                    return None
+
+            return Capabilities()
+
+        def runtime_network_check(self, _host) -> None:
+            return None
+
+        def status(self, host):
+            return {"state": "running", "running_roles": list(host.roles)}
+
+        def stop(self, _host) -> None:
+            events.append(f"stop:{self.host_id}")
+            if self.host_id == "operator":
+                raise RuntimeError("partial stop")
+
+        def start(self, _host, roles=None) -> None:
+            events.append(f"restore:{self.host_id}:{','.join(roles or ())}")
+
+    operations = {
+        host.host_id: Operations(host.host_id) for host in topology.hosts
+    }
+    monkeypatch.setattr(
+        ConnectionDeploymentRunner,
+        "_operations",
+        staticmethod(lambda _graph: operations),
+    )
+    runner = ConnectionDeploymentRunner(
+        tmp_path / "authority", local_install_root=tmp_path / "install"
+    )
+
+    with pytest.raises(RuntimeError, match="partial stop"):
+        runner(topology, "restart", lambda _message: None)
+
+    assert events == [
+        "stop:jetson",
+        "stop:operator",
+        "restore:operator:pilot,sim,ui",
+        "restore:jetson:robot",
+    ]
+
+
+def test_operation_close_attempts_every_host_and_preserves_primary_error() -> None:
+    events: list[str] = []
+
+    class Operation:
+        def __init__(self, host_id: str) -> None:
+            self.host_id = host_id
+
+        def close(self) -> None:
+            events.append(self.host_id)
+            raise RuntimeError(f"close {self.host_id}")
+
+    operations = {
+        host_id: Operation(host_id) for host_id in ("operator", "jetson")
+    }
+
+    with pytest.raises(OperationCloseError) as captured:
+        try:
+            raise ValueError("deployment failed")
+        finally:
+            ConnectionDeploymentRunner._close_operations(operations)  # type: ignore[arg-type]
+
+    assert events == ["operator", "jetson"]
+    assert isinstance(captured.value.cause, ValueError)
+    assert captured.value.__cause__ is captured.value.cause
+    assert [host_id for host_id, _error in captured.value.close_errors] == [
+        "operator",
+        "jetson",
+    ]
+
+
+def test_operation_close_without_primary_reports_cleanup_only() -> None:
+    class Operation:
+        @staticmethod
+        def close() -> None:
+            raise RuntimeError("close failed")
+
+    with pytest.raises(OperationCloseError) as captured:
+        ConnectionDeploymentRunner._close_operations(  # type: ignore[arg-type]
+            {"operator": Operation()}
+        )
+
+    assert captured.value.cause is None
+    assert captured.value.__cause__ is None
 
 
 def test_runtime_readiness_accepts_multi_unit_doctor_envelope() -> None:

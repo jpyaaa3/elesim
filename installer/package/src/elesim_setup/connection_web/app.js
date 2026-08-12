@@ -40,6 +40,7 @@ let pollTimer = null;
 let runtimePollTimer = null;
 let runtimeRestartable = false;
 let runtimeOptionsLocked = false;
+let gpuInheritAvailable = null;
 let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
@@ -53,25 +54,6 @@ const workflowStates = {save: "pending", apply: "pending", start: "pending"};
 const byId = (id) => document.getElementById(id);
 const card = (slot) => document.querySelector(`.host-card[data-slot="${slot}"]`);
 const field = (slot, name) => card(slot).querySelector(`[data-field="${name}"]`);
-
-function addField(slot, name, labelKey, value = "", {checkbox = false, wide = false, unitRole = ""} = {}) {
-  const hostFields = card(slot).querySelector(".host-fields");
-  if (field(slot, name)) return field(slot, name);
-  const label = document.createElement("label");
-  if (wide) label.classList.add("wide");
-  if (unitRole) label.dataset.unitRole = unitRole;
-  const input = document.createElement("input");
-  input.dataset.field = name;
-  input.type = checkbox ? "checkbox" : "text";
-  if (checkbox) input.checked = Boolean(value);
-  else input.value = value;
-  input.spellcheck = false;
-  const span = document.createElement("span");
-  span.dataset.i18n = labelKey;
-  label.append(input, span);
-  hostFields.append(label);
-  return input;
-}
 
 function normalizeHostCards() {
   // Schema-v3 shipped a special Robot card. Reuse that DOM slot as Jetson
@@ -728,7 +710,7 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
 }
 
 function runtimeLaunchOptions() {
-  const gpuInherit = Boolean(byId("gpu-inherit")?.checked);
+  const gpuInherit = gpuInheritAvailable === true && Boolean(byId("gpu-inherit")?.checked);
   return {
     gpu_inherit: gpuInherit,
     gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : "",
@@ -740,15 +722,33 @@ function updateRuntimeOptions() {
   const inherit = byId("gpu-inherit");
   const device = byId("gpu-device");
   if (!inherit || !device) return;
-  inherit.disabled = runtimeOptionsLocked;
-  device.disabled = runtimeOptionsLocked || !inherit.checked;
+  if (gpuInheritAvailable === false) inherit.checked = false;
+  inherit.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true;
+  device.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true || !inherit.checked;
   const viewer = byId("use-viewer");
   if (viewer) viewer.disabled = runtimeOptionsLocked;
+}
+
+function applyRuntimeCapabilities(context) {
+  gpuInheritAvailable = context?.runtime_options?.gpu_inherit_available === true;
+  updateRuntimeOptions();
 }
 
 function setRuntimeOptionsLocked(locked) {
   runtimeOptionsLocked = Boolean(locked);
   updateRuntimeOptions();
+}
+
+function restoreRuntimeOptions(job) {
+  if (!job || !["start", "restart"].includes(job.action) || !job.runtime_options) return;
+  const options = job.runtime_options;
+  const inherit = byId("gpu-inherit");
+  const device = byId("gpu-device");
+  const viewer = byId("use-viewer");
+  if (inherit) inherit.checked = gpuInheritAvailable === true && Boolean(options.gpu_inherit);
+  if (device) device.value = gpuInheritAvailable === true ? String(options.gpu_device ?? "") : "";
+  if (viewer) viewer.checked = Boolean(options.viewer);
+  setRuntimeOptionsLocked(true);
 }
 
 async function saveTopology({quiet = false, invalidate = true} = {}) {
@@ -901,7 +901,6 @@ function setJobRunning(running) {
   ["save", "topology-mode", "runtime-start"].forEach((id) => { byId(id).disabled = running; });
   updateWorkflow(running);
   byId("cancel").disabled = !running;
-  if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);
 }
 
 async function pollJob() {
@@ -912,6 +911,7 @@ async function pollJob() {
     byId("job-status").textContent = `${t(key)}${job.action ? ` · ${t(`action.${job.action}`)}` : ""}`;
     byId("job-log").textContent = [...job.logs, job.error].filter(Boolean).join("\n");
     const running = ["running", "cancelling"].includes(job.status);
+    restoreRuntimeOptions(job);
     const step = workflowStepForAction(job.action);
     const topologyAppliedByThisJob =
       job.status === "completed" &&
@@ -927,6 +927,7 @@ async function pollJob() {
     }
     if (!running && job.topology_updated) {
       const context = await api("/api/context");
+      applyRuntimeCapabilities(context);
       if (context.topology) applyTopology(context.topology);
       // A sidecar-discovered address is factual input, not an implicit save.
       // Keep the form populated but require the operator to validate/save it
@@ -1063,6 +1064,7 @@ async function initialize() {
     applyLanguage("ko");
     computerSlots.forEach(setCardActive);
     const context = await api("/api/context");
+    applyRuntimeCapabilities(context);
     schemaVersion = context.schema_version;
     applyTopologyMode(context.topology?.topology_mode || "full");
     if (!context.topology) {

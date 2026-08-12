@@ -21,7 +21,7 @@ runtime deployment. The source-only `environment/coturn` project remains an
 external-relay operator input and is not copied into `dist/releases`.
 The Docker Desktop `tailscale` Compose service is likewise generated host
 network infrastructure. It uses a pinned upstream Tailscale image and does not
-create a fifth Elesim release tree or application wheel.
+create a fifth EleSim release tree or application wheel.
 
 The build command verifies every generated context by default. It performs a
 clean `--no-deps` temporary install, checks wheel ownership, parses the shipped
@@ -49,7 +49,7 @@ commit:
 # [each Sim/Pilot/UI host]
 elesim_commit=0123456789abcdef0123456789abcdef01234567
 curl -fsSL \
-  "https://raw.githubusercontent.com/jpyaaa3/elesim/${elesim_commit}/installer/bootstrap/bootstrap.sh" \
+  "https://raw.githubusercontent.com/jpyaaa3/elesim/${elesim_commit}/installer/bootstrap/install.sh" \
   | ELESIM_REF="$elesim_commit" bash
 ```
 
@@ -81,7 +81,7 @@ Choose one security profile:
   certificate authority and unrelated role private keys off runtime hosts.
 
 For SROS2, choose one provisioning owner. `external` means the operator supplies
-and rotates the local keystore/enclave outside Elesim. `managed` means
+and rotates the local keystore/enclave outside EleSim. `managed` means
 `elesim-connections` on the operator laptop owns the Authority generation and
 deploys a common-public-plus-assigned-enclaves bundle to each host. Never copy
 the Authority's `private/` tree to a runtime host.
@@ -182,14 +182,14 @@ doctor, and active Sim-owned Coturn in the `tailscale` service's namespace. The
 ordinary administrative tools service remains usable before enrollment.
 Docker Desktop cannot inherit the WSL distribution's existing `tailscale0`;
 the kernel-mode sidecar creates its own interface and tailnet IP inside the
-Docker VM. This service is host network infrastructure, not an Elesim
+Docker VM. This service is host network infrastructure, not an EleSim
 application, Router, broker, or DDS relay. Its privileged upstream image is
 version-and-digest pinned.
 
 Enroll a generated sidecar with `elesim-tailscale login` and inspect it
 with `elesim-tailscale status`. Login uses a browser/device flow; an explicit
 repeat of `login` re-authenticates a stale `Running` node. Runtime launch uses
-an idempotent internal check and does not open a browser. Elesim stores
+an idempotent internal check and does not open a browser. EleSim stores
 no Tailscale auth/OAuth key or browser credential; only the enrolled node state
 persists across ordinary down/up/update. Use the sidecar IP as the DDS address
 and the WSL/host IP as SSH management address when they differ. Routed
@@ -206,11 +206,11 @@ remains a read-only bind/route gate; it does not prove discovery, SROS2
 authorization, RGB-D, or WebRTC media. The Tailscale SSH helper still cannot
 relay DDS UDP; the sidecar path works by sharing the enrolled namespace rather
 than tunneling DDS through SSH.
-For keyless Tailscale SSH hosts the lifecycle also runs a negative-only TCP
-port-22 probe inside the runtime namespace. It is not a DDS/UDP acceptance
-test; it only turns the stronger failure (the runtime cannot reach the same
-peer path used by management) into an immediate actionable error instead of a
-long `target peer ... is not active` wait. The generated tools image carries
+Management SSH and DDS remain separate paths even when an operator chooses the
+same Tailscale address for both. Runtime preflight therefore does not require
+the DDS namespace to reach SSH port 22. The manager validates its SSH
+connection independently; DDS readiness is decided by interface/address/route
+checks followed by live endpoint heartbeats. The generated tools image carries
 `iproute2`, and the launch guard rejects stale state/XML/Compose DDS values.
 
 The same GUI also exposes explicit host-lifecycle actions: `check` is a
@@ -232,11 +232,17 @@ The final launch uses the installed `elesim-up --no-build` wrapper rather than
 bypassing it with a raw Compose invocation. A checked Viewer option therefore
 uses the wrapper's real `--view` path, including `DISPLAY` validation and the
 temporary bounded `xhost` grant. For a non-interactive connection-manager SSH
-launch, the wrapper probes only the invoking user's current display, actual
-`/tmp/.X11-unix/X<n>` sockets (at most 16), `:0`, and that user's normal or GDM
-Xauthority paths. It starts Sim only after one exact combination passes an
-`xhost` connection check. The optional GPU number is passed through the same
-wrapper as a one-shot `CUDA_VISIBLE_DEVICES` value.
+launch, the wrapper accepts the invoking user's current display only when it is
+a local `:<n>` display backed by an actual `/tmp/.X11-unix/X<n>` socket. It
+also probes at most 16 such sockets and the user's normal or GDM Xauthority
+paths; SSH-forwarded/TCP displays are not container-reachable and are rejected.
+After the host-side `xhost` check, a one-shot Sim container using the installed
+image and UID/GID must open a hidden X11/GL context before detached startup.
+The normal Sim entrypoint repeats that preflight before DDS is initialized. An
+explicit manager Stop and a failed full Start revoke the EleSim-owned grant
+after Sim is stopped; security rotation's temporary stop/start deliberately
+keeps it because the same Viewer container resumes. The optional GPU number is
+passed through the same wrapper as a one-shot `CUDA_VISIBLE_DEVICES` value.
 Security deployment and rotation never build or recreate
 containers; they resume exactly the role containers that were running before
 the switch. Their badges describe
@@ -342,7 +348,7 @@ For a clean Ubuntu host, prefer the setup-generated Compose project over manual
 role builds:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
 elesim-up
 ```
 
@@ -442,7 +448,7 @@ container, so repeated shells do not create randomly named temporary
 containers. It contains the project-owned ROS/scientific test stack and is the
 canonical replacement for external personal development Compose environments.
 The connection GUI runs, when requested, in a removable `elesim-manager`
-one-shot container. A private host-side helper exposes only allowlisted Elesim
+one-shot container. A private host-side helper exposes only allowlisted EleSim
 Compose/network commands and optional `tailscale nc`; the manager receives no
 Docker or tailscaled daemon socket. It does not become a fifth persistent
 development/runtime application.
@@ -466,7 +472,7 @@ A `tailscale-sidecar` install additionally owns the fixed
 `<prefix>/secrets/tailscale` node-state directory. Ordinary `elesim-down` and
 `elesim-update` preserve that directory so device enrollment is not repeated.
 The ownership manifest records the install-owned `<prefix>/secrets` root, which
-contains that exact bind directory and any Elesim-owned TURN secret. Validated
+contains that exact bind directory and any EleSim-owned TURN secret. Validated
 uninstall removes that root; it does not prune Docker or remove the upstream
 `tailscale/tailscale` image, which may be shared by unrelated projects. Local
 state removal does not revoke the device record from the tailnet control plane;
@@ -492,11 +498,15 @@ keeping the observer and hand-eye render cameras enabled.
 연결관리자가 비대화형 SSH로 실행해 `DISPLAY`를 상속받지 못한 경우에는 Sim
 호스트의 실제 X11 Unix socket과 설치 사용자의 `.Xauthority` 또는 GDM
 Xauthority를 제한적으로 확인한다. 접속 가능한 조합이 검증되지 않으면 Sim을
-시작하기 전에 실패한다.
+시작하기 전에 실패한다. 호스트 권한 검사 뒤에는 동일 이미지와 UID/GID의
+일회성 Sim 컨테이너가 숨겨진 X11/GL context를 실제로 열어야 하며, 본 Sim
+entrypoint도 DDS를 초기화하기 전에 같은 검사를 반복한다. 이는 잘못된
+DISPLAY가 잠깐 DDS readiness로 보이는 것을 막지만, 최종 Genesis 창이 해당
+모니터에서 보이고 조작되는지는 실제 호스트에서 별도로 확인해야 한다.
 실행 시 Sim 컨테이너를 실행하는 설치 사용자의 X11 권한을 필요할 때만 임시로
-추가하고, `elesim-down` 시 Elesim이 기록한 권한만 회수한다. 기존에 있던
-권한은 유지한다. Sim은 설치 사용자의 UID/GID로 실행되므로 root ACL을
-추가할 필요가 없다.
+추가하고, `elesim-down`, 연결관리자의 명시적 중지, 또는 전체 시작 롤백 시
+EleSim이 기록한 권한만 회수한다. 기존에 있던 권한은 유지한다. Sim은 설치
+사용자의 UID/GID로 실행되므로 root ACL을 추가할 필요가 없다.
 
 ```bash
 DISPLAY=:0 CUDA_VISIBLE_DEVICES=0 elesim-up --view
@@ -543,12 +553,12 @@ Jetson by selecting **Robot only** in the native setup path. Setup generates
 `elesim-robot.service` and
 `elesim-unitree-bridge.service` and prints exact account/group, ACL, unit
 registration and enable commands without running `sudo`. The Robot unit runs as
-the invoking account and owns the Elesim DDS/SROS2 participant, hardware and
+the invoking account and owns the EleSim DDS/SROS2 participant, hardware and
 local safety. The bridge runs as the dedicated `elesim-unitree` account and
 owns only stock local/plaintext Unitree DDS.
 
 Bind the bridge to the private Jetson-to-GO2 physical NIC and a domain distinct
-from the Elesim graph. Bind Elesim DDS to its LAN/VPN interface. The two
+from the EleSim graph. Bind EleSim DDS to its LAN/VPN interface. The two
 interfaces must differ; never expose Unitree topics on Tailscale or the shared
 lab LAN. The only process boundary between them is the credential-checked,
 bounded `/run/elesim-unitree/bridge.sock`. A disconnect, malformed packet or
@@ -557,7 +567,7 @@ while Robot continues the arm safe-hold/torque-off path independently.
 
 The generated wrappers preserve saved DDS configuration, role-scoped SROS2
 keys, provisioning guards and later rotations. The bridge wrapper does not
-receive the Elesim SROS2 enclave and Unitree topics are absent from the Elesim
+receive the EleSim SROS2 enclave and Unitree topics are absent from the EleSim
 security policy. Set `UNITREE_ROS2_WS` or `ELESIM_UNITREE_ROS2_WS` before
 bootstrap if the workspace is not `$HOME/ros2_ws`. Override the private-link
 defaults (`eth0`, domain `1`) with `ELESIM_UNITREE_INTERFACE` and

@@ -516,7 +516,9 @@ def test_static_discovery_peers_seed_co_located_roles() -> None:
 
 
 def test_static_discovery_peers_seed_one_host_simulation_roles() -> None:
-    topology = _simulation_topology()
+    raw = _simulation_topology().to_dict()
+    raw["dds_graph"]["discovery_mode"] = "static"
+    topology = ConnectionTopology.from_dict(raw)
 
     assert topology.discovery_peers("sim-laptop") == ("100.64.0.40",)
 

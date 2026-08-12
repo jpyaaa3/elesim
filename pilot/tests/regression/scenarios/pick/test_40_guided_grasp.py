@@ -127,6 +127,56 @@ class TestGraspGuidedHelpers(unittest.TestCase):
         self.assertAlmostEqual(client.kwargs[0]["qdot"].roll_rad, 0.10)
         self.assertAlmostEqual(client.kwargs[0]["velocity_dt_s"], 0.10)
 
+    def test_host_native_lji_stop_failure_is_not_swallowed(self) -> None:
+        class _Client:
+            host_native_control = True
+
+            @staticmethod
+            def has_hardware() -> bool:
+                return True
+
+            @staticmethod
+            def apply_lji_q_direct(*_args, **_kwargs) -> None:
+                return None
+
+            @staticmethod
+            def stop_lji_velocity_control(*, reason: str) -> None:
+                raise RuntimeError(f"stop failed: {reason}")
+
+        svc = ControlService(PanelState(), client=_Client(), use_hardware=True)
+
+        with self.assertRaisesRegex(RuntimeError, "stop failed: test"):
+            svc._stop_lji_velocity_control("test")
+
+    def test_normal_dds_client_has_no_host_native_lji_stop_call(self) -> None:
+        client = MagicMock()
+        client.host_native_control = False
+        svc = ControlService(PanelState(), client=client, use_hardware=True)
+
+        svc._stop_lji_velocity_control("test")
+
+        client.stop_lji_velocity_control.assert_not_called()
+
+    def test_incomplete_host_native_lji_adapter_fails_closed(self) -> None:
+        class _Client:
+            host_native_control = True
+
+            @staticmethod
+            def has_hardware() -> bool:
+                return True
+
+            @staticmethod
+            def apply_lji_q_direct(*_args, **_kwargs) -> None:
+                return None
+
+        svc = ControlService(PanelState(), client=_Client(), use_hardware=True)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "must implement stop_lji_velocity_control",
+        ):
+            svc._stop_lji_velocity_control("test")
+
     def test_nominal_endpoint_shifts_with_object(self) -> None:
         e0 = ControlService._compute_grasp_nominal_endpoint(
             (0.30, 0.0, 0.90),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a safe browser preview of the Elesim setup wizard.
+"""Serve a safe browser preview of the EleSim setup wizard.
 
 The preview uses the production wizard assets and HTTP handlers, but replaces
 the installer with a short, cancellable log simulation.  It never invokes

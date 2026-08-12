@@ -1,4 +1,4 @@
-"""Fail-closed, host-only Elesim uninstaller.
+"""Fail-closed, host-only EleSim uninstaller.
 
 Only Python's standard library is used here.  The command must remain usable
 while it removes the generated tools image/venv that originally supplied it.
@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -31,6 +33,18 @@ from .shell import inspect_bash_path, unregister_bash_path
 
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+VIEWER_CLEANUP_WRAPPER = "elesim-viewer-cleanup"
+VIEWER_STATE_RELATIVE_PATHS = (
+    Path("cache/viewer-xhost"),
+    Path(".runtime-cache/viewer-xhost"),
+)
+SIM_CONTAINER = "elesim-sim"
+TAILSCALE_SIDECAR_CONTAINER = "elesim-tailscale"
+TAILSCALE_STATE_DESTINATION = "/var/lib/tailscale"
+_PINNED_TAILSCALE_IMAGE = re.compile(
+    r"^tailscale/tailscale:v[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$"
+)
+_DOCKER_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class UninstallSafetyError(RuntimeError):
@@ -44,6 +58,18 @@ class DockerObject:
 
 
 @dataclass(frozen=True)
+class TailscaleStateCleanup:
+    """One exact sidecar bind whose root-created children need host ownership."""
+
+    container: DockerObject
+    image_id: str
+    source: Path
+    was_running: bool
+    source_device: int
+    source_inode: int
+
+
+@dataclass(frozen=True)
 class UninstallPlan:
     manifest: OwnershipManifest
     manifest_sha256: str
@@ -54,6 +80,8 @@ class UninstallPlan:
     preserve_paths: tuple[Path, ...]
     containers: tuple[DockerObject, ...]
     images: tuple[DockerObject, ...]
+    viewer_cleanup: Path | None
+    tailscale_state_cleanup: TailscaleStateCleanup | None
     remove_shell_path: bool
     warnings: tuple[str, ...]
     tombstone: Path
@@ -78,11 +106,40 @@ def plan_uninstall(
     _validate_owned_paths(manifest)
     _validate_wrappers(manifest)
     _validate_systemd(manifest, runner=runner)
+    viewer_cleanup = _owned_viewer_cleanup(manifest)
 
     containers: tuple[DockerObject, ...] = ()
     images: tuple[DockerObject, ...] = ()
+    tailscale_state_cleanup: TailscaleStateCleanup | None = None
     if manifest.docker is not None:
-        containers, images = _validate_docker(manifest.docker, runner=runner)
+        tailscale_state = _owned_tailscale_state_path(manifest)
+        containers, images, tailscale_state_cleanup = _validate_docker(
+            manifest.docker,
+            runner=runner,
+            tailscale_state=tailscale_state,
+            require_tailscale_state=tailscale_state is not None,
+        )
+        if (
+            tailscale_state_cleanup is not None
+            and not tailscale_state_cleanup.was_running
+        ):
+            _require_host_removable_tree(
+                tailscale_state_cleanup.source,
+                reason=(
+                    "정지된 Tailscale sidecar의 기존 bind를 안전한 ownership "
+                    "helper로 고정할 수 없습니다. sidecar를 시작한 뒤 다시 "
+                    "실행하거나 host에서 exact state 권한을 복구하십시오"
+                ),
+            )
+            tailscale_state_cleanup = None
+        if tailscale_state is not None and tailscale_state_cleanup is None:
+            _require_host_removable_tree(
+                tailscale_state,
+                reason=(
+                    "상태를 쓴 exact EleSim Tailscale sidecar가 남아 있지 않아 "
+                    "Docker-assisted ownership repair를 수행할 수 없습니다"
+                ),
+            )
 
     warnings: list[str] = []
     remove_shell_path = False
@@ -138,6 +195,8 @@ def plan_uninstall(
         preserve_paths=preserve_paths,
         containers=containers,
         images=images,
+        viewer_cleanup=viewer_cleanup,
+        tailscale_state_cleanup=tailscale_state_cleanup,
         remove_shell_path=remove_shell_path,
         warnings=tuple(warnings),
         tombstone=tombstone,
@@ -178,10 +237,37 @@ def execute_uninstall(
         or current.remove_roots != plan.remove_roots
         or current.containers != plan.containers
         or current.images != plan.images
+        or current.viewer_cleanup != plan.viewer_cleanup
+        or current.tailscale_state_cleanup != plan.tailscale_state_cleanup
         or current.remove_shell_path != plan.remove_shell_path
     ):
         raise UninstallSafetyError("plan 이후 설치 소유권 상태가 변경되었습니다")
 
+    command_runner = _command_runner(runner)
+    docker_ownership = current.manifest.docker
+    if current.viewer_cleanup is not None:
+        sim_container = next(
+            (
+                container
+                for container in current.containers
+                if container.name == SIM_CONTAINER
+            ),
+            None,
+        )
+        if sim_container is not None:
+            if docker_ownership is None:
+                raise UninstallSafetyError(
+                    "Docker ownership disappeared after validation"
+                )
+            stopped = command_runner(
+                _docker_command(
+                    docker_ownership,
+                    ("docker", "container", "stop", sim_container.object_id),
+                )
+            )
+            _require_command(stopped, action="Sim Viewer container 정지")
+        result = command_runner((str(current.viewer_cleanup),))
+        _require_command(result, action="X11 Viewer ACL 회수")
     if current.remove_shell_path and current.manifest.shell is not None:
         result = unregister_bash_path(
             Path(current.manifest.shell.bin_dir),
@@ -190,9 +276,13 @@ def execute_uninstall(
         if not result.changed:
             raise UninstallSafetyError("검증 후 PATH block이 변경되어 제거하지 않았습니다")
 
-    command_runner = _command_runner(runner)
-    docker_ownership = current.manifest.docker
+    tailscale_cleanup = current.tailscale_state_cleanup
     for container in current.containers:
+        if (
+            tailscale_cleanup is not None
+            and container.object_id == tailscale_cleanup.container.object_id
+        ):
+            continue
         if docker_ownership is None:
             raise UninstallSafetyError("Docker ownership disappeared after validation")
         result = command_runner(
@@ -202,6 +292,45 @@ def execute_uninstall(
             )
         )
         _require_command(result, action=f"container 제거 {container.name}")
+    if tailscale_cleanup is not None:
+        if docker_ownership is None:
+            raise UninstallSafetyError("Docker ownership disappeared after validation")
+        _normalize_tailscale_state_ownership(
+            tailscale_cleanup,
+            ownership=docker_ownership,
+            runner=command_runner,
+        )
+        # This exact sidecar removal is the ownership-repair commit point. It
+        # is deliberately the last container mutation: before it succeeds PID
+        # 1 can still be resumed; after it succeeds a rerun continues from the
+        # preserved manifest and now host-removable state tree.
+        removed = command_runner(
+            _docker_command(
+                docker_ownership,
+                (
+                    "docker",
+                    "container",
+                    "rm",
+                    "--force",
+                    tailscale_cleanup.container.object_id,
+                ),
+            )
+        )
+        if removed.returncode != 0:
+            resumed = _resume_tailscale_sidecar(
+                tailscale_cleanup,
+                ownership=docker_ownership,
+                runner=command_runner,
+            )
+            recovery = (
+                ""
+                if resumed.returncode == 0
+                else f"; sidecar resume/start도 실패: {resumed.stderr.strip()}"
+            )
+            raise UninstallSafetyError(
+                "Tailscale sidecar 제거 실패: "
+                f"{removed.stderr.strip()}{recovery}"
+            )
     for image in current.images:
         if docker_ownership is None:
             raise UninstallSafetyError("Docker ownership disappeared after validation")
@@ -265,7 +394,7 @@ def execute_uninstall(
 
 def render_plan(plan: UninstallPlan) -> str:
     lines = [
-        "Elesim 제거 계획 (아직 변경하지 않음)",
+        "EleSim 제거 계획 (아직 변경하지 않음)",
         f"  install UUID: {plan.manifest.install_uuid}",
         f"  prefix: {plan.manifest.prefix}",
         f"  exact paths: {len(plan.remove_paths)}",
@@ -281,6 +410,10 @@ def render_plan(plan: UninstallPlan) -> str:
     if plan.warnings:
         lines.append("  경고:")
         lines.extend(f"    - {warning}" for warning in plan.warnings)
+    if plan.tailscale_state_cleanup is not None:
+        lines.append("  Tailscale state: exact owned bind의 host ownership 복구 후 삭제")
+    if plan.viewer_cleanup is not None:
+        lines.append("  X11 Viewer ACL: exact owned wrapper로 회수")
     lines.append("실행 시 위 ownership 경계를 다시 검증한 뒤 즉시 제거합니다.")
     return "\n".join(lines)
 
@@ -288,7 +421,7 @@ def render_plan(plan: UninstallPlan) -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="elesim-uninstall",
-        description="ownership manifest 기반의 안전한 Elesim 제거",
+        description="ownership manifest 기반의 안전한 EleSim 제거",
     )
     parser.add_argument(
         "--manifest",
@@ -325,7 +458,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.plan:
             return 0
         tombstone = execute_uninstall(plan)
-        print(f"Elesim 제거 완료. tombstone: {tombstone}")
+        print(f"EleSim 제거 완료. tombstone: {tombstone}")
         return 0
     except (OSError, UninstallSafetyError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
@@ -396,6 +529,66 @@ def _validate_wrappers(manifest: OwnershipManifest) -> None:
             )
 
 
+def _owned_viewer_cleanup(manifest: OwnershipManifest) -> Path | None:
+    """Resolve only the generated, manifest-owned Viewer ACL cleanup command."""
+
+    expected = manifest.bin_path / VIEWER_CLEANUP_WRAPPER
+    ownership = next(
+        (
+            wrapper
+            for wrapper in manifest.wrappers
+            if Path(wrapper.path) == expected
+        ),
+        None,
+    )
+    cache_roots = tuple(
+        manifest.prefix_path / relative.parent
+        for relative in VIEWER_STATE_RELATIVE_PATHS
+    )
+    states = tuple(
+        manifest.prefix_path / relative
+        for relative in VIEWER_STATE_RELATIVE_PATHS
+    )
+    for state in states:
+        _ensure_no_symlink_ancestors(state, boundary=manifest.prefix_path)
+        if _lexists(state):
+            mode = state.lstat().st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+                raise UninstallSafetyError(
+                    f"EleSim xhost 상태가 일반 파일이 아닙니다: {state}"
+                )
+    if ownership is None:
+        if any(_lexists(state) for state in states):
+            raise UninstallSafetyError(
+                "EleSim-owned X11 Viewer ACL 상태가 남아 있지만 exact cleanup "
+                "wrapper가 ownership manifest에 없습니다. 먼저 elesim-update로 "
+                "wrapper를 복구하거나 같은 설치의 elesim-down으로 권한을 "
+                "회수하십시오"
+            )
+        return None
+    missing_roots = tuple(
+        root for root in cache_roots if str(root) not in manifest.managed_roots
+    )
+    if missing_roots:
+        raise UninstallSafetyError(
+            "X11 Viewer cleanup state의 exact managed root가 ownership "
+            "manifest에 없습니다: "
+            + ", ".join(str(root) for root in missing_roots)
+        )
+    if not _lexists(expected):
+        raise UninstallSafetyError(
+            "ownership manifest의 X11 Viewer cleanup wrapper가 없습니다. "
+            "elesim-update로 exact wrapper를 복구한 뒤 다시 실행하십시오: "
+            f"{expected}"
+        )
+    mode = expected.lstat().st_mode
+    if not stat.S_ISREG(mode) or stat.S_ISLNK(mode) or not os.access(expected, os.X_OK):
+        raise UninstallSafetyError(
+            f"X11 Viewer cleanup wrapper가 실행 가능한 일반 파일이 아닙니다: {expected}"
+        )
+    return expected
+
+
 def _validate_systemd(
     manifest: OwnershipManifest,
     *,
@@ -438,7 +631,7 @@ def _validate_systemd(
             if not exact_copy:
                 raise UninstallSafetyError(
                     f"{unit.name}과 같은 이름의 foreign/변경된 systemd unit이 있습니다. "
-                    "Elesim은 이 파일을 삭제하지 않습니다. FragmentPath와 unit 내용을 "
+                    "EleSim은 이 파일을 삭제하지 않습니다. FragmentPath와 unit 내용을 "
                     f"직접 확인해 충돌을 해결하십시오: fragment={fragment_text or '-'} "
                     f"expected={unit.destination}"
                 )
@@ -512,11 +705,348 @@ def _mount_points() -> tuple[Path, ...]:
     return tuple(sorted(mounts, key=str))
 
 
+def _owned_tailscale_state_path(manifest: OwnershipManifest) -> Path | None:
+    ownership = manifest.docker
+    if ownership is None or TAILSCALE_SIDECAR_CONTAINER not in ownership.containers:
+        return None
+    secrets_root = manifest.prefix_path / "secrets"
+    if str(secrets_root) not in manifest.managed_roots:
+        raise UninstallSafetyError(
+            "Tailscale sidecar state의 exact managed root가 ownership manifest에 없습니다"
+        )
+    state = secrets_root / "tailscale"
+    protected = tuple(
+        Path(value)
+        for value in (
+            *manifest.external_paths,
+            *manifest.log_roots,
+            *manifest.authority_roots,
+        )
+    )
+    if any(
+        _within_or_equal(state, path) or _within_or_equal(path, state)
+        for path in protected
+    ):
+        raise UninstallSafetyError(
+            "Tailscale sidecar state가 보존/external 경계와 겹쳐 ownership을 복구할 수 없습니다"
+        )
+    _ensure_no_symlink_ancestors(state, boundary=manifest.prefix_path)
+    if not _lexists(state):
+        return None
+    mode = state.lstat().st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        raise UninstallSafetyError(
+            f"Tailscale sidecar state가 실제 directory가 아닙니다: {state}"
+        )
+    return state
+
+
+def _validate_tailscale_state_container(
+    payload: Mapping[str, object],
+    *,
+    container: DockerObject,
+    state_path: Path,
+    runner: CommandRunner,
+) -> TailscaleStateCleanup:
+    config = payload.get("Config", {})
+    if not isinstance(config, Mapping):
+        raise UninstallSafetyError("Tailscale sidecar Config가 유효하지 않습니다")
+    if _labels(payload).get("com.docker.compose.service") != "tailscale":
+        raise UninstallSafetyError(
+            "elesim-tailscale container의 Compose service가 tailscale이 아닙니다"
+        )
+    image_ref = str(config.get("Image", ""))
+    image_id = str(payload.get("Image", ""))
+    if not _PINNED_TAILSCALE_IMAGE.fullmatch(image_ref):
+        raise UninstallSafetyError(
+            "Tailscale sidecar가 digest-pinned official image를 사용하지 않습니다"
+        )
+    if not _DOCKER_IMAGE_ID.fullmatch(image_id):
+        raise UninstallSafetyError("Tailscale sidecar image ID가 유효하지 않습니다")
+    image_result = runner(("docker", "image", "inspect", image_id))
+    if image_result.returncode != 0:
+        raise UninstallSafetyError(
+            "Tailscale sidecar의 immutable image를 inspect할 수 없습니다: "
+            + image_result.stderr.strip()
+        )
+    image_payload = _inspect_object(
+        image_result.stdout,
+        kind="image",
+        name=image_id,
+    )
+    digest = image_ref.rsplit("@", 1)[-1]
+    repo_digests = image_payload.get("RepoDigests", [])
+    if (
+        str(image_payload.get("Id", "")) != image_id
+        or not isinstance(repo_digests, list)
+        or f"tailscale/tailscale@{digest}" not in repo_digests
+    ):
+        raise UninstallSafetyError(
+            "Tailscale sidecar image ID/digest가 생성된 pinned image와 다릅니다"
+        )
+    if config.get("Entrypoint") != ["tailscaled"] or config.get("User", "") != "":
+        raise UninstallSafetyError("Tailscale sidecar 실행 identity가 생성된 구성과 다릅니다")
+    if config.get("Cmd") != [
+        "--statedir=/var/lib/tailscale",
+        "--socket=/tmp/tailscaled.sock",
+        "--tun=tailscale0",
+    ]:
+        raise UninstallSafetyError("Tailscale sidecar daemon 인자가 생성된 구성과 다릅니다")
+
+    mounts = payload.get("Mounts", [])
+    if not isinstance(mounts, list) or len(mounts) != 1 or not isinstance(
+        mounts[0], Mapping
+    ):
+        raise UninstallSafetyError(
+            "Tailscale sidecar는 exact state bind mount 하나만 가져야 합니다"
+        )
+    mount = mounts[0]
+    source = str(mount.get("Source", ""))
+    try:
+        source_path = _canonical(Path(source))
+    except (OSError, ValueError) as exc:
+        raise UninstallSafetyError("Tailscale state bind source가 유효하지 않습니다") from exc
+    if (
+        str(mount.get("Type", "")) != "bind"
+        or source_path != state_path
+        or str(mount.get("Destination", "")) != TAILSCALE_STATE_DESTINATION
+        or mount.get("RW") is not True
+    ):
+        raise UninstallSafetyError(
+            "Tailscale sidecar state bind가 install-owned exact 경계와 다릅니다: "
+            f"source={source!r} destination={mount.get('Destination')!r}"
+        )
+    state = payload.get("State", {})
+    was_running = isinstance(state, Mapping) and state.get("Running") is True
+    source_stat = state_path.lstat()
+    return TailscaleStateCleanup(
+        container=container,
+        image_id=image_id,
+        source=state_path,
+        was_running=was_running,
+        source_device=int(source_stat.st_dev),
+        source_inode=int(source_stat.st_ino),
+    )
+
+
+def _require_host_removable_tree(root: Path, *, reason: str) -> None:
+    """Prove a tree can be traversed/deleted without following symlinks."""
+
+    if not _lexists(root):
+        return
+    mode = root.lstat().st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        raise UninstallSafetyError(f"{reason}: 지원하지 않는 path 유형: {root}")
+    if not os.access(root, os.R_OK | os.W_OK | os.X_OK):
+        raise UninstallSafetyError(f"{reason}: {root}")
+    try:
+        entries = tuple(os.scandir(root))
+    except OSError as exc:
+        raise UninstallSafetyError(f"{reason}: {root}: {exc}") from exc
+    for entry in entries:
+        if entry.is_dir(follow_symlinks=False):
+            _require_host_removable_tree(Path(entry.path), reason=reason)
+
+
+def _normalize_tailscale_state_ownership(
+    cleanup: TailscaleStateCleanup,
+    *,
+    ownership: DockerOwnership,
+    runner: CommandRunner,
+) -> None:
+    """Quiesce an already-mounted sidecar bind and make it host-removable.
+
+    A new ``--mount``/``--volumes-from`` helper would resolve the host source
+    path again after validation, permitting a symlink-swap escape.  ``exec``
+    instead reuses the running container's existing mount namespace.  PID 1 is
+    stopped before walking the tree and remains stopped until Docker removes
+    the sidecar, so tailscaled cannot create new root-owned children between
+    normalization and removal.
+    """
+
+    if not cleanup.was_running:
+        raise UninstallSafetyError(
+            "Tailscale ownership helper requires an already-running owned sidecar"
+        )
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        source_fd = os.open(cleanup.source, directory_flags)
+    except OSError as exc:
+        raise UninstallSafetyError(
+            f"Tailscale state root를 no-follow로 열 수 없습니다: {cleanup.source}"
+        ) from exc
+    sentinel_name = f".elesim-uninstall-{secrets.token_hex(16)}"
+    sentinel_value = secrets.token_hex(32)
+    sentinel_created = False
+    try:
+        source_stat = os.fstat(source_fd)
+        if (
+            not stat.S_ISDIR(source_stat.st_mode)
+            or int(source_stat.st_dev) != cleanup.source_device
+            or int(source_stat.st_ino) != cleanup.source_inode
+        ):
+            raise UninstallSafetyError("Tailscale state inode가 검증 후 변경되었습니다")
+        try:
+            sentinel_fd = os.open(
+                sentinel_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=source_fd,
+            )
+        except OSError as exc:
+            raise UninstallSafetyError(
+                "Tailscale state mount identity token을 생성할 수 없습니다"
+            ) from exc
+        try:
+            os.write(sentinel_fd, sentinel_value.encode("ascii"))
+            os.fsync(sentinel_fd)
+        finally:
+            os.close(sentinel_fd)
+        sentinel_created = True
+
+        script = (
+            "state=/var/lib/tailscale; "
+            "resume=1; "
+            "trap 'test \"$resume\" = 0 || kill -CONT 1 >/dev/null 2>&1 || true' EXIT; "
+            'if ! test -f "$state/$1" || test -L "$state/$1" || '
+            'test "$(cat "$state/$1")" != "$2"; then '
+            'echo "Tailscale state mount identity mismatch" >&2; exit 70; fi; '
+            "kill -STOP 1; "
+            'if ! test -d "$state" || test -L "$state"; then '
+            'echo "refusing invalid Tailscale state root" >&2; exit 70; fi; '
+            'if find "$state" -xdev ! -type d ! -type f -print -quit | grep -q .; then '
+            'echo "refusing non-regular Tailscale state" >&2; exit 70; fi; '
+            'if find "$state" -xdev -type f -links +1 -print -quit | grep -q .; then '
+            'echo "refusing hard-linked Tailscale state" >&2; exit 70; fi; '
+            'find "$state" -xdev -type d -exec chown "$3:$4" {} +; '
+            'find "$state" -xdev -type f -exec chown "$3:$4" {} +; '
+            'find "$state" -xdev -type d -exec chmod u+rwx {} +; '
+            'find "$state" -xdev -type f -exec chmod u+rw {} +; '
+            "resume=0"
+        )
+        normalized = runner(
+            _docker_command(
+                ownership,
+                (
+                    "docker",
+                    "container",
+                    "exec",
+                    "--user",
+                    "0:0",
+                    cleanup.container.object_id,
+                    "/bin/sh",
+                    "-ec",
+                    script,
+                    "elesim-state-cleanup",
+                    sentinel_name,
+                    sentinel_value,
+                    str(os.getuid()),
+                    str(os.getgid()),
+                ),
+            )
+        )
+        if normalized.returncode != 0:
+            raise UninstallSafetyError(
+                "Tailscale state ownership 복구 실패: "
+                + normalized.stderr.strip()
+            )
+        os.unlink(sentinel_name, dir_fd=source_fd)
+        sentinel_created = False
+        source_stat = os.fstat(source_fd)
+        if (
+            not stat.S_ISDIR(source_stat.st_mode)
+            or int(source_stat.st_dev) != cleanup.source_device
+            or int(source_stat.st_ino) != cleanup.source_inode
+        ):
+            raise UninstallSafetyError(
+                "Tailscale state inode가 ownership 복구 중 변경되었습니다"
+            )
+        try:
+            current_path_stat = cleanup.source.lstat()
+        except OSError as exc:
+            raise UninstallSafetyError(
+                "Tailscale state path가 ownership 복구 중 사라졌습니다"
+            ) from exc
+        if (
+            stat.S_ISLNK(current_path_stat.st_mode)
+            or not stat.S_ISDIR(current_path_stat.st_mode)
+            or int(current_path_stat.st_dev) != cleanup.source_device
+            or int(current_path_stat.st_ino) != cleanup.source_inode
+        ):
+            raise UninstallSafetyError(
+                "Tailscale state path/inode가 ownership 복구 중 변경되었습니다"
+            )
+        _require_host_removable_tree(
+            cleanup.source,
+            reason=(
+                "Docker ownership 복구 후에도 Tailscale state를 안전하게 "
+                "제거할 수 없습니다"
+            ),
+        )
+    except BaseException as exc:
+        resumed = _resume_tailscale_sidecar(cleanup, ownership=ownership, runner=runner)
+        if resumed.returncode != 0:
+            raise UninstallSafetyError(
+                f"{exc}; sidecar resume/start도 실패: {resumed.stderr.strip()}"
+            ) from exc
+        raise
+    finally:
+        if sentinel_created:
+            try:
+                os.unlink(sentinel_name, dir_fd=source_fd)
+            except FileNotFoundError:
+                pass
+        os.close(source_fd)
+
+
+def _resume_tailscale_sidecar(
+    cleanup: TailscaleStateCleanup,
+    *,
+    ownership: DockerOwnership,
+    runner: CommandRunner,
+) -> subprocess.CompletedProcess[str]:
+    """Resume PID 1 after a failed in-container ownership transaction."""
+
+    resumed = runner(
+        _docker_command(
+            ownership,
+            (
+                "docker",
+                "container",
+                "kill",
+                "--signal",
+                "CONT",
+                cleanup.container.object_id,
+            ),
+        )
+    )
+    if resumed.returncode == 0:
+        return resumed
+    return runner(
+        _docker_command(
+            ownership,
+            (
+                "docker",
+                "container",
+                "start",
+                cleanup.container.object_id,
+            ),
+        )
+    )
+
+
 def _validate_docker(
     ownership: DockerOwnership,
     *,
     runner: CommandRunner | None,
-) -> tuple[tuple[DockerObject, ...], tuple[DockerObject, ...]]:
+    tailscale_state: Path | None = None,
+    require_tailscale_state: bool = False,
+) -> tuple[
+    tuple[DockerObject, ...],
+    tuple[DockerObject, ...],
+    TailscaleStateCleanup | None,
+]:
     raw_runner = _command_runner(runner)
 
     def command_runner(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -563,7 +1093,7 @@ def _validate_docker(
     )
     if labeled_containers.returncode != 0:
         raise UninstallSafetyError(
-            "Elesim ownership label container 목록을 확인할 수 없습니다: "
+            "EleSim ownership label container 목록을 확인할 수 없습니다: "
             + labeled_containers.stderr.strip()
         )
     labeled_names = {
@@ -577,6 +1107,7 @@ def _validate_docker(
         )
 
     containers: list[DockerObject] = []
+    tailscale_cleanup: TailscaleStateCleanup | None = None
     expected_compose = str(Path(ownership.compose_file).resolve(strict=False))
     for name in ownership.containers:
         if name not in container_names:
@@ -610,7 +1141,19 @@ def _validate_docker(
         object_id = str(payload.get("Id", ""))
         if not object_id:
             raise UninstallSafetyError(f"Docker container ID가 비어 있습니다: {name}")
-        containers.append(DockerObject(name=name, object_id=object_id))
+        container = DockerObject(name=name, object_id=object_id)
+        containers.append(container)
+        if name == TAILSCALE_SIDECAR_CONTAINER and require_tailscale_state:
+            if tailscale_state is None:
+                raise UninstallSafetyError(
+                    "Tailscale sidecar가 manifest에 있으나 install-owned state 경계가 없습니다"
+                )
+            tailscale_cleanup = _validate_tailscale_state_container(
+                payload,
+                container=container,
+                state_path=tailscale_state,
+                runner=command_runner,
+            )
 
     listed_images = command_runner(
         ("docker", "image", "ls", "--all", "--format", "{{.Repository}}:{{.Tag}}")
@@ -645,7 +1188,7 @@ def _validate_docker(
         if not object_id:
             raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
         images.append(DockerObject(name=name, object_id=object_id))
-    return tuple(containers), tuple(images)
+    return tuple(containers), tuple(images), tailscale_cleanup
 
 
 def validate_docker_ownership(
@@ -655,7 +1198,12 @@ def validate_docker_ownership(
 ) -> tuple[tuple[DockerObject, ...], tuple[DockerObject, ...]]:
     """Prove exact Docker labels/Compose boundaries without mutating objects."""
 
-    return _validate_docker(ownership.validate(), runner=runner)
+    containers, images, _cleanup = _validate_docker(
+        ownership.validate(),
+        runner=runner,
+        require_tailscale_state=False,
+    )
+    return containers, images
 
 
 def _docker_command(

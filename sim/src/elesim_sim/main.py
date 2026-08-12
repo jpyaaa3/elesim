@@ -55,7 +55,7 @@ def _webrtc_descriptor(endpoint_id: str, stream: str) -> MediaStreamDescriptor:
 
 
 def _run() -> None:
-    parser = argparse.ArgumentParser(description="Elesim distributed Genesis agent")
+    parser = argparse.ArgumentParser(description="EleSim distributed Genesis agent")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
     parser.add_argument("--model-bundle", default="")

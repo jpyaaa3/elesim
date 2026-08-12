@@ -1645,11 +1645,6 @@ class _PerceptionCameraPipelines(_PerceptionDetectionActions):
 
         self._set_snapshot(running=False, status_msg="stopped")
 
-    def _run_camera_yolo_only(self, **kwargs: Any) -> None:
-        """Legacy alias: same as yolo_seg (mask every frame + TRACK semantics)."""
-        self._run_camera_yolo_seg(**kwargs)
-
-
 class _PerceptionMockPipelines(_PerceptionCameraPipelines):
     """Deterministic mock-frame and mock-segmentation loops."""
 

@@ -1,6 +1,6 @@
 {
   "ko": {
-    "app.title": "Elesim 연결 관리자",
+    "app.title": "EleSim 연결 관리자",
     "graph.title": "일반 설정",
     "graph.system": "시스템 ID",
     "graph.domain": "ROS 도메인 ID",
@@ -81,7 +81,7 @@
     "error.workflow.incomplete": "연결 확인과 실행 준비를 먼저 완료하십시오."
   },
   "en": {
-    "app.title": "Elesim Connection Manager",
+    "app.title": "EleSim Connection Manager",
     "graph.title": "General Settings",
     "graph.system": "System ID",
     "graph.domain": "ROS domain ID",

@@ -1,6 +1,6 @@
-<p align="center"><img src="./assets/branding/icon.png" width="180" alt="Elesim logo"></p>
+<p align="center"><img src="./assets/branding/icon.png" width="180" alt="EleSim logo"></p>
 
-<h1 align="center">Elesim</h1>
+<h1 align="center">EleSim</h1>
 
 <p align="center">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
 
@@ -10,13 +10,13 @@
 
 ### 🚀 설치 마법사 실행
 
-Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
+EleSim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/bootstrap.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
    ```
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/bootstrap.sh \
+   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/install.sh \
     | ELESIM_REF=refactoring bash
    ```
 
@@ -24,7 +24,7 @@ Elesim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge
 
 Docker Desktop 사용 중 발급된 Tailscale IP는 DDS 통신을 위한 인터페이스 사용이 제한됩니다.
 
-Elesim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 생성하십시오.
+EleSim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 생성하십시오.
 
 SSH는 Docker Desktop 사용 여부와 무관합니다.
 

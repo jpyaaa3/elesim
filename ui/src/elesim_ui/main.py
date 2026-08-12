@@ -16,7 +16,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Elesim desktop operator UI")
+    parser = argparse.ArgumentParser(description="EleSim desktop operator UI")
     parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
     parser.add_argument("--pilot-id", default="")
     parser.add_argument("--sim-id", default="")

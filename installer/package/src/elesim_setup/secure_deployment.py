@@ -440,6 +440,10 @@ class RemoteLifecycle(Protocol):
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None: ...
 
+    def cleanup_viewer(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None: ...
+
     def start(
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None: ...
@@ -494,6 +498,10 @@ class HostOperations(Protocol):
     def discard_generation(self, host: ManagedHost, generation: str) -> None: ...
 
     def stop(self, host: ManagedHost, roles: Sequence[str] | None = None) -> None: ...
+
+    def cleanup_viewer(
+        self, host: ManagedHost, roles: Sequence[str] | None = None
+    ) -> None: ...
 
     def activate(self, host: ManagedHost, generation: str) -> None: ...
 
@@ -620,11 +628,20 @@ class ParamikoConnector:
             transport.start_client(timeout=self._timeout_s)  # type: ignore[attr-defined]
             key = transport.get_remote_server_key()  # type: ignore[attr-defined]
             _verify_pinned_host_key(endpoint, key)
+            authentication_error = getattr(
+                paramiko, "AuthenticationException", None
+            )
+            authentication_errors: tuple[type[BaseException], ...] = (
+                (authentication_error,)
+                if isinstance(authentication_error, type)
+                and issubclass(authentication_error, BaseException)
+                else ()
+            )
             authenticated = False
             try:
                 transport.auth_none(endpoint.user)  # type: ignore[attr-defined]
                 authenticated = bool(transport.is_authenticated())  # type: ignore[attr-defined]
-            except Exception:
+            except authentication_errors:
                 # Some SSH libraries cannot issue SSH_MSG_USERAUTH_NONE to the
                 # Tailscale server.  Tailscale documents ``user+password`` with
                 # any password as its compatibility spelling for those clients.
@@ -635,7 +652,7 @@ class ParamikoConnector:
                         f"{endpoint.user}+password", "tailscale"
                     )
                     authenticated = bool(transport.is_authenticated())  # type: ignore[attr-defined]
-                except Exception as exc:
+                except authentication_errors as exc:
                     raise SshAuthenticationError(
                         f"Tailscale SSH authentication failed for "
                         f"{endpoint.user}@{endpoint.host}. "
@@ -1141,6 +1158,15 @@ class SshHostOperations:
         with self._connect(host) as session:
             self._lifecycle.stop(session, host, selected)
 
+    def cleanup_viewer(
+        self, host: ManagedHost, roles: Sequence[str] | None = None
+    ) -> None:
+        selected = _selected_roles(host, roles)
+        if "sim" not in selected:
+            return
+        with self._connect(host) as session:
+            self._lifecycle.cleanup_viewer(session, host, selected)
+
     def activate(self, host: ManagedHost, generation: str) -> None:
         _safe_generation(generation)
         with self._connect(host) as session:
@@ -1470,7 +1496,13 @@ class _LocalSession:
         if helper_socket and (
             values[0] == "docker"
             or Path(values[0]).name
-            in {"elesim-compose", "elesim-net", "elesim-tailscale", "elesim-up"}
+            in {
+                "elesim-compose",
+                "elesim-net",
+                "elesim-tailscale",
+                "elesim-up",
+                "elesim-viewer-cleanup",
+            }
         ):
             result = _run_through_host_helper(
                 values,
@@ -1813,22 +1845,6 @@ class InstalledElesimLifecycle:
             for peer in self._topology.discovery_peers(host.host_id)
             for value in ("--dds-peer", peer)
         )
-        # A port-22 probe is meaningful only when management SSH and DDS share
-        # one endpoint.  A Docker Desktop Tailscale sidecar deliberately owns
-        # a different tailnet address and normally has no SSH server.
-        tailscale_peer_args = tuple(
-            value
-            for peer in self._topology.discovery_peers(host.host_id)
-            if any(
-                other.dds.address == peer
-                and other.ssh is not None
-                and other.ssh.host == other.dds.address
-                and other.ssh.auth_mode == "tailscale"
-                and other.ssh.port == 22
-                for other in self._topology.hosts
-            )
-            for value in ("--tcp-peer", peer)
-        )
         for unit in host.units:
             session.run(
                 (
@@ -1839,7 +1855,6 @@ class InstalledElesimLifecycle:
                     "--dds-address",
                     host.dds.address,
                     *peer_args,
-                    *tailscale_peer_args,
                 )
             )
 
@@ -1905,7 +1920,7 @@ class InstalledElesimLifecycle:
             except RuntimeError as exc:
                 if result.exit_status == 0:
                     raise RuntimeError(
-                        f"Elesim Tailscale sidecar status is invalid on "
+                        f"EleSim Tailscale sidecar status is invalid on "
                         f"{host.host_id}/{unit.unit_id}"
                     ) from exc
                 backend, ipv4 = "", ""
@@ -1915,16 +1930,10 @@ class InstalledElesimLifecycle:
                 or not ipv4
             ):
                 raise RuntimeError(
-                    f"Elesim Tailscale sidecar is not ready on "
+                    f"EleSim Tailscale sidecar is not ready on "
                     f"{host.host_id}/{unit.unit_id}. Run "
                     f"elesim-tailscale login on that host, then retry "
                     f"elesim-connections (backend={backend or 'unknown'})"
-                )
-            if backend.casefold() != "running" or not ipv4:
-                raise RuntimeError(
-                    f"Elesim Tailscale sidecar is not ready on "
-                    f"{host.host_id}/{unit.unit_id}: "
-                    f"backend={backend or 'unknown'}"
                 )
             discovered.add(ipv4)
         if len(discovered) > 1:
@@ -2157,6 +2166,22 @@ class InstalledElesimLifecycle:
                     )
                 )
 
+    def cleanup_viewer(
+        self, session: SshSession, host: ManagedHost, roles: Sequence[str]
+    ) -> None:
+        selected = set(_selected_roles(host, roles))
+        if "sim" not in selected:
+            return
+        for unit in host.units:
+            if (
+                "sim" in unit.roles
+                and unit.install_mode == "container"
+                and unit.lifecycle == "compose"
+            ):
+                session.run(
+                    (str(PurePosixPath(unit.bin_dir) / "elesim-viewer-cleanup"),)
+                )
+
     def start(
         self, session: SshSession, host: ManagedHost, roles: Sequence[str]
     ) -> None:
@@ -2231,11 +2256,11 @@ class InstalledElesimLifecycle:
     def _compose_has_service(
         session: SshSession, unit: DeploymentUnit, service: str
     ) -> bool:
-        result = session.run(
-            (*_compose_command(unit), "config", "--services"),
-            check=False,
-        )
-        return result.exit_status == 0 and service in result.stdout.split()
+        command = (*_compose_command(unit), "config", "--services")
+        result = session.run(command, check=False)
+        if result.exit_status != 0:
+            raise RemoteCommandError(command, result)
+        return service in result.stdout.split()
 
     def runtime_doctor(
         self,
@@ -2300,14 +2325,20 @@ class InstalledElesimLifecycle:
         unit_status: dict[str, Mapping[str, Any]] = {}
         for unit in host.units:
             if unit.install_mode == "container":
-                all_result = session.run(
-                    (*_compose_command(unit), "ps", "--all", "--services"),
-                    check=False,
+                all_command = (*_compose_command(unit), "ps", "--all", "--services")
+                all_result = session.run(all_command, check=False)
+                if all_result.exit_status != 0:
+                    raise RemoteCommandError(all_command, all_result)
+                running_command = (
+                    *_compose_command(unit),
+                    "ps",
+                    "--status",
+                    "running",
+                    "--services",
                 )
-                result = session.run(
-                    (*_compose_command(unit), "ps", "--status", "running", "--services"),
-                    check=False,
-                )
+                result = session.run(running_command, check=False)
+                if result.exit_status != 0:
+                    raise RemoteCommandError(running_command, result)
                 expected = set(unit.roles)
                 all_services = set(all_result.stdout.split())
                 running_services = set(result.stdout.split())
@@ -2318,10 +2349,7 @@ class InstalledElesimLifecycle:
                         required_services.add("coturn")
                 if self._compose_has_service(session, unit, "tailscale"):
                     required_services.add("tailscale")
-                containers_present = (
-                    all_result.exit_status == 0
-                    and required_services.issubset(all_services)
-                )
+                containers_present = required_services.issubset(all_services)
                 sidecar_ok = True
                 sidecar_detail = ""
                 if self._compose_has_service(session, unit, "tailscale"):

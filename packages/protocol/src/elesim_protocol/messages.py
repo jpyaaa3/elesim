@@ -124,15 +124,6 @@ def _motor_u_from_display_linear(display_u: float, cfg: SimMappingConfig) -> flo
     )
 
 
-def _display_u_from_motor_linear(motor_u: float, cfg: SimMappingConfig) -> float:
-    """Motor u -> panel display over the usable linear travel."""
-    u_lo = float(cfg.linear_u_min)
-    u_hi = float(cfg.linear_u_max)
-    direction = int(cfg.command_direction[0])
-    panel_u = _apply_axis_direction(float(motor_u), direction, u_lo, u_hi)
-    return clamp_linear_motor_u(panel_u, cfg)
-
-
 def clamp_linear_motor_u(u_linear: float, cfg: SimMappingConfig) -> float:
     return _clamp(u_linear, float(cfg.linear_u_min), linear_motor_u_limit(cfg))
 

@@ -22,13 +22,7 @@ from elesim_ui.helpers import (
 
 _PAD_MIN_CELL_W = 36.0
 _PAD_MAX_CELL_W = 56.0
-_PAD_H = 30.0
 _SHAPE_ROUNDING = 6.0
-
-
-def _hold_button(panel, label: str, width: float, height: float = _PAD_H) -> bool:
-    imgui.button(label, scaled(panel, width), scaled(panel, height))
-    return bool(imgui.is_item_active())
 
 
 def _calc_text_size(text: str) -> tuple[float, float]:

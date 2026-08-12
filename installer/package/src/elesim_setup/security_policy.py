@@ -1,4 +1,4 @@
-"""Render least-privilege SROS2 policies for the runtime-wired Elesim graph."""
+"""Render least-privilege SROS2 policies for the runtime-wired EleSim graph."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def render_role_policy(
     _topics(profile, "publish", publish)
     _topics(profile, "subscribe", subscribe)
     # rclpy creates these parameter servers for every peer/RGBD/doctor node.
-    # They are implicit ROS runtime surfaces, not the unwired Elesim typed
+    # They are implicit ROS runtime surfaces, not the unwired EleSim typed
     # service contracts.
     parameter_services = {
         f"{namespace}/*/{name}"

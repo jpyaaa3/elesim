@@ -56,7 +56,7 @@ def _close_resources(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Elesim physical robot agent")
+    parser = argparse.ArgumentParser(description="EleSim physical robot agent")
     parser.add_argument(
         "--config",
         default=os.environ.get("ELESIM_ROBOT_CONFIG", str(PROJECT_CONFIG)),

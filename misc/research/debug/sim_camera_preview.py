@@ -43,7 +43,7 @@ def main() -> int:
     parser.add_argument("--depth", action="store_true")
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--timeout-ms", type=int, default=500)
-    parser.add_argument("--window", default="Elesim DDS RGB-D")
+    parser.add_argument("--window", default="EleSim DDS RGB-D")
     args = parser.parse_args()
 
     try:

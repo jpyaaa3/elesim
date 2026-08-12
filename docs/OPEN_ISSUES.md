@@ -122,7 +122,7 @@ there are historical unless repeated here.
 - Sidecar enrollment is the explicit `elesim-tailscale login` browser/device
   flow; repeating it re-authenticates stale local node state.
   `elesim-tailscale status` reports its DDS address.
-  Elesim stores no auth/OAuth key or browser credential. The sidecar DDS address
+  EleSim stores no auth/OAuth key or browser credential. The sidecar DDS address
   remains independent from the WSL/host SSH management address.
 - Default multicast discovery does not cross Tailscale/routed VPN. A routed path
   requires static-peer discovery from every host address plus a verified
@@ -134,10 +134,10 @@ there are historical unless repeated here.
   peer route before issuing managed security material. This prevents the most
   misleading “keys succeeded, start silently fails” path.
 - The tools image now includes `iproute2`; launch also rejects stale
-  `install-state.json`/CycloneDDS XML/Compose DDS views. When the topology uses
-  keyless Tailscale SSH, a negative-only port-22 probe from the runtime namespace
-  fails early if that namespace cannot reach the management peer. A successful
-  TCP probe is intentionally not treated as DDS/UDP evidence.
+  `install-state.json`/CycloneDDS XML/Compose DDS views. Management SSH remains
+  independent even when it uses the same Tailscale address, so runtime
+  preflight does not use port 22 as a DDS gate. Interface, address and route
+  checks run before live endpoint-heartbeat readiness.
 - Full start now performs one bounded, read-only endpoint descriptor plus live
   heartbeat probe for every endpoint ID from each host, including co-located
   roles. A stale descriptor without a heartbeat fails the start and rolls back
@@ -190,7 +190,7 @@ there are historical unless repeated here.
   resolved in software: a dedicated `elesim-unitree-bridge` daemon owns stock
   local/plaintext Unitree DDS on a distinct private NIC/domain, while Robot
   uses bounded credential-checked Unix IPC and remains the only inter-host
-  SROS2 participant. Unitree topics are not added to the Elesim policy.
+  SROS2 participant. Unitree topics are not added to the EleSim policy.
   Remaining evidence is physical Jetson/GO2 validation of NIC confinement,
   account/ACL setup and stop deadlines under bridge loss or malformed traffic.
 - Required live evidence: the browser flow on real hosts, production
@@ -240,7 +240,7 @@ there are historical unless repeated here.
 - GO2 neutral qpos and neutral self-collision filtering still need a live
   contact/dynamics decision. Inertia-frame interpretation also remains pending.
 - The `hppfcl` -> `coal` warning originates in the Pinocchio/convex-MPC
-  dependency chain; Elesim does not directly import `hppfcl`.
+  dependency chain; EleSim does not directly import `hppfcl`.
 
 ### Closed By The 2026-07-20 Refactor
 

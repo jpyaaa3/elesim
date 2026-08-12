@@ -2,9 +2,9 @@
 """Four-process Router-free DDS topology smoke test.
 
 This test deliberately uses separate OS processes and the generated ROSIDL
-package.  It is skipped with an explicit message on source-only hosts that do
-not have ROS 2 and ``elesim_interfaces`` installed; the generated Developer
-environment is the canonical place to execute the real RMW path.
+package.  Missing ROS 2 or ``elesim_interfaces`` is a failed required gate,
+not a successful skip; the generated Developer environment is the canonical
+place to execute the real RMW path.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import importlib.util
 import multiprocessing as mp
 import os
 import queue
+import sys
 import time
 import traceback
 from collections.abc import Callable
@@ -365,10 +366,11 @@ def _runtime_available() -> bool:
 def main() -> int:
     if not _runtime_available():
         print(
-            "SKIP: ROS 2 rclpy and generated elesim_interfaces are required; "
-            "run this smoke test in the generated Developer environment."
+            "ERROR: ROS 2 rclpy and generated elesim_interfaces are required; "
+            "run this required smoke test in the generated Developer environment.",
+            file=sys.stderr,
         )
-        return 0
+        return 2
 
     context = mp.get_context("spawn")
     barrier = context.Barrier(4)

@@ -1,6 +1,6 @@
-# Elesim Architecture
+# EleSim Architecture
 
-Elesim is a monorepo of independently built release projects. Source sharing is a
+EleSim is a monorepo of independently built release projects. Source sharing is a
 development convenience, not a runtime dependency.
 
 ## Runtime Topology
@@ -22,7 +22,7 @@ Laptop                                      Compute PC
            <=========== observer + hand-eye WebRTC ====+
 ```
 
-There is no Elesim Router process and no ZMQ transport. Pilot, UI, Robot,
+There is no EleSim Router process and no ZMQ transport. Pilot, UI, Robot,
 and Sim are ROS 2 nodes that communicate directly through DDS over UDP.
 DDS discovery finds peers; it is not an application registry or an authority.
 Each participant must be mutually IP-routable with every participant it needs
@@ -55,10 +55,10 @@ an owner.
 
 ### Local Unitree boundary
 
-Stock Unitree DDS is not part of the inter-host Elesim graph. On Jetson, the
+Stock Unitree DDS is not part of the inter-host EleSim graph. On Jetson, the
 `elesim-unitree-bridge` daemon is the only process that loads Unitree ROS 2 and
 binds CycloneDDS to the private Jetson-to-GO2 NIC/domain. It runs without the
-Elesim SROS2 environment. The Robot application remains the only inter-host
+EleSim SROS2 environment. The Robot application remains the only inter-host
 participant and communicates with the bridge through bounded Unix
 `SOCK_SEQPACKET` messages.
 
@@ -117,7 +117,7 @@ persisted; runtime wrappers do not silently switch Docker contexts or backends.
 Sidecar enrollment is an explicit browser/device login performed by the
 operator. Repeating `elesim-tailscale login` re-authenticates a stale `Running`
 node; runtime launch uses an idempotent check and does not open a browser.
-Elesim stores neither a Tailscale auth/OAuth key nor the browser credential.
+EleSim stores neither a Tailscale auth/OAuth key nor the browser credential.
 Roles and the runtime-network doctor share the enrolled namespace;
 Coturn may share it as Sim-owned WebRTC infrastructure but never becomes a DDS
 path.
@@ -186,7 +186,7 @@ implementation methods or sibling deployment imports.
 
 ## Remote Sim Semantics
 
-Elesim does not transport the native Genesis desktop window. Sim owns a
+EleSim does not transport the native Genesis desktop window. Sim owns a
 dedicated observer camera whose output is equivalent to the inspectable scene
 view needed by an operator. UI receives that observer stream and the robot's
 hand-eye preview as two independent WebRTC tracks. Mouse orbit, pan and zoom,
@@ -255,8 +255,8 @@ isolated from RGBD observation.
 
 State schema v9 retains the two SROS2 provisioning models introduced in v8.
 `external` points
-at a keystore/enclave supplied and maintained outside Elesim. `managed` records
-an Elesim security generation and the local host's role bundle. In managed mode
+at a keystore/enclave supplied and maintained outside EleSim. `managed` records
+an EleSim security generation and the local host's role bundle. In managed mode
 the operator laptop holds the complete SROS2 Authority. A runtime host receives
 the shared public trust material and only the enclaves for roles assigned to
 that host; it never receives CA private keys or another host's role keys.

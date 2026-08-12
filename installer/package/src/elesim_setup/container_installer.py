@@ -1,4 +1,4 @@
-"""Generate a host-preserving Docker Compose installation for Elesim roles."""
+"""Generate a host-preserving Docker Compose installation for EleSim roles."""
 
 from __future__ import annotations
 
@@ -17,13 +17,18 @@ from typing import Callable
 import yaml
 
 from .configuration import (
+    copy_role_config_tree,
     dds_enclave,
     generate_role_configs,
     role_keystore_path,
     role_directory,
 )
 from .credentials import _resolve_non_symlink_path, validate_external_turn_credentials
-from .manager_lifecycle import host_helper_fragment, manager_lifecycle_fragment
+from .manager_lifecycle import (
+    compose_owner_guard,
+    host_helper_fragment,
+    manager_lifecycle_fragment,
+)
 from .ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
@@ -409,13 +414,13 @@ class ContainerInstaller:
             containers, images = validate_docker_ownership(candidate)
         except UninstallSafetyError as exc:
             raise ValueError(
-                "기존 unpinned Elesim 설치를 현재 Docker daemon에 안전하게 "
+                "기존 unpinned EleSim 설치를 현재 Docker daemon에 안전하게 "
                 f"연결할 수 없습니다: {exc}"
             ) from exc
         if containers or images:
             return
         raise ValueError(
-            "기존 unpinned Elesim 설치가 현재 Docker daemon에 속한다는 증거가 "
+            "기존 unpinned EleSim 설치가 현재 Docker daemon에 속한다는 증거가 "
             "없습니다. manifest label/Compose 경계가 일치하는 기존 container 또는 "
             "image가 하나 이상 필요합니다. 한 번도 build하지 않은 legacy 설치도 "
             "자동 update할 수 없습니다. 기존 Docker context에서 다시 실행하거나 "
@@ -456,7 +461,7 @@ class ContainerInstaller:
 
         Older general installs ran Sim as root and could leave
         ``cache/genesis`` inaccessible to the normal installer user. Never
-        delete or adopt that data: fall back to a fresh, exact Elesim-owned
+        delete or adopt that data: fall back to a fresh, exact EleSim-owned
         cache subtree under the same prefix and keep the legacy cache intact.
         """
 
@@ -487,7 +492,7 @@ class ContainerInstaller:
             except PermissionError:
                 if index == len(candidates) - 1:
                     raise PermissionError(
-                        "Elesim runtime cache를 준비할 수 없습니다. "
+                        "EleSim runtime cache를 준비할 수 없습니다. "
                         f"다음 경로의 권한을 확인하십시오: {cache_root}"
                     )
                 continue
@@ -520,7 +525,7 @@ class ContainerInstaller:
         root = self.state.source_path
         for role in self.state.roles:
             target = role_directory(self.state, role)
-            _copy_tree((root / role) / "config", target / "config")
+            copy_role_config_tree((root / role) / "config", target / "config", role)
             if role == "sim":
                 _copy_tree(
                     root / "model/bundles/default",
@@ -657,7 +662,17 @@ class ContainerInstaller:
                     f"{credentials}:/run/secrets/turn.credentials.json:ro"
                 )
         if role in {"sim", "ui"}:
-            self._apply_x11_display(service)
+            self._apply_x11_display(
+                service,
+                # Sim authenticates through the narrowly scoped xhost
+                # local-user ACL established at launch.  Baking an authority
+                # path discovered during installation into Compose can become
+                # stale before a later non-interactive manager launch and make
+                # Xlib send the wrong cookie despite the valid ACL.  UI keeps
+                # its existing cookie mount because it is not governed by the
+                # opt-in Viewer wrapper.
+                include_xauthority=role == "ui",
+            )
         if role == "ui":
             service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = (  # type: ignore[index]
                 "${ELESIM_UI_SOFTWARE_GL:-1}"
@@ -667,7 +682,9 @@ class ContainerInstaller:
         return service
 
     @staticmethod
-    def _apply_x11_display(service: dict[str, object]) -> None:
+    def _apply_x11_display(
+        service: dict[str, object], *, include_xauthority: bool = True
+    ) -> None:
         """Expose the host X11 display to graphical role containers.
 
         Sim remains headless unless ``ELESIM_SIM_VIEWER=1`` is injected by the
@@ -683,7 +700,11 @@ class ContainerInstaller:
         environment["DISPLAY"] = "${DISPLAY:-:0}"
         volumes.append("/tmp/.X11-unix:/tmp/.X11-unix:rw")
         xauthority = os.environ.get("XAUTHORITY", "").strip()
-        if xauthority and Path(xauthority).expanduser().is_file():
+        if (
+            include_xauthority
+            and xauthority
+            and Path(xauthority).expanduser().is_file()
+        ):
             authority_path = Path(xauthority).expanduser().resolve()
             environment["XAUTHORITY"] = str(authority_path)
             volumes.append(f"{authority_path}:{authority_path}:ro")
@@ -922,8 +943,13 @@ class ContainerInstaller:
             f"-f {shlex.quote(str(compose))}"
         )
         viewer_user = _resolve_viewer_user()
+        viewer_state = (
+            self.state.prefix_path / "cache/viewer-xhost"
+            if "sim" in self.state.roles
+            else None
+        )
         backend_guard = _docker_backend_guard(self.state.container_network)
-        owner_guard = _compose_owner_guard(
+        owner_guard = compose_owner_guard(
             compose,
             project=GENERAL_COMPOSE_PROJECT,
             containers=(
@@ -1061,14 +1087,18 @@ class ContainerInstaller:
                 has_sim="sim" in self.state.roles,
                 runtime_roles=self.state.roles,
                 state_path=self.state_path,
-                viewer_state=(
-                    self.state.prefix_path / "cache/viewer-xhost"
-                    if "sim" in self.state.roles
-                    else None
-                ),
+                viewer_state=viewer_state,
                 viewer_user=viewer_user,
             ),
         )
+        if viewer_state is not None:
+            write_executable(
+                self.state.bin_path / "elesim-viewer-cleanup",
+                _viewer_cleanup_wrapper(
+                    viewer_state,
+                    xhost_user=viewer_user,
+                ),
+            )
         # ``elesim-net show`` is consumed as a machine-readable JSON document
         # by the connection manager.  Compose's ``run --build`` writes build
         # progress to stdout before the tool starts, which corrupts that
@@ -1113,11 +1143,7 @@ class ContainerInstaller:
                 services=managed_services,
                 archive_enabled=self.state.runtime_text_logs.enabled,
                 guard=guard,
-                viewer_state=(
-                    self.state.prefix_path / "cache/viewer-xhost"
-                    if "sim" in self.state.roles
-                    else None
-                ),
+                viewer_state=viewer_state,
                 viewer_user=viewer_user,
                 infrastructure_services=(
                     ("tailscale",)
@@ -1149,6 +1175,7 @@ class ContainerInstaller:
                 install_uuid=self._install_uuid,
                 guard=guard,
                 container_network_mode=self.state.container_network.mode,
+                gpu_mode=self.state.compute.gpu_mode,
             ),
         )
         write_executable(
@@ -1184,6 +1211,8 @@ class ContainerInstaller:
         ]
         if self.state.container_network.uses_tailscale_sidecar:
             names.append("elesim-tailscale")
+        if "sim" in self.state.roles:
+            names.append("elesim-viewer-cleanup")
         if include_uninstaller:
             names.append("elesim-uninstall")
         return tuple(self.state.bin_path / name for name in names)
@@ -1373,9 +1402,27 @@ def _entrypoint(role: str) -> str:
         raise ValueError(f"unsupported container role: {role}") from exc
     if role == "sim":
         command = (
+            "viewer_preflight_only=0\n"
+            "if [[ ${1:-} == --elesim-viewer-preflight ]]; then\n"
+            "  (( $# == 1 )) || { printf 'Sim Viewer 사전 점검 인자가 올바르지 않습니다.\\n' >&2; exit 64; }\n"
+            "  viewer_preflight_only=1\n"
+            "  shift\n"
+            "fi\n"
             "sim_args=()\n"
             'if [[ ${ELESIM_SIM_VIEWER:-} == "1" ]]; then\n'
+            "  if ! python3 -c 'from pyglet.window import Window; "
+            "window = Window(width=1, height=1, visible=False); "
+            "window.switch_to(); window.close()'; then\n"
+            "    printf 'Sim 컨테이너가 DISPLAY의 X11/GL context를 열 수 없습니다: %s\\n' \"${DISPLAY:-unset}\" >&2\n"
+            "    exit 69\n"
+            "  fi\n"
+            "  if (( viewer_preflight_only )); then\n"
+            "    exit 0\n"
+            "  fi\n"
             "  sim_args+=(--viewer)\n"
+            "elif (( viewer_preflight_only )); then\n"
+            "  printf 'Sim Viewer 사전 점검에는 ELESIM_SIM_VIEWER=1이 필요합니다.\\n' >&2\n"
+            "  exit 64\n"
             "fi\n"
             "exec "
             + commands[role]
@@ -1407,8 +1454,10 @@ def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = 
         # Deployment config is mounted separately at runtime.  Only omit that
         # top-level directory; packages such as src/elesim_sim/config are
         # application code and must remain in the install context.
-        if ignore_config and Path(directory).resolve() == source_root:
-            matches.add("config")
+        if Path(directory).resolve() == source_root:
+            matches.add("tests")
+            if ignore_config:
+                matches.add("config")
         return matches
 
     shutil.copytree(source, destination, ignore=ignore)
@@ -1419,47 +1468,6 @@ def _copy_tree(source: Path, destination: Path) -> None:
         raise FileNotFoundError(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, dirs_exist_ok=True)
-
-
-def _compose_owner_guard(
-    compose: Path,
-    *,
-    project: str,
-    containers: tuple[str, ...],
-) -> str:
-    rendered_containers = " ".join(shlex.quote(name) for name in containers)
-    return (
-        f"expected_compose={shlex.quote(str(compose))}\n"
-        f"expected_project={shlex.quote(project)}\n"
-        f"for container in {rendered_containers}; do\n"
-        "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
-        "    continue\n"
-        "  fi\n"
-        "  metadata=\"$(docker container inspect --format "
-        "'{{ index .Config.Labels \"com.docker.compose.project\" }}|"
-        "{{ index .Config.Labels \"com.docker.compose.project.config_files\" }}' "
-        "\"$container\")\"\n"
-        "  actual_project=\"${metadata%%|*}\"\n"
-        "  actual_compose=\"${metadata#*|}\"\n"
-        "  compose_match=0\n"
-        "  IFS=',' read -r -a compose_files <<<\"$actual_compose\"\n"
-        "  for compose_file in \"${compose_files[@]}\"; do\n"
-        "    if [[ \"$compose_file\" == \"$expected_compose\" ]]; then\n"
-        "      compose_match=1\n"
-        "      break\n"
-        "    fi\n"
-        "  done\n"
-        "  if [[ \"$actual_project\" != \"$expected_project\" || $compose_match != 1 ]]; then\n"
-        "    printf 'Elesim 고정 컨테이너 이름 충돌: %s\\n' \"$container\" >&2\n"
-        "    printf '  기존 소유자: project=%s compose=%s\\n' "
-        "\"$actual_project\" \"$actual_compose\" >&2\n"
-        "    printf '  현재 설치: project=%s compose=%s\\n' "
-        "\"$expected_project\" \"$expected_compose\" >&2\n"
-        "    printf '기존 설치의 elesim-down으로 종료·제거한 뒤 다시 실행하십시오.\\n' >&2\n"
-        "    exit 73\n"
-        "  fi\n"
-        "done\n"
-    )
 
 
 def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
@@ -1536,11 +1544,14 @@ def _manager_wrapper(
     install_uuid: str,
     guard: str,
     container_network_mode: str,
+    gpu_mode: str,
 ) -> str:
     if container_network_mode not in {"direct-host", "tailscale-sidecar"}:
         raise ValueError(
             f"unsupported container network mode: {container_network_mode!r}"
         )
+    if gpu_mode not in {"inherit", "specific", "cpu"}:
+        raise ValueError(f"unsupported GPU mode: {gpu_mode!r}")
     tailscale_hint = (
         "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
         "tailscale_address=\"\"\n"
@@ -1581,6 +1592,9 @@ def _manager_wrapper(
         + tailscale_hint
         + "manager_options=()\n"
         "manager_options+=( -e ELESIM_CONNECTION_PUBLISHED=1 )\n"
+        "manager_options+=( -e ELESIM_INSTALL_GPU_MODE="
+        + shlex.quote(gpu_mode)
+        + " )\n"
         "manager_options+=( -e ELESIM_CONTAINER_NETWORK_MODE="
         + shlex.quote(container_network_mode)
         + " )\n"
@@ -1770,22 +1784,51 @@ def _viewer_xhost_function(
     state_path: Path,
     *,
     xhost_user: str = "root",
+    x11_socket_dir: Path = Path("/tmp/.X11-unix"),
 ) -> str:
     """Render opt-in X11 ACL management for the Sim container user."""
 
     state = shlex.quote(str(state_path))
     user = shlex.quote(str(xhost_user))
-    fallback = (
-        '"${XDG_RUNTIME_DIR:-/tmp}/elesim/viewer-xhost-'
+    socket_dir = shlex.quote(str(x11_socket_dir))
+    # Keep the recovery location independent of the launching shell.  Manager
+    # SSH, a later local down, and uninstall do not necessarily share
+    # XDG_RUNTIME_DIR; an environment-derived fallback would orphan the ACL.
+    fallback_path = state_path.parent.parent / ".runtime-cache/viewer-xhost"
+    fallback = shlex.quote(str(fallback_path))
+    legacy_name = (
+        "viewer-xhost-"
         + hashlib.sha256(str(state_path).encode("utf-8")).hexdigest()[:16]
-        + '"'
     )
+    legacy_tmp = shlex.quote(f"/tmp/elesim/{legacy_name}")
     return (
+        f"viewer_xhost_primary={state}\n"
         f"viewer_xhost_state={state}\n"
         f"viewer_xhost_user={user}\n"
+        f"viewer_x11_socket_dir={socket_dir}\n"
         f"viewer_xhost_fallback={fallback}\n"
+        "viewer_xhost_runtime_uid=$(id -u)\n"
+        f"viewer_xhost_legacy_run=\"/run/user/$viewer_xhost_runtime_uid/elesim/{legacy_name}\"\n"
+        f"viewer_xhost_legacy_tmp={legacy_tmp}\n"
+        "viewer_xhost_candidates=(\"$viewer_xhost_primary\" \"$viewer_xhost_fallback\" \"$viewer_xhost_legacy_run\" \"$viewer_xhost_legacy_tmp\")\n"
+        "if [[ -n ${XDG_RUNTIME_DIR:-} && $XDG_RUNTIME_DIR == /* && -d $XDG_RUNTIME_DIR && ! -L $XDG_RUNTIME_DIR ]] && [[ $(stat -c %u -- \"$XDG_RUNTIME_DIR\" 2>/dev/null || true) == \"$viewer_xhost_runtime_uid\" ]]; then\n"
+        f"  viewer_xhost_candidates+=(\"$XDG_RUNTIME_DIR/elesim/{legacy_name}\")\n"
+        "fi\n"
+        "viewer_xhost_cleanup_on_failure=1\n"
         "viewer_xhost_select_state() {\n"
-        "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] && return 0\n"
+        "  viewer_xhost_state=$viewer_xhost_primary\n"
+        "  local candidate existing\n"
+        "  local -a checked=()\n"
+        "  for candidate in \"${viewer_xhost_candidates[@]}\"; do\n"
+        "    for existing in \"${checked[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && continue 2\n"
+        "    done\n"
+        "    checked+=(\"$candidate\")\n"
+        "    if [[ -e $candidate || -L $candidate ]]; then\n"
+        "      viewer_xhost_state=$candidate\n"
+        "      return 0\n"
+        "    fi\n"
+        "  done\n"
         "  local state_parent=\"${viewer_xhost_state%/*}\"\n"
         "  if [[ -d \"$state_parent\" && ! -w \"$state_parent\" ]]; then\n"
         "    viewer_xhost_state=\"$viewer_xhost_fallback\"\n"
@@ -1795,10 +1838,16 @@ def _viewer_xhost_function(
         "viewer_xhost_select_state\n"
         "viewer_xhost_resolve_session() {\n"
         "  local -a display_candidates=() authority_candidates=()\n"
-        "  local candidate existing socket_path socket_name runtime_uid\n"
+        "  local candidate existing socket_path socket_name runtime_uid display_number\n"
         "  viewer_add_display_candidate() {\n"
         "    candidate=$1\n"
         "    [[ -n $candidate ]] || return 0\n"
+        "    # The container receives only the host's local Unix socket mount.\n"
+        "    # Reject SSH-forwarded/TCP DISPLAY values even if host xhost can\n"
+        "    # reach them; that route is not reachable from the runtime namespace.\n"
+        "    [[ $candidate =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]] || return 0\n"
+        "    display_number=${BASH_REMATCH[1]}\n"
+        "    [[ -S \"$viewer_x11_socket_dir/X$display_number\" ]] || return 0\n"
         "    for existing in \"${display_candidates[@]}\"; do\n"
         "      [[ $existing == \"$candidate\" ]] && return 0\n"
         "    done\n"
@@ -1814,7 +1863,7 @@ def _viewer_xhost_function(
         "  }\n"
         "  viewer_add_display_candidate \"${DISPLAY:-}\"\n"
         "  local discovered_displays=0\n"
-        "  for socket_path in /tmp/.X11-unix/X*; do\n"
+        "  for socket_path in \"$viewer_x11_socket_dir\"/X*; do\n"
         "    [[ -S $socket_path ]] || continue\n"
         "    socket_name=${socket_path##*/}\n"
         "    [[ $socket_name =~ ^X([0-9]{1,4})$ ]] || continue\n"
@@ -1822,7 +1871,6 @@ def _viewer_xhost_function(
         "    discovered_displays=$((discovered_displays + 1))\n"
         "    (( discovered_displays >= 16 )) && break\n"
         "  done\n"
-        "  viewer_add_display_candidate :0\n"
         "  viewer_add_authority_candidate \"${XAUTHORITY:-}\"\n"
         "  viewer_add_authority_candidate \"${HOME:-}/.Xauthority\"\n"
         "  runtime_uid=$(id -u)\n"
@@ -1850,16 +1898,35 @@ def _viewer_xhost_function(
         "  printf '접속 가능한 로컬 X11 세션을 찾지 못했습니다. Sim 호스트의 그래픽 세션과 Xauthority를 확인하십시오.\\n' >&2\n"
         "  return 64\n"
         "}\n"
-        "viewer_xhost_cleanup() {\n"
-        "  [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]] || return 0\n"
-        "  if [[ ! -f \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
-        "    printf 'Elesim xhost 상태 파일이 일반 파일이 아닙니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "viewer_xhost_validate_state() {\n"
+        "  local checked_state=$1\n"
+        "  if [[ ! -f $checked_state || -L $checked_state ]]; then\n"
+        "    printf 'EleSim xhost 상태 파일이 일반 파일이 아닙니다: %s\\n' \"$checked_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
+        "  local state_mode state_uid state_links state_parent parent_mode parent_uid resolved_parent\n"
+        "  if ! state_mode=$(stat -c %a -- \"$checked_state\" 2>/dev/null) || ! state_uid=$(stat -c %u -- \"$checked_state\" 2>/dev/null) || ! state_links=$(stat -c %h -- \"$checked_state\" 2>/dev/null); then\n"
+        "    printf 'EleSim xhost 상태 소유권을 확인할 수 없습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  if [[ $state_uid != \"$viewer_xhost_runtime_uid\" || $state_mode != 600 || $state_links != 1 ]]; then\n"
+        "    printf 'EleSim xhost 상태의 소유자/권한이 안전하지 않습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  state_parent=${checked_state%/*}\n"
+        "  if [[ ! -d $state_parent || -L $state_parent ]] || ! resolved_parent=$(realpath -e -- \"$state_parent\" 2>/dev/null) || [[ $resolved_parent != \"$state_parent\" ]] || ! parent_mode=$(stat -c %a -- \"$state_parent\" 2>/dev/null) || ! parent_uid=$(stat -c %u -- \"$state_parent\" 2>/dev/null) || [[ $parent_uid != \"$viewer_xhost_runtime_uid\" || $parent_mode != 700 ]]; then\n"
+        "    printf 'EleSim xhost 상태 디렉터리의 소유자/권한이 안전하지 않습니다: %s\\n' \"$state_parent\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_cleanup_one() {\n"
+        "  local cleanup_state=$1\n"
+        "  [[ -e $cleanup_state || -L $cleanup_state ]] || return 0\n"
+        "  viewer_xhost_validate_state \"$cleanup_state\" || return $?\n"
         "  local saved_display=\"\" saved_xauthority=\"\"\n"
-        "  { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$viewer_xhost_state\"\n"
+        "  { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$cleanup_state\"\n"
         "  if [[ -z $saved_display ]]; then\n"
-        "    printf 'Elesim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$cleanup_state\" >&2\n"
         "    return 74\n"
         "  fi\n"
         "  if ! command -v xhost >/dev/null 2>&1; then\n"
@@ -1870,13 +1937,59 @@ def _viewer_xhost_function(
         "  if [[ -n $saved_xauthority ]]; then\n"
         "    XAUTHORITY=\"$saved_xauthority\" DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
         "  else\n"
-        "    DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
+        "    env -u XAUTHORITY DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
         "  fi\n"
         "  if (( xhost_status != 0 )); then\n"
         "    printf 'X11 Viewer 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
         "    return \"$xhost_status\"\n"
         "  fi\n"
-        "  rm -f -- \"$viewer_xhost_state\"\n"
+        "  rm -f -- \"$cleanup_state\"\n"
+        "}\n"
+        "viewer_xhost_discard_duplicate() {\n"
+        "  local duplicate_state=$1 preserved_display=$2\n"
+        "  [[ -e $duplicate_state || -L $duplicate_state ]] || return 0\n"
+        "  viewer_xhost_validate_state \"$duplicate_state\" || return $?\n"
+        "  local duplicate_display=\"\" duplicate_authority=\"\"\n"
+        "  { IFS= read -r duplicate_display || true; IFS= read -r duplicate_authority || true; } <\"$duplicate_state\"\n"
+        "  if [[ -z $duplicate_display ]]; then\n"
+        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$duplicate_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local duplicate_server=$duplicate_display preserved_server=$preserved_display\n"
+        "  if [[ $duplicate_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then\n"
+        "    duplicate_server=\":${BASH_REMATCH[1]}\"\n"
+        "  fi\n"
+        "  if [[ $preserved_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then\n"
+        "    preserved_server=\":${BASH_REMATCH[1]}\"\n"
+        "  fi\n"
+        "  if [[ $duplicate_server == \"$preserved_server\" ]]; then\n"
+        "    # The X server ACL is per display, not per recovery file.  Keep\n"
+        "    # the selected live grant and discard only this duplicate record.\n"
+        "    rm -f -- \"$duplicate_state\"\n"
+        "  else\n"
+        "    viewer_xhost_cleanup_one \"$duplicate_state\"\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_cleanup_except() {\n"
+        "  local preserved_state=${1:-} preserved_display=${2:-}\n"
+        "  local candidate existing\n"
+        "  local -a checked=()\n"
+        "  for candidate in \"${viewer_xhost_candidates[@]}\"; do\n"
+        "    [[ -n $preserved_state && $candidate == \"$preserved_state\" ]] && continue\n"
+        "    for existing in \"${checked[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && continue 2\n"
+        "    done\n"
+        "    checked+=(\"$candidate\")\n"
+        "    if [[ -n $preserved_state ]]; then\n"
+        "      viewer_xhost_discard_duplicate \"$candidate\" \"$preserved_display\" || return $?\n"
+        "    else\n"
+        "      viewer_xhost_cleanup_one \"$candidate\" || return $?\n"
+        "    fi\n"
+        "  done\n"
+        "}\n"
+        "viewer_xhost_cleanup() {\n"
+        "  viewer_xhost_cleanup_except || return $?\n"
+        "  viewer_xhost_select_state\n"
         "}\n"
         "viewer_xhost_enable() {\n"
         "  if ! command -v xhost >/dev/null 2>&1; then\n"
@@ -1885,7 +1998,25 @@ def _viewer_xhost_function(
         "  fi\n"
         "  viewer_xhost_resolve_session || return $?\n"
         "  local display=$DISPLAY\n"
+        "  viewer_xhost_cleanup_on_failure=1\n"
         "  if [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
+        "    viewer_xhost_validate_state \"$viewer_xhost_state\" || return $?\n"
+        "    if [[ -f \"$viewer_xhost_state\" && ! -L \"$viewer_xhost_state\" ]]; then\n"
+        "      local saved_display=\"\" saved_xauthority=\"\" owned_xhost_list=\"\" saved_server current_server\n"
+        "      { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$viewer_xhost_state\"\n"
+        "      saved_server=$saved_display\n"
+        "      current_server=$display\n"
+        "      if [[ $saved_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then saved_server=\":${BASH_REMATCH[1]}\"; fi\n"
+        "      if [[ $current_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then current_server=\":${BASH_REMATCH[1]}\"; fi\n"
+        "      if [[ $saved_server == \"$current_server\" ]] && owned_xhost_list=\"$(xhost 2>/dev/null)\" && grep -Fxq \"SI:localuser:$viewer_xhost_user\" <<<\"$owned_xhost_list\"; then\n"
+        "        viewer_xhost_cleanup_except \"$viewer_xhost_state\" \"$display\" || return $?\n"
+        "        # A currently running Viewer already owns this exact grant.\n"
+        "        # Preserve it if a restart attempt fails so the previous\n"
+        "        # container can be resumed by the manager's compensation.\n"
+        "        viewer_xhost_cleanup_on_failure=0\n"
+        "        return 0\n"
+        "      fi\n"
+        "    fi\n"
         "    viewer_xhost_cleanup || return $?\n"
         "  fi\n"
         "  local xhost_list=\"\" had_viewer_user=0\n"
@@ -1893,30 +2024,51 @@ def _viewer_xhost_function(
         "    printf 'DISPLAY에 연결할 수 없어 xhost ACL을 확인할 수 없습니다: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
-        "  if grep -Fq \"SI:localuser:$viewer_xhost_user\" <<<\"$xhost_list\"; then\n"
+        "  if grep -Fxq \"SI:localuser:$viewer_xhost_user\" <<<\"$xhost_list\"; then\n"
         "    had_viewer_user=1\n"
         "  fi\n"
+        "  if (( had_viewer_user )); then\n"
+        "    # The user already had this ACL before EleSim.  Do not claim or\n"
+        "    # later revoke externally owned access.\n"
+        "    return 0\n"
+        "  fi\n"
+        "  # Persist the recovery record before mutating the X server.  If the\n"
+        "  # process dies after the grant, elesim-down/manager Stop can still\n"
+        "  # revoke it.  A record without a successful grant is harmless: the\n"
+        "  # exact xhost removal is idempotent.\n"
+        "  local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
+        "  if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! (umask 077; printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\") || ! chmod 0600 -- \"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
+        "    rm -f -- \"$temporary\"\n"
+        "    printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
         "  if ! xhost +si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1; then\n"
+        "    # Keep the recovery record.  Although xhost reported failure, it\n"
+        "    # may have mutated the server before disconnecting; a later\n"
+        "    # explicit cleanup can safely retry the exact removal.\n"
         "    printf 'X11 Viewer 사용자 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
         "    return 64\n"
         "  fi\n"
-        "  if (( had_viewer_user == 0 )) || [[ -e \"$viewer_xhost_state\" ]]; then\n"
-        "    local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
-        "    if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
-        "      rm -f -- \"$temporary\"\n"
-        "      if (( had_viewer_user == 0 )); then\n"
-        "        if [[ -n ${XAUTHORITY:-} ]]; then\n"
-        "          XAUTHORITY=\"$XAUTHORITY\" DISPLAY=\"$display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || true\n"
-        "        else\n"
-        "          DISPLAY=\"$display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || true\n"
-        "        fi\n"
-        "      fi\n"
-        "      printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
-        "      return 74\n"
-        "    fi\n"
-        "    chmod 0600 -- \"$viewer_xhost_state\"\n"
-        "  fi\n"
         "}\n"
+    )
+
+
+def _viewer_cleanup_wrapper(
+    state_path: Path,
+    *,
+    xhost_user: str = "root",
+) -> str:
+    """Render the exact, Docker-independent cleanup used by manager stops."""
+
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + _viewer_xhost_function(state_path, xhost_user=xhost_user)
+        + "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-viewer-cleanup\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        "viewer_xhost_cleanup\n"
     )
 
 
@@ -1931,6 +2083,7 @@ def _runtime_up_wrapper(
     compose_wrapper: Path | None = None,
     viewer_state: Path | None = None,
     viewer_user: str = "root",
+    viewer_x11_socket_dir: Path = Path("/tmp/.X11-unix"),
 ) -> str:
     """Render the general runtime launcher with an optional Sim Viewer.
 
@@ -2029,17 +2182,32 @@ def _runtime_up_wrapper(
         "    esac\n"
         "  done\n"
         "fi\n"
+        + (
+            "if (( view_requested )); then\n"
+            "  viewer_sim_selected=0\n"
+            "  for argument in \"${compose_args[@]}\"; do\n"
+            "    [[ $argument == sim ]] && viewer_sim_selected=1\n"
+            "  done\n"
+            "  if (( ! viewer_sim_selected )); then\n"
+            "    printf 'elesim-up --view에는 Sim 서비스가 포함되어야 합니다.\\n' >&2\n"
+            "    exit 64\n"
+            "  fi\n"
+            "fi\n"
+            if has_sim
+            else ""
+        )
     )
     viewer_function = (
-        _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
+        _viewer_xhost_function(
+            viewer_state,
+            xhost_user=viewer_user,
+            x11_socket_dir=viewer_x11_socket_dir,
+        )
         if has_sim and viewer_state is not None
         else ""
     )
     viewer_action = (
-        "if (( ! view_requested )); then\n"
-        "  viewer_xhost_cleanup || exit $?\n"
-        "fi\n"
-        + launch_guard
+        launch_guard
         + "if (( view_requested )); then\n"
         "  viewer_xhost_enable || exit $?\n"
         "fi\n"
@@ -2111,6 +2279,32 @@ def _runtime_up_wrapper(
         if has_sim
         else ""
     )
+    viewer_preflight = (
+        "if (( view_requested )); then\n"
+        "  viewer_preflight_status=0\n"
+        "  set +e\n"
+        "  if (( no_build_requested )); then\n"
+        "    "
+        + command
+        + " run --rm -T --no-deps sim --elesim-viewer-preflight\n"
+        "  else\n"
+        "    "
+        + command
+        + " run --rm -T --build --no-deps sim --elesim-viewer-preflight\n"
+        "  fi\n"
+        "  viewer_preflight_status=$?\n"
+        "  set -e\n"
+        "  if (( viewer_preflight_status != 0 )); then\n"
+        "    printf 'Sim Viewer X11/GL 사전 점검에 실패했습니다. 컨테이너를 시작하지 않습니다.\\n' >&2\n"
+        "    if (( viewer_xhost_cleanup_on_failure )); then\n"
+        "      viewer_xhost_cleanup || viewer_preflight_status=$?\n"
+        "    fi\n"
+        "    exit \"$viewer_preflight_status\"\n"
+        "  fi\n"
+        "fi\n"
+        if viewer_function
+        else ""
+    )
     compose_run = (
         "compose_status=0\n"
         "set +e\n"
@@ -2125,8 +2319,21 @@ def _runtime_up_wrapper(
         "fi\n"
         "compose_status=$?\n"
         "set -e\n"
-        "if (( compose_status != 0 && view_requested )); then\n"
-        "  viewer_xhost_cleanup || compose_status=$?\n"
+        "if (( compose_status == 0 && ! view_requested )); then\n"
+        "  headless_sim_selected=0\n"
+        "  for argument in \"${compose_args[@]}\"; do\n"
+        "    [[ $argument == sim ]] && headless_sim_selected=1\n"
+        "  done\n"
+        "  if (( headless_sim_selected )); then\n"
+        "    # Only a successfully activated headless Sim supersedes an old\n"
+        "    # Viewer.  Partial launches and failed restarts must preserve its\n"
+        "    # ACL so manager compensation can resume the previous container.\n"
+        "    viewer_xhost_cleanup || compose_status=$?\n"
+        "  fi\n"
+        "elif (( compose_status != 0 && view_requested )); then\n"
+        "  if (( viewer_xhost_cleanup_on_failure )); then\n"
+        "    viewer_xhost_cleanup || compose_status=$?\n"
+        "  fi\n"
         "fi\n"
         "exit \"$compose_status\"\n"
     )
@@ -2140,6 +2347,7 @@ def _runtime_up_wrapper(
         + compose_argument_validation
         + coturn_selection
         + viewer_action
+        + viewer_preflight
         + compose_run
     )
 
@@ -2317,7 +2525,7 @@ def _runtime_logs_wrapper(
         + _runtime_presence_function(compose=compose, services=services)
         + "if (( $# == 0 )); then\n"
         + "  if ! runtime_has_role_containers; then\n"
-        + "    printf '실행 중인 Elesim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    printf '실행 중인 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
         + "    exit 3\n"
         + "  fi\n"
         + "  exec "
@@ -2326,7 +2534,7 @@ def _runtime_logs_wrapper(
         + "fi\n"
         + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
         + "  if ! runtime_has_role_containers; then\n"
-        + "    printf '저장할 Elesim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    printf '저장할 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
         + "    exit 3\n"
         + "  fi\n"
         + save_action
@@ -2381,7 +2589,7 @@ def _runtime_down_wrapper(
                 + "  down_status=$?\n"
                 + "  set -e\n"
                 + "else\n"
-                + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+                + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
                 + "fi\n"
                 + "viewer_status=0\n"
                 + "viewer_xhost_cleanup || viewer_status=$?\n"
@@ -2405,7 +2613,7 @@ def _runtime_down_wrapper(
             + command
             + " down --remove-orphans\n"
             + "else\n"
-            + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
             + "fi\n"
         )
     return (
@@ -2432,7 +2640,7 @@ def _runtime_down_wrapper(
         + "  runtime_present=1\n"
         + "  archive_runtime_logs || archive_status=$?\n"
         + "else\n"
-        + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
+        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
         + "fi\n"
         + "if runtime_has_project_containers; then\n"
         + "  project_present=1\n"
@@ -2443,7 +2651,7 @@ def _runtime_down_wrapper(
         + command
         + " down --remove-orphans || down_status=$?\n"
         + "else\n"
-        + "  printf 'Elesim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
         + "fi\n"
         + "viewer_status=0\n"
         + (

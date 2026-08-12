@@ -240,7 +240,7 @@ def require_runtime_network_namespace(
                 "The DDS address must belong to the selected interface in the same "
                 "network namespace as the runtime roles. A host or WSL Tailscale "
                 "address cannot be advertised from a separate Docker Desktop "
-                "namespace; enroll the Elesim Tailscale sidecar or select the "
+                "namespace; enroll the EleSim Tailscale sidecar or select the "
                 "native Docker backend that owns that interface."
             )
         # ``ip route get`` intentionally reports a local address through
@@ -408,43 +408,6 @@ def _runtime_interface_addresses(
         except ValueError:
             continue
     return normalized
-
-
-def require_runtime_tcp_reachability(
-    peers: Sequence[str],
-    *,
-    port: int = 22,
-    connector: Callable[..., object] | None = None,
-) -> None:
-    """Run a negative-only sanity probe for Tailscale SSH peers.
-
-    This is deliberately limited to peers whose management connection already
-    uses keyless Tailscale SSH.  A failure is useful: the same runtime
-    namespace cannot even reach the peer's Tailscale SSH endpoint, so starting
-    DDS there would otherwise produce a long, opaque discovery wait.  A
-    successful TCP connection is *not* treated as proof of DDS UDP reachability;
-    the route/interface check and live DDS doctor remain separate gates.
-    """
-
-    if isinstance(port, bool) or not 1 <= int(port) <= 65535:
-        raise ValueError("TCP probe port must be in 1..65535")
-    connect = socket.create_connection if connector is None else connector
-    for peer in tuple(str(value).strip() for value in peers if str(value).strip()):
-        try:
-            connection = connect((peer, int(port)), timeout=1.5)
-            close = getattr(connection, "close", None)
-            if callable(close):
-                close()
-        except (OSError, TimeoutError) as exc:
-            raise RuntimeError(
-                f"runtime namespace cannot reach Tailscale SSH peer "
-                f"{peer}:{port}: {exc}. This negative TCP check is not a DDS "
-                "proof, but it confirms that the runtime path is broken. "
-                "Docker Desktop/WSL host networking commonly isolates the Docker "
-                "Linux VM from WSL tailscale*; use Docker Engine in the same "
-                "namespace as Tailscale or configure a genuinely routed, "
-                "container-visible DDS interface."
-            ) from exc
 
 
 def require_generated_dds_configuration(state: InstallState) -> None:
@@ -720,8 +683,8 @@ def _prompt(label: str, current: str) -> str:
 
 
 def _configure_interactive(state: InstallState) -> InstallState:
-    print("\nElesim ROS 2/DDS 설정")
-    system_id = _prompt("Elesim system ID", state.dds.system_id)
+    print("\nEleSim ROS 2/DDS 설정")
+    system_id = _prompt("EleSim system ID", state.dds.system_id)
     sim_id = _prompt("Sim endpoint ID", state.network.sim_id)
     pilot_id = _prompt("Pilot endpoint ID", state.network.pilot_id)
     ui_id = _prompt("UI endpoint ID", state.network.ui_id)
@@ -970,12 +933,6 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="검사할 직접 연결 DDS peer (반복 가능)",
     )
-    namespace_check.add_argument(
-        "--tcp-peer",
-        action="append",
-        default=None,
-        help="negative-only Tailscale SSH reachability probe peer (반복 가능)",
-    )
     restore = subparsers.add_parser("restore-snapshot", help=argparse.SUPPRESS)
     restore.add_argument("--payload", required=True, help=argparse.SUPPRESS)
     configure = subparsers.add_parser(
@@ -1044,7 +1001,7 @@ def _parser() -> argparse.ArgumentParser:
         "--expect-peer",
         action="append",
         default=[],
-        help="기대하는 Elesim endpoint ID (반복 가능)",
+        help="기대하는 EleSim endpoint ID (반복 가능)",
     )
     doctor.add_argument(
         "--strict-peers",
@@ -1080,8 +1037,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 address=args.dds_address,
                 peers=args.dds_peer,
             )
-            if args.tcp_peer:
-                require_runtime_tcp_reachability(args.tcp_peer)
             interface = (
                 state.dds.interface
                 if args.dds_interface is None

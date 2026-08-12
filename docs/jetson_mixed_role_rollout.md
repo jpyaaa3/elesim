@@ -265,7 +265,7 @@ CA private key는 계속 operator Authority에만 남긴다.
 
 - Router/ZMQ 재도입
 - Robot을 Docker로 이전
-- Unitree DDS를 Elesim DDS graph에 노출
+- Unitree DDS를 EleSim DDS graph에 노출
 - 기존 DDS contract를 typed service/action으로 전환
 - Jetson을 자동으로 발견해 역할을 임의 배치
 - ARM64 검증 전 Sim을 허용
@@ -279,7 +279,7 @@ CA private key는 계속 operator Authority에만 남긴다.
 | 2026-08-09 | A/C 착수 | `DeploymentUnit`을 도입하고 기존 topology v1-v3를 단일 unit으로 읽도록 유지했다. Host는 여러 unit을 가지며 Robot은 Jetson/native/systemd, 나머지는 container/Compose로 검증한다. mixed Host의 stage/activate/rollback/status/build/start 경계를 unit별로 분리하고 SROS2 bundle을 unit 역할별로 필터링했다. | Python compile 및 mixed topology 수동 round-trip 통과; 전체 gate는 Docker daemon 부재로 아직 미실행 | UI를 일반 COM Host 카드 4개와 Robot drag/drop으로 전환하고 unit 입력/회귀 테스트를 추가 |
 | 2026-08-09 | E 완료 | 연결관리자의 모든 COM 카드를 동등한 Host 카드로 만들고, 각 카드에 `Container runtime unit`/`Robot native unit` lane을 추가했다. Robot은 Jetson native lane에서만, 현재 amd64 전용 Sim은 Jetson에 놓지 못하게 drag/drop·서버 validator 양쪽에서 막는다. runtime/Robot prefix와 endpoint ID는 계속 unit별로 저장한다. | `node --check`, Python compileall, `git diff --check`, mixed model·role-scoped bundle 수동 probe 통과; Docker 기반 pytest gate는 Docker daemon 권한 부재로 대기 | lifecycle·security fake 회귀와 generated install/release gate 실행; 이후 실제 Jetson 수동 인수시험 |
 | 2026-08-09 | B/C/D/F 마감 | Unit별 Compose/native 명령, prefix·bin dir·security root·role-scoped bundle·세대 rollback map을 분리했다. 한 Jetson의 필수 Robot native와 Pilot/UI Compose를 같은 Host 카드에서 독립적으로 저장·검사·시작·정지·복구한다. Jetson 표시는 mandatory Robot unit을 요구하며, 빈 COM 카드와 로컬 Authority의 Robot 배치를 GUI에서 즉시 거부한다. 기존 homogeneous schema-v3 mirror와 legacy Robot card 읽기도 유지했다. | mixed topology/lifecycle/security probe PASS; i18n 110-key parity, JavaScript syntax, Python compileall, `git diff --check` PASS. `python3 misc/tools/quality/check.py --group required`는 host에 pytest가 없고 Docker daemon 권한도 없어 실행환경 게이트에서 중단됨. | 실제 Jetson에서 두 prefix/ownership, ARM64 Pilot/UI 이미지, native safety, DDS/SROS2/WebRTC/display를 수동 인수시험으로 확인 |
-| 2026-08-09 | 최종 감사 | Jetson의 Robot 필수 조건을 자료구조와 저장 직전에 이중 검증하고, mixed Unit의 `install_root`/`bin_dir`가 같거나 서로 포함되지 않도록 고정했다. 레거시 `public/` trust material은 role view에 유지하되 role별 enclave는 계속 격리한다. | mandatory-Robot·non-overlap·mixed round-trip/security/lifecycle probe PASS; i18n 110-key parity, Python compileall, JavaScript syntax, `git diff --check` PASS. Required gate는 host `pytest`/Docker daemon 부재로 동일하게 차단됨. | 자동 게이트가 가능한 Elesim 개발 컨테이너에서 required/extended 및 실제 Jetson 수동 인수시험 실행 |
+| 2026-08-09 | 최종 감사 | Jetson의 Robot 필수 조건을 자료구조와 저장 직전에 이중 검증하고, mixed Unit의 `install_root`/`bin_dir`가 같거나 서로 포함되지 않도록 고정했다. 레거시 `public/` trust material은 role view에 유지하되 role별 enclave는 계속 격리한다. | mandatory-Robot·non-overlap·mixed round-trip/security/lifecycle probe PASS; i18n 110-key parity, Python compileall, JavaScript syntax, `git diff --check` PASS. Required gate는 host `pytest`/Docker daemon 부재로 동일하게 차단됨. | 자동 게이트가 가능한 EleSim 개발 컨테이너에서 required/extended 및 실제 Jetson 수동 인수시험 실행 |
 
 ## 10. goal 지정용 요약
 

@@ -14,6 +14,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 from .configuration import (
     RobotHostSettings,
+    copy_role_config_tree,
     dds_enclave,
     generate_role_configs,
     role_keystore_path,
@@ -293,16 +294,16 @@ class Installer:
         elesim_interface = self.state.dds.interface.strip()
         if not elesim_interface:
             raise ValueError(
-                "Robot 설치는 inter-host Elesim DDS interface를 명시해야 합니다"
+                "Robot 설치는 inter-host EleSim DDS interface를 명시해야 합니다"
             )
         if elesim_interface == self.robot_host.unitree_interface:
             raise ValueError(
-                "Elesim DDS interface와 private Unitree interface가 같습니다. "
+                "EleSim DDS interface와 private Unitree interface가 같습니다. "
                 "ELESIM_UNITREE_INTERFACE 또는 설치 DDS interface를 분리하십시오."
             )
         if self.state.dds.domain_id == self.robot_host.unitree_domain_id:
             raise ValueError(
-                "Elesim ROS domain과 private Unitree domain이 같습니다. "
+                "EleSim ROS domain과 private Unitree domain이 같습니다. "
                 "ELESIM_UNITREE_DOMAIN_ID 또는 설치 DDS domain을 분리하십시오."
             )
 
@@ -332,7 +333,7 @@ class Installer:
             rendered = "\n".join(f"  - {path}" for path in missing)
             raise FileNotFoundError(f"설치 소스가 불완전합니다:\n{rendered}")
         if sys.version_info < (3, 10):
-            raise RuntimeError("Elesim 설치에는 Python 3.10 이상이 필요합니다")
+            raise RuntimeError("EleSim 설치에는 Python 3.10 이상이 필요합니다")
         if (
             "sim" in self.state.roles
             and self.state.install_go2_mpc
@@ -370,7 +371,7 @@ class Installer:
         source = root / role
         target = role_directory(self.state, role)
         self.log(f"[{role}] 파일 배치")
-        _copy_tree(source / "config", target / "config")
+        copy_role_config_tree(source / "config", target / "config", role)
         if role == "sim":
             _copy_tree(root / "model/bundles/default", target / "model/bundles/default")
         python = self._ensure_venv(
@@ -556,7 +557,7 @@ class Installer:
         marker = provisioning_required_path(self.state)
         robot_content = (
             "[Unit]\n"
-            "Description=Elesim robot hardware endpoint\n"
+            "Description=EleSim robot hardware endpoint\n"
             f"After=network-online.target {UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
             "Wants=network-online.target\n"
             f"BindsTo={UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
@@ -579,7 +580,7 @@ class Installer:
         )
         bridge_content = (
             "[Unit]\n"
-            "Description=Elesim local Unitree DDS bridge\n"
+            "Description=EleSim local Unitree DDS bridge\n"
             "After=network-online.target\n"
             "Wants=network-online.target\n"
             f"PartOf={ROBOT_SYSTEMD_UNIT}\n"
@@ -614,11 +615,6 @@ class Installer:
         _write_regular_file(robot_service, robot_content, mode=0o644)
         _write_regular_file(bridge_service, bridge_content, mode=0o644)
         return robot_service, bridge_service
-
-    def _write_robot_service_unit(self) -> Path:
-        """Compatibility helper for callers that only need the Robot unit path."""
-
-        return self._write_robot_service_units()[0]
 
     def _log_robot_service_registration(self, services: Sequence[Path]) -> None:
         robot_service, bridge_service = tuple(services)
