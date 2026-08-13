@@ -575,6 +575,8 @@ class DeveloperInstaller:
                 compose=compose,
                 build_services=("dev",),
                 preamble=guard,
+                repository=self.request.repository,
+                ref=self.request.ref,
             ),
         )
 

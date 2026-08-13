@@ -32,6 +32,10 @@ def test_container_images_build_the_interface_overlay() -> None:
         assert "interfaces/elesim_interfaces" in dockerfile
         assert "colcon" in dockerfile
         assert " build " in dockerfile
+        # colcon's --log-base is a top-level option on the ROS Humble image;
+        # placing it after the build verb is rejected by the installed parser.
+        assert "colcon --log-base " in dockerfile
+        assert "colcon build --log-base" not in dockerfile
         assert "rmw-cyclonedds-cpp" in dockerfile
         assert "rosidl-default-generators" in dockerfile
     # ``elesim-net namespace-check`` runs inside the tools image and uses

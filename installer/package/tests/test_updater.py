@@ -24,8 +24,40 @@ def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
     assert "raw.githubusercontent.com/${repository}/${ref}" in script
     assert "update --edition general" in script
     assert "build pilot ui tools" in script
+    assert "recorded_repository=lab/elesim" in script
+    assert "recorded_ref=refactoring" in script
+    assert "source=%s@%s" in script
     assert "docker compose down" not in script
     assert "docker image rm" not in script
+    assert subprocess.run(
+        ("bash", "-n"),
+        input=script,
+        text=True,
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+
+
+def test_explicit_update_source_is_recorded_and_runtime_override_remains_available(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("ELESIM_REPOSITORY", "wrong/current")
+    monkeypatch.setenv("ELESIM_REF", "wrong-ref")
+
+    script = render_update_wrapper(
+        edition="general",
+        prefix=tmp_path / "install",
+        state_path=tmp_path / "install/install-state.json",
+        repository="lab/elesim",
+        ref="refactoring",
+    )
+
+    assert "recorded_repository=lab/elesim" in script
+    assert "recorded_ref=refactoring" in script
+    assert 'repository="${ELESIM_REPOSITORY:-$recorded_repository}"' in script
+    assert 'ref="${ELESIM_REF:-$recorded_ref}"' in script
+    assert '"$repository" == *[[:space:]]*' in script
     assert subprocess.run(
         ("bash", "-n"),
         input=script,

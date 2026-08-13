@@ -917,6 +917,20 @@ class FakeSession:
         self.uploads.append((path, content, mode))
 
 
+class BareSession(FakeSession):
+    """Session shape returned by a connector that is not itself a context manager."""
+
+    __enter__ = None
+    __exit__ = None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class FakeConnector:
     def __init__(self, session: FakeSession) -> None:
         self.session = session
@@ -990,6 +1004,19 @@ def test_ssh_host_operations_stage_manifest_then_atomically_activate() -> None:
     assert connector.endpoints[0].host == "server.example"
     assert connector.endpoints[0].host != host.dds.address
     operations.close()
+
+
+def test_ssh_host_operations_borrow_non_context_connector_session() -> None:
+    host = _topology().host("server")
+    session = BareSession()
+    operations = SshHostOperations(
+        FakeConnector(session), FakeLifecycle(), _topology()
+    )
+
+    operations.stage(host, _bundle("server"))
+    operations.close()
+
+    assert session.closed
 
 
 def test_local_host_operations_use_install_root_security_directory(

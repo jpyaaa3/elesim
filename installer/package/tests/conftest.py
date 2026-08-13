@@ -30,6 +30,8 @@ def local_state(tmp_path: Path):
         turn=None,
         container_network=None,
         install_mode=None,
+        source_repository="jpyaaa3/elesim",
+        source_ref="main",
     ) -> InstallState:
         selected_roles = tuple(roles)
         selected_mode = (
@@ -43,6 +45,8 @@ def local_state(tmp_path: Path):
             prefix=str(tmp_path / "install"),
             bin_dir=str(tmp_path / "bin"),
             source_root=str(ROOT),
+            source_repository=source_repository,
+            source_ref=source_ref,
             network=network or NetworkSettings(),
             dds=dds or DdsSettings(),
             compute=compute or ComputeSettings(),

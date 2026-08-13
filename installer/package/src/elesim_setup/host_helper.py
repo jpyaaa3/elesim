@@ -449,7 +449,7 @@ def _run_bounded(
         raise ValueError("host-helper command timeout is out of bounds")
     process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results: dict[str, tuple[bytes, bool]] = {}
-    failures: list[BaseException] = []
+    failures: list[Exception] = []
 
     def drain(name: str, stream: object) -> None:
         retained = bytearray()
@@ -465,7 +465,7 @@ def _run_bounded(
                 if len(retained) > _MAX_OUTPUT:
                     del retained[: len(retained) - _MAX_OUTPUT]
                     truncated = True
-        except BaseException as exc:
+        except Exception as exc:
             failures.append(exc)
             process.terminate()
         finally:

@@ -64,7 +64,7 @@ def probe_ssh_fingerprint(
         if transport is None:
             try:
                 connection.close()  # type: ignore[attr-defined]
-            except BaseException:
+            except Exception:
                 pass
 
 

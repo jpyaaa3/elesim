@@ -435,6 +435,45 @@ def test_runtime_readiness_checks_hosts_concurrently(
     )
 
 
+def test_runtime_readiness_keeps_exception_type_for_terse_context_errors() -> None:
+    assert ConnectionDeploymentRunner._exception_detail(AttributeError("__enter__")) == (
+        "AttributeError: __enter__"
+    )
+    actual = AttributeError("'object' object has no attribute '__enter__'")
+    assert ConnectionDeploymentRunner._exception_detail(actual).startswith(
+        "AttributeError: "
+    )
+
+
+def test_runtime_readiness_distinguishes_probe_exception_from_missing_peers(
+    tmp_path: Path,
+) -> None:
+    topology = _topology(tmp_path, security_profile="trusted-network")
+    logs: list[str] = []
+
+    class Operations(_NoopNetworkPreparation):
+        def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
+            assert timeout_s == 60
+            raise AttributeError("__enter__")
+
+    operations = {host.host_id: Operations() for host in topology.hosts}
+    with pytest.raises(RuntimeError, match="readiness probe error: AttributeError"):
+        ConnectionDeploymentRunner._report_runtime_readiness(
+            topology, operations, topology.hosts, logs.append
+        )
+    assert any("DDS 판정 전에 검사 호출이 실패했습니다" in message for message in logs)
+
+
+def test_rollback_and_cleanup_errors_keep_terse_exception_types() -> None:
+    terse = AttributeError("__enter__")
+
+    rollback = RuntimeRollbackError(RuntimeError("start failed"), [("sim", terse)])
+    cleanup = OperationCloseError(terse, [("sim", terse)])
+
+    assert "sim: AttributeError: __enter__" in str(rollback)
+    assert "host operation failed: AttributeError: __enter__" in str(cleanup)
+
+
 def test_runtime_launch_preflight_fails_before_build_or_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -367,6 +367,20 @@ This is not a rolling multi-host deployment: update each host independently and
 use the connection manager when a protocol or managed-security change requires
 coordinated rollout.
 
+The recorded source is visible in `elesim-update` output as `repository@ref`.
+For a legacy state that predates source metadata, a wrapper generated before
+source pinning has `main` baked into its shell text. Redirect it once through
+the intended bootstrap, for example:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/owner/repo/ref/installer/bootstrap/install.sh \
+  | ELESIM_REPOSITORY=owner/repo ELESIM_REF=ref bash -s -- update
+```
+
+Current wrappers also accept a bounded `ELESIM_REPOSITORY`/`ELESIM_REF`
+override for this recovery. `elesim-down --purge` removes runtime resources;
+it does not select or repair the source revision.
+
 The first update from an unpinned v1-v8 installation accepts the selected
 Docker daemon only if exact install-UUID/Compose labels on at least one prior
 container or local image prove ownership there. It refuses foreign/ambiguous

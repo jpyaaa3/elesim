@@ -416,6 +416,24 @@ integrity and bootstrap-generation checks are identical to a fresh install. It
 then runs the non-interactive `update` command against the existing state and
 ownership manifest.
 
+General state schema v9 persists this source identity as
+`source_repository`/`source_ref`; the generated wrapper prints the effective
+`repository@ref` before fetching it. An older state without these fields uses
+the public `jpyaaa3/elesim@main` default. A wrapper generated before source
+pinning has that default baked into its shell text, so setting an environment
+variable cannot redirect that old wrapper. Recover it once through the
+bootstrap itself, then let the regenerated wrapper take over:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/owner/repo/ref/installer/bootstrap/install.sh \
+  | ELESIM_REPOSITORY=owner/repo ELESIM_REF=ref bash -s -- update
+```
+
+For a current wrapper, `ELESIM_REPOSITORY=owner/repo ELESIM_REF=ref
+elesim-update` is accepted as an explicit, bounded recovery override; the
+resulting state records that identity for later updates. `elesim-down --purge`
+only removes the installed runtime/manager and does not change the source ref.
+
 For a general container install, refresh preserves the install UUID and mutable
 runtime data: topology, managed SROS2 generations and Authority, secrets, logs,
 and application caches. It rewrites installer-owned configuration, wrappers,
@@ -756,9 +774,10 @@ owned by the Sim installation rather than represented as a connection-manager
 card or topology field; the manager reads its non-secret runtime endpoint from
 `elesim-net show` when SROS2 is active and clears it for trusted-network use.
 
-The retired wizard section and its compatibility boundary are recorded as a
-temporary design placeholder in
-`docs/design/installer_network_security_placeholder.md`.
+The retired wizard boundary is now part of this document: setup emits only
+manager-owned defaults, while `elesim-connections` owns mutable DDS/SSH/TURN
+endpoints and managed SROS2 generation. Legacy request fields remain readable
+for migration but are not exposed as a second installer configuration path.
 
 For managed SROS2, provisioning creates role identities and per-host bundles;
 deployment first preflights every host and stages the same generation on all of

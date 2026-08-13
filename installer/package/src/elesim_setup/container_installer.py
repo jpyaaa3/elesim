@@ -1199,6 +1199,8 @@ class ContainerInstaller:
                     else ()
                 ),
                 preamble=guard,
+                repository=self.state.source_repository,
+                ref=self.state.source_ref,
             ),
         )
 
@@ -2213,12 +2215,14 @@ def _runtime_up_wrapper(
         else ""
     )
     viewer_action = (
-        launch_guard
-        + "if (( view_requested )); then\n"
-        "  viewer_xhost_enable || exit $?\n"
-        "fi\n"
-        if viewer_function
-        else launch_guard
+        (
+            "if (( view_requested )); then\n"
+            "  viewer_xhost_enable || exit $?\n"
+            "fi\n"
+            if viewer_function
+            else ""
+        )
+        + launch_guard
     )
     security_profile = (
         "runtime_security_profile() {\n"
@@ -2311,6 +2315,28 @@ def _runtime_up_wrapper(
         if viewer_function
         else ""
     )
+    viewer_post_cleanup = (
+        (
+            "if (( compose_status == 0 && ! view_requested )); then\n"
+            "  headless_sim_selected=0\n"
+            "  for argument in \"${compose_args[@]}\"; do\n"
+            "    [[ $argument == sim ]] && headless_sim_selected=1\n"
+            "  done\n"
+            "  if (( headless_sim_selected )); then\n"
+            "    # Only a successfully activated headless Sim supersedes an old\n"
+            "    # Viewer.  Partial launches and failed restarts must preserve its\n"
+            "    # ACL so manager compensation can resume the previous container.\n"
+            "    viewer_xhost_cleanup || compose_status=$?\n"
+            "  fi\n"
+            "elif (( compose_status != 0 && view_requested )); then\n"
+            "  if (( viewer_xhost_cleanup_on_failure )); then\n"
+            "    viewer_xhost_cleanup || compose_status=$?\n"
+            "  fi\n"
+            "fi\n"
+            if viewer_function
+            else ""
+        )
+    )
     compose_run = (
         "compose_status=0\n"
         "set +e\n"
@@ -2325,23 +2351,8 @@ def _runtime_up_wrapper(
         "fi\n"
         "compose_status=$?\n"
         "set -e\n"
-        "if (( compose_status == 0 && ! view_requested )); then\n"
-        "  headless_sim_selected=0\n"
-        "  for argument in \"${compose_args[@]}\"; do\n"
-        "    [[ $argument == sim ]] && headless_sim_selected=1\n"
-        "  done\n"
-        "  if (( headless_sim_selected )); then\n"
-        "    # Only a successfully activated headless Sim supersedes an old\n"
-        "    # Viewer.  Partial launches and failed restarts must preserve its\n"
-        "    # ACL so manager compensation can resume the previous container.\n"
-        "    viewer_xhost_cleanup || compose_status=$?\n"
-        "  fi\n"
-        "elif (( compose_status != 0 && view_requested )); then\n"
-        "  if (( viewer_xhost_cleanup_on_failure )); then\n"
-        "    viewer_xhost_cleanup || compose_status=$?\n"
-        "  fi\n"
-        "fi\n"
-        "exit \"$compose_status\"\n"
+        + viewer_post_cleanup
+        + "exit \"$compose_status\"\n"
     )
     return (
         "#!/usr/bin/env bash\n"
@@ -2351,8 +2362,8 @@ def _runtime_up_wrapper(
         + viewer_function
         + view_parse
         + compose_argument_validation
-        + coturn_selection
         + viewer_action
+        + coturn_selection
         + viewer_preflight
         + compose_run
     )

@@ -7,6 +7,8 @@ import shlex
 from pathlib import Path
 from typing import Sequence
 
+from .state import DEFAULT_SOURCE_REF, DEFAULT_SOURCE_REPOSITORY
+
 
 def render_update_wrapper(
     *,
@@ -18,13 +20,22 @@ def render_update_wrapper(
     build_services: Sequence[str] = (),
     pull_services: Sequence[str] = (),
     preamble: str = "",
+    repository: str | None = None,
+    ref: str | None = None,
 ) -> str:
     if edition not in {"general", "developer"}:
         raise ValueError(f"unsupported update edition: {edition!r}")
-    repository = os.environ.get("ELESIM_REPOSITORY", "jpyaaa3/elesim").strip()
-    ref = os.environ.get("ELESIM_REF", "main").strip()
-    if not repository or not ref or any(
-        "\n" in value or "\r" in value for value in (repository, ref)
+    recorded_repository = (
+        os.environ.get("ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY)
+        if repository is None
+        else repository
+    ).strip()
+    recorded_ref = (
+        os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF) if ref is None else ref
+    ).strip()
+    if not recorded_repository or not recorded_ref or any(
+        "\n" in value or "\r" in value or any(ch.isspace() for ch in value)
+        for value in (recorded_repository, recorded_ref)
     ):
         raise ValueError("update repository/ref must be non-empty single-line values")
 
@@ -32,8 +43,15 @@ def render_update_wrapper(
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         preamble.rstrip("\n"),
-        f"repository={shlex.quote(repository)}",
-        f"ref={shlex.quote(ref)}",
+        f"recorded_repository={shlex.quote(recorded_repository)}",
+        f"recorded_ref={shlex.quote(recorded_ref)}",
+        'repository="${ELESIM_REPOSITORY:-$recorded_repository}"',
+        'ref="${ELESIM_REF:-$recorded_ref}"',
+        'if [[ -z "$repository" || -z "$ref" || "$repository" == *[[:space:]]* || "$ref" == *[[:space:]]* ]]; then',
+        '  printf \'%s\\n\' \'EleSim update refused: repository/ref must be non-empty single-line values.\' >&2',
+        "  exit 2",
+        "fi",
+        'printf \'[elesim-update] source=%s@%s\\n\' "$repository" "$ref"',
     ]
     if edition == "developer":
         workspace = shlex.quote(str(prefix))

@@ -160,3 +160,80 @@ Dulwich와 요구 버전의 setuptools가
 아니다. Host에서 `quality/check.py --group required`도 실행했지만 pytest와 ROS 2
 overlay 부재를 정확히 실패로 보고했다. canonical `elesim-dev` required/extended
 gate와 실제 release 재생성은 별도 최종 gate로 남는다.
+
+## 2026-08-14 반복 점검: readiness 원인과 설치 source 고정
+
+최근 Docker Desktop/WSL 로그의 `DDS readiness: ... 실패: __enter__`는 DDS
+패킷 자체가 처음부터 사라진 증거가 아니었다. 같은 실행에서 Pilot/Sim의
+discovery, target selection, lease grant까지 관찰된 뒤 readiness가 실패했고,
+manager가 해당 작업을 rollback하면서 역할 컨테이너가 `137`로 종료됐다. 즉
+오류 문자열이 실제 원인(`AttributeError` 계열의 context-manager 호출 실패)을
+가리고 있었고, rollback의 종료 코드를 OOM으로 오인하기 쉬운 상태였다.
+
+이번 반복에서 다음 경계를 고정했다.
+
+- `SshHostOperations`는 connector가 반환한 세션을 직접 `__enter__`하지 않고
+  `_BorrowedSession`으로 감싼다. connector가 bare session을 반환해도 job의
+  `with` 경계를 유지하며, 종료 시에는 `__exit__` 또는 `close()`를 명시적으로
+  선택한다. bare-session 회귀 테스트를 추가했다.
+- DDS readiness worker는 `Exception`만 job 실패 보고로 수집한다. 취소/프로세스
+  인터럽트를 삼키지 않으며, 빈 메시지나 `__enter__`/`__exit__`처럼 모호한
+  예외는 구체적인 예외 class를 함께 출력한다.
+- InstallState v9에 `source_repository`와 `source_ref`를 기록하고, 설치·GUI·CLI
+  모두 같은 값을 update wrapper에 전달한다. 기존 state는 `main`으로 명시적
+  migration하며, wrapper는 실행 때 `repository@ref`를 출력한다. 따라서
+  `refactoring`에서 고친 manager가 다음 `elesim-update`에서 조용히 GitHub
+  `main`을 다시 받아오는 경로를 제거했다. 의도적인 일회성 override는
+  `ELESIM_REPOSITORY`/`ELESIM_REF`로만 가능하다.
+- 사용하지 않는 `docs/design/installer_network_security_placeholder.md`는
+  삭제하고 필요한 운영 경계는 `docs/setup.md`/`docs/deployment.md`로
+  통합했다. bootstrap/release의 exact allowlist와 연구 자료 제외 검사는
+  유지하므로 source-only 자료가 curl 설치물에 섞이지 않는다.
+
+이 반복 점검은 Docker를 새로 올리지 않고 Python compile, generated update
+wrapper `bash -n`, diff whitespace 검사로 확인했다. host에는 pytest와 Docker
+daemon 접근 권한이 없어 canonical container gate는 별도 실행이 필요하다.
+
+3차 정합성 점검에서도 setup 모듈 AST와 문서 상대 링크를 다시 순회했다. import
+graph 밖에 남은 모듈은
+`pyproject.toml` console script가 직접 소유하는 `cli`/`connections`/
+`host_proxy`와 manager wrapper가 `python -m`으로 실행하는 bounded
+`host_helper`뿐이다. `network`는 `elesim-net` console script가 직접 소유한다.
+bootstrap shell syntax, 전체
+runtime Python AST/compile, 기록 source를 포함한 generated wrapper syntax도
+재검증했다.
+
+## 2026-08-14 반복 점검 2: 예외 경계와 중복 진단 제거
+
+트랜잭션 롤백·보안 generation 복구처럼 `KeyboardInterrupt`까지 cleanup해야 하는
+경계의 `BaseException`은 유지하고, 그 외의 무차별 수집은 줄였다.
+
+- SSH fingerprint probe와 host-helper/SSH local-stream drain은 일반 `Exception`만
+  수집한다. worker에서 `SystemExit`나 사용자 인터럽트를 일반 명령 실패로
+  바꾸지 않는다.
+- 복구 루틴의 동작이 전혀 없는 `except BaseException: raise`를 제거했다.
+- readiness worker가 SSH/session 호출 자체에서 실패한 경우를 peer heartbeat
+  부재와 구분해 `readiness probe error` 및 예외 class를 출력한다. 따라서
+  `AttributeError: __enter__`가 DDS timeout으로 위장하지 않는다.
+- Sim은 이미 필수 bundle을 검증하고 바로 `_load_joint_layout()`으로 읽는데,
+  같은 manifest를 다시 읽어 실패를 `manifest inspect skipped`로 출력하던
+  중복 진단 블록을 삭제했다. 필수 manifest 오류는 원래의 검증 예외로 남는다.
+- pre-v9 update wrapper는 source ref가 shell text에 고정되어 있으므로 환경변수만
+  바꿔서는 복구되지 않는다는 사실을 setup/deployment 문서에 명시하고, 의도한
+  bootstrap을 한 번 직접 실행하는 복구 절차를 추가했다. `--purge`가 source
+  선택을 바꾸지 않는다는 점도 명시했다.
+
+정적 확인은 변경 모듈 compile, direct context-manager 호출 검색, source-only
+allowlist와 generated-wrapper syntax 검사로 수행했다. Docker/pytest가 없는
+호스트 제약은 변하지 않아 실제 2-host DDS gate의 증거로 사용하지 않는다.
+
+추가로 Sim 기본 장면의 `sim_target_enable=true` 경로를 확인했다. Genesis의
+타깃 구체 생성이 실패해도 `sim target spawn failed`만 출력하고 계속하던
+예외는 필수 장면 계약을 깨뜨린 채 Pilot을 기동시키는 숨은 실패였다. 이제
+해당 경계에서 `RuntimeError`로 원인을 보존하며, 회귀 테스트가 실패를
+삼키지 않는지 확인한다.
+
+bootstrap snapshot 검사는 curl 추출물에서 제외할 public-example 설정을
+소스 checkout 검증 시에도 허용하되, 추출 결과에는 계속 복사하지 않는다.
+따라서 비-gitignore 예제 파일과 실제 설치 payload의 경계가 서로 다르게
+판정되지 않는다.

@@ -400,6 +400,8 @@ def _validate_source_snapshot(root: Path) -> None:
         for role in _BOOTSTRAP_ROLES
         for path in (root / role / "config").rglob("*")
         if path.is_file()
+        and PurePosixPath(path.relative_to(root).as_posix())
+        not in _BOOTSTRAP_EXCLUDED_CONFIG_FILES
     )
     if actual_role_configs != _BOOTSTRAP_ROLE_CONFIG_FILES:
         raise BootstrapError(
@@ -416,7 +418,13 @@ def _validate_source_snapshot(root: Path) -> None:
         elif path.is_dir():
             if not _bootstrap_source_directory_allowed(relative):
                 unexpected.append(relative.as_posix())
-        elif not path.is_file() or not _bootstrap_source_path_allowed(relative):
+        elif (
+            not path.is_file()
+            or (
+                relative not in _BOOTSTRAP_EXCLUDED_CONFIG_FILES
+                and not _bootstrap_source_path_allowed(relative)
+            )
+        ):
             unexpected.append(relative.as_posix())
         if len(unexpected) >= 5:
             break

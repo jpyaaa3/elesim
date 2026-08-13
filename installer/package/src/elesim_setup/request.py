@@ -12,6 +12,8 @@ from .profiles import normalize_roles
 from .state import (
     ComputeSettings,
     ContainerNetworkSettings,
+    DEFAULT_SOURCE_REF,
+    DEFAULT_SOURCE_REPOSITORY,
     DdsSettings,
     InstallState,
     NetworkSettings,
@@ -65,8 +67,8 @@ class SetupRequest:
     ssh: SshCredentialSource = field(default_factory=SshCredentialSource)
     register_path: bool = False
     jaeger: bool = False
-    repository: str = "jpyaaa3/elesim"
-    ref: str = "main"
+    repository: str = DEFAULT_SOURCE_REPOSITORY
+    ref: str = DEFAULT_SOURCE_REF
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "SetupRequest":
@@ -150,8 +152,8 @@ class SetupRequest:
             ),
             register_path=bool(raw.get("register_path", False)),
             jaeger=bool(raw.get("jaeger", False)),
-            repository=str(raw.get("repository", "jpyaaa3/elesim")),
-            ref=str(raw.get("ref", "main")),
+            repository=str(raw.get("repository", DEFAULT_SOURCE_REPOSITORY)),
+            ref=str(raw.get("ref", DEFAULT_SOURCE_REF)),
         )
 
     def validate(self, capabilities: HostCapabilities) -> "SetupRequest":
@@ -243,6 +245,8 @@ class SetupRequest:
             prefix=str(self.prefix),
             bin_dir=str(self.bin_dir),
             source_root=str(self.source_root),
+            source_repository=self.repository,
+            source_ref=self.ref,
             network=self.network,
             dds=self.dds,
             compute=self.compute,

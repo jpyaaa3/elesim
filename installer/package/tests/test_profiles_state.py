@@ -80,6 +80,29 @@ def test_state_round_trip_persists_dds_v9_and_runtime_text_logs(
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_state_round_trip_persists_update_source_identity(local_state) -> None:
+    state = local_state(
+        source_repository="lab/elesim",
+        source_ref="refactoring",
+    )
+
+    restored = InstallState.from_dict(state.to_dict())
+
+    assert restored.source_repository == "lab/elesim"
+    assert restored.source_ref == "refactoring"
+
+
+def test_legacy_state_defaults_update_source_identity(local_state) -> None:
+    raw = local_state().to_dict()
+    raw.pop("source_repository")
+    raw.pop("source_ref")
+
+    restored = InstallState.from_dict(raw)
+
+    assert restored.source_repository == "jpyaaa3/elesim"
+    assert restored.source_ref == "main"
+
+
 def test_state_v9_round_trip_persists_pinned_tailscale_sidecar(local_state) -> None:
     prefix = local_state().prefix_path
     settings = ContainerNetworkSettings(

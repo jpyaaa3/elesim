@@ -138,7 +138,8 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
         selected = False
         lease_id = ""
         last_selection_at = 0.0
-        motion_sent = False
+        last_motion_at = 0.0
+        motion_attempts = 0
         try:
             while not stop.is_set():
                 peer.heartbeat()
@@ -177,14 +178,23 @@ def _controller_process(barrier: Any, stop: Any, results: Any) -> None:
                         _report(results, "pilot:operator")
                     elif message.message_type == "ack":
                         _report(results, "pilot:ack")
-                if selected and not motion_sent:
+                # Motion deliberately uses volatile best-effort keep-last-1
+                # delivery.  Exercise the bounded command stream used by the
+                # runtime instead of assuming that one first sample can arrive
+                # before a newly-created motion writer/reader pair matches.
+                if (
+                    selected
+                    and motion_attempts < 20
+                    and now - last_motion_at >= 0.1
+                ):
                     peer.send(
                         "motion_command",
                         target_id="robot-smoke",
                         lease_id=lease_id,
                         payload={"command": "torque_off"},
                     )
-                    motion_sent = True
+                    motion_attempts += 1
+                    last_motion_at = now
         finally:
             peer.close()
 

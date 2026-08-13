@@ -1296,6 +1296,10 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     environment.pop("DISPLAY", None)
     environment.pop("XAUTHORITY", None)
     Path(environment["VIEWER_MARKER"]).unlink()
+    # The hardened launcher validates the local X11 session before any Docker
+    # operation.  Clear the marker from the previous successful launch so this
+    # assertion observes only the unavailable-session invocation.
+    Path(environment["DOCKER_ARGS_MARKER"]).write_text("", encoding="utf-8")
     unavailable = subprocess.run(
         (wrapper, "--view"),
         env=environment,

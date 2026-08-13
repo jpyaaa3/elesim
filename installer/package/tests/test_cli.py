@@ -358,6 +358,8 @@ def test_update_reuses_installed_general_state_with_new_source(
             return None
 
     monkeypatch.setattr(cli, "ContainerInstaller", FakeInstaller)
+    monkeypatch.setenv("ELESIM_REPOSITORY", "lab/elesim")
+    monkeypatch.setenv("ELESIM_REF", "refactoring")
     result = cli.main(
         (
             "--source-root",
@@ -371,6 +373,8 @@ def test_update_reuses_installed_general_state_with_new_source(
     assert result == 0
     updated, kwargs = received[0]
     assert updated.source_path == (tmp_path / "new-source").resolve()
+    assert updated.source_repository == "lab/elesim"
+    assert updated.source_ref == "refactoring"
     assert updated.roles == state.roles
     assert updated.dds == state.dds
     assert updated.network == state.network
@@ -467,6 +471,47 @@ def test_developer_update_state_round_trip(tmp_path: Path) -> None:
     assert request.compute.gpu_device == "GPU-1"
     assert request.dds.static_peers == ("100.64.0.2",)
     assert request.dds.interface == "tailscale0"
+
+
+def test_developer_update_override_records_fetched_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    state_path = workspace / ".elesim/development/install-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "workspace": str(workspace),
+                "bin_dir": str(workspace / "bin"),
+                "repository": "old/elesim",
+                "ref": "main",
+                "gpu_mode": "inherit",
+                "gpu_device": "",
+                "jaeger": False,
+                "dds": {
+                    "system_id": "lab",
+                    "domain_id": 0,
+                    "rmw_implementation": "rmw_cyclonedds_cpp",
+                    "discovery_mode": "multicast",
+                    "static_peers": [],
+                    "interface": "",
+                    "security_profile": "trusted-network",
+                    "keystore": "",
+                    "enclave": "",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ELESIM_REPOSITORY", "lab/elesim")
+    monkeypatch.setenv("ELESIM_REF", "refactoring")
+
+    request = cli._developer_update_request(state_path, tmp_path / "source")
+
+    assert request.repository == "lab/elesim"
+    assert request.ref == "refactoring"
 
 
 def test_interactive_role_selector_has_no_computer_presets() -> None:

@@ -43,6 +43,22 @@ Log = Callable[[str], None]
 _DDS_READINESS_TIMEOUT_S = 60.0
 
 
+def _exception_detail(error: BaseException) -> str:
+    """Retain a useful type for empty or context-manager-only errors."""
+
+    message = str(error).strip()
+    name = error.__class__.__name__
+    if not message:
+        return name
+    if (
+        message in {name, "__enter__", "__exit__"}
+        or "__enter__" in message
+        or "__exit__" in message
+    ):
+        return message if message.startswith(f"{name}:") else f"{name}: {message}"
+    return message
+
+
 class RuntimeRollbackError(RuntimeError):
     """A runtime transition and one or more compensating actions failed."""
 
@@ -55,10 +71,11 @@ class RuntimeRollbackError(RuntimeError):
     ) -> None:
         failures = tuple(rollback_errors)
         details = "; ".join(
-            f"{host_id}: {str(error)[:512]}" for host_id, error in failures
+            f"{host_id}: {_exception_detail(error)[:512]}"
+            for host_id, error in failures
         )
         super().__init__(
-            f"runtime lifecycle failed: {cause}; rollback {rollback_action} "
+            f"runtime lifecycle failed: {_exception_detail(cause)}; rollback {rollback_action} "
             f"also failed: {details}"
         )
         self.cause = cause
@@ -76,13 +93,14 @@ class OperationCloseError(RuntimeError):
     ) -> None:
         failures = tuple(close_errors)
         details = "; ".join(
-            f"{host_id}: {str(error)[:512]}" for host_id, error in failures
+            f"{host_id}: {_exception_detail(error)[:512]}"
+            for host_id, error in failures
         )
         if cause is None:
             message = f"host operation cleanup failed: {details}"
         else:
             message = (
-                f"host operation failed: {cause}; "
+                f"host operation failed: {_exception_detail(cause)}; "
                 f"session cleanup also failed: {details}"
             )
         super().__init__(message)
@@ -379,7 +397,7 @@ class ConnectionDeploymentRunner:
                             )
                     if stop_errors:
                         details = "; ".join(
-                            f"{host_id}/{phase}: {str(error)[:512]}"
+                            f"{host_id}/{phase}: {_exception_detail(error)[:512]}"
                             for host_id, phase, error in stop_errors
                         )
                         raise RuntimeError(
@@ -639,7 +657,7 @@ class ConnectionDeploymentRunner:
                 log(f"DDS readiness: {host.host_id} — 검사할 endpoint 없음")
             return
 
-        def check_host(host: ManagedHost) -> Mapping[str, Any]:
+        def check_host(host: ManagedHost) -> object:
             checker = getattr(operations[host.host_id], "runtime_doctor", None)
             if not callable(checker):
                 raise RuntimeError(
@@ -647,7 +665,7 @@ class ConnectionDeploymentRunner:
                 )
             return checker(host, expected, timeout_s=_DDS_READINESS_TIMEOUT_S)
 
-        reports: dict[str, Mapping[str, Any] | BaseException] = {}
+        reports: dict[str, object] = {}
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, len(hosts)),
             thread_name_prefix="elesim-dds-readiness",
@@ -656,19 +674,21 @@ class ConnectionDeploymentRunner:
             for future, host in futures.items():
                 try:
                     reports[host.host_id] = future.result()
-                except BaseException as exc:
+                except Exception as exc:
                     reports[host.host_id] = exc
 
         for host in hosts:
             report = reports[host.host_id]
-            if isinstance(report, BaseException):
+            if isinstance(report, Exception):
                 if isinstance(report, ConnectionJobCancelled):
                     raise report
-                detail = str(report).strip() or report.__class__.__name__
-                failures.append(f"{host.host_id}: {detail[:768]}")
+                detail = ConnectionDeploymentRunner._exception_detail(report)
+                failures.append(
+                    f"{host.host_id}: readiness probe error: {detail[:768]}"
+                )
                 log(
-                    f"DDS readiness: {host.host_id} — "
-                    f"검사 실패: {detail[:768]}"
+                    f"DDS readiness probe: {host.host_id} — "
+                    f"DDS 판정 전에 검사 호출이 실패했습니다: {detail[:768]}"
                 )
                 continue
             if not isinstance(report, Mapping):
@@ -699,6 +719,19 @@ class ConnectionDeploymentRunner:
                 "heartbeats were not observed: "
                 + "; ".join(failures)[:4096]
             )
+
+    @staticmethod
+    def _exception_detail(error: BaseException) -> str:
+        """Keep the exception type when its message is too terse to diagnose.
+
+        Python's missing-context-manager error is commonly rendered only as
+        ``__enter__``.  That text loses the distinction between a stale helper,
+        a bad session object and a DDS probe failure, which made readiness
+        rollback look like a network problem.  Preserve the bounded message,
+        but always include the concrete exception class for terse errors.
+        """
+
+        return _exception_detail(error)
 
     @staticmethod
     def _runtime_report_ok(report: Mapping[str, object]) -> bool:
@@ -809,79 +842,74 @@ class ConnectionDeploymentRunner:
         for host in topology.hosts:
             self._validate_recovery_snapshot(host, snapshots[host.host_id])
         stopped = []
-        try:
+        for host in topology.hosts:
+            running = snapshots[host.host_id].running_roles
+            if not running:
+                continue
+            log(f"recover-stop: {host.host_id}")
+            operations[host.host_id].stop(host, running)
+            stopped.append(host)
+        if active is None:
+            log("활성 Authority generation이 없어 managed-pending 상태로 복구합니다.")
             for host in topology.hosts:
-                running = snapshots[host.host_id].running_roles
-                if not running:
-                    continue
-                log(f"recover-stop: {host.host_id}")
-                operations[host.host_id].stop(host, running)
-                stopped.append(host)
+                previous = snapshots[host.host_id]
+                pending = copy.deepcopy(dict(previous.runtime_configuration))
+                pending_security = {
+                    "security_profile": "sros2",
+                    "security_provisioning": "managed",
+                    "security_generation": "",
+                    "security_bundle": "",
+                    "keystore": "",
+                    "enclave": "",
+                }
+                dds = pending.get("dds")
+                if not isinstance(dds, dict):
+                    raise RuntimeError(f"DDS state is missing on {host.host_id!r}")
+                dds.update(pending_security)
+                unit_states = pending.get("units")
+                if isinstance(unit_states, dict):
+                    for unit_id, raw_unit in tuple(unit_states.items()):
+                        if not isinstance(raw_unit, Mapping):
+                            raise RuntimeError(
+                                f"DDS state is missing on "
+                                f"{host.host_id!r}/{unit_id!r}"
+                            )
+                        unit_copy = copy.deepcopy(dict(raw_unit))
+                        unit_dds = unit_copy.get("dds")
+                        if not isinstance(unit_dds, dict):
+                            raise RuntimeError(
+                                f"DDS state is missing on "
+                                f"{host.host_id!r}/{unit_id!r}"
+                            )
+                        unit_dds.update(pending_security)
+                        unit_states[unit_id] = unit_copy
+                log(f"recover-pending: {host.host_id}")
+                operations[host.host_id].rollback(
+                    host,
+                    HostActivationState(None, pending, previous.running_roles),
+                )
+        else:
+            log(f"Authority generation {active.generation}으로 호스트를 일치시킵니다.")
+            for host in topology.hosts:
+                log(f"recover-active: {host.host_id}")
+                operations[host.host_id].activate(host, active.generation)
+        for host in stopped:
+            operations[host.host_id].runtime_network_check(host)
+            operations[host.host_id].start(
+                host, snapshots[host.host_id].running_roles
+            )
+        for host in topology.hosts:
+            operations[host.host_id].preflight(host).require_for(host)
             if active is None:
-                log("활성 Authority generation이 없어 managed-pending 상태로 복구합니다.")
-                for host in topology.hosts:
-                    previous = snapshots[host.host_id]
-                    pending = copy.deepcopy(dict(previous.runtime_configuration))
-                    pending_security = {
-                        "security_profile": "sros2",
-                        "security_provisioning": "managed",
-                        "security_generation": "",
-                        "security_bundle": "",
-                        "keystore": "",
-                        "enclave": "",
-                    }
-                    dds = pending.get("dds")
-                    if not isinstance(dds, dict):
-                        raise RuntimeError(f"DDS state is missing on {host.host_id!r}")
-                    dds.update(pending_security)
-                    unit_states = pending.get("units")
-                    if isinstance(unit_states, dict):
-                        for unit_id, raw_unit in tuple(unit_states.items()):
-                            if not isinstance(raw_unit, Mapping):
-                                raise RuntimeError(
-                                    f"DDS state is missing on "
-                                    f"{host.host_id!r}/{unit_id!r}"
-                                )
-                            unit_copy = copy.deepcopy(dict(raw_unit))
-                            unit_dds = unit_copy.get("dds")
-                            if not isinstance(unit_dds, dict):
-                                raise RuntimeError(
-                                    f"DDS state is missing on "
-                                    f"{host.host_id!r}/{unit_id!r}"
-                                )
-                            unit_dds.update(pending_security)
-                            unit_states[unit_id] = unit_copy
-                    log(f"recover-pending: {host.host_id}")
-                    operations[host.host_id].rollback(
-                        host,
-                        HostActivationState(None, pending, previous.running_roles),
-                    )
-            else:
-                log(f"Authority generation {active.generation}으로 호스트를 일치시킵니다.")
-                for host in topology.hosts:
-                    log(f"recover-active: {host.host_id}")
-                    operations[host.host_id].activate(host, active.generation)
-            for host in stopped:
-                operations[host.host_id].runtime_network_check(host)
-                operations[host.host_id].start(
+                operations[host.host_id].verify_topology(
                     host, snapshots[host.host_id].running_roles
                 )
-            for host in topology.hosts:
-                operations[host.host_id].preflight(host).require_for(host)
-                if active is None:
-                    operations[host.host_id].verify_topology(
-                        host, snapshots[host.host_id].running_roles
-                    )
-                else:
-                    operations[host.host_id].verify(
-                        host,
-                        active.generation,
-                        snapshots[host.host_id].running_roles,
-                    )
-        except BaseException:
-            # Recovery is itself resumable: the next invocation re-inspects
-            # each host and converges on Authority-active or managed-pending.
-            raise
+            else:
+                operations[host.host_id].verify(
+                    host,
+                    active.generation,
+                    snapshots[host.host_id].running_roles,
+                )
         log("managed SROS2 상태 복구가 완료되었습니다.")
 
     @staticmethod

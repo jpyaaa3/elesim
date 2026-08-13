@@ -186,6 +186,20 @@ def _write_valid_snapshot(snapshot: Path, root_name: str = "elesim-main") -> Non
     (snapshot / ".elesim-source-complete").write_text(root_name + "\n")
 
 
+def test_source_snapshot_allows_explicitly_excluded_public_examples(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    _write_valid_snapshot(snapshot)
+    root = snapshot / "elesim-main"
+    for relative in bootstrap_module._BOOTSTRAP_EXCLUDED_CONFIG_FILES:
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("public: true\n", encoding="utf-8")
+
+    bootstrap_module._validate_source_snapshot(root)
+
+
 @pytest.mark.parametrize(
     "relative",
     (

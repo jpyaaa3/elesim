@@ -68,7 +68,9 @@ def _payload(tmp_path: Path) -> dict[str, object]:
 
 
 def test_general_request_translates_to_router_free_state(tmp_path: Path) -> None:
-    request = SetupRequest.from_dict(_payload(tmp_path)).validate(_capabilities())
+    payload = _payload(tmp_path)
+    payload.update({"repository": "lab/elesim", "ref": "refactoring"})
+    request = SetupRequest.from_dict(payload).validate(_capabilities())
     state = request.to_install_state()
 
     assert state.install_mode == "container"
@@ -78,6 +80,8 @@ def test_general_request_translates_to_router_free_state(tmp_path: Path) -> None
     assert state.runtime_text_logs.enabled is True
     assert state.network.ui_id == "ui-west"
     assert state.network.robot_id == "robot-west"
+    assert state.source_repository == "lab/elesim"
+    assert state.source_ref == "refactoring"
 
 
 def test_general_request_selects_network_from_actual_docker_daemon(

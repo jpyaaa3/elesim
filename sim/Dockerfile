@@ -19,11 +19,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 COPY interfaces/elesim_interfaces/ /tmp/elesim/ros_ws/src/elesim_interfaces/
 RUN . /opt/ros/humble/setup.sh && \
-    colcon build \
+    colcon --log-base /tmp/elesim/ros_ws/log build \
       --base-paths /tmp/elesim/ros_ws/src/elesim_interfaces \
       --build-base /tmp/elesim/ros_ws/build \
-      --install-base /opt/elesim/ros/install \
-      --log-base /tmp/elesim/ros_ws/log && \
+      --install-base /opt/elesim/ros/install && \
     rm -rf /tmp/elesim/ros_ws
 COPY wheels/ /tmp/wheels/
 COPY requirements.lock /opt/elesim/requirements.lock

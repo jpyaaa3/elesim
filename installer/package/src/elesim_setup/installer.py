@@ -525,6 +525,8 @@ class Installer:
                 edition="general",
                 prefix=self.state.prefix_path,
                 state_path=self.state_path,
+                repository=self.state.source_repository,
+                ref=self.state.source_ref,
             ),
         )
 

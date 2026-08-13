@@ -1629,25 +1629,6 @@ class AssetProcessor:
                 + "; rebuild it with ELESIM_SIM_DEV_REBUILD=1"
             )
 
-        manifest_go2_found = False
-        manifest_parts_count = 0
-        try:
-            with open(in_json, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-            parts = list(manifest.get("parts", []) or [])
-            manifest_parts_count = int(len(parts))
-            manifest_go2_found = any(str(p.get("name", "")).strip().lower() == "go2" for p in parts if isinstance(p, dict))
-        except Exception as exc:
-            print(f"[runtime] manifest inspect skipped: {exc}")
-        print(
-            "[runtime] use_go2=%s manifest_parts=%d go2_part=%s"
-            % (
-                str(bool(getattr(self.app.cfg, "use_go2", False))).lower(),
-                int(manifest_parts_count),
-                str(bool(manifest_go2_found)).lower(),
-            )
-        )
-
         self._load_joint_layout(in_json)
         self.app._apply_ideal_rates_if_needed()
         use_go2 = bool(getattr(self.app.cfg, "use_go2", False))
@@ -2200,7 +2181,11 @@ class RuntimePrep:
                 )
             )
         except Exception as exc:
-            print(f"[runtime] sim target spawn failed: {exc}")
+            # The target is part of the default scene contract. Continuing
+            # without it leaves Pilot with a running Sim that cannot satisfy
+            # target-generation or perception checks, so fail the scene build
+            # at this boundary instead of hiding the cause.
+            raise RuntimeError(f"sim target spawn failed: {exc}") from exc
 
     @staticmethod
     def _resolve_genesis_go2_urdf() -> str:

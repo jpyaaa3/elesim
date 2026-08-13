@@ -74,7 +74,7 @@ elesim-uninstall --plan  # 삭제될 항목만 미리 확인
 [연결 관리자 설계](docs/design/connection_manager.md) ·
 [Preview/Gaze 설계](docs/design/preview_gaze.md) ·
 [Gait phase preview](docs/design/gait_phase_preview.md) ·
-[네트워크·보안 설치 설계](docs/design/installer_network_security_placeholder.md) ·
+[설치·네트워크·보안](docs/setup.md#dds-network-and-security) ·
 [마일스톤](docs/MILESTONES.md) ·
 [미해결 항목](docs/OPEN_ISSUES_KR.md) ·
 [Open issues](docs/OPEN_ISSUES.md) ·

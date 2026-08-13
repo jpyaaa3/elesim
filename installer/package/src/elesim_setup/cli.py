@@ -19,6 +19,8 @@ from .state import (
     ComputeSettings,
     DEFAULT_BIN_DIR,
     DEFAULT_PREFIX,
+    DEFAULT_SOURCE_REF,
+    DEFAULT_SOURCE_REPOSITORY,
     DdsSettings,
     InstallState,
     NetworkSettings,
@@ -244,6 +246,10 @@ def run_wizard(
         prefix=str(prefix),
         bin_dir=str(bin_dir),
         source_root=str(source_root),
+        source_repository=os.environ.get(
+            "ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY
+        ),
+        source_ref=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF),
         network=NetworkSettings(turn_urls=turn_urls),
         dds=dds,
         compute=compute,
@@ -341,6 +347,8 @@ def _build_state(args: argparse.Namespace, source_root: Path) -> InstallState:
         prefix=str(Path(args.prefix).expanduser().resolve()),
         bin_dir=str(Path(args.bin_dir).expanduser().resolve()),
         source_root=str(source_root),
+        source_repository=args.repository,
+        source_ref=args.ref,
         network=NetworkSettings(
             turn_urls=turn_urls,
             sim_id=args.sim_id,
@@ -405,9 +413,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     gui.add_argument(
         "--repository",
-        default=os.environ.get("ELESIM_REPOSITORY", "jpyaaa3/elesim"),
+        default=os.environ.get("ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY),
     )
-    gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", "main"))
+    gui.add_argument("--ref", default=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF))
 
     install = subparsers.add_parser("install", help="자동화용 비대화형 설치")
     install.add_argument(
@@ -425,6 +433,16 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--role", action="append", choices=ROLE_ORDER)
     install.add_argument("--prefix", default=str(DEFAULT_PREFIX))
     install.add_argument("--bin-dir", default=str(DEFAULT_BIN_DIR))
+    install.add_argument(
+        "--repository",
+        default=os.environ.get("ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY),
+        help="update가 다시 가져올 GitHub owner/repository",
+    )
+    install.add_argument(
+        "--ref",
+        default=os.environ.get("ELESIM_REF", DEFAULT_SOURCE_REF),
+        help="update가 다시 가져올 Git ref",
+    )
     install.add_argument("--sim-id", default="sim-default")
     install.add_argument("--pilot-id", default="pilot-main")
     install.add_argument("--ui-id", default="ui-main")
@@ -587,7 +605,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                             prefix=current.prefix_path,
                         ),
                     )
-                state = replace(current, source_root=str(source_root)).validate()
+                # The bootstrap passes an explicit source identity for every
+                # update.  Apply it here so a pre-v9 state (or a deliberately
+                # overridden current wrapper) records the ref it actually
+                # fetched instead of silently regenerating a wrapper for main.
+                state = replace(
+                    current,
+                    source_root=str(source_root),
+                    source_repository=os.environ.get(
+                        "ELESIM_REPOSITORY", current.source_repository
+                    ).strip(),
+                    source_ref=os.environ.get(
+                        "ELESIM_REF", current.source_ref
+                    ).strip(),
+                ).validate()
                 installer_type = (
                     ContainerInstaller
                     if state.install_mode == "container"
@@ -662,8 +693,12 @@ def _developer_update_request(
         turn=TurnSettings(),
         runtime_text_logs=RuntimeTextLogSettings(enabled=False),
         jaeger=bool(raw.get("jaeger", False)),
-        repository=str(raw.get("repository", "jpyaaa3/elesim")),
-        ref=str(raw.get("ref", "main")),
+        repository=os.environ.get(
+            "ELESIM_REPOSITORY", str(raw.get("repository", DEFAULT_SOURCE_REPOSITORY))
+        ).strip(),
+        ref=os.environ.get(
+            "ELESIM_REF", str(raw.get("ref", DEFAULT_SOURCE_REF))
+        ).strip(),
     )
 
 

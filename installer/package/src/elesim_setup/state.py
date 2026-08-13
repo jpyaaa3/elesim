@@ -30,6 +30,8 @@ DDS_SECURITY_PROVISIONING = frozenset({"none", "external", "managed"})
 DDS_RMW_IMPLEMENTATIONS = frozenset({"rmw_cyclonedds_cpp"})
 DEFAULT_PREFIX = Path("~/.local/share/elesim").expanduser()
 DEFAULT_BIN_DIR = Path("~/.local/bin").expanduser()
+DEFAULT_SOURCE_REPOSITORY = "jpyaaa3/elesim"
+DEFAULT_SOURCE_REF = "main"
 _ROS_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _RMW_NAME = re.compile(r"^rmw_[a-z0-9_]{1,120}$")
 _SECURITY_GENERATION = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,95}$")
@@ -386,6 +388,8 @@ class InstallState:
     prefix: str
     bin_dir: str
     source_root: str
+    source_repository: str = DEFAULT_SOURCE_REPOSITORY
+    source_ref: str = DEFAULT_SOURCE_REF
     network: NetworkSettings = field(default_factory=NetworkSettings)
     dds: DdsSettings = field(default_factory=DdsSettings)
     compute: ComputeSettings = field(default_factory=ComputeSettings)
@@ -425,6 +429,8 @@ class InstallState:
         roles = normalize_roles(self.roles)
         if not self.prefix.strip() or not self.bin_dir.strip() or not self.source_root.strip():
             raise ValueError("prefix, bin_dir와 source_root가 필요합니다")
+        _validate_source_identity(self.source_repository, name="source_repository")
+        _validate_source_identity(self.source_ref, name="source_ref")
         self.network.validate()
         self.dds.validate()
         self.compute.validate()
@@ -676,6 +682,10 @@ class InstallState:
             prefix=str(raw.get("prefix", "")),
             bin_dir=str(raw.get("bin_dir", "")),
             source_root=str(raw.get("source_root", "")),
+            source_repository=str(
+                raw.get("source_repository", DEFAULT_SOURCE_REPOSITORY)
+            ),
+            source_ref=str(raw.get("source_ref", DEFAULT_SOURCE_REF)),
             network=network,
             dds=dds,
             compute=ComputeSettings(**dict(compute_raw)),
@@ -759,6 +769,12 @@ def _validate_identifier(value: object, *, name: str) -> None:
         raise ValueError(f"{name}은 1..128자의 공백 없는 값이어야 합니다")
 
 
+def _validate_source_identity(value: object, *, name: str) -> None:
+    text = _bounded_single_line(value, name=name, maximum=255)
+    if not text or any(character.isspace() for character in text):
+        raise ValueError(f"{name}은 1..255자의 공백 없는 값이어야 합니다")
+
+
 def _bounded_single_line(value: object, *, name: str, maximum: int) -> str:
     text = str(value).strip()
     if len(text) > maximum or "\n" in text or "\r" in text or "\x00" in text:
@@ -773,6 +789,8 @@ __all__ = [
     "DDS_SECURITY_PROVISIONING",
     "DEFAULT_BIN_DIR",
     "DEFAULT_PREFIX",
+    "DEFAULT_SOURCE_REF",
+    "DEFAULT_SOURCE_REPOSITORY",
     "ComputeSettings",
     "CONTAINER_NETWORK_MODES",
     "ContainerNetworkSettings",

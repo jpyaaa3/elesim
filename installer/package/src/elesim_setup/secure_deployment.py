@@ -372,9 +372,7 @@ class HostActivationState:
 
 
 class SshSession(Protocol):
-    def __enter__(self) -> "SshSession": ...
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None: ...
+    """Command/upload surface; lifecycle ownership stays with the connector."""
 
     def run(
         self, argv: Sequence[str], *, check: bool = True
@@ -706,7 +704,7 @@ class ParamikoConnector:
                 # failed socket/transport construction, close the raw socket.
                 try:
                     connection.close()  # type: ignore[attr-defined]
-                except BaseException:
+                except Exception:
                     pass
 
 
@@ -801,12 +799,12 @@ class _ParamikoSession:
                 raise RemoteCommandError(argv, result)
             return result
         streams: dict[str, tuple[bytes, bool]] = {}
-        failures: list[BaseException] = []
+        failures: list[Exception] = []
 
         def drain(name: str, stream: object) -> None:
             try:
                 streams[name] = _read_stream_tail(stream, name=name, output=output)
-            except BaseException as exc:
+            except Exception as exc:
                 failures.append(exc)
 
         workers = [
@@ -1649,7 +1647,7 @@ def _run_local_streaming(
 ) -> RemoteCommandResult:
     process = subprocess.Popen(tuple(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     streams: dict[str, tuple[bytes, bool]] = {}
-    failures: list[BaseException] = []
+    failures: list[Exception] = []
 
     def drain(name: str, stream: object) -> None:
         retained = bytearray()
@@ -1664,7 +1662,7 @@ def _run_local_streaming(
                 if len(retained) > MAX_REMOTE_OUTPUT_BYTES:
                     del retained[: len(retained) - MAX_REMOTE_OUTPUT_BYTES]
                     truncated = True
-        except BaseException as exc:
+        except Exception as exc:
             failures.append(exc)
             process.terminate()
         finally:
