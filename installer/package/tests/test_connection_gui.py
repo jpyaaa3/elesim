@@ -492,8 +492,12 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "device.disabled = optionsLocked || fixed || !available || !inherit.checked" in script
     assert ".boot-options" in style
     assert "min-height: 150px" in style
+    assert '.workflow-step[data-step="start"] { min-height: 192px; }' in style
     assert "grid-column: 3; grid-row: 1" in style
-    assert "flex-direction: column" in style
+    assert "display: grid" in style
+    assert "--boot-label-width: 128px" in style
+    assert "grid-template-columns: var(--boot-label-width) 14px minmax(0, 1fr)" in style
+    assert ".boot-viewer-option" in style and "min-height: 30px" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
     assert '.boot-gpu-option input[type="text"]:disabled' in style
     assert ".boot-options.runtime-options-locked { opacity: .42; }" in style
