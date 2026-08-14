@@ -534,6 +534,7 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     assert context["manager_transport"]["container_network_mode"] == "direct-host"
     assert context["runtime_options"] == {"gpu_inherit_available": True}
     assert context["derived_static_peers"]["compute"] == [
+        "100.64.0.20",
         "100.64.0.10",
         "100.64.0.30",
     ]

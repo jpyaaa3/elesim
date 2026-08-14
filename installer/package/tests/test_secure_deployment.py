@@ -1237,6 +1237,8 @@ def test_concrete_lifecycle_preflight_and_managed_configuration_command() -> Non
             "--dds-address",
             "100.64.0.2",
             "--dds-peer",
+            "100.64.0.2",
+            "--dds-peer",
             "100.64.0.1",
             "--dds-peer",
             "100.64.0.3",

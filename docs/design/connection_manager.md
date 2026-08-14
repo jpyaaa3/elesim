@@ -185,9 +185,11 @@ Docker Desktop은 WSL node를 상속할 수 없으므로 Docker VM 내부 sideca
 
 - DDS interface: `tailscale0`
 - discovery: 보수적으로 `static`
-- static peers: 각 host의 Tailscale IP/hostname. 한 host에 여러 role이
-  있으면 자기 DDS 주소도 포함하여 multicast 없이 같은 namespace의
-  Pilot/Sim/UI가 서로 발견할 수 있게 한다.
+- static peers: 각 host의 Tailscale IP/hostname과 자기 DDS 주소. 자기
+  주소는 multicast 없이 같은 namespace의 co-located 역할과 별도
+  runtime readiness doctor가 단일 역할 host에서도 서로 발견할 수 있게
+  하는 discovery seed이며, 실제 DDS traffic을 자기 자신에게 우회시키지
+  않는다.
 - graph settings: 같은 `system_id`, `domain_id`, RMW, discovery mode,
   security profile
 

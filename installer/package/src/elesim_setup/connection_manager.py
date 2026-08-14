@@ -919,8 +919,7 @@ class ConnectionTopology:
             raise ValueError(
                 "multicast DDS discovery cannot cross Tailscale/routed VPN hosts; "
                 "select static discovery so every host uses active-host DDS "
-                "addresses (including its own when roles are co-located) as "
-                "direct peers"
+                "addresses, including its own address, as direct peers"
             )
         if sum(host.local for host in self.hosts) != 1:
             raise ValueError("exactly one managed host must be local")
@@ -979,15 +978,14 @@ class ConnectionTopology:
         host = self.host(host_id)
         if self.dds_graph.discovery_mode == "multicast":
             return ()
-        peers: list[str] = []
-        # A host may carry multiple application participants in one runtime
-        # namespace.  With routed/static discovery and an explicitly selected
-        # interface, multicast cannot introduce those co-located participants
-        # to one another.  Seed the host's own advertised address only when it
-        # actually owns more than one role; single-role hosts do not need a
-        # self peer and retain the leaner legacy list.
-        if len(host.assignments) > 1:
-            peers.append(host.dds.address)
+        # The runtime-network doctor is a separate DDS participant from the
+        # application roles.  It therefore needs the host's own advertised
+        # address even when that host carries only one role; otherwise a
+        # single-role Sim (or Pilot/UI) cannot be observed by its local
+        # readiness probe when multicast is disabled.  The self seed is a
+        # discovery locator only; application traffic still uses the live
+        # endpoint locators advertised by DDS.
+        peers: list[str] = [host.dds.address]
         peers.extend(
             other.dds.address
             for other in self.hosts

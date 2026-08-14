@@ -494,12 +494,13 @@ def test_changing_dds_address_does_not_change_ssh_destination_in_v4() -> None:
     assert restored.host("compute").ssh.port == 2222
 
 
-def test_static_discovery_peers_are_generated_from_other_active_hosts() -> None:
+def test_static_discovery_peers_include_the_local_runtime_address() -> None:
     raw = _topology().to_dict()
     raw["dds_graph"]["discovery_mode"] = "static"
     topology = ConnectionTopology.from_dict(raw)
 
     assert topology.discovery_peers("compute") == (
+        "100.64.0.20",
         "100.64.0.10",
         "100.64.0.30",
     )
