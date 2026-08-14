@@ -412,6 +412,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "gpu_inherit: gpuInherit" in script
     assert 'gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : ""' in script
     assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
+    assert "const workflowReady = workflowSaved && workflowApplied;" in script
+    assert "const optionsLocked = runtimeOptionsLocked || !workflowReady;" in script
+    assert 'bootOptions.classList.toggle("runtime-options-locked", optionsLocked);' in script
     assert "let runtimeOptionsLocked = false;" in script
     assert "let gpuInheritAvailable = null;" in script
     assert "let jobSubmissionPending = false;" in script
@@ -430,9 +433,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "function applyRuntimeCapabilities(context)" in script
     assert "context?.runtime_options?.gpu_inherit_available === true" in script
     assert "gpuInheritAvailable === false) inherit.checked = false" in script
-    assert "inherit.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true" in script
+    assert "inherit.disabled = optionsLocked || gpuInheritAvailable !== true" in script
     assert (
-        "device.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true || "
+        "device.disabled = optionsLocked || gpuInheritAvailable !== true || "
         "!inherit.checked"
     ) in script
     assert ".boot-options" in style
@@ -441,6 +444,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "flex-direction: column" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
     assert '.boot-gpu-option input[type="number"]:disabled' in style
+    assert ".boot-options.runtime-options-locked { opacity: .42; }" in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style
     assert '.workflow-step[data-enabled="false"] button' in style

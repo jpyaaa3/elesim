@@ -707,6 +707,7 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
     "runtime-start": !running && workflowSaved && workflowApplied && !runtimeRestartable,
     restart: !running && workflowSaved && workflowApplied && runtimeRestartable,
   });
+  updateRuntimeOptions();
 }
 
 function runtimeLaunchOptions() {
@@ -721,12 +722,22 @@ function runtimeLaunchOptions() {
 function updateRuntimeOptions() {
   const inherit = byId("gpu-inherit");
   const device = byId("gpu-device");
-  if (!inherit || !device) return;
-  if (gpuInheritAvailable === false) inherit.checked = false;
-  inherit.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true;
-  device.disabled = runtimeOptionsLocked || gpuInheritAvailable !== true || !inherit.checked;
   const viewer = byId("use-viewer");
-  if (viewer) viewer.disabled = runtimeOptionsLocked;
+  const workflowReady = workflowSaved && workflowApplied;
+  const optionsLocked = runtimeOptionsLocked || !workflowReady;
+  const bootOptions = document.querySelector(".boot-options");
+  if (bootOptions) {
+    bootOptions.classList.toggle("runtime-options-locked", optionsLocked);
+    bootOptions.setAttribute("aria-disabled", String(optionsLocked));
+  }
+  if (!inherit || !device) {
+    if (viewer) viewer.disabled = optionsLocked;
+    return;
+  }
+  if (gpuInheritAvailable === false) inherit.checked = false;
+  inherit.disabled = optionsLocked || gpuInheritAvailable !== true;
+  device.disabled = optionsLocked || gpuInheritAvailable !== true || !inherit.checked;
+  if (viewer) viewer.disabled = optionsLocked;
 }
 
 function applyRuntimeCapabilities(context) {
@@ -824,6 +835,7 @@ async function startJob(action) {
       workflowApplied = false;
       runtimeRestartable = false;
       setWorkflowStepState("start", "pending");
+      updateRuntimeOptions();
     }
     step = workflowStepForAction(action);
     if (step) setWorkflowStepState(step, "running");
