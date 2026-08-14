@@ -495,10 +495,15 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert '.workflow-step[data-step="start"] { min-height: 192px; }' in style
     assert "grid-column: 3; grid-row: 1" in style
     assert "display: grid" in style
-    assert "--boot-label-width: 128px" in style
     assert "--boot-device-width: 96px" in style
-    assert "justify-items: end" in style
-    assert "grid-template-columns: minmax(0, var(--boot-label-width)) 12px minmax(0, var(--boot-device-width))" in style
+    assert "justify-items: start" in style
+    assert "padding-left: 10px" in style
+    assert "grid-template-columns: max-content 12px minmax(0, var(--boot-device-width)) 17px" in style
+    assert html.index('data-i18n="boot.pilot.gpu.inherit"') < html.index('id="pilot-gpu-device"')
+    assert html.index('id="pilot-gpu-device"') < html.index('id="pilot-gpu-inherit"')
+    assert html.index('data-i18n="boot.sim.gpu.inherit"') < html.index('id="sim-gpu-device"')
+    assert html.index('id="sim-gpu-device"') < html.index('id="sim-gpu-inherit"')
+    assert html.index('data-i18n="boot.viewer"') < html.index('id="use-viewer"')
     assert ".boot-viewer-option" in style and "min-height: 30px" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
     assert '.boot-gpu-option input[type="text"]:disabled' in style
