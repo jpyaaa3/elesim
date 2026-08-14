@@ -355,13 +355,14 @@ to be a failed security rollout and trigger an avoidable rollback.
 The connection manager performs that launch through the generated
 `elesim-up --no-build` wrapper. Its one-shot Viewer option becomes `--view`,
 so the normal `DISPLAY` check and temporary `xhost` grant are not bypassed;
-for a remote non-interactive SSH launch the host wrapper resolves only bounded
-local X11 sockets owned by the executing host user and matching Xauthority
-candidates, failing before Compose when none is usable. When several same-user
-sessions are present, it probes their monitor names and prefers a physical
-connector such as `DP-*` or `HDMI-*` over an NX, VNC, or other virtual output;
-unresolved ties fail closed instead of selecting another user's or an arbitrary
-session. Inherited SSH-forwarded/TCP displays are rejected because the Sim
+for a remote non-interactive SSH launch the host wrapper passes the SSH
+management username to `elesim-up --viewer-user` and resolves only bounded
+local X11 sockets owned by that account and matching its Xauthority candidates,
+failing before Compose when none is usable. When several sessions are present,
+it probes their monitor names and prefers a physical connector such as `DP-*`
+or `HDMI-*` over an NX, VNC, or other virtual output; an equal-ranked tie is
+resolved deterministically (the SSH session's inherited display first, then
+socket order). Inherited SSH-forwarded/TCP displays are rejected because the Sim
 container receives only the local `/tmp/.X11-unix` socket mount. After
 the grant, a one-shot Sim container running with the installed image and UID/GID
 must open a hidden X11/GL context before the detached runtime is started. The

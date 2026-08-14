@@ -36,6 +36,7 @@ _GPU_SELECTOR = re.compile(
     r"^(?:[0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|"
     r"MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$"
 )
+_VIEWER_USER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 
 
 class HostHelperError(RuntimeError):
@@ -284,6 +285,7 @@ def _validate_command(
         no_build = False
         viewer = False
         cuda_visible = False
+        viewer_user = False
         while option_end < len(argv):
             option = argv[option_end]
             if option == "--no-build":
@@ -307,6 +309,16 @@ def _validate_command(
                 cuda_visible = True
                 option_end += 2
                 continue
+            if option == "--viewer-user":
+                if (
+                    viewer_user
+                    or option_end + 1 >= len(argv)
+                    or not _VIEWER_USER.fullmatch(argv[option_end + 1])
+                ):
+                    raise HostHelperError("Viewer SSH user option is invalid")
+                viewer_user = True
+                option_end += 2
+                continue
             break
         if not no_build:
             raise HostHelperError("connection-manager launches must use --no-build")
@@ -314,6 +326,8 @@ def _validate_command(
         _validate_runtime_services(services)
         if viewer and "sim" not in services:
             raise HostHelperError("--view requires the Sim service")
+        if viewer_user and not viewer:
+            raise HostHelperError("--viewer-user requires --view")
         return
     compose_wrapper = str(bin_dir / "elesim-compose")
     option_end = 1

@@ -76,6 +76,8 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
             "--cuda-visible-devices",
             "2",
             "--view",
+            "--viewer-user",
+            "operator",
             "sim",
             "coturn",
         ),
@@ -83,6 +85,33 @@ def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
         bin_dir=bin_dir,
         project="elesim-runtime",
     )
+    with pytest.raises(HostHelperError):
+        _validate_command(
+            (
+                str(bin_dir / "elesim-up"),
+                "--no-build",
+                "--view",
+                "--viewer-user",
+                "operator;id",
+                "sim",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
+    with pytest.raises(HostHelperError, match="requires --view"):
+        _validate_command(
+            (
+                str(bin_dir / "elesim-up"),
+                "--no-build",
+                "--viewer-user",
+                "operator",
+                "sim",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
     _validate_command(
         (str(bin_dir / "elesim-viewer-cleanup"),),
         compose=compose,

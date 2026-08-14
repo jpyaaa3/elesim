@@ -61,6 +61,7 @@ _GPU_SELECTOR = re.compile(
     r"^(?:[0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|"
     r"MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$"
 )
+_VIEWER_USER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 
 
 @dataclass(frozen=True)
@@ -530,6 +531,7 @@ class RemoteLifecycle(Protocol):
         session: SshSession,
         host: ManagedHost,
         runtime_options: RuntimeLaunchOptions | None = None,
+        viewer_user: str | None = None,
     ) -> None: ...
 
     def runtime_doctor(
@@ -1284,11 +1286,29 @@ class SshHostOperations:
         host: ManagedHost,
         runtime_options: RuntimeLaunchOptions | None = None,
     ) -> None:
+        viewer_user = (
+            host.ssh.user
+            if not host.local and host.ssh is not None
+            else None
+        )
         with self._connect(host) as session:
             if runtime_options is None:
-                self._lifecycle.launch(session, host)
+                if viewer_user is None:
+                    self._lifecycle.launch(session, host)
+                else:
+                    self._lifecycle.launch(
+                        session, host, viewer_user=viewer_user
+                    )
             else:
-                self._lifecycle.launch(session, host, runtime_options)
+                if viewer_user is None:
+                    self._lifecycle.launch(session, host, runtime_options)
+                else:
+                    self._lifecycle.launch(
+                        session,
+                        host,
+                        runtime_options,
+                        viewer_user=viewer_user,
+                    )
 
     def runtime_doctor(
         self,
@@ -2300,6 +2320,7 @@ class InstalledElesimLifecycle:
         session: SshSession,
         host: ManagedHost,
         runtime_options: RuntimeLaunchOptions | None = None,
+        viewer_user: str | None = None,
     ) -> None:
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
@@ -2331,6 +2352,7 @@ class InstalledElesimLifecycle:
                     roles=unit.roles,
                     include_coturn=include_coturn,
                     runtime_options=unit_runtime_options,
+                    viewer_user=viewer_user,
                 )
             )
 
@@ -3208,6 +3230,7 @@ def _lifecycle_command(
     roles: Sequence[str] | None = None,
     include_coturn: bool = False,
     runtime_options: RuntimeLaunchOptions | None = None,
+    viewer_user: str | None = None,
 ) -> tuple[str, ...]:
     if action not in {"start", "stop", "build", "launch"}:
         raise ValueError(f"unsupported lifecycle action: {action!r}")
@@ -3236,6 +3259,14 @@ def _lifecycle_command(
             if runtime_options is None
             else runtime_options.launcher_flags(selected)
         )
+        if (
+            runtime_options is not None
+            and runtime_options.viewer
+            and viewer_user is not None
+        ):
+            if not _VIEWER_USER.fullmatch(viewer_user):
+                raise ValueError("viewer SSH user is invalid")
+            launch_flags = (*launch_flags, "--viewer-user", viewer_user)
         return (
             str(PurePosixPath(unit.bin_dir) / "elesim-up"),
             "--no-build",

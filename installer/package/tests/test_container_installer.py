@@ -498,6 +498,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     )
     assert "up -d --build --remove-orphans" in up_wrapper
     assert "--view" in up_wrapper
+    assert "--viewer-user" in up_wrapper
+    assert "ELESIM_VIEWER_USER" in up_wrapper
     assert "export ELESIM_SIM_VIEWER=1" in up_wrapper
     assert "DISPLAY" in up_wrapper
     assert (
@@ -509,6 +511,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
     assert "viewer_display_is_owned" in up_wrapper
+    assert "viewer_xhost_session_uid" in up_wrapper
+    assert "SSH 사용자" in up_wrapper
     assert "xrandr --listmonitors" in up_wrapper
     assert ".runtime-cache/viewer-xhost" in up_wrapper
     assert "elesim-net configuration-check >/dev/null" in up_wrapper

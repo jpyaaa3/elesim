@@ -496,7 +496,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "grid-column: 3; grid-row: 1" in style
     assert "display: grid" in style
     assert "--boot-label-width: 128px" in style
-    assert "grid-template-columns: var(--boot-label-width) 14px minmax(0, 1fr)" in style
+    assert "--boot-device-width: 96px" in style
+    assert "justify-items: end" in style
+    assert "grid-template-columns: minmax(0, var(--boot-label-width)) 12px minmax(0, var(--boot-device-width))" in style
     assert ".boot-viewer-option" in style and "min-height: 30px" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
     assert '.boot-gpu-option input[type="text"]:disabled' in style

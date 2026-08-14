@@ -175,6 +175,28 @@ def test_runtime_launch_options_are_bounded_and_use_normal_runtime_launcher() ->
         "--view",
         "sim",
     )
+    assert _lifecycle_command(
+        host,
+        action="launch",
+        runtime_options=options,
+        viewer_user="operator",
+    ) == (
+        "/usr/local/bin/elesim-up",
+        "--no-build",
+        "--cuda-visible-devices",
+        "3",
+        "--view",
+        "--viewer-user",
+        "operator",
+        "sim",
+    )
+    with pytest.raises(ValueError, match="viewer SSH user"):
+        _lifecycle_command(
+            host,
+            action="launch",
+            runtime_options=options,
+            viewer_user="operator;id",
+        )
     with pytest.raises(ValueError, match="gpu_device"):
         RuntimeLaunchOptions.from_payload(
             {"gpu_inherit": True, "gpu_device": "gpu0", "viewer": False}
@@ -227,6 +249,22 @@ def test_viewer_launch_flag_is_scoped_to_the_sim_unit() -> None:
         "2",
     )
     assert "--view" not in command
+
+
+def test_remote_viewer_launch_uses_the_ssh_account_for_display_selection() -> None:
+    topology = _topology()
+    options = RuntimeLaunchOptions(True, "2", True)
+    session = FakeSession()
+
+    InstalledElesimLifecycle(topology).launch(
+        session,
+        topology.host("server"),
+        options,
+        viewer_user=topology.host("server").ssh.user,
+    )
+
+    command = session.commands[-1][0]
+    assert command[-4:] == ("--view", "--viewer-user", "operator", "sim")
 
 
 def test_viewer_cleanup_is_scoped_to_the_container_sim_unit() -> None:
@@ -965,6 +1003,9 @@ class FakeConnector:
 
 
 class FakeLifecycle:
+    def __init__(self) -> None:
+        self.launch_calls = []
+
     def preflight(self, _session, _host, _root):
         return RemoteCapabilities(True, True, False, True, "x86_64")
 
@@ -992,8 +1033,14 @@ class FakeLifecycle:
     def build(self, _session, _host, _output) -> None:
         pass
 
-    def launch(self, _session, _host) -> None:
-        pass
+    def launch(
+        self,
+        _session,
+        _host,
+        _runtime_options=None,
+        viewer_user=None,
+    ) -> None:
+        self.launch_calls.append(viewer_user)
 
     def status(self, _session, host):
         return {"running_roles": list(host.roles)}
@@ -1040,6 +1087,19 @@ def test_ssh_host_operations_borrow_non_context_connector_session() -> None:
     operations.close()
 
     assert session.closed
+
+
+def test_ssh_host_operations_passes_the_management_user_to_viewer_launch() -> None:
+    topology = _topology()
+    host = topology.host("server")
+    lifecycle = FakeLifecycle()
+    operations = SshHostOperations(
+        FakeConnector(FakeSession()), lifecycle, topology
+    )
+
+    operations.launch(host, RuntimeLaunchOptions(True, "0", True))
+
+    assert lifecycle.launch_calls == ["operator"]
 
 
 def test_local_host_operations_use_install_root_security_directory(
