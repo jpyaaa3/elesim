@@ -347,6 +347,47 @@ def test_safe_extract_returns_valid_source_root(tmp_path: Path) -> None:
     assert (root / "installer/package/pyproject.toml").is_file()
 
 
+def test_safe_extract_ignores_links_outside_install_source_boundary(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "source-with-log-link.tgz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        root = "elesim-main"
+        for name, payload in {
+            f"{root}/installer/package/pyproject.toml": b"[project]\n",
+            f"{root}/packages/protocol/pyproject.toml": b"[project]\n",
+        }.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o644
+            bundle.addfile(info, io.BytesIO(payload))
+        link = tarfile.TarInfo(f"{root}/log/latest")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "latest_version-check"
+        bundle.addfile(link)
+
+    extracted = safe_extract_archive(archive, tmp_path / "out")
+
+    assert extracted.name == "elesim-main"
+    assert not (extracted / "log").exists()
+
+
+def test_safe_extract_rejects_links_inside_install_source_boundary(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "source-with-source-link.tgz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        link = tarfile.TarInfo(
+            "elesim-main/installer/package/src/elesim_setup/connections.py"
+        )
+        link.type = tarfile.SYMTYPE
+        link.linkname = "other.py"
+        bundle.addfile(link)
+
+    with pytest.raises(BootstrapError, match="unsupported archive link/device"):
+        safe_extract_archive(archive, tmp_path / "out")
+
+
 def test_safe_extract_rejects_path_traversal(tmp_path: Path) -> None:
     archive = tmp_path / "bad.tgz"
     _archive(archive, {"../escape": b"bad"})

@@ -267,7 +267,22 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
             if path.is_absolute() or ".." in path.parts or not path.parts:
                 raise BootstrapError(f"unsafe archive member: {member.name!r}")
             if member.issym() or member.islnk() or member.isdev():
-                raise BootstrapError(f"unsupported archive link/device: {member.name!r}")
+                # GitHub source archives may contain generated, non-runtime
+                # links such as ``log/latest``.  They are outside the
+                # allowlisted install source boundary and are discarded
+                # below, so they must not make an otherwise valid archive
+                # unusable.  Links/devices that touch an allowlisted source
+                # tree remain a hard failure: extracting them could change
+                # the meaning of a path we later copy into the setup cache.
+                relative = PurePosixPath(*path.parts[1:])
+                if (
+                    _bootstrap_source_path_allowed(relative)
+                    or _bootstrap_source_directory_allowed(relative)
+                ):
+                    raise BootstrapError(
+                        f"unsupported archive link/device: {member.name!r}"
+                    )
+                continue
             roots.add(path.parts[0])
         if len(roots) != 1:
             raise BootstrapError("source archive must contain exactly one top-level directory")
