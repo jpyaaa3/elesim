@@ -78,14 +78,23 @@ def _run() -> None:
     operator_mailbox = SimulationOperatorMailbox(max_pending=128)
     providers = {}
     rates = {}
+    frame_sizes = {}
     if bool(bundle.sim_config.sim_observer_camera_enable):
         providers["observer"] = lambda: frame_hub.latest_bgr("observer")
         rates["observer"] = float(bundle.sim_config.sim_observer_camera_max_hz)
+        frame_sizes["observer"] = (
+            int(bundle.sim_config.sim_observer_camera_width),
+            int(bundle.sim_config.sim_observer_camera_height),
+        )
     if bool(bundle.sim_config.sim_camera_enable):
         providers["hand_eye_preview"] = lambda: frame_hub.latest_bgr("hand_eye_preview")
         rates["hand_eye_preview"] = float(bundle.sim_config.sim_camera_max_hz)
+        frame_sizes["hand_eye_preview"] = (
+            int(bundle.sim_config.sim_camera_width),
+            int(bundle.sim_config.sim_camera_height),
+        )
     webrtc = (
-        NamedWebRtcVideoSender(providers, fps=rates)
+        NamedWebRtcVideoSender(providers, fps=rates, frame_sizes=frame_sizes)
         if providers and webrtc_available()
         else None
     )

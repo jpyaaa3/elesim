@@ -59,6 +59,7 @@ class SimView:
         self.session = session
         self.state = SimViewState()
         self._textures: dict[str, int] = {}
+        self._texture_versions: dict[str, int] = {}
 
     def draw(self) -> None:
         snapshot = self.session.snapshot
@@ -144,6 +145,11 @@ class SimView:
     ) -> bool:
         label = "OBSERVER" if stream == "observer" else "HAND-EYE"
         imgui.text(f"{label} {'LIVE' if connected else 'WAIT'}")
+        version_getter = getattr(self.session, "frame_version", None)
+        # Read the version before the frame pointer.  If a decode completes
+        # between the two reads, the next draw will see the newer version and
+        # upload it instead of accidentally marking the older pointer fresh.
+        version = version_getter(stream) if callable(version_getter) else None
         frame = self.session.frame(stream)
         if (
             GL is None
@@ -156,7 +162,7 @@ class SimView:
         height, source_width = int(frame.shape[0]), int(frame.shape[1])
         if source_width <= 0 or height <= 0:
             return False
-        texture = self._upload(stream, frame, source_width, height)
+        texture = self._upload(stream, frame, source_width, height, version=version)
         draw_height = min(float(max_height), float(width) * height / source_width)
         imgui.image(
             texture,
@@ -170,7 +176,15 @@ class SimView:
             self._handle_observer_input(width=float(width), height=draw_height)
         return hovered and bool(getattr(imgui, "is_item_clicked", lambda *_: False)(0))
 
-    def _upload(self, stream: str, frame: Any, width: int, height: int) -> int:
+    def _upload(
+        self,
+        stream: str,
+        frame: Any,
+        width: int,
+        height: int,
+        *,
+        version: int | None = None,
+    ) -> int:
         texture = self._textures.get(stream, 0)
         if not texture:
             texture = int(GL.glGenTextures(1))
@@ -178,6 +192,8 @@ class SimView:
             GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+        elif version is not None and self._texture_versions.get(stream) == version:
+            return texture
         GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
         GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
         GL.glTexImage2D(
@@ -191,6 +207,8 @@ class SimView:
             GL.GL_UNSIGNED_BYTE,
             frame,
         )
+        if version is not None:
+            self._texture_versions[stream] = version
         return texture
 
     def _handle_observer_input(self, *, width: float, height: float) -> None:
@@ -224,9 +242,11 @@ class SimView:
     def close(self) -> None:
         if GL is None:
             self._textures.clear()
+            self._texture_versions.clear()
             return
         textures = tuple(self._textures.values())
         self._textures.clear()
+        self._texture_versions.clear()
         if textures:
             try:
                 GL.glDeleteTextures(list(textures))

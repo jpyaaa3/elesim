@@ -53,11 +53,21 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
         provider: Callable[[], Optional[np.ndarray]],
         *,
         fps: float = 30.0,
+        frame_size: Optional[tuple[int, int]] = None,
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         super().__init__()
         self.provider = provider
         self.fps = max(1.0, float(fps))
+        configured_size = frame_size is not None
+        if frame_size is None:
+            frame_size = (640, 480)
+        width, height = (int(frame_size[0]), int(frame_size[1]))
+        if width <= 0 or height <= 0:
+            raise ValueError("WebRTC frame_size must contain positive dimensions")
+        self.frame_size = (width, height)
+        self._enforce_frame_size = configured_size
+        self._fallback = np.zeros((height, width, 3), dtype=np.uint8)
         self.started = time.monotonic()
         self.index = 0
         self.on_error = on_error
@@ -74,16 +84,28 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
             self._report_error("provider", exc)
             frame = None
         if frame is None:
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            # Keep the RTP frame dimensions stable while the camera is still
+            # warming up.  A stream that starts at 640x480 and changes to an
+            # observer's configured size on its first real frame can make the
+            # decoder show a torn/corrupt image.
+            frame = self._fallback
         try:
             video = av.VideoFrame.from_ndarray(
                 np.ascontiguousarray(frame),
                 format="bgr24",
             )
+            if self._enforce_frame_size and (
+                video.width != self.frame_size[0]
+                or video.height != self.frame_size[1]
+            ):
+                video = video.reformat(
+                    width=self.frame_size[0],
+                    height=self.frame_size[1],
+                    format="bgr24",
+                )
         except Exception as exc:
             self._report_error("encode", exc)
-            fallback = np.zeros((480, 640, 3), dtype=np.uint8)
-            video = av.VideoFrame.from_ndarray(fallback, format="bgr24")
+            video = av.VideoFrame.from_ndarray(self._fallback, format="bgr24")
         video.pts = self.index
         video.time_base = Fraction(1, round(self.fps))
         return video
@@ -105,11 +127,18 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
 
 
 class WebRtcVideoSender:
-    def __init__(self, provider: Callable[[], Optional[np.ndarray]], *, fps: float = 30.0) -> None:
+    def __init__(
+        self,
+        provider: Callable[[], Optional[np.ndarray]],
+        *,
+        fps: float = 30.0,
+        frame_size: Optional[tuple[int, int]] = None,
+    ) -> None:
         if not available():
             raise RuntimeError("WebRTC requires aiortc and av")
         self.provider = provider
         self.fps = float(fps)
+        self.frame_size = frame_size
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(
             target=self.loop.run_forever,
@@ -143,7 +172,13 @@ class WebRtcVideoSender:
         session_id: str,
     ) -> dict[str, str]:
         peer = RTCPeerConnection(configuration=ice_configuration(turn))
-        peer.addTrack(LatestFrameTrack(self.provider, fps=self.fps))
+        peer.addTrack(
+            LatestFrameTrack(
+                self.provider,
+                fps=self.fps,
+                frame_size=self.frame_size,
+            )
+        )
 
         @peer.on("connectionstatechange")
         async def _state_changed() -> None:
@@ -206,9 +241,15 @@ class NamedWebRtcVideoSender:
         providers: Mapping[str, Callable[[], Optional[np.ndarray]]],
         *,
         fps: Mapping[str, float],
+        frame_sizes: Optional[Mapping[str, tuple[int, int]]] = None,
     ) -> None:
+        sizes = frame_sizes or {}
         self.senders = {
-            str(name): WebRtcVideoSender(provider, fps=float(fps[name]))
+            str(name): WebRtcVideoSender(
+                provider,
+                fps=float(fps[name]),
+                frame_size=sizes.get(str(name)),
+            )
             for name, provider in providers.items()
         }
 

@@ -184,10 +184,25 @@ class UiSimSession:
         receiver = self.receiver(stream)
         if receiver is None:
             return None
+        view_getter = getattr(receiver, "latest_frame_view", None)
+        if callable(view_getter):
+            return view_getter()
         getter = getattr(receiver, "latest_frame", None)
         if getter is not None:
             return getter()
         return receiver.latest_bgr
+
+    def frame_version(self, stream: str) -> Optional[int]:
+        receiver = self.receiver(stream)
+        if receiver is None:
+            return None
+        getter = getattr(receiver, "frame_version", None)
+        if not callable(getter):
+            return None
+        try:
+            return int(getter())
+        except Exception:
+            return None
 
     def start(self) -> None:
         with self._lock:

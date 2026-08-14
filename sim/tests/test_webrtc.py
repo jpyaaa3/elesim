@@ -43,3 +43,33 @@ def test_latest_frame_track_recovers_after_invalid_frame() -> None:
     assert recovered.shape == (12, 16, 3)
     assert int(recovered.mean()) == 7
     assert errors and errors[0].startswith("encode:")
+
+
+def test_latest_frame_track_uses_configured_dimensions_during_warmup() -> None:
+    errors: list[str] = []
+    track = LatestFrameTrack(
+        lambda: None,
+        fps=1_000.0,
+        frame_size=(960, 540),
+        on_error=errors.append,
+    )
+
+    frame = _recv(track).to_ndarray(format="bgr24")
+
+    assert frame.shape == (540, 960, 3)
+    assert not frame.any()
+    assert errors == []
+
+
+def test_latest_frame_track_keeps_configured_dimensions_for_real_frames() -> None:
+    source = np.full((12, 16, 3), 7, dtype=np.uint8)
+    track = LatestFrameTrack(
+        lambda: source,
+        fps=1_000.0,
+        frame_size=(32, 24),
+    )
+
+    frame = _recv(track).to_ndarray(format="bgr24")
+
+    assert frame.shape == (24, 32, 3)
+    assert int(frame.mean()) == 7
