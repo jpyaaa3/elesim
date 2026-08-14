@@ -81,6 +81,49 @@ def _rclpy_context(rclpy: Any, state: InstallState) -> Any:
     return context
 
 
+def _context_executor(rclpy: Any, context: Any) -> Any | None:
+    """Create an executor bound to the same context as the probe node.
+
+    ``rclpy.spin_once(node)`` uses the process-global executor.  That executor
+    is initialized against the global context, while the diagnostics create a
+    private context so they can set the requested domain and security
+    environment without changing a caller's ROS state.  On Humble this
+    mismatch reaches ``GuardCondition`` and is reported as the unhelpful
+    ``AttributeError: __enter__``.  Keep the fallback for the small injected
+    rclpy doubles used by the unit tests and older lightweight environments.
+    """
+
+    module = getattr(rclpy, "executors", None)
+    executor_type = getattr(module, "SingleThreadedExecutor", None)
+    if not callable(executor_type):
+        # Test doubles and lightweight import shims intentionally expose only
+        # the small subset of rclpy they implement.  Do not import the real
+        # executor module for those objects: it would bind an executor to a
+        # fake context and turn a harmless compatibility fallback into a
+        # constructor failure.
+        if getattr(rclpy, "__name__", "") != "rclpy":
+            return None
+        try:
+            from rclpy.executors import SingleThreadedExecutor
+        except (ImportError, ModuleNotFoundError):
+            return None
+        executor_type = SingleThreadedExecutor
+    return executor_type(context=context)
+
+
+def _spin_once(
+    rclpy: Any,
+    node: Any,
+    executor: Any | None,
+    *,
+    timeout_sec: float,
+) -> None:
+    if executor is None:
+        rclpy.spin_once(node, timeout_sec=timeout_sec)
+    else:
+        executor.spin_once(timeout_sec=timeout_sec)
+
+
 class DoctorReport:
     def __init__(self) -> None:
         self.results: list[ProbeResult] = []
@@ -232,6 +275,7 @@ def probe_dds_graph(
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
     context = _rclpy_context(rclpy, state)
     node = None
+    executor = None
     try:
         node = rclpy.create_node(
             "elesim_doctor",
@@ -239,9 +283,17 @@ def probe_dds_graph(
             context=context,
             use_global_arguments=True,
         )
+        executor = _context_executor(rclpy, context)
+        if executor is not None:
+            executor.add_node(node)
         deadline = time.monotonic() + max(0.2, float(timeout_s))
         while time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=min(0.1, deadline - time.monotonic()))
+            _spin_once(
+                rclpy,
+                node,
+                executor,
+                timeout_sec=min(0.1, deadline - time.monotonic()),
+            )
         nodes = tuple(
             sorted(
                 {
@@ -265,6 +317,10 @@ def probe_dds_graph(
         }
         return DdsGraphSnapshot(nodes=nodes, topics=topics, services=services)
     finally:
+        if executor is not None:
+            if node is not None:
+                executor.remove_node(node)
+            executor.shutdown()
         if node is not None:
             node.destroy_node()
         context.shutdown()
@@ -321,6 +377,7 @@ def probe_dds_peer_state(
     rclpy = _rclpy_import() if import_rclpy is None else import_rclpy()
     context = _rclpy_context(rclpy, state)
     node = None
+    executor = None
     descriptor_ids: set[str] = set()
     heartbeat_ids: set[str] = set()
     expected_ids = {
@@ -333,6 +390,9 @@ def probe_dds_peer_state(
             context=context,
             use_global_arguments=True,
         )
+        executor = _context_executor(rclpy, context)
+        if executor is not None:
+            executor.add_node(node)
         qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=64,
@@ -373,7 +433,12 @@ def probe_dds_peer_state(
         deadline = time.monotonic() + max(0.2, float(timeout_s))
         while time.monotonic() < deadline:
             remaining = max(0.0, deadline - time.monotonic())
-            rclpy.spin_once(node, timeout_sec=min(0.1, remaining))
+            _spin_once(
+                rclpy,
+                node,
+                executor,
+                timeout_sec=min(0.1, remaining),
+            )
             if (
                 expected_ids
                 and expected_ids.issubset(descriptor_ids)
@@ -387,6 +452,10 @@ def probe_dds_peer_state(
             heartbeats=tuple(sorted(heartbeat_ids)),
         )
     finally:
+        if executor is not None:
+            if node is not None:
+                executor.remove_node(node)
+            executor.shutdown()
         if node is not None:
             node.destroy_node()
         context.shutdown()
@@ -412,6 +481,7 @@ def probe_rgbd_frame(
     context = rclpy.context.Context()
     rclpy.init(args=None, context=context, domain_id=state.dds.domain_id)
     node = None
+    executor = None
     received: list[Any] = []
     try:
         node = rclpy.create_node(
@@ -420,6 +490,9 @@ def probe_rgbd_frame(
             context=context,
             use_global_arguments=True,
         )
+        executor = _context_executor(rclpy, context)
+        if executor is not None:
+            executor.add_node(node)
         subscription = node.create_subscription(
             RgbdFrame,
             rgbd_topic(state, "sim"),
@@ -428,7 +501,12 @@ def probe_rgbd_frame(
         )
         deadline = time.monotonic() + max(0.2, float(timeout_s))
         while not received and time.monotonic() < deadline:
-            rclpy.spin_once(node, timeout_sec=min(0.1, deadline - time.monotonic()))
+            _spin_once(
+                rclpy,
+                node,
+                executor,
+                timeout_sec=min(0.1, deadline - time.monotonic()),
+            )
         if not received:
             raise TimeoutError("DDS RGBD frame timeout")
         message = received[0]
@@ -443,6 +521,10 @@ def probe_rgbd_frame(
         node.destroy_subscription(subscription)
         return result
     finally:
+        if executor is not None:
+            if node is not None:
+                executor.remove_node(node)
+            executor.shutdown()
         if node is not None:
             node.destroy_node()
         context.shutdown()

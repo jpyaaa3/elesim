@@ -259,15 +259,20 @@ def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
         def __init__(self) -> None:
             self.node = Node()
             self.spin_calls = 0
+            self.node_context = None
 
         @staticmethod
         def init(**_kwargs) -> None:
             return None
 
         def create_node(self, *_args, **_kwargs):
+            self.node_context = _kwargs["context"]
             return self.node
 
-        def spin_once(self, node, **_kwargs) -> None:
+        def spin_once(self, _node, **_kwargs) -> None:
+            raise AssertionError("global rclpy executor must not be used")
+
+        def dispatch_once(self, node) -> None:
             self.spin_calls += 1
             message = SimpleNamespace(
                 peer=SimpleNamespace(endpoint_id="sim-default")
@@ -276,6 +281,34 @@ def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
             node.callbacks[EndpointHeartbeat](message)
 
     fake = FakeRclpy()
+    created_executors = []
+
+    class Executor:
+        def __init__(self, *, context) -> None:
+            self.context = context
+            self.node = None
+            self.removed = False
+            self.closed = False
+
+        def add_node(self, node) -> None:
+            self.node = node
+
+        def spin_once(self, **kwargs) -> None:
+            fake.dispatch_once(self.node)
+
+        def remove_node(self, node) -> None:
+            assert node is self.node
+            self.removed = True
+
+        def shutdown(self) -> None:
+            self.closed = True
+
+    def make_executor(*, context):
+        executor = Executor(context=context)
+        created_executors.append(executor)
+        return executor
+
+    fake.executors = SimpleNamespace(SingleThreadedExecutor=make_executor)
     result = probe_dds_peer_state(
         local_state(),
         timeout_s=60,
@@ -287,6 +320,10 @@ def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
         descriptors=("sim-default",), heartbeats=("sim-default",)
     )
     assert fake.spin_calls == 1
+    assert len(created_executors) == 1
+    assert created_executors[0].context is fake.node_context
+    assert created_executors[0].removed is True
+    assert created_executors[0].closed is True
 
 
 def test_doctor_strict_peer_probe_fails_when_target_is_missing(
