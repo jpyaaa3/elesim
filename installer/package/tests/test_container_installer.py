@@ -1335,6 +1335,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
 def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
     tmp_path: Path,
 ) -> None:
+    viewer_account = pwd.getpwuid(os.getuid()).pw_name
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
     state_path = tmp_path / "install-state.json"
@@ -1346,6 +1347,8 @@ def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
     _create_x11_socket(x11_socket_dir, display=1)
     _create_x11_socket(x11_socket_dir, display=2)
     _create_x11_socket(x11_socket_dir, display=1001)
+    viewer_authority = tmp_path / "viewer.Xauthority"
+    viewer_authority.write_text("cookie\n", encoding="utf-8")
     wrapper = tmp_path / "elesim-up"
     wrapper.write_text(
         _runtime_up_wrapper(
@@ -1356,7 +1359,7 @@ def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
             runtime_roles=("sim",),
             state_path=state_path,
             viewer_state=tmp_path / "viewer-xhost",
-            viewer_user="hckang",
+            viewer_user=viewer_account,
             viewer_x11_socket_dir=x11_socket_dir,
         ),
         encoding="utf-8",
@@ -1378,8 +1381,8 @@ def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
         "case ${DISPLAY:-} in :1|:2|:1001) ;; *) exit 1 ;; esac\n"
         "if (( $# == 0 )); then exit 0; fi\n"
         "case $1 in\n"
-        "  +si:localuser:hckang) : >\"${XHOST_PERMISSION_MARKER:?}\" ;;\n"
-        "  -si:localuser:hckang) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\" ;;\n"
+        f"  +si:localuser:{viewer_account}) : >\"${{XHOST_PERMISSION_MARKER:?}}\" ;;\n"
+        f"  -si:localuser:{viewer_account}) rm -f -- \"${{XHOST_PERMISSION_MARKER:?}}\" ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -1414,6 +1417,10 @@ def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
             # Start from the NX display.  The detector must choose the
             # same-user physical DP-1 display instead.
             "DISPLAY": ":1001",
+            # The authority is deliberately usable against every fake X
+            # display.  A foreign socket must still be rejected by ownership.
+            "ELESIM_VIEWER_USER": viewer_account,
+            "XAUTHORITY": str(viewer_authority),
             "VIEWER_DISPLAY_MARKER": str(tmp_path / "viewer-display"),
             "XHOST_PERMISSION_MARKER": str(tmp_path / "xhost.permission"),
         }
@@ -1430,7 +1437,9 @@ def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
     assert Path(environment["VIEWER_DISPLAY_MARKER"]).read_text(
         encoding="utf-8"
     ) == ":2"
-    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == ":2\n\n"
+    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
+        f":2\n{viewer_authority}\n"
+    )
 
 
 def test_runtime_up_view_preflight_failure_revokes_acl_and_never_starts(
