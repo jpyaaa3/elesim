@@ -265,6 +265,19 @@ def test_host_helper_limits_network_cli_to_installed_wrapper() -> None:
         bin_dir=bin_dir,
         project="elesim-runtime",
     )
+    for selector in ("GPU-fixed-123", "MIG-GPU-abc/1/2"):
+        _validate_command(
+            (
+                str(bin_dir / "elesim-up"),
+                "--no-build",
+                "--cuda-visible-devices",
+                selector,
+                "sim",
+            ),
+            compose=compose,
+            bin_dir=bin_dir,
+            project="elesim-runtime",
+        )
     _validate_command(
         (str(bin_dir / "elesim-net"), "show"),
         compose=compose,

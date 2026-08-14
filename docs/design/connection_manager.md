@@ -353,14 +353,15 @@ graph, topic 표면을 검증한다. `--active`의 RGBD sample 검사는 별도 
 작업으로 각 host의 Compose/systemd 관리 상태를 확인·조작할 수 있으며, SSH 성공을
 DDS discovery나 WebRTC media 성공으로 해석하지 않는다.
 
-부팅 카드의 GPU 상속 번호와 Viewer 선택은 저장 topology가 아닌 일회성 실행
-옵션이다. `start`/`restart` 요청에만 bounded Compose wrapper flag로 전달하며,
-GPU 상속 입력은 연결관리자를 설치할 때 GPU 모드로 `inherit`를 선택한 경우에만
-활성화한다. `cpu` 또는 `specific` 설치에서는 체크를 해제하고 입력과 함께
-비활성화하며, 조작된 HTTP 요청도 거부한다. GPU 상속을 끄면
-`CUDA_VISIBLE_DEVICES`를 비우고 Viewer를 끄면 Sim의 `--viewer` 경로를 사용하지
-않는다. 입력값은 GPU 번호와 boolean만 허용하고 다른 환경변수나 임의 Compose
-인자는 전달하지 않는다.
+부팅 카드의 Pilot/Sim GPU 상속과 Viewer 선택은 저장 topology가 아닌 일회성
+실행 옵션이다. `start`/`restart` 요청에만 bounded Compose wrapper flag로
+전달한다. 연결관리자는 각 Pilot/Sim이 설치된 host의 `elesim-net show`에서
+기록된 GPU 정책을 읽어 카드에 반영한다. `specific`이면 체크된 고정 UUID를
+보여 주고, `cpu`이면 해제된 빈 값을 보여 주며 두 경우 모두 입력을
+비활성화한다. `inherit`에서만 운영자가 각 역할의 상속 여부와 index/`GPU-*`
+UUID를 조작할 수 있다. GPU 상속을 끄면 `CUDA_VISIBLE_DEVICES`를 비우고
+Viewer를 끄면 Sim의 `--viewer` 경로를 사용하지 않는다. 다른 환경변수나 임의
+Compose 인자는 전달하지 않는다.
 
 ```text
 Operator host <-> Sim host: DDS discovery / control / RGBD / WebRTC signaling

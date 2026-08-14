@@ -1147,6 +1147,10 @@ def _parser() -> argparse.ArgumentParser:
         choices=("inherit", "specific", "cpu"),
         default=os.environ.get("ELESIM_INSTALL_GPU_MODE", "cpu"),
     )
+    parser.add_argument(
+        "--gpu-device",
+        default=os.environ.get("ELESIM_INSTALL_GPU_DEVICE", ""),
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument(
@@ -1175,6 +1179,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         local_bin_dir=args.local_bin_dir,
         authority_root=args.authority_root,
         gpu_mode=args.gpu_mode,
+        gpu_device=args.gpu_device,
     )
 
 

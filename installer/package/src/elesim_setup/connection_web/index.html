@@ -163,9 +163,14 @@
             <div><h3 data-i18n="workflow.start.title"></h3></div>
             <div class="boot-options" aria-label="Runtime boot options">
               <div class="boot-gpu-option">
-                <label><input id="gpu-inherit" type="checkbox" checked><span data-i18n="boot.gpu.inherit"></span></label>
+                <label><input id="pilot-gpu-inherit" type="checkbox" checked><span data-i18n="boot.pilot.gpu.inherit"></span></label>
                 <span class="boot-colon" aria-hidden="true">:</span>
-                <input id="gpu-device" type="number" min="0" max="65535" step="1" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="GPU index">
+                <input id="pilot-gpu-device" type="text" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="Pilot GPU selector" spellcheck="false">
+              </div>
+              <div class="boot-gpu-option">
+                <label><input id="sim-gpu-inherit" type="checkbox" checked><span data-i18n="boot.sim.gpu.inherit"></span></label>
+                <span class="boot-colon" aria-hidden="true">:</span>
+                <input id="sim-gpu-device" type="text" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="Sim GPU selector" spellcheck="false">
               </div>
               <label class="boot-viewer-option"><input id="use-viewer" type="checkbox"><span data-i18n="boot.viewer"></span></label>
             </div>

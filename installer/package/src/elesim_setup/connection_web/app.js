@@ -41,6 +41,7 @@ let runtimePollTimer = null;
 let runtimeRestartable = false;
 let runtimeOptionsLocked = false;
 let gpuInheritAvailable = null;
+let gpuPolicies = {pilot: null, sim: null};
 let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
@@ -711,17 +712,38 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
 }
 
 function runtimeLaunchOptions() {
-  const gpuInherit = gpuInheritAvailable === true && Boolean(byId("gpu-inherit")?.checked);
+  const roleOptions = (role) => {
+    const inherit = byId(`${role}-gpu-inherit`);
+    const device = byId(`${role}-gpu-device`);
+    const policy = gpuPolicies[role];
+    if (policy?.mode === "specific") {
+      return {
+        [`${role}_gpu_inherit`]: true,
+        [`${role}_gpu_device`]: String(policy.device || ""),
+      };
+    }
+    if (policy?.mode === "cpu") {
+      return {
+        [`${role}_gpu_inherit`]: false,
+        [`${role}_gpu_device`]: "",
+      };
+    }
+    const enabled = policy?.mode === "inherit"
+      || (policy == null && gpuInheritAvailable === true);
+    const checked = enabled && Boolean(inherit?.checked);
+    return {
+      [`${role}_gpu_inherit`]: checked,
+      [`${role}_gpu_device`]: checked ? String(device?.value || "") : "",
+    };
+  };
   return {
-    gpu_inherit: gpuInherit,
-    gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : "",
+    ...roleOptions("pilot"),
+    ...roleOptions("sim"),
     viewer: Boolean(byId("use-viewer")?.checked),
   };
 }
 
 function updateRuntimeOptions() {
-  const inherit = byId("gpu-inherit");
-  const device = byId("gpu-device");
   const viewer = byId("use-viewer");
   const workflowReady = workflowSaved && workflowApplied;
   const optionsLocked = runtimeOptionsLocked || !workflowReady;
@@ -730,18 +752,77 @@ function updateRuntimeOptions() {
     bootOptions.classList.toggle("runtime-options-locked", optionsLocked);
     bootOptions.setAttribute("aria-disabled", String(optionsLocked));
   }
-  if (!inherit || !device) {
-    if (viewer) viewer.disabled = optionsLocked;
-    return;
-  }
-  if (gpuInheritAvailable === false) inherit.checked = false;
-  inherit.disabled = optionsLocked || gpuInheritAvailable !== true;
-  device.disabled = optionsLocked || gpuInheritAvailable !== true || !inherit.checked;
+  ["pilot", "sim"].forEach((role) => {
+    const inherit = byId(`${role}-gpu-inherit`);
+    const device = byId(`${role}-gpu-device`);
+    if (!inherit || !device) return;
+    const policy = gpuPolicies[role];
+    const fixed = policy && policy.mode !== "inherit";
+    if (fixed) {
+      inherit.checked = policy.mode === "specific";
+      device.value = policy.mode === "specific" ? String(policy.device || "") : "";
+    } else if (!policy && gpuInheritAvailable === false) {
+      inherit.checked = false;
+      device.value = "";
+    }
+    const available = policy?.mode === "inherit"
+      || (policy == null && gpuInheritAvailable === true);
+    inherit.disabled = optionsLocked || fixed || !available;
+    device.disabled = optionsLocked || fixed || !available || !inherit.checked;
+  });
   if (viewer) viewer.disabled = optionsLocked;
 }
 
 function applyRuntimeCapabilities(context) {
   gpuInheritAvailable = context?.runtime_options?.gpu_inherit_available === true;
+  // A saved topology may place Sim on another host.  Until that host's
+  // read-only runtime status is fetched, keep the role fail-closed instead of
+  // reusing the local install's GPU policy for it.
+  gpuPolicies = context?.topology
+    ? {pilot: {mode: "unknown", device: ""}, sim: {mode: "unknown", device: ""}}
+    : {pilot: null, sim: null};
+  const policies = context?.runtime_options?.gpu_policies;
+  if (policies && typeof policies === "object") {
+    ["pilot", "sim"].forEach((role) => {
+      const policy = policies[role];
+      if (policy && ["inherit", "specific", "cpu"].includes(policy.mode)) {
+        gpuPolicies[role] = {
+          mode: policy.mode,
+          device: policy.mode === "specific" ? String(policy.device || "") : "",
+        };
+      }
+    });
+  }
+  updateRuntimeOptions();
+}
+
+function applyRuntimeGpuPolicies(hosts) {
+  // A status response is authoritative for the current saved topology.  A
+  // missing/unreachable host must not leave a previously valid checkbox
+  // enabled with stale policy data.
+  const next = {
+    pilot: {mode: "unknown", device: ""},
+    sim: {mode: "unknown", device: ""},
+  };
+  (Array.isArray(hosts) ? hosts : []).forEach((host) => {
+    const policies = host?.gpu_policy && typeof host.gpu_policy === "object"
+      ? host.gpu_policy
+      : {};
+    ["pilot", "sim"].forEach((role) => {
+      if (!(host?.roles || []).includes(role)) return;
+      const policy = policies[role];
+      if (!policy || !["inherit", "specific", "cpu"].includes(policy.mode)) {
+        return;
+      }
+      next[role] = {
+        mode: policy.mode,
+        device: policy.mode === "specific" ? String(policy.device || "") : "",
+      };
+    });
+  });
+  ["pilot", "sim"].forEach((role) => {
+    gpuPolicies[role] = next[role];
+  });
   updateRuntimeOptions();
 }
 
@@ -753,11 +834,29 @@ function setRuntimeOptionsLocked(locked) {
 function restoreRuntimeOptions(job) {
   if (!job || !["start", "restart"].includes(job.action) || !job.runtime_options) return;
   const options = job.runtime_options;
-  const inherit = byId("gpu-inherit");
-  const device = byId("gpu-device");
   const viewer = byId("use-viewer");
-  if (inherit) inherit.checked = gpuInheritAvailable === true && Boolean(options.gpu_inherit);
-  if (device) device.value = gpuInheritAvailable === true ? String(options.gpu_device ?? "") : "";
+  ["pilot", "sim"].forEach((role) => {
+    const inherit = byId(`${role}-gpu-inherit`);
+    const device = byId(`${role}-gpu-device`);
+    if (!inherit || !device) return;
+    const inheritValue = Object.prototype.hasOwnProperty.call(options, `${role}_gpu_inherit`)
+      ? options[`${role}_gpu_inherit`]
+      : options.gpu_inherit;
+    const deviceValue = Object.prototype.hasOwnProperty.call(options, `${role}_gpu_device`)
+      ? options[`${role}_gpu_device`]
+      : options.gpu_device;
+    const policy = gpuPolicies[role];
+    if (policy?.mode === "specific") {
+      inherit.checked = true;
+      device.value = policy.device;
+    } else if (policy?.mode === "cpu") {
+      inherit.checked = false;
+      device.value = "";
+    } else {
+      inherit.checked = Boolean(inheritValue);
+      device.value = String(deviceValue ?? "");
+    }
+  });
   if (viewer) viewer.checked = Boolean(options.viewer);
   setRuntimeOptionsLocked(true);
 }
@@ -882,13 +981,25 @@ function renderRuntimeStatus(result) {
     return;
   }
   const hosts = Array.isArray(result.hosts) ? result.hosts : [];
+  applyRuntimeGpuPolicies(hosts);
   runtimeRestartable = hosts.length > 0 && hosts.every(
     (host) => host.reachable !== false && host.containers_present === true
   );
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
     const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
-    const detail = host.detail ? ` — ${host.detail}` : "";
+    const policies = host.gpu_policy && typeof host.gpu_policy === "object"
+      ? ["pilot", "sim"].filter((role) => host.gpu_policy[role]).map((role) => {
+        const policy = host.gpu_policy[role];
+        const value = policy.mode === "specific" ? `:${policy.device}` : "";
+        return `${role}-gpu=${policy.mode}${value}`;
+      }).join(", ")
+      : "";
+    const policyDetail = policies ? `; ${policies}` : "";
+    const policyError = host.gpu_policy_error ? `; gpu-policy=${host.gpu_policy_error}` : "";
+    const detail = host.detail
+      ? ` — ${host.detail}${policyDetail}${policyError}`
+      : (policyDetail || policyError) ? ` —${policyDetail}${policyError}` : "";
     return `${host.host_id}: ${state} [${roles}]${detail}`;
   });
   byId("runtime-status").textContent = rows.join("\n") || "—";
@@ -1049,7 +1160,9 @@ function bindEvents() {
     control.addEventListener("input", markWorkflowDirty);
     control.addEventListener("change", markWorkflowDirty);
   });
-  byId("gpu-inherit").addEventListener("change", updateRuntimeOptions);
+  ["pilot", "sim"].forEach((role) => {
+    byId(`${role}-gpu-inherit`)?.addEventListener("change", updateRuntimeOptions);
+  });
   document.querySelectorAll("[data-probe-slot]").forEach((button) => {
     button.addEventListener("click", () => probeSsh(button.dataset.probeSlot).catch(showError));
   });

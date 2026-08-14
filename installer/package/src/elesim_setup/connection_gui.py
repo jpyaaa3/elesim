@@ -29,7 +29,7 @@ from .connection_manager import (
     TwoHostPreflight,
 )
 from .secure_deployment import RuntimeLaunchOptions
-from .state import GPU_MODES
+from .state import ComputeSettings, GPU_MODES
 
 
 ConnectionRunner = Callable[
@@ -132,6 +132,7 @@ class ConnectionManagerApplication:
         local_bin_dir: Path | None = None,
         authority_root: Path | None = None,
         gpu_mode: str = "cpu",
+        gpu_device: str = "",
     ) -> None:
         self.state_path = state_path.expanduser()
         self.token = str(token)
@@ -155,6 +156,11 @@ class ConnectionManagerApplication:
         self.gpu_mode = str(gpu_mode).strip()
         if self.gpu_mode not in GPU_MODES:
             raise ValueError(f"unsupported installed GPU mode: {self.gpu_mode!r}")
+        self.gpu_device = str(gpu_device).strip()
+        ComputeSettings(
+            gpu_mode=self.gpu_mode,
+            gpu_device=self.gpu_device,
+        ).validate()
         self.job = ConnectionJob()
         self._job_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -166,6 +172,19 @@ class ConnectionManagerApplication:
         from .network import detect_tailscale
 
         tailscale = detect_tailscale().to_dict()
+        local_policies: dict[str, dict[str, str]] = {}
+        if topology is not None:
+            local_roles = set(topology.local_host.roles)
+            if "pilot" in local_roles:
+                local_policies["pilot"] = {
+                    "mode": self.gpu_mode,
+                    "device": self.gpu_device if self.gpu_mode == "specific" else "",
+                }
+            if "sim" in local_roles:
+                local_policies["sim"] = {
+                    "mode": self.gpu_mode,
+                    "device": self.gpu_device if self.gpu_mode == "specific" else "",
+                }
         return {
             "schema_version": CONNECTION_SCHEMA_VERSION,
             "topology_modes": sorted(TOPOLOGY_MODES),
@@ -175,6 +194,7 @@ class ConnectionManagerApplication:
             "security": self._security_context(topology),
             "runtime_options": {
                 "gpu_inherit_available": self.gpu_mode == "inherit",
+                "gpu_policies": local_policies,
             },
             "local_defaults": {
                 "install_root": self.local_install_root,
@@ -336,8 +356,12 @@ class ConnectionManagerApplication:
             if action in {"start", "restart"}
             else None
         )
+        # Keep the legacy single-role request boundary fail-closed.  New
+        # role-specific requests are normalized against the installed unit's
+        # Compose policy and may legitimately describe a fixed GPU selector.
         if (
             runtime_options is not None
+            and runtime_options.pilot_gpu_inherit is None
             and runtime_options.gpu_inherit
             and self.gpu_mode != "inherit"
         ):
@@ -355,19 +379,30 @@ class ConnectionManagerApplication:
             ):
                 raise ValueError(f"{action} requires the sros2 security profile")
             self._cancel_event.clear()
+            runtime_payload: dict[str, object] | None = None
+            if runtime_options is not None:
+                runtime_payload = {"viewer": runtime_options.viewer}
+                if runtime_options.pilot_gpu_inherit is None:
+                    runtime_payload.update(
+                        {
+                            "gpu_inherit": runtime_options.gpu_inherit,
+                            "gpu_device": runtime_options.gpu_device,
+                        }
+                    )
+                else:
+                    runtime_payload.update(
+                        {
+                            "pilot_gpu_inherit": runtime_options.pilot_gpu_inherit,
+                            "pilot_gpu_device": runtime_options.pilot_gpu_device,
+                            "sim_gpu_inherit": runtime_options.sim_gpu_inherit,
+                            "sim_gpu_device": runtime_options.sim_gpu_device,
+                        }
+                    )
             self.job = ConnectionJob(
                 status="running",
                 action=action,
                 started_at=time.time(),
-                runtime_options=(
-                    None
-                    if runtime_options is None
-                    else {
-                        "gpu_inherit": runtime_options.gpu_inherit,
-                        "gpu_device": runtime_options.gpu_device,
-                        "viewer": runtime_options.viewer,
-                    }
-                ),
+                runtime_options=runtime_payload,
             )
         thread = threading.Thread(
             target=self._run_job,
@@ -802,6 +837,7 @@ def run_connection_gui(
     local_bin_dir: Path | None = None,
     authority_root: Path | None = None,
     gpu_mode: str = "cpu",
+    gpu_device: str = "",
 ) -> int:
     session_token = token or secrets.token_urlsafe(32)
     application = ConnectionManagerApplication(
@@ -814,6 +850,7 @@ def run_connection_gui(
         local_bin_dir=local_bin_dir,
         authority_root=authority_root,
         gpu_mode=gpu_mode,
+        gpu_device=gpu_device,
     )
     server = ConnectionManagerServer(
         (host, int(port)),

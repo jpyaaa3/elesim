@@ -192,7 +192,7 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .actions-heading h2 { margin: 0; font-size: var(--font-title); line-height: 1.3; }
 .workflow-layout { display: flex; min-width: 0; align-items: stretch; gap: 16px; }
 .workflow-steps { display: grid; min-width: 0; flex: 1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; align-items: stretch; }
-.workflow-step { position: relative; z-index: 1; display: grid; min-width: 0; min-height: 120px; grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 15px 10px 9px; background: var(--surface-2); }
+.workflow-step { position: relative; z-index: 1; display: grid; min-width: 0; min-height: 150px; grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 15px 10px 9px; background: var(--surface-2); }
 .workflow-step::before { position: absolute; top: 0; right: 0; left: 0; height: 6px; border-radius: 5px 5px 0 0; background: #c5cbd3; content: ""; }
 .workflow-step[data-state="success"]::before { background: #42ad70; }
 .workflow-step[data-state="error"]::before { background: #d94d58; }
@@ -205,8 +205,8 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .boot-gpu-option label, .boot-viewer-option { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .boot-gpu-option label span, .boot-viewer-option span { margin: 0; color: var(--ink); font-size: var(--font-small); font-weight: 700; white-space: nowrap; }
 .boot-gpu-option input[type="checkbox"], .boot-viewer-option input[type="checkbox"] { width: 17px; min-height: 17px; margin: 0; }
-.boot-gpu-option input[type="number"] { width: 76px; min-height: 30px; padding: 4px 7px; font-size: var(--font-small); }
-.boot-gpu-option input[type="number"]:disabled { border-color: #c5cbd3; background: #e4e6e9; color: #9aa1a9; opacity: 1; }
+.boot-gpu-option input[type="text"] { width: 132px; min-height: 30px; padding: 4px 7px; font-size: var(--font-small); }
+.boot-gpu-option input[type="text"]:disabled { border-color: #c5cbd3; background: #e4e6e9; color: #9aa1a9; opacity: 1; }
 .boot-colon { color: var(--muted); font-size: var(--font-small); font-weight: 700; }
 .boot-options.runtime-options-locked { opacity: .42; }
 .boot-options.runtime-options-locked input { cursor: not-allowed; }
@@ -223,7 +223,7 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .workflow-step[data-enabled="false"] .step-number { background: #c5cbd3; color: #f7f8fa; }
 .step-number { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 5px; background: var(--accent); color: #fff; font-weight: 800; }
 .abort-step { display: flex; flex: 0 0 120px; align-items: stretch; }
-.abort-step button { width: 100%; height: 100%; min-height: 120px; border-radius: 6px; }
+.abort-step button { width: 100%; height: 100%; min-height: 150px; border-radius: 6px; }
 .host-status { margin-top: 0; }
 .host-status > strong { display: block; margin-bottom: 7px; }
 pre { overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #18211d; color: #dce9e2; font-size: var(--font-small); line-height: 1.55; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }

@@ -185,6 +185,29 @@ def test_runtime_launch_options_are_bounded_and_use_normal_runtime_launcher() ->
         )
 
 
+def test_role_specific_runtime_launch_options_select_the_unit_role() -> None:
+    options = RuntimeLaunchOptions.from_payload(
+        {
+            "pilot_gpu_inherit": False,
+            "pilot_gpu_device": "",
+            "sim_gpu_inherit": True,
+            "sim_gpu_device": "GPU-abc123",
+            "viewer": False,
+        }
+    )
+    assert options is not None
+    assert options.role_values("pilot") == (False, "")
+    assert options.role_values("sim") == (True, "GPU-abc123")
+    assert options.launcher_flags(("pilot",)) == (
+        "--cuda-visible-devices",
+        "",
+    )
+    assert options.launcher_flags(("sim",)) == (
+        "--cuda-visible-devices",
+        "GPU-abc123",
+    )
+
+
 def test_viewer_launch_flag_is_scoped_to_the_sim_unit() -> None:
     topology = _topology()
     options = RuntimeLaunchOptions(True, "2", True)
@@ -1521,6 +1544,36 @@ def test_lifecycle_status_counts_managed_coturn_for_sim_readiness() -> None:
     )
     assert with_relay["state"] == "running"
     assert with_relay["containers_present"] is True
+
+
+def test_lifecycle_status_reports_installed_role_gpu_policy() -> None:
+    class SimStatusSession:
+        def run(self, argv, *, check=True) -> RemoteCommandResult:
+            values = tuple(str(value) for value in argv)
+            if values[-2:] == ("config", "--services"):
+                return RemoteCommandResult(0, "sim\ncoturn\n")
+            if values[:2] == ("/usr/local/bin/elesim-net", "show"):
+                return RemoteCommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "compute": {
+                                "gpu_mode": "specific",
+                                "gpu_device": "GPU-fixed-123",
+                            }
+                        }
+                    ),
+                )
+            return RemoteCommandResult(0, "sim\ncoturn\n")
+
+    topology = _topology()
+    status = InstalledElesimLifecycle(topology).status(
+        SimStatusSession(), topology.host("server")
+    )
+
+    assert status["gpu_policy"] == {
+        "sim": {"mode": "specific", "device": "GPU-fixed-123"}
+    }
 
 
 @pytest.mark.parametrize(

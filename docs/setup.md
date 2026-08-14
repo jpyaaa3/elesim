@@ -356,16 +356,23 @@ The connection manager performs that launch through the generated
 `elesim-up --no-build` wrapper. Its one-shot Viewer option becomes `--view`,
 so the normal `DISPLAY` check and temporary `xhost` grant are not bypassed;
 for a remote non-interactive SSH launch the host wrapper resolves only bounded
-local X11 socket and same-user Xauthority candidates, failing before Compose
-when none is usable. Inherited SSH-forwarded/TCP displays are rejected because
-the Sim container receives only the local `/tmp/.X11-unix` socket mount. After
+local X11 sockets owned by the executing host user and matching Xauthority
+candidates, failing before Compose when none is usable. When several same-user
+sessions are present, it probes their monitor names and prefers a physical
+connector such as `DP-*` or `HDMI-*` over an NX, VNC, or other virtual output;
+unresolved ties fail closed instead of selecting another user's or an arbitrary
+session. Inherited SSH-forwarded/TCP displays are rejected because the Sim
+container receives only the local `/tmp/.X11-unix` socket mount. After
 the grant, a one-shot Sim container running with the installed image and UID/GID
 must open a hidden X11/GL context before the detached runtime is started. The
 normal Sim entrypoint repeats that check before starting DDS, so a display
 failure cannot masquerade briefly as DDS readiness. A connection-manager Stop
 or failed full Start revokes the same EleSim-owned grant after Sim is stopped;
-its bounded GPU-number option becomes `--cuda-visible-devices` and sets
-`CUDA_VISIBLE_DEVICES` only for that launch.
+its bounded, role-specific GPU index/UUID options become
+`--cuda-visible-devices` and set `CUDA_VISIBLE_DEVICES` only for that launch.
+The connection manager reads each installed Pilot/Sim host policy first;
+fixed `specific` and `cpu` policies are shown as disabled controls, while only
+`inherit` remains operator-editable.
 The generated project name is `elesim-runtime`; images are
 `elesim/<role>:local`, and selected
 long-running containers are `elesim-pilot`, `elesim-ui`, and

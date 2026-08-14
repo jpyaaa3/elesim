@@ -564,6 +564,7 @@ class DeveloperInstaller:
                 install_uuid=self._install_uuid,
                 guard=guard,
                 gpu_mode=self.request.compute.gpu_mode,
+                gpu_device=self.request.compute.gpu_device,
             ),
         )
         write_executable(
@@ -689,9 +690,14 @@ def _development_manager_wrapper(
     install_uuid: str,
     guard: str,
     gpu_mode: str,
+    gpu_device: str,
 ) -> str:
     if gpu_mode not in {"inherit", "specific", "cpu"}:
         raise ValueError(f"unsupported GPU mode: {gpu_mode!r}")
+    if gpu_mode == "specific" and not gpu_device:
+        raise ValueError("specific GPU mode requires a GPU device")
+    if gpu_mode != "specific" and gpu_device:
+        raise ValueError("GPU device is only valid for specific GPU mode")
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -747,6 +753,9 @@ def _development_manager_wrapper(
         "  -e ELESIM_CONNECTION_PUBLISHED=1\n"
         "  -e ELESIM_INSTALL_GPU_MODE="
         + shlex.quote(gpu_mode)
+        + "\n"
+        "  -e ELESIM_INSTALL_GPU_DEVICE="
+        + shlex.quote(gpu_device)
         + "\n"
         "  -e \"ELESIM_TAILSCALE_ADDRESS=$tailscale_address\"\n"
         "  -e \"ELESIM_TAILSCALE_INTERFACE=$tailscale_interface\"\n"

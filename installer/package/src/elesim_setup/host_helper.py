@@ -32,6 +32,10 @@ _DEFAULT_COMMAND_TIMEOUT_S = 5 * 60
 _MAX_COMMAND_TIMEOUT_S = 30 * 60
 _ROLES = frozenset({"pilot", "sim", "ui"})
 _HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+_GPU_SELECTOR = re.compile(
+    r"^(?:[0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|"
+    r"MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$"
+)
 
 
 class HostHelperError(RuntimeError):
@@ -298,11 +302,7 @@ def _validate_command(
                 if cuda_visible or option_end + 1 >= len(argv):
                     raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
                 value = str(argv[option_end + 1])
-                if value and (
-                    len(value) > 6
-                    or not all("0" <= char <= "9" for char in value)
-                    or int(value) > 65535
-                ):
+                if value and not _GPU_SELECTOR.fullmatch(value):
                     raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
                 cuda_visible = True
                 option_end += 2
@@ -323,11 +323,7 @@ def _validate_command(
             if option_end + 1 >= len(argv):
                 raise HostHelperError("CUDA_VISIBLE_DEVICES option is missing a value")
             value = str(argv[option_end + 1])
-            if value and (
-                len(value) > 6
-                or not all("0" <= char <= "9" for char in value)
-                or int(value) > 65535
-            ):
+            if value and not _GPU_SELECTOR.fullmatch(value):
                 raise HostHelperError("CUDA_VISIBLE_DEVICES option is invalid")
             option_end += 2
             continue

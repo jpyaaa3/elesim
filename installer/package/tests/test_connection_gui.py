@@ -134,6 +134,7 @@ def _application(
     probe=None,
     tailscale_probe=None,
     gpu_mode: str = "inherit",
+    gpu_device: str = "",
 ) -> ConnectionManagerApplication:
     return ConnectionManagerApplication(
         state_path=tmp_path / "connections.json",
@@ -142,6 +143,7 @@ def _application(
         fingerprint_probe=probe,
         tailscale_fingerprint_probe=tailscale_probe,
         gpu_mode=gpu_mode,
+        gpu_device=gpu_device or ("GPU-test" if gpu_mode == "specific" else ""),
     )
 
 
@@ -315,6 +317,55 @@ def test_start_job_forwards_ephemeral_runtime_launch_options(tmp_path: Path) -> 
     assert runner.options == [RuntimeLaunchOptions(True, "2", True)]
 
 
+def test_start_job_forwards_pilot_and_sim_gpu_options_separately(tmp_path: Path) -> None:
+    class Runner:
+        def __init__(self) -> None:
+            self.options: list[RuntimeLaunchOptions | None] = []
+
+        def set_runtime_launch_options(
+            self, options: RuntimeLaunchOptions | None
+        ) -> None:
+            self.options.append(options)
+
+        def __call__(self, topology, _action, _log):
+            return topology
+
+    runner = Runner()
+    app = _application(tmp_path, runner=runner, gpu_mode="cpu")
+    app.save_topology(_topology().to_dict())
+
+    app.start_job(
+        "start",
+        {
+            "pilot_gpu_inherit": False,
+            "pilot_gpu_device": "",
+            "sim_gpu_inherit": True,
+            "sim_gpu_device": "GPU-fixed-123",
+            "viewer": False,
+        },
+    )
+    finished = _wait_for_job(app)
+    assert finished["status"] == "completed"
+    assert finished["runtime_options"] == {
+        "pilot_gpu_inherit": False,
+        "pilot_gpu_device": "",
+        "sim_gpu_inherit": True,
+        "sim_gpu_device": "GPU-fixed-123",
+        "viewer": False,
+    }
+    assert runner.options == [
+        RuntimeLaunchOptions(
+            False,
+            "",
+            False,
+            False,
+            "",
+            True,
+            "GPU-fixed-123",
+        )
+    ]
+
+
 def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     root = connection_web_root()
     catalog = json.loads((root / "i18n.json").read_text(encoding="utf-8"))
@@ -376,8 +427,10 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'data-state="pending"' in html
     assert 'id="cancel"' in html
     assert 'data-i18n="actions.title"' in html
-    assert 'id="gpu-inherit"' in html
-    assert 'id="gpu-device"' in html
+    assert 'id="pilot-gpu-inherit"' in html
+    assert 'id="pilot-gpu-device"' in html
+    assert 'id="sim-gpu-inherit"' in html
+    assert 'id="sim-gpu-device"' in html
     assert 'id="use-viewer"' in html
     assert 'class="boot-options"' in html
     assert 'data-i18n="actions.help"' not in html
@@ -409,8 +462,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
     assert 'byId("restart").addEventListener("click", () => startJob("restart").catch(showError))' in script
     assert "function runtimeLaunchOptions()" in script
-    assert "gpu_inherit: gpuInherit" in script
-    assert 'gpu_device: gpuInherit ? String(byId("gpu-device")?.value || "") : ""' in script
+    assert '`${role}_gpu_inherit`' in script
+    assert '`${role}_gpu_device`' in script
     assert 'viewer: Boolean(byId("use-viewer")?.checked)' in script
     assert "const workflowReady = workflowSaved && workflowApplied;" in script
     assert "const optionsLocked = runtimeOptionsLocked || !workflowReady;" in script
@@ -432,18 +485,17 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'control.closest(".boot-options")' in script
     assert "function applyRuntimeCapabilities(context)" in script
     assert "context?.runtime_options?.gpu_inherit_available === true" in script
-    assert "gpuInheritAvailable === false) inherit.checked = false" in script
-    assert "inherit.disabled = optionsLocked || gpuInheritAvailable !== true" in script
-    assert (
-        "device.disabled = optionsLocked || gpuInheritAvailable !== true || "
-        "!inherit.checked"
-    ) in script
+    assert "function applyRuntimeGpuPolicies(hosts)" in script
+    assert "policy.mode === \"specific\"" in script
+    assert 'policy?.mode === "cpu"' in script
+    assert "inherit.disabled = optionsLocked || fixed || !available" in script
+    assert "device.disabled = optionsLocked || fixed || !available || !inherit.checked" in script
     assert ".boot-options" in style
-    assert "min-height: 120px" in style
+    assert "min-height: 150px" in style
     assert "grid-column: 3; grid-row: 1" in style
     assert "flex-direction: column" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
-    assert '.boot-gpu-option input[type="number"]:disabled' in style
+    assert '.boot-gpu-option input[type="text"]:disabled' in style
     assert ".boot-options.runtime-options-locked { opacity: .42; }" in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style
@@ -532,7 +584,10 @@ def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) ->
     assert context["manager_transport"]["containerized"] is False
     assert context["manager_transport"]["tailscale_proxy"] is False
     assert context["manager_transport"]["container_network_mode"] == "direct-host"
-    assert context["runtime_options"] == {"gpu_inherit_available": True}
+    assert context["runtime_options"] == {
+        "gpu_inherit_available": True,
+        "gpu_policies": {"pilot": {"mode": "inherit", "device": ""}},
+    }
     assert context["derived_static_peers"]["compute"] == [
         "100.64.0.20",
         "100.64.0.10",
@@ -562,7 +617,10 @@ def test_non_inherit_install_disables_and_rejects_gpu_override(
     app = _application(tmp_path, runner=Runner(), gpu_mode=gpu_mode)
     app.save_topology(_topology().to_dict())
 
-    assert app.context()["runtime_options"] == {"gpu_inherit_available": False}
+    assert app.context()["runtime_options"] == {
+        "gpu_inherit_available": False,
+        "gpu_policies": {"pilot": {"mode": gpu_mode, "device": "GPU-test" if gpu_mode == "specific" else ""}},
+    }
     with pytest.raises(ValueError, match="inherit-mode installation"):
         app.start_job(
             "start",

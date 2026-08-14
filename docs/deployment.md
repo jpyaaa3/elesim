@@ -512,9 +512,11 @@ keeping the observer and hand-eye render cameras enabled.
 이번 실행에 한해 native Viewer를 켤 수 있다. `DISPLAY`와 X11 인증/WSLg가
 준비되어 있어야 하며, 설정 파일이나 보안 generation은 변경하지 않는다.
 연결관리자가 비대화형 SSH로 실행해 `DISPLAY`를 상속받지 못한 경우에는 Sim
-호스트의 실제 X11 Unix socket과 설치 사용자의 `.Xauthority` 또는 GDM
-Xauthority를 제한적으로 확인한다. 접속 가능한 조합이 검증되지 않으면 Sim을
-시작하기 전에 실패한다. 호스트 권한 검사 뒤에는 동일 이미지와 UID/GID의
+호스트의 실제 X11 Unix socket 중 실행 사용자 소유인 것과 설치 사용자의
+`.Xauthority` 또는 GDM Xauthority를 제한적으로 확인한다. 같은 사용자의
+세션이 여러 개면 `xrandr`의 물리 출력(`DP-*`, `HDMI-*` 등)을 NX/VNC 같은
+가상 출력보다 우선하고, 동률은 임의 선택하지 않고 실패한다. 접속 가능한
+조합이 검증되지 않으면 Sim을 시작하기 전에 실패한다. 호스트 권한 검사 뒤에는 동일 이미지와 UID/GID의
 일회성 Sim 컨테이너가 숨겨진 X11/GL context를 실제로 열어야 하며, 본 Sim
 entrypoint도 DDS를 초기화하기 전에 같은 검사를 반복한다. 이는 잘못된
 DISPLAY가 잠깐 DDS readiness로 보이는 것을 막지만, 최종 Genesis 창이 해당

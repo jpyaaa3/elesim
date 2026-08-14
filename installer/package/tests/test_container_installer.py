@@ -508,6 +508,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in up_wrapper
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
+    assert "viewer_display_is_owned" in up_wrapper
+    assert "xrandr --listmonitors" in up_wrapper
     assert ".runtime-cache/viewer-xhost" in up_wrapper
     assert "elesim-net configuration-check >/dev/null" in up_wrapper
     assert "elesim-net namespace-check >/dev/null" in up_wrapper
@@ -1292,6 +1294,18 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert not (tmp_path / "viewer-xhost").exists()
     assert not (tmp_path / "xhost.permission").exists()
 
+    uuid_launch = subprocess.run(
+        (wrapper, "--no-build", "--cuda-visible-devices", "GPU-fixed-123", "sim"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert uuid_launch.returncode == 0
+    assert Path(environment["CUDA_MARKER"]).read_text(encoding="utf-8") == (
+        "GPU-fixed-123"
+    )
+
     xauthority.unlink()
     environment.pop("DISPLAY", None)
     environment.pop("XAUTHORITY", None)
@@ -1312,6 +1326,107 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert "up -d" not in Path(environment["DOCKER_ARGS_MARKER"]).read_text(
         encoding="utf-8"
     )
+
+
+def test_runtime_up_view_prefers_same_user_physical_display_over_nx_session(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    state_path = tmp_path / "install-state.json"
+    state_path.write_text(
+        json.dumps({"dds": {"security_profile": "trusted-network"}}),
+        encoding="utf-8",
+    )
+    x11_socket_dir = tmp_path / ".X11-unix"
+    _create_x11_socket(x11_socket_dir, display=1)
+    _create_x11_socket(x11_socket_dir, display=2)
+    _create_x11_socket(x11_socket_dir, display=1001)
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=compose,
+            guard="",
+            launch_guard="",
+            has_sim=True,
+            runtime_roles=("sim",),
+            state_path=state_path,
+            viewer_state=tmp_path / "viewer-xhost",
+            viewer_user="hckang",
+            viewer_x11_socket_dir=x11_socket_dir,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s' \"${DISPLAY:-unset}\" >\"${VIEWER_DISPLAY_MARKER:?}\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    xhost = fake_bin / "xhost"
+    xhost.write_text(
+        "#!/usr/bin/env bash\n"
+        "case ${DISPLAY:-} in :1|:2|:1001) ;; *) exit 1 ;; esac\n"
+        "if (( $# == 0 )); then exit 0; fi\n"
+        "case $1 in\n"
+        "  +si:localuser:hckang) : >\"${XHOST_PERMISSION_MARKER:?}\" ;;\n"
+        "  -si:localuser:hckang) rm -f -- \"${XHOST_PERMISSION_MARKER:?}\" ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    xhost.chmod(0o755)
+    stat = fake_bin / "stat"
+    stat.write_text(
+        "#!/usr/bin/env bash\n"
+        "for argument in \"$@\"; do\n"
+        "  [[ $argument == */.X11-unix/X1 ]] && { printf '999\\n'; exit 0; }\n"
+        "done\n"
+        "exec /usr/bin/stat \"$@\"\n",
+        encoding="utf-8",
+    )
+    stat.chmod(0o755)
+    xrandr = fake_bin / "xrandr"
+    xrandr.write_text(
+        "#!/usr/bin/env bash\n"
+        "case ${DISPLAY:-} in\n"
+        "  :1) printf 'Monitors: 1\\n 0: +*DP-1 2560/597x1440/336+0+0 DP-1\\n' ;;\n"
+        "  :2) printf 'Monitors: 1\\n 0: +*DP-1 2560/597x1440/336+0+0 DP-1\\n' ;;\n"
+        "  :1001) printf 'Monitors: 1\\n 0: +nxoutput0 768/195x576/146+0+0 nxoutput0\\n' ;;\n"
+        "  *) exit 1 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    xrandr.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            # Start from the NX display.  The detector must choose the
+            # same-user physical DP-1 display instead.
+            "DISPLAY": ":1001",
+            "VIEWER_DISPLAY_MARKER": str(tmp_path / "viewer-display"),
+            "XHOST_PERMISSION_MARKER": str(tmp_path / "xhost.permission"),
+        }
+    )
+    result = subprocess.run(
+        (wrapper, "--no-build", "--view"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert Path(environment["VIEWER_DISPLAY_MARKER"]).read_text(
+        encoding="utf-8"
+    ) == ":2"
+    assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == ":2\n\n"
 
 
 def test_runtime_up_view_preflight_failure_revokes_acl_and_never_starts(

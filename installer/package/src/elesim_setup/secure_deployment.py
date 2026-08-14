@@ -14,6 +14,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import shlex
 import socket
 import stat
@@ -56,6 +57,10 @@ CommandOutput = Callable[[str, str], None]
 _PRIVATE_AUTHORITY_FILES = frozenset(
     {"ca.key.pem", "identity_ca.key.pem", "permissions_ca.key.pem"}
 )
+_GPU_SELECTOR = re.compile(
+    r"^(?:[0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|"
+    r"MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$"
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,14 @@ class RuntimeLaunchOptions:
     gpu_inherit: bool
     gpu_device: str
     viewer: bool
+    # The first three fields are retained as a compatibility view for older
+    # manager clients and persisted job snapshots.  New clients send the
+    # role-specific fields below; a unit selects the field matching its
+    # runtime role when constructing its launch command.
+    pilot_gpu_inherit: bool | None = None
+    pilot_gpu_device: str = ""
+    sim_gpu_inherit: bool | None = None
+    sim_gpu_device: str = ""
 
     @classmethod
     def from_payload(
@@ -77,7 +90,15 @@ class RuntimeLaunchOptions:
     ) -> "RuntimeLaunchOptions | None":
         if payload is None or not payload:
             return None
-        allowed = {"gpu_inherit", "gpu_device", "viewer"}
+        allowed = {
+            "gpu_inherit",
+            "gpu_device",
+            "pilot_gpu_inherit",
+            "pilot_gpu_device",
+            "sim_gpu_inherit",
+            "sim_gpu_device",
+            "viewer",
+        }
         unknown = set(payload) - allowed
         if unknown:
             raise ValueError(
@@ -88,30 +109,84 @@ class RuntimeLaunchOptions:
         viewer = payload.get("viewer", False)
         if not isinstance(gpu_inherit, bool) or not isinstance(viewer, bool):
             raise ValueError("gpu_inherit and viewer must be boolean")
-        raw_device = payload.get("gpu_device", "")
-        if isinstance(raw_device, bool) or not isinstance(raw_device, (str, int)):
-            raise ValueError("gpu_device must be a non-negative GPU number")
-        gpu_device = str(raw_device).strip()
-        if gpu_device and (
-            len(gpu_device) > 6
-            or not all("0" <= char <= "9" for char in gpu_device)
-            or int(gpu_device) > 65535
-        ):
-            raise ValueError("gpu_device must be a non-negative GPU number")
-        if gpu_inherit and not gpu_device:
-            raise ValueError("gpu_device is required when GPU inherit is enabled")
-        if not gpu_inherit:
-            gpu_device = ""
-        return cls(gpu_inherit, gpu_device, viewer)
 
-    def launcher_flags(self) -> tuple[str, ...]:
+        legacy_device = _normalize_gpu_selector(
+            payload.get("gpu_device", ""), name="gpu_device"
+        )
+        legacy = bool(gpu_inherit), legacy_device if gpu_inherit else ""
+        role_fields_present = any(
+            key in payload
+            for key in (
+                "pilot_gpu_inherit",
+                "pilot_gpu_device",
+                "sim_gpu_inherit",
+                "sim_gpu_device",
+            )
+        )
+
+        def role_values(role: str) -> tuple[bool, str]:
+            inherit_key = f"{role}_gpu_inherit"
+            device_key = f"{role}_gpu_device"
+            raw_inherit = payload.get(inherit_key, legacy[0])
+            if not isinstance(raw_inherit, bool):
+                raise ValueError(f"{inherit_key} must be boolean")
+            raw_device = _normalize_gpu_selector(
+                payload.get(device_key, legacy[1]), name=device_key
+            )
+            if raw_inherit and not raw_device:
+                raise ValueError(f"{device_key} is required when GPU inherit is enabled")
+            return raw_inherit, raw_device if raw_inherit else ""
+
+        pilot_inherit, pilot_device = role_values("pilot")
+        sim_inherit, sim_device = role_values("sim")
+        return cls(
+            legacy[0] if not role_fields_present else pilot_inherit,
+            legacy[1] if not role_fields_present else pilot_device,
+            viewer,
+            pilot_inherit if role_fields_present else None,
+            pilot_device if role_fields_present else "",
+            sim_inherit if role_fields_present else None,
+            sim_device if role_fields_present else "",
+        )
+
+    def role_values(self, role: str) -> tuple[bool, str]:
+        """Return the requested GPU selector for one runtime role."""
+
+        if role == "pilot" and self.pilot_gpu_inherit is not None:
+            return self.pilot_gpu_inherit, self.pilot_gpu_device if self.pilot_gpu_inherit else ""
+        if role == "sim" and self.sim_gpu_inherit is not None:
+            return self.sim_gpu_inherit, self.sim_gpu_device if self.sim_gpu_inherit else ""
+        return self.gpu_inherit, self.gpu_device if self.gpu_inherit else ""
+
+    def launcher_flags(self, roles: Sequence[str] | None = None) -> tuple[str, ...]:
         """Return bounded ``elesim-up`` flags for this one launch."""
 
+        if roles is None:
+            gpu_inherit, gpu_device = self.gpu_inherit, self.gpu_device
+        else:
+            selected = set(str(role) for role in roles)
+            role = "sim" if "sim" in selected else "pilot" if "pilot" in selected else ""
+            gpu_inherit, gpu_device = (
+                self.role_values(role) if role else (False, "")
+            )
         flags = (
             "--cuda-visible-devices",
-            self.gpu_device if self.gpu_inherit else "",
+            gpu_device if gpu_inherit else "",
         )
         return (*flags, "--view") if self.viewer else flags
+
+
+def _normalize_gpu_selector(raw: object, *, name: str) -> str:
+    """Validate one bounded CUDA selector (index or NVIDIA GPU UUID)."""
+
+    if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+        raise ValueError(f"{name} must be a non-negative GPU index or UUID")
+    value = str(raw).strip()
+    if not value:
+        return ""
+    if not _GPU_SELECTOR.fullmatch(value):
+        raise ValueError(f"{name} must be a non-negative GPU index or UUID")
+    return value
 
 
 def _command_timeout(argv: Sequence[str], base: float) -> float:
@@ -2244,6 +2319,10 @@ class InstalledElesimLifecycle:
                     gpu_inherit=runtime_options.gpu_inherit,
                     gpu_device=runtime_options.gpu_device,
                     viewer=False,
+                    pilot_gpu_inherit=runtime_options.pilot_gpu_inherit,
+                    pilot_gpu_device=runtime_options.pilot_gpu_device,
+                    sim_gpu_inherit=runtime_options.sim_gpu_inherit,
+                    sim_gpu_device=runtime_options.sim_gpu_device,
                 )
             session.run(
                 _lifecycle_command(
@@ -2322,6 +2401,57 @@ class InstalledElesimLifecycle:
         if len(payloads) == 1:
             return dict(next(iter(payloads.values())))
         return {"state": "ready", "units": payloads}
+
+    def _gpu_policies(
+        self, session: SshSession, host: ManagedHost
+    ) -> tuple[dict[str, dict[str, str]], list[str]]:
+        """Read the immutable GPU policy recorded by each runtime unit.
+
+        ``elesim-net show`` is an existing read-only, ownership-checked host
+        command.  Keeping the query at this boundary lets the manager inspect
+        a remote Sim/Pilot installation without receiving Docker access or
+        inferring policy from DDS status.
+        """
+
+        policies: dict[str, dict[str, str]] = {}
+        errors: list[str] = []
+        for unit in host.units:
+            roles = tuple(role for role in unit.roles if role in {"pilot", "sim"})
+            if not roles:
+                continue
+            command = (str(_net_command(unit)), "show")
+            result = session.run(command, check=False)
+            if result.exit_status != 0:
+                detail = (result.stderr.strip() or result.stdout.strip())[:256]
+                errors.append(
+                    f"{unit.unit_id}: elesim-net show failed"
+                    + (f": {detail}" if detail else "")
+                )
+                continue
+            try:
+                raw = json.loads(result.stdout)
+                if not isinstance(raw, Mapping):
+                    raise ValueError("state is not an object")
+                compute = raw.get("compute")
+                if not isinstance(compute, Mapping):
+                    raise ValueError("compute policy is missing")
+                mode = str(compute.get("gpu_mode", "")).strip()
+                if mode not in {"inherit", "specific", "cpu"}:
+                    raise ValueError(f"unsupported GPU mode {mode!r}")
+                device = _normalize_gpu_selector(
+                    compute.get("gpu_device", ""), name="gpu_device"
+                )
+                if mode == "specific" and not device:
+                    raise ValueError("specific GPU policy has no device")
+                if mode != "specific":
+                    device = ""
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                errors.append(f"{unit.unit_id}: invalid GPU policy: {exc}")
+                continue
+            policy = {"mode": mode, "device": device}
+            for role in roles:
+                policies[role] = dict(policy)
+        return policies, errors
 
     def status(self, session: SshSession, host: ManagedHost) -> Mapping[str, Any]:
         """Return a bounded lifecycle snapshot without changing host state."""
@@ -2416,26 +2546,33 @@ class InstalledElesimLifecycle:
                     "detail": result.stderr.strip()[:512],
                 }
         if len(unit_status) == 1:
-            return dict(next(iter(unit_status.values())))
-        running_roles = [
-            role
-            for unit in host.units
-            for role in unit_status[unit.unit_id].get("running_roles", ())
-        ]
-        states = {str(value.get("state", "unknown")) for value in unit_status.values()}
-        state = (
-            "running"
-            if states == {"running"}
-            else ("stopped" if states <= {"stopped", "inactive"} else "degraded")
-        )
-        return {
-            "state": state,
-            "running_roles": running_roles,
-            "containers_present": all(
-                bool(value.get("containers_present")) for value in unit_status.values()
-            ),
-            "units": unit_status,
-        }
+            snapshot: dict[str, Any] = dict(next(iter(unit_status.values())))
+        else:
+            running_roles = [
+                role
+                for unit in host.units
+                for role in unit_status[unit.unit_id].get("running_roles", ())
+            ]
+            states = {str(value.get("state", "unknown")) for value in unit_status.values()}
+            state = (
+                "running"
+                if states == {"running"}
+                else ("stopped" if states <= {"stopped", "inactive"} else "degraded")
+            )
+            snapshot = {
+                "state": state,
+                "running_roles": running_roles,
+                "containers_present": all(
+                    bool(value.get("containers_present")) for value in unit_status.values()
+                ),
+                "units": unit_status,
+            }
+        policies, policy_errors = self._gpu_policies(session, host)
+        if policies:
+            snapshot["gpu_policy"] = policies
+        if policy_errors:
+            snapshot["gpu_policy_error"] = "; ".join(policy_errors)[:512]
+        return snapshot
 
     def verify(
         self,
@@ -3095,7 +3232,9 @@ def _lifecycle_command(
         if action == "build":
             return (*_compose_build_command(unit), "build", *selected)
         launch_flags = (
-            () if runtime_options is None else runtime_options.launcher_flags()
+            ()
+            if runtime_options is None
+            else runtime_options.launcher_flags(selected)
         )
         return (
             str(PurePosixPath(unit.bin_dir) / "elesim-up"),
