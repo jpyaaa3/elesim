@@ -71,6 +71,7 @@ _DESCRIPTOR_PERIOD_S = 2.5
 _MAX_PAYLOAD_JSON = 1_048_576
 _MAX_TRACE_JSON = 16_384
 _MAX_PENDING_INBOUND = 512
+_MAX_PENDING_HEARTBEATS = 512
 _DIAGNOSTIC_MESSAGE_TYPES = frozenset(
     {
         "discover",
@@ -405,6 +406,14 @@ class DdsPeerNode:
         self._pending_inbound: deque[
             tuple[Envelope, PeerIdentity, float]
         ] = deque()
+        # DDS delivers the descriptor and heartbeat topics independently.  A
+        # valid heartbeat can therefore arrive before the transient-local
+        # descriptor is delivered to a late-joining participant.  Keep the
+        # newest bounded sample briefly so that startup does not discard the
+        # only heartbeat that proves this exact boot is live.
+        self._pending_heartbeats: dict[
+            PeerIdentity, tuple[PeerHeartbeat, float]
+        ] = {}
         self._inbox_lock = threading.Lock()
         self._publishers: dict[tuple[str, bool], Any] = {}
         self._closed = False
@@ -563,6 +572,7 @@ class DdsPeerNode:
                 boot=identity.boot_id,
             )
         self._expire_pending_inbound(now)
+        self._expire_pending_heartbeats(now)
         self.spin_once(timeout_s=0.0)
 
     def spin_once(self, *, timeout_s: float) -> None:
@@ -788,6 +798,17 @@ class DdsPeerNode:
                 service_prefix=descriptor.service_prefix,
                 topic_prefix=descriptor.topic_prefix,
             )
+            pending = self._pending_heartbeats.pop(identity, None)
+            if pending is not None:
+                heartbeat, received_at = pending
+                if (
+                    self.clock() - received_at
+                    <= self.settings.heartbeat_timeout_s
+                    and heartbeat.descriptor_revision
+                    == descriptor.descriptor_revision
+                ):
+                    if self.directory.heartbeat(heartbeat, now=self.clock()):
+                        self._mark_peer_ready(identity)
             self._release_pending_inbound(identity)
         except (PeerAmbiguityError, ProtocolError, ValueError):
             return
@@ -800,18 +821,58 @@ class DdsPeerNode:
             )
             if identity == self.identity:
                 return
-            accepted = self.directory.heartbeat(
-                PeerHeartbeat(
-                    identity=identity,
-                    descriptor_revision=int(message.descriptor_revision),
-                    sequence=int(message.sequence),
-                ),
-                now=self.clock(),
+            heartbeat = PeerHeartbeat(
+                identity=identity,
+                descriptor_revision=int(message.descriptor_revision),
+                sequence=int(message.sequence),
             )
+            now = self.clock()
+            accepted = self.directory.heartbeat(heartbeat, now=now)
             if accepted:
+                self._mark_peer_ready(identity)
                 self._release_pending_inbound(identity)
+            else:
+                # Do not weaken the descriptor+heartbeat gate.  This only
+                # preserves a heartbeat until its matching descriptor arrives.
+                previous = self._pending_heartbeats.get(identity)
+                if previous is None or heartbeat.sequence > previous[0].sequence:
+                    if (
+                        identity not in self._pending_heartbeats
+                        and len(self._pending_heartbeats) >= _MAX_PENDING_HEARTBEATS
+                    ):
+                        self._pending_heartbeats.pop(
+                            next(iter(self._pending_heartbeats))
+                        )
+                    self._pending_heartbeats[identity] = (heartbeat, now)
+                    self._diagnostic(
+                        "discovery",
+                        dedupe=(
+                            f"heartbeat-before-descriptor:{identity.endpoint_id}:"
+                            f"{identity.boot_id}"
+                        ),
+                        state="heartbeat-before-descriptor",
+                        endpoint=identity.endpoint_id,
+                        boot=identity.boot_id,
+                    )
         except ValueError:
             return
+
+    def _mark_peer_ready(self, identity: PeerIdentity) -> None:
+        self._diagnostic(
+            "discovery",
+            dedupe=f"ready:{identity.endpoint_id}:{identity.boot_id}",
+            state="ready",
+            endpoint=identity.endpoint_id,
+            boot=identity.boot_id,
+        )
+
+    def _expire_pending_heartbeats(self, now: float) -> None:
+        cutoff = float(now) - self.settings.heartbeat_timeout_s
+        for identity, (_heartbeat, received_at) in tuple(
+            self._pending_heartbeats.items()
+        ):
+            if received_at < cutoff:
+                self._pending_heartbeats.pop(identity, None)
 
     def _on_envelope(self, message: Any, *, motion: bool) -> None:
         del motion

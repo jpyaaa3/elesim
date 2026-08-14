@@ -150,6 +150,56 @@ def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
     assert list(node._pending_inbound) == []
 
 
+def test_heartbeat_waiting_for_descriptor_is_replayed_once_descriptor_arrives() -> None:
+    now = [10.0]
+    node = object.__new__(DdsPeerNode)
+    node.clock = lambda: now[0]
+    node.identity = PeerIdentity("ui-a", "boot-ui")
+    node.settings = SimpleNamespace(
+        heartbeat_timeout_s=3.5,
+        security_profile="trusted-network",
+    )
+    node.directory = PeerDirectory(heartbeat_timeout_s=3.5)
+    node._wire_descriptors = {}
+    node._pending_heartbeats = {}
+    node._diagnostic_seen = {}
+    node._inbox = deque()
+    node._pending_inbound = deque()
+    node._inbox_lock = threading.Lock()
+    diagnostics: list[dict[str, object]] = []
+    node._diagnostic = lambda _channel, **fields: diagnostics.append(fields)
+    node._release_pending_inbound = lambda _identity: None
+
+    source = PeerIdentity("sim-a", "boot-sim")
+    heartbeat = SimpleNamespace(
+        peer=SimpleNamespace(endpoint_id=source.endpoint_id, boot_id=source.boot_id),
+        descriptor_revision=1,
+        sequence=1,
+    )
+    node._on_heartbeat(heartbeat)
+    assert node.directory.resolve("sim-a", now=now[0]) is None
+    assert any(
+        item.get("state") == "heartbeat-before-descriptor" for item in diagnostics
+    )
+
+    descriptor = SimpleNamespace(
+        protocol_major=6,
+        peer=SimpleNamespace(endpoint_id=source.endpoint_id, boot_id=source.boot_id),
+        role="sim",
+        capabilities=[],
+        streams=[],
+        descriptor_revision=1,
+        service_prefix="/elesim/v6/peers/sim_a/boot_sim",
+        topic_prefix="/elesim/v6/peers/sim_a/boot_sim",
+        interface_hash="elesim-v6",
+    )
+    node._on_descriptor(descriptor)
+
+    assert node.directory.resolve("sim-a", now=now[0]) is not None
+    assert any(item.get("state") == "ready" for item in diagnostics)
+    assert node._pending_heartbeats == {}
+
+
 def test_direct_discovery_motion_lease_and_fenced_command() -> None:
     bus = _Bus()
     pilot = PeerClient(

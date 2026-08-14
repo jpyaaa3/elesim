@@ -185,6 +185,39 @@ def test_session_reports_descriptor_wait_without_sending_until_sim_is_discovered
     assert "endpoint descriptor" in session.last_error
 
 
+def test_open_request_is_retried_after_a_lost_reply() -> None:
+    clock = Clock()
+    endpoint = Endpoint()
+    session = UiSimSession(
+        ui_id="ui-a",
+        sim_id="sim-a",
+        receiver_factory=Receiver,
+        retry_s=0.5,
+        open_timeout_s=2.0,
+        clock=clock,
+        autostart=False,
+    )
+
+    session.run_cycle(endpoint)
+    assert [entry[0] for entry in endpoint.sent] == [
+        "open_simulation_session"
+    ]
+
+    clock.now = 2.1
+    session.run_cycle(endpoint)
+    assert "open timed out" in session.last_error
+    assert [entry[0] for entry in endpoint.sent] == [
+        "open_simulation_session"
+    ]
+
+    clock.now = 2.6
+    session.run_cycle(endpoint)
+    assert [entry[0] for entry in endpoint.sent] == [
+        "open_simulation_session",
+        "open_simulation_session",
+    ]
+
+
 def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     Receiver.created.clear()
     endpoint = Endpoint()

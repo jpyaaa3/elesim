@@ -90,6 +90,7 @@ class UiSimSession:
         peer_factory: Callable[..., Any] = PeerClient,
         receiver_factory: Callable[[], Any] = WebRtcVideoReceiver,
         retry_s: float = 0.5,
+        open_timeout_s: Optional[float] = None,
         poll_ms: int = 50,
         max_pending_commands: int = 128,
         clock: Callable[[], float] = time.monotonic,
@@ -101,6 +102,12 @@ class UiSimSession:
         self.peer_factory = peer_factory
         self.receiver_factory = receiver_factory
         self.retry_s = max(0.05, float(retry_s))
+        if open_timeout_s is None:
+            heartbeat_timeout = float(
+                getattr(settings, "heartbeat_timeout_s", 3.5)
+            )
+            open_timeout_s = max(3.0, heartbeat_timeout * 2.0)
+        self.open_timeout_s = max(self.retry_s, float(open_timeout_s))
         self.poll_ms = max(0, int(poll_ms))
         self.max_pending_commands = max(8, int(max_pending_commands))
         self.clock = clock
@@ -110,6 +117,7 @@ class UiSimSession:
         self._active_sim_id = ""
         self._session_id = ""
         self._opening_request_id = ""
+        self._opening_deadline = 0.0
         self._closing_session_id = ""
         self._retry_after = 0.0
         self._receivers: dict[str, Any] = {}
@@ -197,6 +205,11 @@ class UiSimSession:
         with self._lock:
             self._requested_sim_id = str(sim_id).strip()
             self._retry_after = 0.0
+            opening = self._opening_request_id
+            if opening:
+                self._forget_sent_request_locked("open", opening)
+            self._opening_request_id = ""
+            self._opening_deadline = 0.0
             self._commands.clear()
 
     def send_command(self, command: str, arguments: Mapping[str, Any] | None = None) -> str:
@@ -265,8 +278,28 @@ class UiSimSession:
             requested = self._requested_sim_id
             active = self._active_sim_id
             opening = self._opening_request_id
+            opening_deadline = self._opening_deadline
             closing = self._closing_session_id
             retry_after = self._retry_after
+        if (
+            not active
+            and opening
+            and opening_deadline > 0.0
+            and now >= opening_deadline
+        ):
+            with self._lock:
+                # The reply may have crossed the timeout boundary and already
+                # be queued. Keep the request id check in _handle_opened so a
+                # late reply cannot attach a stale lease to a new attempt.
+                if self._opening_request_id == opening:
+                    self._opening_request_id = ""
+                    self._opening_deadline = 0.0
+                    self._forget_sent_request_locked("open", opening)
+                    self._retry_after = now + self.retry_s
+            self._set_error(
+                f"simulation session open timed out for {requested!r}; retrying"
+            )
+            return
         if active and requested != active:
             if not closing:
                 self._send_close(client)
@@ -275,8 +308,9 @@ class UiSimSession:
             has_peer = getattr(client, "has_peer", None)
             if callable(has_peer) and not has_peer(requested):
                 self._set_error(
-                    f"simulation peer {requested!r} is not discovered yet; "
-                    "waiting for its DDS endpoint descriptor"
+                    f"simulation peer {requested!r} is not live; "
+                    "waiting for its exact DDS endpoint descriptor "
+                    "and fresh heartbeat"
                 )
                 with self._lock:
                     self._retry_after = now + self.retry_s
@@ -295,7 +329,11 @@ class UiSimSession:
         )
         with self._lock:
             self._opening_request_id = request.request_id
+            self._opening_deadline = self.clock() + self.open_timeout_s
             self._sent_messages[str(envelope.message_id)] = ("open", request.request_id)
+        self._set_error(
+            f"simulation session open requested for {sim_id!r}; waiting for Sim"
+        )
 
     def _send_close(self, client: Any) -> None:
         with self._lock:
@@ -399,6 +437,7 @@ class UiSimSession:
                 self._active_sim_id = opened.sim_id
                 self._session_id = opened.session_id
                 self._opening_request_id = ""
+                self._opening_deadline = 0.0
                 self._closing_session_id = ""
                 self._status = None
                 self._last_error = ""
@@ -517,6 +556,7 @@ class UiSimSession:
             kind, request_id = self._sent_messages.pop(reply_to, ("", ""))
             if kind == "open" and request_id == self._opening_request_id:
                 self._opening_request_id = ""
+                self._opening_deadline = 0.0
                 self._retry_after = self.clock() + self.retry_s
             elif kind == "close" and request_id == self._closing_session_id:
                 self._clear_session_locked()
@@ -540,6 +580,7 @@ class UiSimSession:
         self._active_sim_id = ""
         self._session_id = ""
         self._opening_request_id = ""
+        self._opening_deadline = 0.0
         self._closing_session_id = ""
         self._turn = None
         self._connected_streams.clear()
