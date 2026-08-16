@@ -46,6 +46,7 @@ from .security_provisioning import (
     sync_provisioning_required,
 )
 from .security_views import prepare_role_keystore_views
+from .runtime_status import render_compose_status_wrapper
 from .shell import operator_home, write_executable
 from .state import ContainerNetworkSettings, InstallState
 from .uninstall import UninstallSafetyError, validate_docker_ownership
@@ -1257,6 +1258,28 @@ class ContainerInstaller:
                 ),
             ),
         )
+        status_services = [
+            (role, ROLE_CONTAINER_NAMES[role]) for role in self.state.roles
+        ]
+        if self.state.turn.managed:
+            status_services.append(("coturn", "elesim-coturn"))
+        if self.state.container_network.uses_tailscale_sidecar:
+            status_services.append(("tailscale", TAILSCALE_CONTAINER_NAME))
+        write_executable(
+            self.state.bin_path / "elesim-status",
+            render_compose_status_wrapper(
+                compose=compose,
+                project=GENERAL_COMPOSE_PROJECT,
+                edition="general",
+                services=status_services,
+                guard=guard,
+                sim_container=(
+                    ROLE_CONTAINER_NAMES["sim"]
+                    if "sim" in self.state.roles
+                    else None
+                ),
+            ),
+        )
         if self.state.container_network.uses_tailscale_sidecar:
             write_executable(
                 self.state.bin_path / "elesim-tailscale",
@@ -1311,6 +1334,7 @@ class ContainerInstaller:
             "elesim-up",
             "elesim-down",
             "elesim-logs",
+            "elesim-status",
             "elesim-setup",
             "elesim-net",
             "elesim-connections",

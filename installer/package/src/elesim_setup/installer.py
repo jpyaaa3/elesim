@@ -38,6 +38,7 @@ from .security_provisioning import (
     sync_provisioning_required,
 )
 from .security_views import prepare_role_keystore_views
+from .runtime_status import render_native_status_wrapper
 from .shell import write_executable
 from .state import InstallState
 from .updater import render_update_wrapper
@@ -522,6 +523,13 @@ class Installer:
                     archive_enabled=self.state.runtime_text_logs.enabled,
                 ),
             )
+            write_executable(
+                self.state.bin_path / "elesim-status",
+                render_native_status_wrapper(
+                    robot_unit=ROBOT_SYSTEMD_UNIT,
+                    bridge_unit=UNITREE_BRIDGE_SYSTEMD_UNIT,
+                ),
+            )
         write_executable(
             self.state.bin_path / "elesim-update",
             render_update_wrapper(
@@ -543,6 +551,7 @@ class Installer:
             "elesim-up",
             "elesim-logs",
             "elesim-down",
+            "elesim-status",
             "elesim-update",
         ]
         if include_uninstaller:

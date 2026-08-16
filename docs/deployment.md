@@ -462,7 +462,7 @@ An existing checkout is reused without pull/reset; an empty target is cloned at
 the selected ref. The image includes all role dependencies and uses a persistent
 `$HOME/.venv` for editable workspace installs. `elesim-up` starts the development
 container and `elesim-dev` opens a shell. Optional Jaeger is profile-gated and
-starts only through `elesim-jaeger-up`.
+starts only through `elesim-up --jaeger`.
 
 The project is `elesim-runtime-dev`, its image is `elesim/dev:local`, and its
 only persistent coding container is `elesim-dev`; optional tracing adds the
@@ -474,9 +474,10 @@ The connection GUI runs, when requested, in a removable `elesim-manager`
 one-shot container. A private host-side helper exposes only allowlisted EleSim
 Compose/network commands and optional `tailscale nc`; the manager receives no
 Docker or tailscaled daemon socket. It does not become a fifth persistent
-development/runtime application. The generated `elesim-down` leaves an active
-manager alone by default; `elesim-down --purge` explicitly stops the runtime
-and force-removes only that exact manager container.
+development/runtime application. The generated `elesim-down` also stops the
+selected Jaeger profile and leaves an active manager alone by default;
+`elesim-down --purge` explicitly stops the runtime and force-removes only that
+exact manager container.
 
 This mode mounts `/dev`, uses host network/IPC, and is privileged. Use it only
 on an owned Ubuntu/WSL amd64 workstation. WSLg mounts are generated only when

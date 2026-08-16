@@ -42,3 +42,19 @@ def test_container_images_build_the_interface_overlay() -> None:
     # ``ip -j route get`` for static peers.  Without iproute2 the check would
     # fail only after installation, making a valid topology look broken.
     assert "iproute2" in tools
+
+
+def test_sim_runtime_images_build_and_verify_casadi_osqp() -> None:
+    app = (ROOT / "environment/containers/Dockerfile.app").read_text(
+        encoding="utf-8"
+    )
+    development = (ROOT / "environment/development/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    for dockerfile in (app, development):
+        assert "WITH_OSQP=ON" in dockerfile
+        assert "WITH_BUILD_OSQP=ON" in dockerfile
+        assert "BUILD_OSQP_VERSION" in dockerfile
+        assert "CMAKE_INSTALL_PREFIX=/opt/openrobots" in dockerfile
+        assert 'ca.has_conic("osqp")' in dockerfile

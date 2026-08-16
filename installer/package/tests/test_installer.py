@@ -89,6 +89,11 @@ def test_robot_wrapper_and_unit_use_only_generated_install_paths(
     assert not (role_root / "install.sh").exists()
 
     installer._write_wrappers()
+    status_wrapper = (state.bin_path / "elesim-status").read_text(
+        encoding="utf-8"
+    )
+    assert "elesim-robot.service" in status_wrapper
+    assert "elesim-unitree-bridge.service" in status_wrapper
     robot_service, bridge_service = installer._write_robot_service_units()
     rendered = robot_service.read_text(encoding="utf-8")
     bridge_rendered = bridge_service.read_text(encoding="utf-8")

@@ -35,6 +35,7 @@ from .ownership import (
     write_ownership_manifest,
 )
 from .request import SetupRequest
+from .runtime_status import render_compose_status_wrapper
 from .shell import operator_home, write_executable
 from .updater import render_update_wrapper
 
@@ -140,6 +141,7 @@ class DeveloperInstaller:
             else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
         )
         self._install_uuid = ""
+        self._ownership_refresh: OwnershipRefresh | None = None
         self._build_root = self.generated_root / "build"
 
     @property
@@ -162,6 +164,7 @@ class DeveloperInstaller:
             manifest_path=self.ownership_manifest_path,
             claimed_paths=self._claimed_paths(),
         )
+        self._ownership_refresh = ownership_refresh
         self._install_uuid = ownership_install_uuid(ownership_refresh)
         prefix_created = not os.path.lexists(self.workspace)
         bin_created = not os.path.lexists(self.request.bin_dir)
@@ -568,6 +571,7 @@ class DeveloperInstaller:
 
     def _write_wrappers(self) -> None:
         compose = self.generated_root / "compose.yaml"
+        self._remove_legacy_jaeger_wrappers()
         command = f"docker compose -f {shlex.quote(str(compose))}"
         guard = compose_owner_guard(
             compose,
@@ -576,21 +580,8 @@ class DeveloperInstaller:
         )
         wrappers: dict[str, str] = {
             "elesim-build": f"{command} build dev",
-            "elesim-up": f"{command} up -d --build --remove-orphans dev",
             "elesim-logs": f"{command} --profile observability logs -f",
         }
-        if self.request.jaeger:
-            wrappers.update(
-                {
-                    "elesim-jaeger-up": (
-                        f"{command} --profile observability up -d "
-                        "--remove-orphans jaeger"
-                    ),
-                    "elesim-jaeger-down": (
-                        f"{command} --profile observability stop jaeger"
-                    ),
-                }
-            )
         for name, body in wrappers.items():
             write_executable(
                 self.request.bin_dir / name,
@@ -601,8 +592,33 @@ class DeveloperInstaller:
                 + ' "$@"\n',
             )
         write_executable(
+            self.request.bin_dir / "elesim-up",
+            _developer_up_wrapper(
+                compose=compose,
+                guard=guard,
+                jaeger_enabled=self.request.jaeger,
+            ),
+        )
+        status_services = [("dev", "elesim-dev")]
+        if self.request.jaeger:
+            status_services.append(("jaeger", "elesim-jaeger"))
+        write_executable(
+            self.request.bin_dir / "elesim-status",
+            render_compose_status_wrapper(
+                compose=compose,
+                project=DEVELOPER_COMPOSE_PROJECT,
+                edition="developer",
+                services=status_services,
+                guard=guard,
+            ),
+        )
+        write_executable(
             self.request.bin_dir / "elesim-down",
-            _developer_down_wrapper(compose=compose, guard=guard),
+            _developer_down_wrapper(
+                compose=compose,
+                guard=guard,
+                jaeger_enabled=self.request.jaeger,
+            ),
         )
         write_executable(
             self.request.bin_dir / "elesim-dev",
@@ -650,18 +666,32 @@ class DeveloperInstaller:
             ),
         )
 
+    def _remove_legacy_jaeger_wrappers(self) -> None:
+        """Drop the old standalone Jaeger commands during a validated refresh."""
+
+        refresh = self._ownership_refresh
+        if refresh is None:
+            return
+        owned_paths = {Path(wrapper.path) for wrapper in refresh.wrappers}
+        for name in ("elesim-jaeger-up", "elesim-jaeger-down"):
+            candidate = self.request.bin_dir / name
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            if candidate.resolve(strict=False) not in owned_paths:
+                continue
+            candidate.unlink()
+
     def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
         names = [
             "elesim-build",
             "elesim-up",
             "elesim-down",
             "elesim-logs",
+            "elesim-status",
             "elesim-dev",
             "elesim-connections",
             "elesim-update",
         ]
-        if self.request.jaeger:
-            names.extend(("elesim-jaeger-up", "elesim-jaeger-down"))
         if include_uninstaller:
             names.append("elesim-uninstall")
         return tuple(self.request.bin_dir / name for name in names)
@@ -727,10 +757,79 @@ def _reset_developer_context(context: Path) -> None:
         ) from exc
 
 
-def _developer_down_wrapper(*, compose: Path, guard: str) -> str:
+def _developer_up_wrapper(
+    *,
+    compose: Path,
+    guard: str,
+    jaeger_enabled: bool,
+) -> str:
+    """Render the developer activation wrapper and optional Jaeger switch."""
+
+    command = "docker compose -f " + shlex.quote(str(compose))
+    jaeger_error = (
+        ""
+        if jaeger_enabled
+        else (
+            "  if (( jaeger_requested )); then\n"
+            "    printf '이 Developer 설치에는 Jaeger가 포함되어 있지 않습니다. 설치를 다시 구성하십시오.\\n' >&2\n"
+            "    exit 64\n"
+            "  fi\n"
+        )
+    )
+    jaeger_action = (
+        "  if (( jaeger_requested )); then\n"
+        "    set +e\n"
+        + command
+        + " --profile observability up -d --remove-orphans jaeger\n"
+        "    jaeger_status=$?\n"
+        "    set -e\n"
+        "    if (( jaeger_status != 0 )); then\n"
+        "      exit \"$jaeger_status\"\n"
+        "    fi\n"
+        "  fi\n"
+        if jaeger_enabled
+        else ""
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + "jaeger_requested=0\n"
+        "while (( $# > 0 )); do\n"
+        "  case $1 in\n"
+        "    --jaeger)\n"
+        "      jaeger_requested=1\n"
+        "      shift\n"
+        "      ;;\n"
+        "    *)\n"
+        "      printf '사용법: elesim-up [--jaeger]\\n' >&2\n"
+        "      exit 64\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        + jaeger_error
+        + "set +e\n"
+        + command
+        + " up -d --build --remove-orphans dev\n"
+        "dev_status=$?\n"
+        "set -e\n"
+        "if (( dev_status != 0 )); then\n"
+        "  exit \"$dev_status\"\n"
+        "fi\n"
+        + jaeger_action
+    )
+
+
+def _developer_down_wrapper(
+    *,
+    compose: Path,
+    guard: str,
+    jaeger_enabled: bool = True,
+) -> str:
     """Render the developer shutdown wrapper with optional manager purge."""
 
     command = "docker compose -f " + shlex.quote(str(compose))
+    profile = " --profile observability" if jaeger_enabled else ""
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
@@ -747,7 +846,8 @@ def _developer_down_wrapper(*, compose: Path, guard: str) -> str:
         "down_status=0\n"
         "set +e\n"
         + command
-        + " --profile observability down --remove-orphans\n"
+        + profile
+        + " down --remove-orphans\n"
         "down_status=$?\n"
         "set -e\n"
         "purge_status=0\n"

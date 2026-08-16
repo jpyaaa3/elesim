@@ -4,6 +4,10 @@ FROM ${BASE_IMAGE}
 ARG ROLE
 ARG COMPUTE_MODE=inherit
 ARG INSTALL_GO2_MPC=1
+ARG CASADI_GIT_REF=3.7.2
+ARG CASADI_GIT_COMMIT=f959d3175a444d763e4eda4aece48f4c5f4a6f90
+ARG OSQP_GIT_REF=v0.6.3
+ARG CASADI_BUILD_JOBS=4
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -19,7 +23,7 @@ RUN set -eux; \
     case "$ROLE" in \
       pilot) packages="$packages libgl1 libglib2.0-0 libgomp1" ;; \
       ui) packages="$packages libgl1 libgl1-mesa-dri libglx-mesa0 libglu1-mesa libglfw3 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxxf86vm1 libfontconfig1" ;; \
-      sim) packages="$packages git python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libglu1-mesa libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
+      sim) packages="$packages build-essential cmake git python3-dev swig python3-pip python-is-python3 libgl1 libegl1 libglx-mesa0 libglu1-mesa libosmesa6 libglfw3 libglib2.0-0 libx11-6 libxext6 libxrender1" ;; \
       *) echo "unsupported role: $ROLE" >&2; exit 2 ;; \
     esac; \
     apt-get update; \
@@ -40,6 +44,32 @@ RUN if [ "$ROLE" = sim ]; then \
       apt-get update; \
       apt-get install -y --no-install-recommends robotpkg-py310-pinocchio; \
       rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Robotpkg supplies the CasADi core used by Pinocchio, and its default build
+# does not include CasADi's native OSQP conic interface.  Build the pinned
+# CasADi release in that same prefix so the runtime's /opt/openrobots
+# PYTHONPATH/LD_LIBRARY_PATH cannot silently select the plugin-less copy.
+RUN if [ "$ROLE" = sim ]; then \
+      git clone --depth 1 --branch "$CASADI_GIT_REF" \
+        https://github.com/casadi/casadi.git /tmp/casadi; \
+      test "$(git -C /tmp/casadi rev-parse HEAD)" = "$CASADI_GIT_COMMIT"; \
+      cmake -S /tmp/casadi -B /tmp/casadi-build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/openrobots \
+        -DPYTHON_PREFIX=/opt/openrobots/lib/python3.10/site-packages \
+        -DWITH_PYTHON=ON \
+        -DWITH_PYTHON3=ON \
+        -DWITH_OSQP=ON \
+        -DWITH_BUILD_OSQP=ON \
+        -DBUILD_OSQP_VERSION="$OSQP_GIT_REF" \
+        -DWITH_EXAMPLES=OFF \
+        -DWITH_DOC=OFF; \
+      cmake --build /tmp/casadi-build --parallel "$CASADI_BUILD_JOBS"; \
+      cmake --install /tmp/casadi-build; \
+      ldconfig; \
+      python -c 'import casadi as ca; assert ca.__version__ == "3.7.2", ca.__version__; assert ca.has_conic("osqp"), ca.CasadiMeta_plugins()'; \
+      rm -rf /tmp/casadi /tmp/casadi-build; \
     fi
 
 COPY requirements.lock /opt/elesim/requirements.lock

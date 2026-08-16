@@ -53,6 +53,7 @@ elesim-up           # 이 컴퓨터의 역할을 시작
 elesim-down         # 이 컴퓨터의 역할을 종료
 elesim-down --purge  # 역할 종료 후 연결관리자(elesim-manager)도 제거
 elesim-logs         # 실행 로그 확인
+elesim-status       # 이 컴퓨터의 역할·IP·GPU·미디어 스펙 확인
 elesim-connections  # 여러 컴퓨터의 연결·보안·실행 관리
 elesim-uninstall --plan  # 삭제될 항목만 미리 확인
 ```

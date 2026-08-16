@@ -230,6 +230,7 @@ Generated layout:
 ├── elesim-down
 ├── elesim-update
 ├── elesim-logs
+├── elesim-status
 ├── elesim-setup
 ├── elesim-net
 ├── elesim-connections
@@ -241,7 +242,7 @@ A native Robot installation replaces `containers/` with `roles/robot/`,
 `ros/`, and `tools/`, and stores both generated unit files below
 `roles/robot/systemd/`. Its command set is `elesim-setup`, `elesim-net`,
 `elesim-robot`, `elesim-unitree-bridge`, `elesim-up`, `elesim-logs`,
-`elesim-down`, `elesim-update`, and `elesim-uninstall`. It has no image to build and connection
+`elesim-down`, `elesim-status`, `elesim-update`, and `elesim-uninstall`. It has no image to build and connection
 management belongs on the operator laptop, so native Robot emits neither
 `elesim-build` nor `elesim-connections`.
 
@@ -404,11 +405,14 @@ Developer mode requires Ubuntu/WSL amd64 and generates:
     ├── elesim-down
     ├── elesim-update
     ├── elesim-logs
+    ├── elesim-status
     ├── elesim-dev
     ├── elesim-connections
-    ├── elesim-uninstall
-    └── elesim-jaeger-{up,down}       # optional
+    └── elesim-uninstall
 ```
+
+When Jaeger was selected, `elesim-up --jaeger` starts its separate Compose
+profile; no `elesim-jaeger-*` wrapper is generated.
 
 An existing nonempty path is reused only when it is a complete EleSim Git
 checkout. The installer never pulls, resets, or deletes it. An existing empty
@@ -492,8 +496,17 @@ command. This avoids non-root writes to the image's global Python and keeps
 console scripts available across restarts.
 
 Optional Jaeger uses a separate Compose profile. The development service gets
-OTLP HTTP environment only when Jaeger was selected. `elesim-jaeger-up` starts
-the profile; ordinary `elesim-up` does not force observability overhead.
+OTLP HTTP environment only when Jaeger was selected. `elesim-up --jaeger`
+starts the profile; ordinary `elesim-up` does not force observability overhead.
+`elesim-down` includes the profile when Jaeger is installed, so it stops the
+Jaeger container together with the development container.
+
+`elesim-status` is a read-only host-local report. It prints the host name and
+host/runtime IPs, fixed container state, image, restart/OOM information,
+CPU/memory counters, GPU visibility, and (for Sim) the logged Genesis backend,
+H.264 encoder (`h264_nvenc` or `libx264`), camera streams and WebRTC transport.
+It does not claim that a remote host is online; run it on each host or use
+`elesim-connections` for the multi-host lifecycle.
 
 The project and image are fixed as `elesim-runtime-dev` and `elesim/dev:local`.
 The only persistent development container is `elesim-dev`; optional tracing

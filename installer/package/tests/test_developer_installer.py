@@ -94,7 +94,12 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert (request.bin_dir / "elesim-dev").is_file()
     assert (request.bin_dir / "elesim-connections").is_file()
     assert (request.bin_dir / "elesim-update").is_file()
-    assert (request.bin_dir / "elesim-jaeger-up").is_file()
+    assert (request.bin_dir / "elesim-status").is_file()
+    assert not (request.bin_dir / "elesim-jaeger-up").exists()
+    assert not (request.bin_dir / "elesim-jaeger-down").exists()
+    up_wrapper = (request.bin_dir / "elesim-up").read_text(encoding="utf-8")
+    assert "--jaeger" in up_wrapper
+    assert "--profile observability up -d --remove-orphans jaeger" in up_wrapper
     assert (request.prefix / ".elesim/development/home").is_dir()
     assert (request.prefix / ".elesim/development/cache").is_dir()
     assert (request.prefix / ".elesim/development/build/dev-env.sh").is_file()
@@ -229,6 +234,16 @@ def test_developer_shell_reuses_the_persistent_container(tmp_path: Path) -> None
     down_wrapper = (request.bin_dir / "elesim-down").read_text(encoding="utf-8")
     assert "elesim-down [--purge]" in down_wrapper
     assert "docker rm -f elesim-manager" in down_wrapper
+
+
+def test_developer_up_rejects_jaeger_when_not_installed(tmp_path: Path) -> None:
+    request = _request(tmp_path, jaeger=False)
+
+    DeveloperInstaller(request).run()
+
+    up_wrapper = (request.bin_dir / "elesim-up").read_text(encoding="utf-8")
+    assert "이 Developer 설치에는 Jaeger가 포함되어 있지 않습니다" in up_wrapper
+    assert (request.bin_dir / "elesim-status").is_file()
 
 
 def test_developer_wrapper_rejects_a_container_owned_by_another_install(
