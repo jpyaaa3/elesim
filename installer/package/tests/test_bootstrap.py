@@ -210,6 +210,7 @@ def test_source_snapshot_allows_explicitly_excluded_public_examples(
         "installer/package/src/elesim_setup/uninstall.py",
         "installer/package/src/elesim_setup/host_proxy.py",
         "installer/package/src/elesim_setup/ownership.py",
+        "installer/package/src/elesim_setup/runtime_status.py",
         "installer/package/src/elesim_setup/shell.py",
     ),
 )

@@ -100,6 +100,7 @@ SETUP_PYTHON_MODULES = frozenset(
         "ownership",
         "profiles",
         "request",
+        "runtime_status",
         "secure_deployment",
         "security_authority",
         "security_policy",

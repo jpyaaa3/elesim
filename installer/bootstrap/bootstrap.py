@@ -96,6 +96,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
         "ownership",
         "profiles",
         "request",
+        "runtime_status",
         "secure_deployment",
         "security_authority",
         "security_policy",
