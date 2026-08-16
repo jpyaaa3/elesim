@@ -1048,6 +1048,9 @@ class PeerClient:
         turn_credential_provider: Optional[
             Callable[[str, str, float], Any]
         ] = None,
+        simulation_session_ready_provider: Optional[
+            Callable[[], tuple[bool, str] | bool]
+        ] = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
     ) -> None:
@@ -1059,6 +1062,7 @@ class PeerClient:
         self.max_pending = max(1, int(max_pending))
         self.trace_context_provider = trace_context_provider
         self.turn_credential_provider = turn_credential_provider
+        self.simulation_session_ready_provider = simulation_session_ready_provider
         self.node = node_factory(
             descriptor,
             settings=settings,
@@ -1561,6 +1565,19 @@ class PeerClient:
         parsed = OpenSimulationSessionRequest.from_payload(request.payload or {})
         if parsed.sim_id != self.descriptor.endpoint_id:
             raise AuthorityError("simulation session addressed the wrong sim")
+        if self.simulation_session_ready_provider is not None:
+            readiness = self.simulation_session_ready_provider()
+            if isinstance(readiness, tuple):
+                ready = bool(readiness[0])
+                reason = str(readiness[1]) if len(readiness) > 1 else "not ready"
+            else:
+                ready = bool(readiness)
+                reason = "not ready"
+            if not ready:
+                raise AuthorityError(
+                    "simulation session unavailable: "
+                    + (reason.strip() or "not ready")
+                )
         decision = self._session_authority.open(
             source,
             parsed.streams,

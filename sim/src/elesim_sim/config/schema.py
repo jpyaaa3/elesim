@@ -30,6 +30,10 @@ class SimParam:
 @dataclass(frozen=True)
 class SimConfig:
     use_gpu: bool = True
+    # Keep Genesis backend selection independent from camera post-processing.
+    # This switch allows an A/B profile with the same GPU-rendered scene while
+    # forcing the legacy host conversion path.
+    camera_gpu_convert: bool = True
     enable_viewer: bool = True
     floor: bool = True
     use_hardware: bool = False

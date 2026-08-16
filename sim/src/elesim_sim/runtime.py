@@ -61,6 +61,7 @@ from elesim_sim.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_sim.core.runtime_urdf import select_runtime_urdf
 from elesim_sim.robot.arm.sag_model import segment_errors_from_model
 from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
+from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.simulation.operator_control import SimulationOperatorController
 from elesim_sim.simulation.genesis.utils import to_numpy_1d_copy as _to_numpy_1d
 
@@ -114,10 +115,30 @@ def _ensure_genesis_cache_dir() -> None:
 
 
 class PerfLogger:
+    _BASE_NAMES = ("loop", "poll", "go2", "markers", "feedback", "physics", "camera")
+    _GO2_DETAIL_NAMES = (
+        "go2_bridge_sync",
+        "go2_mpc_prepare",
+        "go2_mpc_solve",
+        "go2_mpc_post",
+        "go2_mpc_torque",
+        "go2_metrics",
+    )
+    _CAMERA_DETAIL_NAMES = (
+        "camera_render",
+        "camera_rgb_convert",
+        "camera_depth_convert",
+        "camera_rgb_resize",
+        "camera_depth_resize",
+        "camera_rgb_transfer",
+        "camera_depth_transfer",
+        "camera_pose",
+    )
     _FIELDS = (
         "wall_time_s",
         "samples",
         "fps",
+        "process_cpu_pct",
         "loop_avg_ms",
         "loop_max_ms",
         "poll_avg_ms",
@@ -132,12 +153,41 @@ class PerfLogger:
         "physics_max_ms",
         "camera_avg_ms",
         "camera_max_ms",
+        "camera_render_avg_ms",
+        "camera_render_max_ms",
+        "camera_rgb_convert_avg_ms",
+        "camera_rgb_convert_max_ms",
+        "camera_depth_convert_avg_ms",
+        "camera_depth_convert_max_ms",
+        "camera_rgb_resize_avg_ms",
+        "camera_rgb_resize_max_ms",
+        "camera_depth_resize_avg_ms",
+        "camera_depth_resize_max_ms",
+        "camera_rgb_transfer_avg_ms",
+        "camera_rgb_transfer_max_ms",
+        "camera_depth_transfer_avg_ms",
+        "camera_depth_transfer_max_ms",
+        "camera_pose_avg_ms",
+        "camera_pose_max_ms",
+        "go2_bridge_sync_avg_ms",
+        "go2_bridge_sync_max_ms",
+        "go2_mpc_prepare_avg_ms",
+        "go2_mpc_prepare_max_ms",
+        "go2_mpc_solve_avg_ms",
+        "go2_mpc_solve_max_ms",
+        "go2_mpc_post_avg_ms",
+        "go2_mpc_post_max_ms",
+        "go2_mpc_torque_avg_ms",
+        "go2_mpc_torque_max_ms",
+        "go2_metrics_avg_ms",
+        "go2_metrics_max_ms",
     )
 
     def __init__(self, *, enabled: bool, interval_s: float = 2.0, log_path: str = "") -> None:
         self.enabled = bool(enabled)
         self.interval_s = max(0.25, float(interval_s))
         self._last_report_t = time.perf_counter()
+        self._last_process_cpu_t = time.process_time()
         self._count = 0
         self._sum: dict[str, float] = {}
         self._max: dict[str, float] = {}
@@ -174,8 +224,31 @@ class PerfLogger:
         if not self.enabled:
             return
         dt = time.perf_counter() - float(t0)
-        self._sum[name] = self._sum.get(name, 0.0) + dt
-        self._max[name] = max(self._max.get(name, 0.0), dt)
+        self._record(str(name), dt)
+
+    def observe(self, name: str, duration_s: float) -> None:
+        """Record a sub-stage measured outside the main loop section.
+
+        Camera conversion intentionally calls this tiny callback so the
+        conversion module does not depend on the runtime logger.  Unknown
+        names are still accepted in memory but are not written to the fixed
+        CSV schema; this keeps a malformed optional metric from corrupting a
+        perf log.
+        """
+
+        if not self.enabled:
+            return
+        key = str(name).strip().replace(".", "_")
+        if key not in self._CAMERA_DETAIL_NAMES and key not in self._GO2_DETAIL_NAMES:
+            if not key.startswith(("camera_", "go2_")):
+                key = f"camera_{key}"
+        if key not in self._CAMERA_DETAIL_NAMES and key not in self._GO2_DETAIL_NAMES:
+            return
+        self._record(key, max(0.0, float(duration_s)))
+
+    def _record(self, name: str, duration_s: float) -> None:
+        self._sum[name] = self._sum.get(name, 0.0) + float(duration_s)
+        self._max[name] = max(self._max.get(name, 0.0), float(duration_s))
 
     def report_if_due(self) -> None:
         if not self.enabled:
@@ -190,13 +263,16 @@ class PerfLogger:
             return
         count = max(1, self._count)
         fps = count / max(1e-9, elapsed)
+        process_cpu_elapsed = max(0.0, time.process_time() - self._last_process_cpu_t)
+        process_cpu_pct = 100.0 * process_cpu_elapsed / max(1e-9, elapsed)
         row = {
             "wall_time_s": time.time() - self._started_wall,
             "samples": count,
             "fps": fps,
+            "process_cpu_pct": process_cpu_pct,
         }
-        parts = [f"fps={fps:.1f}"]
-        for name in ("loop", "poll", "go2", "markers", "feedback", "physics", "camera"):
+        parts = [f"fps={fps:.1f}", f"cpu={process_cpu_pct:.1f}%"]
+        for name in (*self._BASE_NAMES, *self._CAMERA_DETAIL_NAMES, *self._GO2_DETAIL_NAMES):
             avg_ms = 1000.0 * self._sum.get(name, 0.0) / count
             max_ms = 1000.0 * self._max.get(name, 0.0)
             row[f"{name}_avg_ms"] = avg_ms
@@ -210,6 +286,7 @@ class PerfLogger:
             if self._log_file is not None:
                 self._log_file.flush()
         self._last_report_t = now
+        self._last_process_cpu_t = time.process_time()
         self._count = 0
         self._sum.clear()
         self._max.clear()
@@ -261,6 +338,7 @@ class Go2Locomotion:
         metrics=None,
         command_source: str = "teleop",
         go2_urdf_path: str | os.PathLike[str] | None = None,
+        timing_sink: Optional[Any] = None,
     ):
         self._metrics = metrics
         self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
@@ -325,6 +403,7 @@ class Go2Locomotion:
                 metrics=metrics,
                 command_source=str(command_source),
                 go2_urdf_path=go2_urdf_path,
+                timing_sink=timing_sink,
             )
         else:
             self._controller = RaibertTrotController(entity, dt=float(dt), config=config)
@@ -889,6 +968,12 @@ class SimScene:
     observer_camera: object = None
     observer_camera_publisher: object = None
     frame_hub: object = None
+    video_mailboxes: object = None
+    frame_dispatcher: object = None
+    rgbd_dispatcher: object = None
+    camera_timing_sink: object = None
+    go2_timing_sink: object = None
+    camera_gpu_convert: bool = True
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
@@ -1186,6 +1271,16 @@ class SimScene:
             self.scene.step()
             self.sim_step_count += 1
 
+    def observe_go2_timing(self, name: str, duration_s: float) -> None:
+        sink = self.go2_timing_sink
+        if sink is None:
+            return
+        try:
+            sink(str(name), max(0.0, float(duration_s)))
+        except Exception:
+            # Optional diagnostics must never affect physics or control.
+            pass
+
     def sim_time_s(self, dt: float) -> float:
         return float(max(0, int(self.sim_step_count))) * float(dt)
 
@@ -1281,11 +1376,25 @@ class SimScene:
                 ts=now,
                 rgb_enabled=bool(rgb_enabled),
                 depth_enabled=bool(depth_enabled),
+                prefer_gpu=bool(self.camera_gpu_convert),
+                timing_sink=self.camera_timing_sink,
             )
-            if self.frame_hub is not None:
-                self.frame_hub.publish("rgbd", frame)
-                self.frame_hub.publish("hand_eye_preview", frame)
-            if self.camera_publisher is not None:
+            if self.frame_dispatcher is not None:
+                self.frame_dispatcher.submit("hand_eye_preview", frame)
+            else:
+                if self.frame_hub is not None:
+                    self.frame_hub.publish("rgbd", frame)
+                    self.frame_hub.publish("hand_eye_preview", frame)
+                if self.video_mailboxes is not None:
+                    mailbox = self.video_mailboxes.get("hand_eye_preview")
+                    if mailbox is not None and getattr(frame, "color_bgr", None) is not None:
+                        try:
+                            mailbox.publish(frame.color_bgr)
+                        except Exception as exc:
+                            print(f"[sim-media] hand-eye mailbox rejected frame: {exc}")
+            if self.rgbd_dispatcher is not None:
+                self.rgbd_dispatcher.submit("hand_eye_preview", frame)
+            elif self.camera_publisher is not None:
                 self.camera_publisher.publish(frame)
             self._last_camera_publish_t = now
         except Exception as exc:
@@ -1306,14 +1415,93 @@ class SimScene:
         if not force and (now - float(self._last_observer_camera_publish_t)) < period:
             return
         try:
-            frame = self.observer_camera.capture(ts=now, rgb_enabled=True, depth_enabled=False)
-            if self.frame_hub is not None:
-                self.frame_hub.publish("observer", frame)
-            if self.observer_camera_publisher is not None:
+            frame = self.observer_camera.capture(
+                ts=now,
+                rgb_enabled=True,
+                depth_enabled=False,
+                prefer_gpu=bool(self.camera_gpu_convert),
+                timing_sink=self.camera_timing_sink,
+            )
+            if self.frame_dispatcher is not None:
+                self.frame_dispatcher.submit("observer", frame)
+            else:
+                if self.frame_hub is not None:
+                    self.frame_hub.publish("observer", frame)
+                if self.video_mailboxes is not None:
+                    mailbox = self.video_mailboxes.get("observer")
+                    if mailbox is not None and getattr(frame, "color_bgr", None) is not None:
+                        try:
+                            mailbox.publish(frame.color_bgr)
+                        except Exception as exc:
+                            print(f"[sim-media] observer mailbox rejected frame: {exc}")
+            if self.rgbd_dispatcher is not None:
+                self.rgbd_dispatcher.submit("observer", frame)
+            elif self.observer_camera_publisher is not None:
                 self.observer_camera_publisher.publish(frame)
             self._last_observer_camera_publish_t = now
         except Exception as exc:
             print(f"[sim_camera] observer capture/publish failed: {exc}")
+
+    def _dispatch_video_frame(self, stream: str, frame: Any) -> None:
+        """Publish a rendered frame to latest-only in-process media sinks."""
+
+        name = str(stream)
+        if self.frame_hub is not None:
+            if name == "hand_eye_preview":
+                # RGB-D consumers and the hand-eye preview intentionally share
+                # the same rendered frame, as they did before dispatching was
+                # introduced.  FrameHub only stores references and is bounded.
+                self.frame_hub.publish("rgbd", frame)
+                self.frame_hub.publish("hand_eye_preview", frame)
+            elif name == "observer":
+                self.frame_hub.publish("observer", frame)
+        if self.video_mailboxes is None:
+            return
+        mailbox = self.video_mailboxes.get(name)
+        color = getattr(frame, "color_bgr", None)
+        if mailbox is not None and color is not None:
+            mailbox.publish(color)
+
+    def _dispatch_rgbd_frame(self, stream: str, frame: Any) -> None:
+        """Publish the typed RGB-D sample outside the Genesis loop."""
+
+        name = str(stream)
+        if name == "hand_eye_preview" and self.camera_publisher is not None:
+            self.camera_publisher.publish(frame)
+        elif name == "observer" and self.observer_camera_publisher is not None:
+            self.observer_camera_publisher.publish(frame)
+
+    @staticmethod
+    def _dispatch_error(stream: str, exc: Exception) -> None:
+        detail = str(exc).replace("\n", " ").strip()[:512]
+        print(
+            f"[sim-media] frame dispatch failed stream={stream} "
+            f"reason={detail or type(exc).__name__}",
+            flush=True,
+        )
+
+    def configure_frame_dispatchers(self) -> None:
+        """Create transport workers after camera publishers are initialized."""
+
+        if self.frame_dispatcher is None and (
+            self.frame_hub is not None or self.video_mailboxes is not None
+        ):
+            self.frame_dispatcher = FrameDispatchWorker(
+                ("hand_eye_preview", "observer"),
+                self._dispatch_video_frame,
+                name="sim-video-dispatch",
+                on_error=self._dispatch_error,
+            )
+        if self.rgbd_dispatcher is None and (
+            self.camera_publisher is not None
+            or self.observer_camera_publisher is not None
+        ):
+            self.rgbd_dispatcher = FrameDispatchWorker(
+                ("hand_eye_preview", "observer"),
+                self._dispatch_rgbd_frame,
+                name="sim-rgbd-dispatch",
+                on_error=self._dispatch_error,
+            )
 
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         if self.eye_camera is not None:
@@ -1338,6 +1526,22 @@ class SimScene:
         except Exception as exc:
             print(f"[sim_camera] camera_axes_world failed: {exc}")
             return None
+
+    def start_frame_dispatchers(self) -> None:
+        """Start transport-only workers after Genesis publishers exist."""
+
+        if self.frame_dispatcher is not None:
+            self.frame_dispatcher.start()
+        if self.rgbd_dispatcher is not None:
+            self.rgbd_dispatcher.start()
+
+    def close_frame_dispatchers(self) -> None:
+        """Stop transport workers before their publishers are closed."""
+
+        if self.frame_dispatcher is not None:
+            self.frame_dispatcher.close()
+        if self.rgbd_dispatcher is not None:
+            self.rgbd_dispatcher.close()
 
 
 class RateLimiter:
@@ -2080,6 +2284,7 @@ class RuntimePrep:
                 arm_link_names=set(a.layout.arm_link_names),
                 metrics=metrics,
                 go2_urdf_path=os.path.join(a.cfg.build_dir, "assets/go2/go2.urdf"),
+                timing_sink=a.sim_scene.observe_go2_timing,
             )
             if go2_mirror:
                 print("[runtime] GO2 mirror_from_host=true: merged robot follows host go2_base_* (MPC off)")
@@ -2358,6 +2563,7 @@ class SimRuntime:
 
     def _cleanup(self) -> None:
         a = self.app
+        a.sim_scene.close_frame_dispatchers()
         if a.sim_scene.camera_publisher is not None:
             try:
                 a.sim_scene.camera_publisher.close()
@@ -2381,6 +2587,8 @@ class SimRuntime:
             interval_s=float(getattr(a.cfg, "perf_log_interval_s", 2.0)),
             log_path=str(getattr(a.cfg, "perf_log_path", "")),
         )
+        a.sim_scene.camera_timing_sink = perf.observe
+        a.sim_scene.go2_timing_sink = perf.observe
 
         try:
             while True:
@@ -2598,12 +2806,14 @@ class GenesisApp:
         state_source: Optional[Any] = None,
         feedback_publisher: Optional[Any] = None,
         frame_hub: Optional[Any] = None,
+        video_mailboxes: Optional[Any] = None,
         operator_mailbox: Optional[Any] = None,
         simulation_status_publisher: Optional[Any] = None,
         dds_settings: Optional[Any] = None,
         rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
         rgbd_endpoint_id: str = "sim-default",
         rgbd_boot_id: str = "",
+        runtime_ready_event: Optional[Any] = None,
     ):
         self.params = params if params is not None else SimParam()
         self.cfg = cfg if cfg is not None else SimConfig()
@@ -2620,7 +2830,11 @@ class GenesisApp:
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
         self.layout = JointLayout()
         self.markers = MarkerSet()
-        self.sim_scene = SimScene(frame_hub=frame_hub)
+        self.sim_scene = SimScene(
+            frame_hub=frame_hub,
+            video_mailboxes=video_mailboxes,
+            camera_gpu_convert=bool(self.cfg.camera_gpu_convert),
+        )
         self.state_source = state_source
         self.feedback_pub = feedback_publisher
         self.operator_mailbox = operator_mailbox
@@ -2632,6 +2846,7 @@ class GenesisApp:
         )
         self.rgbd_endpoint_id = str(rgbd_endpoint_id)
         self.rgbd_boot_id = str(rgbd_boot_id)
+        self.runtime_ready_event = runtime_ready_event
         if self.cfg.sim_camera_enable and not self.rgbd_topic.startswith("/"):
             raise ValueError(
                 "simulated RGB-D requires an absolute DDS rgbd_topic"
@@ -2676,7 +2891,15 @@ class GenesisApp:
         urdf_path = AssetProcessor(self).prepare_assets()
         runtime = RuntimePrep(self)
         runtime.init_genesis(urdf_path)
-        SimRuntime(self).run()
+        self.sim_scene.configure_frame_dispatchers()
+        self.sim_scene.start_frame_dispatchers()
+        if self.runtime_ready_event is not None:
+            self.runtime_ready_event.set()
+            print("[runtime] scene/media readiness gate opened", flush=True)
+        try:
+            SimRuntime(self).run()
+        finally:
+            self.sim_scene.close_frame_dispatchers()
 
 
 def _select_compute_backend(config: SimConfig, *, force_cpu: bool) -> SimConfig:
@@ -2691,12 +2914,14 @@ def run_runtime(
     state_source: Optional[Any] = None,
     feedback_publisher: Optional[Any] = None,
     frame_hub: Optional[Any] = None,
+    video_mailboxes: Optional[Any] = None,
     operator_mailbox: Optional[Any] = None,
     simulation_status_publisher: Optional[Any] = None,
     dds_settings: Optional[Any] = None,
     rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
     rgbd_endpoint_id: str = "sim-default",
     rgbd_boot_id: str = "",
+    runtime_ready_event: Optional[Any] = None,
 ) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -2708,6 +2933,12 @@ def run_runtime(
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
     ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
     ap.add_argument("--cpu", action="store_true", help="run Genesis on CPU for this process")
+    ap.add_argument(
+        "--camera-gpu-convert",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="use CUDA tensor conversion before the camera host transfer",
+    )
     viewer_options = ap.add_mutually_exclusive_group()
     viewer_options.add_argument(
         "--viewer",
@@ -2759,6 +2990,8 @@ def run_runtime(
         sim_cfg = replace(sim_cfg, enable_viewer=True)
     elif args.no_viewer:
         sim_cfg = replace(sim_cfg, enable_viewer=False)
+    if args.camera_gpu_convert is not None:
+        sim_cfg = replace(sim_cfg, camera_gpu_convert=bool(args.camera_gpu_convert))
     if args.no_sim_camera:
         sim_cfg = replace(sim_cfg, sim_camera_enable=False, sim_observer_camera_enable=False)
     if args.sim_camera_hz is not None:
@@ -2788,12 +3021,14 @@ def run_runtime(
         state_source=state_source,
         feedback_publisher=feedback_publisher,
         frame_hub=frame_hub,
+        video_mailboxes=video_mailboxes,
         operator_mailbox=operator_mailbox,
         simulation_status_publisher=simulation_status_publisher,
         dds_settings=dds_settings,
         rgbd_topic=rgbd_topic,
         rgbd_endpoint_id=rgbd_endpoint_id,
         rgbd_boot_id=rgbd_boot_id,
+        runtime_ready_event=runtime_ready_event,
     )
     app.run()
 

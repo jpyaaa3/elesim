@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 
+from elesim_sim.media import MediaWorkerClient, VideoStreamSpec
 from elesim_sim.vision.webrtc import NamedWebRtcVideoSender
 from elesim_ui.webrtc import WebRtcVideoReceiver
 
@@ -88,3 +89,55 @@ def test_observer_and_hand_eye_are_independent_real_webrtc_streams() -> None:
         for receiver in all_receivers:
             receiver.close()
         sender.close()
+
+
+def test_private_media_worker_keeps_two_streams_independent() -> None:
+    observer = np.zeros((48, 64, 3), dtype=np.uint8)
+    observer[:, :, 2] = 220
+    hand_eye = np.zeros((48, 64, 3), dtype=np.uint8)
+    hand_eye[:, :, 1] = 220
+    worker = MediaWorkerClient(
+        {
+            "observer": VideoStreamSpec("observer", 15.0, 64, 48),
+            "hand_eye_preview": VideoStreamSpec("hand_eye_preview", 15.0, 64, 48),
+        },
+        command_timeout_s=8.0,
+    )
+    receivers = {
+        "observer": WebRtcVideoReceiver(),
+        "hand_eye_preview": WebRtcVideoReceiver(),
+    }
+    try:
+        worker.start()
+        worker.mailboxes["observer"].publish(observer)
+        worker.mailboxes["hand_eye_preview"].publish(hand_eye)
+        for stream, receiver in receivers.items():
+            offer = receiver.create_offer()
+            answer = worker.accept_offer(
+                stream,
+                offer["sdp"],
+                offer["type"],
+                None,
+                "worker-session",
+            )
+            receiver.accept_answer(answer["sdp"], answer["type"])
+
+        deadline = time.monotonic() + 8.0
+        while (
+            any(receiver.latest_bgr is None for receiver in receivers.values())
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.02)
+        observer_frame = receivers["observer"].latest_bgr
+        hand_eye_frame = receivers["hand_eye_preview"].latest_bgr
+        assert observer_frame is not None
+        assert hand_eye_frame is not None
+        assert float(observer_frame[:, :, 2].mean()) > 150.0
+        assert float(observer_frame[:, :, 1].mean()) < 40.0
+        assert float(hand_eye_frame[:, :, 1].mean()) > 150.0
+        assert float(hand_eye_frame[:, :, 2].mean()) < 40.0
+        worker.close_session("worker-session")
+    finally:
+        for receiver in receivers.values():
+            receiver.close()
+        worker.close()

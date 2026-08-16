@@ -367,6 +367,12 @@ This is not a rolling multi-host deployment: update each host independently and
 use the connection manager when a protocol or managed-security change requires
 coordinated rollout.
 
+Run `elesim-update` as the account that owns the installation; `sudo
+elesim-update` is rejected before it can create root-owned generated files. If a
+legacy cache or image-context directory is no longer writable, the updater keeps
+that evidence and uses the private `.runtime-cache` or `.runtime-build`
+fallback instead of recursively changing ownership or deleting it.
+
 The recorded source is visible in `elesim-update` output as `repository@ref`.
 For a legacy state that predates source metadata, a wrapper generated before
 source pinning has `main` baked into its shell text. Redirect it once through
@@ -379,7 +385,10 @@ curl -fsSL https://raw.githubusercontent.com/owner/repo/ref/installer/bootstrap/
 
 Current wrappers also accept a bounded `ELESIM_REPOSITORY`/`ELESIM_REF`
 override for this recovery. `elesim-down --purge` removes runtime resources;
-it does not select or repair the source revision.
+it does not select or repair the source revision. Neither `elesim-down` nor
+`--purge` removes local images or build layers, so an image defect caused by
+source/Dockerfile logic must be fixed in the source and rebuilt; stopping the
+containers alone cannot repair it.
 
 The first update from an unpinned v1-v8 installation accepts the selected
 Docker daemon only if exact install-UUID/Compose labels on at least one prior
@@ -555,12 +564,50 @@ hand-eye preview. It controls orbit, pan, zoom, pause/resume, single-step,
 reset, speed and marker visibility through ROS 2/DDS control messages. The native
 Genesis Viewer window is not transported.
 
+Inside the Sim container, WebRTC/AV/ICE runs in a private media worker with one
+latest-only shared frame slot per stream. It is not a fifth deployment role and
+does not add a DDS participant. Sim advertises its boot endpoint before the
+Genesis scene is ready, but the UI session grant is held until both the scene
+and media worker handshake complete; this is why an early UI request may be
+rejected briefly and then retried.
+
+Once Genesis has captured a frame, the WebRTC mailbox and RGB-D publication
+are also drained by bounded latest-only transport workers. A slow encoder,
+DDS writer, or remote peer can lose stale frames, but cannot accumulate a
+queue or block the simulation loop. Genesis camera rendering remains on the
+scene owner thread for scene-safety; use the runtime `camera` timing fields to
+distinguish that cost from transport backpressure. Run `elesim-sim --perf-log`
+for a CSV/console report. In addition to the aggregate `camera` time, inspect
+`camera_render`, `camera_rgb_convert`, `camera_depth_convert`,
+`camera_rgb_transfer`, `camera_depth_transfer` and the resize fields. A high
+GPU backend selection log alone does not prove that the CPU conversion or
+WebRTC encoder is offloaded. CUDA tensor conversion is automatic when the
+render result is already on the selected device; CPU-only and unusual render
+outputs retain the bounded NumPy fallback.
+
+The same CSV includes `go2_bridge_sync`, `go2_mpc_prepare`, `go2_mpc_solve`,
+`go2_mpc_post`, `go2_mpc_torque` and `go2_metrics`. These identify whether
+lag is coming from the Genesis-to-Pinocchio copy, the CPU CasADi QP, torque
+assembly, or optional diagnostics. The current QP remains CPU-bound by design;
+do not infer that a GPU Genesis backend will move it to CUDA.
+
+For an apples-to-apples profile of the same GPU-rendered scene, use
+`--no-camera-gpu-convert`; `--camera-gpu-convert` restores the device path
+without changing Genesis' `use_gpu` backend selection.
+
 The selected DDS interface needs bidirectional UDP permitted for the configured
 RMW/domain participant and user-data ports. When Coturn is used, permit TCP/UDP
 `3478` plus UDP `49160-49200`. A direct WebRTC LAN path may also use
 dynamically selected ICE UDP ports. Pin and document the vendor's DDS port
 mapping before writing firewall rules; do not open an undocumented broad UDP
 range on shared infrastructure.
+
+The private media worker selects `h264_nvenc` automatically when an NVIDIA
+device and FFmpeg NVENC encoder are visible (`ELESIM_WEBRTC_ENCODER=auto`),
+and falls back to `libx264` if the container lacks the required video device
+permission. Set `ELESIM_WEBRTC_ENCODER=cpu` for a deliberate software A/B run
+or `nvenc` to request the GPU path explicitly; both modes retain the same
+latest-only frame semantics.
 
 The setup GUI itself remains on `127.0.0.1`; administer a remote installation
 through an SSH local-forward instead of opening the GUI port in the firewall.

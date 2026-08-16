@@ -22,9 +22,14 @@ def render_update_wrapper(
     preamble: str = "",
     repository: str | None = None,
     ref: str | None = None,
+    runtime_uid: int | None = None,
 ) -> str:
     if edition not in {"general", "developer"}:
         raise ValueError(f"unsupported update edition: {edition!r}")
+    if runtime_uid is not None and (
+        isinstance(runtime_uid, bool) or not isinstance(runtime_uid, int) or runtime_uid < 0
+    ):
+        raise ValueError("runtime_uid must be a non-negative integer")
     recorded_repository = (
         os.environ.get("ELESIM_REPOSITORY", DEFAULT_SOURCE_REPOSITORY)
         if repository is None
@@ -43,6 +48,19 @@ def render_update_wrapper(
         "#!/usr/bin/env bash",
         "set -euo pipefail",
         preamble.rstrip("\n"),
+        *(
+            [
+                f"expected_update_uid={shlex.quote(str(runtime_uid))}",
+                'actual_update_uid="$(id -u)"',
+                'if [[ "$actual_update_uid" != "$expected_update_uid" ]]; then',
+                "  printf '%s\\n' 'EleSim update must run as the user that owns this installation.' >&2",
+                '  printf \'  expected UID: %s; current UID: %s\\n\' "$expected_update_uid" "$actual_update_uid" >&2',
+                "  exit 77",
+                "fi",
+            ]
+            if runtime_uid is not None
+            else []
+        ),
         f"recorded_repository={shlex.quote(recorded_repository)}",
         f"recorded_ref={shlex.quote(recorded_ref)}",
         'repository="${ELESIM_REPOSITORY:-$recorded_repository}"',

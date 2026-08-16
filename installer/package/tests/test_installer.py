@@ -14,6 +14,7 @@ from elesim_setup.installer import (
     Installer,
     _native_down_wrapper,
     _native_logs_wrapper,
+    _ensure_python_pip,
     build_install_plan,
     preflight_notes,
 )
@@ -33,6 +34,22 @@ def test_native_install_plan_is_robot_only(local_state) -> None:
         "명령",
         "상태",
     ]
+
+
+def test_native_venv_pip_repair_reports_missing_ensurepip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(command, **_kwargs):
+        if "ensurepip" in command:
+            return subprocess.CompletedProcess(
+                command, 1, stderr="No module named ensurepip"
+            )
+        return subprocess.CompletedProcess(command, 1, stderr="No module named pip")
+
+    monkeypatch.setattr(installer_module.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="python3-venv|ensurepip"):
+        _ensure_python_pip(tmp_path / "venv/bin/python")
 
 
 def test_robot_dry_run_validates_and_reports_without_writing(local_state) -> None:

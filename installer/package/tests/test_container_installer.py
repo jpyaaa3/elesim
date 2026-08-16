@@ -22,6 +22,7 @@ from elesim_setup.container_installer import (
     _runtime_up_wrapper,
     _runtime_down_wrapper,
     _resolve_viewer_user,
+    _reset_generated_context,
     build_container_plan,
     refresh_compose_dds_environment,
 )
@@ -2499,6 +2500,94 @@ def test_specific_gpu_uses_one_compose_device_reservation(local_state) -> None:
         encoding="utf-8"
     )
     assert "ELESIM_INSTALL_GPU_MODE=specific" in manager_wrapper
+
+
+def test_container_update_falls_back_from_unwritable_legacy_context(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    installer = ContainerInstaller(state)
+    legacy = state.prefix_path / "containers/build"
+    blocked = legacy / "sim"
+    blocked.mkdir(parents=True)
+    fallback = state.prefix_path / "containers/.runtime-build"
+    real_access = os.access
+
+    def fake_access(path, mode, **kwargs):
+        if Path(path) == blocked:
+            return False
+        return real_access(path, mode, **kwargs)
+
+    monkeypatch.setattr(os, "access", fake_access)
+    assert installer._prepare_build_root() == fallback
+    assert blocked.is_dir()
+    assert not fallback.is_symlink()
+
+
+def test_generated_context_rejects_symlink_instead_of_following_it(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "context"
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        _reset_generated_context(link)
+
+
+def test_runtime_up_rejects_a_different_install_owner(tmp_path: Path) -> None:
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=tmp_path / "compose.yaml",
+            guard="",
+            launch_guard="",
+            has_sim=False,
+            runtime_roles=("pilot",),
+            state_path=tmp_path / "install-state.json",
+            runtime_uid=os.getuid() + 1,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = subprocess.run(
+        (wrapper, "--no-build"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 77
+    assert "UID" in result.stderr
+
+
+@pytest.mark.parametrize("gpu_mode", ["cpu", "specific"])
+def test_runtime_up_rejects_runtime_cuda_override_for_fixed_gpu_mode(
+    tmp_path: Path,
+    gpu_mode: str,
+) -> None:
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=tmp_path / "compose.yaml",
+            guard="",
+            launch_guard="",
+            has_sim=False,
+            runtime_roles=("pilot",),
+            state_path=tmp_path / "install-state.json",
+            runtime_uid=os.getuid(),
+            runtime_gpu_mode=gpu_mode,
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = subprocess.run(
+        (wrapper, "--no-build", "--cuda-visible-devices", "0"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 64
+    assert "CUDA_VISIBLE_DEVICES" in result.stderr
 
 
 def test_container_dry_run_does_not_write_prefix(local_state) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -49,6 +50,25 @@ _REQUIRED_PROJECTS = (
     ("robot", "pyproject.toml"),
 )
 DEVELOPER_COMPOSE_PROJECT = "elesim-runtime-dev"
+_DEVELOPER_USERNAME = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+
+def _resolve_developer_username() -> str:
+    """Resolve a safe account label for the persistent developer container.
+
+    The setup GUI runs in a disposable image which deliberately does not copy
+    the host password database.  A container process can therefore have a
+    numeric UID without a passwd entry, and libraries such as ``getpass``
+    report ``No username found`` when their environment is also empty.  Keep
+    the host-provided name when it is a valid Linux account label and use the
+    image's deterministic ``dev`` account otherwise.
+    """
+
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        candidate = os.environ.get(variable, "").strip()
+        if _DEVELOPER_USERNAME.fullmatch(candidate):
+            return candidate
+    return "dev"
 
 
 @dataclass(frozen=True)
@@ -115,9 +135,12 @@ class DeveloperInstaller:
         self.dry_run = bool(dry_run)
         self.log = log
         self.shell_bashrc = (
-            None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
+            None
+            if shell_bashrc is None
+            else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
         )
         self._install_uuid = ""
+        self._build_root = self.generated_root / "build"
 
     @property
     def workspace(self) -> Path:
@@ -152,6 +175,7 @@ class DeveloperInstaller:
             return
         self.log("[1/5] workspace 준비")
         self._prepare_workspace()
+        self._build_root = self._prepare_build_root()
         self.log("[2/5] 개발 image context 생성")
         self._write_context()
         write_cyclonedds_config(
@@ -312,6 +336,35 @@ class DeveloperInstaller:
         if not _valid_workspace(workspace):
             raise RuntimeError("cloned repository could not be installed into the workspace")
 
+    def _prepare_build_root(self) -> Path:
+        """Choose a writable developer build context without following links."""
+
+        legacy = self.generated_root / "build"
+        fallback = self.generated_root / ".runtime-build"
+        for candidate in (legacy, fallback):
+            if candidate.is_symlink():
+                raise ValueError(f"Developer image context는 symlink일 수 없습니다: {candidate}")
+        candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
+        for index, candidate in enumerate(candidates):
+            try:
+                candidate.mkdir(mode=0o700, parents=True, exist_ok=True)
+                candidate.chmod(0o700)
+                if not os.access(candidate, os.W_OK | os.X_OK):
+                    raise PermissionError(candidate)
+                if index:
+                    self.log(
+                        "[build] 기존 Developer context에 쓸 수 없어 새 context를 사용합니다: "
+                        f"{candidate}"
+                    )
+                return candidate
+            except (PermissionError, FileExistsError, NotADirectoryError) as exc:
+                if index == len(candidates) - 1:
+                    raise PermissionError(
+                        "Developer image context를 준비할 수 없습니다. "
+                        f"경로의 권한/유형을 확인하십시오: {candidate}"
+                    ) from exc
+        raise RuntimeError("Developer image context 후보가 없습니다")
+
     def _write_context(self) -> None:
         source = self.request.source_root / "environment/development"
         required = (
@@ -325,9 +378,8 @@ class DeveloperInstaller:
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)
             raise FileNotFoundError(f"개발 이미지 입력이 부족합니다:\n{rendered}")
-        context = self.generated_root / "build"
-        if context.exists():
-            shutil.rmtree(context)
+        context = self._build_root
+        _reset_developer_context(context)
         context.mkdir(parents=True)
         for name in (
             "Dockerfile",
@@ -344,11 +396,18 @@ class DeveloperInstaller:
     def _write_compose(self) -> None:
         home = self.generated_root / "home"
         cache = self.generated_root / "cache"
-        context = self.generated_root / "build"
+        context = self._build_root
+        username = _resolve_developer_username()
         home.mkdir(parents=True, exist_ok=True)
         cache.mkdir(parents=True, exist_ok=True)
         environment: dict[str, object] = {
             "HOME": str(home),
+            # Keep username discovery deterministic inside the numeric-UID
+            # developer container.  The setup image has no host /etc/passwd,
+            # so relying on getpass/pwd alone can yield "No username found".
+            "USER": username,
+            "LOGNAME": username,
+            "ELESIM_HOST_USER": username,
             "ELESIM_WORKSPACE": str(self.workspace),
             "DISPLAY": "${DISPLAY:-:0}",
             "WAYLAND_DISPLAY": "${WAYLAND_DISPLAY:-}",
@@ -392,11 +451,7 @@ class DeveloperInstaller:
                 "context": str(context),
                 "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
                 "args": {
-                    "USERNAME": (
-                        os.environ.get("ELESIM_HOST_USER", "").strip()
-                        or os.environ.get("USER", "").strip()
-                        or "dev"
-                    ),
+                    "USERNAME": username,
                     "UID": str(os.getuid()),
                     "GID": str(os.getgid()),
                     "COMPUTE_MODE": self.request.compute.gpu_mode,
@@ -468,6 +523,9 @@ class DeveloperInstaller:
             "working_dir": str(self.workspace),
             "environment": {
                 "HOME": str(home),
+                "USER": username,
+                "LOGNAME": username,
+                "ELESIM_HOST_USER": username,
                 "ELESIM_OPERATOR_HOME": str(operator_home()),
                 "ELESIM_WORKSPACE": str(self.workspace),
                 "DOCKER_CONFIG": "/tmp/elesim-docker-config",
@@ -493,10 +551,20 @@ class DeveloperInstaller:
         payload = {"name": DEVELOPER_COMPOSE_PROJECT, "services": services}
         destination = self.generated_root / "compose.yaml"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+        if os.path.lexists(destination) and destination.is_symlink():
+            raise ValueError(f"Developer Compose manifest는 symlink일 수 없습니다: {destination}")
+        rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=destination.parent,
+            prefix=f".{destination.name}.", delete=False,
+        ) as handle:
+            handle.write(rendered)
+            temporary = Path(handle.name)
+        try:
+            os.replace(temporary, destination)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def _write_wrappers(self) -> None:
         compose = self.generated_root / "compose.yaml"
@@ -578,6 +646,7 @@ class DeveloperInstaller:
                 preamble=guard,
                 repository=self.request.repository,
                 ref=self.request.ref,
+                runtime_uid=os.getuid(),
             ),
         )
 
@@ -640,6 +709,22 @@ def _valid_workspace(workspace: Path) -> bool:
         (workspace / project / marker).is_file()
         for project, marker in _REQUIRED_PROJECTS
     )
+
+
+def _reset_developer_context(context: Path) -> None:
+    if not os.path.lexists(context):
+        return
+    if context.is_symlink():
+        raise ValueError(f"Developer image context는 symlink일 수 없습니다: {context}")
+    if not context.is_dir():
+        raise ValueError(f"Developer image context는 directory여야 합니다: {context}")
+    try:
+        shutil.rmtree(context)
+    except PermissionError as exc:
+        raise PermissionError(
+            "기존 Developer image context를 교체할 권한이 없습니다: "
+            f"{context}"
+        ) from exc
 
 
 def _developer_down_wrapper(*, compose: Path, guard: str) -> str:

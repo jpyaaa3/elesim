@@ -23,6 +23,7 @@ from .connection_manager import (
     operator_home_path,
     resolve_ssh_identity_path,
 )
+from ._security_storage import SecurityAuthorityError, secure_absolute
 from .secure_deployment import (
     GenerationRollout,
     HostActivationState,
@@ -154,7 +155,12 @@ class ConnectionDeploymentRunner:
         local_install_root: Path | None = None,
         local_bin_dir: Path | None = None,
     ) -> None:
-        self.authority_root = authority_root.expanduser().resolve()
+        try:
+            self.authority_root = secure_absolute(authority_root)
+        except SecurityAuthorityError as exc:
+            raise ValueError(
+                f"connection authority root must not contain symlinks: {authority_root}"
+            ) from exc
         self.topology_state_path = (
             None
             if topology_state_path is None

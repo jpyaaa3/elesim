@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Any, Optional
 
 import numpy as np
 
 from elesim_sim.vision.sim_camera.calibration import load_hand_eye_transform
+from elesim_sim.vision.sim_camera.convert import (
+    TimingSink,
+    depth_to_uint16,
+    resize_cpu_if_needed,
+    rgb_to_bgr,
+)
 from elesim_sim.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsics
 
 # RealSense optical (+X right, +Y down, +Z look) -> Genesis/OpenGL camera (+X right, +Y up, -Z look).
@@ -22,6 +29,17 @@ GENESIS_TRACKBALL_PAN_DIVISOR = 5.0
 GENESIS_TRACKBALL_SCENE_SCALE = 5.0
 GENESIS_TRACKBALL_MAX_ELEVATION_RAD = float(np.radians(89.0))
 GENESIS_TRACKBALL_SCROLL_RATIO = 0.90
+
+
+def _emit_timing(sink: Optional[TimingSink], name: str, started: float) -> None:
+    """Send an optional capture timing without making capture fail."""
+
+    if sink is None:
+        return
+    try:
+        sink(str(name), max(0.0, time.perf_counter() - float(started)))
+    except Exception:
+        pass
 
 
 def genesis_scroll_zoom_delta(clicks: float) -> float:
@@ -154,6 +172,8 @@ class Node9EyeInHandCamera:
         ts: Optional[float] = None,
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
+        prefer_gpu: bool = True,
+        timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
 
@@ -161,58 +181,47 @@ class Node9EyeInHandCamera:
         target_h = int(self.intrinsics.height)
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
+            render_started = time.perf_counter()
             rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:
-            if hasattr(rgb, "cpu"):
-                rgb = rgb.cpu().numpy()
-            rgb_np = np.asarray(rgb)
-            if rgb_np.dtype != np.uint8:
-                rgb_f = rgb_np.astype(np.float32, copy=False)
-                if float(np.nanmax(rgb_f)) <= 1.0:
-                    rgb_np = np.clip(rgb_f * 255.0, 0.0, 255.0).astype(np.uint8)
-                else:
-                    rgb_np = np.clip(rgb_f, 0.0, 255.0).astype(np.uint8)
-            if rgb_np.ndim == 3 and rgb_np.shape[-1] >= 3:
-                color_bgr = np.ascontiguousarray(rgb_np[..., :3][:, :, ::-1], dtype=np.uint8)
-            else:
-                color_bgr = np.ascontiguousarray(rgb_np, dtype=np.uint8)
+            color_bgr = rgb_to_bgr(
+                rgb,
+                target_width=target_w,
+                target_height=target_h,
+                prefer_gpu=bool(prefer_gpu),
+                timing_sink=timing_sink,
+            )
         else:
             color_bgr = np.zeros((target_h, target_w, 3), dtype=np.uint8)
 
         if bool(depth_enabled) and depth is not None:
-            if hasattr(depth, "cpu"):
-                depth = depth.cpu().numpy()
-            depth_np = np.asarray(depth, dtype=float)
-            if depth_np.ndim == 3:
-                depth_np = depth_np[..., 0]
-            depth_m = np.nan_to_num(depth_np, nan=0.0, posinf=0.0, neginf=0.0)
-            depth_mm = np.clip(depth_m * 1000.0, 0.0, 65535.0).astype(np.uint16)
+            depth_mm = depth_to_uint16(
+                depth,
+                target_width=target_w,
+                target_height=target_h,
+                prefer_gpu=bool(prefer_gpu),
+                timing_sink=timing_sink,
+            )
         else:
             depth_mm = np.zeros((target_h, target_w), dtype=np.uint16)
 
-        if color_bgr.shape[0] != target_h or color_bgr.shape[1] != target_w:
-            import cv2
-
-            color_bgr = cv2.resize(
-                color_bgr,
-                (target_w, target_h),
-                interpolation=cv2.INTER_LINEAR,
-            )
-        if depth_mm.shape[0] != target_h or depth_mm.shape[1] != target_w:
-            import cv2
-
-            depth_mm = cv2.resize(
-                depth_mm,
-                (target_w, target_h),
-                interpolation=cv2.INTER_NEAREST,
-            )
+        color_bgr, depth_mm = resize_cpu_if_needed(
+            color_bgr,
+            depth_mm,
+            target_width=target_w,
+            target_height=target_h,
+            timing_sink=timing_sink,
+        )
 
         self._seq += 1
         cam_origin = cam_look = cam_right = None
+        pose_started = time.perf_counter()
         pose = self._camera_pose_world()
         if pose is not None:
             cam_origin, cam_look, cam_right = pose
+        _emit_timing(timing_sink, "pose", pose_started)
         return SimCameraFrame(
             color_bgr=color_bgr,
             depth_raw=depth_mm,
@@ -395,63 +404,56 @@ class ObserverCamera:
         ts: Optional[float] = None,
         rgb_enabled: bool = True,
         depth_enabled: bool = False,
+        prefer_gpu: bool = True,
+        timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
 
         target_w = int(self.intrinsics.width)
         target_h = int(self.intrinsics.height)
+        pose_started = time.perf_counter()
         self._set_camera_pose()
+        _emit_timing(timing_sink, "pose", pose_started)
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
+            render_started = time.perf_counter()
             rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:
-            if hasattr(rgb, "cpu"):
-                rgb = rgb.cpu().numpy()
-            rgb_np = np.asarray(rgb)
-            if rgb_np.dtype != np.uint8:
-                rgb_f = rgb_np.astype(np.float32, copy=False)
-                if float(np.nanmax(rgb_f)) <= 1.0:
-                    rgb_np = np.clip(rgb_f * 255.0, 0.0, 255.0).astype(np.uint8)
-                else:
-                    rgb_np = np.clip(rgb_f, 0.0, 255.0).astype(np.uint8)
-            if rgb_np.ndim == 3 and rgb_np.shape[-1] >= 3:
-                color_bgr = np.ascontiguousarray(rgb_np[..., :3][:, :, ::-1], dtype=np.uint8)
-            else:
-                color_bgr = np.ascontiguousarray(rgb_np, dtype=np.uint8)
+            color_bgr = rgb_to_bgr(
+                rgb,
+                target_width=target_w,
+                target_height=target_h,
+                prefer_gpu=bool(prefer_gpu),
+                timing_sink=timing_sink,
+            )
         else:
             color_bgr = np.zeros((target_h, target_w, 3), dtype=np.uint8)
 
         if bool(depth_enabled) and depth is not None:
-            if hasattr(depth, "cpu"):
-                depth = depth.cpu().numpy()
-            depth_np = np.asarray(depth, dtype=float)
-            if depth_np.ndim == 3:
-                depth_np = depth_np[..., 0]
-            depth_m = np.nan_to_num(depth_np, nan=0.0, posinf=0.0, neginf=0.0)
-            depth_mm = np.clip(depth_m * 1000.0, 0.0, 65535.0).astype(np.uint16)
+            depth_mm = depth_to_uint16(
+                depth,
+                target_width=target_w,
+                target_height=target_h,
+                prefer_gpu=bool(prefer_gpu),
+                timing_sink=timing_sink,
+            )
         else:
             depth_mm = np.zeros((target_h, target_w), dtype=np.uint16)
 
-        if color_bgr.shape[0] != target_h or color_bgr.shape[1] != target_w:
-            import cv2
-
-            color_bgr = cv2.resize(
-                color_bgr,
-                (target_w, target_h),
-                interpolation=cv2.INTER_LINEAR,
-            )
-        if depth_mm.shape[0] != target_h or depth_mm.shape[1] != target_w:
-            import cv2
-
-            depth_mm = cv2.resize(
-                depth_mm,
-                (target_w, target_h),
-                interpolation=cv2.INTER_NEAREST,
-            )
+        color_bgr, depth_mm = resize_cpu_if_needed(
+            color_bgr,
+            depth_mm,
+            target_width=target_w,
+            target_height=target_h,
+            timing_sink=timing_sink,
+        )
 
         self._seq += 1
+        pose_started = time.perf_counter()
         cam_origin, cam_look, cam_right = self._camera_pose_world()
+        _emit_timing(timing_sink, "pose", pose_started)
         return SimCameraFrame(
             color_bgr=color_bgr,
             depth_raw=depth_mm,

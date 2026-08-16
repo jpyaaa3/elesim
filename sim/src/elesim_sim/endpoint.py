@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 import time
 from typing import Any, Callable, Mapping, Optional
@@ -36,6 +37,9 @@ from .simulation.operator_control import (
 )
 
 
+_MAX_WEBRTC_INFLIGHT = 8
+
+
 class SimEndpoint:
     """Own the Sim DDS peer while Genesis communicates through memory."""
 
@@ -51,6 +55,7 @@ class SimEndpoint:
             Callable[[str, str, str, Optional[TurnCredentials], str], Mapping[str, Any]]
         ] = None,
         webrtc_session_close_handler: Optional[Callable[[str], None]] = None,
+        simulation_session_ready_provider: Optional[Callable[[], tuple[bool, str]]] = None,
         turn_credential_provider: Optional[Callable[[str, str, float], Any]] = None,
         endpoint_factory: Callable[..., Any] = PeerClient,
     ) -> None:
@@ -61,6 +66,7 @@ class SimEndpoint:
         self.operator_mailbox = operator_mailbox or SimulationOperatorMailbox()
         self.webrtc_offer_handler = webrtc_offer_handler
         self.webrtc_session_close_handler = webrtc_session_close_handler
+        self.simulation_session_ready_provider = simulation_session_ready_provider
         self.turn_credential_provider = turn_credential_provider
         self.endpoint_factory = endpoint_factory
 
@@ -86,6 +92,23 @@ class SimEndpoint:
         self._status_dirty = False
         self._status_revision = 0
         self._diagnostic_seen: dict[str, float] = {}
+        self._webrtc_executor: Optional[concurrent.futures.ThreadPoolExecutor] = (
+            concurrent.futures.ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="sim-webrtc-signaling",
+            )
+            if self.webrtc_offer_handler is not None
+            else None
+        )
+        self._webrtc_futures: list[
+            tuple[
+                concurrent.futures.Future[Any],
+                str,
+                str,
+                str,
+                Optional[Mapping[str, str]],
+            ]
+        ] = []
 
     def start(self) -> None:
         self.stop_event.clear()
@@ -99,6 +122,8 @@ class SimEndpoint:
         self.stop_event.set()
         if self.thread is not None:
             self.thread.join(timeout=3.0)
+        if self._webrtc_executor is not None:
+            self._webrtc_executor.shutdown(wait=False, cancel_futures=True)
 
     def grant_lease(self, pilot_id: str, lease_id: str) -> None:
         self.state.revoke_control()
@@ -129,7 +154,7 @@ class SimEndpoint:
         self.turn_credentials = None
         self.last_simulation_seq = -1
         if session_id and self.webrtc_session_close_handler is not None:
-            self.webrtc_session_close_handler(session_id)
+            self._close_webrtc_session_async(session_id)
 
     def publish_telemetry(self, payload: Mapping[str, Any]) -> None:
         with self._telemetry_lock:
@@ -275,6 +300,31 @@ class SimEndpoint:
         if message_type == "webrtc_signal":
             self._handle_webrtc_offer(client, message)
 
+    def _close_webrtc_session_async(self, session_id: str) -> None:
+        handler = self.webrtc_session_close_handler
+        if handler is None:
+            return
+        executor = self._webrtc_executor
+        if executor is not None:
+            try:
+                executor.submit(handler, str(session_id))
+                return
+            except RuntimeError:
+                pass
+        threading.Thread(
+            target=self._run_webrtc_close,
+            args=(handler, str(session_id)),
+            name="sim-webrtc-close",
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _run_webrtc_close(handler: Callable[[str], None], session_id: str) -> None:
+        try:
+            handler(session_id)
+        except Exception:
+            pass
+
     def _validate_motion(self, message: Envelope, *, allow_estop: bool = False) -> tuple[bool, str]:
         if allow_estop:
             return True, "accepted"
@@ -365,36 +415,98 @@ class SimEndpoint:
         ok, _reason = self._validate_simulation_session(message, signal.session_id)
         if not ok or signal.signal != "offer" or signal.stream not in self.simulation_streams:
             return
-        answer = self.webrtc_offer_handler(
-            signal.stream,
-            signal.sdp,
-            signal.type,
-            self.turn_credentials,
-            signal.session_id,
+        executor = self._webrtc_executor
+        if executor is None:
+            return
+        if len(self._webrtc_futures) >= _MAX_WEBRTC_INFLIGHT:
+            self._diagnostic(
+                "webrtc",
+                dedupe=f"inflight:{signal.session_id}",
+                source=self.endpoint_id,
+                target=message.source_id,
+                stream=signal.stream,
+                state="busy",
+                reason="bounded signaling work limit reached",
+            )
+            return
+        try:
+            future = executor.submit(
+                self.webrtc_offer_handler,
+                signal.stream,
+                signal.sdp,
+                signal.type,
+                self.turn_credentials,
+                signal.session_id,
+            )
+        except RuntimeError:
+            return
+        self._webrtc_futures.append(
+            (
+                future,
+                message.source_id,
+                signal.session_id,
+                signal.stream,
+                message.trace_context,
+            )
         )
-        payload = WebRtcSignalPayload(
-            session_id=signal.session_id,
-            stream=signal.stream,
-            signal="answer",
-            sdp=str(answer["sdp"]),
-            type=str(answer["type"]),
-        )
-        sent = self._send_best_effort(
-            client,
-            "webrtc_signal",
-            target_id=message.source_id,
-            payload=payload.to_payload(),
-            lease_id=self.simulation_session_id,
-            trace_context=message.trace_context,
-        )
-        self._diagnostic(
-            "webrtc",
-            dedupe=f"answer:{signal.session_id}:{signal.stream}",
-            source=self.endpoint_id,
-            target=message.source_id,
-            stream=signal.stream,
-            state="answer-sent" if sent else "answer-retry",
-        )
+
+    def _flush_webrtc_answers(self, client: Any) -> None:
+        if not self._webrtc_futures:
+            return
+        pending: list[
+            tuple[
+                concurrent.futures.Future[Any],
+                str,
+                str,
+                str,
+                Optional[Mapping[str, str]],
+            ]
+        ] = []
+        for future, source_id, session_id, stream, trace_context in self._webrtc_futures:
+            if not future.done():
+                pending.append((future, source_id, session_id, stream, trace_context))
+                continue
+            try:
+                answer = future.result()
+                if not isinstance(answer, Mapping):
+                    raise ValueError("media worker returned a non-mapping answer")
+            except Exception as exc:
+                self._diagnostic(
+                    "webrtc",
+                    dedupe=f"answer-error:{session_id}:{stream}",
+                    source=self.endpoint_id,
+                    target=source_id,
+                    stream=stream,
+                    state="answer-failed",
+                    reason=str(exc),
+                )
+                continue
+            if session_id != self.simulation_session_id:
+                continue
+            payload = WebRtcSignalPayload(
+                session_id=session_id,
+                stream=stream,
+                signal="answer",
+                sdp=str(answer.get("sdp", "")),
+                type=str(answer.get("type", "")),
+            )
+            sent = self._send_best_effort(
+                client,
+                "webrtc_signal",
+                target_id=source_id,
+                payload=payload.to_payload(),
+                lease_id=self.simulation_session_id,
+                trace_context=trace_context,
+            )
+            self._diagnostic(
+                "webrtc",
+                dedupe=f"answer:{session_id}:{stream}",
+                source=self.endpoint_id,
+                target=source_id,
+                stream=stream,
+                state="answer-sent" if sent else "answer-retry",
+            )
+        self._webrtc_futures = pending
 
     def _send_best_effort(
         self,
@@ -456,6 +568,14 @@ class SimEndpoint:
             capabilities.append(CAPABILITY_STREAM_OBSERVER)
         if "hand_eye_preview" in self.streams:
             capabilities.append(CAPABILITY_STREAM_HAND_EYE_PREVIEW)
+        endpoint_kwargs: dict[str, Any] = {
+            "settings": self.settings,
+            "turn_credential_provider": self.turn_credential_provider,
+        }
+        if self.simulation_session_ready_provider is not None:
+            endpoint_kwargs["simulation_session_ready_provider"] = (
+                self.simulation_session_ready_provider
+            )
         client = self.endpoint_factory(
             EndpointDescriptor(
                 self.endpoint_id,
@@ -463,8 +583,7 @@ class SimEndpoint:
                 tuple(capabilities),
                 streams=self.streams,
             ),
-            settings=self.settings,
-            turn_credential_provider=self.turn_credential_provider,
+            **endpoint_kwargs,
         )
         identity = getattr(getattr(client, "node", None), "identity", None)
         if not isinstance(identity, PeerIdentity):
@@ -478,6 +597,7 @@ class SimEndpoint:
                     client.heartbeat()
                     for message in client.receive(timeout_ms=20):
                         self.handle_envelope(client, message)
+                    self._flush_webrtc_answers(client)
                     if was_registered and not client.registered:
                         self.revoke_lease()
                         self.revoke_simulation_session()
@@ -498,6 +618,8 @@ class SimEndpoint:
             self.revoke_lease()
             self.revoke_simulation_session()
             client.close()
+            if self._webrtc_executor is not None:
+                self._webrtc_executor.shutdown(wait=False, cancel_futures=True)
 
 
 __all__ = ["SimEndpoint"]

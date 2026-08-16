@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import tempfile
@@ -77,11 +78,20 @@ def copy_role_config_tree(source: Path, destination: Path, role: str) -> None:
         excluded = PUBLIC_CONFIG_TEMPLATES[role]
     except KeyError as exc:
         raise ValueError(f"unknown role: {role!r}") from exc
+    _reject_symlink_path(source, name="role config source")
     if not source.is_dir():
         raise FileNotFoundError(source)
+    _reject_symlink_tree(source, name="role config source")
+    _reject_symlink_ancestors(destination, name="role config destination")
+    if destination.exists():
+        _reject_symlink_tree(destination, name="role config destination")
     destination.parent.mkdir(parents=True, exist_ok=True)
     excluded_destination = destination / excluded
-    if excluded_destination.is_symlink() or excluded_destination.is_file():
+    if excluded_destination.is_symlink():
+        raise ValueError(
+            f"role config destination must not contain a symlink: {excluded_destination}"
+        )
+    if excluded_destination.is_file():
         excluded_destination.unlink()
     elif excluded_destination.exists():
         raise ValueError(
@@ -95,6 +105,30 @@ def copy_role_config_tree(source: Path, destination: Path, role: str) -> None:
         return set()
 
     shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
+
+
+def _reject_symlink_path(path: Path, *, name: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"{name} must not be a symlink: {path}")
+
+
+def _reject_symlink_ancestors(path: Path, *, name: str) -> None:
+    current = path
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"{name} contains a symlink ancestor: {current}")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
+def _reject_symlink_tree(root: Path, *, name: str) -> None:
+    for directory, names, files in os.walk(root, followlinks=False):
+        for child in (*names, *files):
+            path = Path(directory) / child
+            if path.is_symlink():
+                raise ValueError(f"{name} contains a symlink: {path}")
 
 
 def generated_config_path(state: InstallState, role: str) -> Path:

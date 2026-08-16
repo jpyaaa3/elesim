@@ -82,7 +82,7 @@ _register("sim_param", "simulation.physics", _field_names(SimParam))
 _register(
     "sim_config",
     "simulation.runtime",
-    {"use_gpu", "enable_viewer", "floor", "use_hardware", "use_go2"},
+    {"use_gpu", "camera_gpu_convert", "enable_viewer", "floor", "use_hardware", "use_go2"},
 )
 _register(
     "sim_config",

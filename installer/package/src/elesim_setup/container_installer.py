@@ -122,7 +122,10 @@ def refresh_compose_dds_environment(state: InstallState) -> None:
     if state.install_mode != "container":
         return
     compose_path = state.prefix_path / "containers" / "compose.yaml"
-    if not compose_path.exists():
+    # ``Path.exists`` is false for a broken symlink.  Treat that as a
+    # corrupted generated reference rather than silently skipping the
+    # refresh and leaving DDS values stale.
+    if not os.path.lexists(compose_path):
         return
     if compose_path.is_symlink() or not compose_path.is_file():
         raise ValueError(f"Compose manifest is not a regular file: {compose_path}")
@@ -176,8 +179,16 @@ def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
             f"{state.container_network.mode} project: {root / 'compose.yaml'}",
         ),
     ]
+    # ``containers/build`` is the historical location. A previous
+    # privileged run can leave it unreadable, in which case the installer
+    # deliberately switches to ``.runtime-build``. Describe both locations
+    # so the plan never claims that the legacy path is guaranteed to be used.
+    context_detail = (
+        f"격리 이미지 context: {root / 'build' / '{role}'} "
+        f"(쓰기 불가 시 {root / '.runtime-build' / '{role}'})"
+    )
     actions.extend(
-        ContainerAction(role, f"격리 이미지 context: {root / 'build' / role}")
+        ContainerAction(role, context_detail.format(role=role))
         for role in state.roles
     )
     actions.extend(
@@ -214,12 +225,19 @@ class ContainerInstaller:
         self.log = log
         self._install_uuid = ""
         self.shell_bashrc = (
-            None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
+            None
+            if shell_bashrc is None
+            else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
         )
         # Prefer the public install cache, but retain a private migration
         # location for installations whose old root-owned cache cannot be
         # chmod-ed by the current operator.
         self._runtime_cache_root = self.state.prefix_path / "cache"
+        # Image contexts are generated data, not a source checkout.  Keep a
+        # private fallback alongside the legacy ``containers/build`` tree so
+        # an interrupted/root-owned previous install cannot make update fail
+        # before Compose is regenerated.
+        self._build_root = self.container_root / "build"
 
     @property
     def container_root(self) -> Path:
@@ -252,6 +270,7 @@ class ContainerInstaller:
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         self._prepare_manager_roots()
         self._runtime_cache_root = self._prepare_runtime_cache()
+        self._build_root = self._prepare_build_root()
         prepare_role_keystore_views(self.state)
         if self.state.dds.managed_security_pending:
             sync_provisioning_required(self.state)
@@ -452,7 +471,12 @@ class ContainerInstaller:
                     f"manager data root를 안전하게 열 수 없습니다: {path}"
                 ) from exc
             try:
-                os.fchmod(directory_fd, 0o700)
+                try:
+                    os.fchmod(directory_fd, 0o700)
+                except OSError as exc:
+                    raise PermissionError(
+                        f"manager data root 권한을 설정할 수 없습니다: {path}"
+                    ) from exc
             finally:
                 os.close(directory_fd)
 
@@ -489,14 +513,61 @@ class ContainerInstaller:
                         f"{cache_root}"
                     )
                 return cache_root
-            except PermissionError:
+            except (PermissionError, FileExistsError, NotADirectoryError) as exc:
                 if index == len(candidates) - 1:
                     raise PermissionError(
                         "EleSim runtime cache를 준비할 수 없습니다. "
-                        f"다음 경로의 권한을 확인하십시오: {cache_root}"
-                    )
+                        f"다음 경로의 권한/유형을 확인하십시오: {cache_root}"
+                    ) from exc
                 continue
         raise RuntimeError("runtime cache 후보가 없습니다")
+
+    def _prepare_build_root(self) -> Path:
+        """Select a writable generated-context root without adopting links.
+
+        Older installers could leave ``containers/build`` owned by root after
+        a privileged Docker build.  Updating should preserve that evidence,
+        not recursively chmod or delete it.  A private sibling context is
+        sufficient because the generated Compose file records the selected
+        path explicitly.
+        """
+
+        legacy = self.container_root / "build"
+        fallback = self.container_root / ".runtime-build"
+        for candidate in (legacy, fallback):
+            if candidate.is_symlink():
+                raise ValueError(f"image context root는 symlink일 수 없습니다: {candidate}")
+        candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
+        for index, candidate in enumerate(candidates):
+            try:
+                candidate.mkdir(mode=0o700, parents=True, exist_ok=True)
+                candidate.chmod(0o700)
+                # A context may contain role directories from a previous
+                # generation.  Directory write/execute access is the
+                # authority needed by the replacement operation; never use
+                # os.access on a symlink.
+                for child in candidate.iterdir():
+                    if child.is_symlink():
+                        raise ValueError(
+                            f"image context root 아래 symlink은 허용되지 않습니다: {child}"
+                        )
+                    if child.is_dir() and not os.access(
+                        child, os.W_OK | os.X_OK, effective_ids=True
+                    ):
+                        raise PermissionError(child)
+                if index:
+                    self.log(
+                        "[build] 기존 image context에 쓸 수 없어 새 context를 사용합니다: "
+                        f"{candidate}"
+                    )
+                return candidate
+            except (PermissionError, FileExistsError, NotADirectoryError) as exc:
+                if index == len(candidates) - 1:
+                    raise PermissionError(
+                        "EleSim image context를 준비할 수 없습니다. "
+                        f"다음 경로의 권한/유형을 확인하십시오: {candidate}"
+                    ) from exc
+        raise RuntimeError("image context 후보가 없습니다")
 
     def _validate_source(self) -> None:
         root = self.state.source_path
@@ -535,9 +606,8 @@ class ContainerInstaller:
 
     def _write_role_context(self, role: str) -> None:
         root = self.state.source_path
-        context = self.container_root / "build" / role
-        if context.exists():
-            shutil.rmtree(context)
+        context = self._build_root / role
+        _reset_generated_context(context)
         context.mkdir(parents=True)
         shutil.copy2(root / "environment/containers/Dockerfile.app", context / "Dockerfile")
         shutil.copy2(root / "environment/containers/robotpkg.asc", context / "robotpkg.asc")
@@ -554,9 +624,8 @@ class ContainerInstaller:
 
     def _write_tools_context(self) -> None:
         root = self.state.source_path
-        context = self.container_root / "build/tools"
-        if context.exists():
-            shutil.rmtree(context)
+        context = self._build_root / "tools"
+        _reset_generated_context(context)
         context.mkdir(parents=True)
         shutil.copy2(root / "environment/containers/Dockerfile.tools", context / "Dockerfile")
         shutil.copy2(
@@ -589,13 +658,25 @@ class ContainerInstaller:
         payload = {"name": GENERAL_COMPOSE_PROJECT, "services": services}
         destination = self.container_root / "compose.yaml"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+        if os.path.lexists(destination):
+            metadata = os.lstat(destination)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"Compose manifest는 일반 파일이어야 합니다: {destination}")
+        rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=destination.parent,
+            prefix=f".{destination.name}.", delete=False,
+        ) as handle:
+            handle.write(rendered)
+            temporary = Path(handle.name)
+        try:
+            os.replace(temporary, destination)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def _role_service(self, role: str) -> dict[str, object]:
-        context = self.container_root / "build" / role
+        context = self._build_root / role
         role_root = role_directory(self.state, role)
         service: dict[str, object] = {
             "image": f"elesim/{role}:local",
@@ -838,7 +919,7 @@ class ContainerInstaller:
             environment["CUDA_VISIBLE_DEVICES"] = None
 
     def _tools_service(self) -> dict[str, object]:
-        context = self.container_root / "build/tools"
+        context = self._build_root / "tools"
         dds_config = (
             role_directory(self.state, self.state.roles[0]) / "config" / "cyclonedds.xml"
         )
@@ -904,7 +985,7 @@ class ContainerInstaller:
         return service
 
     def _manager_service(self) -> dict[str, object]:
-        context = self.container_root / "build/tools"
+        context = self._build_root / "tools"
         home = operator_home()
         manager_roots = tuple(
             self.state.prefix_path / name
@@ -999,6 +1080,22 @@ class ContainerInstaller:
             + "    *) break ;;\n"
             + "  esac\n"
             + "done\n"
+            + (
+                "if (( runtime_cuda_visible_set )); then\n"
+                "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\n' >&2\n"
+                "  exit 64\n"
+                "fi\n"
+                if self.state.compute.gpu_mode == "specific"
+                else ""
+            )
+            + (
+                "if (( runtime_cuda_visible_set )); then\n"
+                "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\n' >&2\n"
+                "  exit 64\n"
+                "fi\n"
+                if self.state.compute.gpu_mode == "cpu"
+                else ""
+            )
             + "if (( runtime_cuda_visible_set )); then export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible; fi\n"
             + "if [[ -n $runtime_sim_viewer ]]; then export ELESIM_SIM_VIEWER=$runtime_sim_viewer; fi\n"
             + 'exec docker compose "$@"\n',
@@ -1095,6 +1192,8 @@ class ContainerInstaller:
                 state_path=self.state_path,
                 viewer_state=viewer_state,
                 viewer_user=viewer_user,
+                runtime_uid=os.getuid(),
+                runtime_gpu_mode=self.state.compute.gpu_mode,
             ),
         )
         if viewer_state is not None:
@@ -1202,6 +1301,7 @@ class ContainerInstaller:
                 preamble=guard,
                 repository=self.state.source_repository,
                 ref=self.state.source_ref,
+                runtime_uid=os.getuid(),
             ),
         )
 
@@ -1280,7 +1380,7 @@ class ContainerInstaller:
             credentials = _resolve_non_symlink_path(
                 Path(raw_credentials), name="TURN credential path"
             )
-            credentials.chmod(0o600)
+            _chmod_private_file(credentials, "external TURN credential")
             return
         if not self.state.turn.managed:
             return
@@ -1293,7 +1393,7 @@ class ContainerInstaller:
         if secret.exists():
             if secret.is_symlink() or not secret.is_file():
                 raise ValueError(f"TURN secret path is not a regular file: {secret}")
-            secret.chmod(0o600)
+            _chmod_private_file(secret, "managed TURN secret")
             payload = secret.read_bytes()
             if not payload.strip() or len(payload) > 4096:
                 raise ValueError("TURN secret must contain 1..4096 non-whitespace bytes")
@@ -1308,7 +1408,7 @@ class ContainerInstaller:
         ) as handle:
             handle.write(secrets.token_urlsafe(48) + "\n")
             temporary = Path(handle.name)
-        temporary.chmod(0o600)
+        _chmod_private_file(temporary, "managed TURN secret")
         os.replace(temporary, secret)
 
     def _prepare_tailscale_state(self) -> None:
@@ -1338,7 +1438,12 @@ class ContainerInstaller:
                 f"Tailscale state path를 안전하게 열 수 없습니다: {secrets_root}"
             ) from exc
         try:
-            os.fchmod(secrets_fd, 0o700)
+            try:
+                os.fchmod(secrets_fd, 0o700)
+            except OSError as exc:
+                raise PermissionError(
+                    f"Tailscale secrets root 권한을 설정할 수 없습니다: {secrets_root}"
+                ) from exc
             try:
                 child_metadata = os.stat(
                     "tailscale",
@@ -1369,7 +1474,12 @@ class ContainerInstaller:
                     f"Tailscale state path를 안전하게 열 수 없습니다: {state_path}"
                 ) from exc
             try:
-                os.fchmod(state_fd, 0o700)
+                try:
+                    os.fchmod(state_fd, 0o700)
+                except OSError as exc:
+                    raise PermissionError(
+                        f"Tailscale state directory 권한을 설정할 수 없습니다: {state_path}"
+                    ) from exc
             finally:
                 os.close(state_fd)
         finally:
@@ -1450,9 +1560,56 @@ def _entrypoint(role: str) -> str:
     )
 
 
+def _chmod_private_file(path: Path, label: str) -> None:
+    """Apply a secret-file mode with an actionable ownership error."""
+
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        raise PermissionError(
+            f"{label} 파일 권한을 설정할 수 없습니다. "
+            f"설치 소유 사용자가 파일을 쓸 수 있는지 확인하십시오: {path}"
+        ) from exc
+
+
+def _reset_generated_context(context: Path) -> None:
+    """Replace one generated Docker context without following a link."""
+
+    if not os.path.lexists(context):
+        return
+    metadata = os.lstat(context)
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError(f"generated image context는 symlink일 수 없습니다: {context}")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(f"generated image context는 directory여야 합니다: {context}")
+    try:
+        shutil.rmtree(context)
+    except PermissionError as exc:
+        raise PermissionError(
+            "기존 image context를 교체할 권한이 없습니다. "
+            f"root 소유의 이전 context를 보존하려면 다시 일반 사용자 설치 경로를 확인하십시오: {context}"
+        ) from exc
+
+
+def _reject_source_symlinks(source: Path) -> None:
+    """Reject source links before ``copytree`` can follow them externally."""
+
+    if source.is_symlink():
+        raise ValueError(f"설치 소스는 symlink일 수 없습니다: {source}")
+    for directory, names, files in os.walk(source, followlinks=False):
+        for name in (*names, *files):
+            path = Path(directory) / name
+            if path.is_symlink():
+                raise ValueError(
+                    "설치 소스 image context 안의 symlink는 허용되지 않습니다: "
+                    f"{path}"
+                )
+
+
 def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = False) -> None:
     ignored = {"__pycache__", ".pytest_cache", "build", "dist"}
     source_root = source.resolve()
+    _reject_source_symlinks(source)
 
     def ignore(directory: str, names: list[str]) -> set[str]:
         matches = {
@@ -1475,6 +1632,7 @@ def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = 
 def _copy_tree(source: Path, destination: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(source)
+    _reject_source_symlinks(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, dirs_exist_ok=True)
 
@@ -2209,6 +2367,8 @@ def _runtime_up_wrapper(
     viewer_state: Path | None = None,
     viewer_user: str = "root",
     viewer_x11_socket_dir: Path = Path("/tmp/.X11-unix"),
+    runtime_uid: int | None = None,
+    runtime_gpu_mode: str | None = None,
 ) -> str:
     """Render the general runtime launcher with an optional Sim Viewer.
 
@@ -2217,6 +2377,13 @@ def _runtime_up_wrapper(
     environment value into the Sim container, whose entrypoint translates it
     to the runtime's ``--viewer`` flag.
     """
+
+    if runtime_gpu_mode is not None and runtime_gpu_mode not in {
+        "inherit",
+        "specific",
+        "cpu",
+    }:
+        raise ValueError(f"unsupported runtime GPU mode: {runtime_gpu_mode!r}")
 
     command = (
         shlex.quote(str(compose_wrapper))
@@ -2291,7 +2458,44 @@ def _runtime_up_wrapper(
         "      ;;\n"
         "  esac\n"
         "done\n"
-        "if (( runtime_cuda_visible_set )); then\n"
+        + (
+            f"expected_runtime_uid={shlex.quote(str(runtime_uid))}\n"
+            "actual_runtime_uid=\"$(id -u)\"\n"
+            "if [[ $actual_runtime_uid != \"$expected_runtime_uid\" ]]; then\n"
+            "  printf '이 설치의 runtime 파일은 UID %s로 생성되었습니다. 현재 UID %s가 아니라 설치 소유 사용자로 실행하십시오.\\n' \"$expected_runtime_uid\" \"$actual_runtime_uid\" >&2\n"
+            "  exit 77\n"
+            "fi\n"
+            if runtime_uid is not None
+            else ""
+        )
+        + (
+            "if (( runtime_viewer_user_set )); then\n"
+            "  viewer_uid=\"$(id -u \"$runtime_viewer_user\" 2>/dev/null || true)\"\n"
+            "  if [[ -z $viewer_uid || $viewer_uid != \"$expected_runtime_uid\" ]]; then\n"
+            "    printf 'Viewer 사용자 %s의 UID가 runtime UID %s와 다릅니다. 설치 소유 사용자로 Viewer를 실행하십시오.\\n' \"$runtime_viewer_user\" \"$expected_runtime_uid\" >&2\n"
+            "    exit 77\n"
+            "  fi\n"
+            "fi\n"
+            if runtime_uid is not None
+            else ""
+        )
+        + (
+            "if (( runtime_cuda_visible_set )); then\n"
+            "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\\n' >&2\n"
+            "  exit 64\n"
+            "fi\n"
+            if runtime_gpu_mode == "specific"
+            else ""
+        )
+        + (
+            "if (( runtime_cuda_visible_set )); then\n"
+            "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\\n' >&2\n"
+            "  exit 64\n"
+            "fi\n"
+            if runtime_gpu_mode == "cpu"
+            else ""
+        )
+        + "if (( runtime_cuda_visible_set )); then\n"
         "  export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible\n"
         "fi\n"
         "if (( runtime_viewer_user_set )); then\n"

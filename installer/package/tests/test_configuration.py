@@ -3,6 +3,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 import yaml
 
 from elesim_setup.configuration import (
@@ -47,6 +48,28 @@ def test_runtime_config_copy_excludes_only_public_templates(tmp_path: Path) -> N
         assert (destination / "default.yaml").is_file()
         assert not (destination / template).exists()
         assert (destination / "perception/detector.yolo.example.json").is_file()
+
+
+def test_runtime_config_copy_rejects_source_or_destination_symlinks(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "runtime.yaml").write_text("runtime: true\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (source / "escape").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        copy_role_config_tree(source, tmp_path / "destination", "pilot")
+
+    safe_source = tmp_path / "safe-source"
+    safe_source.mkdir()
+    (safe_source / "runtime.yaml").write_text("runtime: true\n", encoding="utf-8")
+    linked_destination = tmp_path / "linked-destination"
+    linked_destination.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        copy_role_config_tree(safe_source, linked_destination, "pilot")
 
 
 def test_generated_configs_use_dds_and_remove_router_tcp_fields(local_state) -> None:

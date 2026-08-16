@@ -1182,7 +1182,10 @@ def _apply_configuration_transaction(
 
     targets = {state_path}
     compose_path = updated.prefix_path / "containers" / "compose.yaml"
-    if compose_path.exists():
+    # Include broken links in the transaction set so they are rejected by
+    # `_snapshot` instead of being mistaken for a missing optional Compose
+    # file.
+    if os.path.lexists(compose_path):
         targets.add(compose_path)
     targets.add(provisioning_required_path(updated))
     for role in updated.roles:
@@ -1209,7 +1212,7 @@ def _apply_configuration_transaction(
 
 
 def _snapshot(path: Path) -> tuple[bytes, int] | None:
-    if not path.exists():
+    if not os.path.lexists(path):
         return None
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"설정 transaction 대상이 일반 파일이 아닙니다: {path}")

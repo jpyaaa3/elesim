@@ -71,6 +71,9 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert dev["gpus"] == "all"
     assert dev["environment"]["ROS_DOMAIN_ID"] == "7"
     assert dev["environment"]["RMW_IMPLEMENTATION"] == "rmw_cyclonedds_cpp"
+    assert dev["environment"]["USER"] == dev["environment"]["LOGNAME"]
+    assert dev["environment"]["ELESIM_HOST_USER"] == dev["environment"]["USER"]
+    assert dev["build"]["args"]["USERNAME"] == dev["environment"]["USER"]
     assert dev["build"]["args"]["COMPUTE_MODE"] == "inherit"
     assert any(
         value.endswith(":/opt/elesim/config/cyclonedds.xml:ro")
@@ -119,6 +122,49 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "--group-add" not in manager_wrapper
     assert "IFS=',' read -r -a compose_files" in manager_wrapper
     assert "compose_match != 1" in manager_wrapper
+
+
+def test_developer_install_supplies_fallback_username_when_host_identity_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request(tmp_path)
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        monkeypatch.setenv(variable, "not a linux username")
+
+    DeveloperInstaller(request).run()
+
+    compose = yaml.safe_load(
+        (request.prefix / ".elesim/development/compose.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    dev = compose["services"]["dev"]
+    assert dev["build"]["args"]["USERNAME"] == "dev"
+    assert dev["environment"]["USER"] == "dev"
+    assert dev["environment"]["LOGNAME"] == "dev"
+    assert dev["environment"]["ELESIM_HOST_USER"] == "dev"
+
+
+def test_developer_context_falls_back_when_legacy_context_is_unwritable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request(tmp_path)
+    installer = DeveloperInstaller(request)
+    legacy = request.prefix / ".elesim/development/build"
+    legacy.mkdir(parents=True)
+    real_access = os.access
+
+    def fake_access(path, mode, **kwargs):
+        if Path(path) == legacy:
+            return False
+        return real_access(path, mode, **kwargs)
+
+    monkeypatch.setattr(os, "access", fake_access)
+    selected = installer._prepare_build_root()
+
+    assert selected == request.prefix / ".elesim/development/.runtime-build"
 
 
 def test_developer_install_records_nested_manifest_and_docker_uuid(

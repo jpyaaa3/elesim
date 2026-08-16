@@ -128,7 +128,9 @@ class Installer:
         self.log = log
         self._install_uuid = ""
         self.shell_bashrc = (
-            None if shell_bashrc is None else shell_bashrc.expanduser().resolve()
+            None
+            if shell_bashrc is None
+            else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
         )
         self.robot_host = _resolve_native_robot_host()
 
@@ -431,6 +433,7 @@ class Installer:
                 arguments.append("--system-site-packages")
             arguments.append(str(path))
             self._run(tuple(arguments))
+        _ensure_python_pip(python)
         return python
 
     def _pip(self, python: Path, *arguments: str) -> None:
@@ -527,6 +530,7 @@ class Installer:
                 state_path=self.state_path,
                 repository=self.state.source_repository,
                 ref=self.state.source_ref,
+                runtime_uid=os.getuid(),
             ),
         )
 
@@ -863,8 +867,64 @@ def _is_within(path: Path, root: Path) -> bool:
 def _copy_tree(source: Path, destination: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(source)
+    _reject_source_symlinks(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, dirs_exist_ok=True)
+
+
+def _ensure_python_pip(python: Path) -> None:
+    """Repair an interrupted native venv before dependency installation."""
+
+    probe = subprocess.run(
+        (str(python), "-m", "pip", "--version"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    repair = subprocess.run(
+        (str(python), "-m", "ensurepip", "--upgrade"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if repair.returncode != 0:
+        detail = (repair.stderr or probe.stderr or "").strip()
+        suffix = f" ({detail[-600:]})" if detail else ""
+        raise RuntimeError(
+            "native EleSim 가상환경에 pip가 없습니다. Python venv/ensurepip 패키지 "
+            f"(예: Debian/Ubuntu의 python3-venv)를 설치하십시오{suffix}"
+        )
+    verify = subprocess.run(
+        (str(python), "-m", "pip", "--version"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if verify.returncode != 0:
+        detail = (verify.stderr or "").strip()
+        suffix = f" ({detail[-600:]})" if detail else ""
+        raise RuntimeError(f"native venv pip 복구 후에도 실행할 수 없습니다{suffix}")
+
+
+def _reject_source_symlinks(source: Path) -> None:
+    if source.is_symlink():
+        raise ValueError(f"설치 소스는 symlink일 수 없습니다: {source}")
+    for directory, names, files in os.walk(source, followlinks=False):
+        for name in (*names, *files):
+            path = Path(directory) / name
+            if path.is_symlink():
+                raise ValueError(
+                    "설치 소스 model tree 안의 symlink는 허용되지 않습니다: "
+                    f"{path}"
+                )
 
 
 def _exec_script(

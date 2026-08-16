@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
 from pathlib import Path
 
 from elesim_protocol import (
@@ -21,12 +22,17 @@ from elesim_sim.config import load_app_config, load_runtime_role_config
 from elesim_sim.control_state import SimulationStateSource
 from elesim_sim.endpoint import SimEndpoint
 from elesim_sim.model_bundle import resolve_model_bundle
+from elesim_sim.media import (
+    MediaWorkerClient,
+    MediaWorkerUnavailable,
+    VideoStreamSpec,
+)
 from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.simulation.operator_control import SimulationOperatorMailbox
 from elesim_sim.telemetry import RuntimeTelemetry
 from elesim_sim.turn import load_turn_credential_provider
 from elesim_sim.vision.frame_hub import FrameHub
-from elesim_sim.vision.webrtc import NamedWebRtcVideoSender, available as webrtc_available
+from elesim_sim.vision.webrtc import available as webrtc_available
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +75,16 @@ def _run() -> None:
     endpoint_id = str(args.id).strip() or role.endpoint_id
     turn_provider = load_turn_credential_provider(role.turn)
 
+    # aiortc defaults to software libx264.  Tie the media-worker default to
+    # the same Sim backend policy while still allowing an explicit operator
+    # override through ELESIM_WEBRTC_ENCODER.
+    if "ELESIM_WEBRTC_ENCODER" not in os.environ:
+        os.environ["ELESIM_WEBRTC_ENCODER"] = (
+            "cpu"
+            if "--cpu" in sim_args or not bool(bundle.sim_config.use_gpu)
+            else "auto"
+        )
+
     development_rebuild = os.environ.get("ELESIM_SIM_DEV_REBUILD", "").strip() == "1"
     model_bundle = ""
     if not development_rebuild:
@@ -76,30 +92,32 @@ def _run() -> None:
 
     frame_hub = FrameHub(("rgbd", "observer", "hand_eye_preview"))
     operator_mailbox = SimulationOperatorMailbox(max_pending=128)
-    providers = {}
-    rates = {}
-    frame_sizes = {}
+    video_specs: dict[str, VideoStreamSpec] = {}
     if bool(bundle.sim_config.sim_observer_camera_enable):
-        providers["observer"] = lambda: frame_hub.latest_bgr("observer")
-        rates["observer"] = float(bundle.sim_config.sim_observer_camera_max_hz)
-        frame_sizes["observer"] = (
-            int(bundle.sim_config.sim_observer_camera_width),
-            int(bundle.sim_config.sim_observer_camera_height),
+        video_specs["observer"] = VideoStreamSpec(
+            name="observer",
+            fps=float(bundle.sim_config.sim_observer_camera_max_hz),
+            width=int(bundle.sim_config.sim_observer_camera_width),
+            height=int(bundle.sim_config.sim_observer_camera_height),
         )
     if bool(bundle.sim_config.sim_camera_enable):
-        providers["hand_eye_preview"] = lambda: frame_hub.latest_bgr("hand_eye_preview")
-        rates["hand_eye_preview"] = float(bundle.sim_config.sim_camera_max_hz)
-        frame_sizes["hand_eye_preview"] = (
-            int(bundle.sim_config.sim_camera_width),
-            int(bundle.sim_config.sim_camera_height),
+        video_specs["hand_eye_preview"] = VideoStreamSpec(
+            name="hand_eye_preview",
+            fps=float(bundle.sim_config.sim_camera_max_hz),
+            width=int(bundle.sim_config.sim_camera_width),
+            height=int(bundle.sim_config.sim_camera_height),
         )
-    webrtc = (
-        NamedWebRtcVideoSender(providers, fps=rates, frame_sizes=frame_sizes)
-        if providers and webrtc_available()
-        else None
-    )
-    if webrtc is None:
-        print("[sim_agent] WebRTC unavailable; install aiortc and av")
+
+    media: MediaWorkerClient | None = None
+    if video_specs and webrtc_available():
+        try:
+            media = MediaWorkerClient(video_specs)
+            media.start()
+        except MediaWorkerUnavailable as exc:
+            print(f"[sim-media] WebRTC worker unavailable; RGB-D remains enabled: {exc}")
+            media = None
+    elif video_specs:
+        print("[sim-media] WebRTC unavailable; install aiortc and av")
 
     streams: dict[str, MediaStreamDescriptor] = {}
     if bool(bundle.sim_config.sim_camera_enable):
@@ -112,26 +130,36 @@ def _run() -> None:
             topic=rgbd_topic,
             secure=role.dds.security_profile == "sros2",
         )
-    if webrtc is not None:
-        for stream in providers:
+    if media is not None:
+        for stream in video_specs:
             streams[stream] = _webrtc_descriptor(endpoint_id, stream)
 
     state = SimulationStateSource(bundle.mapping_config)
+    runtime_ready_event = threading.Event()
+
+    def simulation_session_ready() -> tuple[bool, str]:
+        if not runtime_ready_event.is_set():
+            return False, "scene is still building"
+        if media is not None and not media.ready:
+            return False, media.failure or "media worker is not ready"
+        return True, "ready"
+
     endpoint = SimEndpoint(
         endpoint_id=endpoint_id,
         state=state,
         streams=streams,
         settings=role.dds,
         operator_mailbox=operator_mailbox,
-        webrtc_offer_handler=None if webrtc is None else webrtc.accept_offer,
-        webrtc_session_close_handler=None if webrtc is None else webrtc.close_session,
+        webrtc_offer_handler=None if media is None else media.accept_offer,
+        webrtc_session_close_handler=None if media is None else media.close_session,
+        simulation_session_ready_provider=simulation_session_ready,
         turn_credential_provider=turn_provider,
     )
     telemetry = RuntimeTelemetry(endpoint.publish_telemetry)
-    endpoint.start()
-    if endpoint.peer_identity is None:
-        raise RuntimeError("sim DDS endpoint did not establish a boot identity")
     try:
+        endpoint.start()
+        if endpoint.peer_identity is None:
+            raise RuntimeError("sim DDS endpoint did not establish a boot identity")
         from elesim_sim.runtime import run_runtime
 
         run_runtime(
@@ -141,17 +169,19 @@ def _run() -> None:
             state_source=state,
             feedback_publisher=telemetry,
             frame_hub=frame_hub,
+            video_mailboxes=None if media is None else media.mailboxes,
             operator_mailbox=operator_mailbox,
             simulation_status_publisher=endpoint.publish_simulation_status,
             dds_settings=role.dds,
             rgbd_topic=role.streams.get("rgbd_topic", ""),
             rgbd_endpoint_id=endpoint_id,
             rgbd_boot_id=endpoint.peer_identity.boot_id,
+            runtime_ready_event=runtime_ready_event,
         )
     finally:
         endpoint.close()
-        if webrtc is not None:
-            webrtc.close()
+        if media is not None:
+            media.close()
 
 
 def main() -> None:

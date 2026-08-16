@@ -12,6 +12,7 @@ simulation:
     bend_rate: .inf
   runtime:
     use_gpu: true
+    camera_gpu_convert: true
     enable_viewer: true
     floor: true
     use_hardware: false

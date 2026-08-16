@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -113,6 +115,7 @@ class ConvexMpcGenesisController:
         metrics: WalkingMetricsLogger | None = None,
         command_source: str = "teleop",
         go2_urdf_path: str | Path | None = None,
+        timing_sink: Optional[Callable[[str, float], None]] = None,
     ) -> None:
         self._go2_urdf_path = go2_urdf_path
         PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC = _require_convex_mpc(
@@ -146,6 +149,7 @@ class ConvexMpcGenesisController:
         self._payload = payload
         self._metrics = metrics
         self._command_source = str(command_source)
+        self._timing_sink = timing_sink
         self._arm_q: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._rate_info = ControlRateInfo.from_sim_dt(self._dt, float(config.ctrl_hz))
 
@@ -216,6 +220,16 @@ class ConvexMpcGenesisController:
             time_step=float(self._config.mpc_dt_s),
         )
         self._mpc = CentroidalMPC(self._pin, self._traj)
+
+    def _observe_timing(self, name: str, started: float) -> None:
+        sink = getattr(self, "_timing_sink", None)
+        if sink is None:
+            return
+        try:
+            sink(str(name), max(0.0, time.perf_counter() - float(started)))
+        except Exception:
+            # Optional diagnostics must never affect the control loop.
+            pass
 
     def _init_pose_and_actuation(self) -> None:
         self._apply_go2_physics_params()
@@ -313,6 +327,7 @@ class ConvexMpcGenesisController:
 
     def _solve_mpc(self, vx: float, vy: float, z_des: float, wz: float) -> None:
         assert self._mpc is not None
+        started = time.perf_counter()
         self._traj.generate_traj(
             self._pin,
             self._gait,
@@ -324,13 +339,18 @@ class ConvexMpcGenesisController:
             time_step=float(self._config.mpc_dt_s),
         )
         self._apply_payload_pitch_trim(vx)
+        self._observe_timing("go2_mpc_prepare", started)
+        solve_started = time.perf_counter()
         sol = self._mpc.solve_QP(self._pin, self._traj, False)
+        self._observe_timing("go2_mpc_solve", solve_started)
+        post_started = time.perf_counter()
         w_opt = sol["x"].full().flatten()
         n = int(self._traj.N)
         force_new = w_opt[12 * n : 12 * n + 12]
         alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
         self._force_filt = alpha * force_new + (1.0 - alpha) * self._force_filt
         self._U_opt[:, 0] = self._force_filt
+        self._observe_timing("go2_mpc_post", post_started)
 
     def _command_scale(self) -> float:
         ramp_s = max(1e-3, float(self._config.command_ramp_s))
@@ -376,6 +396,7 @@ class ConvexMpcGenesisController:
         if self._ctrl_i % self._steps_per_mpc == 0:
             self._solve_mpc(vx, vy, self._z_des_m, wz)
 
+        torque_started = time.perf_counter()
         force = self._U_opt[:, 0]
         tau_cmd = np.zeros(12, dtype=float)
         for leg in LEG_NAMES:
@@ -391,7 +412,9 @@ class ConvexMpcGenesisController:
         tau_cmd = np.clip(tau_cmd, -self._tau_lim, self._tau_lim)
         tau_cmd = tau_cmd * self._torque_scale() + self._aux_pd_torque()
         tau_cmd = np.clip(tau_cmd, -self._tau_lim, self._tau_lim)
-        return self._filter_tau(tau_cmd)
+        result = self._filter_tau(tau_cmd)
+        self._observe_timing("go2_mpc_torque", torque_started)
+        return result
 
     def set_command(self, cmd: Go2Command) -> None:
         self._cmd = cmd
@@ -514,7 +537,9 @@ class ConvexMpcGenesisController:
         assert self._mpc is not None
         if self._metrics is not None:
             self._metrics.record_torque_step(recomputed=True, hold=False)
+        bridge_started = time.perf_counter()
         self._bridge.sync_pin_model(self._pin)
+        self._observe_timing("go2_bridge_sync", bridge_started)
         self._loco_time += self._ctrl_dt
 
         cmd_scale = self._command_scale()
@@ -523,12 +548,14 @@ class ConvexMpcGenesisController:
         wz = float(self._cmd.yaw_rate) * cmd_scale
 
         self._tau_hold = self._compute_tau_cmd(vx, vy, wz)
+        metrics_started = time.perf_counter()
         self._record_metrics_sample(
             go2_cmd=(vx, vy, wz),
             tau=self._tau_hold,
             torque_update_flag=True,
             torque_hold_flag=False,
         )
+        self._observe_timing("go2_metrics", metrics_started)
         self._entity.control_dofs_force(
             self._tau_hold,
             dofs_idx_local=self._leg_dof_idxs,

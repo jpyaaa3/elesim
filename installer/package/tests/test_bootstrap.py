@@ -19,6 +19,7 @@ from installer.bootstrap import bootstrap as bootstrap_module
 from installer.bootstrap.bootstrap import (
     BootstrapError,
     _atomic_write_json,
+    _ensure_bootstrap_pip,
     _snapshot_root,
     archive_url,
     download_source,
@@ -1068,11 +1069,53 @@ def test_bootstrap_generation_auto_check_requires_shell_marker(
 
     monkeypatch.delenv("ELESIM_VERIFY_BOOTSTRAP_SOURCE", raising=False)
     validate_bootstrap_generation(tmp_path)
-
     monkeypatch.setenv("ELESIM_VERIFY_BOOTSTRAP_SOURCE", "1")
     with pytest.raises(BootstrapError, match="branch moved"):
         validate_bootstrap_generation(tmp_path)
 
+
+def test_bootstrap_repairs_cached_venv_without_pip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(command: tuple[str, ...], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "pip" in command and "--version" in command:
+            # The first probe sees the incomplete venv; the final probe sees
+            # the pip installed by ensurepip.
+            return subprocess.CompletedProcess(command, 0 if len(calls) == 3 else 1)
+        if "ensurepip" in command:
+            return subprocess.CompletedProcess(command, 0)
+        raise AssertionError(command)
+
+    monkeypatch.setattr(bootstrap_module.subprocess, "run", fake_run)
+    _ensure_bootstrap_pip(tmp_path / "bin/python")
+
+    assert calls == [
+        (str(tmp_path / "bin/python"), "-m", "pip", "--version"),
+        (str(tmp_path / "bin/python"), "-m", "ensurepip", "--upgrade"),
+        (str(tmp_path / "bin/python"), "-m", "pip", "--version"),
+    ]
+
+
+def test_bootstrap_reports_missing_venv_package_when_ensurepip_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(command: tuple[str, ...], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "ensurepip" in command:
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stderr="No module named ensurepip",
+            )
+        return subprocess.CompletedProcess(command, 1, stderr="No module named pip")
+
+    monkeypatch.setattr(bootstrap_module.subprocess, "run", fake_run)
+    with pytest.raises(BootstrapError, match="python3-venv|ensurepip"):
+        _ensure_bootstrap_pip(tmp_path / "bin/python")
 
 @pytest.mark.parametrize(
     "contract",

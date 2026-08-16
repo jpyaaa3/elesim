@@ -67,16 +67,28 @@ RUN apt-get update && apt-get install -y --reinstall --no-install-recommends \
       python3-cffi python3-cryptography && \
     rm -rf /var/lib/apt/lists/*
 
-RUN if getent group "${GID}" >/dev/null; then \
+RUN username="${USERNAME}"; \
+    case "${username}" in \
+      [a-z_][a-z0-9_-]*) ;; \
+      *) username=dev ;; \
+    esac; \
+    if getent group "${GID}" >/dev/null; then \
       group_name="$(getent group "${GID}" | cut -d: -f1)"; \
     else \
-      groupadd -g "${GID}" "${USERNAME}"; group_name="${USERNAME}"; \
+      group_name="${username}"; \
+      if getent group "${group_name}" >/dev/null; then \
+        group_name="elesim-g${GID}"; \
+      fi; \
+      groupadd -g "${GID}" "${group_name}"; \
     fi && \
     if getent passwd "${UID}" >/dev/null; then \
       user_name="$(getent passwd "${UID}" | cut -d: -f1)"; \
     else \
-      useradd -m -s /bin/bash -u "${UID}" -g "${group_name}" "${USERNAME}"; \
-      user_name="${USERNAME}"; \
+      user_name="${username}"; \
+      if getent passwd "${user_name}" >/dev/null; then \
+        user_name="elesim-u${UID}"; \
+      fi; \
+      useradd -m -s /bin/bash -u "${UID}" -g "${group_name}" "${user_name}"; \
     fi && \
     echo "${user_name} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 

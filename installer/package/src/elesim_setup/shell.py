@@ -32,7 +32,9 @@ class PathUnregistration:
 
 
 def managed_path_block(bin_dir: Path) -> str:
-    value = str(bin_dir.expanduser().resolve())
+    value_path = _lexical_path(bin_dir.expanduser())
+    _reject_symlink_path(value_path, label="PATH directory")
+    value = str(value_path)
     if "\n" in value or "\r" in value:
         raise ValueError("PATH directory cannot contain a line break")
     return (
@@ -47,11 +49,7 @@ def register_bash_path(
     *,
     bashrc: Path | None = None,
 ) -> PathRegistration:
-    destination = (
-        Path.home() / ".bashrc"
-        if bashrc is None
-        else bashrc.expanduser().resolve()
-    )
+    destination = _bashrc_destination(bashrc)
     block = managed_path_block(bin_dir)
     original = destination.read_text(encoding="utf-8") if destination.exists() else ""
     updated = _replace_block(original, block)
@@ -80,11 +78,7 @@ def inspect_bash_path(
     therefore has to match byte-for-byte.
     """
 
-    destination = (
-        Path.home() / ".bashrc"
-        if bashrc is None
-        else bashrc.expanduser().resolve()
-    )
+    destination = _bashrc_destination(bashrc)
     if not destination.exists():
         return "absent"
     content = destination.read_text(encoding="utf-8")
@@ -109,11 +103,7 @@ def unregister_bash_path(
     removal without guessing from file contents.
     """
 
-    destination = (
-        Path.home() / ".bashrc"
-        if bashrc is None
-        else bashrc.expanduser().resolve()
-    )
+    destination = _bashrc_destination(bashrc)
     if not destination.exists():
         return PathUnregistration(False, False, destination, None)
     original = destination.read_text(encoding="utf-8")
@@ -166,6 +156,7 @@ def _managed_spans(content: str) -> list[tuple[int, int]]:
 
 
 def _atomic_write(path: Path, content: str) -> None:
+    _reject_symlink_path(path, label="shell file")
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
     with tempfile.NamedTemporaryFile(
         "w",
@@ -183,6 +174,8 @@ def _atomic_write(path: Path, content: str) -> None:
 def write_executable(path: Path, content: str) -> None:
     """Atomically install one executable text file."""
 
+    path = _lexical_path(path)
+    _reject_symlink_path(path, label="executable")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(content, encoding="utf-8")
@@ -198,8 +191,38 @@ def operator_home() -> Path:
         path = Path(configured).expanduser()
         if not path.is_absolute():
             raise ValueError("ELESIM_OPERATOR_HOME must be an absolute path")
-        return path.resolve()
-    return Path.home().resolve()
+        path = _lexical_path(path)
+        _reject_symlink_path(path, label="operator HOME")
+        return path
+    path = _lexical_path(Path.home())
+    _reject_symlink_path(path, label="operator HOME")
+    return path
+
+
+def _bashrc_destination(bashrc: Path | None) -> Path:
+    destination = Path.home() / ".bashrc" if bashrc is None else bashrc.expanduser()
+    destination = _lexical_path(destination)
+    _reject_symlink_path(destination, label="bashrc")
+    return destination
+
+
+def _lexical_path(path: Path) -> Path:
+    """Make an absolute path without resolving symlink components."""
+
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _reject_symlink_path(path: Path, *, label: str) -> None:
+    """Reject final and ancestor symlinks before a host-file write/read."""
+
+    current = _lexical_path(path)
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"{label} path contains a symlink: {current}")
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
 
 
 __all__ = [

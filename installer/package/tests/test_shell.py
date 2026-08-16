@@ -79,6 +79,35 @@ def test_unregister_preserves_foreign_or_newer_path_block(tmp_path: Path) -> Non
     assert bashrc.read_text(encoding="utf-8") == original
 
 
+def test_bashrc_symlink_is_rejected_without_touching_target(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.bashrc"
+    outside.write_text("keep-me\n", encoding="utf-8")
+    linked = tmp_path / ".bashrc"
+    linked.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="symlink"):
+        register_bash_path(Path("/opt/elesim/bin"), bashrc=linked)
+    with pytest.raises(ValueError, match="symlink"):
+        inspect_bash_path(Path("/opt/elesim/bin"), bashrc=linked)
+    with pytest.raises(ValueError, match="symlink"):
+        unregister_bash_path(Path("/opt/elesim/bin"), bashrc=linked)
+
+    assert outside.read_text(encoding="utf-8") == "keep-me\n"
+
+
+def test_bashrc_symlinked_parent_is_rejected(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "home"
+    linked_parent.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        register_bash_path(
+            Path("/opt/elesim/bin"),
+            bashrc=linked_parent / ".bashrc",
+        )
+
+
 @pytest.mark.parametrize("value", ["/tmp/bad\npath", "/tmp/bad\rpath"])
 def test_path_registration_rejects_line_injection(value: str) -> None:
     with pytest.raises(ValueError):

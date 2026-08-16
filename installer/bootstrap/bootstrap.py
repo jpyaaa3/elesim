@@ -898,6 +898,64 @@ def _setup_project_version(source_root: Path) -> str:
     return match.group(1) if match is not None else "unknown"
 
 
+def _ensure_bootstrap_pip(python: Path) -> None:
+    """Repair an incomplete cached venv before invoking ``python -m pip``.
+
+    ``venv`` can leave a usable interpreter without pip when the host was
+    created without the matching ``python3-venv``/``ensurepip`` package, or
+    when an older interrupted bootstrap left a partial cache behind.  The
+    old code went straight to the first pip command and exposed the opaque
+    ``No module named pip`` error.  Probe first, use the standard-library
+    repair path when available, and fail with an installation hint otherwise.
+    """
+
+    probe = subprocess.run(
+        (str(python), "-m", "pip", "--version"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+
+    repair = subprocess.run(
+        (str(python), "-m", "ensurepip", "--upgrade"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if repair.returncode != 0:
+        detail = (repair.stderr or repair.stdout or probe.stderr or "").strip()
+        if len(detail) > 600:
+            detail = detail[-600:]
+        suffix = f" ({detail})" if detail else ""
+        raise BootstrapError(
+            "bootstrap 가상환경에 pip가 없습니다. 호스트에 Python venv/ensurepip "
+            "패키지(예: Debian/Ubuntu의 python3-venv 또는 해당 Python 버전의 "
+            f"python3.X-venv)를 설치한 뒤 다시 실행하십시오{suffix}"
+        )
+
+    verify = subprocess.run(
+        (str(python), "-m", "pip", "--version"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if verify.returncode != 0:
+        detail = (verify.stderr or "").strip()
+        suffix = f" ({detail[-600:]})" if detail else ""
+        raise BootstrapError(
+            "bootstrap 가상환경에서 ensurepip 복구 후에도 pip를 실행할 수 없습니다"
+            f"{suffix}"
+        )
+
+
 def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
     fingerprint = hashlib.sha256(str(source_root).encode("utf-8")).hexdigest()[:16]
     venv = cache_root.expanduser().resolve() / f"venv-{fingerprint}"
@@ -905,6 +963,7 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
     if not python.is_file():
         print(f"[bootstrap] create venv {venv}")
         subprocess.run((sys.executable, "-m", "venv", str(venv)), check=True)
+    _ensure_bootstrap_pip(python)
     commands = (
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--upgrade", "pip", "setuptools>=68", "wheel"),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "installer/package/requirements.lock")),

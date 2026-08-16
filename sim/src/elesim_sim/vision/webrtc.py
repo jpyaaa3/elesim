@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from fractions import Fraction
@@ -28,6 +29,148 @@ except ImportError:
     RTCPeerConnection = None  # type: ignore[assignment]
     RTCSessionDescription = None  # type: ignore[assignment]
     VideoStreamTrack = object  # type: ignore[assignment,misc]
+
+
+_NVENC_ENCODER_CONFIGURED = False
+_ORIGINAL_H264_ENCODER: Any = None
+
+
+def _nvenc_h264_encoder_class() -> Any:
+    """Build a PyAV H.264 encoder that prefers NVENC and falls back once.
+
+    aiortc's stock encoder hard-codes ``libx264``.  Keeping the subclass here
+    avoids changing aiortc internals while retaining its RTP packetization.
+    NVENC availability is runtime-specific: an image may expose the codec but
+    lack the Docker ``video`` capability or a compatible driver.  In that case
+    the first encode failure disables NVENC for this encoder and retries with
+    aiortc's proven software encoder.
+    """
+
+    if not available():
+        return None
+    try:
+        from aiortc.codecs.h264 import H264Encoder as BaseH264Encoder
+    except Exception:
+        return None
+
+    class NvencH264Encoder(BaseH264Encoder):  # type: ignore[misc,valid-type]
+        def __init__(self) -> None:
+            super().__init__()
+            self._nvenc_failed = False
+            self._fallback_reported = False
+
+        def _encode_frame_nvenc(self, frame: Any, force_keyframe: bool) -> Any:
+            if self.codec and (
+                frame.width != self.codec.width
+                or frame.height != self.codec.height
+                or abs(self.target_bitrate - self.codec.bit_rate)
+                / self.codec.bit_rate
+                > 0.1
+            ):
+                self.buffer_data = b""
+                self.buffer_pts = None
+                self.codec = None
+
+            if force_keyframe:
+                frame.pict_type = av.video.frame.PictureType.I
+            else:
+                frame.pict_type = av.video.frame.PictureType.NONE
+
+            if self.codec is None:
+                self.codec = av.CodecContext.create("h264_nvenc", "w")
+                self.codec.width = frame.width
+                self.codec.height = frame.height
+                self.codec.bit_rate = self.target_bitrate
+                self.codec.pix_fmt = "yuv420p"
+                self.codec.framerate = Fraction(30, 1)
+                self.codec.time_base = Fraction(1, 30)
+                self.codec.options = {
+                    "preset": "p1",
+                    "tune": "ll",
+                    "zerolatency": "1",
+                }
+                self.codec.profile = "Baseline"
+
+            data_to_send = b""
+            for package in self.codec.encode(frame):
+                data_to_send += bytes(package)
+            if data_to_send:
+                yield from self._split_bitstream(data_to_send)
+
+        def _encode_frame(self, frame: Any, force_keyframe: bool) -> Any:
+            if self._nvenc_failed:
+                yield from super()._encode_frame(frame, force_keyframe)
+                return
+            try:
+                yield from self._encode_frame_nvenc(frame, force_keyframe)
+                return
+            except Exception as exc:
+                self._nvenc_failed = True
+                self.codec = None
+                self.buffer_data = b""
+                self.buffer_pts = None
+                if not self._fallback_reported:
+                    detail = str(exc).replace("\n", " ").strip()[:256]
+                    print(
+                        "[webrtc] h264_nvenc unavailable; falling back to libx264"
+                        + (f": {detail}" if detail else ""),
+                        flush=True,
+                    )
+                    self._fallback_reported = True
+                yield from super()._encode_frame(frame, force_keyframe)
+
+    return NvencH264Encoder
+
+
+def configure_h264_encoder(mode: Optional[str] = None) -> str:
+    """Select the WebRTC H.264 implementation for the current process.
+
+    ``auto`` (the default when CUDA is visible) attempts NVENC and falls back
+    to libx264 per encoder instance.  ``cpu``/``libx264`` disables the patch;
+    ``nvenc`` requests the same best-effort NVENC path explicitly.  The
+    selection is process-local because aiortc keeps its encoder factory in
+    module globals.
+    """
+
+    global _NVENC_ENCODER_CONFIGURED, _ORIGINAL_H264_ENCODER
+    raw = str(mode if mode is not None else os.environ.get("ELESIM_WEBRTC_ENCODER", "")).strip().lower()
+    if not raw:
+        cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+        nvidia_visible = os.environ.get("NVIDIA_VISIBLE_DEVICES", "").strip().lower()
+        gpu_device_present = os.path.exists("/dev/nvidia0") or nvidia_visible not in {
+            "",
+            "none",
+            "void",
+        }
+        raw = "auto" if cuda_visible not in {"", "-1"} or gpu_device_present else "cpu"
+    if raw in {"cpu", "software", "libx264", "off", "0"}:
+        if _NVENC_ENCODER_CONFIGURED and _ORIGINAL_H264_ENCODER is not None:
+            try:
+                import aiortc.codecs as codecs
+
+                codecs.H264Encoder = _ORIGINAL_H264_ENCODER
+            except Exception:
+                pass
+            _NVENC_ENCODER_CONFIGURED = False
+        return "libx264"
+    if raw not in {"auto", "nvenc", "h264_nvenc"}:
+        raise ValueError("ELESIM_WEBRTC_ENCODER must be auto, nvenc or cpu")
+    if not available() or "h264_nvenc" not in getattr(av, "codecs_available", set()):
+        return "libx264"
+    if _NVENC_ENCODER_CONFIGURED:
+        return "h264_nvenc"
+    try:
+        import aiortc.codecs as codecs
+
+        _ORIGINAL_H264_ENCODER = codecs.H264Encoder
+        encoder_cls = _nvenc_h264_encoder_class()
+        if encoder_cls is None:
+            return "libx264"
+        codecs.H264Encoder = encoder_cls
+        _NVENC_ENCODER_CONFIGURED = True
+        return "h264_nvenc"
+    except Exception:
+        return "libx264"
 
 
 def available() -> bool:
@@ -285,5 +428,6 @@ __all__ = [
     "NamedWebRtcVideoSender",
     "WebRtcVideoSender",
     "available",
+    "configure_h264_encoder",
     "ice_configuration",
 ]

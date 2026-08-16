@@ -28,8 +28,12 @@ addons/opencv/images/
 *.log
 
 # Runtime / experiment logs (generated locally).
-log/
-logs/
+# Keep the ROS/colcon `log/` tree and the application's `logs/` archive
+# separate on disk, but ignore both complete root-level trees.  The leading
+# slash avoids hiding a source package that happens to contain a directory
+# named `log` or `logs`.
+/log/
+/logs/
 
 # Local reference clone used for upstream comparison.
 update/

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import replace
 
 from elesim_protocol import (
@@ -281,7 +283,70 @@ def test_webrtc_offer_is_answered_for_the_requested_named_stream() -> None:
             lease_id="session-a",
         ),
     )
+    for _ in range(100):
+        value._flush_webrtc_answers(client)
+        if calls:
+            break
+        time.sleep(0.01)
 
     assert calls[0][:3] == ("hand_eye_preview", "offer-sdp", "offer")
     assert client.sent[-1][0] == "webrtc_signal"
     assert client.sent[-1][1]["payload"]["stream"] == "hand_eye_preview"
+    if value._webrtc_executor is not None:
+        value._webrtc_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_pending_webrtc_answer_keeps_trace_context() -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def handler(*_args: object) -> dict[str, str]:
+        started.set()
+        assert release.wait(timeout=2.0)
+        return {"sdp": "answer-sdp", "type": "answer"}
+
+    state = SimulationStateSource(SimMappingConfig())
+    client = Client()
+    value = SimEndpoint(
+        endpoint_id="sim-a",
+        state=state,
+        streams={},
+        webrtc_offer_handler=handler,
+    )
+    grant_simulation_session(value, client)
+    value.handle_envelope(
+        client,
+        Envelope(
+            message_type="webrtc_signal",
+            source_id="ui-a",
+            target_id="sim-a",
+            payload={
+                "schema_version": 1,
+                "session_id": "session-a",
+                "stream": "observer",
+                "signal": "offer",
+                "sdp": "offer-sdp",
+                "type": "offer",
+            },
+            seq=3,
+            timestamp=1.0,
+            message_id="offer-traced",
+            lease_id="session-a",
+            trace_context={"traceparent": "trace-context"},
+        ),
+    )
+    try:
+        assert started.wait(timeout=2.0)
+        value._flush_webrtc_answers(client)
+        release.set()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not client.sent:
+            value._flush_webrtc_answers(client)
+            time.sleep(0.01)
+        assert client.sent[-1][1]["trace_context"] == {
+            "traceparent": "trace-context"
+        }
+    finally:
+        release.set()
+        if value._webrtc_executor is not None:
+            value._webrtc_executor.shutdown(wait=True, cancel_futures=True)

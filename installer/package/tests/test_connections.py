@@ -123,6 +123,16 @@ def test_trusted_network_runner_applies_bundle_free_topology(
     assert "verify: operator" in events
 
 
+def test_runner_rejects_symlinked_authority_root(tmp_path: Path) -> None:
+    real_root = tmp_path / "real-authority"
+    real_root.mkdir()
+    linked_root = tmp_path / "linked-authority"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="authority root.*symlink"):
+        ConnectionDeploymentRunner(linked_root)
+
+
 def test_trusted_network_runner_ignores_cancel_after_rollout_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

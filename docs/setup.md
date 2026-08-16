@@ -449,6 +449,11 @@ and build contexts, then builds the selected role images and tools image using
 Docker's normal layer cache. It neither runs Compose `down` nor recreates a
 running container; `elesim-up` is the explicit activation step.
 
+The generated update and runtime wrappers enforce the installation owner's UID;
+run them from that same host account rather than through `sudo`. A root-owned
+legacy cache/context is preserved and bypassed with a private fallback, so an
+update can proceed without adopting or deleting another user's files.
+
 State v1-v8 and their ownership manifests did not pin a Docker context/Engine
 ID. Their first v9 update may adopt the selected daemon only when at least one
 exact install-UUID/Compose-labelled container or local image proves that the

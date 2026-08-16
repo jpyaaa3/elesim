@@ -28,6 +28,7 @@ from .connection_manager import (
     TOPOLOGY_MODES,
     TwoHostPreflight,
 )
+from ._security_storage import SecurityAuthorityError, secure_absolute
 from .secure_deployment import RuntimeLaunchOptions
 from .state import ComputeSettings, GPU_MODES
 
@@ -150,9 +151,16 @@ class ConnectionManagerApplication:
         self.local_bin_dir = (
             "" if local_bin_dir is None else str(local_bin_dir.expanduser().resolve())
         )
-        self.authority_root = (
-            None if authority_root is None else authority_root.expanduser().resolve()
-        )
+        if authority_root is None:
+            self.authority_root = None
+        else:
+            try:
+                self.authority_root = secure_absolute(authority_root)
+            except SecurityAuthorityError as exc:
+                raise ValueError(
+                    "connection authority root must not contain symlinks: "
+                    f"{authority_root}"
+                ) from exc
         self.gpu_mode = str(gpu_mode).strip()
         if self.gpu_mode not in GPU_MODES:
             raise ValueError(f"unsupported installed GPU mode: {self.gpu_mode!r}")

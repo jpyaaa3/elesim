@@ -496,8 +496,11 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "grid-column: 3; grid-row: 1" in style
     assert "display: grid" in style
     assert "--boot-device-width: 96px" in style
-    assert "justify-items: start" in style
-    assert "padding-left: 10px" in style
+    assert "grid-template-rows: minmax(0, 1fr) auto" in style
+    assert ".workflow-step > button, .workflow-actions { align-self: end; }" in style
+    assert "justify-items: end" in style
+    assert "padding-left: 0" in style
+    assert "justify-content: end" in style
     assert "grid-template-columns: max-content 12px minmax(0, var(--boot-device-width)) 17px" in style
     assert html.index('data-i18n="boot.pilot.gpu.inherit"') < html.index('id="pilot-gpu-device"')
     assert html.index('id="pilot-gpu-device"') < html.index('id="pilot-gpu-inherit"')
@@ -681,6 +684,21 @@ def test_context_restores_managed_generation_without_private_material(
         "managed_generation": "g-20260807t000000000000z-abcdef123456",
     }
     assert "BEGIN PRIVATE KEY" not in json.dumps(security)
+
+
+def test_application_rejects_symlinked_authority_root(tmp_path: Path) -> None:
+    real_root = tmp_path / "real-authority"
+    real_root.mkdir()
+    linked_root = tmp_path / "linked-authority"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="authority root.*symlink"):
+        ConnectionManagerApplication(
+            state_path=tmp_path / "connections.json",
+            token="test-session-token",
+            runner=lambda _topology, _action, _log: None,
+            authority_root=linked_root,
+        )
 
 
 def test_application_saves_simulation_only_topology_without_robot(tmp_path: Path) -> None:

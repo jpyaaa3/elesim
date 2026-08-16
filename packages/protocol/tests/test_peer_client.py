@@ -300,6 +300,49 @@ def test_sim_owns_ui_session_and_webrtc_signaling_fence() -> None:
     ]
 
 
+def test_sim_rejects_session_until_runtime_readiness_gate_opens() -> None:
+    bus = _Bus()
+    ui = PeerClient(
+        EndpointDescriptor("ui-a", "ui"),
+        node_factory=bus.factory,
+    )
+    sim = PeerClient(
+        EndpointDescriptor("sim-a", "sim"),
+        node_factory=bus.factory,
+        simulation_session_ready_provider=lambda: (False, "scene is still building"),
+    )
+
+    ui.send(
+        "open_simulation_session",
+        payload={
+            "schema_version": 1,
+            "request_id": "open-before-ready",
+            "sim_id": "sim-a",
+            "streams": ["observer"],
+        },
+    )
+
+    assert _messages(sim) == []
+    errors = _messages(ui)
+    assert len(errors) == 1
+    assert errors[0].message_type == "error"
+    assert "scene is still building" in errors[0].payload["reason"]
+
+    sim.simulation_session_ready_provider = lambda: (True, "ready")
+    ui.send(
+        "open_simulation_session",
+        payload={
+            "schema_version": 1,
+            "request_id": "open-after-ready",
+            "sim_id": "sim-a",
+            "streams": ["observer"],
+        },
+    )
+    assert [message.message_type for message in _messages(sim)] == [
+        "simulation_session_granted"
+    ]
+
+
 def test_second_pilot_cannot_take_busy_target() -> None:
     bus = _Bus()
     first = PeerClient(

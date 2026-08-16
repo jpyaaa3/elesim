@@ -227,6 +227,71 @@ the UI therefore waits for a live Sim boot instead of repeatedly publishing to
 an inactive target. Replies and queued envelopes from the retired boot are
 discarded before the replacement peer is used.
 
+### Sim media boundary
+
+The Sim release remains one deployable application, one DDS participant and one
+SROS2 enclave. Internally it has two ownership domains:
+
+```text
+sim process
+  Genesis/DDS core  -- fixed-size latest-only BGR slots --  media worker
+       |                                                   |
+       +-- physics, leases, session gate                  +-- aiortc/AV/ICE
+```
+
+Genesis publishes at most one replacement frame per configured stream into a
+bounded shared-memory mailbox. The mailbox has no producer/consumer backlog:
+an old frame is overwritten, the worker copies only the current frame, and the
+copy/encode path cannot make DDS or physics wait for a network peer. WebRTC
+offer/answer work is dispatched away from the DDS receive loop and its
+in-flight signaling work is bounded. A worker crash therefore rejects the
+affected media operation and leaves the Sim heartbeat, motion lease and DDS
+session authority alive for diagnosis/restart.
+
+The Genesis camera render itself remains owned by the Genesis scene thread:
+Genesis scene and camera objects are not copied into a second process or used
+concurrently from an unsafe thread. After capture, frame-hub/mailbox copies
+and typed RGB-D publication run through separate latest-only transport
+dispatchers. The runtime performance report's `camera` section therefore
+measures scene rendering/conversion, while transport backpressure is bounded
+outside the physics loop.
+
+The DDS endpoint starts early enough to advertise a boot identity, but it does
+not grant a UI simulation session until scene construction and the media
+worker's bounded startup handshake have completed. This separates transport
+readiness from scene/media readiness and prevents the UI from receiving a
+session token for a Sim that cannot yet produce valid frames. This boundary is
+private to the Sim container; it does not add a fifth role, COM host, DDS topic,
+or network hop.
+
+Camera conversion follows the same boundary without assuming that a GPU
+backend makes the whole path GPU-bound. When Genesis returns a CUDA tensor,
+normalization, RGB-to-BGR conversion, depth quantization and an optional resize
+are performed on the device before one final host transfer. NumPy/OpenCV
+conversion remains the fallback for CPU renders and unusual tensor shapes. The
+runtime perf report records `camera_render`, `camera_rgb_convert`,
+`camera_depth_convert`, `camera_*_resize` and `camera_*_transfer` separately;
+these measurements are required before introducing a second Genesis scene for
+rendering. The QP/MPC solver and ROS/DDS serialization remain explicitly CPU
+domains until their own profiles justify a separate change.
+
+Those CPU domains are visible in the same bounded report: `go2_bridge_sync`
+measures Genesis-to-Pinocchio state copies, `go2_mpc_prepare` and
+`go2_mpc_post` measure trajectory/result handling, `go2_mpc_solve` measures the
+CasADi QP itself, `go2_mpc_torque` measures leg torque assembly, and
+`go2_metrics` measures optional walking-metric recording. A low Genesis GPU
+utilization with a large `go2_mpc_solve` value is not fixed by moving another
+image conversion to CUDA. A future GPU MPC solver must preserve the existing
+control rate, warm-start/state ownership, and CPU fallback as an independent,
+measured change.
+
+WebRTC encoding is a separate case: aiortc's default H.264 implementation is
+software `libx264`, so the private media worker attempts `h264_nvenc` when an
+NVIDIA device is exposed and reverts to `libx264` on the first driver or
+container-permission failure. This is process-local and does not alter the
+DDS/WebRTC contract; an encoder fallback is reported in the Sim log rather than
+blocking scene startup.
+
 ## Network Security Profiles
 
 The operator selects exactly one DDS security profile:
