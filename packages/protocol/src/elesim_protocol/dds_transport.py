@@ -72,6 +72,12 @@ _MAX_PAYLOAD_JSON = 1_048_576
 _MAX_TRACE_JSON = 16_384
 _MAX_PENDING_INBOUND = 512
 _MAX_PENDING_HEARTBEATS = 512
+# Simulation video/session state may survive a short DDS discovery flap.  The
+# motion authority intentionally keeps the shorter safety timeout below.
+_SIMULATION_SESSION_TTL_FACTOR = 3.0
+_SIMULATION_SESSION_GRACE_FACTOR = 2.0
+_SIMULATION_SESSION_MIN_TTL_S = 10.0
+_SIMULATION_SESSION_MAX_TTL_S = 60.0
 _DIAGNOSTIC_MESSAGE_TYPES = frozenset(
     {
         "discover",
@@ -1078,6 +1084,32 @@ class PeerClient:
         self._owned_session: Optional[SimulationSession] = None
         self._session_ui_turn: Any = None
         self._session_sim_turn: Any = None
+        self._remote_session_lost_at: Optional[float] = None
+        configured_timeout = getattr(
+            getattr(self.node, "settings", None),
+            "heartbeat_timeout_s",
+            self.heartbeat_s * 3.5,
+        )
+        try:
+            heartbeat_timeout = max(0.1, float(configured_timeout))
+        except (TypeError, ValueError):
+            heartbeat_timeout = self.heartbeat_s * 3.5
+        session_ttl = min(
+            _SIMULATION_SESSION_MAX_TTL_S,
+            max(
+                heartbeat_timeout * _SIMULATION_SESSION_TTL_FACTOR,
+                self.heartbeat_s * 10.0,
+                _SIMULATION_SESSION_MIN_TTL_S,
+            ),
+        )
+        self.simulation_session_ttl_s = session_ttl
+        self.simulation_session_grace_s = min(
+            session_ttl * 0.75,
+            max(
+                heartbeat_timeout * _SIMULATION_SESSION_GRACE_FACTOR,
+                self.heartbeat_s * 5.0,
+            ),
+        )
         self._local_queue: deque[Envelope] = deque()
         self._motion_authority = (
             MotionLeaseAuthority(
@@ -1090,7 +1122,7 @@ class PeerClient:
         self._session_authority = (
             SimulationSessionAuthority(
                 self.node.identity,
-                lease_ttl_s=max(3.5, self.heartbeat_s * 3.5),
+                lease_ttl_s=self.simulation_session_ttl_s,
             )
             if self.descriptor.role == "sim"
             else None
@@ -1729,6 +1761,7 @@ class PeerClient:
             opened.session_id,
             self.clock() + self.heartbeat_s,
         )
+        self._remote_session_lost_at = None
 
     def _renew_remote_authorities(self, *, now: float) -> None:
         motion = self._remote_motion
@@ -1752,34 +1785,41 @@ class PeerClient:
                         next_renew_at=now + self.heartbeat_s,
                     )
         session = self._remote_session
-        if session is not None and now >= session.next_renew_at:
-            if self.node.describe(session.resource) is None:
-                self._lose_remote_session("sim_peer_lost")
-            else:
-                envelope = self._envelope(
-                    "renew_simulation_session",
-                    target_id=session.resource.endpoint_id,
-                    payload={},
-                    lease_id=session.lease_id,
-                )
-                try:
-                    self.node.publish(envelope)
-                except DdsTransportError:
+        if session is not None:
+            peer_live = self.node.describe(session.resource) is not None
+            if not peer_live:
+                if self._remote_session_lost_at is None:
+                    self._remote_session_lost_at = now
+                elif (
+                    now - self._remote_session_lost_at
+                    >= self.simulation_session_grace_s
+                ):
                     self._lose_remote_session("sim_peer_lost")
-                else:
-                    self._remote_session = replace(
-                        session,
-                        next_renew_at=now + self.heartbeat_s,
+            else:
+                self._remote_session_lost_at = None
+                if now >= session.next_renew_at:
+                    envelope = self._envelope(
+                        "renew_simulation_session",
+                        target_id=session.resource.endpoint_id,
+                        payload={},
+                        lease_id=session.lease_id,
                     )
+                    try:
+                        self.node.publish(envelope)
+                    except DdsTransportError:
+                        if self._remote_session_lost_at is None:
+                            self._remote_session_lost_at = now
+                    else:
+                        self._remote_session = replace(
+                            session,
+                            next_renew_at=now + self.heartbeat_s,
+                        )
 
     def _detect_lost_remote_authorities(self, *, now: float) -> None:
         del now
         motion = self._remote_motion
         if motion is not None and self.node.describe(motion.resource) is None:
             self._lose_remote_motion("target_peer_lost")
-        session = self._remote_session
-        if session is not None and self.node.describe(session.resource) is None:
-            self._lose_remote_session("sim_peer_lost")
 
     def _expire_owned_authorities(self, *, now: float) -> None:
         if self._motion_authority is not None and self._owned_motion is not None:
@@ -1813,6 +1853,7 @@ class PeerClient:
     def _lose_remote_session(self, reason: str) -> None:
         remote = self._remote_session
         self._remote_session = None
+        self._remote_session_lost_at = None
         if remote is None:
             return
         payload = SimulationSessionRevokedPayload(

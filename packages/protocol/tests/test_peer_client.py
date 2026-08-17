@@ -300,6 +300,62 @@ def test_sim_owns_ui_session_and_webrtc_signaling_fence() -> None:
     ]
 
 
+def test_simulation_session_survives_a_bounded_discovery_gap() -> None:
+    class Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = Clock()
+    bus = _Bus()
+    ui = PeerClient(
+        EndpointDescriptor("ui-a", "ui"),
+        node_factory=bus.factory,
+        clock=clock,
+    )
+    sim = PeerClient(
+        EndpointDescriptor("sim-a", "sim"),
+        node_factory=bus.factory,
+        clock=clock,
+    )
+    ui.send(
+        "open_simulation_session",
+        payload={
+            "schema_version": 1,
+            "request_id": "gap-open",
+            "sim_id": "sim-a",
+            "streams": ["observer"],
+        },
+    )
+    assert [message.message_type for message in _messages(sim)] == [
+        "simulation_session_granted"
+    ]
+    assert [message.message_type for message in _messages(ui)] == [
+        "simulation_session_opened"
+    ]
+
+    sim_node = bus.nodes["sim-a"]
+    bus.nodes.pop("sim-a")
+    clock.now = 1.0
+    ui.heartbeat()
+    assert _messages(ui) == []
+
+    # The UI retains the exact old boot/session long enough for discovery to
+    # recover, while the sim-owned session TTL remains strictly longer.
+    clock.now = ui.simulation_session_grace_s - 0.1
+    ui.heartbeat()
+    assert _messages(ui) == []
+    assert sim._session_authority is not None
+    assert sim._session_authority.active(now=clock.now) is not None
+
+    bus.nodes["sim-a"] = sim_node
+    clock.now += 0.2
+    ui.heartbeat()
+    assert _messages(sim) == []
+    assert ui._remote_session is not None
+
+
 def test_sim_rejects_session_until_runtime_readiness_gate_opens() -> None:
     bus = _Bus()
     ui = PeerClient(

@@ -33,6 +33,8 @@ SIMULATION_STREAMS = ("observer", "hand_eye_preview")
 _COALESCED_COMMANDS = frozenset(
     {"orbit", "pan", "zoom", "set_speed", "set_debug_visible"}
 )
+_MAX_STREAM_RETRIES = 6
+_MAX_STREAM_RETRY_DELAY_S = 5.0
 
 
 @dataclass(frozen=True)
@@ -503,15 +505,7 @@ class UiSimSession:
         signals: list[WebRtcSignalPayload] = []
         try:
             for stream in opened.streams:
-                receiver = self.receiver_factory()
-                # Keep the default factory signature backward compatible for
-                # tests/embedders, while giving the built-in receiver a
-                # stream-qualified diagnostic if decoding fails.
-                if hasattr(receiver, "stream_name"):
-                    try:
-                        receiver.stream_name = str(stream)
-                    except Exception:
-                        pass
+                receiver = self._prepare_receiver(self.receiver_factory(), stream)
                 receivers[stream] = receiver
                 offer = receiver.create_offer(turn=opened.turn)
                 signals.append(
@@ -534,6 +528,44 @@ class UiSimSession:
             self._close_receiver_set(receivers.values())
             raise
         return receivers
+
+    def _prepare_receiver(self, receiver: Any, stream: str) -> Any:
+        """Attach stream identity and recovery callback without constraining embedders."""
+
+        name = str(stream)
+        if hasattr(receiver, "stream_name"):
+            try:
+                receiver.stream_name = name
+            except Exception:
+                pass
+        setter = getattr(receiver, "set_error_callback", None)
+        if callable(setter):
+            try:
+                setter(
+                    lambda detail, stream=name, receiver=receiver: self._handle_stream_error(
+                        stream,
+                        receiver,
+                        detail,
+                    )
+                )
+            except Exception:
+                pass
+        return receiver
+
+    def _handle_stream_error(self, stream: str, receiver: Any, detail: str) -> None:
+        """Retry one failed WebRTC track while preserving the DDS session."""
+
+        name = str(stream).strip()
+        with self._lock:
+            if (
+                not name
+                or not self._session_id
+                or self._receivers.get(name) is not receiver
+            ):
+                return
+            self._connected_streams.discard(name)
+        self._schedule_stream_retry(name)
+        self._set_error(f"{name} WebRTC {detail}; retrying")
 
     def _handle_revoked(self, message: Any) -> None:
         revoked = SimulationSessionRevokedPayload.from_payload(message.payload or {})
@@ -585,10 +617,14 @@ class UiSimSession:
             return
         with self._lock:
             attempts = int(self._stream_retry_count.get(name, 0))
-            if attempts >= 2:
+            if attempts >= _MAX_STREAM_RETRIES:
                 self._stream_retry_at.pop(name, None)
                 return
-            self._stream_retry_at[name] = self.clock() + self.retry_s
+            delay = min(
+                self.retry_s * (2.0 ** attempts),
+                _MAX_STREAM_RETRY_DELAY_S,
+            )
+            self._stream_retry_at[name] = self.clock() + delay
 
     def _retry_failed_streams(self, client: Any) -> None:
         """Retry one failed WebRTC m-line without tearing down the session."""
@@ -613,14 +649,13 @@ class UiSimSession:
                     or stream in self._connected_streams
                 ):
                     continue
+                attempts = int(self._stream_retry_count.get(stream, 0))
+                if attempts >= _MAX_STREAM_RETRIES:
+                    self._stream_retry_at.pop(stream, None)
+                    continue
             receiver = None
             try:
-                receiver = self.receiver_factory()
-                if hasattr(receiver, "stream_name"):
-                    try:
-                        receiver.stream_name = stream
-                    except Exception:
-                        pass
+                receiver = self._prepare_receiver(self.receiver_factory(), stream)
                 offer = receiver.create_offer(turn=turn)
                 client.send(
                     "webrtc_signal",
@@ -643,7 +678,14 @@ class UiSimSession:
                     self._stream_retry_count[stream] = int(
                         self._stream_retry_count.get(stream, 0)
                     ) + 1
-                    self._stream_retry_at[stream] = now + self.retry_s
+                    retry_count = self._stream_retry_count[stream]
+                    if retry_count < _MAX_STREAM_RETRIES:
+                        self._stream_retry_at[stream] = now + min(
+                            self.retry_s * (2.0 ** retry_count),
+                            _MAX_STREAM_RETRY_DELAY_S,
+                        )
+                    else:
+                        self._stream_retry_at.pop(stream, None)
                 if previous is not None and previous is not receiver:
                     try:
                         previous.close()
@@ -661,8 +703,12 @@ class UiSimSession:
                     self._stream_retry_count[stream] = int(
                         self._stream_retry_count.get(stream, 0)
                     ) + 1
-                    if self._stream_retry_count[stream] < 2:
-                        self._stream_retry_at[stream] = now + self.retry_s
+                    retry_count = self._stream_retry_count[stream]
+                    if retry_count < _MAX_STREAM_RETRIES:
+                        self._stream_retry_at[stream] = now + min(
+                            self.retry_s * (2.0 ** retry_count),
+                            _MAX_STREAM_RETRY_DELAY_S,
+                        )
                     else:
                         self._stream_retry_at.pop(stream, None)
                 self._set_error(

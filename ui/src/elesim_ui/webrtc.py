@@ -87,17 +87,21 @@ class WebRtcVideoReceiver:
             await self.peer.close()
         await self._cancel_consumer_tasks()
         self.peer = RTCPeerConnection(configuration=_ice_configuration(turn))
-        self.peer.addTransceiver("video", direction="recvonly")
+        peer = self.peer
+        peer.addTransceiver("video", direction="recvonly")
 
-        @self.peer.on("connectionstatechange")
+        @peer.on("connectionstatechange")
         async def _connection_state_changed() -> None:
-            state = str(getattr(self.peer, "connectionState", "unknown"))
+            state = str(getattr(peer, "connectionState", "unknown"))
             stream = f" stream={self.stream_name}" if self.stream_name else ""
             print(f"[ui-webrtc]{stream} connection={state}", flush=True)
-            if state in {"failed", "closed"}:
+            # A disconnected ICE path can recover, but the current receive
+            # task has no way to resume after aiortc raises MediaStreamError.
+            # Let the session owner retry only this named stream.
+            if state in {"failed", "closed", "disconnected"}:
                 self._report_error("connection", RuntimeError(state))
 
-        @self.peer.on("track")
+        @peer.on("track")
         def _track(track: Any) -> None:
             if track.kind == "video":
                 stream = f" stream={self.stream_name}" if self.stream_name else ""
@@ -166,6 +170,11 @@ class WebRtcVideoReceiver:
         """Record an answer/connection error outside the receive task."""
 
         self._report_error(str(stage), exc)
+
+    def set_error_callback(self, callback: Optional[Any]) -> None:
+        """Set the owner callback used for bounded stream recovery."""
+
+        self._on_error = callback
 
     async def _cancel_consumer_tasks(self) -> None:
         tasks = tuple(self._consume_tasks)

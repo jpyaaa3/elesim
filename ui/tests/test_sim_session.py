@@ -80,6 +80,7 @@ class Receiver:
         self.turn = None
         self.answers: list[tuple[str, str]] = []
         self.closed = False
+        self.error_callback = None
         self.created.append(self)
 
     def create_offer(self, *, turn=None) -> dict[str, str]:
@@ -88,6 +89,9 @@ class Receiver:
 
     def accept_answer(self, sdp: str, answer_type: str) -> None:
         self.answers.append((sdp, answer_type))
+
+    def set_error_callback(self, callback) -> None:
+        self.error_callback = callback
 
     def close(self) -> None:
         self.closed = True
@@ -241,6 +245,40 @@ def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     assert session.connected_streams == ("observer",)
     observer = session.receiver("observer")
     assert observer.answers == [("observer-answer", "answer")]
+
+
+def test_media_stream_error_retries_only_the_failed_stream() -> None:
+    Receiver.created.clear()
+    clock = Clock()
+    endpoint = Endpoint()
+    session = new_session(clock)
+    session.run_cycle(endpoint)
+    request_id = str(endpoint.sent[0][1]["payload"]["request_id"])
+    endpoint.inbox.append(opened(request_id))
+    session.run_cycle(endpoint)
+    endpoint.inbox.extend((answer("observer"), answer("hand_eye_preview")))
+    session.run_cycle(endpoint)
+
+    observer = Receiver.created[0]
+    hand_eye = Receiver.created[1]
+    assert session.connected_streams == ("observer", "hand_eye_preview")
+    assert observer.error_callback is not None
+
+    observer.error_callback("receive: MediaStreamError")
+    assert session.connected_streams == ("hand_eye_preview",)
+    assert session.snapshot.session_id == "session-a"
+
+    clock.now = 0.5
+    session.run_cycle(endpoint)
+    offers = [
+        entry
+        for entry in endpoint.sent
+        if entry[0] == "webrtc_signal"
+        and entry[1]["payload"]["stream"] == "observer"
+    ]
+    assert len(offers) == 2
+    assert observer.closed is True
+    assert hand_eye.closed is False
 
 
 def test_stream_answer_failure_keeps_other_video_stream_and_reports_reason() -> None:

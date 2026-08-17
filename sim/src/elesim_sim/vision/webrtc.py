@@ -354,7 +354,11 @@ class WebRtcVideoSender:
 
         @peer.on("connectionstatechange")
         async def _state_changed() -> None:
-            if peer.connectionState in {"failed", "closed", "disconnected"}:
+            # aiortc can report ``disconnected`` during a temporary ICE gap.
+            # Keep the sender alive until the connection is actually failed or
+            # closed; the UI can renegotiate the named stream if its receiver
+            # has already ended.
+            if peer.connectionState in {"failed", "closed"}:
                 await peer.close()
                 self._forget_peer(peer)
 
