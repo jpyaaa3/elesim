@@ -20,6 +20,12 @@ def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
         compose=tmp_path / "install/containers/compose.yaml",
         build_services=("pilot", "ui", "tools"),
         preamble="printf guard-ok\\n",
+        install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+        owned_images=(
+            "elesim/pilot:local",
+            "elesim/ui:local",
+            "elesim/tools:local",
+        ),
     )
 
     assert "raw.githubusercontent.com/${repository}/${ref}" in script
@@ -29,7 +35,11 @@ def test_general_update_wrapper_fetches_regenerates_and_builds_incrementally(
     assert "recorded_ref=refactoring" in script
     assert "source=%s@%s" in script
     assert "docker compose down" not in script
-    assert "docker image rm" not in script
+    assert "docker image inspect" in script
+    assert "docker image rm \"$elesim_image_id\"" in script
+    assert "docker image prune" not in script
+    assert "ancestor=$elesim_image_id" in script
+    assert 'filter "label=io.elesim.install_uuid=$elesim_expected_install_uuid"' in script
     assert subprocess.run(
         ("bash", "-n"),
         input=script,
@@ -106,6 +116,24 @@ def test_update_wrapper_rejects_a_different_install_owner(tmp_path: Path) -> Non
 
     assert result.returncode == 77
     assert "expected UID" in result.stderr
+
+
+def test_update_wrapper_requires_install_identity_for_owned_image_cleanup(
+    tmp_path: Path,
+) -> None:
+    try:
+        render_update_wrapper(
+            edition="general",
+            prefix=tmp_path / "install",
+            state_path=tmp_path / "install/install-state.json",
+            compose=tmp_path / "install/containers/compose.yaml",
+            build_services=("sim",),
+            owned_images=("elesim/sim:local",),
+        )
+    except ValueError as exc:
+        assert "install_uuid" in str(exc)
+    else:
+        raise AssertionError("owned image cleanup must require an install UUID")
 
 
 def test_general_sidecar_update_pulls_only_pinned_infrastructure_then_builds(

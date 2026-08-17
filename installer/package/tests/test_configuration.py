@@ -124,6 +124,28 @@ def test_cyclonedds_xml_contains_interface_and_static_peers(
     ] == ["192.0.2.10", "sim.example.com"]
 
 
+def test_cyclonedds_xml_pins_transport_for_literal_peer_families(local_state) -> None:
+    for peers, expected in (
+        (("192.0.2.10", "198.51.100.20"), "udp"),
+        (("2001:db8::10", "2001:db8::20"), "udp6"),
+        (("192.0.2.10", "sim.example.com"), None),
+    ):
+        state = local_state(
+            roles=("pilot",),
+            dds=DdsSettings(
+                discovery_mode="static",
+                static_peers=peers,
+                interface="tailscale0",
+            ),
+        )
+        copy_role_configs(state)
+
+        generate_role_configs(state)
+        root = ET.parse(generated_dds_config_path(state, "pilot")).getroot()
+
+        assert root.findtext("Domain/General/Transport") == expected
+
+
 def test_cyclonedds_xml_preserves_direct_tailscale_bind(local_state) -> None:
     state = local_state(
         roles=("pilot",),

@@ -663,6 +663,8 @@ class DeveloperInstaller:
                 repository=self.request.repository,
                 ref=self.request.ref,
                 runtime_uid=os.getuid(),
+                install_uuid=self._install_uuid,
+                owned_images=("elesim/dev:local",),
             ),
         )
 

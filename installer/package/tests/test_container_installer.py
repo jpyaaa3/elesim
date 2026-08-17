@@ -538,6 +538,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "elesim-net namespace-check >/dev/null" in role_wrapper
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
+    assert "elesim_cleanup_owned_dangling_image" in update_wrapper
+    assert "docker image prune" not in update_wrapper
     assert (state.prefix_path / "security").stat().st_mode & 0o777 == 0o700
     for generated_wrapper in (
         state.bin_path / "elesim-up",

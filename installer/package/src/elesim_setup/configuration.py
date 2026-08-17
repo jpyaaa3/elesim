@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -439,6 +440,12 @@ def _write_cyclonedds(path: Path, dds: DdsSettings) -> None:
     root = ET.Element("CycloneDDS")
     domain = ET.SubElement(root, "Domain", {"id": str(dds.domain_id)})
     general = ET.SubElement(domain, "General")
+    transport = _cyclonedds_transport(dds)
+    if transport:
+        # Cyclone DDS otherwise chooses its default address family.  A static
+        # literal peer set gives us enough evidence to pin the family and
+        # avoid advertising the other address on dual-stack VPN interfaces.
+        ET.SubElement(general, "Transport").text = transport
     ET.SubElement(general, "AllowMulticast").text = (
         "true" if dds.discovery_mode == "multicast" else "false"
     )
@@ -464,6 +471,30 @@ def _write_cyclonedds(path: Path, dds: DdsSettings) -> None:
     ET.indent(root, space="  ")
     rendered = ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
     _atomic_text(path, rendered)
+
+
+def _cyclonedds_transport(dds: DdsSettings) -> str:
+    """Return an explicit CycloneDDS transport for an unambiguous peer set.
+
+    Hostnames and mixed address families are intentionally left to the vendor
+    default: resolving them at installation time would make a generated
+    topology stale when DNS or a VPN address changes.  Literal all-IPv4 and
+    all-IPv6 static peers are safe to pin and must use one family consistently.
+    """
+
+    if dds.discovery_mode != "static" or not dds.static_peers:
+        return ""
+    try:
+        versions = {
+            ipaddress.ip_address(peer).version for peer in dds.static_peers
+        }
+    except ValueError:
+        return ""
+    if versions == {4}:
+        return "udp"
+    if versions == {6}:
+        return "udp6"
+    return ""
 
 
 def write_cyclonedds_config(path: Path, dds: DdsSettings) -> Path:

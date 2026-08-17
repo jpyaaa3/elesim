@@ -107,6 +107,8 @@ def test_developer_install_generates_one_privileged_workspace_service(
     assert "merge --ff-only FETCH_HEAD" in update_wrapper
     assert "update --edition developer" in update_wrapper
     assert "build dev" in update_wrapper
+    assert "elesim_cleanup_owned_dangling_image" in update_wrapper
+    assert "docker image prune" not in update_wrapper
     manager_wrapper = (request.bin_dir / "elesim-connections").read_text(
         encoding="utf-8"
     )

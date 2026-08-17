@@ -35,6 +35,8 @@ _COALESCED_COMMANDS = frozenset(
 )
 _MAX_STREAM_RETRIES = 6
 _MAX_STREAM_RETRY_DELAY_S = 5.0
+_MAX_OPEN_RETRY_DELAY_S = 5.0
+_MAX_OPEN_RETRY_EXPONENT = 16
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ class UiSimSession:
         self._opening_deadline = 0.0
         self._closing_session_id = ""
         self._retry_after = 0.0
+        self._open_retry_count = 0
         self._receivers: dict[str, Any] = {}
         self._stream_retry_at: dict[str, float] = {}
         self._stream_retry_count: dict[str, int] = {}
@@ -233,6 +236,7 @@ class UiSimSession:
         with self._lock:
             self._requested_sim_id = str(sim_id).strip()
             self._retry_after = 0.0
+            self._open_retry_count = 0
             opening = self._opening_request_id
             if opening:
                 self._forget_sent_request_locked("open", opening)
@@ -324,7 +328,7 @@ class UiSimSession:
                     self._opening_request_id = ""
                     self._opening_deadline = 0.0
                     self._forget_sent_request_locked("open", opening)
-                    self._retry_after = now + self.retry_s
+                    self._schedule_open_retry_locked(now=now)
             self._set_error(
                 f"simulation session open timed out for {requested!r}; retrying"
             )
@@ -468,6 +472,8 @@ class UiSimSession:
                 self._opening_request_id = ""
                 self._opening_deadline = 0.0
                 self._closing_session_id = ""
+                self._retry_after = 0.0
+                self._open_retry_count = 0
                 self._status = None
                 self._last_error = ""
                 self._forget_sent_request_locked("open", opened.request_id)
@@ -750,7 +756,9 @@ class UiSimSession:
             if kind == "open" and request_id == self._opening_request_id:
                 self._opening_request_id = ""
                 self._opening_deadline = 0.0
-                self._retry_after = self.clock() + self.retry_s
+                self._schedule_open_retry_locked(
+                    building="scene is still building" in reason.lower()
+                )
             elif kind == "close" and request_id == self._closing_session_id:
                 self._clear_session_locked()
             elif kind == "command":
@@ -775,6 +783,7 @@ class UiSimSession:
         self._opening_request_id = ""
         self._opening_deadline = 0.0
         self._closing_session_id = ""
+        self._open_retry_count = 0
         self._turn = None
         self._connected_streams.clear()
         self._stream_retry_at.clear()
@@ -783,6 +792,37 @@ class UiSimSession:
         self._commands.clear()
         self._pending_command_ids.clear()
         self._sent_messages.clear()
+
+    def _schedule_open_retry_locked(
+        self,
+        *,
+        building: bool = False,
+        now: Optional[float] = None,
+    ) -> None:
+        """Bound retries while Sim is doing its potentially long scene build.
+
+        Sim advertises its DDS endpoint before Genesis is ready, so the UI can
+        receive a deterministic ``scene is still building`` error for a cold
+        start.  Keep ordinary transport retries quick, but back off this
+        expected readiness response so a two-minute build does not generate a
+        request every heartbeat.
+        """
+
+        current = self.clock() if now is None else float(now)
+        if not building:
+            self._open_retry_count = 0
+            delay = self.retry_s
+        else:
+            exponent = min(self._open_retry_count, _MAX_OPEN_RETRY_EXPONENT)
+            delay = min(
+                self.retry_s * (2.0**exponent),
+                _MAX_OPEN_RETRY_DELAY_S,
+            )
+            self._open_retry_count = min(
+                self._open_retry_count + 1,
+                _MAX_OPEN_RETRY_EXPONENT,
+            )
+        self._retry_after = current + delay
 
     def _forget_sent_request_locked(self, kind: str, request_id: str) -> None:
         """Drop transport bookkeeping after a request receives its reply."""

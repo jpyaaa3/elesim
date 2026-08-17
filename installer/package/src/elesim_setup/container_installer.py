@@ -1325,6 +1325,11 @@ class ContainerInstaller:
                 repository=self.state.source_repository,
                 ref=self.state.source_ref,
                 runtime_uid=os.getuid(),
+                install_uuid=self._install_uuid,
+                owned_images=(
+                    *(f"elesim/{role}:local" for role in self.state.roles),
+                    "elesim/tools:local",
+                ),
             ),
         )
 

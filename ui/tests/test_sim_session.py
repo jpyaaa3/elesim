@@ -230,6 +230,71 @@ def test_open_request_is_retried_after_a_lost_reply() -> None:
     ]
 
 
+def test_scene_build_errors_back_off_open_requests() -> None:
+    clock = Clock()
+    endpoint = Endpoint()
+    session = new_session(clock)
+
+    session.run_cycle(endpoint)
+
+    def reject_open() -> None:
+        request = endpoint.sent[-1][2]
+        endpoint.inbox.append(
+            make_envelope(
+                "error",
+                "sim-a",
+                target_id="ui-a",
+                payload={
+                    "reply_to": request.message_id,
+                    "reason": "simulation session unavailable: scene is still building",
+                },
+                seq=len(endpoint.sent) + 1,
+            )
+        )
+        session.run_cycle(endpoint)
+
+    reject_open()
+    clock.now = 0.5
+    session.run_cycle(endpoint)
+    assert (
+        len(
+            [
+                entry
+                for entry in endpoint.sent
+                if entry[0] == "open_simulation_session"
+            ]
+        )
+        == 2
+    )
+
+    reject_open()
+    clock.now = 1.0
+    session.run_cycle(endpoint)
+    assert (
+        len(
+            [
+                entry
+                for entry in endpoint.sent
+                if entry[0] == "open_simulation_session"
+            ]
+        )
+        == 2
+    )
+
+    clock.now = 1.5
+    session.run_cycle(endpoint)
+    assert (
+        len(
+            [
+                entry
+                for entry in endpoint.sent
+                if entry[0] == "open_simulation_session"
+            ]
+        )
+        == 3
+    )
+
+
 def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     Receiver.created.clear()
     endpoint = Endpoint()
