@@ -1,62 +1,32 @@
-# Runtime and Test Audit, 2026-07-20
+# Runtime and Test Audit — 2026-07-20
 
-This snapshot is the pre-fix baseline for the deployment refactor. It records
-facts that should remain reproducible while implementation changes.
+> Historical audit snapshot. It describes the repository at the date above and
+> is not the current runtime contract or an installation runbook. Start from
+> [`../../README.md`](../../README.md) and [`../../architecture.md`](../../architecture.md).
 
-## Baseline
+## Purpose
 
-- Branch: `refactoring`
-- Revision: `0e631c5`
-- Tracked Python: 448 files, approximately 93,606 lines
-- Documented package matrix: 399 passed, 1 skipped, 1 warning
-- Extended tooling tests: 13 passed
-- Combined software baseline: 412 passed, 1 skipped, 1 warning
-- Protocol topology smoke test: passed
-- Release contexts: wheel creation passed, isolated installation/startup was not
-  tested
+This audit captured the pre-Router-free/refactoring baseline: package counts,
+test output, runtime ownership risks and missing live gates. The accompanying
+`baseline.json` and `coverage.md` are evidence for that date, not current
+version or acceptance status.
 
-Run the canonical software gate with:
+## Historical findings
 
-```bash
-python3 tools/quality/check.py --group required
-python3 tools/quality/check.py --group extended
-```
+- The old graph mixed application responsibilities and transport assumptions.
+- Unit tests did not prove real multi-host DDS, NAT, SROS2 enforcement, GPU/X11,
+  WebRTC relay or physical Robot safety.
+- Generated artifacts, environment parity and lifecycle ownership required
+  stronger boundaries.
 
-## Confirmed Priority Defects
+Those findings motivated the current four-role direct-DDS architecture,
+protocol registry, bounded authority/media paths, generated release contexts,
+and ownership-based installer described in the active documentation.
 
-1. `model/bundles/default` is not self-contained. Its URDFs resolve meshes from
-   `model/source`, and the release builder hides the defect by copying the whole
-   model tree.
-2. Robot safety is not independent of the active controller. Arm stop behavior
-   is velocity-mode specific, current checks run only during telemetry, and
-   router liveness is not supervised.
-3. Physical telemetry has no canonical measured four-DOF `q`, so controller
-   state and subsequent partial commands can be based on stale targets.
-4. Controller and simulator still wrap legacy local ZMQ protocols behind a v3
-   exterior. Startup, reconnect and late-subscriber behavior are therefore not
-   governed by one contract.
-5. Controller and simulator contain broad copies of each other's implementation
-   modules. Import-boundary tests cannot detect copied role violations.
-6. Protocol payloads are untyped dictionaries and lifecycle, trace and payload
-   validation are incomplete.
-7. UI RPC is synchronous and optimistic: local state can change before remote
-   acknowledgement, and controller absence can block startup.
-8. Existing tests are rich in relocated characterization tests but sparse at
-   process boundaries, isolated-wheel startup, safety timing, property checks,
-   and headless Look-Aim-Grasp replay.
+## How to read this directory
 
-The detailed remediation order is maintained in `docs/OPEN_ISSUES.md` and its
-Korean counterpart. Hardware-in-the-loop remains a manually approved gate;
-the automatic matrix is software-only.
-
-## Post-Implementation State
-
-The implementation following this baseline is recorded in `current.json` and
-`coverage.md`. The software gate now includes direct protocol-v3 endpoints,
-local robot safety, a self-contained hashed model bundle, deterministic
-property/headless/replay tests, readability budgets, focused mutations, and
-isolated installation of all five release contexts.
-
-This does not close the physical validation gate. A real or Genesis
-Look-Aim-Grasp run with camera timing and contact remains required before the
-pick pipeline can be called operationally stable.
+Use these files only to compare historical evidence with a newer revision. Do
+not copy old role names, transport commands, source paths or test counts into a
+new deployment. Current software and manual gates are listed in
+[`../../MILESTONES.md`](../../MILESTONES.md) and
+[`../../OPEN_ISSUES.md`](../../OPEN_ISSUES.md).

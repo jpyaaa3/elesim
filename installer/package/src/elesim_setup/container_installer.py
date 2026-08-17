@@ -2512,7 +2512,7 @@ def _runtime_up_wrapper(
             else ""
         )
         + (
-            "if (( runtime_cuda_visible_set )); then\n"
+            "if (( runtime_cuda_visible_set )) && [[ -n $runtime_cuda_visible ]]; then\n"
             "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\\n' >&2\n"
             "  exit 64\n"
             "fi\n"

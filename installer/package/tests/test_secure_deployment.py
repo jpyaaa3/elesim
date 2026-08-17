@@ -207,6 +207,32 @@ def test_runtime_launch_options_are_bounded_and_use_normal_runtime_launcher() ->
         )
 
 
+def test_runtime_launch_options_keep_free_distinct_from_cpu_override() -> None:
+    free = RuntimeLaunchOptions.from_payload(
+        {
+            "pilot_gpu_inherit": True,
+            "pilot_gpu_device": "",
+            "sim_gpu_inherit": True,
+            "sim_gpu_device": "",
+            "viewer": False,
+        }
+    )
+    cpu = RuntimeLaunchOptions.from_payload(
+        {
+            "pilot_gpu_inherit": False,
+            "pilot_gpu_device": "",
+            "sim_gpu_inherit": False,
+            "sim_gpu_device": "",
+            "viewer": False,
+        }
+    )
+    assert free is not None and cpu is not None
+    assert free.role_values("sim") == (True, "")
+    assert free.launcher_flags(("sim",)) == ()
+    assert cpu.role_values("sim") == (False, "")
+    assert cpu.launcher_flags(("sim",)) == ("--cuda-visible-devices", "")
+
+
 def test_role_specific_runtime_launch_options_select_the_unit_role() -> None:
     options = RuntimeLaunchOptions.from_payload(
         {
@@ -626,6 +652,39 @@ def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
     ]
 
 
+def test_local_gpu_inventory_probe_is_forwarded_to_the_host_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[tuple[tuple[str, ...], str, float]] = []
+
+    def fake_helper(
+        argv,
+        *,
+        socket_path: str,
+        timeout_s: float,
+        output=None,
+    ) -> RemoteCommandResult:
+        assert output is None
+        forwarded.append((tuple(argv), socket_path, timeout_s))
+        return RemoteCommandResult(0, "0, GPU-test\n", "")
+
+    monkeypatch.setenv("ELESIM_HOST_HELPER_SOCKET", "/run/elesim-helper.sock")
+    monkeypatch.setattr(secure_deployment, "_run_through_host_helper", fake_helper)
+
+    result = _LocalSession(timeout_s=2).run(
+        ("/opt/elesim/bin/elesim-status", "--gpu-devices")
+    )
+
+    assert result.stdout == "0, GPU-test\n"
+    assert forwarded == [
+        (
+            ("/opt/elesim/bin/elesim-status", "--gpu-devices"),
+            "/run/elesim-helper.sock",
+            2,
+        )
+    ]
+
+
 def test_local_viewer_cleanup_is_forwarded_to_the_host_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -976,6 +1035,72 @@ class FakeSession:
 
     def upload_bytes(self, path, content, mode) -> None:
         self.uploads.append((path, content, mode))
+
+
+def test_colocated_role_launches_keep_pilot_and_sim_gpu_choices_independent() -> None:
+    topology = ConnectionTopology(
+        "lab_sim",
+        "trusted-network",
+        (
+            ManagedHost(
+                "all-in-one",
+                True,
+                DdsEndpoint("100.64.0.40", "tailscale0"),
+                None,
+                (
+                    RoleAssignment("pilot", "pilot-main"),
+                    RoleAssignment("sim", "sim-default"),
+                    RoleAssignment("ui", "ui-main"),
+                ),
+            ),
+        ),
+        topology_mode="simulation-only",
+    ).validate()
+    options = RuntimeLaunchOptions.from_payload(
+        {
+            "pilot_gpu_inherit": True,
+            "pilot_gpu_device": "1",
+            "sim_gpu_inherit": True,
+            "sim_gpu_device": "2",
+            "viewer": True,
+        }
+    )
+    assert options is not None
+    session = FakeSession()
+
+    InstalledElesimLifecycle(topology).launch(
+        session,
+        topology.host("all-in-one"),
+        options,
+    )
+
+    launches = [
+        command
+        for command, _check in session.commands
+        if command and command[0].endswith("/elesim-up")
+    ]
+    assert launches == [
+        (
+            "/usr/local/bin/elesim-up",
+            "--no-build",
+            "--cuda-visible-devices",
+            "1",
+            "pilot",
+        ),
+        (
+            "/usr/local/bin/elesim-up",
+            "--no-build",
+            "--cuda-visible-devices",
+            "2",
+            "--view",
+            "sim",
+        ),
+        (
+            "/usr/local/bin/elesim-up",
+            "--no-build",
+            "ui",
+        ),
+    ]
 
 
 class BareSession(FakeSession):
@@ -1503,24 +1628,24 @@ def test_runtime_doctor_requests_strict_peer_json() -> None:
     )
 
     assert report == {"ok": False, "results": []}
-    assert session.commands == [
-        (
-            (
-                "/usr/local/bin/elesim-net",
-                "doctor",
-                "--timeout",
-                "8",
-                "--json",
-                "--strict-peers",
-                "--readiness-only",
-                "--expect-peer",
-                "pilot-main",
-                "--expect-peer",
-                "ui-main",
-            ),
-            False,
-        )
-    ]
+    assert len(session.commands) == 1
+    command, check = session.commands[0]
+    assert command[:3] == (
+        "/usr/local/bin/elesim-net",
+        "doctor",
+        "--timeout",
+    )
+    assert 0.0 < float(command[3]) <= 8.0
+    assert command[4:] == (
+        "--json",
+        "--strict-peers",
+        "--readiness-only",
+        "--expect-peer",
+        "pilot-main",
+        "--expect-peer",
+        "ui-main",
+    )
+    assert check is False
 
 
 def test_runtime_doctor_explains_non_json_remote_output() -> None:

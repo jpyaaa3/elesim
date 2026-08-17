@@ -198,6 +198,7 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
         fps: float = 30.0,
         frame_size: Optional[tuple[int, int]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        stream_name: str = "",
     ) -> None:
         super().__init__()
         self.provider = provider
@@ -214,13 +215,21 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
         self.started = time.monotonic()
         self.index = 0
         self.on_error = on_error
+        self.stream_name = str(stream_name).strip()
         self._last_error = ""
         self._last_error_at = 0.0
+        self._first_recv_reported = False
+        self._fallback_reported = False
+        self._ready_reported = False
 
     async def recv(self) -> Any:
         self.index += 1
         target = self.started + self.index / self.fps
         await asyncio.sleep(max(0.0, target - time.monotonic()))
+        if not self._first_recv_reported:
+            self._first_recv_reported = True
+            label = f" stream={self.stream_name}" if self.stream_name else ""
+            print(f"[sim-media]{label} frame=track-start", flush=True)
         try:
             frame = self.provider()
         except Exception as exc:
@@ -232,6 +241,11 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
             # observer's configured size on its first real frame can make the
             # decoder show a torn/corrupt image.
             frame = self._fallback
+            if not self._fallback_reported:
+                self._fallback_reported = True
+                label = f" stream={self.stream_name}" if self.stream_name else ""
+                print(f"[sim-media]{label} frame=fallback source=empty", flush=True)
+        encoded_real = frame is not self._fallback
         try:
             video = av.VideoFrame.from_ndarray(
                 np.ascontiguousarray(frame),
@@ -247,8 +261,19 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
                     format="bgr24",
                 )
         except Exception as exc:
+            encoded_real = False
             self._report_error("encode", exc)
             video = av.VideoFrame.from_ndarray(self._fallback, format="bgr24")
+        if not self._ready_reported and encoded_real:
+            self._ready_reported = True
+            label = f" stream={self.stream_name}" if self.stream_name else ""
+            shape = getattr(frame, "shape", ())
+            size = (
+                f"{int(shape[1])}x{int(shape[0])}"
+                if len(shape) >= 2
+                else "unknown"
+            )
+            print(f"[sim-media]{label} frame=ready size={size}", flush=True)
         video.pts = self.index
         video.time_base = Fraction(1, round(self.fps))
         return video
@@ -266,7 +291,8 @@ class LatestFrameTrack(VideoStreamTrack):  # type: ignore[misc]
             except Exception:
                 pass
             return
-        print(f"[webrtc] frame fallback: {detail}", flush=True)
+        label = f" stream={self.stream_name}" if self.stream_name else ""
+        print(f"[sim-media]{label} frame=fallback error={detail}", flush=True)
 
 
 class WebRtcVideoSender:
@@ -276,12 +302,14 @@ class WebRtcVideoSender:
         *,
         fps: float = 30.0,
         frame_size: Optional[tuple[int, int]] = None,
+        stream_name: str = "",
     ) -> None:
         if not available():
             raise RuntimeError("WebRTC requires aiortc and av")
         self.provider = provider
         self.fps = float(fps)
         self.frame_size = frame_size
+        self.stream_name = str(stream_name).strip()
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(
             target=self.loop.run_forever,
@@ -320,6 +348,7 @@ class WebRtcVideoSender:
                 self.provider,
                 fps=self.fps,
                 frame_size=self.frame_size,
+                stream_name=self.stream_name,
             )
         )
 
@@ -392,6 +421,7 @@ class NamedWebRtcVideoSender:
                 provider,
                 fps=float(fps[name]),
                 frame_size=sizes.get(str(name)),
+                stream_name=str(name),
             )
             for name, provider in providers.items()
         }

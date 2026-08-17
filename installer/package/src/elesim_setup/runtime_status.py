@@ -36,14 +36,20 @@ def render_compose_status_wrapper(
     """
 
     service_calls: list[str] = []
+    sim_rendered = False
     for label, container in services:
         service_calls.append(
             "status_container " + _quoted(label) + " " + _quoted(container)
         )
+        if str(label).strip().lower() == "ui":
+            service_calls.append("status_ui_media " + _quoted(container))
+        if sim_container is not None and str(container) == str(sim_container):
+            service_calls.append("status_sim_media " + _quoted(sim_container))
+            sim_rendered = True
     rendered_calls = "\n".join(service_calls)
     sim_call = (
         "status_sim_media " + _quoted(sim_container) + "\n"
-        if sim_container is not None
+        if sim_container is not None and not sim_rendered
         else ""
     )
     command = "docker compose -f " + _quoted(compose)
@@ -52,6 +58,12 @@ def render_compose_status_wrapper(
         "set -euo pipefail\n"
         "umask 077\n"
         + guard
+        + "if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then\n"
+        + "  if command -v nvidia-smi >/dev/null 2>&1; then\n"
+        + "    nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null || true\n"
+        + "  fi\n"
+        + "  exit 0\n"
+        + "fi\n"
         + "host_name=\"$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)\"\n"
         "host_ips=\"$(hostname -I 2>/dev/null | tr '\\n' ' ' | xargs 2>/dev/null || true)\"\n"
         "[[ -n $host_ips ]] || host_ips=unknown\n"
@@ -68,6 +80,10 @@ def render_compose_status_wrapper(
         "printf 'host=%s\\n' \"$host_name\"\n"
         "printf 'host_ips=%s\\n' \"$host_ips\"\n"
         "printf 'scope=run this command on each host; remote topology is managed by elesim-connections\\n'\n"
+        "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-status [--gpu-devices]\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
         "printf '%s\\n' '--- services ---'\n"
         "status_container() {\n"
         "  local label=$1 container=$2\n"
@@ -111,8 +127,17 @@ def render_compose_status_wrapper(
         "  IFS='|' read -r cpu_percent memory_use memory_percent pids <<<\"$stats\"\n"
         "  printf '  resources.cpu_percent=%s memory=%s memory_percent=%s pids=%s\\n' \"$cpu_percent\" \"$memory_use\" \"$memory_percent\" \"$pids\"\n"
         "}\n"
+        "status_ui_media() {\n"
+        "  local container=$1 receiver_lines\n"
+        "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
+        "    return 0\n"
+        "  fi\n"
+        "  receiver_lines=\"$(docker logs --tail 1000 \"$container\" 2>&1 | grep -E '\\[ui-webrtc\\].*(track=|connection=|receive:|decode:|answer:)' | tail -n8 | tr '\\n' ';' || true)\"\n"
+        "  [[ -n $receiver_lines ]] || receiver_lines='no recent WebRTC receiver diagnostic'\n"
+        "  printf '  ui.video.receiver=%s\\n' \"$receiver_lines\"\n"
+        "}\n"
         "status_sim_media() {\n"
-        "  local container=$1 encoder backend display media_line streams camera_lines\n"
+        "  local container=$1 encoder backend display media_line streams frames camera_lines\n"
         "  if ! docker container inspect \"$container\" >/dev/null 2>&1; then\n"
         "    return 0\n"
         "  fi\n"
@@ -121,11 +146,13 @@ def render_compose_status_wrapper(
         "  display=\"$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' \"$container\" 2>/dev/null | sed -n 's/^DISPLAY=/DISPLAY=/p; s/^ELESIM_SIM_VIEWER=/ELESIM_SIM_VIEWER=/p' | tr '\\n' ' ' | sed 's/[[:space:]]*$//' || true)\"\n"
         "  media_line=\"$(docker logs --tail 1000 \"$container\" 2>&1 | grep -E 'h264_nvenc unavailable|falling back to libx264|WebRTC worker unavailable|WebRTC unavailable' | tail -n1 || true)\"\n"
         "  streams=\"$(docker logs --tail 1000 \"$container\" 2>&1 | grep -E '\\[sim-media\\].*(observer|hand_eye_preview)|stream=(observer|hand_eye_preview)' | tail -n2 | tr '\\n' ';' || true)\"\n"
+        "  frames=\"$(docker logs --tail 1000 \"$container\" 2>&1 | grep -E '\\[sim-media\\] stream=(observer|hand_eye_preview) frame=(ready|fallback|track-start|dispatched)' | tail -n8 | tr '\\n' ';' || true)\"\n"
         "  camera_lines=\"$(docker logs --tail 1000 \"$container\" 2>&1 | grep -E '\\[sim_camera\\].*(res=|publisher topic=|observer WebRTC source)' | tail -n4 | tr '\\n' ';' || true)\"\n"
         "  [[ -n $encoder ]] || encoder='encoder log not available yet'\n"
         "  [[ -n $backend ]] || backend='Genesis backend log not available yet'\n"
         "  [[ -n $media_line ]] || media_line='none'\n"
         "  [[ -n $streams ]] || streams='observer + hand_eye_preview (configured WebRTC streams; no recent stream log)'\n"
+        "  [[ -n $frames ]] || frames='no first-frame/fallback diagnostic yet'\n"
         "  [[ -n $camera_lines ]] || camera_lines='camera details not available yet'\n"
         "  [[ -n $display ]] || display='DISPLAY/ELESIM_SIM_VIEWER not exported'\n"
         "  printf '  sim.video.encoder=%s\\n' \"$encoder\"\n"
@@ -133,6 +160,7 @@ def render_compose_status_wrapper(
         "  printf '  sim.video.display=%s\\n' \"$display\"\n"
         "  printf '  sim.video.fallback=%s\\n' \"$media_line\"\n"
         "  printf '  sim.video.streams=%s\\n' \"$streams\"\n"
+        "  printf '  sim.video.frames=%s\\n' \"$frames\"\n"
         "  printf '  sim.video.camera=%s\\n' \"$camera_lines\"\n"
         "  printf '  sim.video.transport=WebRTC DTLS/SRTP; DDS carries signaling only\\n'\n"
         "}\n"
@@ -157,13 +185,15 @@ def render_native_status_wrapper(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "umask 077\n"
+        "if (( $# == 1 )) && [[ $1 == --gpu-devices ]]; then\n"
+        "  if command -v nvidia-smi >/dev/null 2>&1; then\n"
+        "    nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null || true\n"
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
         "host_name=\"$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf unknown)\"\n"
         "host_ips=\"$(hostname -I 2>/dev/null | tr '\\n' ' ' | xargs 2>/dev/null || true)\"\n"
         "[[ -n $host_ips ]] || host_ips=unknown\n"
-        "if (( $# != 0 )); then\n"
-        "  printf '사용법: elesim-status\\n' >&2\n"
-        "  exit 64\n"
-        "fi\n"
         "printf 'EleSim status (current-host only)\\n'\n"
         "printf 'edition=%s\\n' "
         + _quoted(edition)
@@ -171,6 +201,10 @@ def render_native_status_wrapper(
         "printf 'host=%s\\n' \"$host_name\"\n"
         "printf 'host_ips=%s\\n' \"$host_ips\"\n"
         "printf 'scope=native Robot systemd units on this host\\n'\n"
+        "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-status [--gpu-devices]\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
         "status_unit() {\n"
         "  local label=$1 unit=$2 active sub_state\n"
         "  active=\"$(systemctl is-active \"$unit\" 2>/dev/null || true)\"\n"

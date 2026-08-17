@@ -23,11 +23,18 @@ def test_compose_status_reports_host_runtime_and_sim_media_facts() -> None:
     assert "elesim-pilot" in rendered
     assert "CUDA_VISIBLE_DEVICES" in rendered
     assert "NVIDIA_VISIBLE_DEVICES" in rendered
+    assert "--gpu-devices" in rendered
+    assert "nvidia-smi --query-gpu=index,uuid" in rendered
     assert "ROS_DOMAIN_ID" in rendered
     assert "h264 encoder=" in rendered
     assert "h264_nvenc unavailable" in rendered
     assert "WebRTC DTLS/SRTP" in rendered
+    assert "sim.video.frames" in rendered
+    assert "ui.video.receiver" in rendered
     assert "docker stats --no-stream" in rendered
+    assert rendered.index("status_container sim elesim-sim") < rendered.index(
+        "status_sim_media elesim-sim"
+    )
 
 
 def test_native_status_reports_both_robot_units() -> None:
@@ -39,3 +46,4 @@ def test_native_status_reports_both_robot_units() -> None:
     assert "systemctl is-active" in rendered
     assert "elesim-robot.service" in rendered
     assert "elesim-unitree-bridge.service" in rendered
+    assert "--gpu-devices" in rendered

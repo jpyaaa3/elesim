@@ -134,8 +134,11 @@ class RuntimeLaunchOptions:
             raw_device = _normalize_gpu_selector(
                 payload.get(device_key, legacy[1]), name=device_key
             )
-            if raw_inherit and not raw_device:
-                raise ValueError(f"{device_key} is required when GPU inherit is enabled")
+            # An inherited GPU with an empty selector is the explicit
+            # ``Free`` choice: leave CUDA_VISIBLE_DEVICES untouched and let
+            # the host/runtime assignment decide.  An unchecked role remains
+            # distinct and is encoded as an empty override below (CPU-only
+            # for this launch).
             return raw_inherit, raw_device if raw_inherit else ""
 
         pilot_inherit, pilot_device = role_values("pilot")
@@ -162,18 +165,28 @@ class RuntimeLaunchOptions:
     def launcher_flags(self, roles: Sequence[str] | None = None) -> tuple[str, ...]:
         """Return bounded ``elesim-up`` flags for this one launch."""
 
+        role = ""
         if roles is None:
             gpu_inherit, gpu_device = self.gpu_inherit, self.gpu_device
         else:
             selected = set(str(role) for role in roles)
             role = "sim" if "sim" in selected else "pilot" if "pilot" in selected else ""
-            gpu_inherit, gpu_device = (
-                self.role_values(role) if role else (False, "")
+            if role:
+                gpu_inherit, gpu_device = self.role_values(role)
+            else:
+                gpu_inherit, gpu_device = False, ""
+        if roles is not None and not role:
+            flags: tuple[str, ...] = ()
+        else:
+            # ``Free`` must not export an empty CUDA_VISIBLE_DEVICES value: an
+            # empty variable means CPU-only to CUDA.  The unchecked path keeps
+            # the explicit empty flag so the launcher can intentionally force
+            # CPU for one run.
+            flags = (
+                ()
+                if gpu_inherit and not gpu_device
+                else ("--cuda-visible-devices", gpu_device if gpu_inherit else "")
             )
-        flags = (
-            "--cuda-visible-devices",
-            gpu_device if gpu_inherit else "",
-        )
         return (*flags, "--view") if self.viewer else flags
 
 
@@ -1598,6 +1611,7 @@ class _LocalSession:
                 "elesim-compose",
                 "elesim-net",
                 "elesim-tailscale",
+                "elesim-status",
                 "elesim-up",
                 "elesim-viewer-cleanup",
             }
@@ -2324,37 +2338,53 @@ class InstalledElesimLifecycle:
     ) -> None:
         units = sorted(host.units, key=lambda unit: ("robot" in unit.roles, unit.unit_id))
         for unit in units:
-            include_coturn = (
-                self._topology.security_profile == "sros2"
-                and "sim" in unit.roles
-                and unit.install_mode == "container"
-                and self._compose_has_service(session, unit, "coturn")
-            )
-            unit_runtime_options = runtime_options
+            # A role-specific manager request must be launched separately when
+            # Pilot and Sim share one Compose unit.  ``elesim-up`` accepts one
+            # CUDA_VISIBLE_DEVICES value per invocation; combining the roles
+            # would silently let whichever role is selected last control both
+            # containers.  UI has no GPU selector and therefore gets a plain
+            # role-scoped invocation in this path.
             if (
                 runtime_options is not None
-                and runtime_options.viewer
-                and "sim" not in unit.roles
+                and runtime_options.pilot_gpu_inherit is not None
+                and unit.install_mode == "container"
+                and len(unit.roles) > 1
             ):
-                unit_runtime_options = RuntimeLaunchOptions(
-                    gpu_inherit=runtime_options.gpu_inherit,
-                    gpu_device=runtime_options.gpu_device,
-                    viewer=False,
-                    pilot_gpu_inherit=runtime_options.pilot_gpu_inherit,
-                    pilot_gpu_device=runtime_options.pilot_gpu_device,
-                    sim_gpu_inherit=runtime_options.sim_gpu_inherit,
-                    sim_gpu_device=runtime_options.sim_gpu_device,
+                role_groups = tuple((role,) for role in unit.roles)
+            else:
+                role_groups = (unit.roles,)
+            for selected_roles in role_groups:
+                include_coturn = (
+                    self._topology.security_profile == "sros2"
+                    and "sim" in selected_roles
+                    and unit.install_mode == "container"
+                    and self._compose_has_service(session, unit, "coturn")
                 )
-            session.run(
-                _lifecycle_command(
-                    unit,
-                    action="launch",
-                    roles=unit.roles,
-                    include_coturn=include_coturn,
-                    runtime_options=unit_runtime_options,
-                    viewer_user=viewer_user,
+                unit_runtime_options = runtime_options
+                if (
+                    runtime_options is not None
+                    and runtime_options.viewer
+                    and "sim" not in selected_roles
+                ):
+                    unit_runtime_options = RuntimeLaunchOptions(
+                        gpu_inherit=runtime_options.gpu_inherit,
+                        gpu_device=runtime_options.gpu_device,
+                        viewer=False,
+                        pilot_gpu_inherit=runtime_options.pilot_gpu_inherit,
+                        pilot_gpu_device=runtime_options.pilot_gpu_device,
+                        sim_gpu_inherit=runtime_options.sim_gpu_inherit,
+                        sim_gpu_device=runtime_options.sim_gpu_device,
+                    )
+                session.run(
+                    _lifecycle_command(
+                        unit,
+                        action="launch",
+                        roles=selected_roles,
+                        include_coturn=include_coturn,
+                        runtime_options=unit_runtime_options,
+                        viewer_user=viewer_user,
+                    )
                 )
-            )
 
     @staticmethod
     def _compose_has_service(
@@ -2594,7 +2624,40 @@ class InstalledElesimLifecycle:
             snapshot["gpu_policy"] = policies
         if policy_errors:
             snapshot["gpu_policy_error"] = "; ".join(policy_errors)[:512]
+        devices = self._gpu_devices(session, host)
+        if devices:
+            snapshot["gpu_devices"] = devices
         return snapshot
+
+    @staticmethod
+    def _gpu_devices(
+        session: SshSession, host: ManagedHost
+    ) -> list[dict[str, str]]:
+        """Read host GPU indices/UUIDs through the owned status wrapper.
+
+        This is deliberately best-effort.  Older installations may not yet
+        have the ``--gpu-devices`` status probe, and CPU-only hosts naturally
+        return no devices.  Neither case makes an otherwise valid lifecycle
+        status request fail.
+        """
+
+        found: dict[str, dict[str, str]] = {}
+        for unit in host.units:
+            result = session.run(
+                (str(_status_command(unit)), "--gpu-devices"),
+                check=False,
+            )
+            if result.exit_status != 0:
+                continue
+            for line in result.stdout.splitlines():
+                parts = [part.strip() for part in line.split(",", 1)]
+                if len(parts) != 2 or not parts[0].isdigit():
+                    continue
+                index, uuid_value = parts
+                if not _GPU_SELECTOR.fullmatch(uuid_value):
+                    continue
+                found[index] = {"index": index, "uuid": uuid_value}
+        return [found[index] for index in sorted(found, key=lambda value: int(value))]
 
     def verify(
         self,
@@ -3151,6 +3214,10 @@ def _unit_for_target(target: ManagedHost | DeploymentUnit) -> DeploymentUnit:
 
 def _net_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:
     return PurePosixPath(_unit_for_target(target).bin_dir) / "elesim-net"
+
+
+def _status_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:
+    return PurePosixPath(_unit_for_target(target).bin_dir) / "elesim-status"
 
 
 def _tailscale_command(target: ManagedHost | DeploymentUnit) -> PurePosixPath:

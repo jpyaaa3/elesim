@@ -1,5 +1,8 @@
 # Gait-Phase Preview Gaze
 
+> Proposal/experimental design. It does not override the current runtime
+> contract; see [`../architecture.md`](../architecture.md).
+
 ## Status
 
 Design proposal, not implemented in the current tree.

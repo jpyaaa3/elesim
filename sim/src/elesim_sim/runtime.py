@@ -1543,6 +1543,30 @@ class SimScene:
         if self.rgbd_dispatcher is not None:
             self.rgbd_dispatcher.close()
 
+    def flush_video_frame(self, stream: str, *, timeout_s: float = 1.0) -> bool:
+        """Synchronize one startup frame with the WebRTC mailbox."""
+
+        dispatcher = self.frame_dispatcher
+        if dispatcher is None:
+            return True
+        try:
+            name = str(stream)
+            flushed = bool(dispatcher.flush(name, timeout_s=float(timeout_s)))
+            if flushed:
+                stats = dispatcher.stats().get(name, {})
+                print(
+                    "[sim-media] stream=%s frame=dispatched submitted=%s processed=%s"
+                    % (
+                        name,
+                        int(stats.get("submitted", 0)),
+                        int(stats.get("processed", 0)),
+                    ),
+                    flush=True,
+                )
+            return flushed
+        except (KeyError, RuntimeError):
+            return False
+
 
 class RateLimiter:
     def __init__(self, max_rate: np.ndarray):
@@ -2763,7 +2787,10 @@ class SimRuntime:
                     )
                     self._force_hand_eye_capture = False
                 observer_dirty = self.operator.take_observer_dirty()
-                if did_step or observer_dirty:
+                observer_needs_frame = (
+                    float(a.sim_scene._last_observer_camera_publish_t) <= 0.0
+                )
+                if did_step or observer_dirty or observer_needs_frame:
                     a.sim_scene.maybe_publish_observer_camera(
                         max_hz=float(a.cfg.sim_observer_camera_max_hz),
                         force=observer_dirty,
@@ -2893,6 +2920,20 @@ class GenesisApp:
         runtime.init_genesis(urdf_path)
         self.sim_scene.configure_frame_dispatchers()
         self.sim_scene.start_frame_dispatchers()
+        # Prime the observer mailbox before advertising the simulation as
+        # ready.  The UI can negotiate WebRTC as soon as the readiness gate
+        # opens; waiting for the first physics-loop iteration made a paused
+        # or slow-to-start scene appear permanently stuck at “video waiting”.
+        if self.sim_scene.observer_camera is not None:
+            self.sim_scene.maybe_publish_observer_camera(
+                max_hz=float(self.cfg.sim_observer_camera_max_hz),
+                force=True,
+            )
+            if not self.sim_scene.flush_video_frame("observer", timeout_s=2.0):
+                print(
+                    "[sim-media] initial observer frame was not dispatched before readiness",
+                    flush=True,
+                )
         if self.runtime_ready_event is not None:
             self.runtime_ready_event.set()
             print("[runtime] scene/media readiness gate opened", flush=True)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+import time
 from typing import Any, Optional
 
 import numpy as np
@@ -46,9 +47,16 @@ def _ice_configuration(turn: Optional[TurnCredentials]) -> Any:
 
 
 class WebRtcVideoReceiver:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        stream_name: str = "",
+        on_error: Optional[Any] = None,
+    ) -> None:
         if not available():
             raise RuntimeError("WebRTC requires aiortc")
+        self.stream_name = str(stream_name).strip()
+        self._on_error = on_error
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(
             target=self.loop.run_forever,
@@ -61,6 +69,8 @@ class WebRtcVideoReceiver:
         self._frame_version = 0
         self._frame_lock = threading.Lock()
         self._consume_tasks: set[asyncio.Task[Any]] = set()
+        self._last_error = ""
+        self._last_error_at = 0.0
         self._closed = False
 
     def create_offer(self, *, turn: Optional[TurnCredentials] = None) -> dict[str, str]:
@@ -79,9 +89,19 @@ class WebRtcVideoReceiver:
         self.peer = RTCPeerConnection(configuration=_ice_configuration(turn))
         self.peer.addTransceiver("video", direction="recvonly")
 
+        @self.peer.on("connectionstatechange")
+        async def _connection_state_changed() -> None:
+            state = str(getattr(self.peer, "connectionState", "unknown"))
+            stream = f" stream={self.stream_name}" if self.stream_name else ""
+            print(f"[ui-webrtc]{stream} connection={state}", flush=True)
+            if state in {"failed", "closed"}:
+                self._report_error("connection", RuntimeError(state))
+
         @self.peer.on("track")
         def _track(track: Any) -> None:
             if track.kind == "video":
+                stream = f" stream={self.stream_name}" if self.stream_name else ""
+                print(f"[ui-webrtc]{stream} track=received", flush=True)
                 task = asyncio.create_task(self._consume(track))
                 self._consume_tasks.add(task)
                 task.add_done_callback(self._consume_tasks.discard)
@@ -97,17 +117,55 @@ class WebRtcVideoReceiver:
         while True:
             try:
                 frame = await track.recv()
-            except Exception:
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._report_error("receive", exc)
                 return
             # aiortc's remote track queue is intentionally lossless, which is
             # the wrong policy for a live camera.  If decoding/rendering falls
             # behind, discard queued frames before converting the newest one;
             # otherwise the UI can remain seconds behind the simulation.
-            frame = self._drain_to_latest(track, frame)
-            value = frame.to_ndarray(format="bgr24")
+            try:
+                frame = self._drain_to_latest(track, frame)
+                value = frame.to_ndarray(format="bgr24")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # A single malformed/corrupt encoded frame must not terminate
+                # the named stream forever.  Keep consuming the next frame;
+                # this is especially important while NVENC sends its first
+                # SPS/keyframe after a renegotiation.
+                self._report_error("decode", exc)
+                continue
             with self._frame_lock:
                 self.latest_bgr = np.ascontiguousarray(value)
                 self._frame_version += 1
+
+    def _report_error(self, stage: str, exc: BaseException) -> None:
+        detail = f"{stage}: {str(exc).strip() or exc.__class__.__name__}"[:512]
+        now = time.monotonic()
+        if detail == self._last_error and now - self._last_error_at < 5.0:
+            return
+        self._last_error = detail
+        self._last_error_at = now
+        stream = f" stream={self.stream_name}" if self.stream_name else ""
+        print(f"[ui-webrtc]{stream} {detail}", flush=True)
+        callback = self._on_error
+        if callback is not None:
+            try:
+                callback(detail)
+            except Exception:
+                pass
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
+    def report_error(self, stage: str, exc: BaseException) -> None:
+        """Record an answer/connection error outside the receive task."""
+
+        self._report_error(str(stage), exc)
 
     async def _cancel_consumer_tasks(self) -> None:
         tasks = tuple(self._consume_tasks)

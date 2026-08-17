@@ -154,6 +154,18 @@ class SimView:
                 observer_rect,
                 connected="hand_eye_preview" in snapshot.connected_streams,
             )
+        else:
+            # Keep the secondary stream visible while the observer m-line is
+            # negotiating or reporting a decoder error.  Once observer has a
+            # frame it returns to the intended PIP layout above.
+            self._draw_stream(
+                "hand_eye_preview",
+                width=available,
+                max_height=max(180.0, available_height * 0.55),
+                connected="hand_eye_preview" in snapshot.connected_streams,
+                display_aspect=4.0 / 3.0,
+                center=True,
+            )
 
     def _draw_toolbar(self, snapshot: Any) -> None:
         status = snapshot.status
@@ -226,7 +238,12 @@ class SimView:
             or not hasattr(frame, "shape")
             or len(frame.shape) != 3
         ):
-            imgui.text_disabled(f"{label} video waiting...")
+            error_getter = getattr(self.session, "stream_error", None)
+            error = error_getter(stream) if callable(error_getter) else ""
+            if error:
+                imgui.text_disabled(f"{label} video error: {error}")
+            else:
+                imgui.text_disabled(f"{label} video waiting...")
             return False, None
         height, source_width = int(frame.shape[0]), int(frame.shape[1])
         if source_width <= 0 or height <= 0:

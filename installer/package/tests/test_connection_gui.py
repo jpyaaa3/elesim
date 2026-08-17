@@ -407,10 +407,8 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "ensureRoutedDiscovery" in script
     assert "notice.tailscale.static" in script
     assert 'id="apply"' in html
-    assert 'id="restart"' in html
+    assert 'id="restart"' not in html
     assert 'class="workflow-actions"' in html
-    assert html.index('id="runtime-start"') < html.index('id="restart"')
-    assert html.index('data-step="start"') < html.index('id="restart"')
     assert 'id="workflow-stage"' not in html
     assert 'data-i18n="advanced.title"' not in html
     assert 'id="host-check"' not in html
@@ -445,14 +443,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t("action.prepare")' in script
-    assert 'if (action === "restart") return "start"' in script
-    assert '"runtime-start": !running && workflowSaved && workflowApplied && !runtimeRestartable' in script
-    assert 'restart: !running && workflowSaved && workflowApplied && runtimeRestartable' in script
+    assert '"runtime-start": !running && workflowSaved && workflowApplied' in script
+    assert "runtimeRestartable" not in script
     assert 'let workflowRequiresFreshSave = true;' in script
     assert 'if (topologyAppliedByThisJob && !workflowRequiresFreshSave)' in script
     assert 'workflowRequiresFreshSave = false;' in script
     assert 'error.workflow.incomplete' in script
-    assert 'host.containers_present === true' in script
+    assert 'host.state || "unknown"' in script
     assert 'workflow.login.title' not in script and 'workflow.login.title' not in html
     assert 'if (action === "network") return "login";' not in script
     assert 'await startJob("network");' not in script
@@ -460,7 +457,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'byId("tailscale-login").addEventListener' not in script
     assert '["prepare", "provision", "deploy", "rotate"].includes(job.action)' in script
     assert 'byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError))' in script
-    assert 'byId("restart").addEventListener("click", () => startJob("restart").catch(showError))' in script
+    assert 'byId("restart").addEventListener' not in script
     assert "function runtimeLaunchOptions()" in script
     assert '`${role}_gpu_inherit`' in script
     assert '`${role}_gpu_device`' in script
@@ -478,7 +475,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "function setRuntimeOptionsLocked(locked)" in script
     assert "function restoreRuntimeOptions(job)" in script
     assert "restoreRuntimeOptions(job);" in script
-    assert '!["start", "restart"].includes(job.action)' in script
+    assert 'job.action !== "start"' in script
     assert "if (locksRuntimeOptions) setRuntimeOptionsLocked(true);" in script
     assert "if (!running && runtimeOptionsLocked) setRuntimeOptionsLocked(false);" not in script
     assert "JSON.stringify(payload)" in script
@@ -509,7 +506,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert html.index('data-i18n="boot.viewer"') < html.index('id="use-viewer"')
     assert ".boot-viewer-option" in style and "min-height: 30px" in style
     assert ".workflow-actions { display: grid; grid-column: 1 / -1" in style
-    assert '.boot-gpu-option input[type="text"]:disabled' in style
+    assert '.boot-gpu-option select:disabled' in style
     assert ".boot-options.runtime-options-locked { opacity: .42; }" in style
     assert ".workflow-steps" in style and "align-items: stretch" in style
     assert ".abort-step button" in style and "height: 100%" in style
@@ -578,9 +575,9 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert 'placeholder="100.x.y.z"' in html
     assert catalog["ko"]["action.cancel"] == "중단"
     assert catalog["ko"]["action.prepare"] == "실행 준비"
-    assert catalog["ko"]["action.restart"] == "재시작"
+    assert catalog["ko"]["boot.gpu.free"] == "Free"
     assert catalog["en"]["action.prepare"] == "Prepare runtime"
-    assert catalog["en"]["action.restart"] == "Restart"
+    assert catalog["en"]["boot.gpu.free"] == "Free"
 
 
 def test_application_validates_and_atomically_saves_mode_0600(tmp_path: Path) -> None:

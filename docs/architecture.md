@@ -1,144 +1,170 @@
 # EleSim Architecture
 
-EleSim is a monorepo of independently built release projects. Source sharing is a
-development convenience, not a runtime dependency.
+이 문서는 현재 Router 없는 EleSim runtime의 정본이다. 설치 절차는
+[`setup.md`](setup.md), 다중 호스트 배포는 [`deployment.md`](deployment.md),
+wire 계약은 [`dds_contracts.md`](dds_contracts.md)를 따른다.
 
-## Runtime Topology
+## 1. 배포 모델
+
+EleSim은 네 개의 독립 애플리케이션으로 나뉜다. monorepo의 공통 소스는 개발
+편의를 위한 것이며, 릴리스 wheel이나 일반 사용자 이미지가 다른 배포
+애플리케이션을 import하는 것은 허용하지 않는다.
 
 ```text
-Laptop                                      Compute PC
-+----------------------+    ROS 2 / DDS     +--------------------+
-| UI                   |<==================>| Sim                 |
-| Pilot                |<==================>| Genesis main thread |
-+----------+-----------+  UDP peer-to-peer  +---------+----------+
-           ^                                          ||
-           | ROS 2 / DDS                              || WebRTC
-           |                                          ||
-           |        Robot Jetson                      ||
-           |        +-------------+  UDS  +---------+
-           +=======>| Robot       |<=====>| Unitree |----> private GO2 DDS/NIC
-             RGBD   | I/O + safety|       | bridge  |
-                    +-------------+       +---------+
-           <=========== observer + hand-eye WebRTC ====+
+full topology (2–4 hosts)
+
+  pilot ──────── DDS ──────── sim ──────── private Unitree DDS/NIC
+    │             │            │                    ▲
+    │             │            └─ WebRTC media       │
+    └──── DDS ─── ui ──────────────── DTLS/SRTP      │
+                                  robot ── UDS ──────┘
+
+simulation-only topology (1–3 hosts)
+
+                 pilot ─── DDS ─── sim
+                   ▲                │
+                   └──── ui ────────┘
 ```
 
-There is no EleSim Router process and no ZMQ transport. Pilot, UI, Robot,
-and Sim are ROS 2 nodes that communicate directly through DDS over UDP.
-DDS discovery finds peers; it is not an application registry or an authority.
-Each participant must be mutually IP-routable with every participant it needs
-to contact.
+`simulation-only`은 Pilot/Sim/UI만 갖고 Robot 또는 Jetson placeholder를
+저장하지 않는다. `full`은 Pilot/Sim/UI/Robot을 각각 정확히 한 번
+배치하고 Robot은 native Jetson unit이어야 한다. 두 모드와 schema migration은
+[`design/connection_manager.md`](design/connection_manager.md)에 정의되어 있다.
 
-A public compute server normally runs Sim and optional Coturn, while UI
-and Pilot remain on the laptop. This layout works only when the laptop
-and server share a LAN, a routed VPN, or another network with bidirectional
-reachability. Coturn can relay WebRTC media but cannot relay DDS discovery,
-control/RGBD topics, or WebRTC signaling carried over DDS.
+중앙 Router, ZMQ, CurveZMQ, CURVE, ZAP은 현재 구조에 없다. 각 DDS participant는
+필요한 peer와 직접 IP-routable해야 하며, DDS discovery는 애플리케이션
+registry나 권한 부여기가 아니다.
 
-UI never imports pilot workflow code. Pilot never imports robot or
-sim packages. Robot does not know about model assets, IK, Pick, Genesis
-or UI. UI's operator relationship with Pilot remains separate from its
-exclusive simulation session with Sim.
+## 2. 역할과 소유권
 
-## Ownership
-
-| Release project | Owns | Does not own |
+| 역할 | 소유 | 소유하지 않는 것 |
 | --- | --- | --- |
-| UI | presentation, operator intent, sim view input, rendered-video receive | IK, workflow, hardware |
-| Pilot | Vision, Arm model, Look/Aim/Grasp, Gaze, target generation, one selected target lease | physical I/O, Genesis |
-| Robot | Dynamixel/GO2 drivers, RGBD publishing, its motion lease, deadman, current limits | assets, builders, workflow |
-| Sim | Genesis runtime, model loading, virtual telemetry/RGBD, its motion lease and UI session, observer/hand-eye rendering and signaling | operator workflow, hardware |
+| `pilot` | Vision, Arm model, Look/Aim/Grasp, Gaze, target 생성, 한 target lease | 물리 I/O, Genesis, UI 구현 |
+| `sim` | Genesis, prebuilt model, virtual telemetry/RGB-D, motion lease, UI simulation session, observer/hand-eye 렌더와 WebRTC signaling/media | operator workflow, 물리 하드웨어 |
+| `ui` | operator intent, simulation control, 상태 표시, 두 WebRTC 수신 화면 | IK/workflow, hardware driver, Genesis |
+| `robot` | Dynamixel/GO2 I/O, RGB-D, motion lease, deadman, limit, local safety | model builder, IK, UI, Sim |
 
-Robot and Sim are the only authorities for their own motion leases.
-Sim is the only authority for its UI session. DDS discovery does not
-grant either authority, and `ROS_DOMAIN_ID` does not identify or authenticate
-an owner.
+Robot과 Sim은 자기 motion lease의 유일한 authority다. Sim은 UI
+simulation session의 유일한 authority다. discovery, `ROS_DOMAIN_ID`, static
+peer는 이 권한을 부여하지 않는다.
 
-### Local Unitree boundary
+### Unitree 경계
 
-Stock Unitree DDS is not part of the inter-host EleSim graph. On Jetson, the
-`elesim-unitree-bridge` daemon is the only process that loads Unitree ROS 2 and
-binds CycloneDDS to the private Jetson-to-GO2 NIC/domain. It runs without the
-EleSim SROS2 environment. The Robot application remains the only inter-host
-participant and communicates with the bridge through bounded Unix
-`SOCK_SEQPACKET` messages.
+`elesim-unitree-bridge`는 Jetson 내부의 전용 하드웨어 adapter다. Unitree
+ROS 2와 CycloneDDS는 private Jetson–GO2 NIC/domain에서 이 daemon만 사용한다.
+Inter-host EleSim graph에는 Robot만 참여한다. Robot과 bridge는
+`AF_UNIX SOCK_SEQPACKET` bounded JSON packet을 주고받고, `SO_PEERCRED`, boot
+ID, monotonic sequence, command/parameter allowlist, keepalive deadman을
+검증한다.
 
-The socket directory is `0750`, the socket is `0660`, and Robot receives only
-the bridge group as a supplementary group. Both sides verify `SO_PEERCRED`, a
-UUID boot identity and monotonic sequence. Command names and finite parameter
-ranges are allowlisted. Disconnect, parse failure, stale/replayed traffic and
-keepalive expiry trigger the bridge-side stop; GO2 failure must not prevent the
-Robot process from continuing arm safe-hold, torque-off and hardware cleanup.
-This daemon is a local hardware adapter, not a fifth deployable application and
-not a Router.
+bridge는 다섯 번째 애플리케이션도 Router도 아니다. disconnect, malformed
+packet, replay, keepalive expiry는 GO2 stop을 유발하지만, Robot은 arm
+safe-hold·torque-off·hardware cleanup을 계속 수행한다.
 
-## Dependency Rule
+## 3. 프로세스와 의존성
 
 ```text
-{pilot,ui,robot,sim} -> elesim_interfaces + third-party packages
-model/builder -> model/source + pilot model schema
-misc/tools/release -> top-level release projects + ROS interface project
-installer/package -> environment configuration and artifacts on disk
-environment/containers -> setup-generated isolated role image contexts
-environment/development -> setup-generated all-in-one coding environment only
-misc/system_tests -> cross-process DDS/RGBD/WebRTC validation only
+{pilot, sim, ui, robot}
+       │
+       ├── elesim_interfaces (ROSIDL wire types)
+       └── protocol (PeerEnvelope, discovery, authority, RGB-D helpers)
+
+model/builder ── model/source → model/bundles/default
+installer/package ── state/config/Compose/security/lifecycle artifacts
+misc/tools/release ── isolated release contexts
+misc/system_tests ── cross-process acceptance probes
 ```
 
-A release project must not import a sibling project or a repository-root legacy
-module. Communication between deployed processes is always a ROS interface or
-a documented media stream.
+각 배포 tree는 sibling 구현을 import하지 않는다. 공유 가능한 것은
+`packages/elesim_interfaces`의 ROSIDL type과 `packages/protocol`의 transport
+primitive뿐이다. typed ROS service/action 정의는 생성되지만 현재 runtime에
+연결되어 있지 않다. 현재 control/signaling carrier는 protocol major 6의
+bounded `PeerEnvelope`다.
 
-The developer container deliberately co-locates all source projects for coding
-and tests, but it does not weaken release ownership: no deployment wheel or
-general-user role image may import a sibling deployment.
+General 설치는 고정 `elesim-runtime` Compose project와 선택된
+`elesim-pilot`, `elesim-ui`, `elesim-sim` container를 사용한다. Robot은
+native-only다. Developer 설치는 고정 `elesim-runtime-dev` project의 영속
+`elesim-dev` 한 개와 선택적 `elesim-jaeger`만 만든다.
 
-General installations use one fixed `elesim-runtime` Compose project. Selected
-container roles are named `elesim-pilot`, `elesim-ui`, and
-`elesim-sim`; Robot stays a native Jetson service. Developer installation
-uses the separate fixed `elesim-runtime-dev` project with one persistent
-`elesim-dev` container and optional `elesim-jaeger`. It does not also create the
-three general-role containers. Managed WebRTC relay adds `elesim-coturn` only
-to the Sim host's general project.
+## 4. 통신 경계
 
-Container installations fix one runtime-network backend when they are
-generated. `direct-host` (shown as **Native host network**) places role and
-tools containers in the selected Docker Engine's host network namespace.
-`tailscale-sidecar` (shown as **Docker Desktop Tailscale sidecar**) runs a
-kernel-mode Tailscale node inside Docker Desktop's Linux VM and places the
-roles, dedicated runtime-network doctor, and active Sim-owned Coturn service in
-that service's namespace.
-The ordinary administrative tools service stays usable before enrollment.
-Docker Desktop does not inherit a WSL distribution's existing `tailscale0`;
-the sidecar therefore has its own `tailscale0`, tailnet IP, and persistent node
-state. It is host network infrastructure, not a fifth application, DDS Router,
-relay, registry, or authorization service.
+### DDS control와 discovery
 
-Backend selection is automatic during installation and the resolved value is
-persisted; runtime wrappers do not silently switch Docker contexts or backends.
-Sidecar enrollment is an explicit browser/device login performed by the
-operator. Repeating `elesim-tailscale login` re-authenticates a stale `Running`
-node; runtime launch uses an idempotent check and does not open a browser.
-EleSim stores neither a Tailscale auth/OAuth key nor the browser credential.
-Roles and the runtime-network doctor share the enrolled namespace;
-Coturn may share it as Sim-owned WebRTC infrastructure but never becomes a DDS
-path.
+각 participant는 고유 endpoint ID와 process마다 새 boot ID를 광고한다.
+`EndpointDescriptor`와 `EndpointHeartbeat`가 정확한 endpoint/boot 쌍을
+확정한 뒤에야 주소 지정 envelope을 처리한다. startup 동안 수신한 envelope은
+한 heartbeat timeout 동안 최대 512개만 보관하며, 정확한 source descriptor가
+나타나면 해제하고 아니면 버린다. 무제한 queue나 transient-local control QoS로
+이 경계를 대체하지 않는다.
 
-The host boundary is independent from the deployment-unit boundary. A Jetson
-may therefore run the native Robot service and a separate Compose unit for
-validated container roles (currently Pilot/UI) at the same time. Each unit
-keeps its own prefix, ownership manifest, lifecycle and role-scoped security
-view; Robot remains native-only and Jetson-only, but the host itself is an
-ordinary peer in the connection topology.
+Pilot은 discovery interval마다 `select_target`을 반복하고 Sim/Robot의
+`target_selected`를 확인한다. stale boot, sequence, lease/session token은
+거부한다. 이전 process의 envelope이 새 process의 권한을 되살릴 수 없다.
 
-## Model Lifecycle
+### Authority와 lifecycle
 
-`model/source` is builder input. `model/builder` creates immutable
-artifacts under `model/bundles`. The sim consumes a prebuilt bundle by
-default. Runtime rebuilding is a development-only operation enabled explicitly
-with `ELESIM_SIM_DEV_REBUILD=1`.
+- Pilot은 한 번에 한 Robot 또는 Sim target만 lease한다.
+- Robot/Sim이 lease를 serialize하고 Pilot boot/target identity를 기록한다.
+- Sim은 독립적으로 한 UI simulation session만 grant한다.
+- switch, explicit release, TTL expiry, process restart는 이전 권한을 revoke한다.
+- lease/session renewal은 owner가 확인한 live peer와 token에 한해서만 허용한다.
+- Estop은 일반 command path를 우회할 수 있지만 role/authority 검사는 유지한다.
+- Robot의 transport loss는 안전 상태(lease revoke, deadman 유지, 재탐색)로 처리한다.
 
-The pilot likewise reads `config/arm_model.json` and never constructs an
-assembly at runtime. The installed model-builder commands regenerate both
-artifacts offline; arm-model intermediate files live in a temporary workspace:
+### RGB-D
+
+RGB-D는 `RgbdFrame` typed DDS sample 하나로 전달하는 latest-only coherent
+stream이다. subscriber backlog를 만들지 않으며, 오래된 frame은 새 frame으로
+덮어쓴다. Robot과 Sim의 RGB-D topic은 `dds_contracts.md`의 QoS·권한 표를
+따른다.
+
+## 5. Sim 내부 구조와 영상
+
+Sim은 하나의 deployable application, DDS participant, SROS2 enclave다. 다만
+physics/authority와 media worker를 내부적으로 분리한다.
+
+```text
+Genesis scene thread
+  ├─ physics, leases, session gate
+  └─ latest-only frame slots (observer, hand-eye)
+                         │
+                         ▼
+                    media worker
+                   aiortc / FFmpeg / ICE
+```
+
+Genesis scene/camera object는 scene owner thread에서만 접근한다. frame slot은
+고정 크기이며 producer/consumer backlog가 없다. media worker의 encode,
+signaling, ICE 지연이 physics나 DDS receive loop를 block하지 않는다. worker
+실패는 해당 media operation을 실패시킬 뿐 Sim heartbeat·lease·session
+authority를 죽이지 않는다.
+
+DDS endpoint는 boot identity를 일찍 광고하지만, Sim scene과 media worker의
+bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않는다.
+따라서 UI의 초기 request는 잠시 거부될 수 있고, 새 descriptor 이후 재시도된다.
+
+UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. WebRTC offer/answer
+signaling은 Sim 소유의 reliable DDS request/reply이고, 픽셀은 DTLS/SRTP다.
+Coturn은 필요할 때 ICE media candidate만 relay하며 DDS discovery/control/
+RGB-D/signaling을 relay하지 않는다.
+
+H.264 encoder는 NVIDIA/FFmpeg NVENC가 노출되면 `h264_nvenc`를 시도하고,
+권한·드라이버 실패 시 `libx264`로 되돌아간다. `ELESIM_WEBRTC_ENCODER=cpu`
+또는 `nvenc`는 의도적인 A/B·요청 모드이며 계약과 latest-only semantics를
+바꾸지 않는다.
+
+Genesis GPU backend가 CPU 부담 전체를 없애지는 않는다. camera render,
+RGB/depth conversion·resize·host transfer, Genesis–Pinocchio copy, CasADi
+QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
+현재 QP/MPC solver와 DDS serialization은 CPU domain이며, GPU offload는
+별도 측정·검증 없이는 가정하지 않는다.
+
+## 6. 모델과 설정 lifecycle
+
+`model/source`는 builder input이고 `model/bundles/default`는 immutable runtime
+input이다. Sim은 기본적으로 bundle을 읽고, `ELESIM_SIM_DEV_REBUILD=1`일
+때만 개발 중 rebuild한다. Pilot은 `config/arm_model.json`을 읽으며 runtime에
+assembly를 만들지 않는다.
 
 ```bash
 elesim-build-sim-bundle --assets model/source/assets --output model/bundles/default
@@ -146,345 +172,75 @@ elesim-build-arm-model --config pilot/config/config.pc.yaml \
   --assets model/source/assets --output pilot/config/arm_model.json
 ```
 
-## ROS Interface And Authority Invariants
+설치된 설정은 source default와 분리된 prefix 아래 생성된다. 역할 컨테이너는
+role-specific YAML, read-only config/model mount, role-scoped security view만
+받는다. 설정의 정규 필드와 ownership은 [`configuration.md`](configuration.md)에
+있다.
 
-The complete current `PeerEnvelope` registry, sender/receiver matrix, QoS
-classes, and payload-validation rules are maintained in
-[`dds_contracts.md`](dds_contracts.md). Treat that registry as the process
-boundary: applications exchange envelopes and typed ROSIDL samples, never
-implementation methods or sibling deployment imports.
+## 7. 네트워크와 보안
 
-- Wire contracts live in `packages/elesim_interfaces`; incompatible interface
-  changes require an explicit schema/version decision.
-- The Router-free wire contract is protocol major 6. A v4/ZMQ endpoint is not
-  a compatible peer and must not be silently bridged into an authority path.
-- A deployment uses one ROS-safe `system_id` and one unique logical endpoint
-  ID. Every boot creates a new boot ID; only the advertised ROS resource
-  prefixes, not the logical IDs themselves, must be valid ROS names.
-- Every process publishes `EndpointDescriptor` and `EndpointHeartbeat`
-  messages containing `PeerRef`, role, capabilities, stream descriptors and
-  exact boot-specific topic/service prefixes. Duplicate live boots for one
-  endpoint ID fail closed.
-- Motion targets carry canonical four-element `q`, never hardware `u` values.
-- A pilot leases at most one robot or sim endpoint.
-- Robot or Sim serializes and grants its own lease. A lease contains the
-  target and Pilot boot identities; a process restart invalidates
-  it.
-- A sim grants at most one independent UI simulation session.
-- Motion leases and simulation sessions are separate authorities: camera or
-  pause input cannot grant arm-motion ownership.
-- Switching, explicit release, renewal TTL expiry, or process restart revokes
-  the previous lease/session.
-- Robot and sim reject stale sequences and mismatched leases.
-- Estop bypasses the ordinary active-command path but remains role checked.
-- RGBD is one time-coherent DDS sample. Observer and hand-eye pixels remain
-  independent WebRTC streams.
-- WebRTC offer/answer signaling is a Sim-owned reliable DDS
-  request/reply exchange on the direct control carrier.
-  TURN affects only ICE media candidates; it cannot make the DDS signaling
-  path reachable.
+### DDS profile
 
-## Remote Sim Semantics
+- `trusted-network`: DDS encryption 없음. 소유 LAN 또는 routed VPN, 명시적
+  interface/firewall boundary에서만 사용한다.
+- `sros2`: 공유·관찰 가능한 망의 enforce-mode authentication, access control,
+  encryption. 각 role에 전용 enclave와 least-privilege permission을 준다.
 
-EleSim does not transport the native Genesis desktop window. Sim owns a
-dedicated observer camera whose output is equivalent to the inspectable scene
-view needed by an operator. UI receives that observer stream and the robot's
-hand-eye preview as two independent WebRTC tracks. Mouse orbit, pan and zoom,
-plus pause, resume, single-step, reset, speed, reset-view and debug-marker
-commands are versioned DDS messages.
+두 profile 모두 동일한 `system_id`, `domain_id`, RMW, discovery mode, bound
+interface, compatible QoS가 필요하다. `ROS_DOMAIN_ID`는 보안 경계가 아니다.
+일반 IPv4 NAT/CGNAT/symmetric NAT은 지원하지 않는다. static peer는 discovery
+seed일 뿐 direct UDP sample의 relay가 아니다.
 
-Commands enter a bounded mailbox and are applied only on the Genesis main
-thread. Pausing stops physics, not endpoint heartbeats, status delivery or the
-WebRTC sessions. Reset increments the simulation epoch; Pilot stops an
-active Pick/Gaze workflow when it observes a pause edge or epoch change.
-The UI also bounds the combined queued/in-flight command backlog and reports a
-full backlog instead of silently accepting input while Sim acknowledgements
-are unavailable. Successful simulation results release their transport
-bookkeeping, so a lost or slow session cannot grow UI memory without bound.
-Sim treats a transient loss of the Pilot or UI peer as a retryable DDS condition:
-telemetry and status remain dirty until acknowledged by the transport, and
-unsent simulation results return to the bounded mailbox. Reply failures and
-heartbeat/receive failures are diagnosed and retried without terminating the
-Genesis process's DDS thread.
-Robot treats a transient DDS transport failure as a safety event rather than a
-process-exit condition: it revokes the local motion lease (running the arm
-safe-hold path), keeps the local deadman and hardware monitor ticking, emits a
-rate-limited diagnostic, and retries discovery. Cleanup or hardware-stop
-failures remain fatal so a failed safety action cannot be hidden.
-Each WebRTC video track likewise converts a transient frame-provider or frame
-conversion failure into a bounded diagnostic and a black fallback frame; the
-aiortc track stays alive so a later camera frame can recover the stream.
-The UI simulation session treats a DDS transport reset as a lease loss even
-before the peer directory reports an unregistered node: it closes stale media
-receivers, discards commands from the old session, and reopens only after a
-fresh Sim descriptor is discovered.
-The UI operator request pump also marks DDS offline immediately on a heartbeat
-reset, so the presentation layer cannot report a stale Pilot connection while
-requests are waiting for their normal bounded timeout.
-The shared UI DDS hub recreates its owned peer after an initial or heartbeat
-transport failure and exposes descriptor readiness to the simulation channel;
-the UI therefore waits for a live Sim boot instead of repeatedly publishing to
-an inactive target. Replies and queued envelopes from the retired boot are
-discarded before the replacement peer is used.
+### SROS2 ownership
 
-### Sim media boundary
+`external`은 operator가 준비한 local keystore/enclave를 사용한다. `managed`는
+operator laptop의 connection manager가 Authority generation을 만들고,
+공통 public material과 host에 배정된 role enclave만 각 runtime host에
+배포한다. CA private key와 다른 host의 role key는 절대 runtime host에 복사하지
+않는다.
 
-The Sim release remains one deployable application, one DDS participant and one
-SROS2 enclave. Internally it has two ownership domains:
+rotation은 모든 host를 stage → stop → atomic activate → restart/verify하는
+transaction이다. 실패하면 이미 건드린 host를 이전 generation으로 rollback한다.
+Authority는 administrative asset이며 runtime peer·broker·fifth service가
+아니다.
 
-```text
-sim process
-  Genesis/DDS core  -- fixed-size latest-only BGR slots --  media worker
-       |                                                   |
-       +-- physics, leases, session gate                  +-- aiortc/AV/ICE
-```
+### Docker backend
 
-Genesis publishes at most one replacement frame per configured stream into a
-bounded shared-memory mailbox. The mailbox has no producer/consumer backlog:
-an old frame is overwritten, the worker copies only the current frame, and the
-copy/encode path cannot make DDS or physics wait for a network peer. WebRTC
-offer/answer work is dispatched away from the DDS receive loop and its
-in-flight signaling work is bounded. A worker crash therefore rejects the
-affected media operation and leaves the Sim heartbeat, motion lease and DDS
-session authority alive for diagnosis/restart.
+설치 시 `direct-host` 또는 `tailscale-sidecar`를 결정해 state에 고정한다.
+Docker Desktop은 WSL의 `tailscale0`를 상속하지 않으므로, sidecar backend는
+고정 `elesim-tailscale` kernel-mode node와 실제 sidecar namespace를 만든다.
+role, runtime-network doctor, Sim-owned Coturn만 그 namespace를 공유한다.
+sidecar는 host network infrastructure이지 DDS relay, SSH endpoint, Router가
+아니다. `elesim-tailscale login/status`로 한 번 enrollment하고, SSH 관리
+주소와 DDS sidecar 주소를 별도 기록한다.
 
-The Genesis camera render itself remains owned by the Genesis scene thread:
-Genesis scene and camera objects are not copied into a second process or used
-concurrently from an unsafe thread. After capture, frame-hub/mailbox copies
-and typed RGB-D publication run through separate latest-only transport
-dispatchers. The runtime performance report's `camera` section therefore
-measures scene rendering/conversion, while transport backpressure is bounded
-outside the physics loop.
+## 8. 성능과 안전의 불변식
 
-The DDS endpoint starts early enough to advertise a boot identity, but it does
-not grant a UI simulation session until scene construction and the media
-worker's bounded startup handshake have completed. This separates transport
-readiness from scene/media readiness and prevents the UI from receiving a
-session token for a Sim that cannot yet produce valid frames. This boundary is
-private to the Sim container; it does not add a fifth role, COM host, DDS topic,
-or network hop.
+- physics loop에는 network peer, WebRTC encoder, DDS subscriber backlog를
+  동기적으로 기다리는 코드가 없어야 한다.
+- 모든 입력 queue와 media frame slot은 유한하다. full이면 입력을 거부하거나
+  오래된 frame을 버리고 진단한다.
+- pause는 physics만 멈추며 heartbeat/status/media session은 유지한다.
+- reset은 simulation epoch을 증가시키고 stale workflow를 중단한다.
+- Robot의 deadman/safety monitor는 DDS discovery callback에 의존하지 않는다.
+- cleanup·hardware stop 실패는 숨기지 않고 fatal diagnostic으로 남긴다.
+- fallback은 black frame, CPU encoder 등 bounded recovery일 뿐 성공을 가장하지
+  않는다.
 
-Camera conversion follows the same boundary without assuming that a GPU
-backend makes the whole path GPU-bound. When Genesis returns a CUDA tensor,
-normalization, RGB-to-BGR conversion, depth quantization and an optional resize
-are performed on the device before one final host transfer. NumPy/OpenCV
-conversion remains the fallback for CPU renders and unusual tensor shapes. The
-runtime perf report records `camera_render`, `camera_rgb_convert`,
-`camera_depth_convert`, `camera_*_resize` and `camera_*_transfer` separately;
-these measurements are required before introducing a second Genesis scene for
-rendering. The QP/MPC solver and ROS/DDS serialization remain explicitly CPU
-domains until their own profiles justify a separate change.
-
-Those CPU domains are visible in the same bounded report: `go2_bridge_sync`
-measures Genesis-to-Pinocchio state copies, `go2_mpc_prepare` and
-`go2_mpc_post` measure trajectory/result handling, `go2_mpc_solve` measures the
-CasADi QP itself, `go2_mpc_torque` measures leg torque assembly, and
-`go2_metrics` measures optional walking-metric recording. A low Genesis GPU
-utilization with a large `go2_mpc_solve` value is not fixed by moving another
-image conversion to CUDA. A future GPU MPC solver must preserve the existing
-control rate, warm-start/state ownership, and CPU fallback as an independent,
-measured change.
-
-WebRTC encoding is a separate case: aiortc's default H.264 implementation is
-software `libx264`, so the private media worker attempts `h264_nvenc` when an
-NVIDIA device is exposed and reverts to `libx264` on the first driver or
-container-permission failure. This is process-local and does not alter the
-DDS/WebRTC contract; an encoder fallback is reported in the Sim log rather than
-blocking scene startup.
-
-## Network Security Profiles
-
-The operator selects exactly one DDS security profile:
-
-- `trusted-network` uses ordinary DDS with no DDS encryption. It is valid only
-  on an owned LAN or routed VPN whose interface and firewall restrict
-  participation to trusted hosts. Bind DDS to the selected interface and allow
-  only the required peers or subnet. `ROS_DOMAIN_ID` reduces accidental graph
-  collisions; it is not authentication, authorization, isolation, or
-  encryption.
-- `sros2` is required on an untrusted LAN, a shared compute network, or any
-  network where other tenants can reach DDS. Each deployment receives its own
-  keystore enclave and runs DDS Security in enforce mode for authentication,
-  access control, and encryption. Permissions must restrict roles to the DDS
-  topics they need.
-
-The SROS2 policy distinguishes three names that must not be conflated. Direct
-control/motion carrier topics use the protocol's collision-resistant hashed
-peer key. Enclave paths and configured RGBD topics use the stable endpoint key
-shown to the operator. The local active network doctor currently reuses the
-first installed role identity rather than receiving a super-user enclave. To
-allow that diagnostic on any role host, every role policy has read-only access
-to the Robot and Sim RGBD topics; it receives no additional RGBD publish
-permission. This is an explicit operational tradeoff: role credentials are not
-isolated from RGBD observation.
-
-State schema v9 retains the two SROS2 provisioning models introduced in v8.
-`external` points
-at a keystore/enclave supplied and maintained outside EleSim. `managed` records
-an EleSim security generation and the local host's role bundle. In managed mode
-the operator laptop holds the complete SROS2 Authority. A runtime host receives
-the shared public trust material and only the enclaves for roles assigned to
-that host; it never receives CA private keys or another host's role keys.
-
-Regardless of provisioning owner, each application sees only the stable
-`<prefix>/security/roles/<role>` keystore root. External setup copies common
-public material plus that role's enclave into this view; it never mounts the
-operator's aggregate keystore into an application container. Managed activation
-refreshes only the `public/` and `enclaves/` children while services are stopped,
-so the mounted role-root inode remains stable. The aggregate generation tree is
-an administrative connection-manager input, not an application mount.
-
-Managed rotation is deliberately system-wide. The connection manager creates a
-new generation through the ROS 2 security CLI, validates SHA-256 bundle
-manifests, stages every host through authenticated SSH/SFTP, stops affected
-roles, atomically activates the generation, restarts and verifies them. Any
-partial failure restores the previous generation across the hosts already
-touched. The Authority is an administrative asset, not a fifth runtime service
-and not a peer-discovery broker.
-
-There is no ZMQ, CurveZMQ, CURVE key, ZAP allowlist, or plaintext-ZMQ exception
-in the final architecture. WebRTC media always uses DTLS/SRTP independently of
-the DDS profile. Coturn relays those encrypted packets when ICE needs a relay.
-For managed TURN, the REST HMAC secret is mounted only into Coturn and the
-Sim on the same managed host. Sim issues short-lived credentials
-bound to its active UI session; UI never receives the static secret. A
-compromised Sim can therefore mint TURN credentials, which is an explicit
-managed-deployment trust boundary. External TURN uses a bounded JSON credential
-file mounted only into Sim; the active UI receives the usable credential
-through the DDS session grant. Pilot/UI-only hosts never receive that
-file. Under `trusted-network` this inherits the controlled-LAN/VPN trust
-assumption; use SROS2 on a shared or observable network.
-
-The local installation GUI remains bound to loopback. Remote administration
-uses SSH local forwarding, and its SSH port has no relationship to DDS or TURN.
-
-## Connection Topology Ownership
-
-`elesim-connections` runs on the operator laptop and persists only non-secret
-topology. Schema v4 records an explicit `topology_mode` and independent DDS and
-SSH addresses:
-
-- `full` assigns Pilot, UI, Sim, and Robot exactly once across two to
-  four active hosts; Robot remains constrained to a native Jetson host.
-- `simulation-only` assigns Pilot, UI, and Sim exactly once across
-  one to three container/Compose hosts and contains no Robot/Jetson placeholder.
-
-Both modes mark exactly one host local and allow a host to own multiple roles.
-Schema-v1 documents load as `full`; schema-v1-v3 records derive their SSH
-destination from the historical shared address and are normalized on save.
-
-Every host has one advertised DDS address and interface used for runtime UDP.
-Remote management has an independent SSH destination, port, user,
-authentication mode (`openssh` via agent/key or `tailscale` via Tailscale SSH),
-and pinned SHA-256 host key fingerprint. They are commonly the same address on
-a native host network, but differ when a Docker Desktop sidecar owns the DDS
-tailnet identity while SSH still terminates at the WSL/host identity. Tailscale
-SSH is keyless and uses port 22; Tailscale ACL `check` rules may require an
-interactive re-authentication before the manager can automate commands. An SSH
-port such as `2222` is never a DDS or WebRTC port. Static peers are derived
-from active hosts' DDS addresses, and every host also seeds its own advertised
-DDS address. With multicast disabled, that self-seed lets co-located
-participants—and the separate runtime-network readiness doctor on a
-single-role host—discover one another. Tailscale and other routed-VPN graphs
-use static discovery; static peers seed discovery and never relay DDS samples.
-
-## Verification Matrix
-
-The canonical entry point runs this matrix with package-specific import paths:
+## 9. 검증 경계
 
 ```bash
 python3 misc/tools/quality/check.py --group required
-```
-
-The required gate covers ROS interfaces, all four release projects,
-model/release/setup tooling, the four-process topology smoke, a real DDS RGBD
-roundtrip, target-owned lease/session behavior, and actual encoded
-observer/hand-eye WebRTC tracks. The extended
-gate covers offline tools, readability budgets, and focused mutation checks:
-
-```bash
 python3 misc/tools/quality/check.py --group extended
-```
-
-The equivalent individual commands are:
-
-```bash
-colcon test --packages-select elesim_interfaces
-python3 -m pytest robot/tests
-python3 -m pytest pilot/tests
-python3 -m pytest sim/tests
-python3 -m pytest ui/tests
-PYTHONPATH=model/builder/src:pilot/src python3 -m pytest model/builder/tests
-PYTHONPATH=installer/package/src python3 -m pytest installer/package/tests
-python3 misc/system_tests/smoke_topology.py
-```
-
-Release artifacts have a separate isolation gate. Building release contexts
-builds the ROSIDL interface package, installs each transport-neutral
-support/application wheel pair into a clean temporary target, loads deployment
-configuration, validates the sim bundle, checks that no sibling
-deployment is visible, and invokes each role's primary packaged console entry
-point with `--help`. Robot verification additionally requires both Robot and
-Unitree-bridge console-script metadata, the bridge/IPC modules, and exactly the
-two systemd units:
-
-```bash
 python3 misc/tools/release/build.py
 python3 misc/tools/release/verify.py dist/releases
 ```
 
-## Test Layers
+자동 gate는 ROSIDL, 역할 경계, release isolation, 별도 프로세스 DDS/RGB-D,
+encoded WebRTC track과 contract/lease/safety test를 검증한다. `elesim-dev`
+컨테이너가 canonical scientific/ROS test environment다.
 
-- Contract tests pin ROS interfaces, payload, lease, safety, configuration, and
-  role boundaries.
-- Deterministic property tests exercise UV, LJI, equal-sag, ready-pose and
-  reachable FK-to-IK invariants over broad generated inputs.
-- Headless workflow tests execute Look -> Aim -> Grasp phase ordering without
-  Genesis or camera windows.
-- Recorded-log replay turns known field failures into deterministic regression
-  reports.
-- Transport integration tests use separate ROS 2 processes over a real DDS
-  implementation and real aiortc sender/receiver pairs for both named video
-  streams.
-- Focused mutations prove that critical version, lease, stale-command,
-  deadman, control-direction, gain, and finite-input guards are observed by the
-  tests.
-- Live Genesis and hardware-in-loop validation remains a manual gate because
-  software-only tests cannot establish physical convergence or camera timing.
-- Setup-tool tests generate trusted-network and SROS2 profiles, exercise safe
-  bootstrap extraction, validate the generated DDS graph configuration, and
-  validate DDS/STUN probes without importing a sibling deployment.
-- Setup tests may validate backend resolution, generated sidecar/direct Compose
-  structure, namespace/interface/address checks, absence of auth/OAuth keys
-  from generated configuration, and schema migration without pulling images or
-  joining a tailnet. They do not prove a
-  Docker Desktop sidecar can exchange DDS traffic with another real host.
-
-The checked-in `PeerEnvelope` carrier is the current protocol-v6 control and
-signaling wire contract. The additional typed service/action definitions in
-`packages/elesim_interfaces` are generated but are not yet bound by the runtime;
-tests and documentation must not advertise those services as active.
-
-Live release gates must cover discovery convergence, duplicate-ID fail-closed
-behavior, lease expiry and command deadman timing, SROS2 permissions,
-RGBD latency and bandwidth under loss, WebRTC SDP payload limits, routed-VPN
-operation, and explicit failure on unsupported NAT-only layouts. Unit tests do
-not prove any of those network properties. In particular, the Docker Desktop
-sidecar path remains a two-host manual gate: enroll both nodes, verify static
-peer discovery and bidirectional DDS control/RGBD, then separately verify the
-WebRTC direct/relay path.
-
-Generate a role-specific line-execution report without adding a production
-dependency:
-
-```bash
-python3 misc/tools/quality/line_coverage.py pilot
-```
-
-Use the setup-generated environment instead of installing scientific or ROS
-dependencies on the host:
-
-```bash
-elesim-dev python3 misc/tools/quality/check.py --group required
-elesim-dev python3 misc/tools/quality/check.py --group extended
-```
+자동화가 증명하지 않는 것은 실제 multi-host route/discovery, SROS2 enforce
+authorization, NAT/TURN relay, GPU/X11/WSLg, Genesis viewer·observer 화면,
+Jetson/Unitree physical safety와 Look–Aim–Grasp convergence다. 이들은
+[`MILESTONES.md`](MILESTONES.md)의 수동 acceptance gate다.

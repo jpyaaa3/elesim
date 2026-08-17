@@ -276,6 +276,9 @@ def _validate_command(
         return
     if tuple(argv) == ("docker", "version", "--format", "{{.Server.Version}}"):
         return
+    status = str(bin_dir / "elesim-status")
+    if tuple(argv) in {(status,), (status, "--gpu-devices")}:
+        return
     viewer_cleanup = str(bin_dir / "elesim-viewer-cleanup")
     if tuple(argv) == (viewer_cleanup,):
         return

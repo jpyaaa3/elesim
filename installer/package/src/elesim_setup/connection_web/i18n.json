@@ -46,12 +46,12 @@
     "boot.pilot.gpu.inherit": "Pilot GPU 상속",
     "boot.sim.gpu.inherit": "Sim GPU 상속",
     "boot.gpu.device": "GPU 번호 또는 UUID",
+    "boot.gpu.free": "Free",
     "boot.viewer": "뷰어 사용",
     "action.save": "검증 후 저장",
     "action.probe": "SSH 호스트키 확인",
     "action.prepare": "실행 준비",
     "action.deploy": "초기 배포 (보안 포함)",
-    "action.restart": "재시작",
     "action.cancel": "중단",
     "action.dismiss": "닫기",
     "action.start": "전체 시작",
@@ -79,7 +79,6 @@
     "error.local": "활성 호스트 중 정확히 하나를 로컬 컴퓨터로 선택하십시오.",
     "error.local.robot": "Authority를 보관하는 로컬 컴퓨터에는 Robot을 배치할 수 없습니다.",
     "error.local.probe": "로컬 컴퓨터에는 설치용 SSH endpoint가 필요하지 않습니다.",
-    "error.restart.unavailable": "기존 런타임 컨테이너가 없어 재시작할 수 없습니다. 전체 시작을 사용하십시오.",
     "error.workflow.incomplete": "연결 확인과 실행 준비를 먼저 완료하십시오."
   },
   "en": {
@@ -129,12 +128,12 @@
     "boot.pilot.gpu.inherit": "Pilot GPU inherit",
     "boot.sim.gpu.inherit": "Sim GPU inherit",
     "boot.gpu.device": "GPU index or UUID",
+    "boot.gpu.free": "Free",
     "boot.viewer": "Use viewer",
     "action.save": "Validate and save",
     "action.probe": "Verify SSH host key",
     "action.prepare": "Prepare runtime",
     "action.deploy": "Initial deploy (with security)",
-    "action.restart": "Restart",
     "action.cancel": "Abort",
     "action.dismiss": "Close",
     "action.start": "Start all",
@@ -162,7 +161,6 @@
     "error.local": "Select exactly one active host as the local computer.",
     "error.local.robot": "Robot cannot be placed on the local Authority computer.",
     "error.local.probe": "The local computer does not need an installation SSH endpoint.",
-    "error.restart.unavailable": "Existing runtime containers are absent, so Restart cannot be used. Choose Start all.",
     "error.workflow.incomplete": "Complete Check Connections and Prepare runtime first."
   }
 }

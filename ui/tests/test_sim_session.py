@@ -76,6 +76,7 @@ class Receiver:
 
     def __init__(self) -> None:
         self.latest_bgr = None
+        self.stream_name = ""
         self.turn = None
         self.answers: list[tuple[str, str]] = []
         self.closed = False
@@ -90,6 +91,13 @@ class Receiver:
 
     def close(self) -> None:
         self.closed = True
+
+
+class RejectingObserverReceiver(Receiver):
+    def accept_answer(self, sdp: str, answer_type: str) -> None:
+        if self.stream_name == "observer":
+            raise ValueError("observer SDP rejected")
+        super().accept_answer(sdp, answer_type)
 
 
 def opened(
@@ -233,6 +241,30 @@ def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     assert session.connected_streams == ("observer",)
     observer = session.receiver("observer")
     assert observer.answers == [("observer-answer", "answer")]
+
+
+def test_stream_answer_failure_keeps_other_video_stream_and_reports_reason() -> None:
+    Receiver.created.clear()
+    endpoint = Endpoint()
+    session = UiSimSession(
+        ui_id="ui-a",
+        sim_id="sim-a",
+        receiver_factory=RejectingObserverReceiver,
+        clock=Clock(),
+        autostart=False,
+    )
+    session.run_cycle(endpoint)
+    request_id = endpoint.sent[0][1]["payload"]["request_id"]
+    endpoint.inbox.append(opened(str(request_id)))
+    session.run_cycle(endpoint)
+    endpoint.inbox.extend((answer("observer"), answer("hand_eye_preview")))
+
+    # One bad m-line must not escape run_cycle and tear down the DDS session.
+    session.run_cycle(endpoint)
+
+    assert session.snapshot.session_id == "session-a"
+    assert session.connected_streams == ("hand_eye_preview",)
+    assert "observer WebRTC answer rejected" in session.last_error
 
 
 def test_transport_reset_discards_stale_session_and_receivers() -> None:

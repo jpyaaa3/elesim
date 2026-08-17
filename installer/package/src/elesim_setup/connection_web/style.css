@@ -208,12 +208,12 @@ details.ssh-fields .host-fields { padding: 6px 0 10px; }
 .boot-viewer-option { display: grid; width: 100%; min-width: 0; min-height: 30px; grid-template-columns: max-content 12px minmax(0, var(--boot-device-width)) 17px; align-items: center; justify-content: end; gap: 5px; }
 .boot-viewer-option span { grid-column: 1; }
 .boot-gpu-option input[type="checkbox"], .boot-viewer-option input[type="checkbox"] { grid-column: 4; width: 17px; min-height: 17px; margin: 0; }
-.boot-gpu-option input[type="text"] { width: var(--boot-device-width); min-width: 0; min-height: 30px; padding: 4px 7px; font-size: var(--font-small); }
-.boot-gpu-option input[type="text"]:disabled { border-color: #c5cbd3; background: #e4e6e9; color: #9aa1a9; opacity: 1; }
+.boot-gpu-option select { width: var(--boot-device-width); min-width: 0; min-height: 30px; padding: 4px 7px; font-size: var(--font-small); }
+.boot-gpu-option select:disabled { border-color: #c5cbd3; background: #e4e6e9; color: #9aa1a9; opacity: 1; }
 .boot-colon { color: var(--muted); font-size: var(--font-small); font-weight: 700; }
 .boot-options.runtime-options-locked { opacity: .42; }
 .boot-options.runtime-options-locked input { cursor: not-allowed; }
-.workflow-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.workflow-actions { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .workflow-actions button { grid-column: auto; }
 .workflow-step button:disabled,
 .workflow-step[data-enabled="false"] button {

@@ -52,7 +52,6 @@ _JOB_ACTIONS = frozenset(
         "recover",
         "start",
         "stop",
-        "restart",
         "check",
     }
 )
@@ -357,11 +356,11 @@ class ConnectionManagerApplication:
     ) -> dict[str, object]:
         if action not in _JOB_ACTIONS:
             raise ValueError(f"unsupported connection-manager action: {action!r}")
-        if action not in {"start", "restart"} and options:
-            raise ValueError("runtime launch options are only valid for start/restart")
+        if action != "start" and options:
+            raise ValueError("runtime launch options are only valid for start")
         runtime_options = (
             RuntimeLaunchOptions.from_payload(options)
-            if action in {"start", "restart"}
+            if action == "start"
             else None
         )
         # Keep the legacy single-role request boundary fail-closed.  New
@@ -649,7 +648,7 @@ class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
 
             def start() -> Mapping[str, object]:
                 payload = self._body()
-                if action not in {"start", "restart"} and payload:
+                if action != "start" and payload:
                     raise ValueError("this action does not accept request fields")
                 return self.server.application.start_job(action, payload or None)
 

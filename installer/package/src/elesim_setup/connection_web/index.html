@@ -165,20 +165,19 @@
               <div class="boot-gpu-option">
                 <label class="boot-gpu-label" for="pilot-gpu-inherit" data-i18n="boot.pilot.gpu.inherit"></label>
                 <span class="boot-colon" aria-hidden="true">:</span>
-                <input id="pilot-gpu-device" type="text" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="Pilot GPU selector" spellcheck="false">
+                <select id="pilot-gpu-device" data-i18n-aria-label="boot.gpu.device" aria-label="Pilot GPU selector"><option value="" data-i18n="boot.gpu.free">Free</option></select>
                 <input id="pilot-gpu-inherit" type="checkbox" checked aria-label="Pilot GPU inherit">
               </div>
               <div class="boot-gpu-option">
                 <label class="boot-gpu-label" for="sim-gpu-inherit" data-i18n="boot.sim.gpu.inherit"></label>
                 <span class="boot-colon" aria-hidden="true">:</span>
-                <input id="sim-gpu-device" type="text" value="0" data-i18n-aria-label="boot.gpu.device" aria-label="Sim GPU selector" spellcheck="false">
+                <select id="sim-gpu-device" data-i18n-aria-label="boot.gpu.device" aria-label="Sim GPU selector"><option value="" data-i18n="boot.gpu.free">Free</option></select>
                 <input id="sim-gpu-inherit" type="checkbox" checked aria-label="Sim GPU inherit">
               </div>
               <label class="boot-viewer-option"><span data-i18n="boot.viewer"></span><input id="use-viewer" type="checkbox"></label>
             </div>
             <div class="workflow-actions">
               <button id="runtime-start" type="button" data-i18n="action.start" disabled></button>
-              <button id="restart" type="button" data-i18n="action.restart" disabled></button>
             </div>
           </article>
         </div>

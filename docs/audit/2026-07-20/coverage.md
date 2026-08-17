@@ -1,52 +1,22 @@
-# Line-Execution Audit, 2026-07-20
+# Line-Execution Audit — 2026-07-20
 
-This is a standard-library `trace --missing` audit, not branch coverage and not
-a claim of physical validation. Reproduce one role with:
+> Historical coverage snapshot. It is not a current quality report; see
+> [`../../README.md`](../../README.md) and the active quality commands in
+> [`../../MILESTONES.md`](../../MILESTONES.md).
 
-```bash
-python3 tools/quality/line_coverage.py controller
-```
+This standard-library `trace --missing` report recorded which pre-refactor
+control paths were exercised. It was not branch coverage and did not claim
+physical or multi-host validation.
 
-## Strongly Exercised Control Code
+## Boundary
 
-- Controller trajectory: 97%
-- Controller workflow coordinator: 87%
-- Pick replay diagnostics: 93%
-- Camera metrics: 97%
-- UV Jacobian: 94%
-- Local image Jacobian: 91%
-- Grasp trajectory: 100%
-- Feasible ready pose: 85%
-- Sag drift frame: 86%
-- Simulator model bundle validator: 82%
-- Robot runtime: 79%
-- UI operator session: 81%
+The report intentionally left graphical, ROS middleware, hardware, network NAT,
+SROS2 and media relay paths incomplete. Those paths remain explicit manual gates
+today rather than being inferred from line execution.
 
-The deterministic property tests cover 250 random UV contractions, 250 random
-LJI contractions, 200 equal-sag reconstructions, estimator recovery, command
-caps, finite-input rejection, and 50 generated reachable FK-to-IK round trips.
+## Interpretation
 
-## Expected Headless Gaps
-
-Low execution appears mainly in code requiring a window, a live camera, ROS2,
-Unitree hardware, Genesis entities, or optional telemetry exporters. Examples
-include UI panels, RealSense/YOLO pipelines, Genesis camera mount operations,
-the Dynamixel transport, and the Unitree bridge. Raising these percentages with
-mock-only assertions would not prove the real integration.
-
-These areas therefore remain explicit live gates:
-
-1. Genesis Look-Aim-Grasp with rendered RGB-D and contact.
-2. Jetson Dynamixel current/read-failure/deadman behavior on actual buses.
-3. Unitree ROS2 topic and velocity-stop behavior.
-4. Camera frame continuity during stop, blind handoff and reconnect.
-
-## Mutation Sensitivity
-
-Seven focused mutants are killed by the current suite: protocol version,
-router lease, robot stale sequence, robot GO2 deadman, UV command direction,
-LJI gain semantics, and equal-sag finite-input rejection. Run them with:
-
-```bash
-python3 tools/quality/mutation.py
-```
+Historical line percentages and role names are comparable only with the exact
+revision recorded in `baseline.json`. They must not be used to decide whether a
+current release is ready. Use the setup-generated `elesim-dev` environment and
+the required/extended quality groups for current software verification.

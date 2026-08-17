@@ -38,10 +38,10 @@ let endpointIds = {
 let dropPreviewKey = "";
 let pollTimer = null;
 let runtimePollTimer = null;
-let runtimeRestartable = false;
 let runtimeOptionsLocked = false;
 let gpuInheritAvailable = null;
 let gpuPolicies = {pilot: null, sim: null};
+let gpuDevices = {pilot: [], sim: []};
 let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
@@ -132,7 +132,6 @@ function setWorkflowButtonsEnabled(step, buttons) {
 
 function workflowStepForAction(action) {
   if (["prepare", "provision", "deploy", "rotate"].includes(action)) return "apply";
-  if (action === "restart") return "start";
   if (action === "start") return "start";
   return "";
 }
@@ -705,8 +704,7 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   setWorkflowStepEnabled("save", !running && !workflowSaved);
   setWorkflowStepEnabled("apply", !running && workflowSaved && !workflowApplied);
   setWorkflowButtonsEnabled("start", {
-    "runtime-start": !running && workflowSaved && workflowApplied && !runtimeRestartable,
-    restart: !running && workflowSaved && workflowApplied && runtimeRestartable,
+    "runtime-start": !running && workflowSaved && workflowApplied,
   });
   updateRuntimeOptions();
 }
@@ -719,7 +717,10 @@ function runtimeLaunchOptions() {
     if (policy?.mode === "specific") {
       return {
         [`${role}_gpu_inherit`]: true,
-        [`${role}_gpu_device`]: String(policy.device || ""),
+        // Compose owns a specific installation's device reservation.  Do not
+        // reapply its UUID/index through CUDA_VISIBLE_DEVICES; the disabled
+        // selector is display-only in this policy.
+        [`${role}_gpu_device`]: "",
       };
     }
     if (policy?.mode === "cpu") {
@@ -743,6 +744,37 @@ function runtimeLaunchOptions() {
   };
 }
 
+function updateGpuDeviceOptions(role) {
+  const device = byId(`${role}-gpu-device`);
+  if (!device) return;
+  const policy = gpuPolicies[role];
+  const current = String(device.value || "");
+  const values = [{value: "", label: t("boot.gpu.free")}];
+  const seen = new Set([""]);
+  (Array.isArray(gpuDevices[role]) ? gpuDevices[role] : []).forEach((entry) => {
+    const index = String(entry?.index ?? "").trim();
+    if (!/^\d+$/.test(index) || seen.has(index)) return;
+    seen.add(index);
+    const uuid = String(entry?.uuid ?? "").trim();
+    values.push({value: index, label: index, title: uuid});
+  });
+  if (policy?.mode === "specific") {
+    const fixed = String(policy.device || "");
+    if (fixed && !seen.has(fixed)) values.push({value: fixed, label: fixed, title: fixed});
+  }
+  device.replaceChildren(...values.map((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.value;
+    option.textContent = entry.label;
+    if (entry.title) option.title = entry.title;
+    return option;
+  }));
+  const wanted = policy?.mode === "specific"
+    ? String(policy.device || "")
+    : (values.some((entry) => entry.value === current) ? current : "");
+  device.value = values.some((entry) => entry.value === wanted) ? wanted : "";
+}
+
 function updateRuntimeOptions() {
   const viewer = byId("use-viewer");
   const workflowReady = workflowSaved && workflowApplied;
@@ -757,6 +789,7 @@ function updateRuntimeOptions() {
     const device = byId(`${role}-gpu-device`);
     if (!inherit || !device) return;
     const policy = gpuPolicies[role];
+    updateGpuDeviceOptions(role);
     const fixed = policy && policy.mode !== "inherit";
     if (fixed) {
       inherit.checked = policy.mode === "specific";
@@ -781,6 +814,7 @@ function applyRuntimeCapabilities(context) {
   gpuPolicies = context?.topology
     ? {pilot: {mode: "unknown", device: ""}, sim: {mode: "unknown", device: ""}}
     : {pilot: null, sim: null};
+  gpuDevices = {pilot: [], sim: []};
   const policies = context?.runtime_options?.gpu_policies;
   if (policies && typeof policies === "object") {
     ["pilot", "sim"].forEach((role) => {
@@ -804,6 +838,7 @@ function applyRuntimeGpuPolicies(hosts) {
     pilot: {mode: "unknown", device: ""},
     sim: {mode: "unknown", device: ""},
   };
+  const nextDevices = {pilot: [], sim: []};
   (Array.isArray(hosts) ? hosts : []).forEach((host) => {
     const policies = host?.gpu_policy && typeof host.gpu_policy === "object"
       ? host.gpu_policy
@@ -819,9 +854,14 @@ function applyRuntimeGpuPolicies(hosts) {
         device: policy.mode === "specific" ? String(policy.device || "") : "",
       };
     });
+    ["pilot", "sim"].forEach((role) => {
+      if (!(host?.roles || []).includes(role)) return;
+      if (Array.isArray(host?.gpu_devices)) nextDevices[role] = host.gpu_devices;
+    });
   });
   ["pilot", "sim"].forEach((role) => {
     gpuPolicies[role] = next[role];
+    gpuDevices[role] = nextDevices[role];
   });
   updateRuntimeOptions();
 }
@@ -832,7 +872,7 @@ function setRuntimeOptionsLocked(locked) {
 }
 
 function restoreRuntimeOptions(job) {
-  if (!job || !["start", "restart"].includes(job.action) || !job.runtime_options) return;
+  if (!job || job.action !== "start" || !job.runtime_options) return;
   const options = job.runtime_options;
   const viewer = byId("use-viewer");
   ["pilot", "sim"].forEach((role) => {
@@ -876,7 +916,6 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
   setWorkflowStepState("save", "success");
   if (invalidate) {
     workflowApplied = false;
-    runtimeRestartable = false;
   }
   if (invalidate) {
     setWorkflowStepState("apply", "pending");
@@ -910,7 +949,7 @@ async function probeSsh(slot) {
 
 async function startJob(action) {
   if (jobSubmissionPending) return;
-  const locksRuntimeOptions = ["start", "restart"].includes(action);
+  const locksRuntimeOptions = action === "start";
   jobSubmissionPending = true;
   // Disable every workflow action before the first asynchronous status/save
   // request.  Otherwise a second click can race the first accepted job and
@@ -923,22 +962,15 @@ async function startJob(action) {
     if (locksRuntimeOptions && (!workflowSaved || !workflowApplied)) {
       throw new Error(t("error.workflow.incomplete"));
     }
-    if (action === "restart") {
-      await pollRuntimeStatus();
-      if (!runtimeRestartable) {
-        throw new Error(t("error.restart.unavailable"));
-      }
-    }
     await saveTopology({quiet: true, invalidate: false});
     if (["prepare", "provision", "deploy", "rotate"].includes(action)) {
       workflowApplied = false;
-      runtimeRestartable = false;
       setWorkflowStepState("start", "pending");
       updateRuntimeOptions();
     }
     step = workflowStepForAction(action);
     if (step) setWorkflowStepState(step, "running");
-    const payload = ["start", "restart"].includes(action)
+    const payload = action === "start"
       ? runtimeLaunchOptions()
       : {};
     await api(`/api/job/${action}`, {method: "POST", body: JSON.stringify(payload)});
@@ -966,7 +998,6 @@ function markWorkflowDirty() {
   workflowSaved = false;
   workflowRequiresFreshSave = true;
   workflowApplied = false;
-  runtimeRestartable = false;
   setWorkflowStepState("save", "pending");
   setWorkflowStepState("apply", "pending");
   setWorkflowStepState("start", "pending");
@@ -975,16 +1006,12 @@ function markWorkflowDirty() {
 
 function renderRuntimeStatus(result) {
   if (!result?.available) {
-    runtimeRestartable = false;
     updateWorkflow();
     byId("runtime-status").textContent = result?.reason || t("runtime.unavailable");
     return;
   }
   const hosts = Array.isArray(result.hosts) ? result.hosts : [];
   applyRuntimeGpuPolicies(hosts);
-  runtimeRestartable = hosts.length > 0 && hosts.every(
-    (host) => host.reachable !== false && host.containers_present === true
-  );
   const rows = hosts.map((host) => {
     const roles = (host.roles || []).join(", ");
     const state = host.reachable ? (host.state || "unknown") : t("runtime.unreachable");
@@ -1012,7 +1039,6 @@ async function pollRuntimeStatus() {
   try {
     renderRuntimeStatus(await api("/api/runtime"));
   } catch (error) {
-    runtimeRestartable = false;
     byId("runtime-status").textContent = error instanceof Error ? error.message : String(error);
     updateWorkflow();
   } finally {
@@ -1056,7 +1082,6 @@ async function pollJob() {
       // Keep the form populated but require the operator to validate/save it
       // before another security or runtime action can be enabled.
       workflowSaved = !workflowRequiresFreshSave;
-      runtimeRestartable = false;
       setWorkflowStepState("save", workflowRequiresFreshSave ? "pending" : "success");
       if (!topologyAppliedByThisJob) {
         workflowApplied = false;
@@ -1068,7 +1093,7 @@ async function pollJob() {
     updateWorkflow(running);
     if (
       !running
-      && ["check", "prepare", "provision", "deploy", "rotate", "start", "restart"].includes(job.action)
+      && ["check", "prepare", "provision", "deploy", "rotate", "start"].includes(job.action)
     ) {
       pollRuntimeStatus();
     }
@@ -1162,6 +1187,7 @@ function bindEvents() {
   });
   ["pilot", "sim"].forEach((role) => {
     byId(`${role}-gpu-inherit`)?.addEventListener("change", updateRuntimeOptions);
+    byId(`${role}-gpu-device`)?.addEventListener("change", updateRuntimeOptions);
   });
   document.querySelectorAll("[data-probe-slot]").forEach((button) => {
     button.addEventListener("click", () => probeSsh(button.dataset.probeSlot).catch(showError));
@@ -1172,7 +1198,6 @@ function bindEvents() {
   byId("security").addEventListener("change", updateWorkflow);
   byId("save").addEventListener("click", () => saveTopology().catch(showError));
   byId("apply").addEventListener("click", () => runApplyJob().catch(showError));
-  byId("restart").addEventListener("click", () => startJob("restart").catch(showError));
   byId("runtime-start").addEventListener("click", () => startJob("start").catch(showError));
   byId("cancel").addEventListener("click", async () => {
     try { await api("/api/cancel", {method: "POST", body: JSON.stringify({})}); }
@@ -1196,12 +1221,11 @@ async function initialize() {
       setCardActive(jetsonSlot);
     }
     if (context.topology) {
-      // Restore all values, but deliberately restart the operator workflow at
+      // Restore all values, but deliberately begin the operator workflow at
       // validation/save.  A local active generation can outlive a failed or
       // partial remote rollout, so it is not sufficient to unlock Booting.
       workflowSaved = false;
       workflowApplied = false;
-      runtimeRestartable = false;
       workflowRequiresFreshSave = true;
       setWorkflowStepState("save", "pending");
       setWorkflowStepState("apply", "pending");

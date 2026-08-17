@@ -1,5 +1,8 @@
 # Pitch-Preview Gaze Control
 
+> Experimental/design documentation. It does not override the current runtime
+> contract; see [`../architecture.md`](../architecture.md).
+
 ## Status
 
 Implemented. The runtime mode name is `pitch_preview`.

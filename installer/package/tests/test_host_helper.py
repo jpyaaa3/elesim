@@ -28,6 +28,12 @@ def _compose_wrapper(bin_dir: Path) -> str:
 
 def test_host_helper_allows_only_fixed_compose_lifecycle_shapes() -> None:
     compose, bin_dir = _paths()
+    _validate_command(
+        (str(bin_dir / "elesim-status"), "--gpu-devices"),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+    )
     prefix = (
         _compose_wrapper(bin_dir),
         "-p",

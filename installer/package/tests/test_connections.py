@@ -584,10 +584,10 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
     assert any("런타임을 롤백합니다" in message for message in logs)
 
 
-@pytest.mark.parametrize("action", ("start", "restart"))
 def test_runtime_readiness_preserves_compensating_stop_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    action = "start"
     topology = _topology(tmp_path, security_profile="trusted-network")
     logs: list[str] = []
 
@@ -622,9 +622,7 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
 
         def stop(self, _host) -> None:
             self.stop_calls += 1
-            initial_restart_stops = 1 if action == "restart" else 0
-            if self.stop_calls > initial_restart_stops:
-                raise RuntimeError(f"cannot stop {self.host_id}")
+            raise RuntimeError(f"cannot stop {self.host_id}")
 
     operations = {
         host.host_id: Operations(host.host_id) for host in topology.hosts
@@ -657,10 +655,10 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
     assert "operator: cannot stop operator" in str(captured.value)
 
 
-@pytest.mark.parametrize("action", ("start", "restart"))
 def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    action = "start"
     topology = _topology(tmp_path, security_profile="trusted-network")
     events: list[str] = []
 
@@ -689,10 +687,6 @@ def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
             events.append(f"launch:{self.host_id}")
             raise RuntimeError(f"partial launch on {self.host_id}")
 
-        def start(self, _host) -> None:
-            events.append(f"start:{self.host_id}")
-            raise RuntimeError(f"partial start on {self.host_id}")
-
         def stop(self, _host) -> None:
             events.append(f"stop:{self.host_id}")
 
@@ -715,14 +709,10 @@ def test_runtime_launch_failure_rolls_back_the_partially_started_current_host(
     with pytest.raises(RuntimeError, match="partial"):
         runner(topology, action, lambda _message: None)
 
-    initial_stop = ["stop:jetson", "stop:operator"] if action == "restart" else []
-    attempted = "launch:operator" if action == "start" else "start:operator"
-    rollback_cleanup = ["viewer-cleanup:operator"] if action == "start" else []
     assert events == [
-        *initial_stop,
-        attempted,
+        "launch:operator",
         "stop:operator",
-        *rollback_cleanup,
+        "viewer-cleanup:operator",
     ]
 
 
@@ -819,65 +809,10 @@ def test_runtime_start_rejects_mixed_running_state_before_build(
         tmp_path / "authority", local_install_root=tmp_path / "install"
     )
 
-    with pytest.raises(RuntimeError, match="재시작"):
+    with pytest.raises(RuntimeError, match="elesim-up"):
         runner(topology, "start", lambda _message: None)
 
     assert events == []
-
-
-def test_restart_stop_failure_restores_previously_running_hosts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    topology = _topology(tmp_path, security_profile="trusted-network")
-    events: list[str] = []
-
-    class Operations(_NoopNetworkPreparation):
-        def __init__(self, host_id: str) -> None:
-            self.host_id = host_id
-
-        def preflight(self, _host):
-            class Capabilities:
-                @staticmethod
-                def require_for(_managed_host) -> None:
-                    return None
-
-            return Capabilities()
-
-        def runtime_network_check(self, _host) -> None:
-            return None
-
-        def status(self, host):
-            return {"state": "running", "running_roles": list(host.roles)}
-
-        def stop(self, _host) -> None:
-            events.append(f"stop:{self.host_id}")
-            if self.host_id == "operator":
-                raise RuntimeError("partial stop")
-
-        def start(self, _host, roles=None) -> None:
-            events.append(f"restore:{self.host_id}:{','.join(roles or ())}")
-
-    operations = {
-        host.host_id: Operations(host.host_id) for host in topology.hosts
-    }
-    monkeypatch.setattr(
-        ConnectionDeploymentRunner,
-        "_operations",
-        staticmethod(lambda _graph: operations),
-    )
-    runner = ConnectionDeploymentRunner(
-        tmp_path / "authority", local_install_root=tmp_path / "install"
-    )
-
-    with pytest.raises(RuntimeError, match="partial stop"):
-        runner(topology, "restart", lambda _message: None)
-
-    assert events == [
-        "stop:jetson",
-        "stop:operator",
-        "restore:operator:pilot,sim,ui",
-        "restore:jetson:robot",
-    ]
 
 
 def test_operation_close_attempts_every_host_and_preserves_primary_error() -> None:

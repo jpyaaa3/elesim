@@ -682,7 +682,6 @@ def _publish_snapshot(
     marker.write_text(root_name + "\n", encoding="utf-8")
     snapshots = _snapshots_directory(cache)
     snapshots.mkdir(parents=True, exist_ok=True)
-    snapshots = _snapshots_directory(cache)
     destination = snapshots / revision
     if destination.exists() or destination.is_symlink():
         existing = None

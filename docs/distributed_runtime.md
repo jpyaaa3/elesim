@@ -1,221 +1,98 @@
-# Distributed Runtime
+# Distributed Runtime Reference
 
-This document describes network behavior. Installation commands are in
-[`deployment.md`](deployment.md), and code ownership is in
-[`architecture.md`](architecture.md).
+이 문서는 네트워크 경계만 빠르게 찾기 위한 참조표다. 시스템 전체의 정본은
+[`architecture.md`](architecture.md), wire registry는 [`dds_contracts.md`](dds_contracts.md),
+실제 배포는 [`deployment.md`](deployment.md)다.
 
-## DDS Graph
+## DDS graph
 
-Every deployment is a ROS 2 participant. There is no application Router,
-central registry, ZMQ socket, or CURVE transport. A deployment publishes an
-`EndpointDescriptor` and periodic `EndpointHeartbeat` on:
+모든 role은 ROS 2 participant이며 직접 UDP로 통신한다. 중앙 Router, ZMQ,
+CURVE, registry, DDS relay는 없다.
 
 ```text
 /<system_id>/v6/discovery/endpoints
 /<system_id>/v6/discovery/heartbeats
+/<system_id>/v6/control
+/<system_id>/v6/<endpoint-resource-prefix>/rgbd/frame
 ```
 
-The descriptor carries `PeerRef`, role, capabilities, stream descriptors, and
-boot-specific `service_prefix`/`topic_prefix`. Descriptor QoS is reliable,
-transient-local, keep-last-64. Heartbeats are reliable, volatile, keep-last-64 at
-1 Hz; consumers expire a peer after 3.5 seconds. Two live boots claiming one
-logical endpoint ID are an error; consumers refuse to acquire authority until
-the conflict clears.
+Descriptor는 `PeerRef`, role, capability, stream descriptor와 boot-specific
+resource prefix를 광고한다. Heartbeat는 같은 endpoint/boot와 revision을
+증명한다. duplicate live boot은 fail closed이며, descriptor+heartbeat gate
+전에는 authority를 획득하지 않는다. startup envelope queue는 heartbeat
+timeout 동안 최대 512개다.
 
-All resources live below the canonical `/<system_id>/v6` root. A deployment
-builds valid, collision-resistant, boot-specific ROS prefixes from its role,
-endpoint ID and boot ID, then advertises the exact values. Consumers must use
-those advertised prefixes instead of reconstructing or independently
-sanitizing a logical ID such as `sim-default`.
+## Authority
+
+Robot/Sim이 자기 motion lease를 serialize하고, Sim이 UI simulation session을
+serialize한다. `select_target`, `renew_target`, `release_target`와
+`open/renew/close_simulation_session`은 reliable control carrier다.
+`motion_command`는 lease-bound best-effort depth-1이고 local deadman이
+독립적으로 만료시킨다. stale boot, sequence, token, epoch은 모두 거부한다.
+
+UI session은 motion lease가 아니며, DDS discovery/SSH/TURN도 authority를 주지
+않는다.
+
+## Media surfaces
+
+| 데이터 | 경로 | 규칙 |
+| --- | --- | --- |
+| physical/sim RGB-D | typed `RgbdFrame` DDS | coherent latest-only, depth 1, 오래된 sample drop |
+| observer scene | Sim → UI WebRTC | 별도 track, DTLS/SRTP |
+| hand-eye preview | Sim → UI WebRTC | observer와 별도 track |
+| offer/answer/ICE signal | `webrtc_signal` DDS | Sim-owned reliable request/reply |
+
+Coturn은 WebRTC ICE media candidate만 relay한다. UI와 Sim이 DDS로 SDP를
+주고받지 못하면 TURN이 살아 있어도 video session은 만들 수 없다.
+
+Sim native Genesis Viewer는 전송되지 않는다. UI 화면은 Sim media worker의
+observer/hand-eye track이다.
+
+## QoS와 queue
+
+| surface | QoS/규칙 |
+| --- | --- |
+| descriptor/heartbeat | reliable discovery; heartbeat timeout으로 expiry |
+| control/authority/status | reliable bounded carrier |
+| motion | best-effort volatile depth 1 |
+| RGB-D | best-effort volatile depth 1, latest-only |
+| WebRTC pixels | DDS QoS가 아니라 DTLS/SRTP/ICE |
+
+ROS/DDS implementation이 제공하는 liveliness/deadline만으로 안전을 판정하지
+않는다. authority TTL, Robot deadman, bounded application queue가 최종
+경계다. QoS를 낮춰 렉을 숨기거나 control을 transient-local로 바꾸지 않는다.
+
+## Reachability
+
+지원되는 DDS graph는 common L2 LAN, routed LAN, routed VPN, mutually reachable
+global IPv6다. multicast가 cross-router되지 않으면 직접 도달 가능한 static
+peer로 discovery를 seed한다.
+
+지원하지 않는 것:
+
+- ordinary IPv4 NAT, CGNAT, symmetric NAT
+- SSH local-forward를 DDS locator로 사용하는 것
+- HTTP test server/SSH port/TURN port를 DDS address로 저장하는 것
+- Coturn/Tailscale SSH로 DDS UDP를 relay한다고 주장하는 것
+
+## Security
+
+`trusted-network`는 owned LAN/routed VPN에서만 plaintext DDS를 허용한다.
+공유망은 role-scoped SROS2 enforce(authentication, authorization, encryption)를
+사용한다. `ROS_DOMAIN_ID`는 인증 경계가 아니다. SSH local-forward는
+loopback-bound setup GUI에만 적용된다.
+
+## Failure checklist
 
 ```text
-UI -------- reliable control message --------> Pilot
-Pilot -------- best-effort motion ------> Robot or Sim
-Pilot <------- reliable reply/state ------ Robot or Sim
-
-UI -------- reliable control message --------> Sim
-UI <------- status + WebRTC reply ------------ Sim
+container running
+  → interface/address/route valid
+  → descriptor + matching heartbeat live
+  → Sim scene/media ready
+  → lease/session grant
+  → WebRTC signaling answer
 ```
 
-## Motion Authority
-
-Robot and Sim each own and serialize access to their own motion lease:
-
-- `select_target` is an idempotent request on the target's reliable control
-  topic. It identifies the exact Pilot and target boots; the response
-  contains a target-issued lease epoch and opaque token.
-- `renew_target` is sent before the bounded TTL, and `release_target`
-  explicitly relinquishes the lease. The target revokes the lease when renewal
-  stops.
-- `motion_command` carries both process-instance identities, a monotonic
-  sequence, timestamp, and lease token. A target drops a command for a
-  mismatched lease, previous process instance, or stale sequence. Ordinary
-  motion uses best-effort keep-last-1 delivery; the existing 0.5-second command
-  deadman remains local.
-- Estop uses the reliable control carrier, bypasses the ordinary active-motion
-  lease check, remains source-role checked, and never disables local hardware
-  safety.
-
-Pilot leases at most one target. A target switch is fail-closed: stop and
-release the old target before commanding the new one. DDS discovery alone
-never grants motion authority.
-
-## Operator And Simulation Authority
-
-UI sends bounded `operator_intent` requests to Pilot and receives
-`operator_result` snapshots on the reliable control carrier. Long-running Pick,
-Gaze, and IK cancellation is currently expressed through the same versioned
-request/reply contract.
-
-Sim owns one independent UI simulation session:
-
-- `open_simulation_session` and `close_simulation_session` are idempotent
-  request/reply messages.
-- UI sends `renew_simulation_session` before the bounded TTL; Sim revokes
-  the session after approximately 2 seconds without a valid renewal.
-- The session payload carries the granted authority, epoch, token, streams and
-  TURN credentials; status/result messages carry state and command results.
-- orbit, pan, zoom, pause, resume, step, reset, speed, reset-view and debug
-  visibility use bounded reliable `simulation_command` messages.
-
-Acquiring a UI session never grants motion authority. Simulation commands are
-placed in a bounded Sim mailbox and executed on the Genesis main thread;
-the ROS executor never mutates Genesis directly.
-
-## Media Plane
-
-| Stream | Sender | Receiver | Transport |
-| --- | --- | --- | --- |
-| Physical RGBD | Robot | Pilot | DDS `rgbd/frame`, latest coherent sample |
-| Simulated RGBD | Sim | Pilot | DDS `rgbd/frame`, latest coherent sample |
-| Observer scene | Sim | UI | WebRTC |
-| Hand-eye preview | Sim | UI | separate WebRTC peer |
-
-`RgbdFrame` contains `PeerRef source`, frame sequence, `std_msgs/Header`,
-`sensor_msgs/Image` color and depth, `sensor_msgs/CameraInfo`, and
-`depth_scale`. Its topic is best-effort, volatile, keep-last-1 with a finite
-lifespan so an overloaded subscriber drops old frames instead of accumulating
-latency. Raw 640x480 RGB plus depth at 30 Hz is roughly 369 Mbit/s before
-DDS/UDP overhead; production profiles must validate RTPS fragmentation,
-resource limits, MTU, loss and frame age and may need a separately versioned
-compressed RGBD representation. Do not silently put compressed bytes into a
-`sensor_msgs/Image` whose encoding claims raw pixels.
-
-## Interface Package
-
-`packages/elesim_interfaces` is the only ROS wire-contract package. The
-runtime-wired messages are:
-
-- `PeerRef`, `StreamDescriptor`, `EndpointDescriptor`, and
-  `EndpointHeartbeat` for discovery;
-- `RgbdFrame` for coherent camera samples;
-- `PeerEnvelope` for bounded control, authority, telemetry, status, and WebRTC
-  signaling payloads.
-
-Interfaces carry bounded strings/arrays where practical. The interface package
-does not hardcode ROS names; deployments advertise their boot-specific
-prefixes in `EndpointDescriptor`. Payload schemas inside `PeerEnvelope` are
-versioned and validated by `elesim_protocol`.
-
-The package also declares more specific motion, operator, simulation, and TURN
-messages/services plus `RunOperatorWorkflow.action`. They are forward contract
-work and are generated for compatibility testing, but the current runtime does
-not create those services/actions. They must not appear in an SROS2 policy or
-network-doctor success criterion until a deployment actually binds them.
-
-The observer stream is the remote-control surface for the Genesis scene. It is
-not a screen capture of the native Viewer. UI mouse input produces orbit, pan
-and zoom commands, and the toolbar exposes pause/resume, single-step, reset,
-speed, reset-view and debug-marker visibility. Clicking the hand-eye preview
-swaps it into the main viewport; camera manipulation remains attached only to
-the observer stream.
-
-## QoS Contract
-
-| Surface | QoS and application rule |
-| --- | --- |
-| endpoint descriptor | reliable, transient-local, depth 64 |
-| endpoint heartbeat | reliable, volatile, depth 64; 1 Hz; expire after 3.5 s |
-| reliable control carrier | reliable, volatile, depth 64; bounded application queues |
-| motion command | best-effort, volatile, depth 1; 0.5 s local deadman |
-| estop | reliable control carrier; source-role checked |
-| telemetry/status/replies | reliable control carrier in the current runtime |
-| RGBD | best-effort, volatile, depth 1; finite lifespan |
-
-QoS compatibility is part of the wire contract. Endpoint heartbeats,
-lease/session renewal TTLs and deadman timers remain authoritative because DDS
-deadlines/liveliness support and reporting differ between RMW implementations.
-
-## WebRTC Signaling And TURN
-
-UI sends a bounded `webrtc_signal` offer on the Sim's reliable control
-topic. It contains the active simulation-session token, stream name, offer type,
-and SDP offer (maximum 524288 characters). Sim validates the session and
-returns an answer on the UI's reliable control topic. Observer and hand-eye
-negotiate independently, but UI swaps a refreshed pair only after both
-replacements succeed. The current non-trickle design needs no ICE-candidate
-topic; adding trickle ICE requires an explicit future interface/version change.
-
-WebRTC media always uses DTLS/SRTP. On a flat LAN, ICE can usually connect UI
-directly to Sim. Coturn can relay the encrypted media when direct ICE is
-unavailable. In managed mode its REST HMAC secret is mounted into Coturn and
-the co-located Sim. Sim issues usable, bounded-lifetime credentials
-for itself and the active UI session; UI never receives the static secret.
-External TURN instead loads a bounded username/credential JSON file in
-Sim only and supplies the usable value to the active UI session. Managed
-TURN requires `sros2` because issued credentials and signaling cross DDS.
-External mode may use `trusted-network` only under its controlled-LAN/VPN trust
-assumption; use SROS2 when the DDS network is shared or observable.
-
-TURN does not carry DDS signaling. If UI and Sim cannot exchange DDS
-traffic, they cannot exchange the SDP needed to establish WebRTC even when both
-can reach the TURN server.
-
-## DDS Security Profiles
-
-- `trusted-network`: no DDS encryption. Use only on an owned LAN or routed VPN,
-  bind to a chosen interface, and restrict UDP reachability with host/network
-  firewalls.
-- `sros2`: use DDS Security authentication, access control and encryption in
-  enforce mode on untrusted/shared networks. Give each role a distinct enclave
-  whose permissions expose only its required DDS topics.
-
-`ROS_DOMAIN_ID` is a discovery partition and collision-avoidance setting, not a
-security boundary. WebRTC DTLS/SRTP is unchanged in both profiles. SSH local
-forwarding protects only the loopback-bound installation GUI and is not a DDS
-or media transport.
-
-## P2P Reachability
-
-DDS data uses direct UDP locators. Supported layouts are a common L2 LAN, a
-routed LAN with configured unicast peers, a routed VPN, or mutually reachable
-global IPv6. Multicast discovery is not expected to cross routers; static peers
-can seed discovery but do not relay user data.
-
-Ordinary IPv4 NAT, CGNAT and symmetric NAT are unsupported. Server-side port
-forwarding alone is insufficient because every required DDS participant and
-user-data locator must be reachable bidirectionally. DDS has no ICE/TURN-style
-NAT traversal. A routed VPN is the supported answer for a laptop behind NAT;
-adding a DDS relay would violate this architecture's direct P2P constraint.
-
-## Failure Rules
-
-- Endpoint-heartbeat expiry removes a boot from the local view; lease/session
-  renewal TTL expiry independently revokes authority at the owning target.
-- Robot safety and deadman logic remain local without Pilot or DDS
-  availability.
-- Sequence numbers are monotonic per process instance; stale commands from an
-  old instance are rejected.
-- A Sim reset increments `epoch`. Pilot cancels active Pick/Gaze
-  work rather than continuing against a replaced world.
-- Sim pause freezes physics while DDS liveness, status and media
-  sessions remain established.
-- A malformed descriptor or frame is reported as endpoint health; it does
-  not terminate another participant's executor.
-
-Software tests must cover target-owned lease/session isolation, restart UUIDs,
-stale sequence rejection, command/status delivery, QoS compatibility, RGBD
-coherence, WebRTC negotiation, and encoded frames through both real aiortc
-peers. Actual DDS discovery on each supported network, SROS2 enforcement,
-Genesis GPU rendering, codec timing under load, TURN relay selection, packet
-loss, Wi-Fi/VPN reconnect and multi-host latency remain live deployment gates.
+각 단계는 독립적으로 실패할 수 있다. `sim-default` 미발견은 단순히
+container state만으로 해결되지 않으며, `elesim-status`, role logs,
+`elesim-net namespace-check`, connection-manager preflight를 순서대로 본다.

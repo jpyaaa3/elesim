@@ -34,10 +34,27 @@ def test_frame_dispatch_worker_overwrites_while_consumer_is_busy() -> None:
         while time.monotonic() < deadline and seen[-1:] != [("observer", 3)]:
             time.sleep(0.01)
         assert seen == [("observer", 1), ("observer", 3)]
+        assert worker.flush("observer", timeout_s=1.0) is True
         stats = worker.stats()["observer"]
         assert stats["submitted"] == 3
         assert stats["processed"] == 2
         assert stats["overwritten"] == 1
+    finally:
+        worker.close()
+
+
+def test_frame_dispatch_flush_waits_for_submitted_startup_frame() -> None:
+    seen: list[tuple[str, object]] = []
+
+    def consume(stream: str, value: object) -> None:
+        seen.append((stream, value))
+
+    worker = FrameDispatchWorker(("observer",), consume)
+    worker.start()
+    try:
+        assert worker.submit("observer", "first")
+        assert worker.flush("observer", timeout_s=1.0) is True
+        assert seen == [("observer", "first")]
     finally:
         worker.close()
 

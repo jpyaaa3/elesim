@@ -10,6 +10,7 @@ latest-only handoff so a slow publisher cannot make the physics loop wait.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterable
 from typing import Any, Optional
 
@@ -92,6 +93,46 @@ class FrameDispatchWorker:
                 }
                 for name in self._streams
             }
+
+    def flush(self, stream: str, *, timeout_s: float = 1.0) -> bool:
+        """Wait until the frames submitted so far for ``stream`` are handled.
+
+        Camera capture remains on the Genesis thread, but the first frame must
+        reach the shared media mailbox before the simulation-session readiness
+        gate is advertised.  This is a bounded barrier for that startup edge;
+        normal steady-state publication remains latest-only and asynchronous.
+        """
+
+        name = str(stream)
+        with self._lock:
+            if name not in self._slots:
+                raise KeyError(f"unknown frame stream: {name}")
+            target = int(self._submitted[name])
+            failed_before = int(self._failed[name])
+            handled = int(self._processed[name]) + int(self._overwritten[name])
+            if target <= handled:
+                return (
+                    target > 0
+                    and not self._closed
+                    and not self._stop.is_set()
+                    and int(self._failed[name]) == failed_before
+                )
+        deadline = time.monotonic() + max(0.01, float(timeout_s))
+        while time.monotonic() < deadline:
+            with self._lock:
+                handled = int(self._processed[name]) + int(self._overwritten[name])
+                if handled >= target:
+                    return int(self._failed[name]) == failed_before
+                if self._closed or self._stop.is_set():
+                    return False
+            self._event.set()
+            time.sleep(0.002)
+        with self._lock:
+            handled = int(self._processed[name]) + int(self._overwritten[name])
+            return (
+                handled >= target
+                and int(self._failed[name]) == failed_before
+            )
 
     def close(self, *, timeout_s: float = 2.0) -> None:
         with self._lock:
