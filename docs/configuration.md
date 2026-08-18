@@ -111,6 +111,11 @@ mount한다. UI/Pilot-only host와 DDS transport에는 static TURN secret을
 WebRTC signaling은 DDS PeerEnvelope request/reply이고 픽셀은 DTLS/SRTP다.
 TURN URL을 DDS static peer나 SSH endpoint로 입력하지 않는다.
 
+Sim은 H.264 RTP payload를 기본 1000바이트로 packetize한다. TURN 또는
+Tailscale/IPv6 경로에서 조각화가 관측되고 실제 MTU 측정 결과가 더 큰
+예산을 허용할 때만 Sim 환경변수 `ELESIM_WEBRTC_RTP_PAYLOAD_MAX`를
+900--1200 범위로 조정한다.
+
 ## 6. SROS2 ownership
 
 state schema v9는 `external`과 `managed`를 구분한다.

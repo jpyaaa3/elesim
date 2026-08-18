@@ -131,6 +131,7 @@ class SimView:
         self.state = SimViewState()
         self._textures: dict[str, int] = {}
         self._texture_versions: dict[str, int] = {}
+        self._texture_sizes: dict[str, tuple[int, int]] = {}
 
     def draw(self) -> None:
         snapshot = self.session.snapshot
@@ -415,17 +416,35 @@ class SimView:
             return texture
         GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
         GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
-        GL.glTexImage2D(
-            GL.GL_TEXTURE_2D,
-            0,
-            GL.GL_RGB,
-            width,
-            height,
-            0,
-            GL.GL_BGR,
-            GL.GL_UNSIGNED_BYTE,
-            frame,
-        )
+        size = (int(width), int(height))
+        if self._texture_sizes.get(stream) == size and hasattr(GL, "glTexSubImage2D"):
+            # Reuse the allocation for the steady-state streams. Replacing
+            # a texture with glTexImage2D on every decoded frame can force a
+            # driver synchronization and show up as periodic UI hitching.
+            GL.glTexSubImage2D(
+                GL.GL_TEXTURE_2D,
+                0,
+                0,
+                0,
+                width,
+                height,
+                GL.GL_BGR,
+                GL.GL_UNSIGNED_BYTE,
+                frame,
+            )
+        else:
+            GL.glTexImage2D(
+                GL.GL_TEXTURE_2D,
+                0,
+                GL.GL_RGB,
+                width,
+                height,
+                0,
+                GL.GL_BGR,
+                GL.GL_UNSIGNED_BYTE,
+                frame,
+            )
+            self._texture_sizes[stream] = size
         if version is not None:
             self._texture_versions[stream] = version
         return texture
@@ -462,10 +481,12 @@ class SimView:
         if GL is None:
             self._textures.clear()
             self._texture_versions.clear()
+            self._texture_sizes.clear()
             return
         textures = tuple(self._textures.values())
         self._textures.clear()
         self._texture_versions.clear()
+        self._texture_sizes.clear()
         if textures:
             try:
                 GL.glDeleteTextures(list(textures))

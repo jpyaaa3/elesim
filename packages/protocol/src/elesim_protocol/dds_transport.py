@@ -70,6 +70,8 @@ _DISCOVERY_PERIOD_S = 1.0
 _DESCRIPTOR_PERIOD_S = 2.5
 _MAX_PAYLOAD_JSON = 1_048_576
 _MAX_TRACE_JSON = 16_384
+_MAX_INBOX = 512
+_MAX_RECEIVE_PER_CYCLE = 64
 _MAX_PENDING_INBOUND = 512
 _MAX_PENDING_HEARTBEATS = 512
 # Simulation video/session state may survive a short DDS discovery flap.  The
@@ -409,6 +411,11 @@ class DdsPeerNode:
         self.directory = PeerDirectory(self.settings.heartbeat_timeout_s)
         self._wire_descriptors: dict[PeerIdentity, DiscoveredPeer] = {}
         self._inbox: deque[tuple[Envelope, PeerIdentity]] = deque()
+        # The DDS executor can deliver a burst while the application thread
+        # is busy rendering or rebuilding a session.  Keep the transport
+        # latest-only under pressure instead of letting a callback burst grow
+        # without bound and delay the next heartbeat/control cycle.
+        self._max_inbox = _MAX_INBOX
         self._pending_inbound: deque[
             tuple[Envelope, PeerIdentity, float]
         ] = deque()
@@ -679,7 +686,10 @@ class DdsPeerNode:
 
     def receive(self, timeout_ms: int = 0) -> Iterator[tuple[Envelope, PeerIdentity]]:
         self.spin_once(timeout_s=max(0, int(timeout_ms)) / 1000.0)
-        while True:
+        # Bound work handed to the caller in one pump pass.  A fixed inbox
+        # cap protects memory, but draining the entire cap here could still
+        # postpone the next heartbeat or UI/render cycle under a burst.
+        for _ in range(_MAX_RECEIVE_PER_CYCLE):
             with self._inbox_lock:
                 if not self._inbox:
                     return
@@ -687,8 +697,7 @@ class DdsPeerNode:
             yield item
 
     def inject_local(self, envelope: Envelope, source: Optional[PeerIdentity] = None) -> None:
-        with self._inbox_lock:
-            self._inbox.append((envelope, source or self.identity))
+        self._enqueue_inbox((envelope, source or self.identity))
 
     def close(self) -> None:
         if self._closed:
@@ -935,8 +944,7 @@ class DdsPeerNode:
                 type=envelope.message_type,
                 interval=1.0,
             )
-        with self._inbox_lock:
-            self._inbox.append((envelope, source))
+        self._enqueue_inbox((envelope, source))
 
     def _diagnostic(
         self,
@@ -956,6 +964,41 @@ class DdsPeerNode:
             for key, value in fields.items()
         )
         print(f"[dds-{event}] {rendered}", flush=True)
+
+    def _append_inbox_locked(
+        self,
+        item: tuple[Envelope, PeerIdentity],
+    ) -> bool:
+        """Append one received item, dropping the oldest on overflow.
+
+        ``_inbox_lock`` must be held by the caller.  The source DDS QoS is
+        already bounded, but the executor can hand several callbacks to this
+        Python queue before the application gets to call ``receive``.  The
+        fixed cap is a final memory/fairness boundary; lease expiry and local
+        deadman safety do not depend on every queued command being retained.
+        """
+
+        limit = max(1, int(getattr(self, "_max_inbox", _MAX_INBOX)))
+        dropped = False
+        if len(self._inbox) >= limit:
+            self._inbox.popleft()
+            dropped = True
+        self._inbox.append(item)
+        return dropped
+
+    def _enqueue_inbox(self, item: tuple[Envelope, PeerIdentity]) -> None:
+        with self._inbox_lock:
+            dropped = self._append_inbox_locked(item)
+        if dropped:
+            self._diagnostic(
+                "control",
+                dedupe="inbox-overflow",
+                state="overflow",
+                queue="inbox",
+                max_items=getattr(self, "_max_inbox", _MAX_INBOX),
+                policy="drop-oldest",
+                interval=1.0,
+            )
 
     def _defer_inbound(self, envelope: Envelope, source: PeerIdentity) -> None:
         """Hold startup-racing traffic until the exact source boot is known."""
@@ -985,7 +1028,19 @@ class DdsPeerNode:
                 else:
                     retained.append((envelope, source, received_at))
             self._pending_inbound.extend(retained)
-            self._inbox.extend(ready)
+            dropped = False
+            for item in ready:
+                dropped = self._append_inbox_locked(item) or dropped
+        if dropped:
+            self._diagnostic(
+                "control",
+                dedupe="inbox-overflow",
+                state="overflow",
+                queue="inbox",
+                max_items=getattr(self, "_max_inbox", _MAX_INBOX),
+                policy="drop-oldest",
+                interval=1.0,
+            )
 
     def _expire_pending_inbound(self, now: float) -> None:
         cutoff = float(now) - self.settings.heartbeat_timeout_s
@@ -1225,7 +1280,12 @@ class PeerClient:
         return envelope
 
     def receive(self, timeout_ms: int = 0) -> Iterator[Envelope]:
-        while self._local_queue:
+        # Local replies are bounded at enqueue time, but draining an entire
+        # pending burst before DDS traffic would still delay the next remote
+        # heartbeat/control pass.  Apply the same per-cycle fairness budget.
+        for _ in range(_MAX_RECEIVE_PER_CYCLE):
+            if not self._local_queue:
+                break
             yield self._local_queue.popleft()
         for envelope, source in self.node.receive(timeout_ms=timeout_ms):
             try:
@@ -1250,7 +1310,9 @@ class PeerClient:
                 continue
             for item in routed:
                 yield item
-        while self._local_queue:
+        for _ in range(_MAX_RECEIVE_PER_CYCLE):
+            if not self._local_queue:
+                break
             yield self._local_queue.popleft()
 
     def close(self) -> None:
@@ -1325,8 +1387,35 @@ class PeerClient:
         )
         if source_id is not None:
             envelope = replace(envelope, source_id=str(source_id))
-        self._local_queue.append(envelope)
+        self._enqueue_local(envelope)
         return envelope
+
+    def _enqueue_local(self, envelope: Envelope) -> None:
+        """Bound locally generated replies just like the DDS inbox.
+
+        Discovery/status helpers can generate replies faster than an
+        application that is busy in a render or callback pass consumes them.
+        ``max_pending`` is the existing PeerClient queue contract; use it
+        here instead of leaving the local fast path unbounded.
+        """
+
+        dropped = False
+        if len(self._local_queue) >= self.max_pending:
+            self._local_queue.popleft()
+            dropped = True
+        self._local_queue.append(envelope)
+        if dropped:
+            diagnostic = getattr(self.node, "_diagnostic", None)
+            if callable(diagnostic):
+                diagnostic(
+                    "control",
+                    dedupe="local-inbox-overflow",
+                    state="overflow",
+                    queue="local",
+                    max_items=self.max_pending,
+                    policy="drop-oldest",
+                    interval=1.0,
+                )
 
     def _discover(
         self,

@@ -104,6 +104,13 @@ class RejectingObserverReceiver(Receiver):
         super().accept_answer(sdp, answer_type)
 
 
+class StalledReceiver(Receiver):
+    """Connected receiver whose decoder never publishes a frame."""
+
+    def frame_age_s(self) -> float:
+        return 9.0
+
+
 def opened(
     request_id: str,
     *,
@@ -344,6 +351,41 @@ def test_media_stream_error_retries_only_the_failed_stream() -> None:
     assert len(offers) == 2
     assert observer.closed is True
     assert hand_eye.closed is False
+
+
+def test_connected_stream_without_decoded_frames_is_restarted_independently() -> None:
+    Receiver.created.clear()
+    clock = Clock()
+    endpoint = Endpoint()
+    session = UiSimSession(
+        ui_id="ui-a",
+        sim_id="sim-a",
+        receiver_factory=StalledReceiver,
+        retry_s=0.5,
+        clock=clock,
+        autostart=False,
+    )
+    session.run_cycle(endpoint)
+    request_id = str(endpoint.sent[0][1]["payload"]["request_id"])
+    endpoint.inbox.append(opened(request_id))
+    session.run_cycle(endpoint)
+    endpoint.inbox.extend((answer("observer"), answer("hand_eye_preview")))
+
+    # The answer/ICE state alone must not keep a decoder-stalled stream marked
+    # LIVE.  The watchdog schedules only the affected m-line.
+    session.run_cycle(endpoint)
+    assert session.connected_streams == ()
+    assert "without a decoded frame" in session.last_error
+
+    clock.now = 0.5
+    session.run_cycle(endpoint)
+    retries = [
+        entry
+        for entry in endpoint.sent
+        if entry[0] == "webrtc_signal"
+        and entry[1]["payload"]["stream"] in {"observer", "hand_eye_preview"}
+    ]
+    assert len(retries) == 4
 
 
 def test_stream_answer_failure_keeps_other_video_stream_and_reports_reason() -> None:

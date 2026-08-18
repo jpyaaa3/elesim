@@ -150,6 +150,73 @@ def test_startup_racing_message_waits_for_exact_source_descriptor() -> None:
     assert list(node._pending_inbound) == []
 
 
+def test_dds_inbox_drops_oldest_item_at_fixed_bound() -> None:
+    node = object.__new__(DdsPeerNode)
+    node.clock = lambda: 10.0
+    node._max_inbox = 2
+    node._inbox = deque()
+    node._inbox_lock = threading.Lock()
+    node._diagnostic_seen = {}
+
+    source = PeerIdentity("pilot-a", "boot-a")
+    messages = [
+        make_envelope(
+            "ack",
+            source.endpoint_id,
+            target_id="robot-a",
+            payload={"reply_to": f"request-{index}"},
+            seq=index,
+        )
+        for index in range(3)
+    ]
+    for message in messages:
+        node._enqueue_inbox((message, source))
+
+    assert len(node._inbox) == 2
+    assert [item[0].seq for item in node._inbox] == [1, 2]
+
+
+def test_dds_receive_caps_one_pump_pass() -> None:
+    node = object.__new__(DdsPeerNode)
+    node._inbox = deque()
+    node._inbox_lock = threading.Lock()
+    node.spin_once = lambda *, timeout_s: None
+    source = PeerIdentity("pilot-a", "boot-a")
+    for index in range(70):
+        node._inbox.append(
+            (
+                make_envelope(
+                    "ack",
+                    source.endpoint_id,
+                    target_id="robot-a",
+                    payload={},
+                    seq=index,
+                ),
+                source,
+            )
+        )
+
+    assert len(list(node.receive())) == 64
+    assert len(node._inbox) == 6
+
+
+def test_peer_client_local_reply_queue_uses_max_pending_bound() -> None:
+    bus = _Bus()
+    client = PeerClient(
+        EndpointDescriptor("ui-a", "ui"),
+        node_factory=bus.factory,
+        max_pending=2,
+    )
+    for index in range(3):
+        client._local_envelope(
+            "endpoint_list",
+            payload={"index": index},
+        )
+
+    assert len(client._local_queue) == 2
+    assert [message.payload["index"] for message in client._local_queue] == [1, 2]
+
+
 def test_heartbeat_waiting_for_descriptor_is_replayed_once_descriptor_arrives() -> None:
     now = [10.0]
     node = object.__new__(DdsPeerNode)

@@ -166,6 +166,7 @@ def _media_worker_main(
             NamedWebRtcVideoSender,
             available,
             configure_h264_encoder,
+            h264_rtp_payload_max,
         )
 
         if not available():
@@ -173,7 +174,11 @@ def _media_worker_main(
             return
 
         encoder = configure_h264_encoder()
-        print(f"[sim-media] h264 encoder={encoder}", flush=True)
+        print(
+            f"[sim-media] h264 encoder={encoder} "
+            f"rtp_payload_max={h264_rtp_payload_max()}",
+            flush=True,
+        )
 
         providers = {
             spec.name: (lambda mailbox=mailboxes[spec.name]: mailbox.latest()[0])

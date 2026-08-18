@@ -67,6 +67,9 @@ class WebRtcVideoReceiver:
         self.peer: Any = None
         self.latest_bgr: Optional[np.ndarray] = None
         self._frame_version = 0
+        self._first_frame_at = 0.0
+        self._last_frame_at = 0.0
+        self._first_frame_reported = False
         self._frame_lock = threading.Lock()
         self._consume_tasks: set[asyncio.Task[Any]] = set()
         self._last_error = ""
@@ -143,8 +146,23 @@ class WebRtcVideoReceiver:
                 self._report_error("decode", exc)
                 continue
             with self._frame_lock:
+                first_frame = self._first_frame_at <= 0.0
                 self.latest_bgr = np.ascontiguousarray(value)
                 self._frame_version += 1
+                now = time.monotonic()
+                if self._first_frame_at <= 0.0:
+                    self._first_frame_at = now
+                self._last_frame_at = now
+                first_frame = first_frame and not self._first_frame_reported
+                if first_frame:
+                    self._first_frame_reported = True
+            if first_frame:
+                stream = f" stream={self.stream_name}" if self.stream_name else ""
+                print(
+                    f"[ui-webrtc]{stream} frame=decoded "
+                    f"size={int(value.shape[1])}x{int(value.shape[0])}",
+                    flush=True,
+                )
 
     def _report_error(self, stage: str, exc: BaseException) -> None:
         detail = f"{stage}: {str(exc).strip() or exc.__class__.__name__}"[:512]
@@ -222,6 +240,72 @@ class WebRtcVideoReceiver:
     def frame_version(self) -> int:
         with self._frame_lock:
             return int(self._frame_version)
+
+    def frame_age_s(self) -> Optional[float]:
+        """Return seconds since the last decoded frame, or ``None`` initially.
+
+        A WebRTC peer can remain in ``connected`` state while the decoder is
+        receiving only incomplete H.264 pictures.  Session state must not use
+        that ICE state as proof that pixels are arriving; this small
+        latest-frame clock lets the owner trigger a stream-only renegotiation
+        without disturbing the healthy named stream.
+        """
+
+        with self._frame_lock:
+            last = float(self._last_frame_at)
+        if last <= 0.0:
+            return None
+        return max(0.0, time.monotonic() - last)
+
+    def stats_snapshot(self, *, timeout_s: float = 0.2) -> dict[str, int | float]:
+        """Return a small inbound-RTP snapshot for a stalled-stream log.
+
+        The call stays on the peer's asyncio loop and is best-effort: a
+        broken peer must never block DDS/session recovery.  Keep the default
+        wait short because this is called from the DDS/session worker, where a
+        slow stats coroutine could otherwise delay lease/heartbeat servicing.
+        aiortc exposes
+        packet loss and jitter through its ``inbound-rtp`` report; older
+        embedders which do not provide ``getStats`` simply return an empty
+        mapping.
+        """
+
+        peer = self.peer
+        getter = getattr(peer, "getStats", None)
+        if peer is None or not callable(getter) or self._closed:
+            return {}
+
+        async def collect() -> Any:
+            return await getter()
+
+        try:
+            report = asyncio.run_coroutine_threadsafe(collect(), self.loop).result(
+                timeout=max(0.05, float(timeout_s))
+            )
+        except Exception:
+            return {}
+        values = getattr(report, "values", None)
+        if not callable(values):
+            return {}
+        for stat in values():
+            if (
+                str(getattr(stat, "type", "")) == "inbound-rtp"
+                and str(
+                    getattr(stat, "kind", getattr(stat, "mediaType", ""))
+                )
+                == "video"
+            ):
+                result: dict[str, int | float] = {}
+                for name in ("packetsReceived", "packetsLost", "jitter"):
+                    value = getattr(stat, name, None)
+                    if value is None:
+                        continue
+                    try:
+                        result[name] = float(value) if name == "jitter" else int(value)
+                    except (TypeError, ValueError):
+                        continue
+                return result
+        return {}
 
     def accept_answer(self, sdp: str, answer_type: str = "answer") -> None:
         if self.peer is None:

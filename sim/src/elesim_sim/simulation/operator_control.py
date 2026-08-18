@@ -54,8 +54,19 @@ class PendingSimulationResult:
 class SimulationOperatorMailbox:
     """Bounded non-blocking command queue shared by DDS and Genesis threads."""
 
-    def __init__(self, *, max_pending: int = 128) -> None:
+    def __init__(
+        self,
+        *,
+        max_pending: int = 128,
+        max_results: int | None = None,
+    ) -> None:
         self.max_pending = max(1, int(max_pending))
+        self.max_results = max(
+            1,
+            int(max_results)
+            if max_results is not None
+            else max(128, self.max_pending * 4),
+        )
         self._lock = threading.Lock()
         self._pending: deque[SimulationOperatorCommand] = deque()
         self._results: deque[PendingSimulationResult] = deque()
@@ -113,6 +124,12 @@ class SimulationOperatorMailbox:
     def complete(self, command: SimulationOperatorCommand, *, ok: bool, reason: str) -> None:
         with self._lock:
             for request_id in command.request_ids:
+                if len(self._results) >= self.max_results:
+                    # A disconnected/slow UI must not turn completed camera
+                    # commands into an unbounded result backlog.  Results are
+                    # acknowledgements; the UI request timeout remains the
+                    # retry/failure signal when an old one is evicted.
+                    self._results.popleft()
                 self._results.append(
                     PendingSimulationResult(
                         target_id=command.ui_id,
@@ -126,10 +143,13 @@ class SimulationOperatorMailbox:
                     )
                 )
 
-    def take_results(self) -> list[PendingSimulationResult]:
+    def take_results(self, *, max_items: int | None = None) -> list[PendingSimulationResult]:
         with self._lock:
-            results = list(self._results)
-            self._results.clear()
+            if max_items is None:
+                count = len(self._results)
+            else:
+                count = min(max(0, int(max_items)), len(self._results))
+            results = [self._results.popleft() for _ in range(count)]
             return results
 
     def requeue_results(self, results: Iterable[PendingSimulationResult]) -> None:
@@ -139,7 +159,10 @@ class SimulationOperatorMailbox:
         if not pending:
             return
         with self._lock:
-            self._results.extendleft(reversed(pending))
+            for result in reversed(pending):
+                while len(self._results) >= self.max_results:
+                    self._results.pop()
+                self._results.appendleft(result)
 
 
 class SimulationOperatorController:

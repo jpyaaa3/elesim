@@ -33,6 +33,65 @@ except ImportError:
 
 _NVENC_ENCODER_CONFIGURED = False
 _ORIGINAL_H264_ENCODER: Any = None
+_DEFAULT_H264_RTP_PAYLOAD_MAX = 1000
+_MIN_H264_RTP_PAYLOAD_MAX = 900
+_MAX_H264_RTP_PAYLOAD_MAX = 1200
+_H264_RTP_PAYLOAD_MAX: Optional[int] = None
+
+
+def _configured_h264_rtp_payload_max() -> int:
+    """Return the bounded H.264 RTP payload budget for this Sim process.
+
+    aiortc defaults to a 1300-byte H.264 payload.  That is valid on a plain
+    LAN but can exceed the effective path MTU after TURN and Tailscale/IPv6
+    encapsulation, producing fragment-header packets that some paths drop.
+    Keep the default conservative and permit only a narrow, explicit override
+    for operators who have measured a larger path budget.
+    """
+
+    raw = os.environ.get(
+        "ELESIM_WEBRTC_RTP_PAYLOAD_MAX",
+        str(_DEFAULT_H264_RTP_PAYLOAD_MAX),
+    ).strip()
+    try:
+        requested = int(raw)
+    except (TypeError, ValueError):
+        requested = _DEFAULT_H264_RTP_PAYLOAD_MAX
+    return max(
+        _MIN_H264_RTP_PAYLOAD_MAX,
+        min(_MAX_H264_RTP_PAYLOAD_MAX, requested),
+    )
+
+
+def configure_h264_packetization() -> int:
+    """Set aiortc's process-local H.264 RTP packet budget.
+
+    ``PACKET_MAX`` is the packetizer's module-level FU-A/STAP-A payload limit.
+    Updating it before any sender is created keeps NVENC and libx264 on the
+    same MTU-safe path without modifying the installed aiortc package.
+    """
+
+    global _H264_RTP_PAYLOAD_MAX
+    payload_max = _configured_h264_rtp_payload_max()
+    try:
+        import aiortc.codecs.h264 as h264
+
+        h264.PACKET_MAX = payload_max
+    except Exception:
+        # The media worker calls this only after aiortc availability is known;
+        # keeping the helper harmless also makes configuration import-safe in
+        # the host-only setup and test environment.
+        pass
+    _H264_RTP_PAYLOAD_MAX = payload_max
+    return payload_max
+
+
+def h264_rtp_payload_max() -> int:
+    """Return the effective payload budget, configuring it on first use."""
+
+    if _H264_RTP_PAYLOAD_MAX is None:
+        return configure_h264_packetization()
+    return int(_H264_RTP_PAYLOAD_MAX)
 
 
 def _nvenc_h264_encoder_class() -> Any:
@@ -58,6 +117,7 @@ def _nvenc_h264_encoder_class() -> Any:
             super().__init__()
             self._nvenc_failed = False
             self._fallback_reported = False
+            self._initial_keyframe_pending = True
 
         def _encode_frame_nvenc(self, frame: Any, force_keyframe: bool) -> Any:
             if self.codec and (
@@ -70,24 +130,47 @@ def _nvenc_h264_encoder_class() -> Any:
                 self.buffer_data = b""
                 self.buffer_pts = None
                 self.codec = None
+                self._initial_keyframe_pending = True
 
+            force_keyframe = bool(force_keyframe or self._initial_keyframe_pending)
             if force_keyframe:
                 frame.pict_type = av.video.frame.PictureType.I
             else:
                 frame.pict_type = av.video.frame.PictureType.NONE
 
             if self.codec is None:
+                self._initial_keyframe_pending = True
                 self.codec = av.CodecContext.create("h264_nvenc", "w")
                 self.codec.width = frame.width
                 self.codec.height = frame.height
                 self.codec.bit_rate = self.target_bitrate
                 self.codec.pix_fmt = "yuv420p"
-                self.codec.framerate = Fraction(30, 1)
-                self.codec.time_base = Fraction(1, 30)
+                # Keep the codec clock aligned with the track.  The stock
+                # aiortc encoder uses a 30 Hz clock, but this worker also
+                # advertises 20 Hz observer streams.  NVENC otherwise has a
+                # tendency to buffer/reorder frames differently from the RTP
+                # timestamps, which makes a damaged frame persist longer than
+                # one packet-loss event.
+                frame_time_base = getattr(frame, "time_base", None)
+                try:
+                    frame_rate = round(1.0 / float(frame_time_base))
+                except (TypeError, ValueError, ZeroDivisionError):
+                    frame_rate = 30
+                frame_rate = max(1, min(30, int(frame_rate)))
+                self.codec.framerate = Fraction(frame_rate, 1)
+                self.codec.time_base = Fraction(1, frame_rate)
+                # RTP NACK/PLI can recover a missing packet, but only if the
+                # next encoded picture is a decoder-refreshing IDR.  A bounded
+                # one-second GOP also limits visible corruption when a PLI is
+                # delayed or a path drops a burst of packets.  Disable B-frame
+                # reordering for the live, latest-only track.
+                self.codec.gop_size = frame_rate
+                self.codec.max_b_frames = 0
                 self.codec.options = {
                     "preset": "p1",
                     "tune": "ll",
                     "zerolatency": "1",
+                    "forced-idr": "1",
                 }
                 self.codec.profile = "Baseline"
 
@@ -95,11 +178,19 @@ def _nvenc_h264_encoder_class() -> Any:
             for package in self.codec.encode(frame):
                 data_to_send += bytes(package)
             if data_to_send:
+                self._initial_keyframe_pending = False
                 yield from self._split_bitstream(data_to_send)
 
         def _encode_frame(self, frame: Any, force_keyframe: bool) -> Any:
             if self._nvenc_failed:
-                yield from super()._encode_frame(frame, force_keyframe)
+                fallback_force = bool(
+                    force_keyframe or self._initial_keyframe_pending
+                )
+                yield from super()._encode_frame(
+                    frame,
+                    fallback_force,
+                )
+                self._initial_keyframe_pending = False
                 return
             try:
                 yield from self._encode_frame_nvenc(frame, force_keyframe)
@@ -109,6 +200,10 @@ def _nvenc_h264_encoder_class() -> Any:
                 self.codec = None
                 self.buffer_data = b""
                 self.buffer_pts = None
+                # The software encoder is a new decoder sequence as well;
+                # make its first picture an IDR instead of inheriting the
+                # previous NVENC GOP state.
+                self._initial_keyframe_pending = True
                 if not self._fallback_reported:
                     detail = str(exc).replace("\n", " ").strip()[:256]
                     print(
@@ -117,7 +212,14 @@ def _nvenc_h264_encoder_class() -> Any:
                         flush=True,
                     )
                     self._fallback_reported = True
-                yield from super()._encode_frame(frame, force_keyframe)
+                fallback_force = bool(
+                    force_keyframe or self._initial_keyframe_pending
+                )
+                yield from super()._encode_frame(
+                    frame,
+                    fallback_force,
+                )
+                self._initial_keyframe_pending = False
 
     return NvencH264Encoder
 
@@ -133,6 +235,7 @@ def configure_h264_encoder(mode: Optional[str] = None) -> str:
     """
 
     global _NVENC_ENCODER_CONFIGURED, _ORIGINAL_H264_ENCODER
+    configure_h264_packetization()
     raw = str(mode if mode is not None else os.environ.get("ELESIM_WEBRTC_ENCODER", "")).strip().lower()
     if not raw:
         cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
@@ -463,5 +566,7 @@ __all__ = [
     "WebRtcVideoSender",
     "available",
     "configure_h264_encoder",
+    "configure_h264_packetization",
+    "h264_rtp_payload_max",
     "ice_configuration",
 ]

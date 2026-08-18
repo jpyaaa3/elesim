@@ -43,6 +43,21 @@ def test_mailbox_is_bounded_without_blocking_the_dds_thread() -> None:
     assert mailbox.enqueue(command("reset", {}, "request-2")) is False
 
 
+def test_mailbox_bounds_results_and_supports_incremental_flush() -> None:
+    mailbox = SimulationOperatorMailbox(max_pending=4, max_results=2)
+    for index in range(4):
+        mailbox.complete(
+            command("pause", {}, f"request-{index}"),
+            ok=True,
+            reason="paused",
+        )
+
+    assert [item.request_id for item in mailbox.take_results(max_items=1)] == [
+        "request-2"
+    ]
+    assert [item.request_id for item in mailbox.take_results()] == ["request-3"]
+
+
 def test_runtime_controller_preserves_pause_across_reset_and_single_steps() -> None:
     resets: list[str] = []
     observer_commands: list[tuple[str, dict[str, object]]] = []

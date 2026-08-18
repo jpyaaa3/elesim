@@ -138,7 +138,7 @@ def _draw_control_row(
     draft_attr: str,
     sliders_locked: bool,
     editing_offsets: bool,
-) -> tuple[bool, float]:
+) -> tuple[bool, float, bool]:
     avail_w = max(1.0, float(imgui.get_content_region_available_width()))
     label_w = scaled(panel, _CONTROL_LABEL_W)
     input_w = scaled(panel, _OFFSET_INPUT_W)
@@ -151,6 +151,7 @@ def _draw_control_row(
 
     imgui.text(str(label))
     imgui.same_line(label_w)
+    active = False
     disable_token = begin_disabled_ui(sliders_locked)
     pushed_slider_colors = _push_locked_slider_style() if sliders_locked else 0
     imgui.push_item_width(slider_w)
@@ -162,6 +163,10 @@ def _draw_control_row(
             float(max_value),
             format="%.1f",
         )
+        # Capture this before drawing the offset input, which changes ImGui's
+        # current-item state.  The caller uses it to keep the local draft
+        # alive until the mouse is released.
+        active = bool(getattr(imgui, "is_item_active", lambda: False)())
     finally:
         imgui.pop_item_width()
         if pushed_slider_colors:
@@ -175,7 +180,7 @@ def _draw_control_row(
         draft_attr=draft_attr,
         editing=bool(editing_offsets),
     )
-    return bool(changed), float(new_value)
+    return bool(changed), float(new_value), active
 
 
 def _draw_lock_and_offset_row(panel, *, editing_offsets: bool) -> None:
@@ -244,6 +249,10 @@ def draw_control_4dof_panel(panel) -> None:
         imgui.set_next_item_open(True, cond)
         panel._ctrl_header_init_open = True
     if not panel_header("4-DOF Controls", visible=True)[0]:
+        # A collapsed panel can hide the release frame.  Do not leave the
+        # latest local draft unsent or keep the next snapshot suppressed.
+        panel._control_u_dragging = False
+        panel.flush_control_u_draft(force=True)
         return
 
     link_state = panel._host_state if panel._host_state is not None else None
@@ -267,14 +276,15 @@ def draw_control_4dof_panel(panel) -> None:
         )
     )
     u_now = panel.service.current_control_u()
+    u_draft = panel.sync_control_u_draft(u_now)
     cfg = panel.service.control_mapping()
     editing_offsets = bool(getattr(panel, "_offset_editing", False))
 
-    changed_linear, u_linear = _draw_control_row(
+    changed_linear, u_linear, active_linear = _draw_control_row(
         panel,
         label="Linear",
         row_id="linear",
-        value=float(u_now.u_linear),
+        value=float(u_draft["linear"]),
         min_value=float(cfg.linear_u_min),
         max_value=float(proto.linear_motor_u_limit(cfg)),
         draft_attr="_offset_linear_draft",
@@ -282,11 +292,11 @@ def draw_control_4dof_panel(panel) -> None:
         editing_offsets=editing_offsets,
     )
 
-    changed_rdeg, u_roll = _draw_control_row(
+    changed_rdeg, u_roll, active_roll = _draw_control_row(
         panel,
         label="Roll",
         row_id="roll",
-        value=float(u_now.u_roll),
+        value=float(u_draft["roll"]),
         min_value=float(cfg.roll_u_min),
         max_value=float(cfg.roll_u_max),
         draft_attr="_offset_roll_draft",
@@ -294,11 +304,11 @@ def draw_control_4dof_panel(panel) -> None:
         editing_offsets=editing_offsets,
     )
 
-    changed_s1, u_s1 = _draw_control_row(
+    changed_s1, u_s1, active_s1 = _draw_control_row(
         panel,
         label="Seg1",
         row_id="s1",
-        value=float(u_now.u_s1),
+        value=float(u_draft["s1"]),
         min_value=float(cfg.seg_u_min),
         max_value=float(cfg.seg_u_max),
         draft_attr="_offset_s1_draft",
@@ -306,11 +316,11 @@ def draw_control_4dof_panel(panel) -> None:
         editing_offsets=editing_offsets,
     )
 
-    changed_s2, u_s2 = _draw_control_row(
+    changed_s2, u_s2, active_s2 = _draw_control_row(
         panel,
         label="Seg2",
         row_id="s2",
-        value=float(u_now.u_s2),
+        value=float(u_draft["s2"]),
         min_value=float(cfg.seg_u_min),
         max_value=float(cfg.seg_u_max),
         draft_attr="_offset_s2_draft",
@@ -320,6 +330,9 @@ def draw_control_4dof_panel(panel) -> None:
 
     _draw_lock_and_offset_row(panel, editing_offsets=editing_offsets)
 
+    # Keep every row's active flag so a delayed remote snapshot cannot replace
+    # the value while any one of the sliders is under the mouse.
+    panel._control_u_dragging = bool(active_linear or active_roll or active_s1 or active_s2)
     changed_any = bool((not sliders_locked) and (changed_linear or changed_rdeg or changed_s1 or changed_s2))
     if panel.state.ik_running and changed_any:
         panel.state.clear_ik_status()
@@ -333,7 +346,10 @@ def draw_control_4dof_panel(panel) -> None:
             partial_u["s1"] = float(u_s1)
         if changed_s2:
             partial_u["s2"] = float(u_s2)
-        panel.service.apply_partial_control_u(partial_u)
+        panel.update_control_u_draft(partial_u)
+    # Commit the final pointer position on release, otherwise send only the
+    # latest value at a bounded rate while dragging.
+    panel.flush_control_u_draft(force=not bool(panel._control_u_dragging))
     _draw_gripper_row(panel)
     _draw_preset_row(panel)
     _draw_respawn_row(panel)

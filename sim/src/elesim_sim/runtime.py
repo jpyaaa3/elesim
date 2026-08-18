@@ -2920,6 +2920,27 @@ class GenesisApp:
         runtime.init_genesis(urdf_path)
         self.sim_scene.configure_frame_dispatchers()
         self.sim_scene.start_frame_dispatchers()
+        # Prime both network cameras before advertising the session as ready.
+        # Observer used to be the only startup frame; a cold hand-eye render
+        # could therefore make its WebRTC track negotiate against the worker's
+        # empty fallback while the observer was already usable.  ``--no-viewer``
+        # does not disable either camera, and this capture does not touch the
+        # native Genesis viewer.
+        if self.sim_scene.eye_camera is not None:
+            self.sim_scene.maybe_publish_camera(
+                arm_q=None,
+                max_hz=float(self.cfg.sim_camera_max_hz),
+                force=True,
+                rgb_enabled=bool(self.cfg.sim_camera_rgb),
+                depth_enabled=bool(self.cfg.sim_camera_depth),
+            )
+            if not self.sim_scene.flush_video_frame(
+                "hand_eye_preview", timeout_s=2.0
+            ):
+                print(
+                    "[sim-media] initial hand-eye frame was not dispatched before readiness",
+                    flush=True,
+                )
         # Prime the observer mailbox before advertising the simulation as
         # ready.  The UI can negotiate WebRTC as soon as the readiness gate
         # opens; waiting for the first physics-loop iteration made a paused

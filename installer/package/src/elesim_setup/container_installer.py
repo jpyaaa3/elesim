@@ -722,6 +722,13 @@ class ContainerInstaller:
                     "HOME": "/tmp",
                     "XDG_CACHE_HOME": "/tmp/elesim-cache",
                     "NUMBA_CACHE_DIR": "/tmp/elesim-cache/numba",
+                    "ELESIM_WEBRTC_ENCODER": "${ELESIM_WEBRTC_ENCODER:-}",
+                    # Keep H.264 RTP packets below the effective Tailscale /
+                    # TURN path MTU.  The host may override this only within
+                    # the bounded range enforced by the Sim media worker.
+                    "ELESIM_WEBRTC_RTP_PAYLOAD_MAX": (
+                        "${ELESIM_WEBRTC_RTP_PAYLOAD_MAX:-1000}"
+                    ),
                 }
             )
             service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]

@@ -31,6 +31,10 @@ _COALESCED_SERVICE_CALLS = frozenset(
         "update_gaze_stabilizer_config",
     }
 )
+# Keep one burst of UI requests from monopolising the DDS pump.  The next
+# cycle sends the remaining bounded requests after heartbeat/receive have had
+# a chance to run again.
+_MAX_OUTBOX_FLUSH_PER_CYCLE = 32
 
 
 @dataclass(frozen=True)
@@ -204,7 +208,7 @@ class OperatorSession:
                 message = f"operator request queue is full ({self.max_pending})"
                 self._record_error(message)
                 if on_error is not None:
-                    self._callbacks.append((on_error, message))
+                    self._enqueue_callback(on_error, message)
                 return request.request_id
             self._requests[request.request_id] = request
             self._outbox.append(request.request_id)
@@ -281,7 +285,7 @@ class OperatorSession:
             self.request_snapshot()
 
     def _flush_outbox(self, endpoint: Any, *, now: float) -> None:
-        while True:
+        for _ in range(_MAX_OUTBOX_FLUSH_PER_CYCLE):
             with self._lock:
                 if not self._outbox:
                     return
@@ -364,8 +368,7 @@ class OperatorSession:
             message = error or "operator request failed"
             self._record_error(message)
             if request.on_error is not None:
-                with self._lock:
-                    self._callbacks.append((request.on_error, message))
+                self._enqueue_callback(request.on_error, message)
             return
         try:
             if request.operation == "view_snapshot":
@@ -382,14 +385,12 @@ class OperatorSession:
                 with self._lock:
                     self._last_snapshot_requested_at = None
             if request.on_result is not None:
-                with self._lock:
-                    self._callbacks.append((request.on_result, result))
+                self._enqueue_callback(request.on_result, result)
         except Exception as exc:
             message = f"operator response invalid: {exc}"
             self._record_error(message)
             if request.on_error is not None:
-                with self._lock:
-                    self._callbacks.append((request.on_error, message))
+                self._enqueue_callback(request.on_error, message)
 
     def _expire_requests(self, *, now: float) -> None:
         with self._lock:
@@ -420,3 +421,15 @@ class OperatorSession:
                 self._last_error_log_at = now
         if should_log:
             print(f"[ui-dds] {value}", flush=True)
+
+    def _enqueue_callback(
+        self,
+        callback: Callable[[Any], None],
+        value: Any,
+    ) -> None:
+        """Bound callbacks so a slow UI callback cannot create a backlog."""
+
+        with self._lock:
+            if len(self._callbacks) >= self.max_pending:
+                self._callbacks.popleft()
+            self._callbacks.append((callback, value))

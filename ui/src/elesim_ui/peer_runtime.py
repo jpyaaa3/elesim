@@ -25,6 +25,7 @@ _SIMULATION_MESSAGES = frozenset(
     }
 )
 _CHANNELS = frozenset({"operator", "sim"})
+_MAX_CHANNEL_DRAIN = 64
 
 
 class UiPeerChannel:
@@ -176,8 +177,11 @@ class UiPeerHub:
         with self._condition:
             if not self._queues[channel] and timeout_s > 0.0:
                 self._condition.wait(timeout=timeout_s)
-            pending = tuple(self._queues[channel])
-            self._queues[channel].clear()
+            queue = self._queues[channel]
+            pending = tuple(
+                queue.popleft()
+                for _ in range(min(_MAX_CHANNEL_DRAIN, len(queue)))
+            )
         yield from pending
 
     def close(self) -> None:

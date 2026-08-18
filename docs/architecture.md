@@ -151,7 +151,12 @@ RGB-D/signaling을 relay하지 않는다.
 H.264 encoder는 NVIDIA/FFmpeg NVENC가 노출되면 `h264_nvenc`를 시도하고,
 권한·드라이버 실패 시 `libx264`로 되돌아간다. `ELESIM_WEBRTC_ENCODER=cpu`
 또는 `nvenc`는 의도적인 A/B·요청 모드이며 계약과 latest-only semantics를
-바꾸지 않는다.
+바꾸지 않는다. NVENC 경로는 B-frame을 끄고 스트림 속도에 맞춘 1초 GOP와
+forced-IDR을 사용해 RTP burst loss 뒤 복구 지연을 제한한다. H.264 RTP
+payload budget은 기본 1000바이트(환경변수 `ELESIM_WEBRTC_RTP_PAYLOAD_MAX`로
+900--1200 범위에서 조정 가능)로 제한해 TURN/Tailscale IPv6 캡슐화 뒤의
+조각화 패킷을 피한다. UI는 ICE 연결 상태만으로 LIVE를 표시하지 않고,
+디코드 프레임 정지 시 해당 track만 재협상한다.
 
 Genesis GPU backend가 CPU 부담 전체를 없애지는 않는다. camera render,
 RGB/depth conversion·resize·host transfer, Genesis–Pinocchio copy, CasADi

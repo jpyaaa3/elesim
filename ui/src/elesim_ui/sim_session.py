@@ -33,10 +33,13 @@ SIMULATION_STREAMS = ("observer", "hand_eye_preview")
 _COALESCED_COMMANDS = frozenset(
     {"orbit", "pan", "zoom", "set_speed", "set_debug_visible"}
 )
-_MAX_STREAM_RETRIES = 6
 _MAX_STREAM_RETRY_DELAY_S = 5.0
+_STREAM_RETRY_COUNT_CAP = 16
+_STREAM_STARTUP_TIMEOUT_S = 8.0
+_STREAM_STALL_TIMEOUT_S = 5.0
 _MAX_OPEN_RETRY_DELAY_S = 5.0
 _MAX_OPEN_RETRY_EXPONENT = 16
+_MAX_COMMAND_FLUSH_PER_CYCLE = 32
 
 
 @dataclass(frozen=True)
@@ -128,6 +131,7 @@ class UiSimSession:
         self._receivers: dict[str, Any] = {}
         self._stream_retry_at: dict[str, float] = {}
         self._stream_retry_count: dict[str, int] = {}
+        self._stream_connected_at: dict[str, float] = {}
         self._turn: Optional[TurnCredentials] = None
         self._connected_streams: set[str] = set()
         self._status: Optional[SimulationStatusPayload] = None
@@ -180,15 +184,42 @@ class UiSimSession:
 
     def _connected_stream_names(self) -> tuple[str, ...]:
         return tuple(
-            stream for stream in SIMULATION_STREAMS if stream in self._connected_streams
+            stream
+            for stream in SIMULATION_STREAMS
+            if (
+                stream in self._connected_streams
+                and self._stream_has_live_frame(stream)
+            )
         )
+
+    def _stream_has_live_frame(self, stream: str) -> bool:
+        """Treat a negotiated track as LIVE only after pixels are decoded."""
+
+        receiver = self._receivers.get(str(stream))
+        age_getter = getattr(receiver, "frame_age_s", None)
+        if not callable(age_getter):
+            # Keep compatibility with embedded/test receivers which only
+            # expose offer/answer callbacks and have no decoder clock.
+            return True
+        try:
+            age = age_getter()
+            return age is not None and float(age) < _STREAM_STALL_TIMEOUT_S
+        except Exception:
+            return True
 
     def receiver(self, stream: str) -> Any:
         with self._lock:
             return self._receivers.get(str(stream))
 
     def frame(self, stream: str):
-        receiver = self.receiver(stream)
+        name = str(stream)
+        with self._lock:
+            if (
+                name not in self._connected_streams
+                or not self._stream_has_live_frame(name)
+            ):
+                return None
+            receiver = self._receivers.get(name)
         if receiver is None:
             return None
         view_getter = getattr(receiver, "latest_frame_view", None)
@@ -302,6 +333,7 @@ class UiSimSession:
         if not registered:
             return
         self._drive_session(client)
+        self._check_stream_liveness()
         self._retry_failed_streams(client)
         self._flush_commands(client)
 
@@ -389,7 +421,7 @@ class UiSimSession:
         self._close_receivers()
 
     def _flush_commands(self, client: Any) -> None:
-        while True:
+        for _ in range(_MAX_COMMAND_FLUSH_PER_CYCLE):
             with self._lock:
                 if self._closing_session_id or not self._commands:
                     return
@@ -496,6 +528,7 @@ class UiSimSession:
                 self._connected_streams.clear()
                 self._stream_retry_at.clear()
                 self._stream_retry_count.clear()
+                self._stream_connected_at.clear()
                 self._last_error = ""
         if stale:
             self._close_receiver_set(receivers.values())
@@ -570,6 +603,7 @@ class UiSimSession:
             ):
                 return
             self._connected_streams.discard(name)
+            self._stream_connected_at.pop(name, None)
         self._schedule_stream_retry(name)
         self._set_error(f"{name} WebRTC {detail}; retrying")
 
@@ -614,6 +648,7 @@ class UiSimSession:
             return
         with self._lock:
             self._connected_streams.add(signal.stream)
+            self._stream_connected_at[signal.stream] = self.clock()
             self._stream_retry_at.pop(signal.stream, None)
             self._stream_retry_count.pop(signal.stream, None)
 
@@ -622,15 +657,83 @@ class UiSimSession:
         if not name:
             return
         with self._lock:
-            attempts = int(self._stream_retry_count.get(name, 0))
-            if attempts >= _MAX_STREAM_RETRIES:
-                self._stream_retry_at.pop(name, None)
-                return
+            attempts = min(
+                int(self._stream_retry_count.get(name, 0)),
+                _STREAM_RETRY_COUNT_CAP,
+            )
             delay = min(
                 self.retry_s * (2.0 ** attempts),
                 _MAX_STREAM_RETRY_DELAY_S,
             )
             self._stream_retry_at[name] = self.clock() + delay
+
+    def _check_stream_liveness(self) -> None:
+        """Recover a named track which is connected but produces no frames.
+
+        ICE/DTLS can remain connected while an H.264 decoder is waiting for a
+        usable IDR after a burst loss.  Without this watchdog the UI reports a
+        stream as LIVE forever (or as WAIT after a one-shot receive error),
+        even though the DDS session and the other video track are healthy.
+        The retry is per stream and uses the same capped, latest-only recovery
+        path as explicit WebRTC errors.
+        """
+
+        now = self.clock()
+        stalled: list[tuple[str, float]] = []
+        with self._lock:
+            active = tuple(self._connected_streams)
+            connected_at = dict(self._stream_connected_at)
+            receivers = dict(self._receivers)
+        for stream in active:
+            receiver = receivers.get(stream)
+            age_getter = getattr(receiver, "frame_age_s", None)
+            if receiver is None or not callable(age_getter):
+                # Test/embedded receivers predating the watchdog have no
+                # decoder clock; their explicit connection callbacks remain
+                # authoritative.
+                continue
+            try:
+                age = age_getter()
+            except Exception:
+                continue
+            if age is None:
+                age = now - float(connected_at.get(stream, now))
+                threshold = _STREAM_STARTUP_TIMEOUT_S
+            else:
+                threshold = _STREAM_STALL_TIMEOUT_S
+            try:
+                age_value = float(age)
+            except (TypeError, ValueError):
+                continue
+            if age_value >= threshold:
+                stalled.append((stream, age_value))
+
+        for stream, age in stalled:
+            with self._lock:
+                if stream not in self._connected_streams:
+                    continue
+                self._connected_streams.discard(stream)
+                self._stream_connected_at.pop(stream, None)
+            self._schedule_stream_retry(stream)
+            receiver = receivers.get(stream)
+            stats_getter = getattr(receiver, "stats_snapshot", None)
+            stats = {}
+            if callable(stats_getter):
+                try:
+                    stats = dict(stats_getter())
+                except Exception:
+                    stats = {}
+            stats_suffix = ""
+            if stats:
+                stats_suffix = " (" + ", ".join(
+                    f"{name}={value}"
+                    for name, value in stats.items()
+                ) + ")"
+            self._set_error(
+                f"{stream} WebRTC stalled ({age:.1f}s without a decoded frame)"
+                f"{stats_suffix}; "
+                "retrying"
+            )
 
     def _retry_failed_streams(self, client: Any) -> None:
         """Retry one failed WebRTC m-line without tearing down the session."""
@@ -655,10 +758,6 @@ class UiSimSession:
                     or stream in self._connected_streams
                 ):
                     continue
-                attempts = int(self._stream_retry_count.get(stream, 0))
-                if attempts >= _MAX_STREAM_RETRIES:
-                    self._stream_retry_at.pop(stream, None)
-                    continue
             receiver = None
             try:
                 receiver = self._prepare_receiver(self.receiver_factory(), stream)
@@ -681,17 +780,18 @@ class UiSimSession:
                     previous = self._receivers.get(stream)
                     self._receivers[stream] = receiver
                     self._connected_streams.discard(stream)
-                    self._stream_retry_count[stream] = int(
-                        self._stream_retry_count.get(stream, 0)
-                    ) + 1
-                    retry_count = self._stream_retry_count[stream]
-                    if retry_count < _MAX_STREAM_RETRIES:
-                        self._stream_retry_at[stream] = now + min(
-                            self.retry_s * (2.0 ** retry_count),
-                            _MAX_STREAM_RETRY_DELAY_S,
-                        )
-                    else:
-                        self._stream_retry_at.pop(stream, None)
+                    retry_count = min(
+                        int(self._stream_retry_count.get(stream, 0)) + 1,
+                        _STREAM_RETRY_COUNT_CAP,
+                    )
+                    self._stream_retry_count[stream] = retry_count
+                    # Keep trying while the DDS session is alive.  The delay
+                    # is capped and the counter itself is bounded, so a dead
+                    # media path cannot create an unbounded queue or timer.
+                    self._stream_retry_at[stream] = now + min(
+                        self.retry_s * (2.0 ** retry_count),
+                        _MAX_STREAM_RETRY_DELAY_S,
+                    )
                 if previous is not None and previous is not receiver:
                     try:
                         previous.close()
@@ -706,17 +806,15 @@ class UiSimSession:
                     except Exception:
                         pass
                 with self._lock:
-                    self._stream_retry_count[stream] = int(
-                        self._stream_retry_count.get(stream, 0)
-                    ) + 1
-                    retry_count = self._stream_retry_count[stream]
-                    if retry_count < _MAX_STREAM_RETRIES:
-                        self._stream_retry_at[stream] = now + min(
-                            self.retry_s * (2.0 ** retry_count),
-                            _MAX_STREAM_RETRY_DELAY_S,
-                        )
-                    else:
-                        self._stream_retry_at.pop(stream, None)
+                    retry_count = min(
+                        int(self._stream_retry_count.get(stream, 0)) + 1,
+                        _STREAM_RETRY_COUNT_CAP,
+                    )
+                    self._stream_retry_count[stream] = retry_count
+                    self._stream_retry_at[stream] = now + min(
+                        self.retry_s * (2.0 ** retry_count),
+                        _MAX_STREAM_RETRY_DELAY_S,
+                    )
                 self._set_error(
                     f"{stream} WebRTC retry failed: "
                     f"{str(exc).strip() or type(exc).__name__}"
@@ -788,6 +886,7 @@ class UiSimSession:
         self._connected_streams.clear()
         self._stream_retry_at.clear()
         self._stream_retry_count.clear()
+        self._stream_connected_at.clear()
         self._status = None
         self._commands.clear()
         self._pending_command_ids.clear()

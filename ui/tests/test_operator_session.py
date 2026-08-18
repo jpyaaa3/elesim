@@ -165,6 +165,39 @@ def test_unsent_high_rate_updates_are_coalesced_to_the_latest_value() -> None:
     assert matching[0][1]["payload"]["kwargs"] == {"value": 0.25}
 
 
+def test_outbox_flush_is_bounded_per_transport_cycle() -> None:
+    clock = Clock()
+    value = session(clock)
+    endpoint = Endpoint()
+    # Keep the periodic snapshot request out of this transport-fairness test;
+    # the 40 entries below are the complete burst under measurement.
+    value._last_snapshot_requested_at = clock.now
+
+    request_ids = [
+        value.submit("service_call", "stop_pick_e2e")
+        for _ in range(40)
+    ]
+    assert all(request_ids)
+
+    value.run_cycle(endpoint, now=clock.now)
+    assert len(endpoint.sent) == 32
+    assert value.pending_count == 40
+
+    value.run_cycle(endpoint, now=clock.now)
+    assert len(endpoint.sent) == 40
+    assert value.pending_count == 40
+
+
+def test_completed_callback_queue_is_bounded() -> None:
+    clock = Clock()
+    value = session(clock)
+    for index in range(value.max_pending + 4):
+        value._enqueue_callback(lambda _value: None, index)
+
+    assert len(value._callbacks) == value.max_pending
+    assert value._callbacks[-1][1] == value.max_pending + 3
+
+
 def test_peer_error_retires_the_exact_request_immediately() -> None:
     clock = Clock()
     value = session(clock)

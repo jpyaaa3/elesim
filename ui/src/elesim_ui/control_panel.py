@@ -157,12 +157,36 @@ class ControlPanel:
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
         self._offset_editing = False
+        # The motion sliders are fed by a 10 Hz remote snapshot, while the
+        # ImGui frame runs much faster.  Keep a local draft during a drag so a
+        # delayed Pilot snapshot cannot overwrite the value under the mouse.
+        # Outbound updates are latest-only and rate limited; the Pilot already
+        # coalesces target motion, so sending every mouse event only adds DDS
+        # request/response traffic without improving control latency.
+        self._control_u_draft: dict[str, float] | None = None
+        self._control_u_dirty = False
+        self._control_u_dragging = False
+        self._control_u_last_change_at = 0.0
+        self._control_u_last_send_at = 0.0
+        self._control_u_pending_until = 0.0
+        self._control_u_pending: dict[str, float] = {}
+        self._control_u_send_period_s = 1.0 / 30.0
         self._go2_was_active = False
+        # GO2 teleop is a deadman command, not a render-rate stream.  Keep
+        # the command cadence below the UI frame rate so a 60/144 Hz display
+        # cannot turn one held button into an equivalent DDS request storm.
+        # A stop is emitted once per active interval, even if SPACE remains
+        # held for several frames.
+        self._go2_last_command_at = 0.0
+        self._go2_send_period_s = 1.0 / 20.0
+        self._go2_stop_sent = False
         self._go2_obstacles_avoid_enabled = False
         self._resolution_header_init_open = False
         self._glfw_window = None
         self._camera_window = None
         self._camera_visible = False
+        self._camera_next_draw_at = 0.0
+        self._camera_draw_period_s = 1.0 / 30.0
         self._main_imgui_context = None
         self._camera_imgui_context = None
         self._main_imgui_impl = None
@@ -240,6 +264,7 @@ class ControlPanel:
         if window is None:
             return
         self._camera_visible = True
+        self._camera_next_draw_at = 0.0
         try:
             glfw.show_window(window)
             glfw.focus_window(window)
@@ -251,6 +276,7 @@ class ControlPanel:
         if window is None:
             return
         self._camera_visible = False
+        self._camera_next_draw_at = 0.0
         try:
             glfw.hide_window(window)
             glfw.set_window_should_close(window, glfw.FALSE)
@@ -262,6 +288,13 @@ class ControlPanel:
         context = self._camera_imgui_context
         if window is None or context is None or not self._camera_visible:
             return
+        now = time.monotonic()
+        if now < float(getattr(self, "_camera_next_draw_at", 0.0)):
+            return
+        self._camera_next_draw_at = now + max(
+            0.01,
+            float(getattr(self, "_camera_draw_period_s", 1.0 / 30.0)),
+        )
         glfw.make_context_current(window)
         self._set_imgui_context(context)
         impl = self._camera_imgui_impl
@@ -547,6 +580,107 @@ class ControlPanel:
         self._offset_s2_draft = float(s2_off)
         self._offset_revision_seen = int(rev)
 
+    @staticmethod
+    def _control_u_dict(value: object) -> dict[str, float]:
+        """Return the display-space control values as a stable local draft."""
+
+        return {
+            "linear": float(getattr(value, "u_linear", 0.0)),
+            "roll": float(getattr(value, "u_roll", 0.0)),
+            "s1": float(getattr(value, "u_s1", 0.0)),
+            "s2": float(getattr(value, "u_s2", 0.0)),
+        }
+
+    def sync_control_u_draft(self, current: object) -> dict[str, float]:
+        """Synchronize the slider draft when it is safe to accept remote data.
+
+        The operator snapshot is intentionally asynchronous.  While a slider
+        is active, or while its latest command is still making the round trip,
+        replacing the local value with that snapshot makes the thumb visibly
+        stutter and feel behind the pointer.  Once the remote state catches up
+        (or the short acknowledgement grace period expires), normal external
+        updates such as IK are accepted again.
+        """
+
+        now = time.monotonic()
+        remote = self._control_u_dict(current)
+        draft = getattr(self, "_control_u_draft", None)
+        if draft is None:
+            draft = dict(remote)
+            self._control_u_draft = draft
+            return dict(draft)
+
+        pending_until = float(getattr(self, "_control_u_pending_until", 0.0))
+        if bool(getattr(self, "_control_u_dirty", False)) and not pending_until:
+            pending_until = now + 1.0
+            self._control_u_pending_until = pending_until
+        matches_remote = all(
+            abs(float(draft[key]) - float(remote[key])) <= 1e-3
+            for key in draft
+            if key in remote
+        )
+        if matches_remote:
+            self._control_u_dirty = False
+            self._control_u_pending_until = 0.0
+            pending = getattr(self, "_control_u_pending", None)
+            if isinstance(pending, dict):
+                pending.clear()
+            pending_until = 0.0
+
+        if (
+            not bool(getattr(self, "_control_u_dragging", False))
+            and not bool(getattr(self, "_control_u_dirty", False))
+            and now >= pending_until
+        ):
+            draft = dict(remote)
+            self._control_u_draft = draft
+        return dict(draft)
+
+    def update_control_u_draft(self, partial: dict[str, float]) -> None:
+        draft = getattr(self, "_control_u_draft", None)
+        if draft is None:
+            draft = {"linear": 0.0, "roll": 0.0, "s1": 0.0, "s2": 0.0}
+            self._control_u_draft = draft
+        pending = getattr(self, "_control_u_pending", None)
+        if not isinstance(pending, dict):
+            pending = {}
+            self._control_u_pending = pending
+        for key, value in partial.items():
+            normalized = str(key).strip().lower()
+            if normalized in draft:
+                draft[normalized] = float(value)
+                pending[normalized] = float(value)
+        self._control_u_dirty = True
+        self._control_u_last_change_at = time.monotonic()
+        self._control_u_pending_until = self._control_u_last_change_at + 1.0
+
+    def flush_control_u_draft(self, *, force: bool = False) -> None:
+        """Send at most the latest 30 Hz slider value through the async proxy."""
+
+        if not bool(getattr(self, "_control_u_dirty", False)):
+            return
+        now = time.monotonic()
+        last_send = float(getattr(self, "_control_u_last_send_at", 0.0))
+        period = max(0.01, float(getattr(self, "_control_u_send_period_s", 1.0 / 30.0)))
+        if not force and now - last_send < period:
+            return
+        draft = getattr(self, "_control_u_draft", None)
+        if not isinstance(draft, dict):
+            return
+        pending = dict(getattr(self, "_control_u_pending", {}))
+        if not pending:
+            self._control_u_dirty = False
+            return
+        # Preserve the service's partial-update semantics: a concurrent gaze
+        # or IK update of another axis must not be overwritten by an older UI
+        # snapshot.  Multiple changed axes are accumulated into this one
+        # latest-only request.
+        self.service.apply_partial_control_u(pending)
+        self._control_u_pending.clear()
+        self._control_u_dirty = False
+        self._control_u_last_send_at = now
+        self._control_u_pending_until = now + 1.0
+
     def _draw_panel_stack(self, drawers, *, item_width: float) -> None:
         imgui.push_item_width(float(item_width))
         try:
@@ -698,6 +832,13 @@ class ControlPanel:
         self._lock_os_window_size()
 
         glfw.make_context_current(window)
+        # Let the compositor pace the primary control window.  A fixed
+        # 10 ms sleep after every swap otherwise stacks on top of vsync and
+        # makes pointer/slider input feel one frame behind.
+        try:
+            glfw.swap_interval(1)
+        except Exception:
+            pass
 
         self._main_imgui_context = imgui.create_context()
         self._install_ui_font()
@@ -723,6 +864,13 @@ class ControlPanel:
                 self._camera_window = camera_window
                 self._camera_visible = True
                 glfw.make_context_current(camera_window)
+                # The camera is a secondary window.  Do not let its buffer
+                # swap add a second vsync wait to the control window's frame;
+                # the camera draw is capped independently above.
+                try:
+                    glfw.swap_interval(0)
+                except Exception:
+                    pass
                 self._camera_imgui_context = imgui.create_context()
                 self._set_imgui_context(self._camera_imgui_context)
                 camera_impl = GlfwRenderer(camera_window)
@@ -755,7 +903,9 @@ class ControlPanel:
                 main_impl.render(imgui.get_draw_data())
                 glfw.swap_buffers(window)
                 self._draw_camera_window()
-                time.sleep(0.01)
+                # Keep a tiny fallback yield for drivers that ignore the swap
+                # interval; normal composited paths block in swap_buffers.
+                time.sleep(0.001)
         finally:
             if self._camera_window is not None:
                 try:

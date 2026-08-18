@@ -38,6 +38,7 @@ from .simulation.operator_control import (
 
 
 _MAX_WEBRTC_INFLIGHT = 8
+_MAX_SIMULATION_RESULTS_PER_CYCLE = 32
 
 
 class SimEndpoint:
@@ -215,7 +216,9 @@ class SimEndpoint:
     def flush_simulation_results(self, client: Any) -> None:
         results = [
             result
-            for result in self.operator_mailbox.take_results()
+            for result in self.operator_mailbox.take_results(
+                max_items=_MAX_SIMULATION_RESULTS_PER_CYCLE
+            )
             if (
                 result.target_id == self.simulation_ui_id
                 and result.payload.session_id == self.simulation_session_id

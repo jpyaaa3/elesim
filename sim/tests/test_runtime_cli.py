@@ -49,6 +49,8 @@ def test_no_viewer_flag_keeps_remote_profile_headless(monkeypatch) -> None:
     )
 
     assert captured["cfg"].enable_viewer is False
+    assert captured["cfg"].sim_camera_enable is True
+    assert captured["cfg"].sim_observer_camera_enable is True
 
 
 def test_required_sim_target_spawn_failure_is_not_silenced(monkeypatch) -> None:

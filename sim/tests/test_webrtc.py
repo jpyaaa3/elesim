@@ -4,7 +4,10 @@ import asyncio
 
 import numpy as np
 
-from elesim_sim.vision.webrtc import LatestFrameTrack
+from elesim_sim.vision.webrtc import (
+    LatestFrameTrack,
+    configure_h264_packetization,
+)
 
 
 def _recv(track: LatestFrameTrack):
@@ -73,3 +76,17 @@ def test_latest_frame_track_keeps_configured_dimensions_for_real_frames() -> Non
 
     assert frame.shape == (24, 32, 3)
     assert int(frame.mean()) == 7
+
+
+def test_h264_packet_budget_is_conservative_and_bounded(monkeypatch) -> None:
+    monkeypatch.delenv("ELESIM_WEBRTC_RTP_PAYLOAD_MAX", raising=False)
+    assert configure_h264_packetization() == 1000
+
+    monkeypatch.setenv("ELESIM_WEBRTC_RTP_PAYLOAD_MAX", "1300")
+    assert configure_h264_packetization() == 1200
+
+    monkeypatch.setenv("ELESIM_WEBRTC_RTP_PAYLOAD_MAX", "800")
+    assert configure_h264_packetization() == 900
+
+    monkeypatch.setenv("ELESIM_WEBRTC_RTP_PAYLOAD_MAX", "not-a-number")
+    assert configure_h264_packetization() == 1000

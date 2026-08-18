@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import glfw
 import imgui
@@ -226,9 +227,50 @@ def _shape_button(
     return clicked, active
 
 
+def _send_go2_velocity(
+    panel,
+    *,
+    vx: float,
+    vy: float,
+    wz: float,
+    force: bool = False,
+) -> bool:
+    """Send teleop at a bounded cadence instead of once per ImGui frame.
+
+    The Robot deadman only needs a modest keep-alive rate.  Rendering at
+    display refresh (often 60--144 Hz) used to enqueue one DDS request for
+    every frame, which competed with snapshots and made the UI feel sticky.
+    ``force`` is reserved for the first command and the stop edge so a safety
+    transition is never delayed by the rate limiter.
+    """
+
+    now = time.monotonic()
+    period = max(
+        0.01,
+        float(getattr(panel, "_go2_send_period_s", 1.0 / 20.0)),
+    )
+    last = float(getattr(panel, "_go2_last_command_at", 0.0))
+    if not force and now - last < period:
+        return False
+    panel.service.send_go2_velocity(
+        vx=float(vx),
+        vy=float(vy),
+        wz=float(wz),
+    )
+    panel._go2_last_command_at = now
+    return True
+
+
 def _stop_go2(panel) -> None:
-    panel.service.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)
+    # Holding SPACE used to submit a zero command every render frame.  One
+    # forced stop is sufficient; the next non-zero command starts a new
+    # deadman interval and clears this edge marker.
+    if not bool(getattr(panel, "_go2_stop_sent", False)) or bool(
+        getattr(panel, "_go2_was_active", False)
+    ):
+        _send_go2_velocity(panel, vx=0.0, vy=0.0, wz=0.0, force=True)
     panel._go2_was_active = False
+    panel._go2_stop_sent = True
 
 
 def _keyboard_teleop_enabled(panel) -> bool:
@@ -330,8 +372,18 @@ def _draw_teleop_pad(panel, width: float) -> bool:
     if key_stop:
         return False
     if active:
-        panel.service.send_go2_velocity(vx=float(vx), vy=float(vy), wz=float(wz))
+        # Send the first command of a new deadman interval immediately even
+        # if the one-shot stop was emitted on the previous frame.
+        first_active = bool(getattr(panel, "_go2_stop_sent", False))
+        _send_go2_velocity(
+            panel,
+            vx=float(vx),
+            vy=float(vy),
+            wz=float(wz),
+            force=first_active,
+        )
         panel._go2_was_active = True
+        panel._go2_stop_sent = False
     elif panel._go2_was_active:
         _stop_go2(panel)
     return active
@@ -365,12 +417,18 @@ def _draw_posture(panel, width: float) -> None:
 
 def draw_go2_panel(panel) -> None:
     if not panel._use_go2:
+        if bool(getattr(panel, "_go2_was_active", False)):
+            _stop_go2(panel)
         return
     if not panel._go2_header_init_open:
         cond = getattr(imgui, "ONCE", getattr(imgui, "FIRST_USE_EVER", 1))
         imgui.set_next_item_open(True, cond)
         panel._go2_header_init_open = True
     if not panel_header("GO2 Locomotion", visible=True)[0]:
+        # A collapsed panel must not leave a held keyboard/pad command alive
+        # until the remote deadman happens to expire.
+        if bool(getattr(panel, "_go2_was_active", False)):
+            _stop_go2(panel)
         return
 
     width = max(scaled(panel, 220.0), float(imgui.get_content_region_available_width()))
