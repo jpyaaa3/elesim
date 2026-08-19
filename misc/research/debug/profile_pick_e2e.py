@@ -220,7 +220,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Profile Look / Ready pick phases.")
     ap.add_argument(
         "--config",
-        default=str(ROOT / "pilot/config/default.yaml"),
+        default=str(ROOT / "pilot/config/config.yaml"),
         help="path to the pilot config",
     )
     ap.add_argument(

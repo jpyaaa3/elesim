@@ -114,6 +114,14 @@ def _read_with_extends(path: str) -> tuple[dict[str, Any], str]:
             raise ConfigValidationError(f"{current_abs}: schema_version must be integer 1")
         parent_raw = document.pop("extends", None)
         _resolve_owned_paths(document, config_dir=os.path.dirname(current_abs))
+        profiles = document.get("profiles")
+        if isinstance(profiles, dict):
+            for profile in profiles.values():
+                if isinstance(profile, dict):
+                    _resolve_owned_paths(
+                        profile,
+                        config_dir=os.path.dirname(current_abs),
+                    )
         parent: dict[str, Any] = {}
         if parent_raw is not None:
             if not isinstance(parent_raw, str) or not parent_raw.strip():
@@ -126,8 +134,41 @@ def _read_with_extends(path: str) -> tuple[dict[str, Any], str]:
     return collect(root_path), os.path.dirname(root_path)
 
 
-def load_app_config_from_yaml(path: str) -> AppConfigBundle:
+def _select_profile(
+    document: dict[str, Any],
+    *,
+    mode: str | None,
+    path: str,
+) -> dict[str, Any]:
+    """Resolve the optional in-file deployment profile before schema mapping."""
+    profiles = document.pop("profiles", None)
+    configured_mode = document.pop("mode", None)
+    if profiles is None:
+        if configured_mode is not None and not isinstance(configured_mode, str):
+            raise ConfigValidationError(f"{path}: mode must be a string")
+        return document
+    if not isinstance(profiles, dict) or not profiles:
+        raise ConfigValidationError(f"{path}: profiles must be a non-empty mapping")
+    if configured_mode is not None and not isinstance(configured_mode, str):
+        raise ConfigValidationError(f"{path}: mode must be a string")
+    selected = str(mode if mode is not None else configured_mode or "").strip()
+    if not selected:
+        raise ConfigValidationError(
+            f"{path}: mode is required when profiles are present"
+        )
+    profile = profiles.get(selected)
+    if not isinstance(profile, dict):
+        available = ", ".join(sorted(str(key) for key in profiles))
+        raise ConfigValidationError(
+            f"{path}: unknown mode {selected!r}; available profiles: {available}"
+        )
+    return _deep_merge(document, profile)
+
+
+def load_app_config_from_yaml(path: str, *, mode: str | None = None) -> AppConfigBundle:
     if not path:
         raise FileNotFoundError("config path is empty")
     data, config_dir = _read_with_extends(path)
+    data = _select_profile(data, mode=mode, path=os.path.abspath(path))
+    _resolve_owned_paths(data, config_dir=config_dir)
     return build_bundle_from_yaml(data, config_dir=config_dir)

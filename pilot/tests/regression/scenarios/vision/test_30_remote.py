@@ -85,14 +85,14 @@ class TestPerceptionRemote(unittest.TestCase):
 
 class TestPerceptionWorkerConfig(unittest.TestCase):
     def test_jetson_ini_loads_camera_mode(self) -> None:
-        bundle = load_app_config("pilot/config/config.jetson.yaml")
+        bundle = load_app_config("pilot/config/config.yaml", mode="jetson")
         pc = bundle.perception_config
         self.assertTrue(pc.run_local)
         self.assertEqual(str(pc.mode).strip().lower(), "camera")
         self.assertFalse(pc.show_preview)
 
     def test_pc_ini_loads_remote(self) -> None:
-        bundle = load_app_config("pilot/config/default.yaml")
+        bundle = load_app_config("pilot/config/config.yaml", mode="pc")
         pc = bundle.perception_config
         self.assertFalse(pc.run_local)
 

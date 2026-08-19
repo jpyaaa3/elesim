@@ -2971,6 +2971,7 @@ def _select_compute_backend(config: SimConfig, *, force_cpu: bool) -> SimConfig:
 def run_runtime(
     *,
     config_path: Optional[str] = None,
+    config_mode: Optional[str] = None,
     argv: Optional[list[str]] = None,
     model_bundle: str = "",
     state_source: Optional[Any] = None,
@@ -2988,9 +2989,10 @@ def run_runtime(
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--config",
-        default=str(_REPO_ROOT / "config/default.yaml"),
+        default=str(_REPO_ROOT / "config/config.yaml"),
         help="path to YAML config file",
     )
+    ap.add_argument("--mode", default=config_mode, help="select a profile from the application YAML")
     ap.add_argument("--perf-log", action="store_true", help="print periodic sim loop timing")
     ap.add_argument("--perf-interval", type=float, default=None, help="perf log interval in seconds")
     ap.add_argument("--perf-log-file", default=None, help="write perf CSV to this path or directory")
@@ -3029,7 +3031,7 @@ def run_runtime(
         command_line = ["--config", str(config_path), *command_line]
     args = ap.parse_args(command_line if (argv is not None or config_path is not None) else None)
 
-    bundle = load_app_config(args.config)
+    bundle = load_app_config(args.config, mode=args.mode)
     sim_cfg = _select_compute_backend(bundle.sim_config, force_cpu=bool(args.cpu))
     spawn_cfg = bundle.spawn_config
     if str(model_bundle).strip():

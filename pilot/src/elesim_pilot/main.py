@@ -81,12 +81,13 @@ class _ControlFacade:
 
 def _run() -> None:
     parser = argparse.ArgumentParser(description="EleSim control computation agent")
-    parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
+    parser.add_argument("--config", default=str(_ROOT / "config/config.yaml"))
+    parser.add_argument("--mode", default=None, help="select a profile from the application YAML")
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
     parser.add_argument("--id", default="")
     parser.add_argument("--target", default="")
     args = parser.parse_args()
-    bundle = load_app_config(args.config)
+    bundle = load_app_config(args.config, mode=args.mode)
     role = load_runtime_role_config(args.runtime_config)
     if role.role != "pilot":
         raise ValueError(f"runtime role must be pilot, got {role.role!r}")
@@ -101,7 +102,7 @@ def _run() -> None:
         dds_settings=role.dds,
     )
     link.attach_sender(connection.submit)
-    runtime = build_control_runtime(args.config, link)
+    runtime = build_control_runtime(args.config, link, mode=args.mode)
     facade = _ControlFacade(
         runtime.service,
         connection,

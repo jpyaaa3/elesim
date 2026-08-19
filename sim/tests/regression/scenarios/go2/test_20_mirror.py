@@ -13,7 +13,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exi
 
 class Go2SimMirrorConfigTests(unittest.TestCase):
     def test_pc_config_does_not_implicitly_mirror_another_endpoint(self) -> None:
-        bundle = load_app_config(str(ROOT / "sim/config/config.pc.yaml"))
+        bundle = load_app_config(str(ROOT / "sim/config/config.yaml"), mode="pc")
         self.assertFalse(bundle.go2_locomotion_config.mirror_from_host)
 
     def test_local_config_disables_mirror(self) -> None:

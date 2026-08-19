@@ -386,17 +386,24 @@ def _sim_config(state: InstallState, source: Path) -> dict[str, Any]:
 
 
 def _sim_app_config(state: InstallState) -> dict[str, Any]:
-    base = (
-        "config.pc.yaml"
+    mode = (
+        "pc"
         if state.profile == "local-sim" and state.install_mode == "native"
-        else "config.remote.yaml"
+        else "remote"
     )
     return {
         "schema_version": 1,
-        "extends": base,
-        "simulation": {
-            "runtime": {
-                "use_gpu": state.compute.gpu_mode != "cpu",
+        "extends": "config.yaml",
+        "mode": mode,
+        # Keep installer-specific GPU selection inside the selected profile so
+        # it wins over that profile's default without copying the full file.
+        "profiles": {
+            mode: {
+                "simulation": {
+                    "runtime": {
+                        "use_gpu": state.compute.gpu_mode != "cpu",
+                    }
+                }
             }
         },
     }

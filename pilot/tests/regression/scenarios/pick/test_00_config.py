@@ -50,11 +50,9 @@ class TestPickConfigEffectivePattern(unittest.TestCase):
 
 class TestHardwareOffsetConfig(unittest.TestCase):
     def test_real_profiles_preload_roll_offset(self) -> None:
-        base = load_app_config(str(ROOT / "pilot/config/config.yaml"))
-        jetson = load_app_config(str(ROOT / "pilot/config/config.jetson.yaml"))
-        pc = load_app_config(str(ROOT / "pilot/config/default.yaml"))
+        jetson = load_app_config(str(ROOT / "pilot/config/config.yaml"), mode="jetson")
+        pc = load_app_config(str(ROOT / "pilot/config/config.yaml"), mode="pc")
 
-        self.assertAlmostEqual(base.hardware_config.u_offset_roll, 0.0)
         self.assertAlmostEqual(jetson.hardware_config.u_offset_roll, -9.0)
         self.assertAlmostEqual(pc.hardware_config.u_offset_roll, -9.0)
 

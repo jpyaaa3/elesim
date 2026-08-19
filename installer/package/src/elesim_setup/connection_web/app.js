@@ -45,6 +45,7 @@ let gpuDevices = {pilot: [], sim: []};
 let jobSubmissionPending = false;
 let workflowSaved = false;
 let workflowApplied = false;
+let workflowStarted = false;
 // A browser session always revalidates the loaded form before it can proceed.
 // The topology fields are still restored from disk, but a previous session's
 // visual stage must never unlock Booting just because the local Authority has
@@ -703,12 +704,16 @@ function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-s
   // submission.  That request is asynchronous and otherwise re-enables
   // "전체 시작" before /api/job/start has accepted the job.
   const busy = running || jobSubmissionPending;
+  const initializerComplete = workflowStarted;
   const apply = byId("apply");
   apply.textContent = t("action.prepare");
-  setWorkflowStepEnabled("save", !busy && !workflowSaved);
-  setWorkflowStepEnabled("apply", !busy && workflowSaved && !workflowApplied);
+  setWorkflowStepEnabled("save", !busy && !initializerComplete && !workflowSaved);
+  setWorkflowStepEnabled(
+    "apply",
+    !busy && !initializerComplete && workflowSaved && !workflowApplied,
+  );
   setWorkflowButtonsEnabled("start", {
-    "runtime-start": !busy && workflowSaved && workflowApplied,
+    "runtime-start": !busy && !initializerComplete && workflowSaved && workflowApplied,
   });
   updateRuntimeOptions();
 }
@@ -919,6 +924,7 @@ async function saveTopology({quiet = false, invalidate = true} = {}) {
   workflowRequiresFreshSave = false;
   setWorkflowStepState("save", "success");
   if (invalidate) {
+    workflowStarted = false;
     workflowApplied = false;
   }
   if (invalidate) {
@@ -1002,6 +1008,7 @@ async function runApplyJob() {
 }
 
 function markWorkflowDirty() {
+  workflowStarted = false;
   workflowSaved = false;
   workflowRequiresFreshSave = true;
   workflowApplied = false;
@@ -1075,6 +1082,9 @@ async function pollJob() {
     if (step && running) setWorkflowStepState(step, "running");
     if (step && !running && job.status === "completed") setWorkflowStepState(step, "success");
     if (step && !running && ["failed", "cancelled"].includes(job.status)) setWorkflowStepState(step, "error");
+    if (!running && job.action === "start") {
+      workflowStarted = job.status === "completed";
+    }
     if (topologyAppliedByThisJob && !workflowRequiresFreshSave) {
       workflowSaved = true;
       workflowApplied = true;
@@ -1233,6 +1243,7 @@ async function initialize() {
       // partial remote rollout, so it is not sufficient to unlock Booting.
       workflowSaved = false;
       workflowApplied = false;
+      workflowStarted = false;
       workflowRequiresFreshSave = true;
       setWorkflowStepState("save", "pending");
       setWorkflowStepState("apply", "pending");

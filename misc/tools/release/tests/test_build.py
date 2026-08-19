@@ -36,7 +36,8 @@ def test_release_config_excludes_only_public_template(
     config = project / "config"
     perception = config / "perception"
     perception.mkdir(parents=True)
-    (config / "default.yaml").write_text("runtime: true\n", encoding="utf-8")
+    config_name = "config.yaml" if role in ("pilot", "sim") else "default.yaml"
+    (config / config_name).write_text("runtime: true\n", encoding="utf-8")
     (config / template).write_text("public: true\n", encoding="utf-8")
     yolo = perception / "detector.yolo.example.json"
     yolo.write_text("{}\n", encoding="utf-8")
@@ -47,7 +48,7 @@ def test_release_config_excludes_only_public_template(
 
     copy_role_config(project, release, role)
 
-    assert (release / "config/default.yaml").is_file()
+    assert (release / "config" / config_name).is_file()
     assert not (release / "config" / template).exists()
     assert (release / "config/perception/detector.yolo.example.json").is_file()
 
@@ -59,15 +60,15 @@ def test_sim_release_contains_only_the_immutable_bundle() -> None:
         bundle = source / "bundles/default"
         bundle.mkdir(parents=True)
         (bundle / "bundle.json").write_text("{}", encoding="utf-8")
-        source_assets = source / "source/assets"
-        source_assets.mkdir(parents=True)
-        (source_assets / "must-not-ship.obj").write_text("source", encoding="utf-8")
+        extra_assets = source / "extras/assets"
+        extra_assets.mkdir(parents=True)
+        (extra_assets / "must-not-ship.obj").write_text("extra", encoding="utf-8")
         release = root / "release"
 
         copy_sim_bundle(source, release)
 
         assert (release / "model/bundles/default/bundle.json").is_file()
-        assert not (release / "model/source").exists()
+        assert not (release / "model/extras").exists()
 
 
 def test_release_copies_ros_interface_source_without_colcon_artifacts(

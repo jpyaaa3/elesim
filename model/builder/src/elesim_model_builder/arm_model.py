@@ -1,4 +1,4 @@
-"""Build the pilot's immutable IK model from source assembly assets."""
+"""Build the pilot's immutable IK model from bundle assembly assets."""
 
 from __future__ import annotations
 

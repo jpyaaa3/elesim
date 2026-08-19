@@ -142,10 +142,7 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
         "pilot": (
             "arm_model.json",
             "calibration/hand_eye.camera.json",
-            "config.jetson.yaml",
-            "config.pc.yaml",
             "config.yaml",
-            "default.yaml",
             "perception/detector.real_green_hsv.json",
             "perception/detector.sim_hsv.json",
             "perception/detector.yolo.example.json",
@@ -155,11 +152,7 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
         ),
         "sim": (
             "calibration/hand_eye.camera.json",
-            "config.jetson.yaml",
-            "config.pc.yaml",
-            "config.remote.yaml",
             "config.yaml",
-            "default.yaml",
             "runtime.yaml",
         ),
         "ui": (

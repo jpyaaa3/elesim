@@ -155,7 +155,10 @@ class PilotConnection:
             while not self.stop_event.is_set():
                 try:
                     endpoint.heartbeat()
-                    messages = tuple(endpoint.receive(timeout_ms=20))
+                    # Target updates are coalesced to the latest value; poll
+                    # twice per former cycle so an operator slider does not
+                    # wait behind a 20 ms DDS receive timeout.
+                    messages = tuple(endpoint.receive(timeout_ms=10))
                     self.state_sink.peer_connected(bool(endpoint.registered))
                     for message in messages:
                         self.handle_envelope(endpoint, message)

@@ -98,7 +98,10 @@ class UiSimSession:
         receiver_factory: Callable[[], Any] = WebRtcVideoReceiver,
         retry_s: float = 0.5,
         open_timeout_s: Optional[float] = None,
-        poll_ms: int = 50,
+        # Camera gestures are latest-only and coalesced.  A 50 ms receive
+        # timeout made the UI-to-Sim path visibly quantized at 20 Hz before
+        # the Sim endpoint even handled the command.
+        poll_ms: int = 10,
         max_pending_commands: int = 128,
         clock: Callable[[], float] = time.monotonic,
         autostart: bool = True,

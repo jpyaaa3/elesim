@@ -8,7 +8,7 @@ conda activate elesim
 export PYTHONPATH=.
 mkdir -p logs/walking_baseline/_batch
 
-COMMON=(--config pilot/config/default.yaml --motion forward --preset neutral
+COMMON=(--config pilot/config/config.yaml --motion forward --preset neutral
         --max-duration 30 --stop-at-standoff 0.85 --trials 10
         --sim-warmup-s 120 --perception-warmup-s 30 --no-restart-host)
 

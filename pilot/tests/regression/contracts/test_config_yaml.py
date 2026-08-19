@@ -23,17 +23,38 @@ class YamlConfigContractTests(unittest.TestCase):
 
     def test_repository_profiles_load_and_override_base(self) -> None:
         root = Path(__file__).resolve().parents[3]
-        base = load_app_config(str(root / "config/config.yaml"))
-        pc = load_app_config(str(root / "config/default.yaml"))
-        jetson = load_app_config(str(root / "config/config.jetson.yaml"))
+        pc = load_app_config(str(root / "config/config.yaml"), mode="pc")
+        jetson = load_app_config(str(root / "config/config.yaml"), mode="jetson")
 
-        self.assertFalse(base.sim_config.use_hardware)
         self.assertTrue(pc.sim_config.use_hardware)
         self.assertTrue(jetson.sim_config.use_hardware)
-        self.assertEqual(base.sim_param.dt, pc.sim_param.dt)
-        self.assertEqual(base.sim_param.dt, jetson.sim_param.dt)
-        self.assertFalse(hasattr(base, "go2_hardware_config"))
-        self.assertFalse(hasattr(base, "go2_locomotion_config"))
+        self.assertEqual(pc.sim_param.dt, jetson.sim_param.dt)
+        self.assertFalse(hasattr(pc, "go2_hardware_config"))
+        self.assertFalse(hasattr(pc, "go2_locomotion_config"))
+
+    def test_unified_profiles_require_a_valid_mode(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        with self.assertRaisesRegex(ConfigValidationError, "unknown mode"):
+            load_app_config(str(root / "config/config.yaml"), mode="missing")
+
+    def test_unselected_profile_is_not_schema_parsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                Path(tmp),
+                "profiles.yaml",
+                """schema_version: 1
+mode: pc
+profiles:
+  pc:
+    simulation:
+      physics:
+        dt: 0.02
+  jetson:
+    this_key_is_only_valid_when_jetson_is_selected: true
+""",
+            )
+            bundle = load_app_config(str(path))
+            self.assertAlmostEqual(bundle.sim_param.dt, 0.02)
 
     def test_extends_deep_merges_mappings_and_replaces_lists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

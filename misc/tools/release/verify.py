@@ -133,6 +133,12 @@ PUBLIC_CONFIG_TEMPLATES = {
     "ui": "public.example.yaml",
     "robot": "public.example.yaml",
 }
+APPLICATION_CONFIG_FILES = {
+    "pilot": "config.yaml",
+    "sim": "config.yaml",
+    "ui": "default.yaml",
+    "robot": "default.yaml",
+}
 
 
 class ReleaseVerificationError(RuntimeError):
@@ -422,7 +428,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
     _assert_regular_tree(release)
     assert_release_entries(release, role)
     _require_path(release / "config", kind="directory")
-    _require_path(release / "config/default.yaml")
+    _require_path(release / "config" / APPLICATION_CONFIG_FILES[role])
     public_template = release / "config" / PUBLIC_CONFIG_TEMPLATES[role]
     if os.path.lexists(public_template):
         raise ReleaseVerificationError(
@@ -574,7 +580,8 @@ visible = sorted(name for name in siblings if importlib.util.find_spec(name) is 
 if visible:
     raise AssertionError(f"sibling applications visible in isolated install: {visible}")
 
-config = release / "config/default.yaml"
+config_name = "config.yaml" if role in ("pilot", "sim") else "default.yaml"
+config = release / "config" / config_name
 if role == "pilot":
     from elesim_pilot.config import load_app_config, load_runtime_role_config
     from elesim_pilot.robot.arm.iklib.solver import load_solver_context

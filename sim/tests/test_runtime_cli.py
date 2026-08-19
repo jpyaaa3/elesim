@@ -23,11 +23,12 @@ def test_viewer_flag_overrides_remote_profile(monkeypatch) -> None:
 
     monkeypatch.setattr(runtime, "GenesisApp", FakeGenesisApp)
     runtime.run_runtime(
-        config_path=str(ROOT / "config/config.remote.yaml"),
+        config_path=str(ROOT / "config/config.yaml"),
+        config_mode="remote",
         argv=["--viewer"],
     )
 
-    remote = load_app_config(str(ROOT / "config/config.remote.yaml"))
+    remote = load_app_config(str(ROOT / "config/config.yaml"), mode="remote")
     assert remote.sim_config.enable_viewer is False
     assert captured["cfg"].enable_viewer is True
 
@@ -44,7 +45,8 @@ def test_no_viewer_flag_keeps_remote_profile_headless(monkeypatch) -> None:
 
     monkeypatch.setattr(runtime, "GenesisApp", FakeGenesisApp)
     runtime.run_runtime(
-        config_path=str(ROOT / "config/config.pc.yaml"),
+        config_path=str(ROOT / "config/config.yaml"),
+        config_mode="remote",
         argv=["--no-viewer"],
     )
 

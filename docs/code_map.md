@@ -21,8 +21,8 @@ adapter다. 별도 deployable role이나 Router가 아니다.
 ```text
 packages/elesim_interfaces/       ROSIDL msg/service/action definitions
 packages/protocol/                PeerEnvelope, discovery, lease/session, RGB-D
-model/source/                     builder inputs
-model/builder/                    immutable model generation tools
+model/bundles/default/            self-contained runtime model bundle and builder input assets
+model/builder/                    model generation tools
 misc/tools/release/               release context build/verify
 misc/system_tests/                cross-process acceptance probes
 installer/package/                setup, state, topology, security, lifecycle

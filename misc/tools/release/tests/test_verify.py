@@ -209,7 +209,7 @@ def test_release_layout_rejects_public_config_template(
         path = release / name
         path.mkdir() if "." not in name else path.write_text("", encoding="utf-8")
     config = release / "config"
-    (config / "default.yaml").write_text("{}\n", encoding="utf-8")
+    (config / "config.yaml").write_text("{}\n", encoding="utf-8")
     (config / "runtime.yaml").write_text("{}\n", encoding="utf-8")
     (config / "arm_model.json").write_text("{}\n", encoding="utf-8")
     (config / "runtime.public.example.yaml").write_text("{}\n", encoding="utf-8")
@@ -413,7 +413,7 @@ def test_pilot_release_requires_the_generated_arm_model(tmp_path: Path) -> None:
     (release / "wheels").mkdir()
     (release / "interfaces").mkdir()
     for relative in (
-        "config/default.yaml",
+        "config/config.yaml",
         "config/runtime.yaml",
         "requirements.lock",
         "Dockerfile",

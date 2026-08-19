@@ -19,8 +19,13 @@ class ControlRuntime:
     service: ControlService
 
 
-def build_control_runtime(config_path: str, client: Any) -> ControlRuntime:
-    bundle, ik_context = ik_pipeline.load_solver_context(config_path)
+def build_control_runtime(
+    config_path: str,
+    client: Any,
+    *,
+    mode: str | None = None,
+) -> ControlRuntime:
+    bundle, ik_context = ik_pipeline.load_solver_context(config_path, mode=mode)
     hand_eye_transform = None
     hand_eye_parent_frame = "node9"
     hand_eye_path = str(bundle.sim_config.hand_eye_config).strip()
@@ -65,6 +70,7 @@ def build_control_runtime(config_path: str, client: Any) -> ControlRuntime:
         ik_cfg=bundle.ik_config,
         ik_context=ik_context,
         config_path=config_path,
+        config_mode=mode,
         perception_cfg=perception_cfg,
         pick_cfg=pick_cfg,
         gaze_cfg=bundle.gaze_stabilizer_config,

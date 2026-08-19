@@ -12,7 +12,7 @@ from elesim_model_builder.arm_model import build_arm_model
 
 ROOT = Path(__file__).resolve().parents[3]
 BASE_CONFIG = ROOT / "pilot/config/config.yaml"
-ASSETS = ROOT / "model/source/assets"
+ASSETS = ROOT / "model/bundles/default/assets"
 
 
 def test_arm_model_build_uses_an_isolated_workspace(tmp_path: Path) -> None:

@@ -28,8 +28,12 @@ class IkSolveResult:
     reason: str = ""
 
 
-def load_solver_context(config_path: str) -> tuple[AppConfigBundle, dict[str, Any]]:
-    bundle = load_app_config(config_path)
+def load_solver_context(
+    config_path: str,
+    *,
+    mode: str | None = None,
+) -> tuple[AppConfigBundle, dict[str, Any]]:
+    bundle = load_app_config(config_path, mode=mode)
     model_path = os.environ.get("ELESIM_ARM_MODEL", "").strip()
     if not model_path:
         model_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), "arm_model.json")

@@ -147,6 +147,7 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         ik_cfg: Optional[IkConfig] = None,
         ik_context: Optional[dict[str, Any]] = None,
         config_path: Optional[str] = None,
+        config_mode: Optional[str] = None,
         perception_cfg: Optional[PerceptionConfig] = None,
         pick_cfg: Optional[PickConfig] = None,
         gaze_cfg: Optional[GazeStabilizerConfig] = None,
@@ -163,6 +164,7 @@ class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActi
         self._ik_cfg = ik_cfg or IkConfig()
         self._ik_context = dict(ik_context or {})
         self._config_path = None if config_path is None else str(config_path)
+        self._config_mode = None if config_mode is None else str(config_mode)
         self._perception_cfg = perception_cfg or PerceptionConfig()
         self._perception_run_local = self._perception_config_runs_locally(self._perception_cfg)
         self._pick_cfg = pick_cfg or PickConfig()
@@ -710,7 +712,10 @@ class _PilotContextActions(_ControlServiceCore):
         if not self._config_path:
             return
         try:
-            _, ik_context = ik_pipeline.load_solver_context(self._config_path)
+            _, ik_context = ik_pipeline.load_solver_context(
+                self._config_path,
+                mode=self._config_mode,
+            )
             self._ik_context = dict(ik_context or {})
         except Exception as exc:
             print(f"[UI] IK context reload failed: {exc}")

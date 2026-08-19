@@ -62,13 +62,14 @@ def _webrtc_descriptor(endpoint_id: str, stream: str) -> MediaStreamDescriptor:
 
 def _run() -> None:
     parser = argparse.ArgumentParser(description="EleSim distributed Genesis agent")
-    parser.add_argument("--config", default=str(_ROOT / "config/default.yaml"))
+    parser.add_argument("--config", default=str(_ROOT / "config/config.yaml"))
+    parser.add_argument("--mode", default=None, help="select a profile from the application YAML")
     parser.add_argument("--runtime-config", default=str(_ROOT / "config/runtime.yaml"))
     parser.add_argument("--model-bundle", default="")
     parser.add_argument("--id", default="")
     args, sim_args = parser.parse_known_args()
 
-    bundle = load_app_config(args.config)
+    bundle = load_app_config(args.config, mode=args.mode)
     role = load_runtime_role_config(args.runtime_config)
     if role.role != "sim":
         raise ValueError(f"runtime role must be sim, got {role.role!r}")
@@ -164,6 +165,7 @@ def _run() -> None:
 
         run_runtime(
             config_path=args.config,
+            config_mode=args.mode,
             argv=sim_args,
             model_bundle=model_bundle,
             state_source=state,

@@ -763,7 +763,7 @@ class Installer:
         if role == "pilot":
             return executable, (
                 "--config",
-                str(config / "config.pc.yaml"),
+                str(config / "config.yaml"),
                 "--runtime-config",
                 str(config / "runtime.installed.yaml"),
             )

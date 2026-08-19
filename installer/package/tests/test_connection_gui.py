@@ -443,7 +443,7 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert not any(key.startswith("derived.") for key in catalog["ko"])
     assert 'function runApplyJob()' in script
     assert 'apply.textContent = t("action.prepare")' in script
-    assert '"runtime-start": !running && workflowSaved && workflowApplied' in script
+    assert '"runtime-start": !busy && !initializerComplete && workflowSaved && workflowApplied' in script
     assert "runtimeRestartable" not in script
     assert 'let workflowRequiresFreshSave = true;' in script
     assert 'if (topologyAppliedByThisJob && !workflowRequiresFreshSave)' in script
@@ -468,10 +468,13 @@ def test_connection_gui_assets_have_bilingual_drag_drop_board() -> None:
     assert "let runtimeOptionsLocked = false;" in script
     assert "let gpuInheritAvailable = null;" in script
     assert "let jobSubmissionPending = false;" in script
+    assert "let workflowStarted = false;" in script
+    assert "const initializerComplete = workflowStarted;" in script
     assert "if (jobSubmissionPending) return;" in script
     assert "jobSubmissionPending = true;" in script
     assert "updateWorkflow(true);" in script
     assert "jobSubmissionPending = false;" in script
+    assert "workflowStarted = job.status === \"completed\";" in script
     assert "function setRuntimeOptionsLocked(locked)" in script
     assert "function restoreRuntimeOptions(job)" in script
     assert "restoreRuntimeOptions(job);" in script

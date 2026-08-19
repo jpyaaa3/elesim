@@ -121,7 +121,7 @@ def _run_trial(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="GO2 walking baseline (ControlService only)")
-    ap.add_argument("--config", default="pilot/config/default.yaml")
+    ap.add_argument("--config", default="pilot/config/config.yaml")
     ap.add_argument("--run-id", default="", help="must match ELESIM_RUN_ID on sim process")
     ap.add_argument("--run-prefix", default="exp_baseline")
     ap.add_argument("--preset", default="neutral")

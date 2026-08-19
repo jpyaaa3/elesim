@@ -1,6 +1,44 @@
 schema_version: 1
 extends: null
 
+# ``pc`` keeps the native Genesis viewer for local development.  The
+# installer selects ``remote`` for a headless compute host and ``jetson`` for
+# a hardware-only profile; all three use this same file.
+mode: pc
+
+profiles:
+  pc:
+    simulation:
+      runtime:
+        use_gpu: true
+        enable_viewer: true
+
+  # Remote compute profile: render both network cameras without opening a
+  # local Genesis desktop viewer on the simulation host.
+  remote:
+    simulation:
+      runtime:
+        use_gpu: true
+        enable_viewer: false
+      cameras:
+        hand_eye:
+          enable: true
+        observer:
+          enable: true
+
+  # Jetson/native profile: no desktop viewer or network camera rendering.
+  jetson:
+    simulation:
+      runtime:
+        use_gpu: false
+        enable_viewer: false
+      cameras:
+        hand_eye:
+          enable: false
+        observer:
+          enable: false
+
+# ---- Shared application defaults -----------------------------------------
 simulation:
   physics:
     dt: 0.02

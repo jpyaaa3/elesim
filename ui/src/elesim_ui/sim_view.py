@@ -24,6 +24,27 @@ def _mouse_delta_xy(value: Any) -> tuple[float, float]:
     return 0.0, 0.0
 
 
+def _scene_grab_delta(
+    raw_dx: float,
+    raw_dy: float,
+    *,
+    width: float,
+    height: float,
+) -> tuple[float, float]:
+    """Map pointer motion to direct-grab scene motion.
+
+    Genesis' camera transform is expressed as camera motion, while this UI
+    presents the rendered image as a surface the operator grabs.  Negating
+    both axes at the input boundary makes the scene follow the pointer while
+    leaving the Genesis camera/trackball math in Sim unchanged.
+    """
+
+    return (
+        -float(raw_dx) / max(float(width), 1.0),
+        -float(raw_dy) / max(float(height), 1.0),
+    )
+
+
 def _genesis_scroll_zoom_delta(clicks: float) -> float:
     """Protocol zoom unit matching Genesis 1.2.0's 0.90 wheel ratio."""
 
@@ -452,8 +473,12 @@ class SimView:
     def _handle_observer_input(self, *, width: float, height: float) -> None:
         io = imgui.get_io()
         raw_dx, raw_dy = _mouse_delta_xy(io.mouse_delta)
-        dx = raw_dx / max(width, 1.0)
-        dy = raw_dy / max(height, 1.0)
+        dx, dy = _scene_grab_delta(
+            raw_dx,
+            raw_dy,
+            width=width,
+            height=height,
+        )
         if imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
             self.session.send_command("orbit", {"dx": dx, "dy": dy})
         # Genesis: middle-button drag pans; right-button drag zooms.  The
@@ -499,4 +524,5 @@ __all__ = [
     "SimViewState",
     "_genesis_drag_zoom_delta",
     "_genesis_scroll_zoom_delta",
+    "_scene_grab_delta",
 ]

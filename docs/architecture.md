@@ -69,7 +69,7 @@ safe-hold·torque-off·hardware cleanup을 계속 수행한다.
        ├── elesim_interfaces (ROSIDL wire types)
        └── protocol (PeerEnvelope, discovery, authority, RGB-D helpers)
 
-model/builder ── model/source → model/bundles/default
+model/builder ── model/bundles/default/assets → model/bundles/default
 installer/package ── state/config/Compose/security/lifecycle artifacts
 misc/tools/release ── isolated release contexts
 misc/system_tests ── cross-process acceptance probes
@@ -166,21 +166,28 @@ QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
 
 ## 6. 모델과 설정 lifecycle
 
-`model/source`는 builder input이고 `model/bundles/default`는 immutable runtime
-input이다. Sim은 기본적으로 bundle을 읽고, `ELESIM_SIM_DEV_REBUILD=1`일
-때만 개발 중 rebuild한다. Pilot은 `config/arm_model.json`을 읽으며 runtime에
-assembly를 만들지 않는다.
+`model/bundles/default/assets`가 canonical builder input이며,
+`model/bundles/default`는 assets와 생성된 blueprint/URDF를 함께 담는
+self-contained runtime bundle이다. 빌더는 임시 디렉터리에서 전체 bundle을 만든
+뒤 같은 경로에 원자적으로 publish하므로 별도의 중복 source tree나 runtime의
+builder import가 필요하지 않다. Sim은 기본적으로 bundle을 읽고,
+`ELESIM_SIM_DEV_REBUILD=1`일 때만 개발 중 rebuild한다. Pilot은
+`config/arm_model.json`을 읽으며 runtime에 assembly를 만들지 않는다.
 
 ```bash
-elesim-build-sim-bundle --assets model/source/assets --output model/bundles/default
-elesim-build-arm-model --config pilot/config/config.pc.yaml \
-  --assets model/source/assets --output pilot/config/arm_model.json
+elesim-build-sim-bundle --assets model/bundles/default/assets --output model/bundles/default
+elesim-build-arm-model --config pilot/config/config.yaml \
+  --assets model/bundles/default/assets --output pilot/config/arm_model.json
 ```
 
 설치된 설정은 source default와 분리된 prefix 아래 생성된다. 역할 컨테이너는
 role-specific YAML, read-only config/model mount, role-scoped security view만
-받는다. 설정의 정규 필드와 ownership은 [`configuration.md`](configuration.md)에
-있다.
+받는다. Pilot과 Sim의 application 설정은 각각 `config/config.yaml` 한 파일에
+공통값과 `profiles.pc`, `profiles.remote`, `profiles.jetson` 구획을 함께 둔다.
+파일의 `mode` 또는 CLI의 `--mode`가 선택한 구획만 공통값에 깊이 병합되며,
+설치 overlay도 같은 파일을 `extends`해 선택된 profile만 덮어쓴다. DDS와
+설치/보안 runtime 설정(`runtime.yaml`)은 이 application 설정과 별개다.
+설정의 정규 필드와 ownership은 [`configuration.md`](configuration.md)에 있다.
 
 ## 7. 네트워크와 보안
 

@@ -247,7 +247,10 @@ class OperatorSession:
             self._record_error(f"operator transport failed: {exc}")
             raise
         self._dds_online = bool(endpoint.registered)
-        for message in endpoint.receive(timeout_ms=20):
+        # Keep operator intents responsive independently of the 10 Hz view
+        # snapshot cadence.  Slider values are latest-only, so the shorter
+        # wait reduces input latency without creating a growing queue.
+        for message in endpoint.receive(timeout_ms=10):
             self._handle_message(message, now=current)
         self._expire_requests(now=current)
         self._schedule_snapshot(now=current)

@@ -15,7 +15,7 @@ from elesim_model_builder.bundle import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
-ASSETS = ROOT / "model/source/assets"
+ASSETS = ROOT / "model/bundles/default/assets"
 
 
 def _referenced_paths(bundle: Path) -> list[Path]:
@@ -74,6 +74,20 @@ class SimBundleTests(unittest.TestCase):
                 if path.is_file() and path.name != "bundle.json"
             }
             self.assertEqual(set(metadata["files"]), actual)
+
+    def test_bundle_can_rebuild_in_place_from_embedded_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            bundle = Path(td) / "bundle"
+            shutil.copytree(ROOT / "model/bundles/default", bundle)
+
+            rebuilt = build_sim_bundle(
+                asset_root=bundle / "assets",
+                output_dir=bundle,
+                use_go2=True,
+            )
+
+            self.assertEqual(rebuilt, bundle)
+            validate_bundle(rebuilt)
 
     def test_tampered_asset_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:

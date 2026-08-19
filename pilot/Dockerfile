@@ -41,4 +41,4 @@ RUN python3 -m pip install --no-cache-dir -r /opt/elesim/requirements.lock && \
     rm -rf /tmp/wheels
 
 WORKDIR /opt/elesim
-ENTRYPOINT ["/ros_entrypoint.sh", "elesim-pilot", "--config", "/opt/elesim/config/default.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml"]
+ENTRYPOINT ["/ros_entrypoint.sh", "elesim-pilot", "--config", "/opt/elesim/config/config.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml"]

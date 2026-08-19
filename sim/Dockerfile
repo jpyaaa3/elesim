@@ -33,4 +33,4 @@ COPY model/ /opt/elesim/model/
 COPY config/ /opt/elesim/config/
 WORKDIR /opt/elesim
 
-CMD ["elesim-sim", "--config", "/opt/elesim/config/default.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml", "--model-bundle", "/opt/elesim/model/bundles/default"]
+CMD ["elesim-sim", "--config", "/opt/elesim/config/config.yaml", "--runtime-config", "/opt/elesim/config/runtime.yaml", "--model-bundle", "/opt/elesim/model/bundles/default"]

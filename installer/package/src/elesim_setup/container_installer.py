@@ -1541,7 +1541,7 @@ class ContainerInstaller:
 def _entrypoint(role: str) -> str:
     commands = {
         "pilot": (
-            "elesim-pilot --config /opt/elesim/config/config.pc.yaml "
+            "elesim-pilot --config /opt/elesim/config/config.yaml "
             "--runtime-config /opt/elesim/config/runtime.installed.yaml"
         ),
         "ui": "elesim-ui --config /opt/elesim/config/installed.yaml",

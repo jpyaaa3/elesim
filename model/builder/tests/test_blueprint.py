@@ -8,7 +8,7 @@ from elesim_model_builder.json_builder import build_default_manifest
 
 
 class AssemblyBlueprintTests(unittest.TestCase):
-    ASSETS = Path(__file__).resolve().parents[3] / "model" / "source" / "assets"
+    ASSETS = Path(__file__).resolve().parents[3] / "model" / "bundles" / "default" / "assets"
 
     def test_default_output_is_blueprint_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

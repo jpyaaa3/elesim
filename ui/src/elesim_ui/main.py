@@ -58,8 +58,12 @@ def main() -> None:
             print(f"[ui] WebRTC unavailable: {exc}")
 
     def select_endpoint(endpoint_id: str, endpoint_role: str) -> None:
+        # Only a Sim endpoint owns the simulation session and WebRTC camera
+        # offers.  UI/Pilot discovery peers must never become camera targets.
+        if str(endpoint_role).strip().lower() != "sim":
+            return
         service.select_endpoint(endpoint_id)
-        if sim_session is not None and endpoint_role == "sim":
+        if sim_session is not None:
             sim_session.switch_target(endpoint_id)
 
     panel = ControlPanel(

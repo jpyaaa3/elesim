@@ -8,10 +8,10 @@ from elesim_sim.config.schema import AppConfigBundle
 from elesim_sim.config.yaml_loader import load_app_config_from_yaml
 
 
-def load_app_config(path: str) -> AppConfigBundle:
+def load_app_config(path: str, *, mode: str | None = None) -> AppConfigBundle:
     if not path:
         raise FileNotFoundError("config path is empty")
     suffix = os.path.splitext(str(path))[1].lower()
     if suffix not in (".yaml", ".yml"):
         raise ValueError(f"sim configuration must be YAML, got {suffix or '<none>'!r}")
-    return load_app_config_from_yaml(str(path))
+    return load_app_config_from_yaml(str(path), mode=mode)

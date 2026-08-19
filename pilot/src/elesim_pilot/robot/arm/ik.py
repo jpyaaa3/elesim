@@ -32,8 +32,8 @@ class SolveAndAlignResult:
     reason: str = ""
 
 
-def load_solver_context(config_path: str):
-    return ik_solver.load_solver_context(config_path)
+def load_solver_context(config_path: str, *, mode: str | None = None):
+    return ik_solver.load_solver_context(config_path, mode=mode)
 
 
 def _direction_angle_rad(actual_dir: np.ndarray, desired_dir: np.ndarray) -> float:

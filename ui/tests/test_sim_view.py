@@ -11,6 +11,7 @@ from elesim_ui.sim_view import (
     _fit_aspect_size,
     _mouse_delta_xy,
     _pip_rect,
+    _scene_grab_delta,
 )
 
 
@@ -27,6 +28,13 @@ def test_mouse_delta_accepts_imgui_vector_without_indexing_it() -> None:
 def test_mouse_delta_accepts_tuple_and_rejects_unknown_shapes() -> None:
     assert _mouse_delta_xy((1, 2)) == (1.0, 2.0)
     assert _mouse_delta_xy(None) == (0.0, 0.0)
+
+
+def test_camera_drag_uses_direct_grab_direction() -> None:
+    assert _scene_grab_delta(100.0, -50.0, width=1000.0, height=500.0) == (
+        -0.1,
+        0.1,
+    )
 
 
 def test_view_state_swaps_named_streams() -> None:

@@ -18,7 +18,7 @@ from elesim_pilot.vision.perception.pipeline import resolve_detector_cfg, run_mo
 
 class TestDetectorConfig(unittest.TestCase):
     def test_config_yaml_resolves_detector_preset_path(self) -> None:
-        bundle = load_app_config(str(ROOT / "pilot/config/default.yaml"))
+        bundle = load_app_config(str(ROOT / "pilot/config/config.yaml"), mode="pc")
         path = bundle.perception_config.resolved_detector_config_path()
         self.assertTrue(path.is_file(), msg=str(path))
 

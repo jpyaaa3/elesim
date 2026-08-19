@@ -16,10 +16,6 @@ CONFIG_DIR = Path(__file__).parents[1] / "config"
     "name",
     (
         "config.yaml",
-        "default.yaml",
-        "config.pc.yaml",
-        "config.remote.yaml",
-        "config.jetson.yaml",
     ),
 )
 def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
@@ -35,7 +31,7 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
 
 
 def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> None:
-    bundle = load_app_config(str(CONFIG_DIR / "config.remote.yaml"))
+    bundle = load_app_config(str(CONFIG_DIR / "config.yaml"), mode="remote")
 
     assert bundle.sim_config.enable_viewer is False
     assert bundle.sim_config.sim_camera_enable is True
@@ -43,7 +39,7 @@ def test_remote_profile_disables_native_viewer_but_keeps_network_cameras() -> No
 
 
 def test_cpu_runtime_override_yields_gpu_without_mutating_profile() -> None:
-    bundle = load_app_config(str(CONFIG_DIR / "config.remote.yaml"))
+    bundle = load_app_config(str(CONFIG_DIR / "config.yaml"), mode="remote")
 
     selected = _select_compute_backend(bundle.sim_config, force_cpu=True)
 

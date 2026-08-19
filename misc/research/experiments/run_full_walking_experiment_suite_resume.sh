@@ -13,7 +13,7 @@ SUITE_LOG="${SUITE_LOG:-$BATCH_LOG/suite_resume.log}"
 mkdir -p "$BATCH_LOG"
 
 COMMON=(
-  --config pilot/config/default.yaml
+  --config pilot/config/config.yaml
   --motion forward
   --preset neutral
   --max-duration 30

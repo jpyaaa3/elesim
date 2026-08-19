@@ -598,7 +598,11 @@ class SimEndpoint:
             while not self.stop_event.is_set():
                 try:
                     client.heartbeat()
-                    for message in client.receive(timeout_ms=20):
+                    # Keep simulation commands responsive independently of the
+                    # slower discovery/diagnostic heartbeat cadence.  Camera
+                    # deltas are coalesced at both ends, so a 10 ms poll does
+                    # not create an unbounded queue.
+                    for message in client.receive(timeout_ms=10):
                         self.handle_envelope(client, message)
                     self._flush_webrtc_answers(client)
                     if was_registered and not client.registered:

@@ -186,7 +186,10 @@ class ControlPanel:
         self._camera_window = None
         self._camera_visible = False
         self._camera_next_draw_at = 0.0
-        self._camera_draw_period_s = 1.0 / 30.0
+        # Sample pointer gestures at the display cadence.  The session and
+        # Sim endpoint coalesce camera deltas, so this does not create an
+        # unbounded DDS backlog while removing a visible 30 Hz input cap.
+        self._camera_draw_period_s = 1.0 / 60.0
         self._main_imgui_context = None
         self._camera_imgui_context = None
         self._main_imgui_impl = None
@@ -208,12 +211,23 @@ class ControlPanel:
                 self._endpoint_cache_at = now
             except Exception:
                 pass
-        endpoints = self._endpoint_cache
+        # The operator endpoint list also contains this UI and Pilot.  They
+        # are discovery/control peers, not camera targets; exposing them here
+        # lets a click switch the control plane to the wrong participant.
+        endpoints = []
+        for endpoint in self._endpoint_cache:
+            role = (
+                str(endpoint.get("role", ""))
+                if isinstance(endpoint, dict)
+                else str(getattr(endpoint, "role", ""))
+            )
+            if role.strip().lower() == "sim":
+                endpoints.append(endpoint)
         active = self._active_endpoint_cache
         if not endpoints:
-            imgui.text_disabled("TARGET: waiting for endpoint")
+            imgui.text_disabled("SIM TARGET: waiting for endpoint")
             return
-        imgui.text("TARGET")
+        imgui.text("SIM TARGET")
         for index, endpoint in enumerate(endpoints):
             if isinstance(endpoint, dict):
                 endpoint_id = str(endpoint.get("endpoint_id", ""))
@@ -293,13 +307,16 @@ class ControlPanel:
             return
         self._camera_next_draw_at = now + max(
             0.01,
-            float(getattr(self, "_camera_draw_period_s", 1.0 / 30.0)),
+            float(getattr(self, "_camera_draw_period_s", 1.0 / 60.0)),
         )
         glfw.make_context_current(window)
         self._set_imgui_context(context)
         impl = self._camera_imgui_impl
         if impl is None:
             return
+        # Keep the secondary context in lockstep when the main panel's
+        # resolution scale changes while the camera is open.
+        self._apply_ui_resolution_scale()
         impl.process_inputs()
         imgui.new_frame()
         # Keep the camera contents anchored to the native window in the same
@@ -316,7 +333,10 @@ class ControlPanel:
             float(io.display_size.y),
             cond,
         )
-        flags = getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
+        flags = (
+            getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
+            | getattr(imgui, "WINDOW_NO_MOVE", 0)
+        )
         opened = imgui.begin("Sim Camera###sim_camera_window", True, flags=flags)
         visible = opened[0] if isinstance(opened, tuple) else bool(opened)
         if visible:
@@ -351,7 +371,7 @@ class ControlPanel:
             if selected:
                 self._perception_config_path_draft = str(selected)
 
-    def _install_ui_font(self) -> None:
+    def _install_ui_font(self, *, install_header: bool = True) -> None:
         io = imgui.get_io()
         fonts = getattr(io, "fonts", None)
         if fonts is None or not hasattr(fonts, "add_font_from_file_ttf"):
@@ -365,12 +385,13 @@ class ControlPanel:
                 if hasattr(io, "font_default"):
                     io.font_default = font
                 print(f"[ui] content font: {font_path} ({FONT_SPEC.content_px:.1f}px)")
-            header_path = TITLE_FONT
-            if header_path.exists():
-                header_font = add_font_with_korean_ranges(fonts, header_path, float(FONT_SPEC.title_px))
-                if header_font is not None:
-                    set_panel_header_font(header_font)
-                    print(f"[ui] title font: {header_path} ({FONT_SPEC.title_px:.1f}px)")
+            if install_header:
+                header_path = TITLE_FONT
+                if header_path.exists():
+                    header_font = add_font_with_korean_ranges(fonts, header_path, float(FONT_SPEC.title_px))
+                    if header_font is not None:
+                        set_panel_header_font(header_font)
+                        print(f"[ui] title font: {header_path} ({FONT_SPEC.title_px:.1f}px)")
         except Exception as exc:
             print(f"[ui] font load skipped: {exc}")
 
@@ -887,12 +908,17 @@ class ControlPanel:
                     pass
                 self._camera_imgui_context = imgui.create_context()
                 self._set_imgui_context(self._camera_imgui_context)
+                # Use exactly the control-panel font, spacing and light theme
+                # in the camera context as well.  ImGui contexts do not share
+                # style or font atlases, so configuring only the main context
+                # leaves the camera window on the default dark theme.
+                # SimView has no collapsible panel headers.  Do not replace
+                # the process-global header-font handle used by the main
+                # context with a font object owned by this context.
+                self._install_ui_font(install_header=False)
+                self._install_ui_style()
                 camera_impl = GlfwRenderer(camera_window)
                 self._camera_imgui_impl = camera_impl
-                # Camera controls intentionally retain the independent
-                # context's default style; all stream textures belong to this
-                # context.  Do not call _install_ui_style here because that
-                # method stores the main-window scaling baseline on ``self``.
                 glfw.make_context_current(window)
                 self._set_imgui_context(self._main_imgui_context)
 
