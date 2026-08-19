@@ -1,34 +1,40 @@
-# Experiment framework
+# Experiment Framework
 
-Walking/camera stabilization experiments use a **manual three-process stack**:
+> Experimental/research documentation. It is not part of the installed runtime
+> contract. Current runtime behavior is defined in [`README.md`](README.md) and
+> [`architecture.md`](architecture.md).
 
-1. `python host.py --config config.ini`
-2. `ELESIM_WALKING_METRICS=1 ELESIM_RUN_ID=<run_id> python sim.py --config config.ini`
-3. `python tools/walking_baseline.py --run-id <run_id> ...`
+## Scope
 
-## Run ID rule
+Experiments are repository tooling, not runtime roles. Canonical runners live in
+`misc/research/experiments`; analysis-only commands live in
+`misc/research/analysis`. They consume an already running Pilot and selected
+Robot or Sim deployment. UI is required only for interactive presentation.
 
-- `ELESIM_RUN_ID` is read **only at sim startup**.
-- Baseline/demo scripts **validate** `--run-id` against the environment; they do not export it.
-- One `run_id` per sim process. `--repeat N` requires sim restart between trials.
+Do not add an experiment as a fifth Compose role, Router, DDS broker, or hidden
+runtime import. An experiment must use the documented ROS/DDS contracts and the
+same system/domain/RMW/security profile as the deployment it observes.
 
-## Pitch-trim sweep
+## Environment
 
-Pitch-trim gains load from `config.ini` at sim startup. Each sweep case needs a sim restart.
-See `tools/pitch_trim_sweep.sh`.
+Run experiments in the setup-generated persistent Developer container so the
+host Python and ROS installation remain untouched.
 
-## Gaze modes
+```bash
+elesim-up
+elesim-dev
+elesim-dev python3 misc/research/experiments/<runner>.py
+```
 
-| Mode | Description |
-|------|-------------|
-| `off` | No gaze worker |
-| `uv` | UV feedback only |
-| `uv_ff` | UV + base angular velocity feedforward |
-| `preview` | Interface stub only (not connected by default) |
+The runner records the effective config, source revision, topology mode, role
+endpoints and run ID. Outputs belong under `misc/research/results/`; runtime
+snapshots belong under the generated prefix's bounded `logs/runs/`. Neither is a
+release input.
 
-## Known limitations
+## Evidence requirements
 
-- Walking CSV requires sim with matching `ELESIM_RUN_ID`.
-- Preview MPC is stub-only in v1.
-- Camera `sim_time_s` may be empty if host timestamp unavailable; merge uses `wall_time_s`.
-- No grasp/LJI validation in this framework.
+An experiment report must state whether it used simulated or physical hardware,
+which GPU policy/encoder was active, whether observer/hand-eye media was
+involved, and which acceptance gates were not exercised. A headless experiment
+does not prove physical convergence, SROS2 enforcement, NAT traversal or display
+behavior.

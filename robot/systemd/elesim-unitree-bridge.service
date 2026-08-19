@@ -1,0 +1,28 @@
+[Unit]
+Description=EleSim local Unitree DDS bridge
+After=network-online.target
+Wants=network-online.target
+PartOf=elesim-robot.service
+
+[Service]
+Type=simple
+User=elesim-unitree
+Group=elesim-unitree
+UMask=0007
+RuntimeDirectory=elesim-unitree
+RuntimeDirectoryMode=0750
+WorkingDirectory=/opt/elesim-robot
+Environment=ROS_LOG_DIR=/run/elesim-unitree/ros-log
+ExecStart=/bin/bash -lc 'source /opt/ros/humble/setup.bash && source /opt/elesim-robot/ros/install/setup.bash && exec /opt/elesim-robot/venv/bin/elesim-unitree-bridge --config /etc/elesim/robot.yaml'
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+DevicePolicy=closed
+InaccessiblePaths=-/etc/elesim/keystore -/etc/elesim/security -/opt/elesim-robot/security -/dev/ttyUSB0 -/dev/video0
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

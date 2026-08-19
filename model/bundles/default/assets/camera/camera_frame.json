@@ -1,0 +1,17 @@
+{
+  "notes": "ZED Mini stereo camera, under-slung below the gripper, mounted rolled 180 deg (image up = node9 -Z). Mesh local frame: +Y is the optical axis (lens front face at y=0.03025), +X is the stereo baseline (lens axes at x=-0.025 / +0.038, 63.0 mm apart), +Z is camera up. The mesh attachment is independent from the optical frame; see pilot/config/calibration/zed_mini.hand_eye.json for the imager origin.",
+  "connectors": {
+    "from": {
+      "p": [0.00632, -0.005021, -0.042062],
+      "q": [0.70710678, 0.0, -0.70710678, 0.0],
+      "joint": {
+        "type": "fixed",
+        "axis": [1.0, 0.0, 0.0]
+      }
+    },
+    "to": {
+      "p": [0.0065, 0.03025, 0.0],
+      "q": [0.0, 0.0, 0.0, 1.0]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+schema_version: 4
+runtime:
+  endpoint_id: robot-go2
+  device: /dev/ttyUSB0
+  use_go2: true
+dds:
+  system_id: elesim
+  node_key: robot-go2
+  domain_id: 0
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: static
+  static_peers: [10.8.0.1]
+  network_interface: wg0
+  vendor_config: /etc/elesim/cyclonedds.xml
+  security_profile: sros2
+  keystore: /etc/elesim/keystore
+  enclave: /elesim/robot-go2
+go2:
+  enabled: true
+  backend: unitree_ros2
+  pose_source: sportmodestate
+  ros_workspace: /opt/unitree_ros2
+  network_interface: eth0
+  ros_domain_id: 1
+  ipc_socket_path: /run/elesim-unitree/bridge.sock
+  ipc_robot_user: elesim
+  ipc_bridge_user: elesim-unitree
+  ipc_heartbeat_interval_s: 0.1
+camera:
+  enabled: true
+  topic: /elesim/robot_go2/rgbd/frame
+  width: 640
+  height: 480
+  fps: 30
+safety:
+  command_deadman_s: 0.5
+  monitor_period_s: 0.05
+  read_failure_limit: 3
+  telemetry_period_s: 0.1
+  max_go2_vx_m_s: 0.8
+  max_go2_vy_m_s: 0.5
+  max_go2_wz_rad_s: 1.5

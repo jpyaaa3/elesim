@@ -1,0 +1,60 @@
+schema_version: 4
+runtime:
+  endpoint_id: robot-go2
+  device: /dev/ttyUSB0
+  use_go2: true
+dds:
+  system_id: elesim
+  node_key: robot-go2
+  domain_id: 0
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast
+  static_peers: []
+  network_interface: tailscale0
+  vendor_config: ""
+  security_profile: trusted-network
+  keystore: ""
+  enclave: ""
+arm:
+  command_direction: [1, 1, 1, -1]
+  motor_direction: [1, -1, 1, -1]
+  baudrate: 1000000
+  current_limit_ma: 2500
+  profile_vel_seg1: 150
+  profile_acc_seg1: 20
+  profile_vel_seg2: 150
+  profile_acc_seg2: 20
+mapping:
+  linear_q_min_m: -0.230
+  linear_q_max_m: 0.0
+  roll_q_min_rad: -1.5707963267948966
+  roll_q_max_rad: 1.5707963267948966
+  seg1_q_min_rad: -0.6283185307179586
+  seg1_q_max_rad: 0.6283185307179586
+  seg2_q_min_rad: -0.6283185307179586
+  seg2_q_max_rad: 0.6283185307179586
+go2:
+  enabled: true
+  backend: unitree_ros2
+  pose_source: sportmodestate
+  ros_workspace: /opt/unitree_ros2
+  network_interface: eth0
+  ros_domain_id: 1
+  ipc_socket_path: /run/elesim-unitree/bridge.sock
+  ipc_robot_user: elesim
+  ipc_bridge_user: elesim-unitree
+  ipc_heartbeat_interval_s: 0.1
+camera:
+  enabled: true
+  topic: /elesim/robot_go2/rgbd/frame
+  width: 640
+  height: 480
+  fps: 30
+safety:
+  command_deadman_s: 0.5
+  monitor_period_s: 0.05
+  read_failure_limit: 3
+  telemetry_period_s: 0.1
+  max_go2_vx_m_s: 0.8
+  max_go2_vy_m_s: 0.5
+  max_go2_wz_rad_s: 1.5

@@ -1,0 +1,5 @@
+string<=128 request_id
+elesim_interfaces/LeaseFence fence
+---
+bool accepted
+string<=512 reason

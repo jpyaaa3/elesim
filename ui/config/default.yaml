@@ -1,0 +1,42 @@
+schema_version: 2
+runtime:
+  endpoint_id: ui-main
+  pilot_id: pilot-main
+  sim_id: sim-default
+dds:
+  system_id: elesim
+  domain_id: 0
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: multicast
+  static_peers: []
+  network_interface: lo
+  vendor_config: ""
+  security_profile: trusted-network
+  keystore: ""
+  enclave: ""
+presentation:
+  use_hardware: false
+  use_go2: true
+  go2:
+    vx_mps: 0.35
+    vy_mps: 0.25
+    wz_radps: 0.8
+hardware:
+  current_yellow_ma: 1800
+  current_limit_ma: 2500
+perception:
+  detector_config: config/perception/detector.sim_hsv.json
+  mode: sim
+  detector: hsv
+  target_label: sim_sphere
+  show_preview: false
+pick:
+  target_scale: 0.16
+  scale_tol: 0.02
+  center_tol: 0.12
+  target_uv_u: 0.5
+  target_uv_v: 0.0
+  ready_pose_standoff_m: 0.20
+  look_pose_standoff_m: 0.20
+  mobile_handoff_distance_m: 0.30
+gaze: {}

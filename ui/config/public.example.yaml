@@ -1,0 +1,20 @@
+schema_version: 2
+runtime:
+  endpoint_id: ui-main
+  pilot_id: pilot-main
+  sim_id: sim-default
+dds:
+  system_id: elesim
+  domain_id: 42
+  rmw_implementation: rmw_cyclonedds_cpp
+  discovery_mode: static
+  static_peers:
+    - 10.10.0.3
+  network_interface: wg0
+  vendor_config: /etc/elesim/ui/cyclonedds.xml
+  security_profile: sros2
+  keystore: /etc/elesim/sros2
+  enclave: /elesim/ui
+presentation:
+  use_hardware: false
+  use_go2: true

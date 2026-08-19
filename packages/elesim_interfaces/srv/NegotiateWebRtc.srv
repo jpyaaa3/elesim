@@ -1,0 +1,13 @@
+uint32 MAX_SDP_CHARS=524288
+uint16 MAX_STREAM_CHARS=128
+
+string<=128 request_id
+elesim_interfaces/LeaseFence fence
+string<=128 stream
+string<=16 offer_type
+string<=524288 offer_sdp
+---
+bool accepted
+string<=512 reason
+string<=16 answer_type
+string<=524288 answer_sdp

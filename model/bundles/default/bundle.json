@@ -1,0 +1,169 @@
+{
+  "build": {
+    "format_version": 1,
+    "source_assets_sha256": "1efca9312683c737a590939b343730ea39750eaa0bba1c75388155ca377fea2a",
+    "use_go2": true
+  },
+  "bundle_id": "16a28a59a68e6da4fd08db240351b78636717fc366b8740c4ca7ebdcef738484",
+  "bundle_type": "elesim.sim-model",
+  "entrypoints": {
+    "arm_urdf": "arm.urdf",
+    "blueprint": "blueprint.json",
+    "robot_urdf": "robot.urdf"
+  },
+  "files": {
+    "arm.urdf": {
+      "sha256": "c50e797d872085c5abe3b42191ea362d6f6580dbe83700a91ee91162b99f33c9",
+      "size": 14292
+    },
+    "assets/camera/camera_frame.json": {
+      "sha256": "3d96fba34d35c7284c6f846bb4de6b6cee98787aa2062894cd3d73117fdfd9f2",
+      "size": 720
+    },
+    "assets/camera/camera_mesh.obj": {
+      "sha256": "92cb94b57cd5d91369b5ee6b78d963fc0f7a995e7089a2433b7a41bd577a5eb6",
+      "size": 68829
+    },
+    "assets/camera/camera_physics.json": {
+      "sha256": "e82d7aa2917e3354b67e79d62dcae187bd5bfd9f586fc03cb84155031a99ba44",
+      "size": 273
+    },
+    "assets/go2/dae/base.dae": {
+      "sha256": "5bfe072988d267167b7dda28e28929c74f1e407b8aeaf9d4c7cd456300e81cdd",
+      "size": 2018664
+    },
+    "assets/go2/dae/calf.dae": {
+      "sha256": "6b423d1c4bfed1b0009cbb1145942bacc305312e14835296797b57bfb8472788",
+      "size": 207223
+    },
+    "assets/go2/dae/calf_mirror.dae": {
+      "sha256": "981f5aa9a1187eb702146097b2f0212eec1ab6f5b556013e9fd57b02a6aca710",
+      "size": 207095
+    },
+    "assets/go2/dae/foot.dae": {
+      "sha256": "c371114b72930555b157fff2fb4b9b7213664367e0c6275c30bb4499b16bd89e",
+      "size": 78048
+    },
+    "assets/go2/dae/hip.dae": {
+      "sha256": "db2384dafcfa4ba2c17c1b98223915ba4598fb35c1d964cfe57901bcfb467326",
+      "size": 932392
+    },
+    "assets/go2/dae/thigh.dae": {
+      "sha256": "355c6c1c3ccb24b28ce114b58e3ac038105716165ceaadbeebfa9dfccb4863f4",
+      "size": 765067
+    },
+    "assets/go2/dae/thigh_mirror.dae": {
+      "sha256": "494c50ea4ea1baf84a69252393b812169cc2d516cb7fbbb13dc3a11e7552aef9",
+      "size": 762637
+    },
+    "assets/go2/go2.urdf": {
+      "sha256": "a259b04597b607e5ebc50899aa72e9f194795cc9c01766f5acd97fecad3ed617",
+      "size": 24119
+    },
+    "assets/gripper_base/gripper_base_frame.json": {
+      "sha256": "2a5d43f0f25a1aa98d23f6ff3d91a7d6ea9607fdbfc03c8a51594edbd6162c47",
+      "size": 407
+    },
+    "assets/gripper_base/gripper_base_mesh.obj": {
+      "sha256": "597581d382eb8f9df2783949f4c9c18c468227cc8162679ec55fa523abf63668",
+      "size": 7990
+    },
+    "assets/gripper_base/gripper_base_physics.json": {
+      "sha256": "f3fb94aeee983b56e26067606d008dad662412bd9f9bede5930c9b2db8ffab5f",
+      "size": 267
+    },
+    "assets/gripper_claw_left/gripper_claw_left_frame.json": {
+      "sha256": "3c5967d22afce7c00dcb5699bb5158bfe6ebf672ada94938a4b948cd1f3221bf",
+      "size": 310
+    },
+    "assets/gripper_claw_left/gripper_claw_left_mesh.obj": {
+      "sha256": "b07092ed3187a12cab9bd068fdaa442b85e3671458c373a28b45e0b22ed1febb",
+      "size": 11626
+    },
+    "assets/gripper_claw_left/gripper_claw_left_physics.json": {
+      "sha256": "7a5e142cb9e2adfa64f96195aa9188e7bd946bbef550bc56594b9f280582bd0a",
+      "size": 274
+    },
+    "assets/gripper_claw_right/gripper_claw_right_frame.json": {
+      "sha256": "71266e47ab9a5a155a69afe0988813588868584cceaffd4b9382ffcf4dd96519",
+      "size": 311
+    },
+    "assets/gripper_claw_right/gripper_claw_right_mesh.obj": {
+      "sha256": "11401fbae8eaf572da9f33ca1626debb5c498d79119fdad7ae5196e4eced940c",
+      "size": 11650
+    },
+    "assets/gripper_claw_right/gripper_claw_right_physics.json": {
+      "sha256": "18e8c1f916e25d986f10071bd750b9750f1c2bc07644af52730e718dbde38fcd",
+      "size": 274
+    },
+    "assets/housing/housing_frame.json": {
+      "sha256": "acabfd40bcb586c697aa53caeebc5a04c7fbbcb8a95000d3d5bac62edd67c07d",
+      "size": 241
+    },
+    "assets/housing/housing_mesh.obj": {
+      "sha256": "7bd8aec718f9b3541f403bd457448a29d60de193f5e29e14c56e05ac70df8e21",
+      "size": 32046
+    },
+    "assets/housing/housing_physics.json": {
+      "sha256": "75c3d470da65ea78e1ca5a35f2eb311ca12584dbb7cd57fc29b089dd9cc8eaac",
+      "size": 269
+    },
+    "assets/node/node_frame.json": {
+      "sha256": "4fd395de8107fee83075bcc413d86a738150694374674c2286aed7587ce4955d",
+      "size": 239
+    },
+    "assets/node/node_mesh.obj": {
+      "sha256": "05a412f156ed8c5261d41fa31c9e8ff36d7cc9512139c8f47ab6e81d658c669a",
+      "size": 1686
+    },
+    "assets/node/node_physics.json": {
+      "sha256": "b2edb07e5d0a699a87350a82975f2921744fba5de525553bbcf0c13e36d486a0",
+      "size": 264
+    },
+    "assets/node_end/node_end_frame.json": {
+      "sha256": "4fd395de8107fee83075bcc413d86a738150694374674c2286aed7587ce4955d",
+      "size": 239
+    },
+    "assets/node_end/node_end_mesh.obj": {
+      "sha256": "b2362cfa1872f04ce988bc2b688f08dc1826c4c7b1a9d126d58d0dc3b228ce65",
+      "size": 1363
+    },
+    "assets/node_end/node_end_physics.json": {
+      "sha256": "19ee8c33bf23158e50a1dbb5de67c5888d4456f9374a9e591de5527155814c56",
+      "size": 299
+    },
+    "assets/plate/plate_frame.json": {
+      "sha256": "c26beeb3e9087ab032fd16462813e35d861dc170c829c3a42461c82713584671",
+      "size": 155
+    },
+    "assets/plate/plate_mesh.obj": {
+      "sha256": "77cdc669b8c35c235db6edb951a12a01ce706f379ed5a73ad97ae687a4acea67",
+      "size": 167125
+    },
+    "assets/plate/plate_physics.json": {
+      "sha256": "ee407ae9cf619aa55c34283d182f6d5a4f958761cdd9e1d29f0b245c9d94e8cf",
+      "size": 262
+    },
+    "assets/wedge/wedge_frame.json": {
+      "sha256": "777e212c7d3dda3a5371c71e022b40ccb0c6aa635e074b9f39f7d8bf718e70c3",
+      "size": 240
+    },
+    "assets/wedge/wedge_mesh.obj": {
+      "sha256": "b466e42154e2ae890b41094e5738412187fbcf352fb634706418286f7f09889d",
+      "size": 552
+    },
+    "assets/wedge/wedge_physics.json": {
+      "sha256": "955c9ffeef39d7b499a09eedcde687465ab82e4bce3b2e23cd5d769c40641d57",
+      "size": 272
+    },
+    "blueprint.json": {
+      "sha256": "24990e2d9bce0d1fd4f7a7b53eb649c7a8af271e4afa9110dcff21235bf9b7f3",
+      "size": 14435
+    },
+    "robot.urdf": {
+      "sha256": "6dd6c61b8737beca7f961a8a465d96cd9656a20c6540e7341993a5bc2c2aea42",
+      "size": 34657
+    }
+  },
+  "schema_version": 1
+}

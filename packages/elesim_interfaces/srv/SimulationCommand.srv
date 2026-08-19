@@ -1,0 +1,9 @@
+uint16 MAX_COMMAND_CHARS=128
+uint16 MAX_ARGUMENTS_JSON_CHARS=16384
+
+string<=128 request_id
+elesim_interfaces/LeaseFence fence
+string<=128 command
+string<=16384 arguments_json
+---
+elesim_interfaces/SimulationResult result

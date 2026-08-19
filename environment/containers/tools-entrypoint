@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The tools image is used by both the network doctor and the connection
+# manager.  Unlike the application images it has no role entrypoint, so it
+# must explicitly source both ROS overlays before importing generated
+# elesim_interfaces Python modules.
+set +u
+source /opt/ros/humble/setup.bash
+if [[ -f /opt/elesim/ros/install/setup.bash ]]; then
+  source /opt/elesim/ros/install/setup.bash
+elif [[ -f /opt/elesim/ros/install/local_setup.bash ]]; then
+  source /opt/elesim/ros/install/local_setup.bash
+else
+  printf '%s\n' 'EleSim ROS overlay is missing: /opt/elesim/ros/install' >&2
+  exit 70
+fi
+
+set -u
+exec "$@"

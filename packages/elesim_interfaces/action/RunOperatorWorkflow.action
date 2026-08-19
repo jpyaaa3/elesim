@@ -1,0 +1,15 @@
+uint32 MAX_ARGUMENTS_JSON_CHARS=262144
+
+string<=128 request_id
+elesim_interfaces/PeerRef ui
+elesim_interfaces/PeerRef pilot
+string<=128 workflow
+string<=262144 arguments_json
+---
+bool accepted
+string<=512 reason
+string<=524288 result_json
+---
+string<=128 phase
+float32 progress
+string<=512 detail

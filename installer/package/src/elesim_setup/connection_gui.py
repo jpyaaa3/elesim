@@ -1,0 +1,894 @@
+"""Loopback-only browser connection manager for an EleSim DDS graph.
+
+The browser edits only the non-secret :class:`ConnectionTopology` document.
+Provisioning and rollout work is injected so this HTTP boundary never needs to
+know an authority private key, an SSH password, or deployment internals.
+"""
+
+from __future__ import annotations
+
+import hmac
+import ipaddress
+import json
+import os
+import re
+import secrets
+import threading
+import time
+import urllib.parse
+from dataclasses import dataclass, field
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from .connection_manager import (
+    CONNECTION_SCHEMA_VERSION,
+    ConnectionTopology,
+    TOPOLOGY_MODES,
+    TwoHostPreflight,
+)
+from ._security_storage import SecurityAuthorityError, secure_absolute
+from .secure_deployment import RuntimeLaunchOptions
+from .state import ComputeSettings, GPU_MODES
+
+
+ConnectionRunner = Callable[
+    [ConnectionTopology, str, Callable[[str], None]],
+    ConnectionTopology | None,
+]
+StatusProvider = Callable[[ConnectionTopology], Mapping[str, object]]
+FingerprintProbe = Callable[[str, int], str]
+
+_MAX_BODY_BYTES = 1_048_576
+_MAX_JOB_LOGS = 2_048
+_MAX_LOG_LINE = 4_096
+_JOB_ACTIONS = frozenset(
+    {
+        "prepare",
+        "provision",
+        "deploy",
+        "rotate",
+        "recover",
+        "start",
+        "stop",
+        "check",
+    }
+)
+_SSH_FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
+_PEM_LOG = re.compile(r"-----BEGIN|-----END", re.IGNORECASE)
+_SECRET_ASSIGNMENT = re.compile(
+    r"\b(password|passphrase|private[_ -]?key|secret|credential|token)"
+    r"\s*([:=])\s*(?:\"[^\"]*\"|'[^']*'|\S+)",
+    re.IGNORECASE,
+)
+_BEARER_VALUE = re.compile(r"\bbearer\s+\S+", re.IGNORECASE)
+_TAILSCALE_LOGIN_URL = re.compile(
+    r"https://login\.tailscale\.com/a/[A-Za-z0-9_-]+"
+)
+
+
+class ConnectionJobCancelled(RuntimeError):
+    """Raised at a cooperative log boundary after cancellation was requested."""
+
+
+def connection_web_root() -> Path:
+    return Path(__file__).resolve().parent / "connection_web"
+
+
+def installer_web_font_root() -> Path:
+    """Return the installer-owned font directory shared by both web UIs.
+
+    The connection manager must not import or read assets from the runtime UI
+    package. Keeping the browser font under ``elesim_setup/web`` makes the
+    installer the sole owner of its static assets while allowing the setup
+    wizard and connection manager to render Korean text identically.
+    """
+
+    return Path(__file__).resolve().parent / "web" / "fonts"
+
+
+@dataclass
+class ConnectionJob:
+    status: str = "idle"
+    action: str = ""
+    logs: list[str] = field(default_factory=list)
+    error: str = ""
+    started_at: float | None = None
+    finished_at: float | None = None
+    interaction: dict[str, str] | None = None
+    topology_updated: bool = False
+    runtime_options: dict[str, object] | None = None
+
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "action": self.action,
+            "logs": list(self.logs),
+            "error": self.error,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "interaction": None if self.interaction is None else dict(self.interaction),
+            "topology_updated": self.topology_updated,
+            "runtime_options": (
+                None if self.runtime_options is None else dict(self.runtime_options)
+            ),
+        }
+
+
+class ConnectionManagerApplication:
+    """Validate, persist, and deploy one operator-owned connection topology."""
+
+    def __init__(
+        self,
+        *,
+        state_path: Path,
+        token: str,
+        runner: ConnectionRunner,
+        status_provider: StatusProvider | None = None,
+        fingerprint_probe: FingerprintProbe | None = None,
+        tailscale_fingerprint_probe: FingerprintProbe | None = None,
+        local_install_root: Path | None = None,
+        local_bin_dir: Path | None = None,
+        authority_root: Path | None = None,
+        gpu_mode: str = "cpu",
+        gpu_device: str = "",
+    ) -> None:
+        self.state_path = state_path.expanduser()
+        self.token = str(token)
+        if not self.token:
+            raise ValueError("a non-empty connection-manager token is required")
+        self.runner = runner
+        self.status_provider = status_provider
+        self.fingerprint_probe = fingerprint_probe or _default_fingerprint_probe
+        self.tailscale_fingerprint_probe = (
+            tailscale_fingerprint_probe or _default_tailscale_fingerprint_probe
+        )
+        self.local_install_root = (
+            "" if local_install_root is None else str(local_install_root.expanduser().resolve())
+        )
+        self.local_bin_dir = (
+            "" if local_bin_dir is None else str(local_bin_dir.expanduser().resolve())
+        )
+        if authority_root is None:
+            self.authority_root = None
+        else:
+            try:
+                self.authority_root = secure_absolute(authority_root)
+            except SecurityAuthorityError as exc:
+                raise ValueError(
+                    "connection authority root must not contain symlinks: "
+                    f"{authority_root}"
+                ) from exc
+        self.gpu_mode = str(gpu_mode).strip()
+        if self.gpu_mode not in GPU_MODES:
+            raise ValueError(f"unsupported installed GPU mode: {self.gpu_mode!r}")
+        self.gpu_device = str(gpu_device).strip()
+        ComputeSettings(
+            gpu_mode=self.gpu_mode,
+            gpu_device=self.gpu_device,
+        ).validate()
+        self.job = ConnectionJob()
+        self._job_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._cancel_event = threading.Event()
+        self._job_thread: threading.Thread | None = None
+
+    def context(self) -> dict[str, object]:
+        topology = self.load_topology(required=False)
+        from .network import detect_tailscale
+
+        tailscale = detect_tailscale().to_dict()
+        local_policies: dict[str, dict[str, str]] = {}
+        if topology is not None:
+            local_roles = set(topology.local_host.roles)
+            if "pilot" in local_roles:
+                local_policies["pilot"] = {
+                    "mode": self.gpu_mode,
+                    "device": self.gpu_device if self.gpu_mode == "specific" else "",
+                }
+            if "sim" in local_roles:
+                local_policies["sim"] = {
+                    "mode": self.gpu_mode,
+                    "device": self.gpu_device if self.gpu_mode == "specific" else "",
+                }
+        return {
+            "schema_version": CONNECTION_SCHEMA_VERSION,
+            "topology_modes": sorted(TOPOLOGY_MODES),
+            "topology_exists": topology is not None,
+            "topology": None if topology is None else topology.to_dict(),
+            "derived_static_peers": self._derived_peers(topology),
+            "security": self._security_context(topology),
+            "runtime_options": {
+                "gpu_inherit_available": self.gpu_mode == "inherit",
+                "gpu_policies": local_policies,
+            },
+            "local_defaults": {
+                "install_root": self.local_install_root,
+                "bin_dir": self.local_bin_dir,
+            },
+            "manager_transport": {
+                "containerized": os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1",
+                "tailscale_proxy": os.environ.get("ELESIM_TAILSCALE_PROXY") == "1",
+                "container_network_mode": os.environ.get(
+                    "ELESIM_CONTAINER_NETWORK_MODE", "direct-host"
+                ),
+            },
+            "tailscale": tailscale,
+        }
+
+    def _security_context(
+        self, topology: ConnectionTopology | None
+    ) -> dict[str, object]:
+        """Expose only non-secret managed-generation state to the browser."""
+
+        profile = None if topology is None else topology.security_profile
+        generation = ""
+        if (
+            topology is not None
+            and profile == "sros2"
+            and self.authority_root is not None
+        ):
+            active_path = self.authority_root / topology.system_id / "active.json"
+            if active_path.is_file() and not active_path.is_symlink():
+                try:
+                    payload = json.loads(active_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    payload = None
+                if isinstance(payload, Mapping):
+                    value = payload.get("generation")
+                    if isinstance(value, str) and value:
+                        generation = value
+        return {
+            "profile": profile,
+            "managed_generation": generation,
+        }
+
+    def load_topology(self, *, required: bool = True) -> ConnectionTopology | None:
+        with self._state_lock:
+            if not self.state_path.exists() and not self.state_path.is_symlink():
+                if required:
+                    raise FileNotFoundError(
+                        "save a valid connection topology before starting deployment"
+                    )
+                return None
+            return ConnectionTopology.load(self.state_path)
+
+    def validate_topology(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        topology = ConnectionTopology.from_dict(payload)
+        return self._topology_response(topology, saved=False)
+
+    def validate_preflight(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        """Validate two mutable host endpoints without touching saved topology.
+
+        ``probe_ssh`` is an explicit, read-only host key reachability check. It
+        never stores the returned fingerprint and does not turn this temporary
+        endpoint document into a deployable topology.
+        """
+
+        raw = dict(payload)
+        probe_ssh = raw.pop("probe_ssh", False)
+        if not isinstance(probe_ssh, bool):
+            raise ValueError("preflight probe_ssh must be boolean")
+        preflight = TwoHostPreflight.from_dict(raw)
+        ssh_checks: dict[str, dict[str, object]] = {}
+        for host in preflight.hosts:
+            if host.ssh is None:
+                continue
+            check: dict[str, object] = {
+                "host": host.ssh.host,
+                "port": host.ssh.port,
+                "user": host.ssh.user,
+                "checked": False,
+            }
+            if probe_ssh:
+                result = self.probe_fingerprint(
+                    {
+                        "host": host.ssh.host,
+                        "port": host.ssh.port,
+                        "auth_mode": host.ssh.auth_mode,
+                    }
+                )
+                check["checked"] = True
+                check["fingerprint"] = result["fingerprint"]
+            ssh_checks[host.host_id] = check
+        return {
+            "valid": True,
+            "preflight": preflight.to_dict(),
+            "derived_static_peers": {
+                host.host_id: list(preflight.discovery_peers(host.host_id))
+                for host in preflight.hosts
+            },
+            "ssh_checks": ssh_checks,
+        }
+
+    def save_topology(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        topology = ConnectionTopology.from_dict(payload)
+        with self._job_lock:
+            if self.job.status in {"running", "cancelling"}:
+                raise RuntimeError(
+                    "배포 중에는 연결 토폴로지를 변경할 수 없습니다"
+                )
+            with self._state_lock:
+                destination = topology.save(self.state_path)
+        response = self._topology_response(topology, saved=True)
+        response["mode"] = f"{destination.stat().st_mode & 0o777:04o}"
+        return response
+
+    def probe_fingerprint(self, payload: Mapping[str, Any]) -> dict[str, object]:
+        keys = {str(key) for key in payload}
+        if not keys.issubset({"host", "port", "auth_mode"}) or not {
+            "host",
+            "port",
+        }.issubset(keys):
+            raise ValueError(
+                "SSH probe requires exactly host and port, plus optional auth_mode"
+            )
+        host = payload["host"]
+        port = payload["port"]
+        if not isinstance(host, str) or not host.strip():
+            raise ValueError("SSH host must be a non-empty hostname or IP")
+        if (
+            isinstance(port, bool)
+            or not isinstance(port, int)
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError("SSH port must be in 1..65535")
+        auth_mode = payload.get("auth_mode", "openssh")
+        if auth_mode not in {"openssh", "tailscale"}:
+            raise ValueError("SSH probe auth_mode must be openssh or tailscale")
+        if auth_mode == "tailscale":
+            if port != 22:
+                raise ValueError("Tailscale SSH probe uses port 22")
+            fingerprint = self.tailscale_fingerprint_probe(host.strip(), port)
+        else:
+            fingerprint = self.fingerprint_probe(host.strip(), port)
+        if not isinstance(fingerprint, str) or not _SSH_FINGERPRINT.fullmatch(
+            fingerprint
+        ):
+            raise RuntimeError("SSH probe returned an invalid host key fingerprint")
+        return {"fingerprint": fingerprint}
+
+    def start_job(
+        self,
+        action: str,
+        options: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        if action not in _JOB_ACTIONS:
+            raise ValueError(f"unsupported connection-manager action: {action!r}")
+        if action != "start" and options:
+            raise ValueError("runtime launch options are only valid for start")
+        runtime_options = (
+            RuntimeLaunchOptions.from_payload(options)
+            if action == "start"
+            else None
+        )
+        # Keep the legacy single-role request boundary fail-closed.  New
+        # role-specific requests are normalized against the installed unit's
+        # Compose policy and may legitimately describe a fixed GPU selector.
+        if (
+            runtime_options is not None
+            and runtime_options.pilot_gpu_inherit is None
+            and runtime_options.gpu_inherit
+            and self.gpu_mode != "inherit"
+        ):
+            raise ValueError(
+                "CUDA_VISIBLE_DEVICES override requires an inherit-mode installation"
+            )
+        with self._job_lock:
+            if self.job.status in {"running", "cancelling"}:
+                raise RuntimeError("a connection-manager job is already running")
+            topology = self.load_topology(required=True)
+            assert topology is not None
+            if (
+                action in {"provision", "rotate"}
+                and topology.security_profile != "sros2"
+            ):
+                raise ValueError(f"{action} requires the sros2 security profile")
+            self._cancel_event.clear()
+            runtime_payload: dict[str, object] | None = None
+            if runtime_options is not None:
+                runtime_payload = {"viewer": runtime_options.viewer}
+                if runtime_options.pilot_gpu_inherit is None:
+                    runtime_payload.update(
+                        {
+                            "gpu_inherit": runtime_options.gpu_inherit,
+                            "gpu_device": runtime_options.gpu_device,
+                        }
+                    )
+                else:
+                    runtime_payload.update(
+                        {
+                            "pilot_gpu_inherit": runtime_options.pilot_gpu_inherit,
+                            "pilot_gpu_device": runtime_options.pilot_gpu_device,
+                            "sim_gpu_inherit": runtime_options.sim_gpu_inherit,
+                            "sim_gpu_device": runtime_options.sim_gpu_device,
+                        }
+                    )
+            self.job = ConnectionJob(
+                status="running",
+                action=action,
+                started_at=time.time(),
+                runtime_options=runtime_payload,
+            )
+        thread = threading.Thread(
+            target=self._run_job,
+            args=(topology, action, runtime_options),
+            name=f"elesim-connection-{action}",
+            daemon=True,
+        )
+        self._job_thread = thread
+        thread.start()
+        return self.job_snapshot()
+
+    def cancel_job(self) -> dict[str, object]:
+        with self._job_lock:
+            if self.job.status not in {"running", "cancelling"}:
+                raise RuntimeError("no connection-manager job is running")
+            self._cancel_event.set()
+            self.job.status = "cancelling"
+            return self.job.snapshot()
+
+    def job_snapshot(self) -> dict[str, object]:
+        with self._job_lock:
+            return self.job.snapshot()
+
+    def runtime_status(self) -> dict[str, object]:
+        """Read-only lifecycle status, kept separate from DDS discovery state."""
+
+        topology = self.load_topology(required=False)
+        if topology is None:
+            return {"available": False, "reason": "topology is not saved", "hosts": []}
+        if self.status_provider is None:
+            return {
+                "available": False,
+                "reason": "runtime status provider is not configured",
+                "hosts": [],
+            }
+        result = dict(self.status_provider(topology))
+        result.setdefault("available", True)
+        return result
+
+    def request_shutdown(self) -> None:
+        with self._job_lock:
+            if self.job.status in {"running", "cancelling"}:
+                raise RuntimeError(
+                    "배포가 실행 중입니다. 먼저 취소하고 rollback 완료를 기다리십시오"
+                )
+
+    def cancel_and_wait(self) -> None:
+        with self._job_lock:
+            thread = self._job_thread
+            if self.job.status in {"running", "cancelling"}:
+                self._cancel_event.set()
+                self.job.status = "cancelling"
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=30.0)
+
+    def _run_job(
+        self,
+        topology: ConnectionTopology,
+        action: str,
+        runtime_options: RuntimeLaunchOptions | None,
+    ) -> None:
+        def log(message: str) -> None:
+            if self._cancel_event.is_set():
+                raise ConnectionJobCancelled("connection-manager job cancelled")
+            login = _TAILSCALE_LOGIN_URL.search(str(message))
+            if login is not None:
+                # A device-login URL is a short-lived browser interaction, not
+                # durable job output.  Keep it out of the mirrored terminal and
+                # persisted topology while exposing it to the token-protected
+                # loopback UI for the lifetime of this job.
+                prefix = str(message)[: login.start()].strip()
+                with self._job_lock:
+                    self.job.interaction = {
+                        "kind": "tailscale-login",
+                        "url": login.group(0),
+                        "host": prefix[:256],
+                    }
+                return
+            safe = self._safe_status_text(message)
+            with self._job_lock:
+                self.job.logs.append(safe)
+                if len(self.job.logs) > _MAX_JOB_LOGS:
+                    del self.job.logs[: len(self.job.logs) - _MAX_JOB_LOGS]
+            # Mirror bounded, redacted job lines in the terminal that launched
+            # the manager, so a long remote build never looks idle.
+            print(f"[connection-manager] {safe}", flush=True)
+            if self._cancel_event.is_set():
+                raise ConnectionJobCancelled("connection-manager job cancelled")
+
+        try:
+            set_options = getattr(self.runner, "set_runtime_launch_options", None)
+            if callable(set_options):
+                set_options(runtime_options)
+            elif runtime_options is not None:
+                raise RuntimeError(
+                    "the connection runner does not support runtime launch options"
+                )
+            updated = self.runner(topology, action, log)
+            if isinstance(updated, ConnectionTopology) and updated != topology:
+                with self._state_lock:
+                    current = ConnectionTopology.load(self.state_path)
+                    if current != updated:
+                        updated.save(self.state_path)
+                with self._job_lock:
+                    self.job.topology_updated = True
+        except ConnectionJobCancelled:
+            topology_updated = self._persisted_topology_changed(topology)
+            with self._job_lock:
+                self.job.status = "cancelled"
+                self.job.interaction = None
+                self.job.topology_updated = topology_updated
+                self.job.finished_at = time.time()
+            return
+        except Exception as exc:  # The browser reports a bounded, redacted failure.
+            topology_updated = self._persisted_topology_changed(topology)
+            with self._job_lock:
+                self.job.status = "failed"
+                self.job.error = self._safe_status_text(exc)
+                self.job.interaction = None
+                self.job.topology_updated = topology_updated
+                self.job.finished_at = time.time()
+            return
+        with self._job_lock:
+            self.job.status = "completed"
+            self.job.interaction = None
+            self.job.finished_at = time.time()
+
+    def _persisted_topology_changed(self, original: ConnectionTopology) -> bool:
+        try:
+            current = self.load_topology(required=True)
+        except (FileNotFoundError, OSError, ValueError):
+            return False
+        return current is not None and current != original
+
+    def _safe_status_text(self, value: object) -> str:
+        text = str(value).replace("\x00", "").replace("\r", " ")
+        text = text[:_MAX_LOG_LINE]
+        text = _TAILSCALE_LOGIN_URL.sub("[Tailscale login URL redacted]", text)
+        if self.token:
+            text = text.replace(self.token, "[redacted]")
+        if _PEM_LOG.search(text):
+            return "[redacted sensitive job output]"
+        text = _SECRET_ASSIGNMENT.sub(r"\1\2[redacted]", text)
+        text = _BEARER_VALUE.sub("Bearer [redacted]", text)
+        return text
+
+    @staticmethod
+    def _derived_peers(
+        topology: ConnectionTopology | None,
+    ) -> dict[str, list[str]]:
+        if topology is None:
+            return {}
+        return {
+            host.host_id: list(topology.discovery_peers(host.host_id))
+            for host in topology.hosts
+        }
+
+    def _topology_response(
+        self,
+        topology: ConnectionTopology,
+        *,
+        saved: bool,
+    ) -> dict[str, object]:
+        return {
+            "valid": True,
+            "saved": saved,
+            "topology": topology.to_dict(),
+            "derived_static_peers": self._derived_peers(topology),
+        }
+
+
+class ConnectionManagerServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(
+        self,
+        address: tuple[str, int],
+        application: ConnectionManagerApplication,
+        *,
+        allow_container_wildcard: bool = False,
+    ) -> None:
+        _require_loopback(
+            address[0], allow_container_wildcard=allow_container_wildcard
+        )
+        self.application = application
+        super().__init__(address, ConnectionManagerRequestHandler)
+
+
+class ConnectionManagerRequestHandler(BaseHTTPRequestHandler):
+    server: ConnectionManagerServer
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path.startswith("/api/"):
+            if not self._authorized():
+                return
+            routes: dict[str, Callable[[], Mapping[str, object]]] = {
+                "/api/context": self.server.application.context,
+                "/api/topology": self.server.application.context,
+                "/api/job": self.server.application.job_snapshot,
+                "/api/runtime": self.server.application.runtime_status,
+                "/api/status": self.server.application.runtime_status,
+            }
+            function = routes.get(parsed.path)
+            if function is None:
+                self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+                return
+            self._call(function)
+            return
+        self._static(parsed.path)
+
+    def do_POST(self) -> None:  # noqa: N802
+        if not self._authorized():
+            return
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/api/validate":
+            self._call(
+                lambda: self.server.application.validate_topology(self._body())
+            )
+            return
+        if path == "/api/preflight":
+            self._call(
+                lambda: self.server.application.validate_preflight(self._body())
+            )
+            return
+        if path == "/api/save":
+            self._call(lambda: self.server.application.save_topology(self._body()))
+            return
+        if path == "/api/ssh/fingerprint":
+            self._call(
+                lambda: self.server.application.probe_fingerprint(self._body())
+            )
+            return
+        if path.startswith("/api/job/"):
+            action = path.removeprefix("/api/job/")
+
+            def start() -> Mapping[str, object]:
+                payload = self._body()
+                if action != "start" and payload:
+                    raise ValueError("this action does not accept request fields")
+                return self.server.application.start_job(action, payload or None)
+
+            self._call(start, status=HTTPStatus.ACCEPTED)
+            return
+        if path == "/api/cancel":
+            self._call(self._cancel_with_empty_body)
+            return
+        if path == "/api/shutdown":
+            def shutdown() -> Mapping[str, object]:
+                self._require_empty_body()
+                self.server.application.request_shutdown()
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return {"status": "closing"}
+
+            self._call(shutdown)
+            return
+        self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+    def _authorized(self) -> bool:
+        supplied = self.headers.get("X-Elesim-Token", "")
+        if hmac.compare_digest(supplied, self.server.application.token):
+            return True
+        self._json({"error": "unauthorized"}, status=HTTPStatus.UNAUTHORIZED)
+        return False
+
+    def _body(self) -> Mapping[str, Any]:
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("streaming request bodies are not accepted")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+        if not 0 <= length <= _MAX_BODY_BYTES:
+            raise ValueError("request body is too large")
+        if length and self.headers.get_content_type() != "application/json":
+            raise ValueError("request body must use application/json")
+        raw = self.rfile.read(length)
+        try:
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("request body is not valid UTF-8 JSON") from exc
+        if not isinstance(payload, Mapping):
+            raise ValueError("JSON body must be an object")
+        return payload
+
+    def _require_empty_body(self) -> None:
+        if self._body():
+            raise ValueError("this action does not accept request fields")
+
+    def _cancel_with_empty_body(self) -> Mapping[str, object]:
+        self._require_empty_body()
+        return self.server.application.cancel_job()
+
+    def _call(
+        self,
+        function: Callable[[], Mapping[str, object]],
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        try:
+            payload = function()
+        except (
+            FileNotFoundError,
+            OSError,
+            PermissionError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            message = self.server.application._safe_status_text(exc)
+            self._json({"error": message}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self._json(payload, status=status)
+
+    def _json(
+        self,
+        payload: Mapping[str, object],
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._security_headers(api=True)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _static(self, request_path: str) -> None:
+        relative = request_path.lstrip("/") or "index.html"
+        allowed = {
+            "index.html": (
+                connection_web_root() / "index.html",
+                "text/html; charset=utf-8",
+            ),
+            "app.js": (
+                connection_web_root() / "app.js",
+                "text/javascript; charset=utf-8",
+            ),
+            "style.css": (
+                connection_web_root() / "style.css",
+                "text/css; charset=utf-8",
+            ),
+            "i18n.json": (
+                connection_web_root() / "i18n.json",
+                "application/json; charset=utf-8",
+            ),
+            "icon.svg": (
+                connection_web_root() / "icon.svg",
+                "image/svg+xml",
+            ),
+            "fonts/NotoSansCJKkr-Regular.otf": (
+                installer_web_font_root() / "NotoSansCJKkr-Regular.otf",
+                "font/otf",
+            ),
+        }
+        asset = allowed.get(relative)
+        if asset is None:
+            self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        path, content_type = asset
+        if not path.is_file():
+            self._json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        body = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self._security_headers(api=False)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _security_headers(self, *, api: bool) -> None:
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=()",
+        )
+        policy = "default-src 'none'"
+        if not api:
+            policy = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "connect-src 'self'; font-src 'self'; img-src 'self' data:; "
+                "base-uri 'none'; "
+                "form-action 'none'; frame-ancestors 'none'"
+            )
+        self.send_header("Content-Security-Policy", policy)
+
+
+def _require_loopback(host: str, *, allow_container_wildcard: bool = False) -> None:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError(
+            "connection manager must bind to a literal loopback address"
+        ) from exc
+    if not address.is_loopback and not (
+        allow_container_wildcard and address.is_unspecified
+    ):
+        raise ValueError("connection manager must bind to loopback only")
+
+
+def _default_fingerprint_probe(host: str, port: int) -> str:
+    # Keep the non-network topology editor importable with the standard library;
+    # Paramiko/protocol credential helpers are needed only when a probe is run.
+    from .credentials import probe_ssh_fingerprint
+
+    return probe_ssh_fingerprint(host, port)
+
+
+def _default_tailscale_fingerprint_probe(host: str, port: int) -> str:
+    from .credentials import probe_ssh_fingerprint
+
+    return probe_ssh_fingerprint(host, port, force_tailscale_proxy=True)
+
+
+def run_connection_gui(
+    *,
+    state_path: Path,
+    runner: ConnectionRunner,
+    status_provider: StatusProvider | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8766,
+    token: str = "",
+    fingerprint_probe: FingerprintProbe | None = None,
+    local_install_root: Path | None = None,
+    local_bin_dir: Path | None = None,
+    authority_root: Path | None = None,
+    gpu_mode: str = "cpu",
+    gpu_device: str = "",
+) -> int:
+    session_token = token or secrets.token_urlsafe(32)
+    application = ConnectionManagerApplication(
+        state_path=state_path,
+        token=session_token,
+        runner=runner,
+        status_provider=status_provider,
+        fingerprint_probe=fingerprint_probe,
+        local_install_root=local_install_root,
+        local_bin_dir=local_bin_dir,
+        authority_root=authority_root,
+        gpu_mode=gpu_mode,
+        gpu_device=gpu_device,
+    )
+    server = ConnectionManagerServer(
+        (host, int(port)),
+        application,
+        allow_container_wildcard=os.environ.get("ELESIM_CONNECTION_PUBLISHED") == "1",
+    )
+    actual_host, actual_port = server.server_address[:2]
+    display_host = "127.0.0.1" if actual_host in {"0.0.0.0", "::"} else actual_host
+    url = f"http://{display_host}:{actual_port}/?token={session_token}"
+    print(
+        f"[connection-manager] {url}",
+        flush=True,
+    )
+    try:
+        server.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        application.cancel_and_wait()
+        server.server_close()
+    return 0
+
+
+__all__ = [
+    "ConnectionJob",
+    "ConnectionJobCancelled",
+    "ConnectionManagerApplication",
+    "ConnectionManagerServer",
+    "ConnectionRunner",
+    "StatusProvider",
+    "run_connection_gui",
+    "connection_web_root",
+    "installer_web_font_root",
+]

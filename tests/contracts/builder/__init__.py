@@ -1,1 +1,0 @@
-"""Builder contract tests."""

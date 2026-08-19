@@ -1,6 +1,18 @@
 __pycache__/
 *.py[cod]
 
+# Local agent/editor state.
+.cursor/
+.agents/
+.codex/
+.pytest_cache/
+build/
+dist/
+# ROS/colcon generated install prefix.
+/install/
+*.egg-info/
+*.swp
+
 .venv/
 venv/
 env/
@@ -18,19 +30,30 @@ addons/opencv/images/
 *.log
 
 # Runtime / experiment logs (generated locally).
-logs/
+# Keep the ROS/colcon `log/` tree and the application's `logs/` archive
+# separate on disk, but ignore both complete root-level trees.  The leading
+# slash avoids hiding a source package that happens to contain a directory
+# named `log` or `logs`.
+/log/
+/logs/
 
 # Local reference clone used for upstream comparison.
 update/
-
-# Generated builder scratch outputs.
-crafts/_go2_check*/
 
 # Local scratch handoff notes.
 elesim_wip_save.txt
 
 # Local helper scripts.
-u
+/bin/
+# Temporary backups of generated installer wrappers.
+/bin.legacy-*/
+/.elesim/
+/cache/
+/containers/
+/roles/
+/secrets/
+/install-state.json
 
-# Local backups of heavy GO2 source meshes.
-assets/go2_original_*/
+# Generated environment credentials.
+environment/generated/
+environment/coturn/.env

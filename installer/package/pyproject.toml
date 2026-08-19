@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-setup"
+version = "0.3.0"
+description = "Interactive installer and distributed-network diagnostics for EleSim"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.3.0",
+  "dulwich>=0.22,<0.23",
+  "paramiko>=3.5,<4",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+media = ["aiortc>=1.9,<2", "av>=12,<16"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+elesim-setup = "elesim_setup.cli:main"
+elesim-net = "elesim_setup.network:main"
+elesim-connections = "elesim_setup.connections:main"
+elesim-uninstall = "elesim_setup.uninstall:main"
+elesim-host-proxy = "elesim_setup.host_proxy:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+elesim_setup = [
+  "web/*.html",
+  "web/*.css",
+  "web/*.js",
+  "web/*.json",
+  "web/*.svg",
+  "web/fonts/*.otf",
+  "connection_web/*.html",
+  "connection_web/*.css",
+  "connection_web/*.js",
+  "connection_web/*.json",
+  "connection_web/*.svg",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
