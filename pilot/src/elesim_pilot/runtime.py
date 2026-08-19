@@ -49,10 +49,7 @@ def build_control_runtime(config_path: str, client: Any) -> ControlRuntime:
     state.visual_scale_tol = float(pick_cfg.scale_tol)
     state.visual_ready_distance_m = float(pick_cfg.ready_pose_standoff_m)
     state.visual_look_distance_m = float(pick_cfg.look_pose_standoff_m)
-    try:
-        state.set_mock_object_world_xyz(*tuple(float(value) for value in bundle.spawn_config.sim_target_xyz))
-    except Exception:
-        pass
+    state.set_mock_object_world_xyz(*map(float, bundle.spawn_config.sim_target_xyz))
     mount = Go2ArmMount.from_context(
         use_go2=bool(bundle.sim_config.use_go2),
         spawn_xyz=bundle.spawn_config.spawn_xyz,

@@ -77,10 +77,10 @@ def configure_h264_packetization() -> int:
         import aiortc.codecs.h264 as h264
 
         h264.PACKET_MAX = payload_max
-    except Exception:
-        # The media worker calls this only after aiortc availability is known;
-        # keeping the helper harmless also makes configuration import-safe in
-        # the host-only setup and test environment.
+    except (ImportError, AttributeError):
+        # Host-only setup/test environments may not provide aiortc, and older
+        # aiortc releases may not expose this packetizer constant.  Other
+        # failures are real configuration errors and must remain visible.
         pass
     _H264_RTP_PAYLOAD_MAX = payload_max
     return payload_max
@@ -109,7 +109,7 @@ def _nvenc_h264_encoder_class() -> Any:
         return None
     try:
         from aiortc.codecs.h264 import H264Encoder as BaseH264Encoder
-    except Exception:
+    except ImportError:
         return None
 
     class NvencH264Encoder(BaseH264Encoder):  # type: ignore[misc,valid-type]
@@ -272,7 +272,7 @@ def configure_h264_encoder(mode: Optional[str] = None) -> str:
         codecs.H264Encoder = encoder_cls
         _NVENC_ENCODER_CONFIGURED = True
         return "h264_nvenc"
-    except Exception:
+    except (ImportError, AttributeError, RuntimeError):
         return "libx264"
 
 

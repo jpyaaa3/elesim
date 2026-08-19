@@ -1,8 +1,9 @@
+"""Scenario presets used only by the offline walking experiments."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Tuple
 
 
 class ArmPosePreset(str, Enum):
@@ -20,7 +21,6 @@ class ArmPoseValues:
     theta2_rad: float
 
 
-# Display-space defaults; tune against crafts URDF joint limits.
 _ARM_PRESETS: dict[ArmPosePreset, ArmPoseValues] = {
     ArmPosePreset.NEUTRAL: ArmPoseValues(0.0, 0.0, 0.0, 0.0),
     ArmPosePreset.FORWARD_EXTENDED: ArmPoseValues(0.55, 0.0, 0.45, 0.45),
@@ -30,13 +30,12 @@ _ARM_PRESETS: dict[ArmPosePreset, ArmPoseValues] = {
 
 
 def get_arm_pose(preset: ArmPosePreset | str) -> ArmPoseValues:
-    key = ArmPosePreset(str(preset).strip().lower())
-    return _ARM_PRESETS[key]
+    return _ARM_PRESETS[ArmPosePreset(str(preset).strip().lower())]
 
 
-def arm_pose_as_q(preset: ArmPosePreset | str) -> Tuple[float, float, float, float]:
-    p = get_arm_pose(preset)
-    return (p.linear_m, p.roll_rad, p.theta1_rad, p.theta2_rad)
+def arm_pose_as_q(preset: ArmPosePreset | str) -> tuple[float, float, float, float]:
+    pose = get_arm_pose(preset)
+    return pose.linear_m, pose.roll_rad, pose.theta1_rad, pose.theta2_rad
 
 
 BASELINE_SCENARIOS: tuple[tuple[ArmPosePreset, str, tuple[float, float, float], str], ...] = (

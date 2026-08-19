@@ -96,7 +96,7 @@ def load_mock_world_xyz_from_detector_path(path: str | Path) -> Optional[tuple[f
             cfg = json.load(f)
         if isinstance(cfg, dict):
             return _parse_mock_world_xyz(cfg)
-    except Exception:
+    except (OSError, TypeError, UnicodeError, ValueError):
         return None
     return None
 
@@ -317,7 +317,7 @@ class _PerceptionCaptureStorage:
     def _record_wall_clock_loop(self) -> None:
         try:
             import cv2
-        except Exception:
+        except (ImportError, OSError):
             with self._record_lock:
                 self._record_active = False
                 self._record_path = None

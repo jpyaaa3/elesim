@@ -78,7 +78,7 @@ def _cuda_rgb_to_bgr(
     try:
         import torch
         import torch.nn.functional as functional
-    except Exception:
+    except (ImportError, OSError):
         return None
 
     tensor = value.detach()
@@ -138,7 +138,7 @@ def _cuda_depth_to_uint16(
     try:
         import torch
         import torch.nn.functional as functional
-    except Exception:
+    except (ImportError, OSError):
         return None
 
     tensor = value.detach()

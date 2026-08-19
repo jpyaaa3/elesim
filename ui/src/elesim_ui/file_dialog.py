@@ -33,8 +33,11 @@ def _path_matches_extensions(path: str, extensions: tuple[str, ...]) -> bool:
     if not extensions:
         return True
     suffix = Path(path).suffix.lower()
-    allowed = {str(ext).strip().lower() for ext in extensions if str(ext).strip()}
-    allowed = {ext if ext.startswith(".") else f".{ext}" for ext in allowed}
+    allowed = {
+        normalized if normalized.startswith(".") else f".{normalized}"
+        for normalized in (str(ext).strip().lower() for ext in extensions)
+        if normalized
+    }
     return suffix in allowed
 
 
@@ -48,7 +51,7 @@ def _suspend_glfw_window() -> None:
         glfw.iconify_window(window)
         for _ in range(3):
             glfw.poll_events()
-    except Exception:
+    except (ImportError, AttributeError, RuntimeError, TypeError):
         pass
 
 
@@ -63,7 +66,7 @@ def _resume_glfw_window() -> None:
         glfw.focus_window(window)
         for _ in range(3):
             glfw.poll_events()
-    except Exception:
+    except (ImportError, AttributeError, RuntimeError, TypeError):
         pass
 
 
@@ -128,7 +131,7 @@ def _browse_open_file_tk(
     try:
         import tkinter as tk
         from tkinter import filedialog
-    except Exception:
+    except ImportError:
         return None
 
     initial = _resolve_initial_dir(initial_dir)
@@ -144,15 +147,20 @@ def _browse_open_file_tk(
     if not filetypes:
         filetypes = [("All files", "*.*")]
 
-    root = tk.Tk()
-    root.withdraw()
     try:
+        root = tk.Tk()
+    except tk.TclError:
+        return None
+    try:
+        root.withdraw()
         root.update_idletasks()
         selected = filedialog.askopenfilename(
             title=str(title or "Select file"),
             initialdir=initial,
             filetypes=[*filetypes, ("All files", "*.*")],
         )
+    except tk.TclError:
+        return None
     finally:
         root.destroy()
     selected = str(selected or "").strip()

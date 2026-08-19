@@ -135,7 +135,7 @@ def measure_detection(
                 return None
             mask = np.zeros((h, w), dtype=np.uint8)
             mask[y0:y1, x0:x1] = 255
-        except Exception:
+        except (AttributeError, IndexError, TypeError, ValueError):
             return None
     if depth_raw is None:
         return None

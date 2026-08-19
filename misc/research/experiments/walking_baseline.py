@@ -16,7 +16,11 @@ if str(ROOT) not in sys.path:
 
 from elesim_pilot.config import load_app_config
 from elesim_pilot.experiment.run_context import RunContext
-from elesim_pilot.observability.walking_scenarios import BASELINE_SCENARIOS, ArmPosePreset, arm_pose_as_q
+from misc.research.experiments.walking_scenarios import (
+    BASELINE_SCENARIOS,
+    ArmPosePreset,
+    arm_pose_as_q,
+)
 
 
 def _parse_gaze(raw: str) -> str:
