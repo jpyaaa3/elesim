@@ -98,10 +98,13 @@ class WebRtcVideoReceiver:
             state = str(getattr(peer, "connectionState", "unknown"))
             stream = f" stream={self.stream_name}" if self.stream_name else ""
             print(f"[ui-webrtc]{stream} connection={state}", flush=True)
-            # A disconnected ICE path can recover, but the current receive
-            # task has no way to resume after aiortc raises MediaStreamError.
-            # Let the session owner retry only this named stream.
-            if state in {"failed", "closed", "disconnected"}:
+            # ``disconnected`` is a transient ICE state in aiortc; tearing
+            # down a healthy receiver at that point turns a short network
+            # gap into an avoidable renegotiation.  The receive task reports
+            # MediaStreamError if the track actually ends, and the session
+            # liveness watchdog covers a peer that stays disconnected while
+            # no decoded frames arrive.  Only terminal states retry here.
+            if state in {"failed", "closed"}:
                 self._report_error("connection", RuntimeError(state))
 
         @peer.on("track")

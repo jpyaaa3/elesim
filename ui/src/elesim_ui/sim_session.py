@@ -510,7 +510,11 @@ class UiSimSession:
                 self._last_error = ""
                 self._forget_sent_request_locked("open", opened.request_id)
         try:
-            receivers = self._negotiate_receivers(client, opened)
+            receivers = self._negotiate_receivers(
+                client,
+                opened,
+                allow_partial=not refreshing,
+            )
         except Exception:
             if not refreshing:
                 self._send_close(client)
@@ -523,28 +527,44 @@ class UiSimSession:
             )
             previous = tuple(self._receivers.values())
             if not stale:
+                missing_streams = tuple(
+                    stream
+                    for stream in opened.streams
+                    if stream not in receivers
+                )
                 self._receivers = receivers
                 self._turn = opened.turn
                 self._connected_streams.clear()
                 self._stream_retry_at.clear()
                 self._stream_retry_count.clear()
                 self._stream_connected_at.clear()
-                self._last_error = ""
+                if not missing_streams:
+                    self._last_error = ""
+            else:
+                missing_streams = ()
         if stale:
             self._close_receiver_set(receivers.values())
             return
         self._close_receiver_set(previous)
+        for stream in missing_streams:
+            self._schedule_stream_retry(stream)
 
     def _negotiate_receivers(
         self,
         client: Any,
         opened: SimulationSessionOpenedPayload,
+        *,
+        allow_partial: bool = False,
     ) -> dict[str, Any]:
         receivers: dict[str, Any] = {}
         signals: list[WebRtcSignalPayload] = []
-        try:
-            for stream in opened.streams:
-                receiver = self._prepare_receiver(self.receiver_factory(), stream)
+        for stream in opened.streams:
+            receiver = None
+            try:
+                receiver = self._prepare_receiver(
+                    self.receiver_factory(),
+                    stream,
+                )
                 receivers[stream] = receiver
                 offer = receiver.create_offer(turn=opened.turn)
                 signals.append(
@@ -556,16 +576,37 @@ class UiSimSession:
                         type=str(offer["type"]),
                     )
                 )
-            for signal in signals:
+            except Exception as exc:
+                if receiver is not None:
+                    self._close_receiver_set((receiver,))
+                receivers.pop(stream, None)
+                if not allow_partial:
+                    self._close_receiver_set(receivers.values())
+                    raise
+                self._set_error(
+                    f"{stream} WebRTC offer failed: "
+                    f"{str(exc).strip() or type(exc).__name__}"
+                )
+
+        for signal in signals:
+            try:
                 client.send(
                     "webrtc_signal",
                     target_id=opened.sim_id,
                     payload=signal.to_payload(),
                     lease_id=opened.session_id,
                 )
-        except Exception:
-            self._close_receiver_set(receivers.values())
-            raise
+            except Exception as exc:
+                receiver = receivers.pop(signal.stream, None)
+                if receiver is not None:
+                    self._close_receiver_set((receiver,))
+                if not allow_partial:
+                    self._close_receiver_set(receivers.values())
+                    raise
+                self._set_error(
+                    f"{signal.stream} WebRTC offer send failed: "
+                    f"{str(exc).strip() or type(exc).__name__}"
+                )
         return receivers
 
     def _prepare_receiver(self, receiver: Any, stream: str) -> Any:

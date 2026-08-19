@@ -302,7 +302,21 @@ class ControlPanel:
             return
         impl.process_inputs()
         imgui.new_frame()
-        flags = getattr(imgui, "WINDOW_NO_COLLAPSE", 0)
+        # Keep the camera contents anchored to the native window in the same
+        # way as the main control surface.  A normal ImGui child window has a
+        # title bar and can be dragged inside the native window, which leaves
+        # the video surface floating and makes camera mouse gestures compete
+        # with window movement.  The native GLFW window remains resizable;
+        # this ImGui surface simply follows its full client area.
+        cond = getattr(imgui, "ALWAYS", 0)
+        io = imgui.get_io()
+        imgui.set_next_window_position(0.0, 0.0, cond)
+        imgui.set_next_window_size(
+            float(io.display_size.x),
+            float(io.display_size.y),
+            cond,
+        )
+        flags = getattr(imgui, "WINDOW_NO_TITLE_BAR", 0)
         opened = imgui.begin("Sim Camera###sim_camera_window", True, flags=flags)
         visible = opened[0] if isinstance(opened, tuple) else bool(opened)
         if visible:

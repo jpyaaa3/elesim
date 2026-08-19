@@ -699,12 +699,16 @@ function applyTopology(topology) {
 }
 
 function updateWorkflow(running = ["running", "cancelling"].includes(byId("job-status")?.dataset.status || "")) {
+  // Keep the controls locked across the save request that precedes a job
+  // submission.  That request is asynchronous and otherwise re-enables
+  // "전체 시작" before /api/job/start has accepted the job.
+  const busy = running || jobSubmissionPending;
   const apply = byId("apply");
   apply.textContent = t("action.prepare");
-  setWorkflowStepEnabled("save", !running && !workflowSaved);
-  setWorkflowStepEnabled("apply", !running && workflowSaved && !workflowApplied);
+  setWorkflowStepEnabled("save", !busy && !workflowSaved);
+  setWorkflowStepEnabled("apply", !busy && workflowSaved && !workflowApplied);
   setWorkflowButtonsEnabled("start", {
-    "runtime-start": !running && workflowSaved && workflowApplied,
+    "runtime-start": !busy && workflowSaved && workflowApplied,
   });
   updateRuntimeOptions();
 }
@@ -985,7 +989,10 @@ async function startJob(action) {
     throw error;
   } finally {
     jobSubmissionPending = false;
-    if (!submitted) updateWorkflow();
+    // Recompute from the authoritative job status after the request/poll
+    // sequence.  This re-enables the button after completion or a rejected
+    // submission, while keeping it disabled if the job is still running.
+    updateWorkflow();
   }
 }
 
