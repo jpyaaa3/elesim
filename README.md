@@ -10,7 +10,7 @@
 
 ### 🚀 설치 마법사 실행
 
-EleSim을 설치할 폴더에서 다음 명령을 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
+아래 명령어를 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
