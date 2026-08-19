@@ -91,10 +91,11 @@ def copy_tree(source: Path, destination: Path, *, ignore=None) -> None:
 
 
 def copy_sim_bundle(model_root: Path, release: Path) -> None:
-    source = model_root / "bundles/default"
-    if not (source / "bundle.json").is_file():
-        raise FileNotFoundError(f"validated sim bundle is missing: {source}")
-    copy_tree(source, release / "model/bundles/default")
+    for name in ("default", "d435"):
+        source = model_root / f"bundles/{name}"
+        if not (source / "bundle.json").is_file():
+            raise FileNotFoundError(f"validated sim bundle is missing: {source}")
+        copy_tree(source, release / f"model/bundles/{name}")
 
 
 def copy_role_config(project: Path, release: Path, role: str) -> None:

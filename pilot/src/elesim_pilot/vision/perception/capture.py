@@ -572,7 +572,10 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
                 draw_detection_overlay,
                 show_preview as render_preview_frame,
             )
-            from elesim_pilot.vision.perception.realsense_camera import RealSenseCamera, RealSenseUnavailableError
+            from elesim_pilot.vision.perception.camera_factory import camera_class
+            from elesim_pilot.vision.perception.camera_profile import CameraProfileError
+            from elesim_pilot.vision.perception.realsense_camera import RealSenseUnavailableError
+            from elesim_pilot.vision.perception.zed_camera import ZedUnavailableError
             from elesim_pilot.vision.perception.visual_tracker import BboxTracker, detection_from_bbox
             from elesim_pilot.vision.perception.yolo_detector import YoloUnavailableError
         except Exception as exc:
@@ -580,6 +583,11 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
             return
 
         cfg = self._config
+        try:
+            physical_camera_class = camera_class(str(cfg.camera_profile))
+        except CameraProfileError as exc:
+            self._set_snapshot(running=False, failed=True, status_msg=str(exc))
+            return
         config_path = cfg.resolved_detector_config_path()
         if not config_path.is_file():
             self._set_snapshot(
@@ -691,24 +699,24 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
                     )
             elif use_search_track:
                 self._run_camera_search_track(
-                    RealSenseCamera=RealSenseCamera,
+                    RealSenseCamera=physical_camera_class,
                     publish_period=publish_period,
                     **common,
                 )
             elif use_yolo_mask:
                 self._run_camera_yolo_seg(
-                    RealSenseCamera=RealSenseCamera,
+                    RealSenseCamera=physical_camera_class,
                     publish_period=publish_period,
                     **common,
                 )
             else:
                 self._run_camera_yolo_seg(
-                    RealSenseCamera=RealSenseCamera,
+                    RealSenseCamera=physical_camera_class,
                     publish_period=publish_period,
                     **common,
                 )
-        except RealSenseUnavailableError as exc:
-            self._set_snapshot(running=False, failed=True, status_msg=f"RealSense: {exc}")
+        except (RealSenseUnavailableError, ZedUnavailableError) as exc:
+            self._set_snapshot(running=False, failed=True, status_msg=f"{cfg.camera_profile}: {exc}")
         except Exception as exc:
             msg = str(exc)
             self._set_snapshot(running=False, failed=True, status_msg=msg)

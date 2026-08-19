@@ -166,7 +166,8 @@ simulation:
       min_s: 0.07
   cameras:
     hand_eye:
-      config: calibration/hand_eye.camera.json
+      profile: zed_mini
+      config: calibration/zed_mini.hand_eye.json
       auto_disable_unused: true
       depth: true
       enable: true
@@ -439,6 +440,8 @@ world:
     markers: true
 vision:
   perception:
+    camera:
+      profile: zed_mini
     tracking:
       aux_csrt: true
       bbox_shrink_ratio: 0.55

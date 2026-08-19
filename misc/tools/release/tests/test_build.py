@@ -60,6 +60,9 @@ def test_sim_release_contains_only_the_immutable_bundle() -> None:
         bundle = source / "bundles/default"
         bundle.mkdir(parents=True)
         (bundle / "bundle.json").write_text("{}", encoding="utf-8")
+        d435 = source / "bundles/d435"
+        d435.mkdir(parents=True)
+        (d435 / "bundle.json").write_text("{}", encoding="utf-8")
         extra_assets = source / "extras/assets"
         extra_assets.mkdir(parents=True)
         (extra_assets / "must-not-ship.obj").write_text("extra", encoding="utf-8")
@@ -68,6 +71,7 @@ def test_sim_release_contains_only_the_immutable_bundle() -> None:
         copy_sim_bundle(source, release)
 
         assert (release / "model/bundles/default/bundle.json").is_file()
+        assert (release / "model/bundles/d435/bundle.json").is_file()
         assert not (release / "model/extras").exists()
 
 

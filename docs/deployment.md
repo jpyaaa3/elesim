@@ -32,7 +32,8 @@ dist/releases/
 
 Release builder는 각 context에 application wheel, transport-neutral support
 wheel, ROSIDL source, config, dependency pins와 deployment metadata를 넣고,
-Sim에는 immutable model bundle을 넣는다. 기본 검증은 clean temporary target에
+Sim에는 ZED Mini `default`와 D435 `d435` immutable model bundle을 모두 넣는다.
+기본 검증은 clean temporary target에
 각 wheel을 설치하고 sibling visibility, config/model, role entrypoint
 `--help`를 확인한다. Robot은 bridge/IPC module, 두 console script와 정확히
 `elesim-robot.service`, `elesim-unitree-bridge.service`를 추가로 확인한다.

@@ -21,7 +21,7 @@ from elesim_protocol import (
 from elesim_sim.config import load_app_config, load_runtime_role_config
 from elesim_sim.control_state import SimulationStateSource
 from elesim_sim.endpoint import SimEndpoint
-from elesim_sim.model_bundle import resolve_model_bundle
+from elesim_sim.model_bundle import resolve_camera_profile_bundle
 from elesim_sim.media import (
     MediaWorkerClient,
     MediaWorkerUnavailable,
@@ -89,7 +89,12 @@ def _run() -> None:
     development_rebuild = os.environ.get("ELESIM_SIM_DEV_REBUILD", "").strip() == "1"
     model_bundle = ""
     if not development_rebuild:
-        model_bundle = str(resolve_model_bundle(args.model_bundle or None))
+        model_bundle = str(
+            resolve_camera_profile_bundle(
+                bundle.sim_config.camera_profile,
+                args.model_bundle or None,
+            )
+        )
 
     frame_hub = FrameHub(("rgbd", "observer", "hand_eye_preview"))
     operator_mailbox = SimulationOperatorMailbox(max_pending=128)

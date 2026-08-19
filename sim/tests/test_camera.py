@@ -52,16 +52,16 @@ class _FakeLink:
 
 
 def test_hand_eye_optical_axes_match_camera_calibration() -> None:
-    calibration = CONFIG_DIR / "calibration/hand_eye.camera.json"
+    calibration = CONFIG_DIR / "calibration/zed_mini.hand_eye.json"
     transform = load_hand_eye_offset_T(calibration)
     rotation = transform[:3, :3]
     np.testing.assert_allclose(rotation[:, 2], [1.0, 0.0, 0.0], atol=1e-6)
-    np.testing.assert_allclose(rotation[:, 0], [0.0, -1.0, 0.0], atol=1e-6)
-    np.testing.assert_allclose(rotation[:, 1], [0.0, 0.0, -1.0], atol=1e-6)
+    np.testing.assert_allclose(rotation[:, 0], [0.0, 1.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(rotation[:, 1], [0.0, 0.0, 1.0], atol=1e-6)
 
 
 def test_genesis_camera_object_matches_link_attachment() -> None:
-    calibration = CONFIG_DIR / "calibration/hand_eye.camera.json"
+    calibration = CONFIG_DIR / "calibration/zed_mini.hand_eye.json"
     link = _FakeLink([0.2, 0.0, 0.5], [1.0, 0.0, 0.0, 0.0])
     world_genesis = _link_world_transform(link) @ hand_eye_to_genesis_attach_T(calibration)
 

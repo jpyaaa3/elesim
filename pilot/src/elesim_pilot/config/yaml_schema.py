@@ -22,6 +22,12 @@ from elesim_pilot.config.schema import (
     SpawnConfig,
     UrdfExportConfig,
 )
+from elesim_pilot.vision.perception.camera_profile import (
+    CameraProfileError,
+    camera_profile,
+    validate_bundle_path,
+    validate_calibration_path,
+)
 
 
 class ConfigValidationError(ValueError):
@@ -112,9 +118,9 @@ _register(
 _register(
     "sim_config",
     "simulation.cameras.hand_eye",
-    _prefixed(SimConfig, "sim_camera_") | {"hand_eye_config"},
+    _prefixed(SimConfig, "sim_camera_") | {"camera_profile", "hand_eye_config"},
     strip_prefix="sim_camera_",
-    aliases={"hand_eye_config": "config"},
+    aliases={"camera_profile": "profile", "hand_eye_config": "config"},
 )
 _register(
     "sim_config",
@@ -170,7 +176,13 @@ _perception_publish = {
     "publish_hz",
     "sim_camera_topic",
 }
-_perception_detector = {"detector_config", "detector", "target_label", "yolo_device", "pipeline"}
+_perception_detector = {
+    "detector_config",
+    "detector",
+    "target_label",
+    "yolo_device",
+    "pipeline",
+}
 _perception_runtime_injected = {
     "sim_camera_dds_settings",
     "sim_camera_source_id",
@@ -181,6 +193,7 @@ _perception_runtime = (
     - _perception_tracking
     - _perception_publish
     - _perception_detector
+    - {"camera_profile"}
     - _perception_runtime_injected
 )
 _register(
@@ -192,11 +205,24 @@ _register(
 _register("perception_config", "vision.perception.tracking", {"reacquire_on_lost"})
 _register("perception_config", "vision.perception.publishing", _perception_publish)
 _register("perception_config", "vision.perception.detector", _perception_detector)
+_register(
+    "perception_config",
+    "vision.perception.camera",
+    {"camera_profile"},
+    aliases={"camera_profile": "profile"},
+)
 _register("perception_config", "vision.perception.runtime", _perception_runtime)
 # These values are filled from the selected DDS peer descriptor at runtime.
 # Treating them as mapped would accidentally make process identity writable in
 # the static application YAML, so only mark them as intentionally owned here.
 _ASSIGNED["perception_config"].update(_perception_runtime_injected)
+
+# Accept the pre-profile spelling while emitting the canonical ``profile``
+# field above.  This keeps hand-eye and perception camera configuration names
+# consistent without silently accepting an unknown field.
+_PATH_ALIASES = {
+    "simulation.cameras.hand_eye.camera_profile": "simulation.cameras.hand_eye.profile",
+}
 
 # Pick workflow. Prefixes become explicit workflow subsections.
 _pick_groups = (
@@ -336,6 +362,7 @@ def _flatten_values(node: Any, prefix: str = "") -> dict[str, Any]:
         if not isinstance(raw_key, str):
             raise ConfigValidationError(f"{prefix or '<root>'}: keys must be strings")
         path = f"{prefix}.{raw_key}" if prefix else raw_key
+        path = _PATH_ALIASES.get(path, path)
         if path not in _LEAVES and not any(leaf.startswith(f"{path}.") for leaf in _LEAVES):
             raise ConfigValidationError(f"{path}: unknown config key")
         out.update(_flatten_values(value, path))
@@ -365,6 +392,20 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
     if sim_paths:
         sim_config = replace(sim_config, **sim_paths)
         components["sim_config"] = sim_config
+
+    try:
+        sim_profile = camera_profile(sim_config.camera_profile)
+        perception_profile = camera_profile(components["perception_config"].camera_profile)
+        if sim_profile.name != perception_profile.name:
+            raise ConfigValidationError(
+                "simulation.cameras.hand_eye.profile and "
+                "vision.perception.camera.profile must select the same camera"
+            )
+        validate_bundle_path(sim_profile.name, sim_config.build_dir)
+        if sim_config.hand_eye_config:
+            validate_calibration_path(sim_profile.name, sim_config.hand_eye_config)
+    except CameraProfileError as exc:
+        raise ConfigValidationError(str(exc)) from exc
 
     perception_config = components["perception_config"]
     detector_config = str(perception_config.detector_config).strip()

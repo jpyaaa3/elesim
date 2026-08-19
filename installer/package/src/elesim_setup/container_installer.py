@@ -589,6 +589,7 @@ class ContainerInstaller:
         )
         if "sim" in self.state.roles:
             required.append(root / "model/bundles/default/bundle.json")
+            required.append(root / "model/bundles/d435/bundle.json")
         missing = [path for path in required if not path.is_file()]
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)
@@ -603,6 +604,10 @@ class ContainerInstaller:
                 _copy_tree(
                     root / "model/bundles/default",
                     target / "model/bundles/default",
+                )
+                _copy_tree(
+                    root / "model/bundles/d435",
+                    target / "model/bundles/d435",
                 )
 
     def _write_role_context(self, role: str) -> None:
@@ -1547,8 +1552,7 @@ def _entrypoint(role: str) -> str:
         "ui": "elesim-ui --config /opt/elesim/config/installed.yaml",
         "sim": (
             "elesim-sim --config /opt/elesim/config/app.installed.yaml "
-            "--runtime-config /opt/elesim/config/runtime.installed.yaml "
-            "--model-bundle /opt/elesim/model/bundles/default"
+            "--runtime-config /opt/elesim/config/runtime.installed.yaml"
         ),
     }
     try:

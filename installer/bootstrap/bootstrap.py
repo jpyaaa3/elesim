@@ -71,6 +71,7 @@ _BOOTSTRAP_SOURCE_TREES = (
     *(PurePosixPath(role) / "src" for role in _BOOTSTRAP_ROLES),
     *(PurePosixPath(role) / "config" for role in _BOOTSTRAP_ROLES),
     PurePosixPath("model/bundles/default"),
+    PurePosixPath("model/bundles/d435"),
 )
 _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
     PurePosixPath("installer/package/src/elesim_setup") / f"{name}.py"
@@ -141,17 +142,20 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
     for role, relatives in {
         "pilot": (
             "arm_model.json",
-            "calibration/hand_eye.camera.json",
+            "calibration/zed_mini.hand_eye.json",
+            "calibration/d435.hand_eye.json",
             "config.yaml",
             "perception/detector.real_green_hsv.json",
             "perception/detector.sim_hsv.json",
             "perception/detector.yolo.example.json",
+            "perception/models/yolov8n-seg.pt",
             "runtime.yaml",
             "sag/no_sag.json",
             "sag/sag_model.json",
         ),
         "sim": (
-            "calibration/hand_eye.camera.json",
+            "calibration/zed_mini.hand_eye.json",
+            "calibration/d435.hand_eye.json",
             "config.yaml",
             "runtime.yaml",
         ),
@@ -181,6 +185,7 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
             "packages/elesim_interfaces/action/RunOperatorWorkflow.action"
         ),
         PurePosixPath("model/bundles/default/bundle.json"),
+        PurePosixPath("model/bundles/d435/bundle.json"),
         *(
             PurePosixPath(role) / "src" / f"elesim_{role}" / "__init__.py"
             for role in _BOOTSTRAP_ROLES

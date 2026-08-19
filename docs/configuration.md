@@ -9,7 +9,8 @@
 ```text
 source defaults
   ├─ role/config/*.yaml
-  ├─ model/bundles/default
+  ├─ model/bundles/default       # ZED Mini 기본 프로파일
+  ├─ model/bundles/d435          # 명시적 D435 fallback 프로파일
   └─ packages/elesim_interfaces
         │ installer generates
         ▼
@@ -26,6 +27,12 @@ Source config는 설치 중 복사되며 installed config를 수정해도 source
 되돌아가지 않는다. generated files를 직접 편집한 뒤 `elesim-update`하면
 owned artifact가 다시 생성될 수 있다. 변경은 setup GUI, `elesim-net`,
 `elesim-connections` 또는 source/config의 정식 경계에서 한다.
+
+Pilot과 Sim의 `config/config.yaml`은
+`simulation.cameras.hand_eye.profile`에서 `zed_mini` 또는 `d435`를
+선택한다. Pilot은 같은 값을 `vision.perception.camera.profile`에도 사용한다.
+프로파일은 각각의 `calibration/<profile>.hand_eye.json`, driver, model bundle을
+함께 결정하며 서로 다른 calibration/bundle 조합은 시작 전에 거부된다.
 
 ## 2. 공통 DDS 필드
 

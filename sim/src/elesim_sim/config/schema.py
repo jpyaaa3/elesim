@@ -44,6 +44,7 @@ class SimConfig:
     urdf_name: str = "robot.urdf"
     arm_urdf_name: str = "arm.urdf"
 
+    camera_profile: str = "zed_mini"
     hand_eye_config: str = ""
     sim_camera_enable: bool = True
     sim_camera_jpeg: bool = True

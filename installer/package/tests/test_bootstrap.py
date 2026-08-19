@@ -116,6 +116,7 @@ def _minimal_snapshot_members(*, project: bytes = b"[project]\n") -> dict[str, b
         "environment/development/entrypoint.sh": b"#!/bin/sh\n",
         "environment/development/dev-env.sh": b"#!/bin/sh\n",
         "model/bundles/default/bundle.json": b"{}\n",
+        "model/bundles/d435/bundle.json": b"{}\n",
     }
     for role in ("pilot", "sim", "ui", "robot"):
         members[f"{role}/pyproject.toml"] = b"[project]\n"
@@ -446,6 +447,7 @@ def test_download_source_caches_only_install_source_boundary(
             "ui/config/public.example.yaml": b"public: true\n",
             "robot/config/public.example.yaml": b"public: true\n",
             "model/bundles/default/bundle.json": b"{}\n",
+            "model/bundles/d435/bundle.json": b"{}\n",
             "pilot/tests/test_dummy.py": b"raise AssertionError\n",
             "installer/package/tests/test_dummy.py": b"raise AssertionError\n",
             "misc/research/dummy.bin": b"research-only\n",
@@ -476,6 +478,7 @@ def test_download_source_caches_only_install_source_boundary(
     assert not (root / "ui/config/public.example.yaml").exists()
     assert not (root / "robot/config/public.example.yaml").exists()
     assert (root / "model/bundles/default/bundle.json").is_file()
+    assert (root / "model/bundles/d435/bundle.json").is_file()
     assert not (root / "pilot/tests").exists()
     assert not (root / "installer/package/tests").exists()
     assert not (root / "misc/research").exists()

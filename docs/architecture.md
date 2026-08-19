@@ -166,16 +166,21 @@ QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
 
 ## 6. 모델과 설정 lifecycle
 
-`model/bundles/default/assets`가 canonical builder input이며,
-`model/bundles/default`는 assets와 생성된 blueprint/URDF를 함께 담는
-self-contained runtime bundle이다. 빌더는 임시 디렉터리에서 전체 bundle을 만든
-뒤 같은 경로에 원자적으로 publish하므로 별도의 중복 source tree나 runtime의
-builder import가 필요하지 않다. Sim은 기본적으로 bundle을 읽고,
+`model/bundles/default/assets`가 ZED Mini의 canonical builder input이며,
+`model/bundles/default`는 ZED Mini 기본 프로파일의 assets와 생성된
+blueprint/URDF를 함께 담는 self-contained runtime bundle이다.
+`model/bundles/d435`는 기존 D435 프로파일의 독립적인 전체 bundle이다.
+빌더는 임시 디렉터리에서 각 bundle을 만든 뒤 같은 경로에 원자적으로
+publish하므로 별도의 중복 source tree나 runtime의 builder import가 필요하지
+않다. Pilot/Sim의 `camera_profile`이 driver, hand-eye calibration, model
+bundle을 함께 선택하며, SDK/device가 없는 경우 다른 프로파일로 자동 전환하지
+않고 시작을 거부한다. Sim은 선택된 bundle을 읽고,
 `ELESIM_SIM_DEV_REBUILD=1`일 때만 개발 중 rebuild한다. Pilot은
 `config/arm_model.json`을 읽으며 runtime에 assembly를 만들지 않는다.
 
 ```bash
 elesim-build-sim-bundle --assets model/bundles/default/assets --output model/bundles/default
+elesim-build-sim-bundle --assets model/bundles/d435/assets --output model/bundles/d435
 elesim-build-arm-model --config pilot/config/config.yaml \
   --assets model/bundles/default/assets --output pilot/config/arm_model.json
 ```

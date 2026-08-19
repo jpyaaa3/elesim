@@ -1,10 +1,10 @@
 {
   "build": {
     "format_version": 1,
-    "source_assets_sha256": "24247e69995ea41e9670a5b1eeb4172d73563b2160c75bd16b3a6a3247c15cdf",
+    "source_assets_sha256": "1efca9312683c737a590939b343730ea39750eaa0bba1c75388155ca377fea2a",
     "use_go2": true
   },
-  "bundle_id": "1276d76481569e68c01e76b917354668bf64c84f3d5461a25482ecdb29e996d1",
+  "bundle_id": "16a28a59a68e6da4fd08db240351b78636717fc366b8740c4ca7ebdcef738484",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -13,20 +13,20 @@
   },
   "files": {
     "arm.urdf": {
-      "sha256": "7436192d34f5461bc628398d81fb1fe0c931e7afc1d88eaff717b1792181659a",
-      "size": 14245
+      "sha256": "c50e797d872085c5abe3b42191ea362d6f6580dbe83700a91ee91162b99f33c9",
+      "size": 14292
     },
     "assets/camera/camera_frame.json": {
-      "sha256": "7d347b795114e87af2ee4cbe7217a19e032554c70e7ce65dd2cfba9a3045ff10",
-      "size": 446
+      "sha256": "3d96fba34d35c7284c6f846bb4de6b6cee98787aa2062894cd3d73117fdfd9f2",
+      "size": 720
     },
     "assets/camera/camera_mesh.obj": {
-      "sha256": "1ea040c35f3475bebfd1a6ef5cd4dcc0f8a26aec56bfc10fb3a98e9bdb6bd801",
-      "size": 394764
+      "sha256": "92cb94b57cd5d91369b5ee6b78d963fc0f7a995e7089a2433b7a41bd577a5eb6",
+      "size": 68829
     },
     "assets/camera/camera_physics.json": {
-      "sha256": "93605886c3cf8299c7333d2312a65e4bd86adca5a3a0a5ec22db082027d882b5",
-      "size": 253
+      "sha256": "e82d7aa2917e3354b67e79d62dcae187bd5bfd9f586fc03cb84155031a99ba44",
+      "size": 273
     },
     "assets/go2/dae/base.dae": {
       "sha256": "5bfe072988d267167b7dda28e28929c74f1e407b8aeaf9d4c7cd456300e81cdd",
@@ -157,12 +157,12 @@
       "size": 272
     },
     "blueprint.json": {
-      "sha256": "173610731dfb494cc5f6e6c28f92e29449036d784f34ea7412af34ab531e99d3",
-      "size": 14400
+      "sha256": "24990e2d9bce0d1fd4f7a7b53eb649c7a8af271e4afa9110dcff21235bf9b7f3",
+      "size": 14435
     },
     "robot.urdf": {
-      "sha256": "876111bb6b6e46ae9521d15f447642f52eecaf9b5c91724d235dca21de752902",
-      "size": 34610
+      "sha256": "6dd6c61b8737beca7f961a8a465d96cd9656a20c6540e7341993a5bc2c2aea42",
+      "size": 34657
     }
   },
   "schema_version": 1

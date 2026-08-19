@@ -446,6 +446,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
         _require_path(release / "Dockerfile")
     if role == "sim":
         _require_path(release / "model/bundles/default/bundle.json")
+        _require_path(release / "model/bundles/d435/bundle.json")
     interfaces = release / "interfaces/elesim_interfaces"
     _require_path(interfaces, kind="directory")
     _require_path(interfaces / "package.xml")
@@ -584,6 +585,8 @@ config_name = "config.yaml" if role in ("pilot", "sim") else "default.yaml"
 config = release / "config" / config_name
 if role == "pilot":
     from elesim_pilot.config import load_app_config, load_runtime_role_config
+    from elesim_pilot.vision.perception.detector import load_detector_config
+    from elesim_pilot.vision.perception.yolo_detector import resolve_model_path
     from elesim_pilot.robot.arm.iklib.solver import load_solver_context
     app_config = load_app_config(str(config))
     load_runtime_role_config(str(release / "config/runtime.yaml"))
@@ -593,6 +596,15 @@ if role == "pilot":
     detector_config = app_config.perception_config.resolved_detector_config_path()
     if app_config.perception_config.detector_config and not detector_config.is_file():
         raise AssertionError(f"pilot detector config is missing: {detector_config}")
+    if detector_config.is_file():
+        detector_payload = load_detector_config(detector_config)
+        if str(detector_payload.get("type", "")).strip().lower() == "yolo":
+            model_path = resolve_model_path(
+                str(detector_payload.get("model", "")),
+                config_dir=detector_config.parent,
+            )
+            if not model_path.is_file():
+                raise AssertionError(f"pilot YOLO model is missing: {model_path}")
 elif role == "ui":
     from elesim_ui.config import load_config
     load_config(str(config))
@@ -605,6 +617,7 @@ elif role == "sim":
     load_app_config(str(config))
     load_runtime_role_config(str(release / "config/runtime.yaml"))
     validate_model_bundle(release / "model/bundles/default")
+    validate_model_bundle(release / "model/bundles/d435")
 
 module = importlib.import_module(main_module)
 origin = pathlib.Path(module.__file__).resolve()

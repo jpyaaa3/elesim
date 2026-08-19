@@ -39,6 +39,7 @@ class SimConfig:
     arm_urdf_name: str = "arm.urdf"
     rebuild_assembly: bool = False
 
+    camera_profile: str = "zed_mini"
     hand_eye_config: str = ""
     show_all_ports: bool = False
     traj_enable: bool = True
@@ -190,6 +191,7 @@ class SpawnConfig:
 @dataclass(frozen=True)
 class PerceptionConfig:
     enabled: bool = True
+    camera_profile: str = "zed_mini"
     detector_config: str = ""
     mode: str = "external"
     detector: str = "external"

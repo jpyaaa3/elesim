@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Mapping
 
+from elesim_sim.vision.camera_profile import CAMERA_PROFILES, camera_profile
+
 
 SCHEMA_VERSION = 1
 BUNDLE_TYPE = "elesim.sim-model"
@@ -219,9 +221,49 @@ def resolve_model_bundle(
     )
 
 
+def resolve_camera_profile_bundle(
+    profile: str,
+    bundle_dir: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Resolve the immutable bundle required by a selected camera profile."""
+    selected = camera_profile(profile)
+    expected_name = selected.model_bundle
+    if bundle_dir is not None and str(bundle_dir).strip():
+        candidate = resolve_model_bundle(bundle_dir)
+        if candidate.name != expected_name:
+            raise ModelBundleError(
+                f"camera profile {selected.name!r} requires model bundle "
+                f"{expected_name!r}, got {candidate.name!r}"
+            )
+        return candidate
+
+    configured = os.environ.get(MODEL_BUNDLE_ENV, "").strip()
+    if configured:
+        base = resolve_model_bundle(configured)
+        if (
+            base.name in {item.model_bundle for item in CAMERA_PROFILES.values()}
+            and base.name != expected_name
+        ):
+            raise ModelBundleError(
+                f"camera profile {selected.name!r} requires model bundle "
+                f"{expected_name!r}, got {base.name!r}"
+            )
+        candidate = base if expected_name == "default" else base.parent / expected_name
+        return _checked_bundle_path(candidate)
+
+    for root in _discovery_roots():
+        candidate = root / "model/bundles" / expected_name
+        if (candidate / METADATA_NAME).is_file():
+            return _checked_bundle_path(candidate)
+    raise ModelBundleError(
+        f"model bundle {expected_name!r} for camera profile {selected.name!r} not found"
+    )
+
+
 __all__ = [
     "MODEL_BUNDLE_ENV",
     "ModelBundleError",
+    "resolve_camera_profile_bundle",
     "resolve_model_bundle",
     "validate_model_bundle",
 ]

@@ -331,6 +331,7 @@ class Installer:
         )
         if "sim" in self.state.roles:
             required.append(root / "model/bundles/default/bundle.json")
+            required.append(root / "model/bundles/d435/bundle.json")
         missing = [path for path in required if not path.is_file()]
         if missing:
             rendered = "\n".join(f"  - {path}" for path in missing)
@@ -377,6 +378,7 @@ class Installer:
         copy_role_config_tree(source / "config", target / "config", role)
         if role == "sim":
             _copy_tree(root / "model/bundles/default", target / "model/bundles/default")
+            _copy_tree(root / "model/bundles/d435", target / "model/bundles/d435")
         python = self._ensure_venv(
             target / "venv",
             system_site_packages=role == "robot",
@@ -775,8 +777,6 @@ class Installer:
                 str(config / "app.installed.yaml"),
                 "--runtime-config",
                 str(config / "runtime.installed.yaml"),
-                "--model-bundle",
-                str(root / "model/bundles/default"),
             )
         if role == "robot":
             return executable, ("--config", str(config / "installed.yaml"))

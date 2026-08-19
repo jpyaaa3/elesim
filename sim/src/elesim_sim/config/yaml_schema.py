@@ -18,6 +18,12 @@ from elesim_sim.config.schema import (
     UrdfExportConfig,
 )
 from elesim_sim.robot.go2.locomotion.config import Go2LocomotionConfig
+from elesim_sim.vision.camera_profile import (
+    CameraProfileError,
+    camera_profile,
+    validate_bundle_path,
+    validate_calibration_path,
+)
 
 
 class ConfigValidationError(ValueError):
@@ -92,9 +98,9 @@ _register(
 _register(
     "sim_config",
     "simulation.cameras.hand_eye",
-    _prefixed(SimConfig, "sim_camera_") | {"hand_eye_config"},
+    _prefixed(SimConfig, "sim_camera_") | {"camera_profile", "hand_eye_config"},
     strip_prefix="sim_camera_",
-    aliases={"hand_eye_config": "config"},
+    aliases={"camera_profile": "profile", "hand_eye_config": "config"},
 )
 _register(
     "sim_config",
@@ -181,6 +187,11 @@ for _component, _cls in _COMPONENT_TYPES.items():
         raise RuntimeError(f"YAML schema does not map {_component}: {sorted(_missing)}")
 
 
+_PATH_ALIASES = {
+    "simulation.cameras.hand_eye.camera_profile": "simulation.cameras.hand_eye.profile",
+}
+
+
 _TYPE_HINTS = {name: get_type_hints(cls) for name, cls in _COMPONENT_TYPES.items()}
 
 
@@ -252,6 +263,7 @@ def _flatten_values(node: Any, prefix: str = "") -> dict[str, Any]:
         if not isinstance(raw_key, str):
             raise ConfigValidationError(f"{prefix or '<root>'}: keys must be strings")
         path = f"{prefix}.{raw_key}" if prefix else raw_key
+        path = _PATH_ALIASES.get(path, path)
         if path not in _LEAVES and not any(leaf.startswith(f"{path}.") for leaf in _LEAVES):
             raise ConfigValidationError(f"{path}: unknown config key")
         out.update(_flatten_values(value, path))
@@ -279,6 +291,14 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
             resolved[name] = os.path.abspath(os.path.join(config_dir, value))
     if resolved:
         components["sim_config"] = replace(sim_config, **resolved)
+
+    try:
+        selected = camera_profile(components["sim_config"].camera_profile)
+        validate_bundle_path(selected.name, components["sim_config"].build_dir)
+        if components["sim_config"].hand_eye_config:
+            validate_calibration_path(selected.name, components["sim_config"].hand_eye_config)
+    except CameraProfileError as exc:
+        raise ConfigValidationError(str(exc)) from exc
 
     mapping = build_mapping_config(components["joint_limit"], components["arm_mapping_config"])
     return AppConfigBundle(mapping_config=mapping, **components)

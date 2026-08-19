@@ -62,7 +62,8 @@ simulation:
     arm_urdf_name: arm.urdf
   cameras:
     hand_eye:
-      config: calibration/hand_eye.camera.json
+      profile: zed_mini
+      config: calibration/zed_mini.hand_eye.json
       enable: true
       jpeg: true
       jpeg_quality: 75

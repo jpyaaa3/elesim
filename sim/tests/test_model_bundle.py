@@ -9,6 +9,7 @@ import pytest
 
 from elesim_sim.model_bundle import (
     ModelBundleError,
+    resolve_camera_profile_bundle,
     resolve_model_bundle,
     validate_model_bundle,
 )
@@ -16,6 +17,7 @@ from elesim_sim.model_bundle import (
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE = ROOT / "model/bundles/default"
+D435_BUNDLE = ROOT / "model/bundles/d435"
 
 
 def test_checked_in_default_bundle_is_valid() -> None:
@@ -24,8 +26,26 @@ def test_checked_in_default_bundle_is_valid() -> None:
     assert metadata["entrypoints"]["robot_urdf"] == "robot.urdf"
 
 
+def test_checked_in_d435_bundle_is_valid() -> None:
+    metadata = validate_model_bundle(D435_BUNDLE)
+    assert metadata["bundle_type"] == "elesim.sim-model"
+
+
 def test_explicit_model_bundle_is_resolved_and_validated() -> None:
     assert resolve_model_bundle(DEFAULT_BUNDLE) == DEFAULT_BUNDLE.resolve()
+
+
+@pytest.mark.parametrize(
+    ("profile", "bundle"),
+    (("zed_mini", DEFAULT_BUNDLE), ("d435", D435_BUNDLE)),
+)
+def test_camera_profiles_select_matching_bundles(profile: str, bundle: Path) -> None:
+    assert resolve_camera_profile_bundle(profile, bundle) == bundle.resolve()
+
+
+def test_camera_profile_rejects_a_mismatched_explicit_bundle() -> None:
+    with pytest.raises(ModelBundleError, match="requires model bundle"):
+        resolve_camera_profile_bundle("d435", DEFAULT_BUNDLE)
 
 
 def test_environment_model_bundle_takes_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
