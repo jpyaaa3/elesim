@@ -8,6 +8,8 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+# ROS/colcon generated install prefix.
+/install/
 *.egg-info/
 *.swp
 
