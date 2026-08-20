@@ -1537,3 +1537,17 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert 'mv -f -- "$bootstrap_tmp" "$bootstrap_file"' in script
     assert 'docker_args+=(--env-file "$archive_env_file")' in script
     assert 'python /tmp/elesim-bootstrap.py "$@"' in script
+
+
+def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:
+    script = (Path(__file__).resolve().parents[3] / "installer/bootstrap/install.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "host_bootstrap=0" in script
+    assert "[[ -r /opt/ros/humble/setup.bash ]]" in script
+    assert 'command -v colcon >/dev/null 2>&1' in script
+    assert '"$host_python" -m venv --help' in script
+    assert 'env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file"' in script
+    assert "--host 127.0.0.1" in script
+    assert "EleSim 전용 host venv" in script

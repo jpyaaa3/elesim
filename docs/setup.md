@@ -73,6 +73,13 @@ General은 선택한 `pilot`, `sim`, `ui`를 Docker role image로 만든다. Rob
 `elesim-unitree-bridge.service` 두 systemd unit을 생성한다. Generic amd64
 container backend는 Robot을 받지 않는다.
 
+Jetson Robot 설치는 host의 ROS 2 Humble과 `colcon`을 사용해
+`packages/elesim_interfaces` overlay를 빌드해야 한다. Bootstrap은
+`/opt/ros/humble/setup.bash`와 `colcon`이 감지된 Jetson에서만 EleSim 전용
+host venv로 setup을 실행한다. 이 venv는 `~/.cache/elesim/setup` 아래에
+생성되며 host Python 패키지나 ROS/Apt 상태를 수정하지 않는다. ROS 2가 없는
+Jetson은 Robot 설치 전에 host ROS 2/Unitree workspace를 준비해야 한다.
+
 고정된 runtime 이름은 다음과 같다.
 
 ```text
@@ -293,6 +300,7 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | Viewer가 다른 사용자 화면에 뜸 | `--viewer-user`, 해당 사용자의 X socket/Xauthority, `DISPLAY` | 연결 topology의 SSH username과 실제 display owner를 일치시킨다. 다른 사용자의 X를 허용하지 않는다. |
 | `simulation session is not connected` | UI/Sim boot, session grant/renewal, WebRTC signaling log | DDS session과 WebRTC media를 별도로 진단한다. Coturn은 DDS를 고치지 않는다. |
 | observer가 깨짐/렉 | `elesim-status`의 encoder/backend/streams와 Sim perf fields | NVENC/libx264 fallback, scene render, camera conversion, MPC solve를 각각 측정한다. QoS를 무작정 낮추지 않는다. |
+| Robot 설치에서 `/opt/ros/humble/setup.bash` 없음 | Jetson host의 ROS 2 Humble, `colcon`, `~/ros2_ws/install/setup.bash` | 해당 prerequisites가 있는 Jetson은 bootstrap이 host venv 경로를 선택한다. 파일이 없으면 ROS 2/Unitree workspace를 먼저 준비하고, 컨테이너 로그에서 이 오류가 나면 bootstrap source를 갱신한다. |
 | `managed SROS2 pending` | manager에서 generation `provision`/`rotate`/`recover` | generation transaction을 끝내기 전 role을 임의로 up하지 않는다. |
 | `elesim-update` 후 옛 동작 | update는 container를 교체하지 않음 | 정확한 prefix에서 `elesim-down` 후 `elesim-up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |

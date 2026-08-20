@@ -151,6 +151,24 @@ host_gpu_list=""
 if command -v nvidia-smi >/dev/null 2>&1; then
   host_gpu_list="$(nvidia-smi -L 2>/dev/null || true)"
 fi
+# Native Robot setup needs the host ROS toolchain.  The generic bootstrap
+# container is intentionally a small Python image and cannot see host
+# `/opt/ros`, `/usr/bin/colcon`, or the host build toolchain.  On a Jetson with
+# the supported ROS 2 Humble prerequisites, run the bootstrap itself in an
+# isolated host venv instead.  This keeps Python packages in the EleSim cache
+# while allowing the native installer to build the ROSIDL overlay in the
+# selected prefix.  Other hosts and incomplete Jetson hosts retain the
+# container bootstrap path.
+host_bootstrap=0
+host_python="$(command -v python3 2>/dev/null || true)"
+if ((host_jetson)) &&
+   [[ -n "$host_python" ]] &&
+   [[ -r /opt/ros/humble/setup.bash ]] &&
+   command -v colcon >/dev/null 2>&1 &&
+   "$host_python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1 &&
+   "$host_python" -m venv --help >/dev/null 2>&1; then
+  host_bootstrap=1
+fi
 gui_token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 gui_mode=1
 for argument in "$@"; do
@@ -255,9 +273,52 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
   )
 fi
 
+host_bootstrap_env=(
+  "HOME=$HOME"
+  "ELESIM_OPERATOR_HOME=$HOME"
+  "ELESIM_UNITREE_ROS2_WS=$unitree_ros2_ws"
+  "ELESIM_UNITREE_INTERFACE=${ELESIM_UNITREE_INTERFACE:-eth0}"
+  "ELESIM_UNITREE_DOMAIN_ID=${ELESIM_UNITREE_DOMAIN_ID:-1}"
+  "ELESIM_REPOSITORY=$repository"
+  "ELESIM_REF=$ref"
+  "ELESIM_CACHE_DIR=$cache_dir"
+  "COLCON_HOME=$cache_dir/colcon"
+  "ROS_HOME=$cache_dir/ros"
+  "ELESIM_INVOCATION_DIR=$invocation_dir"
+  "ELESIM_GUI_HOST=127.0.0.1"
+  "ELESIM_GUI_PORT=$gui_port"
+  "ELESIM_GUI_TOKEN=$gui_token"
+  "ELESIM_VERIFY_BOOTSTRAP_SOURCE=1"
+  "ELESIM_HOST_ARCH=$host_arch"
+  "ELESIM_HOST_OS_ID=$host_os_id"
+  "ELESIM_HOST_OS_VERSION=$host_os_version"
+  "ELESIM_HOST_JETSON=$host_jetson"
+  "ELESIM_HOST_WSL=$host_wsl"
+  "ELESIM_HOST_WSLG=$host_wslg"
+  "ELESIM_HOST_DISPLAY=$host_display"
+  "ELESIM_HOST_TAILSCALE_INTERFACES=$tailscale_interfaces"
+  "ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
+  "ELESIM_HOST_GPU_LIST=$host_gpu_list"
+  "ELESIM_HOST_DOCKER_BACKEND=$docker_backend_kind"
+  "ELESIM_HOST_DOCKER_CONTEXT=$docker_context_name"
+  "ELESIM_HOST_DOCKER_ENGINE_ID=$docker_engine_id"
+  "ELESIM_HOST_DOCKER_ENDPOINT=$docker_context_endpoint"
+  "ELESIM_HOST_DOCKER_HOST_OVERRIDE=$docker_host_override"
+)
+if [[ -n "${ELESIM_ARCHIVE_URL:-}" ]]; then
+  # Keep a custom archive URL in the environment rather than exposing it in
+  # the host bootstrap command line.  The container path uses the same
+  # env-file mechanism above.
+  host_bootstrap_env+=("ELESIM_ARCHIVE_URL=$ELESIM_ARCHIVE_URL")
+fi
+
 gui_url="http://127.0.0.1:${gui_port}/?token=${gui_token}"
 if ((gui_mode)); then
-  printf '%s\n' "[bootstrap] 호스트 Python/CUDA/ROS 환경을 건드리지 않고 GUI 설치기를 시작합니다."
+  if ((host_bootstrap)); then
+    printf '%s\n' "[bootstrap] Jetson ROS 2/colcon을 확인했습니다. EleSim 전용 host venv에서 native Robot 설치기를 시작합니다."
+  else
+    printf '%s\n' "[bootstrap] 호스트 Python/CUDA/ROS 환경을 건드리지 않고 GUI 설치기를 시작합니다."
+  fi
   printf '%s\n' "[bootstrap] ${gui_url}"
   printf '%s\n' "[remote] ssh -L ${gui_port}:127.0.0.1:${gui_port} -p <ssh-port> <user>@<server>"
 else
@@ -285,19 +346,38 @@ if ((gui_mode)); then
       gui_arguments+=("$argument")
     fi
   done
-  "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
-    python /tmp/elesim-bootstrap.py \
+  if ((host_bootstrap)); then
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" \
       "${gui_arguments[@]}" \
-      --host 0.0.0.0 \
+      --host 127.0.0.1 \
       --port "$gui_port" \
       --token "$gui_token" \
       --invocation-dir "$invocation_dir" \
       --repository "$repository" \
       --ref "$ref"
+  else
+    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+      python /tmp/elesim-bootstrap.py \
+        "${gui_arguments[@]}" \
+        --host 0.0.0.0 \
+        --port "$gui_port" \
+        --token "$gui_token" \
+        --invocation-dir "$invocation_dir" \
+        --repository "$repository" \
+        --ref "$ref"
+  fi
 elif [[ -r /dev/tty ]]; then
-  "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
-    python /tmp/elesim-bootstrap.py "$@" </dev/tty
+  if ((host_bootstrap)); then
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" "$@" </dev/tty
+  else
+    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+      python /tmp/elesim-bootstrap.py "$@" </dev/tty
+  fi
 else
-  "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
-    python /tmp/elesim-bootstrap.py "$@"
+  if ((host_bootstrap)); then
+    env "${host_bootstrap_env[@]}" "$host_python" "$bootstrap_file" "$@"
+  else
+    "${docker_cmd[@]}" "${docker_args[@]}" python:3.10-slim \
+      python /tmp/elesim-bootstrap.py "$@"
+  fi
 fi
