@@ -36,6 +36,8 @@
     "paths.bin.help": "elesim-up, elesim-net과 역할별 실행 명령이 생성됩니다.",
     "paths.register": "PATH에 등록",
     "paths.logs": "로컬에 평문 로그를 보관",
+    "paths.dds_interface": "EleSim DDS 인터페이스",
+    "paths.dds_interface.help": "Robot은 Unitree 전용 인터페이스와 분리된 inter-host 인터페이스가 필요합니다. 예: tailscale0",
     "compute.title": "GPU 정책",
     "compute.subtitle": "Pilot와 Sim가 사용할 연산 장치를 지정하십시오.",
     "compute.inherit": "외부 설정 상속",
@@ -54,6 +56,7 @@
     "review.gpu": "GPU",
     "review.security": "보안",
     "review.turn": "TURN",
+    "review.dds_interface": "EleSim DDS 인터페이스",
     "review.path": "PATH 등록",
     "review.logs": "평문 로그 보관",
     "review.jaeger": "Jaeger",
@@ -81,7 +84,8 @@
     "value.yes": "예",
     "value.no": "아니오",
     "error.roles": "설치할 프로그램을 하나 이상 선택하십시오.",
-    "error.generic": "입력을 확인하십시오."
+    "error.generic": "입력을 확인하십시오.",
+    "error.robot_dds_interface": "Robot 설치에는 inter-host EleSim DDS 인터페이스를 지정하십시오."
   },
   "en": {
     "app.title": "EleSim Install Wizard",
@@ -120,6 +124,8 @@
     "paths.bin.help": "elesim-up, elesim-net, and role commands are generated here.",
     "paths.register": "Add to PATH",
     "paths.logs": "Keep local plaintext logs",
+    "paths.dds_interface": "EleSim DDS interface",
+    "paths.dds_interface.help": "Robot needs an inter-host interface separate from the private Unitree interface. Example: tailscale0",
     "compute.title": "GPU policy",
     "compute.subtitle": "Choose the compute devices used by Pilot and Sim.",
     "compute.inherit": "Inherit external selection",
@@ -138,6 +144,7 @@
     "review.gpu": "GPU",
     "review.security": "Security",
     "review.turn": "TURN",
+    "review.dds_interface": "EleSim DDS interface",
     "review.path": "Register PATH",
     "review.logs": "Plaintext log archive",
     "review.jaeger": "Jaeger",
@@ -165,6 +172,7 @@
     "value.yes": "Yes",
     "value.no": "No",
     "error.roles": "Select at least one application.",
-    "error.generic": "Check the entered values."
+    "error.generic": "Check the entered values.",
+    "error.robot_dds_interface": "Specify the inter-host EleSim DDS interface for Robot installation."
   }
 }

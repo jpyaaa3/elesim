@@ -217,6 +217,7 @@ docker_args=(
   --env "ELESIM_HOST_WSL=$host_wsl"
   --env "ELESIM_HOST_WSLG=$host_wslg"
   --env "ELESIM_HOST_DISPLAY=$host_display"
+  --env "ELESIM_HOST_TAILSCALE_INTERFACES=$tailscale_interfaces"
   --env "ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
   --env "ELESIM_HOST_GPU_LIST=$host_gpu_list"
   --env "ELESIM_HOST_DOCKER_BACKEND=$docker_backend_kind"

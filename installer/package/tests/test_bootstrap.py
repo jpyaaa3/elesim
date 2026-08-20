@@ -1350,6 +1350,7 @@ def test_bootstrap_reports_selected_docker_backend_and_tailscale_interfaces() ->
     assert "ssh://*|tcp://*" in script
     assert "docker_backend_kind=\"docker-desktop\"" in script
     assert "^tailscale[0-9]+$" in script
+    assert "ELESIM_HOST_TAILSCALE_INTERFACES" in script
     assert "kernel-mode Tailscale runtime sidecar" in script
     assert "ELESIM_HOST_DOCKER_BACKEND" in script
     assert "ELESIM_HOST_DOCKER_CONTEXT" in script

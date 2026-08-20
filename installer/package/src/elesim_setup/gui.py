@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import secrets
 import threading
 import time
@@ -16,6 +17,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .capabilities import HostCapabilities, detect_host_capabilities
 from .credentials import probe_ssh_fingerprint
+from .network import detect_tailscale, is_tailscale_interface
 from .profiles import normalize_roles
 from .request import SetupRequest
 
@@ -30,6 +32,27 @@ class InstallCancelled(RuntimeError):
 
 def web_root() -> Path:
     return Path(__file__).resolve().parent / "web"
+
+
+def _setup_tailscale_interfaces() -> tuple[str, ...]:
+    """Return host interfaces that the setup container may safely prefill.
+
+    The bootstrap runs the wizard in a temporary container, so the container
+    cannot inspect the Jetson's kernel interfaces directly. Bootstrap passes
+    the host-only names through an environment variable. Direct invocation
+    still probes the local namespace as a convenience.
+    """
+
+    raw = os.environ.get("ELESIM_HOST_TAILSCALE_INTERFACES", "")
+    values = tuple(
+        value
+        for value in (item.strip() for item in raw.split(","))
+        if is_tailscale_interface(value)
+    )
+    if values:
+        return tuple(dict.fromkeys(values))
+    detected = detect_tailscale()
+    return (detected.interface,) if detected.available and detected.interface else ()
 
 
 @dataclass
@@ -73,6 +96,7 @@ class WizardApplication:
         roots = allowed_roots or (home, self.invocation_dir)
         self.allowed_roots = tuple(dict.fromkeys(path.expanduser().resolve() for path in roots))
         self.runner = runner
+        self.tailscale_interfaces = _setup_tailscale_interfaces()
         self.job = InstallJob()
         self._job_lock = threading.Lock()
         self._cancel_event = threading.Event()
@@ -94,6 +118,12 @@ class WizardApplication:
                 "dds_security_provisioning": "managed",
                 "dds_keystore": "",
                 "dds_enclave": "",
+            },
+            "tailscale": {
+                "interfaces": list(self.tailscale_interfaces),
+                "default_interface": self.tailscale_interfaces[0]
+                if self.tailscale_interfaces
+                else "",
             },
             "capabilities": self.capabilities.to_dict(),
             "allowed_roots": [str(path) for path in self.allowed_roots],
@@ -185,6 +215,7 @@ class WizardApplication:
             "security_profile": request.dds.security_profile,
             "security_provisioning": request.dds.security_provisioning,
             "turn_mode": request.turn.mode,
+            "dds_interface": request.dds.interface,
             "runtime_text_logs": request.runtime_text_logs.enabled,
             "register_path": request.register_path,
             "jaeger": request.jaeger,

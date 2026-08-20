@@ -145,6 +145,8 @@ function hasSim() {
 function updateConditionalControls() {
   const gpuMode = checkedValue("gpu-mode");
   byId("gpu-device-row").hidden = gpuMode !== "specific";
+  const robot = checkedValue("edition") === "general" && selectedRoles().includes("robot");
+  byId("dds-interface-row").hidden = !robot;
 }
 
 function payload() {
@@ -176,7 +178,8 @@ function payload() {
     dds_rmw_implementation: defaults.dds_rmw_implementation || "rmw_cyclonedds_cpp",
     dds_discovery_mode: defaults.dds_discovery_mode || "multicast",
     dds_static_peers: "",
-    dds_interface: "",
+    dds_interface: edition === "general" && selectedRoles().includes("robot")
+      ? byId("dds-interface").value.trim() : "",
     dds_security_profile: securityProfile,
     dds_security_provisioning: securityProvisioning,
     dds_keystore: "",
@@ -206,6 +209,12 @@ function validateCurrentStep() {
   if (step === "paths" && (!byId("prefix").value.trim() || !byId("bin-dir").value.trim())) {
     throw new Error(t("error.generic"));
   }
+  if (
+    step === "paths" && checkedValue("edition") === "general" &&
+    selectedRoles().includes("robot") && !byId("dds-interface").value.trim()
+  ) {
+    throw new Error(t("error.robot_dds_interface"));
+  }
 }
 
 async function prepareReview() {
@@ -223,6 +232,8 @@ async function prepareReview() {
       ? `${summary.security_profile} (${summary.security_provisioning})`
       : summary.security_profile],
     ["review.turn", summary.turn_mode],
+    ...(selectedRoles().includes("robot")
+      ? [["review.dds_interface", summary.dds_interface]] : []),
     ["review.path", summary.register_path ? t("value.yes") : t("value.no")],
     ["review.logs", summary.runtime_text_logs ? t("value.yes") : t("value.no")],
     ["review.jaeger", summary.jaeger ? t("value.yes") : t("value.no")]
@@ -449,6 +460,7 @@ async function initialize() {
     language = navigator.language.toLowerCase().startsWith("ko") ? "ko" : "en";
     byId("prefix").value = context.defaults.prefix;
     byId("bin-dir").value = context.defaults.bin_dir;
+    byId("dds-interface").value = context.tailscale?.default_interface || "";
     byId("host-summary").textContent =
       `${context.capabilities.os_id || "Linux"} ${context.capabilities.os_version || ""} · ${context.capabilities.architecture}`;
     const gpu = byId("gpu-device");

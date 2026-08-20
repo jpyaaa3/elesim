@@ -73,6 +73,7 @@ def test_gui_assets_and_korean_english_catalog_are_packaged() -> None:
     assert 'data-i18n="network.manager.help"' not in html
     assert 'id="post-install-command"' in html
     assert 'id="tailscale-login-command-row"' in html
+    assert 'id="dds-interface"' in html
     assert 'id="tailscale-login-command">elesim-tailscale login</code>' in html
     assert 'data-i18n="complete.tailscale.help"' in html
     assert catalog["en"]["complete.tailscale.help"] == (
@@ -142,6 +143,29 @@ def test_context_defaults_to_original_invocation_directory(tmp_path: Path) -> No
     assert context["repository"] == "owner/repo"
     assert context["ref"] == "feature"
     assert context["capabilities"]["robot_installable"] is False
+
+
+def test_context_exposes_bootstrap_tailscale_interface_for_robot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ELESIM_HOST_TAILSCALE_INTERFACES", "tailscale0,tailscale1")
+    source = tmp_path / "source"
+    source.mkdir()
+    app = WizardApplication(
+        source_root=source,
+        invocation_dir=tmp_path,
+        capabilities=_capabilities(),
+        repository="owner/repo",
+        ref="main",
+        token="test-token",
+        runner=lambda _request, _log: None,
+    )
+
+    assert app.context()["tailscale"] == {
+        "interfaces": ["tailscale0", "tailscale1"],
+        "default_interface": "tailscale0",
+    }
 
 
 def test_gui_validation_reports_runtime_text_log_choice(tmp_path: Path) -> None:

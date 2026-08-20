@@ -168,6 +168,7 @@ def test_general_request_defaults_use_connection_manager_endpoint_ids(
 def test_robot_is_native_only_exclusive_and_requires_jetson(tmp_path: Path) -> None:
     payload = _payload(tmp_path)
     payload["roles"] = ["robot"]
+    payload["dds_interface"] = "tailscale0"
     request = SetupRequest.from_dict(payload)
 
     assert (
@@ -178,6 +179,10 @@ def test_robot_is_native_only_exclusive_and_requires_jetson(tmp_path: Path) -> N
     )
     with pytest.raises(ValueError, match="Jetson"):
         request.validate(_capabilities())
+
+    payload["dds_interface"] = ""
+    with pytest.raises(ValueError, match="inter-host EleSim DDS interface"):
+        SetupRequest.from_dict(payload).validate(_capabilities(jetson=True))
 
     payload["roles"] = ["sim", "robot"]
     with pytest.raises(ValueError, match="단독"):

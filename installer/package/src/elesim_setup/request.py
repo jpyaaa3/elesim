@@ -200,6 +200,10 @@ class SetupRequest:
                     raise ValueError("Robot native 설치는 다른 역할과 분리한 단독 설치여야 합니다")
                 if not capabilities.robot_installable:
                     raise ValueError("Robot 설치에는 감지된 Jetson/JetPack 호스트가 필요합니다")
+                if not self.dds.interface.strip():
+                    raise ValueError(
+                        "Robot 설치는 inter-host EleSim DDS interface를 명시해야 합니다"
+                    )
         if self.turn.managed:
             if self.edition != "general" or "sim" not in self.roles:
                 raise ValueError("managed Coturn은 Sim 설치 호스트가 필요합니다")
