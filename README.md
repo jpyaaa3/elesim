@@ -10,14 +10,10 @@
 
 ### 🚀 설치 마법사 실행
 
-아래 명령어를 실행합니다. (아직 merge 안 했으므로 아래 명령어 쓰십쇼)
+아래 명령어를 실행하십시오.
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/main/installer/bootstrap/install.sh | bash
-   ```
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/jpyaaa3/elesim/refactoring/installer/bootstrap/install.sh \
-    | ELESIM_REF=refactoring bash
    ```
 
 ### 🐳 Docker Desktop을 사용 중일 경우
