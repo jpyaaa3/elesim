@@ -661,9 +661,13 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert str(state.bin_path / "elesim-compose") in up_wrapper
     assert "actual_docker_engine_id" not in up_wrapper
     assert "sidecar_login_status == 78" in up_wrapper
+    assert "${sidecar_backend_state,,}" not in up_wrapper
+    assert "sidecar_backend_state_lower=" in up_wrapper
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "login [--if-needed]" in tailscale_wrapper
+    assert "${login_backend_state,,}" not in tailscale_wrapper
+    assert "login_backend_state_lower=" in tailscale_wrapper
     assert "needslogin|nostate" in tailscale_wrapper
     assert "trap login_cleanup EXIT TERM INT" in tailscale_wrapper
     assert "브라우저 로그인을 기다리는 중" in tailscale_wrapper
