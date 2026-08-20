@@ -205,6 +205,16 @@ if ((gui_mode)); then
 fi
 no_open="${ELESIM_NO_OPEN:-0}"
 unitree_ros2_ws="${ELESIM_UNITREE_ROS2_WS:-${UNITREE_ROS2_WS:-$HOME/ros2_ws}}"
+host_user="${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
+# The setup image intentionally does not mount the host passwd database.  A
+# few Python build tools still call getpass.getuser(), which only consults the
+# conventional environment variables before falling back to that database.
+# Pass one deterministic, shell-safe account label through every bootstrap
+# path so a missing passwd entry cannot abort Developer setup with
+# ``No username found``.
+if [[ ! "$host_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+  host_user=dev
+fi
 for argument in "$@"; do
   if [[ "$argument" == "--no-open" ]]; then
     no_open=1
@@ -216,6 +226,9 @@ docker_args=(
   --user "$(id -u):$(id -g)"
   --workdir "$invocation_dir"
   --env "HOME=$HOME"
+  --env "USER=$host_user"
+  --env "LOGNAME=$host_user"
+  --env "USERNAME=$host_user"
   --env "ELESIM_OPERATOR_HOME=$HOME"
   --env "ELESIM_UNITREE_ROS2_WS=$unitree_ros2_ws"
   --env "ELESIM_UNITREE_INTERFACE=${ELESIM_UNITREE_INTERFACE:-eth0}"
@@ -236,7 +249,7 @@ docker_args=(
   --env "ELESIM_HOST_WSLG=$host_wslg"
   --env "ELESIM_HOST_DISPLAY=$host_display"
   --env "ELESIM_HOST_TAILSCALE_INTERFACES=$tailscale_interfaces"
-  --env "ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
+  --env "ELESIM_HOST_USER=$host_user"
   --env "ELESIM_HOST_GPU_LIST=$host_gpu_list"
   --env "ELESIM_HOST_DOCKER_BACKEND=$docker_backend_kind"
   --env "ELESIM_HOST_DOCKER_CONTEXT=$docker_context_name"
@@ -275,6 +288,9 @@ fi
 
 host_bootstrap_env=(
   "HOME=$HOME"
+  "USER=$host_user"
+  "LOGNAME=$host_user"
+  "USERNAME=$host_user"
   "ELESIM_OPERATOR_HOME=$HOME"
   "ELESIM_UNITREE_ROS2_WS=$unitree_ros2_ws"
   "ELESIM_UNITREE_INTERFACE=${ELESIM_UNITREE_INTERFACE:-eth0}"
@@ -298,7 +314,7 @@ host_bootstrap_env=(
   "ELESIM_HOST_WSLG=$host_wslg"
   "ELESIM_HOST_DISPLAY=$host_display"
   "ELESIM_HOST_TAILSCALE_INTERFACES=$tailscale_interfaces"
-  "ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"
+  "ELESIM_HOST_USER=$host_user"
   "ELESIM_HOST_GPU_LIST=$host_gpu_list"
   "ELESIM_HOST_DOCKER_BACKEND=$docker_backend_kind"
   "ELESIM_HOST_DOCKER_CONTEXT=$docker_context_name"

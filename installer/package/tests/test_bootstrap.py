@@ -1493,6 +1493,9 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
         ELESIM_CACHE_DIR=str(home / ".cache/elesim/setup"),
         ELESIM_NO_OPEN="1",
         ELESIM_ARCHIVE_URL=archive_url,
+        ELESIM_HOST_USER="not a linux username",
+        USER="not a linux username",
+        LOGNAME="not a linux username",
         FAKE_BOOTSTRAP_SOURCE=str(bootstrap_source),
         DOCKER_LOG=str(docker_log),
     )
@@ -1509,6 +1512,11 @@ def test_shell_forwards_custom_archive_without_exposing_it_in_docker_argv(
 
     assert completed.returncode == 0, completed.stdout
     assert archive_url not in (tmp_path / "docker.args").read_text(encoding="utf-8")
+    docker_args = (tmp_path / "docker.args").read_text(encoding="utf-8").splitlines()
+    assert "USER=dev" in docker_args
+    assert "LOGNAME=dev" in docker_args
+    assert "USERNAME=dev" in docker_args
+    assert "ELESIM_HOST_USER=dev" in docker_args
     assert (tmp_path / "docker.env").read_text(encoding="utf-8") == (
         f"ELESIM_ARCHIVE_URL={archive_url}\n"
     )
@@ -1525,7 +1533,15 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert '--workdir "$invocation_dir"' in script
     assert '"ELESIM_HOST_ARCH=$host_arch"' in script
     assert '"ELESIM_HOST_WSLG=$host_wslg"' in script
-    assert '"ELESIM_HOST_USER=${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"' in script
+    assert 'host_user="${ELESIM_HOST_USER:-${USER:-${LOGNAME:-dev}}}"' in script
+    assert 'if [[ ! "$host_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then' in script
+    assert '--env "USER=$host_user"' in script
+    assert '--env "LOGNAME=$host_user"' in script
+    assert '--env "USERNAME=$host_user"' in script
+    assert '"USER=$host_user"' in script
+    assert '"LOGNAME=$host_user"' in script
+    assert '"USERNAME=$host_user"' in script
+    assert '"ELESIM_HOST_USER=$host_user"' in script
     assert '"ELESIM_VERIFY_BOOTSTRAP_SOURCE=1"' in script
     assert "port_is_in_use" in script
     assert "selected another available port" in script

@@ -4,6 +4,8 @@ import threading
 import time
 from dataclasses import replace
 
+import pytest
+
 from elesim_protocol import (
     DdsTransportError,
     Envelope,
@@ -196,6 +198,36 @@ def test_simulation_command_rejects_a_mismatched_operator_session_lease() -> Non
     assert client.sent[-1][0] == "simulation_result"
     assert client.sent[-1][1]["payload"]["ok"] is False
     assert client.sent[-1][1]["payload"]["reason"] == "simulation_session_mismatch"
+
+
+def test_camera_command_diagnostics_are_sampled_instead_of_logging_every_drag_event(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    value, _state, client = endpoint()
+    grant_simulation_session(value, client)
+    for index in range(2):
+        value.handle_envelope(
+            client,
+            Envelope(
+                message_type="simulation_command",
+                source_id="ui-a",
+                target_id="sim-a",
+                payload={
+                    "schema_version": 1,
+                    "request_id": f"orbit-{index}",
+                    "session_id": "session-a",
+                    "command": "orbit",
+                    "arguments": {"dx": 0.1, "dy": 0.0},
+                },
+                seq=3 + index,
+                timestamp=1.0,
+                message_id=f"orbit-message-{index}",
+                lease_id="session-a",
+            ),
+        )
+
+    output = capsys.readouterr().out.splitlines()
+    assert sum("event=simulation" in line for line in output) == 1
 
 
 def test_simulation_result_is_requeued_when_ui_temporarily_disappears() -> None:

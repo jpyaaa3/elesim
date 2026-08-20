@@ -11,7 +11,7 @@ import yaml
 
 from conftest import ROOT
 from elesim_setup.capabilities import HostCapabilities
-from elesim_setup.developer import DeveloperInstaller
+from elesim_setup.developer import DeveloperInstaller, _resolve_developer_username
 from elesim_setup.ownership import (
     DOCKER_INSTALL_UUID_LABEL,
     OwnershipError,
@@ -151,6 +151,15 @@ def test_developer_install_supplies_fallback_username_when_host_identity_is_miss
     assert dev["environment"]["USER"] == "dev"
     assert dev["environment"]["LOGNAME"] == "dev"
     assert dev["environment"]["ELESIM_HOST_USER"] == "dev"
+
+
+def test_developer_username_resolution_never_requires_a_passwd_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        monkeypatch.delenv(variable, raising=False)
+
+    assert _resolve_developer_username() == "dev"
 
 
 def test_developer_context_falls_back_when_legacy_context_is_unwritable(

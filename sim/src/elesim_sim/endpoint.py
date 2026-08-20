@@ -39,6 +39,25 @@ from .simulation.operator_control import (
 
 _MAX_WEBRTC_INFLIGHT = 8
 _MAX_SIMULATION_RESULTS_PER_CYCLE = 32
+_CAMERA_COMMANDS = frozenset({"orbit", "pan", "zoom"})
+
+
+def _simulation_command_diagnostic_key(
+    command: str,
+    request_id: str,
+) -> tuple[str, float]:
+    """Return a bounded log key/rate for high-frequency camera gestures.
+
+    Camera deltas are intentionally latest-only.  Logging every request with
+    ``flush=True`` makes the container logging driver part of the input path
+    and can stall the DDS thread under a drag.  Keep discrete commands
+    individually traceable, while sampling camera diagnostics once per second.
+    """
+
+    name = str(command).strip()
+    if name in _CAMERA_COMMANDS:
+        return f"command:{name}", 1.0
+    return f"command:{name}:{request_id}", 5.0
 
 
 class SimEndpoint:
@@ -373,13 +392,18 @@ class SimEndpoint:
                 SimulationOperatorCommand.from_request(request, ui_id=message.source_id)
             )
             if queued:
+                dedupe, interval = _simulation_command_diagnostic_key(
+                    request.command,
+                    request.request_id,
+                )
                 self._diagnostic(
                     "simulation",
-                    dedupe=f"command:{request.command}:{request.request_id}",
+                    dedupe=dedupe,
                     source=message.source_id,
                     target=self.endpoint_id,
                     command=request.command,
                     state="queued",
+                    interval=interval,
                 )
                 return
             reason = "simulation command queue is full"
@@ -398,14 +422,19 @@ class SimEndpoint:
             lease_id=message.lease_id,
             trace_context=message.trace_context,
         )
+        dedupe, interval = _simulation_command_diagnostic_key(
+            request.command,
+            request.request_id,
+        )
         self._diagnostic(
             "simulation",
-            dedupe=f"command-rejected:{request.command}:{request.request_id}",
+            dedupe=f"rejected:{dedupe}",
             source=message.source_id,
             target=self.endpoint_id,
             command=request.command,
             state="rejected",
             reason=reason,
+            interval=interval,
         )
 
     def _handle_webrtc_offer(self, client: Any, message: Envelope) -> None:
