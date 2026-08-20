@@ -1537,6 +1537,15 @@ def test_container_bootstrap_preserves_host_python_and_uses_compose_v2() -> None
     assert 'mv -f -- "$bootstrap_tmp" "$bootstrap_file"' in script
     assert 'docker_args+=(--env-file "$archive_env_file")' in script
     assert 'python /tmp/elesim-bootstrap.py "$@"' in script
+    assert '"PYTHONNOUSERSITE=1"' in script
+
+
+def test_bootstrap_venv_pins_ros_build_python_metadata_dependencies() -> None:
+    script = Path(__file__).resolve().parents[3] / "installer/bootstrap/bootstrap.py"
+    text = script.read_text(encoding="utf-8")
+
+    assert '"setuptools>=68,<80"' in text
+    assert '"packaging>=24.2,<26"' in text
 
 
 def test_jetson_bootstrap_uses_host_ros_without_exposing_gui() -> None:

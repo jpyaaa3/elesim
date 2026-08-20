@@ -420,7 +420,29 @@ class Installer:
             "--symlink-install"
         )
         self.log("[ros] elesim_interfaces overlay build")
-        self._run(("/bin/bash", "-lc", command))
+        environment = os.environ.copy()
+        # colcon is supplied by the host ROS installation, but its Python
+        # process also imports packaging/setuptools.  Jetson hosts commonly
+        # have an old distro ``packaging`` beside a newer pip setuptools,
+        # which breaks rosidl with canonicalize_version(...,
+        # strip_trailing_zero=...).  The bootstrap venv carries a compatible
+        # pair; prepend only that venv's site-packages and leave the host ROS
+        # installation untouched.
+        environment["PYTHONNOUSERSITE"] = "1"
+        site_packages = (
+            Path(sys.prefix)
+            / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        if site_packages.is_dir():
+            inherited_pythonpath = environment.get("PYTHONPATH", "").strip()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                value
+                for value in (str(site_packages), inherited_pythonpath)
+                if value
+            )
+        self._run(("/bin/bash", "-lc", command), env=environment)
 
     def _ensure_venv(
         self,
@@ -450,9 +472,18 @@ class Installer:
             )
         )
 
-    def _run(self, command: Sequence[str]) -> None:
+    def _run(
+        self,
+        command: Sequence[str],
+        *,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
         self.log("$ " + shlex.join(str(value) for value in command))
-        subprocess.run(tuple(str(value) for value in command), check=True)
+        subprocess.run(
+            tuple(str(value) for value in command),
+            check=True,
+            env=None if env is None else dict(env),
+        )
 
     def _write_wrappers(self) -> None:
         tool_venv = self.state.prefix_path / "tools/venv/bin"

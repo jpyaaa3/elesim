@@ -284,6 +284,7 @@ host_bootstrap_env=(
   "ELESIM_CACHE_DIR=$cache_dir"
   "COLCON_HOME=$cache_dir/colcon"
   "ROS_HOME=$cache_dir/ros"
+  "PYTHONNOUSERSITE=1"
   "ELESIM_INVOCATION_DIR=$invocation_dir"
   "ELESIM_GUI_HOST=127.0.0.1"
   "ELESIM_GUI_PORT=$gui_port"

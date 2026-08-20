@@ -52,6 +52,34 @@ def test_native_venv_pip_repair_reports_missing_ensurepip(
         _ensure_python_pip(tmp_path / "venv/bin/python")
 
 
+def test_ros_interface_build_isolates_python_metadata_from_host(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = local_state(roles=("robot",), dds=DdsSettings(interface="tailscale0"))
+    installer = Installer(state, dry_run=True)
+    captured: dict[str, object] = {}
+
+    def fake_run(command, *, env=None):
+        captured["command"] = tuple(command)
+        captured["env"] = dict(env or {})
+
+    monkeypatch.setattr(installer, "_run", fake_run)
+    installer._install_ros_interfaces()
+
+    environment = captured["env"]
+    assert isinstance(environment, dict)
+    assert environment["PYTHONNOUSERSITE"] == "1"
+    site_packages = (
+        Path(installer_module.sys.prefix)
+        / "lib"
+        / f"python{installer_module.sys.version_info.major}.{installer_module.sys.version_info.minor}"
+        / "site-packages"
+    )
+    if site_packages.is_dir():
+        assert str(site_packages) in str(environment.get("PYTHONPATH", ""))
+
+
 def test_robot_dry_run_validates_and_reports_without_writing(local_state) -> None:
     state = local_state(roles=("robot",), dds=DdsSettings(interface="tailscale0"))
     logs: list[str] = []

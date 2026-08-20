@@ -963,7 +963,18 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
         subprocess.run((sys.executable, "-m", "venv", str(venv)), check=True)
     _ensure_bootstrap_pip(python)
     commands = (
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--upgrade", "pip", "setuptools>=68", "wheel"),
+        (
+            str(python),
+            "-m",
+            "pip",
+            "--disable-pip-version-check",
+            "install",
+            "--upgrade",
+            "pip",
+            "setuptools>=68,<80",
+            "packaging>=24.2,<26",
+            "wheel",
+        ),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "installer/package/requirements.lock")),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "packages/protocol")),
         (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "installer/package")),
