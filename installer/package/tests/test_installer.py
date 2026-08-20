@@ -52,6 +52,16 @@ def test_native_venv_pip_repair_reports_missing_ensurepip(
         _ensure_python_pip(tmp_path / "venv/bin/python")
 
 
+def test_native_venvs_pin_setuptools_for_ros_colcon() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src/elesim_setup/installer.py"
+    ).read_text(encoding="utf-8")
+
+    assert source.count('"setuptools>=68,<80"') == 2
+    assert source.count('"packaging>=24.2,<26"') == 2
+
+
 def test_ros_interface_build_isolates_python_metadata_from_host(
     local_state,
     monkeypatch: pytest.MonkeyPatch,

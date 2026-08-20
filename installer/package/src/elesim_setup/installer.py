@@ -352,7 +352,15 @@ class Installer:
         target = self.state.prefix_path / "tools"
         python = self._ensure_venv(target / "venv", system_site_packages=True)
         self.log("[도구] elesim-setup / elesim-net 설치")
-        self._pip(python, "install", "--upgrade", "pip", "setuptools>=68", "wheel")
+        self._pip(
+            python,
+            "install",
+            "--upgrade",
+            "pip",
+            "setuptools>=68,<80",
+            "packaging>=24.2,<26",
+            "wheel",
+        )
         self._pip(python, "install", "-r", str(root / "installer/package/requirements.lock"))
         self._pip(
             python,
@@ -384,7 +392,15 @@ class Installer:
             system_site_packages=role == "robot",
         )
         self.log(f"[{role}] Python dependency 설치")
-        self._pip(python, "install", "--upgrade", "pip", "setuptools>=68", "wheel")
+        self._pip(
+            python,
+            "install",
+            "--upgrade",
+            "pip",
+            "setuptools>=68,<80",
+            "packaging>=24.2,<26",
+            "wheel",
+        )
         self._pip(python, "install", "-r", str(source / "requirements.lock"))
         if role == "sim" and self.state.install_go2_mpc:
             self._pip(python, "install", GO2_MPC_PACKAGE)
