@@ -4,3 +4,4 @@ PyYAML==6.0.2
 dynamixel-sdk==4.0.5
 opencv-python-headless==4.11.0.86
 pyrealsense2==2.58.2.10647
+cffi==2.1.1

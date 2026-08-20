@@ -62,6 +62,14 @@ def test_native_venvs_pin_setuptools_for_ros_colcon() -> None:
     assert source.count('"packaging>=24.2,<26"') == 2
 
 
+def test_robot_lock_covers_system_pynacl_dependency() -> None:
+    requirements = (
+        Path(__file__).resolve().parents[3] / "robot/requirements.lock"
+    ).read_text(encoding="utf-8")
+
+    assert "cffi==2.1.1" in requirements
+
+
 def test_ros_interface_build_isolates_python_metadata_from_host(
     local_state,
     monkeypatch: pytest.MonkeyPatch,
