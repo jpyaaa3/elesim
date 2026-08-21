@@ -313,10 +313,9 @@
     installs add the `tailscale` service/fixed `elesim-tailscale` infrastructure
     container; enroll it once with `elesim-tailscale login`, inspect its DDS IP
     with `elesim-tailscale status`, and keep the WSL/host SSH address separate.
-  - Use `elesim-uninstall --plan` to inspect or `elesim-uninstall` to validate
-    again and remove immediately. Logs and owned operator Authority are removed
+  - Use `elesim-uninstall` to validate and remove immediately. Logs and owned operator Authority are removed
     unless their `--keep-*` flags are supplied. On Robot, remove the exact two installed systemd units
-    using the refusal message before rerunning the plan.
+    using the refusal message before rerunning the uninstaller.
   - Native Robot setup generates `elesim-robot.service` plus
     `elesim-unitree-bridge.service`; it prints but never executes account/group,
     ACL, unit registration or service-start commands. Defaults for the private

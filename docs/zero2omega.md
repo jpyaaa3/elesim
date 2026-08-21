@@ -98,7 +98,6 @@ hand-eye는 native window가 아니라 WebRTC track이므로 Viewer가 없어도
 정확한 설치 prefix에서만 실행한다.
 
 ```bash
-elesim-uninstall --plan
 elesim-uninstall
 ```
 

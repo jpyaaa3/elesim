@@ -666,6 +666,10 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "login --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "up --force-reauth --hostname=elesim-deadbeef0123" in tailscale_wrapper
     assert "login [--if-needed]" in tailscale_wrapper
+    assert "update)" in tailscale_wrapper
+    assert "ps --status running -q" in tailscale_wrapper
+    assert "--force-recreate tailscale" in tailscale_wrapper
+    assert "tailscale_runtime_services=(pilot ui runtime-tools)" in tailscale_wrapper
     assert "${login_backend_state,,}" not in tailscale_wrapper
     assert "login_backend_state_lower=" in tailscale_wrapper
     assert "needslogin|nostate" in tailscale_wrapper
@@ -1042,6 +1046,119 @@ def test_tailscale_login_streams_child_and_preserves_its_status(
     assert syntax.returncode == 0, syntax.stderr
     assert result.returncode == 23
     assert "https://login.tailscale.example/device" in result.stdout
+
+
+def test_tailscale_update_recreates_sidecar_and_only_reconnects_running_services(
+    tmp_path: Path,
+) -> None:
+    calls = tmp_path / "compose.calls"
+    compose_wrapper = tmp_path / "elesim-compose"
+    compose_wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -u\n"
+        "printf '%s\\n' \"$*\" >>\"$ELESIM_TEST_CALLS\"\n"
+        "if [[ ${1:-} == -f ]]; then shift 2; fi\n"
+        "if [[ ${1:-} == ps && ${2:-} == --status && ${3:-} == running && ${4:-} == -q ]]; then\n"
+        "  case ${5:-} in\n"
+        "    tailscale) [[ ${ELESIM_TEST_SIDECAR_RUNNING:-0} == 1 ]] && printf 'sidecar-id\\n' ;;\n"
+        "    pilot|coturn)\n"
+        "      if [[ \" $ELESIM_TEST_RUNNING_SERVICES \" == *\" ${5} \"* ]]; then printf '%s-id\\n' \"${5}\"; fi\n"
+        "      ;;\n"
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [[ ${1:-} == exec && \" $* \" == *' status --json '* ]]; then\n"
+        "  printf '{\"BackendState\":\"Running\"}\\n'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    compose_wrapper.chmod(0o755)
+    wrapper = tmp_path / "elesim-tailscale"
+    wrapper.write_text(
+        _tailscale_wrapper(
+            compose=tmp_path / "compose.yaml",
+            compose_wrapper=compose_wrapper,
+            guard="",
+            hostname="elesim-update",
+            services=("pilot", "ui", "coturn"),
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment["ELESIM_TEST_CALLS"] = str(calls)
+    environment["ELESIM_TEST_SIDECAR_RUNNING"] = "1"
+    environment["ELESIM_TEST_RUNNING_SERVICES"] = "pilot coturn"
+    result = subprocess.run(
+        (wrapper, "update"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rendered = calls.read_text(encoding="utf-8").splitlines()
+    assert rendered[0].endswith("ps --status running -q tailscale")
+    assert rendered[1].endswith("ps --status running -q pilot")
+    assert rendered[2].endswith("ps --status running -q ui")
+    assert rendered[3].endswith("ps --status running -q coturn")
+    assert rendered[4].endswith("pull tailscale")
+    assert rendered[5].endswith("stop pilot coturn")
+    assert rendered[6].endswith("up -d --no-build --no-deps --force-recreate tailscale")
+    assert rendered[7].endswith("exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json")
+    assert rendered[8].endswith("up -d --no-build --no-deps pilot coturn")
+    assert not any(line.endswith("--no-build --no-deps ui") for line in rendered)
+
+
+def test_tailscale_update_starts_an_unenrolled_stopped_sidecar_without_roles(
+    tmp_path: Path,
+) -> None:
+    calls = tmp_path / "compose.calls"
+    compose_wrapper = tmp_path / "elesim-compose"
+    compose_wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -u\n"
+        "printf '%s\\n' \"$*\" >>\"$ELESIM_TEST_CALLS\"\n"
+        "if [[ ${1:-} == -f ]]; then shift 2; fi\n"
+        "if [[ ${1:-} == exec && \" $* \" == *' status --json '* ]]; then\n"
+        "  printf '{\"BackendState\":\"NeedsLogin\"}\\n'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    compose_wrapper.chmod(0o755)
+    wrapper = tmp_path / "elesim-tailscale"
+    wrapper.write_text(
+        _tailscale_wrapper(
+            compose=tmp_path / "compose.yaml",
+            compose_wrapper=compose_wrapper,
+            guard="",
+            hostname="elesim-update",
+            services=("pilot", "ui"),
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    environment = os.environ.copy()
+    environment["ELESIM_TEST_CALLS"] = str(calls)
+    environment["ELESIM_TEST_RUNNING_SERVICES"] = ""
+
+    result = subprocess.run(
+        (wrapper, "update"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rendered = calls.read_text(encoding="utf-8").splitlines()
+    assert rendered[-2].endswith("up -d --no-build --no-deps tailscale")
+    assert rendered[-1].endswith(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json"
+    )
+    assert not any(line.startswith("stop ") for line in rendered)
 
 
 def test_container_install_falls_back_when_legacy_cache_is_not_writable(

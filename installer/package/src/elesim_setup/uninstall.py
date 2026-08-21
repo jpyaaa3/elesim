@@ -223,7 +223,7 @@ def execute_uninstall(
             f"expected={plan.manifest.prefix}"
         )
 
-    # Fail closed if the manifest or any ownership fact changed after --plan.
+    # Fail closed if the manifest or any ownership fact changed after preflight.
     current = plan_uninstall(
         plan.manifest.path,
         purge_logs=plan.purge_logs,
@@ -231,7 +231,7 @@ def execute_uninstall(
         runner=runner,
     )
     if current.manifest_sha256 != plan.manifest_sha256:
-        raise UninstallSafetyError("plan 이후 ownership manifest가 변경되었습니다")
+        raise UninstallSafetyError("사전 검증 이후 ownership manifest가 변경되었습니다")
     if (
         current.remove_paths != plan.remove_paths
         or current.remove_roots != plan.remove_roots
@@ -241,7 +241,7 @@ def execute_uninstall(
         or current.tailscale_state_cleanup != plan.tailscale_state_cleanup
         or current.remove_shell_path != plan.remove_shell_path
     ):
-        raise UninstallSafetyError("plan 이후 설치 소유권 상태가 변경되었습니다")
+        raise UninstallSafetyError("사전 검증 이후 설치 소유권 상태가 변경되었습니다")
 
     command_runner = _command_runner(runner)
     docker_ownership = current.manifest.docker
@@ -392,32 +392,6 @@ def execute_uninstall(
     return current.tombstone
 
 
-def render_plan(plan: UninstallPlan) -> str:
-    lines = [
-        "EleSim 제거 계획 (아직 변경하지 않음)",
-        f"  install UUID: {plan.manifest.install_uuid}",
-        f"  prefix: {plan.manifest.prefix}",
-        f"  exact paths: {len(plan.remove_paths)}",
-        f"  managed roots: {len(plan.remove_roots)}",
-        f"  containers: {', '.join(value.name for value in plan.containers) or '-'}",
-        f"  local images: {', '.join(value.name for value in plan.images) or '-'}",
-        f"  logs: {'삭제' if plan.purge_logs else '보존'}",
-        f"  operator Authority: {'삭제' if plan.purge_authority else '보존'}",
-    ]
-    if plan.preserve_paths:
-        lines.append("  보존 경로:")
-        lines.extend(f"    - {path}" for path in plan.preserve_paths)
-    if plan.warnings:
-        lines.append("  경고:")
-        lines.extend(f"    - {warning}" for warning in plan.warnings)
-    if plan.tailscale_state_cleanup is not None:
-        lines.append("  Tailscale state: exact owned bind의 host ownership 복구 후 삭제")
-    if plan.viewer_cleanup is not None:
-        lines.append("  X11 Viewer ACL: exact owned wrapper로 회수")
-    lines.append("실행 시 위 ownership 경계를 다시 검증한 뒤 즉시 제거합니다.")
-    return "\n".join(lines)
-
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="elesim-uninstall",
@@ -427,11 +401,6 @@ def _parser() -> argparse.ArgumentParser:
         "--manifest",
         default=str(default_manifest_path()),
         help="install-ownership.json 경로",
-    )
-    parser.add_argument(
-        "--plan",
-        action="store_true",
-        help="검증된 제거 계획만 출력하고 변경하지 않음",
     )
     parser.add_argument(
         "--keep-logs",
@@ -454,9 +423,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             purge_logs=not bool(args.keep_logs),
             purge_authority=not bool(args.keep_authority),
         )
-        print(render_plan(plan))
-        if args.plan:
-            return 0
         tombstone = execute_uninstall(plan)
         print(f"EleSim 제거 완료. tombstone: {tombstone}")
         return 0
@@ -1386,6 +1352,5 @@ __all__ = [
     "execute_uninstall",
     "main",
     "plan_uninstall",
-    "render_plan",
     "validate_docker_ownership",
 ]

@@ -8,7 +8,7 @@
 
 ## 1. 설치 방법
 
-### 🚀 설치 마법사 실행
+### 🧙 설치 마법사 실행
 
 아래 명령어를 실행하십시오.
 
@@ -22,8 +22,6 @@ Docker Desktop 사용 중 발급된 Tailscale IP는 DDS 통신을 위한 인터�
 
 EleSim의 설치가 끝나면 아래 명령어로 native Docker 기반 Tailscale IP를 생성하십시오.
 
-SSH는 Docker Desktop 사용 여부와 무관합니다.
-
    ```bash
    elesim-tailscale login
    ```
@@ -34,24 +32,29 @@ SSH는 Docker Desktop 사용 여부와 무관합니다.
 
 | 역할 | 하는 일 |
 | --- | --- |
-| Pilot | 카메라를 보고 목표와 로봇 동작을 계산합니다. |
-| UI | 사용자가 화면을 보고 명령을 내립니다. |
-| Sim | Genesis에서 로봇과 카메라를 시뮬레이션합니다. |
-| Robot | 실제 로봇을 움직이고 안전을 관리합니다. |
+| Pilot | 로봇의 동작 계산 |
+| UI | 조작 패널 |
+| Sim | Genesis 기반 시뮬레이션 |
+| Robot | Jetson에서 로봇을 실제 조작 |
 
-역할들은 중앙 Router 없이 ROS 2/DDS로 직접 통신합니다. 영상은 WebRTC를 사용합니다.
+영상은 WebRTC로, 그 외 정보는 DDS로 공유됩니다.
 
-### 💻 자주 쓰는 명령
+### 💻 주요 명령어
 
 ```bash
-elesim-update       # 설치 파일과 이미지를 업데이트
-elesim-up           # 이 컴퓨터의 역할을 시작
-elesim-down         # 이 컴퓨터의 역할을 종료
-elesim-down --purge  # 역할 종료 후 연결관리자(elesim-manager)도 제거
-elesim-logs         # 실행 로그 확인
-elesim-status       # 이 컴퓨터의 역할·IP·GPU·미디어 스펙 확인
-elesim-connections  # 여러 컴퓨터의 연결·보안·실행 관리
-elesim-uninstall --plan  # 삭제될 항목만 미리 확인
+elesim-up                  # EleSim을 시작
+
+elesim-down                # EleSim을 종료
+elesim-down --purge        # EleSim을 종료 및 연결 관리자(elesim-manager)도 제거
+
+elesim-update              # EleSim을 업데이트
+
+elesim-connections         # 각 컴퓨터 간 연결 관리 및 EleSim을 시작
+
+elesim-logs                # EleSim의 로그 확인
+elesim-status              # 이 컴퓨터의 EleSim 실행 정보 확인
+
+elesim-uninstall           # EleSim을 삭제
 ```
 
 <br>

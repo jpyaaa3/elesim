@@ -1244,6 +1244,7 @@ class ContainerInstaller:
         managed_services = (*self.state.roles,)
         if self.state.turn.managed:
             managed_services = (*managed_services, "coturn")
+        tailscale_services = (*managed_services, "runtime-tools")
         write_executable(
             self.state.bin_path / "elesim-logs",
             _runtime_logs_wrapper(
@@ -1301,6 +1302,7 @@ class ContainerInstaller:
                     compose_wrapper=compose_wrapper,
                     guard=guard,
                     hostname=self.state.container_network.tailscale_hostname,
+                    services=tailscale_services,
                 ),
             )
         write_executable(
@@ -1853,8 +1855,17 @@ def _tailscale_wrapper(
     compose_wrapper: Path,
     guard: str,
     hostname: str,
+    services: tuple[str, ...] = (),
 ) -> str:
-    """Render the bounded sidecar enrollment/status operator surface."""
+    """Render the bounded sidecar enrollment/status/update operator surface.
+
+    Services using ``network_mode: service:tailscale`` must be recreated after
+    their network namespace provider is replaced.  ``update`` therefore
+    snapshots only the selected services that are currently running, pulls the
+    installed pinned image, recreates the sidecar while those services are
+    stopped, and starts that same set again.  The sidecar state volume is never
+    replaced and no unrelated Compose service is touched.
+    """
 
     compose_array = (
         "tailscale_compose=("
@@ -1863,11 +1874,17 @@ def _tailscale_wrapper(
         + shlex.quote(str(compose))
         + ")\n"
     )
+    services_array = (
+        "tailscale_runtime_services=("
+        + " ".join(shlex.quote(service) for service in services)
+        + ")\n"
+    )
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         + guard
         + compose_array
+        + services_array
         + "case ${1:-} in\n"
         + "  login)\n"
         + "    login_if_needed=0\n"
@@ -1990,8 +2007,69 @@ def _tailscale_wrapper(
         + "    [[ $ipv4 =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] || ipv4=\n"
         + "    printf '{\"BackendState\":\"%s\",\"IPv4\":\"%s\"}\\n' \"$backend_state\" \"$ipv4\"\n"
         + "    ;;\n"
+        + "  update)\n"
+        + "    if (( $# != 1 )); then\n"
+        + "      printf '사용법: elesim-tailscale update\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    sidecar_id=\n"
+        + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q tailscale 2>/dev/null)\"; then\n"
+        + "      printf 'Tailscale sidecar 실행 상태를 확인하지 못했습니다. Docker backend와 설치 소유권을 확인하십시오.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    sidecar_running=0\n"
+        + "    [[ -n $sidecar_id ]] && sidecar_running=1\n"
+        + "    running_services=()\n"
+        + "    for service in \"${tailscale_runtime_services[@]}\"; do\n"
+        + "      service_id=\n"
+        + "      if ! service_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q \"$service\" 2>/dev/null)\"; then\n"
+        + "        printf 'Tailscale namespace 서비스 실행 상태를 확인하지 못했습니다: %s\\n' \"$service\" >&2\n"
+        + "        exit 75\n"
+        + "      fi\n"
+        + "      [[ -n $service_id ]] && running_services+=(\"$service\")\n"
+        + "    done\n"
+        + "    if (( ! sidecar_running && ${#running_services[@]} )); then\n"
+        + "      printf 'Tailscale sidecar 없이 실행 중인 namespace 서비스가 있어 업데이트를 거부합니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    printf '%s\\n' '[elesim-tailscale] 설치된 pinned Tailscale 이미지를 가져오는 중...'\n"
+        + "    \"${tailscale_compose[@]}\" pull tailscale\n"
+        + "    if (( sidecar_running )); then\n"
+        + "      if (( ${#running_services[@]} )); then\n"
+        + "        \"${tailscale_compose[@]}\" stop \"${running_services[@]}\"\n"
+        + "      fi\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps --force-recreate tailscale\n"
+        + "    else\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps tailscale\n"
+        + "    fi\n"
+        + "    sidecar_backend_state=\n"
+        + "    sidecar_status_json=\n"
+        + "    sidecar_ready=0\n"
+        + "    for _attempt in {1..60}; do\n"
+        + "      if sidecar_status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null)\"; then\n"
+        + "        sidecar_backend_state=\"$(printf '%s\\n' \"$sidecar_status_json\" | sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "        sidecar_backend_state_lower=\"$(printf '%s\\n' \"$sidecar_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
+        + "        case $sidecar_backend_state_lower in\n"
+        + "          running|needslogin|nostate) sidecar_ready=1; break ;;\n"
+        + "        esac\n"
+        + "      fi\n"
+        + "      sleep 0.25\n"
+        + "    done\n"
+        + "    if (( ! sidecar_ready )); then\n"
+        + "      printf 'Tailscale sidecar daemon이 업데이트 후 준비되지 않았습니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    if (( ${#running_services[@]} )) && [[ $sidecar_backend_state_lower != running ]]; then\n"
+        + "      printf 'Tailscale sidecar가 로그인되지 않아 기존 namespace 서비스를 다시 연결하지 않았습니다 (상태: %s). 먼저 elesim-tailscale login을 실행하십시오.\\n' \"${sidecar_backend_state:-unknown}\" >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    if (( ${#running_services[@]} )); then\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps \"${running_services[@]}\"\n"
+        + "    fi\n"
+        + "    printf '%s\\n' '[elesim-tailscale] sidecar 업데이트 완료. 기존에 실행 중이던 namespace 서비스만 다시 연결했습니다.'\n"
+        + "    ;;\n"
         + "  *)\n"
-        + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]}\\n' >&2\n"
+        + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"
         + "    exit 64\n"
         + "    ;;\n"
         + "esac\n"

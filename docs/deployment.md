@@ -72,6 +72,11 @@ sidecar는 Router, DDS relay, SSH endpoint, authorization service가 아니다.
 Tailscale browser/device login은 한 번만 필요하며, sidecar IP는 DDS address,
 WSL/host IP는 SSH management address가 될 수 있다.
 
+설치된 sidecar image를 적용하려면 `elesim-tailscale update`를 사용한다.
+이 명령은 고정된 image를 pull하고, sidecar와 namespace를 공유하며 당시
+실행 중이던 role/Coturn만 안전하게 재생성·재연결한다. 설치 산출물의
+Tailscale version/digest 자체를 바꾸는 작업은 `elesim-update`가 담당한다.
+
 ## 3. 설치·업데이트·활성화 순서
 
 ```bash
@@ -233,12 +238,11 @@ General log는 bounded Docker log와 최대 다섯 개 private snapshot을 유�
 prefix의 log archive는 ownership manifest가 관리한다.
 
 ```bash
-elesim-uninstall --plan
 elesim-uninstall
 ```
 
 Uninstall은 UUID, exact wrapper/systemd hash, Compose/image labels와 sidecar
-ownership을 검증한 뒤 owned resource만 제거한다. `--keep-logs`와
+ownership을 검증한 뒤 owned resource만 즉시 제거한다. `--keep-logs`와
 `--keep-authority`로 보존할 수 있다. Docker prune, broad recursive delete,
 foreign image 제거는 배포 절차가 아니다.
 

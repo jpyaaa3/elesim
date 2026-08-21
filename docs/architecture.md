@@ -228,8 +228,9 @@ Docker Desktop은 WSL의 `tailscale0`를 상속하지 않으므로, sidecar back
 고정 `elesim-tailscale` kernel-mode node와 실제 sidecar namespace를 만든다.
 role, runtime-network doctor, Sim-owned Coturn만 그 namespace를 공유한다.
 sidecar는 host network infrastructure이지 DDS relay, SSH endpoint, Router가
-아니다. `elesim-tailscale login/status`로 한 번 enrollment하고, SSH 관리
-주소와 DDS sidecar 주소를 별도 기록한다.
+아니다. `elesim-tailscale login/status`로 한 번 enrollment하고 필요할 때
+`elesim-tailscale update`로 설치된 고정 image를 적용한다. SSH 관리 주소와
+DDS sidecar 주소는 별도 기록한다.
 
 ## 8. 성능과 안전의 불변식
 

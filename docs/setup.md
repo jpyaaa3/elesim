@@ -242,6 +242,7 @@ Docker Desktop은 WSL distribution의 host `tailscale0`를 container namespace�
 ```bash
 elesim-tailscale login
 elesim-tailscale status
+elesim-tailscale update
 elesim-net namespace-check --dds-interface tailscale0
 ```
 
@@ -249,6 +250,14 @@ elesim-net namespace-check --dds-interface tailscale0
 EleSim은 auth/OAuth key를 저장하지 않고 sidecar node state만 prefix의
 mode-0700 secrets 아래 보관한다. `status`의 sidecar DDS IP와 host/WSL SSH
 주소는 서로 다른 값일 수 있다.
+
+`update`는 설치된 Compose의 고정 Tailscale image를 pull한 뒤 sidecar를
+재생성한다. sidecar namespace를 공유하는 role과 managed Coturn 중 당시
+실행 중이던 서비스만 잠시 중지하고 같은 목록을 다시 연결하므로, 로그인
+상태 volume과 중지되어 있던 서비스는 건드리지 않는다. 새 Tailscale
+버전/다이제스트로 이동하려면 먼저 `elesim-update`로 설치 산출물을 갱신한
+다음 `elesim-tailscale update`를 실행한다. 새 sidecar가 준비되지 않으면
+명령은 실패하고 역할을 자동으로 시작하지 않는다.
 
 `namespace-check`는 role과 같은 namespace에서 interface 존재, advertised
 address 할당, static peer route를 읽기 전용으로 검사한다. SSH 연결 성공은
@@ -273,15 +282,12 @@ destination/port/user/fingerprint는 별도 필드다.
 
 ## 10. 제거
 
-먼저 exact prefix에서 계획을 확인한다.
-
 ```bash
-elesim-uninstall --plan
 elesim-uninstall
 ```
 
 uninstaller는 install UUID, wrapper/systemd hash, Docker label/metadata와
-managed sidecar ownership을 검증한 뒤에만 mutation한다. 기본적으로 owned
+managed sidecar ownership을 검증한 뒤에만 즉시 mutation한다. 기본적으로 owned
 runtime/log/operator Authority를 제거하고, `--keep-logs` 또는
 `--keep-authority`로 보존할 수 있다. 외부 source, credentials, keystore,
 Docker upstream image, Tailscale control-plane node는 삭제하지 않는다.

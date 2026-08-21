@@ -1166,13 +1166,24 @@ def test_listed_container_inspect_error_is_not_treated_as_absent(
         plan_uninstall(manifest.path, runner=runner)
 
 
-def test_cli_plan_is_read_only(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_uninstall_validates_then_executes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     manifest, *_ = _manifest(tmp_path)
 
-    assert main(("--manifest", str(manifest.path), "--plan")) == 0
+    assert main(("--manifest", str(manifest.path),)) == 0
+
+    assert not manifest.path.exists()
+    assert "EleSim 제거 완료" in capsys.readouterr().out
+
+
+def test_cli_rejects_removed_plan_option(tmp_path: Path) -> None:
+    manifest, *_ = _manifest(tmp_path)
+
+    with pytest.raises(SystemExit):
+        main(("--manifest", str(manifest.path), "--plan"))
 
     assert manifest.path.is_file()
-    assert "아직 변경하지 않음" in capsys.readouterr().out
 
 
 def test_manifest_refresh_keeps_uuid_after_full_preflight(tmp_path: Path) -> None:
@@ -1310,7 +1321,7 @@ def test_new_install_refuses_preexisting_claim_without_manifest(tmp_path: Path) 
     assert foreign.read_text(encoding="utf-8") == "foreign\n"
 
 
-def test_host_bundle_runs_plan_without_container_or_installed_package(
+def test_host_bundle_uninstalls_without_container_or_installed_package(
     tmp_path: Path,
 ) -> None:
     prefix = tmp_path / "host-install"
@@ -1329,19 +1340,6 @@ def test_host_bundle_runs_plan_without_container_or_installed_package(
         wrapper_paths=(bundle.wrapper,),
     )
 
-    result = subprocess.run(
-        (str(bundle.wrapper), "--plan"),
-        check=False,
-        capture_output=True,
-        text=True,
-        env={"PATH": "/usr/bin:/bin"},
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert manifest.install_uuid in result.stdout
-    assert "아직 변경하지 않음" in result.stdout
-    assert not bundle.root.joinpath("elesim_setup/__pycache__").exists()
-
     removed = subprocess.run(
         (str(bundle.wrapper),),
         check=False,
@@ -1354,6 +1352,7 @@ def test_host_bundle_runs_plan_without_container_or_installed_package(
     )
 
     assert removed.returncode == 0, removed.stderr
+    assert "EleSim 제거 완료" in removed.stdout
     assert not bundle.root.exists()
     assert not bundle.wrapper.exists()
 
