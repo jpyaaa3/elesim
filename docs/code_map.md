@@ -8,9 +8,9 @@ EleSim의 canonical runtime role key와 source tree 이름은 같다. `controlle
 
 | tree | package/entrypoint | 책임 |
 | --- | --- | --- |
-| `pilot/` | `elesim_pilot`, `elesim-pilot` | perception/workflow, target, motion intent |
-| `sim/` | `elesim_sim`, `elesim-sim` | Genesis, virtual state, RGB-D, session, WebRTC |
-| `ui/` | `elesim_ui`, `elesim-ui` | operator UI, DDS intent, WebRTC receive |
+| `pilot/` | `elesim_pilot` (container entrypoint) | perception/workflow, target, motion intent |
+| `sim/` | `elesim_sim` (container entrypoint) | Genesis, virtual state, RGB-D, session, WebRTC |
+| `ui/` | `elesim_ui` (container entrypoint) | operator UI, DDS intent, WebRTC receive |
 | `robot/` | `elesim_robot`, `elesim-robot` | physical I/O, deadman, local safety |
 
 `robot/`의 `unitree_bridge_daemon.py`와 `unitree_ipc*.py`는 Robot-host-local
@@ -33,6 +33,13 @@ environment/development/          generated all-project dev inputs
 Deployment tree끼리 서로 import하지 않는다. ROSIDL wire types와 protocol
 transport primitive만 공유한다. 추가 typed ROS services/actions는 generated
 artifact이지만 runtime-wired surface가 아니다.
+
+General host installations do not create one wrapper per application. Use
+`elesim-up pilot`, `elesim-up sim`, or `elesim-up ui`; the `elesim-pilot`,
+`elesim-sim`, and `elesim-ui` names are reserved for Docker container/entrypoint
+internals. Native Robot installs retain `elesim-robot` and
+`elesim-unitree-bridge` because those are the process/systemd wrappers behind
+the Robot-only `elesim-up` lifecycle.
 
 ## 3. 핵심 구현 지점
 

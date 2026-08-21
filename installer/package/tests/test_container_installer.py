@@ -500,9 +500,6 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     ).read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     down_wrapper = (state.bin_path / "elesim-down").read_text(encoding="utf-8")
-    role_wrapper = (state.bin_path / "elesim-sim").read_text(
-        encoding="utf-8"
-    )
     assert "up -d --build --remove-orphans" in up_wrapper
     assert "--view" in up_wrapper
     assert "--viewer-user" in up_wrapper
@@ -539,9 +536,8 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "viewer_xhost_cleanup" in down_wrapper
     assert "viewer_xhost_cleanup" in viewer_cleanup_wrapper
     assert "docker" not in viewer_cleanup_wrapper
-    assert "up --remove-orphans sim" in role_wrapper
-    assert "elesim-net configuration-check >/dev/null" in role_wrapper
-    assert "elesim-net namespace-check >/dev/null" in role_wrapper
+    for role in state.roles:
+        assert not (state.bin_path / f"elesim-{role}").exists()
     assert "update --edition general" in update_wrapper
     assert "build sim pilot ui tools" in update_wrapper
     assert "elesim_cleanup_owned_dangling_image" in update_wrapper
@@ -646,7 +642,6 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     )
     net_wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     up_wrapper = (state.bin_path / "elesim-up").read_text(encoding="utf-8")
-    role_wrapper = (state.bin_path / "elesim-pilot").read_text(encoding="utf-8")
     update_wrapper = (state.bin_path / "elesim-update").read_text(encoding="utf-8")
     assert "export DOCKER_CONTEXT=\"$expected_docker_context\"" in compose_wrapper
     assert "expected_docker_engine_id=desktop-engine-id" in compose_wrapper
@@ -683,18 +678,21 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "net_service=runtime-tools" in net_wrapper
     assert "namespace-check|doctor" in net_wrapper
     assert "configuration-check|namespace-check|doctor" not in net_wrapper
-    for launcher in (up_wrapper, role_wrapper):
-        assert "elesim-tailscale status --json" in launcher
-        assert "elesim-tailscale login" in launcher
-        assert (
-            launcher.index("elesim-tailscale login")
-            < launcher.index("elesim-tailscale status --json")
-            < launcher.index("elesim-net configuration-check")
-            < launcher.index("elesim-net namespace-check")
-        )
+    assert "elesim-tailscale status --json" in up_wrapper
+    assert "elesim-tailscale login" in up_wrapper
+    assert (
+        up_wrapper.index("elesim-tailscale login")
+        < up_wrapper.index("elesim-tailscale status --json")
+        < up_wrapper.index("elesim-net configuration-check")
+        < up_wrapper.index("elesim-net namespace-check")
+    )
+    assert not (state.bin_path / "elesim-pilot").exists()
     assert "pull tailscale" in update_wrapper
     assert "build pilot ui tools" in update_wrapper
     assert "elesim-tailscale login" in update_wrapper
+    # The sidecar update is a pinned image pull/recreate.  An in-container
+    # ``tailscale update`` would be ephemeral and would bypass the digest pin.
+    assert "exec -T tailscale tailscale update" not in tailscale_wrapper
 
     manifest = OwnershipManifest.load(prefix / "install-ownership.json")
     assert manifest.docker is not None
@@ -707,6 +705,36 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
             ("bash", "-n", str(state.bin_path / name)),
             check=False,
         ).returncode == 0
+
+
+def test_container_refresh_removes_manifest_owned_legacy_role_wrappers(
+    local_state,
+) -> None:
+    state = local_state(roles=("pilot", "sim", "ui"))
+    installer = ContainerInstaller(state)
+    installer.run()
+
+    legacy = state.bin_path / "elesim-pilot"
+    legacy.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    legacy.chmod(0o755)
+    manifest_path = state.prefix_path / "install-ownership.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["wrappers"].append(
+        {
+            "path": str(legacy.resolve()),
+            "sha256": hashlib.sha256(legacy.read_bytes()).hexdigest(),
+        }
+    )
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    ContainerInstaller(state).run()
+
+    assert not legacy.exists()
+    manifest = OwnershipManifest.load(manifest_path)
+    assert str(legacy.resolve()) not in {wrapper.path for wrapper in manifest.wrappers}
 
 
 def test_sidecar_only_runtime_is_removed_by_down(local_state, tmp_path: Path) -> None:

@@ -65,6 +65,12 @@ ROLE_CONTAINER_NAMES = {
     "ui": "elesim-ui",
     "sim": "elesim-sim",
 }
+# These are Docker container names, not host-side operator commands.  Role
+# lifecycle is intentionally exposed through ``elesim-up <role>`` so the bin
+# directory does not accumulate one wrapper per application.
+CONTAINER_ROLE_WRAPPER_NAMES = tuple(
+    f"elesim-{role}" for role in ROLE_CONTAINER_NAMES
+)
 # Detect containers created by the immediately preceding naming scheme so a
 # second installation cannot leave an old role process running beside the new
 # fixed name.
@@ -287,7 +293,7 @@ class ContainerInstaller:
         self.log("[4/6] Compose 구성 생성")
         self._write_compose()
         self.log("[5/6] 실행 명령 생성")
-        self._write_wrappers()
+        self._write_wrappers(ownership_refresh)
         self.log("[6/6] 설치 상태와 제거 소유권 저장")
         saved = self.state.save(self.state_path)
         if not self.state.dds.managed_security_pending:
@@ -316,6 +322,11 @@ class ContainerInstaller:
             self.state.prefix_path / "security",
             self.state.prefix_path / "secrets",
             self.state.prefix_path / "maintenance",
+            # A prior General install may have emitted one wrapper per role.
+            # Keep those paths in the preflight claims so an orphaned wrapper
+            # without a manifest fails closed instead of being silently
+            # adopted by the consolidated ``elesim-up`` surface.
+            *(self.state.bin_path / name for name in CONTAINER_ROLE_WRAPPER_NAMES),
             *self._wrapper_paths(include_uninstaller=True),
         ]
         if _is_within(self.state_path, self.state.prefix_path):
@@ -1035,7 +1046,26 @@ class ContainerInstaller:
             "tmpfs": (f"{self.state.prefix_path / 'secrets'}:mode=0700",),
         }
 
-    def _write_wrappers(self) -> None:
+    def _remove_legacy_role_wrappers(
+        self,
+        refresh: OwnershipRefresh | None,
+    ) -> None:
+        """Remove only manifest-owned per-role wrappers from older installs."""
+
+        if refresh is None:
+            return
+        owned = {Path(wrapper.path) for wrapper in refresh.wrappers}
+        for name in CONTAINER_ROLE_WRAPPER_NAMES:
+            path = self.state.bin_path / name
+            if path not in owned or not os.path.lexists(path):
+                continue
+            # ``prepare_ownership_refresh`` has already checked the exact
+            # manifest hash and regular-file shape before this mutation.
+            path.unlink()
+            self.log(f"[정리] 이전 role wrapper 제거: {path}")
+
+    def _write_wrappers(self, refresh: OwnershipRefresh | None = None) -> None:
+        self._remove_legacy_role_wrappers(refresh)
         compose = self.container_root / "compose.yaml"
         compose_wrapper = self.state.bin_path / "elesim-compose"
         command = (
@@ -1173,11 +1203,6 @@ class ContainerInstaller:
                 False,
             ),
         }
-        for role in self.state.roles:
-            wrappers[f"elesim-{role}"] = (
-                f"{command} up --remove-orphans {shlex.quote(role)}",
-                True,
-            )
         for name, (body, requires_provisioning) in wrappers.items():
             write_executable(
                 self.state.bin_path / name,
@@ -1360,7 +1385,6 @@ class ContainerInstaller:
             "elesim-connections",
             "elesim-update",
             "elesim-compose",
-            *(f"elesim-{role}" for role in self.state.roles),
         ]
         if self.state.container_network.uses_tailscale_sidecar:
             names.append("elesim-tailscale")
@@ -1864,7 +1888,10 @@ def _tailscale_wrapper(
     snapshots only the selected services that are currently running, pulls the
     installed pinned image, recreates the sidecar while those services are
     stopped, and starts that same set again.  The sidecar state volume is never
-    replaced and no unrelated Compose service is touched.
+    replaced and no unrelated Compose service is touched.  It deliberately does
+    not run ``tailscale update`` inside the container: that would mutate an
+    ephemeral layer and bypass the installed digest pin.  ``elesim-update``
+    changes the pinned artifact; this command applies it.
     """
 
     compose_array = (

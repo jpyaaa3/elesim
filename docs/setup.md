@@ -205,6 +205,9 @@ prune하지 않는다.
 
 ```bash
 elesim-up                 # 일반 시작, 필요 시 build 포함
+elesim-up pilot           # Pilot만 시작
+elesim-up sim             # Sim만 시작
+elesim-up ui              # UI만 시작
 elesim-up --no-build      # 이미 준비된 image로 적용
 elesim-up --jaeger        # Developer tracing profile 포함
 elesim-up --view          # 명시적 Sim native Viewer
@@ -213,6 +216,10 @@ elesim-up --view          # 명시적 Sim native Viewer
 첫 `up`은 선택 host의 image를 build한 뒤 Compose를 시작한다. multi-host 전체
 build/launch와 security rollout은 `elesim-connections`가 host별로 조정한다.
 동일한 active generation과 역할을 임의로 덮어쓰지 않는다.
+
+General 설치는 role별 host wrapper를 만들지 않는다. `elesim-pilot`,
+`elesim-sim`, `elesim-ui`는 Docker 내부의 고정 container/entrypoint 이름이고,
+호스트에서는 항상 `elesim-up <role>`을 사용한다.
 
 ### Down, logs, status
 
