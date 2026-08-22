@@ -77,6 +77,4 @@ elesim-uninstall           # EleSim을 삭제
 [설치·네트워크·보안](docs/setup.md#dds-network-and-security) ·
 [마일스톤](docs/MILESTONES.md) ·
 [미해결 항목](docs/OPEN_ISSUES_KR.md) ·
-[Open issues](docs/OPEN_ISSUES.md) ·
-[감사 기록](docs/audit/2026-07-20/README.md) ·
-[감사 커버리지](docs/audit/2026-07-20/coverage.md)
+[Open issues](docs/OPEN_ISSUES.md)

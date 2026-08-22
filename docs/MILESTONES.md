@@ -86,5 +86,5 @@ elesim-connections                 # operator laptop, topology/security
 ```
 
 수동 gate를 자동 성공으로 문서화하지 않는다. 상세 미해결 항목은
-[`OPEN_ISSUES.md`](OPEN_ISSUES.md)와 [`OPEN_ISSUES_KR.md`](OPEN_ISSUES_KR.md),
-과거 결과는 [`audit/`](audit/)에 있다.
+[`OPEN_ISSUES.md`](OPEN_ISSUES.md)와 [`OPEN_ISSUES_KR.md`](OPEN_ISSUES_KR.md)에
+있으며, 과거 결과는 Git history에서 확인한다.

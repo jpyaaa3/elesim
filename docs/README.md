@@ -43,7 +43,7 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
 
 - [`architecture.md`](architecture.md): 역할과 소유권, authority/lease, Sim media
   boundary, 네트워크·보안, 성능 경계, 검증 범위.
-- [`code_map.md`](code_map.md): 소스 트리와 릴리스·설치 산출물의 경계.
+- [`code_map.md`](code_map.md): 현재 worktree에서 생성되는 live 정적/관측 코드 그래프.
 - [`configuration.md`](configuration.md): 설치 설정의 정규 필드와 생성 파일.
 - [`dds_contracts.md`](dds_contracts.md): 모든 PeerEnvelope/typed RGB-D 계약.
 
@@ -68,7 +68,6 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
 - [`MILESTONES.md`](MILESTONES.md): 현재 완료 범위와 남은 수동 acceptance gate.
 - [`OPEN_ISSUES.md`](OPEN_ISSUES.md), [`OPEN_ISSUES_KR.md`](OPEN_ISSUES_KR.md):
   현재 미해결 사항만 기록한다.
-- [`audit/`](audit/): 날짜가 고정된 과거 감사 보고서. 현재 계약이 아니다.
 - [`jetson_mixed_role_rollout.md`](jetson_mixed_role_rollout.md): 2026-08-09
   mixed-role 작업 기록. 현재 실행 절차는 `deployment.md`를 따른다.
 

@@ -2,8 +2,7 @@
 
 Status snapshot: 2026-08-17. This is a live limitation list, not a historical
 backlog. The architecture and operator boundaries are in
-[`architecture.md`](architecture.md); dated audits remain under
-[`audit/`](audit/).
+[`architecture.md`](architecture.md); Git history retains superseded audits.
 
 ## P0 — must be proven before claiming production readiness
 

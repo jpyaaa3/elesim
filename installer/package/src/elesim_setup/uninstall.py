@@ -41,8 +41,12 @@ VIEWER_STATE_RELATIVE_PATHS = (
 SIM_CONTAINER = "elesim-sim"
 TAILSCALE_SIDECAR_CONTAINER = "elesim-tailscale"
 TAILSCALE_STATE_DESTINATION = "/var/lib/tailscale"
-_PINNED_TAILSCALE_IMAGE = re.compile(
+_LEGACY_PINNED_TAILSCALE_IMAGE = re.compile(
     r"^tailscale/tailscale:v[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$"
+)
+_ROLLING_TAILSCALE_IMAGE = "tailscale/tailscale:stable"
+_OFFICIAL_TAILSCALE_REPO_DIGEST = re.compile(
+    r"^tailscale/tailscale@sha256:[0-9a-f]{64}$"
 )
 _DOCKER_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -723,9 +727,10 @@ def _validate_tailscale_state_container(
         )
     image_ref = str(config.get("Image", ""))
     image_id = str(payload.get("Image", ""))
-    if not _PINNED_TAILSCALE_IMAGE.fullmatch(image_ref):
+    pinned_image = _LEGACY_PINNED_TAILSCALE_IMAGE.fullmatch(image_ref) is not None
+    if not pinned_image and image_ref != _ROLLING_TAILSCALE_IMAGE:
         raise UninstallSafetyError(
-            "Tailscale sidecar가 digest-pinned official image를 사용하지 않습니다"
+            "Tailscale sidecar가 지원되는 official image를 사용하지 않습니다"
         )
     if not _DOCKER_IMAGE_ID.fullmatch(image_id):
         raise UninstallSafetyError("Tailscale sidecar image ID가 유효하지 않습니다")
@@ -740,15 +745,20 @@ def _validate_tailscale_state_container(
         kind="image",
         name=image_id,
     )
-    digest = image_ref.rsplit("@", 1)[-1]
     repo_digests = image_payload.get("RepoDigests", [])
-    if (
-        str(image_payload.get("Id", "")) != image_id
-        or not isinstance(repo_digests, list)
-        or f"tailscale/tailscale@{digest}" not in repo_digests
-    ):
+    expected_digest = image_ref.rsplit("@", 1)[-1] if pinned_image else ""
+    official_digest = isinstance(repo_digests, list) and any(
+        _OFFICIAL_TAILSCALE_REPO_DIGEST.fullmatch(str(value))
+        for value in repo_digests
+    )
+    digest_matches = (
+        f"tailscale/tailscale@{expected_digest}" in repo_digests
+        if pinned_image and isinstance(repo_digests, list)
+        else official_digest
+    )
+    if str(image_payload.get("Id", "")) != image_id or not digest_matches:
         raise UninstallSafetyError(
-            "Tailscale sidecar image ID/digest가 생성된 pinned image와 다릅니다"
+            "Tailscale sidecar image ID 또는 official repository digest가 다릅니다"
         )
     if config.get("Entrypoint") != ["tailscaled"] or config.get("User", "") != "":
         raise UninstallSafetyError("Tailscale sidecar 실행 identity가 생성된 구성과 다릅니다")

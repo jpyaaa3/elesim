@@ -103,7 +103,7 @@ def test_legacy_state_defaults_update_source_identity(local_state) -> None:
     assert restored.source_ref == "main"
 
 
-def test_state_v9_round_trip_persists_pinned_tailscale_sidecar(local_state) -> None:
+def test_state_v9_round_trip_persists_tailscale_sidecar_binding(local_state) -> None:
     prefix = local_state().prefix_path
     settings = ContainerNetworkSettings(
         mode="tailscale-sidecar",

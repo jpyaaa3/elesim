@@ -82,10 +82,11 @@ DOCKER_LOGGING = {
     "options": {"max-size": "10m", "max-file": "4"},
 }
 RUNTIME_LOG_RETENTION = 5
-TAILSCALE_IMAGE = (
-    "tailscale/tailscale:v1.98.9@"
-    "sha256:f15d5d3f4a68773a853180b72496f70ba614b64de0878c43fe3da39fe0afba47"
-)
+# Tailscale recommends the rolling ``stable`` tag for immutable containers.
+# ``elesim-tailscale update`` explicitly pulls and recreates this sidecar, so
+# normal runtime restarts remain deterministic while an operator-requested
+# update advances to the current stable client.
+TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 TAILSCALE_CONTAINER_NAME = "elesim-tailscale"
 
 
@@ -1223,7 +1224,7 @@ class ContainerInstaller:
                 compose=compose,
                 compose_wrapper=compose_wrapper,
                 # Every Docker operation below goes through elesim-compose,
-                # which owns the daemon pin and Compose ownership guard.
+                # which owns the Docker daemon identity and Compose guard.
                 guard="",
                 launch_guard=application_guard + runtime_network_guard,
                 has_sim="sim" in self.state.roles,
@@ -1356,11 +1357,6 @@ class ContainerInstaller:
                 compose=compose,
                 compose_wrapper=compose_wrapper,
                 build_services=(*self.state.roles, "tools"),
-                pull_services=(
-                    ("tailscale",)
-                    if self.state.container_network.uses_tailscale_sidecar
-                    else ()
-                ),
                 preamble=guard,
                 repository=self.state.source_repository,
                 ref=self.state.source_ref,
@@ -1886,12 +1882,11 @@ def _tailscale_wrapper(
     Services using ``network_mode: service:tailscale`` must be recreated after
     their network namespace provider is replaced.  ``update`` therefore
     snapshots only the selected services that are currently running, pulls the
-    installed pinned image, recreates the sidecar while those services are
-    stopped, and starts that same set again.  The sidecar state volume is never
-    replaced and no unrelated Compose service is touched.  It deliberately does
-    not run ``tailscale update`` inside the container: that would mutate an
-    ephemeral layer and bypass the installed digest pin.  ``elesim-update``
-    changes the pinned artifact; this command applies it.
+    official rolling ``stable`` image, recreates the sidecar while those
+    services are stopped, and starts that same set again.  The sidecar state
+    volume is never replaced and no unrelated Compose service is touched.  It
+    deliberately does not run ``tailscale update`` inside the container because
+    an in-container mutation is ephemeral and is lost on the next recreation.
     """
 
     compose_array = (
@@ -2046,6 +2041,10 @@ def _tailscale_wrapper(
         + "    fi\n"
         + "    sidecar_running=0\n"
         + "    [[ -n $sidecar_id ]] && sidecar_running=1\n"
+        + "    previous_version=\n"
+        + "    if (( sidecar_running )); then\n"
+        + "      previous_version=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version 2>/dev/null | head -n1 || true)\"\n"
+        + "    fi\n"
         + "    running_services=()\n"
         + "    for service in \"${tailscale_runtime_services[@]}\"; do\n"
         + "      service_id=\n"
@@ -2059,7 +2058,7 @@ def _tailscale_wrapper(
         + "      printf 'Tailscale sidecar 없이 실행 중인 namespace 서비스가 있어 업데이트를 거부합니다.\\n' >&2\n"
         + "      exit 75\n"
         + "    fi\n"
-        + "    printf '%s\\n' '[elesim-tailscale] 설치된 pinned Tailscale 이미지를 가져오는 중...'\n"
+        + "    printf '%s\\n' '[elesim-tailscale] 공식 stable Tailscale 이미지를 가져오는 중...'\n"
         + "    \"${tailscale_compose[@]}\" pull tailscale\n"
         + "    if (( sidecar_running )); then\n"
         + "      if (( ${#running_services[@]} )); then\n"
@@ -2093,7 +2092,13 @@ def _tailscale_wrapper(
         + "    if (( ${#running_services[@]} )); then\n"
         + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps \"${running_services[@]}\"\n"
         + "    fi\n"
-        + "    printf '%s\\n' '[elesim-tailscale] sidecar 업데이트 완료. 기존에 실행 중이던 namespace 서비스만 다시 연결했습니다.'\n"
+        + "    current_version=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version 2>/dev/null | head -n1 || true)\"\n"
+        + "    if [[ -n $previous_version && $previous_version == \"$current_version\" ]]; then\n"
+        + "      printf '[elesim-tailscale] 이미 최신 stable 버전입니다: %s\\n' \"$current_version\"\n"
+        + "    else\n"
+        + "      printf '[elesim-tailscale] sidecar 업데이트 완료: %s -> %s\\n' \"${previous_version:-not-running}\" \"${current_version:-unknown}\"\n"
+        + "    fi\n"
+        + "    printf '%s\\n' '[elesim-tailscale] 기존에 실행 중이던 namespace 서비스만 다시 연결했습니다.'\n"
         + "    ;;\n"
         + "  *)\n"
         + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"

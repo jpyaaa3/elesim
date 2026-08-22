@@ -564,7 +564,7 @@ class _TailscaleDockerRunner:
     image_digest = "sha256:" + "b" * 64
     image_id = "sha256:" + "c" * 64
     container_id = "d" * 64
-    image_ref = f"tailscale/tailscale:v1.98.9@{image_digest}"
+    image_ref = "tailscale/tailscale:stable"
 
     def __init__(
         self,
@@ -780,6 +780,29 @@ def test_uninstall_normalizes_exact_owned_tailscale_bind_before_removal(
     )
     assert not runner.present
     assert not state_path.parent.exists()
+
+
+def test_uninstall_accepts_legacy_digest_pinned_tailscale_sidecar(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(docker, state_path, running=True)
+    runner.image_ref = f"tailscale/tailscale:v1.98.9@{runner.image_digest}"
+
+    plan = plan_uninstall(manifest.path, runner=runner)
+
+    assert plan.tailscale_state_cleanup is not None
+
+
+def test_uninstall_rejects_non_official_rolling_tailscale_image(
+    tmp_path: Path,
+) -> None:
+    manifest, docker, state_path = _tailscale_manifest(tmp_path)
+    runner = _TailscaleDockerRunner(docker, state_path, running=True)
+    runner.image_ref = "example.invalid/tailscale:stable"
+
+    with pytest.raises(UninstallSafetyError, match="official image"):
+        plan_uninstall(manifest.path, runner=runner)
 
 
 def test_stopped_tailscale_sidecar_needs_no_helper_for_host_removable_state(

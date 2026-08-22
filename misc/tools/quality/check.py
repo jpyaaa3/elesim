@@ -100,6 +100,13 @@ CHECKS: tuple[Check, ...] = (
         description="Repository quality-gate behavior and readability budgets",
     ),
     Check(
+        "code-map-tools",
+        ("misc/tools/code_map/tests",),
+        (),
+        group="extended",
+        description="Worktree AST graph, drift overlay and read-only viewer security",
+    ),
+    Check(
         "setup-tools",
         ("installer/package/tests",),
         (PROTOCOL_SRC, "installer/package/src"),

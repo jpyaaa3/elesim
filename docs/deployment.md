@@ -72,10 +72,11 @@ sidecar는 Router, DDS relay, SSH endpoint, authorization service가 아니다.
 Tailscale browser/device login은 한 번만 필요하며, sidecar IP는 DDS address,
 WSL/host IP는 SSH management address가 될 수 있다.
 
-설치된 sidecar image를 적용하려면 `elesim-tailscale update`를 사용한다.
-이 명령은 고정된 image를 pull하고, sidecar와 namespace를 공유하며 당시
-실행 중이던 role/Coturn만 안전하게 재생성·재연결한다. 설치 산출물의
-Tailscale version/digest 자체를 바꾸는 작업은 `elesim-update`가 담당한다.
+sidecar를 최신 stable 버전으로 올리려면 `elesim-tailscale update`를 사용한다.
+이 명령은 Tailscale이 컨테이너 배포에 권장하는 공식 `stable` image를
+pull하고, sidecar와 namespace를 공유하며 당시 실행 중이던 role/Coturn만
+안전하게 재생성·재연결한다. 일반 `elesim-up`은 암묵적으로 새 버전을
+가져오지 않으므로 운영자가 요청한 시점에만 버전이 바뀐다.
 
 ## 3. 설치·업데이트·활성화 순서
 

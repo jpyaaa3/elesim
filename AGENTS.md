@@ -129,12 +129,13 @@
     `start` builds every host before launching any role; these report
     Compose/systemd management state only and do not claim DDS discovery or
     WebRTC media.
-  - The privileged Tailscale sidecar image is version-and-index-digest pinned.
-    A v1-v8 unpinned install may acquire a v9 daemon pin only when exact
-    install-labelled Docker artifacts prove ownership on that daemon. Empty or
-    foreign daemons fail closed. A later Engine-ID reset has no automatic
-    rebind; restore the pinned daemon for validated uninstall or reinstall into
-    a new empty prefix pending audited cleanup.
+  - The privileged Tailscale sidecar uses the official rolling `stable` image,
+    as recommended for immutable Tailscale containers. Only the explicit
+    `elesim-tailscale update` pull/recreate action advances it; ordinary starts
+    do not pull implicitly. Docker context and Engine ID remain pinned: a v1-v8
+    install may acquire that daemon identity only when exact install-labelled
+    Docker artifacts prove ownership on that daemon. Empty or foreign daemons
+    fail closed. A later Engine-ID reset has no automatic rebind.
   - The generated connection-manager wrapper publishes its selected GUI port
     on host loopback instead of relying on container host networking. It starts
     a short-lived, private host helper that accepts only the installed EleSim

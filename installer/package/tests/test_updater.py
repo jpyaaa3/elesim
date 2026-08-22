@@ -136,7 +136,7 @@ def test_update_wrapper_requires_install_identity_for_owned_image_cleanup(
         raise AssertionError("owned image cleanup must require an install UUID")
 
 
-def test_general_sidecar_update_pulls_only_pinned_infrastructure_then_builds(
+def test_general_update_can_pull_explicit_infrastructure_then_builds(
     monkeypatch,
     tmp_path: Path,
 ) -> None:

@@ -558,7 +558,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     }
 
 
-def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
+def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     local_state,
 ) -> None:
     prefix = local_state().prefix_path
@@ -588,10 +588,7 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     }
     tailscale = services["tailscale"]
     assert tailscale["image"] == TAILSCALE_IMAGE
-    assert tailscale["image"] == (
-        "tailscale/tailscale:v1.98.9@"
-        "sha256:f15d5d3f4a68773a853180b72496f70ba614b64de0878c43fe3da39fe0afba47"
-    )
+    assert tailscale["image"] == "tailscale/tailscale:stable"
     assert tailscale["container_name"] == TAILSCALE_CONTAINER_NAME
     assert tailscale["devices"] == ["/dev/net/tun:/dev/net/tun"]
     assert tailscale["cap_add"] == ["NET_ADMIN", "NET_RAW"]
@@ -664,6 +661,9 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
     assert "update)" in tailscale_wrapper
     assert "ps --status running -q" in tailscale_wrapper
     assert "--force-recreate tailscale" in tailscale_wrapper
+    assert "공식 stable Tailscale 이미지를 가져오는 중" in tailscale_wrapper
+    assert "이미 최신 stable 버전입니다" in tailscale_wrapper
+    assert "sidecar 업데이트 완료:" in tailscale_wrapper
     assert "tailscale_runtime_services=(pilot ui runtime-tools)" in tailscale_wrapper
     assert "${login_backend_state,,}" not in tailscale_wrapper
     assert "login_backend_state_lower=" in tailscale_wrapper
@@ -687,11 +687,11 @@ def test_docker_desktop_install_generates_pinned_kernel_tailscale_sidecar(
         < up_wrapper.index("elesim-net namespace-check")
     )
     assert not (state.bin_path / "elesim-pilot").exists()
-    assert "pull tailscale" in update_wrapper
+    assert "pull tailscale" not in update_wrapper
     assert "build pilot ui tools" in update_wrapper
-    assert "elesim-tailscale login" in update_wrapper
-    # The sidecar update is a pinned image pull/recreate.  An in-container
-    # ``tailscale update`` would be ephemeral and would bypass the digest pin.
+    assert "elesim-tailscale login" not in update_wrapper
+    # The sidecar update pulls/recreates the rolling stable image. An
+    # in-container ``tailscale update`` would be lost on recreation.
     assert "exec -T tailscale tailscale update" not in tailscale_wrapper
 
     manifest = OwnershipManifest.load(prefix / "install-ownership.json")
@@ -1097,6 +1097,8 @@ def test_tailscale_update_recreates_sidecar_and_only_reconnects_running_services
         "fi\n"
         "if [[ ${1:-} == exec && \" $* \" == *' status --json '* ]]; then\n"
         "  printf '{\"BackendState\":\"Running\"}\\n'\n"
+        "elif [[ ${1:-} == exec && \" $* \" == *' version '* ]]; then\n"
+        "  printf '1.102.3\\n'\n"
         "fi\n",
         encoding="utf-8",
     )
@@ -1129,14 +1131,25 @@ def test_tailscale_update_recreates_sidecar_and_only_reconnects_running_services
     assert result.returncode == 0, result.stderr
     rendered = calls.read_text(encoding="utf-8").splitlines()
     assert rendered[0].endswith("ps --status running -q tailscale")
-    assert rendered[1].endswith("ps --status running -q pilot")
-    assert rendered[2].endswith("ps --status running -q ui")
-    assert rendered[3].endswith("ps --status running -q coturn")
-    assert rendered[4].endswith("pull tailscale")
-    assert rendered[5].endswith("stop pilot coturn")
-    assert rendered[6].endswith("up -d --no-build --no-deps --force-recreate tailscale")
-    assert rendered[7].endswith("exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json")
-    assert rendered[8].endswith("up -d --no-build --no-deps pilot coturn")
+    assert rendered[1].endswith(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version"
+    )
+    assert rendered[2].endswith("ps --status running -q pilot")
+    assert rendered[3].endswith("ps --status running -q ui")
+    assert rendered[4].endswith("ps --status running -q coturn")
+    assert rendered[5].endswith("pull tailscale")
+    assert rendered[6].endswith("stop pilot coturn")
+    assert rendered[7].endswith(
+        "up -d --no-build --no-deps --force-recreate tailscale"
+    )
+    assert rendered[8].endswith(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json"
+    )
+    assert rendered[9].endswith("up -d --no-build --no-deps pilot coturn")
+    assert rendered[10].endswith(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version"
+    )
+    assert "이미 최신 stable 버전입니다: 1.102.3" in result.stdout
     assert not any(line.endswith("--no-build --no-deps ui") for line in rendered)
 
 
@@ -1152,6 +1165,8 @@ def test_tailscale_update_starts_an_unenrolled_stopped_sidecar_without_roles(
         "if [[ ${1:-} == -f ]]; then shift 2; fi\n"
         "if [[ ${1:-} == exec && \" $* \" == *' status --json '* ]]; then\n"
         "  printf '{\"BackendState\":\"NeedsLogin\"}\\n'\n"
+        "elif [[ ${1:-} == exec && \" $* \" == *' version '* ]]; then\n"
+        "  printf '1.102.3\\n'\n"
         "fi\n",
         encoding="utf-8",
     )
@@ -1182,10 +1197,14 @@ def test_tailscale_update_starts_an_unenrolled_stopped_sidecar_without_roles(
 
     assert result.returncode == 0, result.stderr
     rendered = calls.read_text(encoding="utf-8").splitlines()
-    assert rendered[-2].endswith("up -d --no-build --no-deps tailscale")
-    assert rendered[-1].endswith(
+    assert rendered[-3].endswith("up -d --no-build --no-deps tailscale")
+    assert rendered[-2].endswith(
         "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json"
     )
+    assert rendered[-1].endswith(
+        "exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version"
+    )
+    assert "not-running -> 1.102.3" in result.stdout
     assert not any(line.startswith("stop ") for line in rendered)
 
 
