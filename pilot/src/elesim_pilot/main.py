@@ -132,7 +132,13 @@ def _run() -> None:
 def main() -> None:
     configure_tracing("elesim-pilot-agent")
     try:
-        with span("pilot_agent.process.run"):
+        with span(
+            "elesim_pilot.main.main",
+            attributes={
+                "code.function.name": "elesim_pilot.main.main",
+                "elesim.flow.id": "pilot.lifecycle",
+            },
+        ):
             _run()
     finally:
         shutdown_tracing()

@@ -69,5 +69,12 @@ from .transport import (
     DdsTransportError,
     PeerClient,
 )
+from .tracing import (
+    configure_tracing as configure_protocol_tracing,
+    current_trace_context,
+    sampled as sampled_trace,
+    sampled_span as sampled_protocol_span,
+    shutdown_tracing as shutdown_protocol_tracing,
+)
 
 __version__ = "0.3.0"

@@ -20,6 +20,7 @@ from elesim_protocol import (
     SimulationStatusPayload,
     encode_value,
 )
+from .observability.tracing import current_trace_context, message_span, sampled_span
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,7 @@ class PilotConnection:
                 (CAPABILITY_OPERATOR_CONTROL,),
             ),
             settings=self.dds_settings,
+            trace_context_provider=current_trace_context,
         )
         identity = getattr(endpoint, "identity", None)
         if identity is None:
@@ -187,6 +189,21 @@ class PilotConnection:
             endpoint.close()
 
     def handle_envelope(self, endpoint: Any, message: Envelope) -> None:
+        trace_message: dict[str, Any] = {
+            "t": message.message_type,
+            "seq": message.seq,
+            "source": message.source_id,
+            "_trace": dict(message.trace_context or {}),
+        }
+        with message_span(
+            "elesim_pilot.connection.PilotConnection.handle_envelope",
+            trace_message,
+            endpoint=self.pilot_id,
+            direction="consume",
+        ):
+            self._handle_envelope(endpoint, message)
+
+    def _handle_envelope(self, endpoint: Any, message: Envelope) -> None:
         payload = dict(message.payload or {})
         message_type = message.message_type
         if message_type == "endpoint_list":
@@ -412,12 +429,25 @@ class PilotConnection:
                 reason="no_active_lease",
             )
             return
-        endpoint.send(
-            "motion_command",
-            target_id=self.active_target,
-            payload=payload,
-            lease_id=self.lease_id,
-        )
+        command = str(payload.get("command", "unknown"))
+        every = 10 if command == "target" else 1
+        with sampled_span(
+            "elesim_pilot.connection.PilotConnection._send_motion",
+            sample_key=f"motion:{command}",
+            every=every,
+            attributes={
+                "code.function.name": "elesim_pilot.connection.PilotConnection._send_motion",
+                "elesim.flow.id": f"motion.{command}",
+                "elesim.motion.command": command,
+            },
+            kind="producer",
+        ):
+            endpoint.send(
+                "motion_command",
+                target_id=self.active_target,
+                payload=payload,
+                lease_id=self.lease_id,
+            )
 
     def _diagnostic(
         self,

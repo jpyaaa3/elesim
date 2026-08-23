@@ -16,9 +16,11 @@ from elesim_protocol import (
     OPERATOR_OPERATIONS,
     OperatorViewSnapshot,
     PeerClient,
+    current_trace_context,
     decode_value,
     encode_value,
 )
+from elesim_protocol.tracing import sampled_span
 
 
 ResultCallback = Callable[[Any], None]
@@ -265,6 +267,7 @@ class OperatorSession:
                 endpoint = self.peer_factory(
                     EndpointDescriptor(self.ui_id, "ui", ()),
                     settings=self.settings,
+                    trace_context_provider=current_trace_context,
                 )
             while not self._stop.is_set():
                 try:
@@ -307,11 +310,22 @@ class OperatorSession:
                 },
             }
             try:
-                envelope = endpoint.send(
-                    "operator_intent",
-                    target_id=self.pilot_id,
-                    payload=payload,
-                )
+                with sampled_span(
+                    "elesim_ui.operator_session.OperatorSession._flush_outbox",
+                    sample_key=f"ui.operator:{request.name}",
+                    every=10 if request.name in _COALESCED_SERVICE_CALLS else 1,
+                    attributes={
+                        "code.function.name": "elesim_ui.operator_session.OperatorSession._flush_outbox",
+                        "elesim.flow.id": f"operator:{request.name}",
+                        "elesim.operator.name": request.name,
+                    },
+                    kind="producer",
+                ):
+                    envelope = endpoint.send(
+                        "operator_intent",
+                        target_id=self.pilot_id,
+                        payload=payload,
+                    )
             except Exception:
                 # Discovery can report a graph as ready immediately before the
                 # selected Pilot boot disappears. Preserve the unsent

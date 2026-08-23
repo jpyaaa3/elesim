@@ -151,6 +151,8 @@ def span(
     parent_context: Any = None,
 ) -> Generator[ActiveSpan, None, None]:
     clean = _clean_attributes(attributes)
+    clean.setdefault("code.function.name", str(name))
+    clean.setdefault("elesim.code.symbol", str(name))
     started_ns = time.time_ns()
     otel_cm: Any = None
     otel_span: Any = None
@@ -168,10 +170,12 @@ def span(
             otel_span = None
     active = ActiveSpan(str(name), otel_span)
     error = ""
+    error_info: tuple[Any, Any, Any] = (None, None, None)
     try:
         yield active
     except BaseException as exc:
         error = repr(exc)
+        error_info = (type(exc), exc, exc.__traceback__)
         if otel_span is not None:
             try:
                 otel_span.record_exception(exc)
@@ -192,7 +196,7 @@ def span(
         )
         if otel_cm is not None:
             try:
-                otel_cm.__exit__(None, None, None)
+                otel_cm.__exit__(*error_info)
             except Exception:
                 pass
 
@@ -249,6 +253,18 @@ def inject_trace_context(message: MutableMapping[str, Any]) -> MutableMapping[st
     if carrier:
         message["_trace"] = carrier
     return message
+
+
+def current_trace_context() -> dict[str, str]:
+    """Return the active W3C carrier for DDS envelope propagation."""
+    if _OTEL_PROPAGATE is None:
+        return {}
+    carrier: dict[str, str] = {}
+    try:
+        _OTEL_PROPAGATE.inject(carrier)
+    except Exception:
+        return {}
+    return {str(key): str(value) for key, value in carrier.items()}
 
 
 def extract_trace_context(message: Mapping[str, Any]) -> Any:
@@ -332,7 +348,10 @@ def message_span(
         return
     with span(
         operation,
-        attributes=message_attributes(message, endpoint),
+        attributes={
+            **message_attributes(message, endpoint),
+            "code.function.name": operation,
+        },
         kind="producer" if producer else "consumer",
         parent_context=parent,
     ) as active:
@@ -347,6 +366,7 @@ __all__ = [
     "enabled",
     "extract_trace_context",
     "inject_trace_context",
+    "current_trace_context",
     "log_event",
     "message_attributes",
     "message_span",

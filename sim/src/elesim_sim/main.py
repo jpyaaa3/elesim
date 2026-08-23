@@ -194,7 +194,13 @@ def _run() -> None:
 def main() -> None:
     configure_tracing("elesim-sim-agent")
     try:
-        with span("sim_agent.process.run"):
+        with span(
+            "elesim_sim.main.main",
+            attributes={
+                "code.function.name": "elesim_sim.main.main",
+                "elesim.flow.id": "sim.lifecycle",
+            },
+        ):
             _run()
     finally:
         shutdown_tracing()

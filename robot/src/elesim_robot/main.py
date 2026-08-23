@@ -25,7 +25,12 @@ from elesim_robot.camera.worker import CameraPublisherThread
 from elesim_robot.config import load_config
 from elesim_robot.go2 import create_go2_client_if_enabled
 from elesim_robot.runtime import RobotRuntime
-from elesim_robot.tracing import configure_tracing, shutdown_tracing, span
+from elesim_robot.tracing import (
+    configure_tracing,
+    current_trace_context,
+    shutdown_tracing,
+    span,
+)
 
 
 PROJECT_CONFIG = Path(__file__).resolve().parents[2] / "config/default.yaml"
@@ -106,6 +111,7 @@ def _run() -> None:
                 streams=streams,
             ),
             settings=config.dds,
+            trace_context_provider=current_trace_context,
         )
         runtime = RobotRuntime(
             mapping=config.mapping,
@@ -143,25 +149,35 @@ def _run() -> None:
                 client.heartbeat()
                 messages = tuple(client.receive(timeout_ms=20))
                 for message in messages:
-                    if message.message_type == "lease_granted":
-                        runtime.grant_lease(
-                            str((message.payload or {}).get("pilot_id", "")),
-                            message.lease_id,
-                        )
-                    elif message.message_type == "lease_revoked":
-                        runtime.revoke_lease()
-                    elif message.message_type == "motion_command":
-                        ok, reason = runtime.apply(message)
-                        client.send(
-                            "ack",
-                            target_id=message.source_id,
-                            payload={
-                                "reply_to": message.message_id,
-                                "ok": ok,
-                                "reason": reason,
-                            },
-                            lease_id=message.lease_id,
-                        )
+                    with span(
+                        "elesim_robot.main._run.message",
+                        attributes={
+                            "code.function.name": "elesim_robot.main._run",
+                            "elesim.flow.id": f"robot.receive.{message.message_type}",
+                            "messaging.message.type": message.message_type,
+                        },
+                        kind="consumer",
+                        trace_context=message.trace_context,
+                    ):
+                        if message.message_type == "lease_granted":
+                            runtime.grant_lease(
+                                str((message.payload or {}).get("pilot_id", "")),
+                                message.lease_id,
+                            )
+                        elif message.message_type == "lease_revoked":
+                            runtime.revoke_lease()
+                        elif message.message_type == "motion_command":
+                            ok, reason = runtime.apply(message)
+                            client.send(
+                                "ack",
+                                target_id=message.source_id,
+                                payload={
+                                    "reply_to": message.message_id,
+                                    "ok": ok,
+                                    "reason": reason,
+                                },
+                                lease_id=message.lease_id,
+                            )
                 runtime.tick()
                 now = time.monotonic()
                 if runtime.pilot_id and now - last_state >= config.safety.telemetry_period_s:
@@ -215,7 +231,13 @@ def _run() -> None:
 def main() -> None:
     configure_tracing("elesim-robot-agent")
     try:
-        with span("robot_agent.process.run"):
+        with span(
+            "elesim_robot.main.main",
+            attributes={
+                "code.function.name": "elesim_robot.main.main",
+                "elesim.flow.id": "robot.lifecycle",
+            },
+        ):
             _run()
     finally:
         shutdown_tracing()

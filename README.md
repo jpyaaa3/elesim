@@ -54,6 +54,9 @@ elesim-connections         # 각 컴퓨터 간 연결 관리 및 EleSim을 시�
 elesim-logs                # EleSim의 로그 확인
 elesim-status              # 이 컴퓨터의 EleSim 실행 정보 확인
 
+elesim-tailscale login     # native Docker 기반으로 Tailscale에 로그인
+elesim-tailscale update    # Tailscale을 업데이트
+
 elesim-uninstall           # EleSim을 삭제
 ```
 

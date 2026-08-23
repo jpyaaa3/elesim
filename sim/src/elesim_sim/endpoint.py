@@ -31,6 +31,7 @@ from elesim_protocol import (
 )
 
 from .control_state import SimulationStateSource
+from .observability.tracing import current_trace_context, message_span
 from .simulation.operator_control import (
     SimulationOperatorCommand,
     SimulationOperatorMailbox,
@@ -255,6 +256,21 @@ class SimEndpoint:
                 return
 
     def handle_envelope(self, client: Any, message: Envelope) -> None:
+        trace_message: dict[str, Any] = {
+            "t": message.message_type,
+            "seq": message.seq,
+            "source": message.source_id,
+            "_trace": dict(message.trace_context or {}),
+        }
+        with message_span(
+            "elesim_sim.endpoint.SimEndpoint.handle_envelope",
+            trace_message,
+            endpoint=self.endpoint_id,
+            direction="consume",
+        ):
+            self._handle_envelope(client, message)
+
+    def _handle_envelope(self, client: Any, message: Envelope) -> None:
         message_type = message.message_type
         if message_type in {
             "lease_granted",
@@ -602,6 +618,7 @@ class SimEndpoint:
             capabilities.append(CAPABILITY_STREAM_HAND_EYE_PREVIEW)
         endpoint_kwargs: dict[str, Any] = {
             "settings": self.settings,
+            "trace_context_provider": current_trace_context,
             "turn_credential_provider": self.turn_credential_provider,
         }
         if self.simulation_session_ready_provider is not None:

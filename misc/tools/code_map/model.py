@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 5
 
 
 @dataclass
@@ -40,6 +40,23 @@ class Edge:
 
 
 @dataclass
+class Flow:
+    """A bounded, queryable execution slice derived from the static graph."""
+
+    id: str
+    title: str
+    family: str
+    kind: str
+    trigger: str
+    entry_nodes: list[str] = field(default_factory=list)
+    nodes: list[str] = field(default_factory=list)
+    phases: list[str] = field(default_factory=list)
+    coverage: float = 0.0
+    gaps: list[str] = field(default_factory=list)
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Snapshot:
     digest: str
     git_head: str
@@ -49,6 +66,7 @@ class Snapshot:
     workflows: list[dict[str, Any]]
     stats: dict[str, Any]
     schema_version: int = SCHEMA_VERSION
+    flows: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         data = asdict(self)

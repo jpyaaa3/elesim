@@ -24,7 +24,9 @@ from elesim_protocol import (
     SimulationStatusPayload,
     TurnCredentials,
     WebRtcSignalPayload,
+    current_trace_context,
 )
+from elesim_protocol.tracing import sampled_span, span
 
 from .webrtc import WebRtcVideoReceiver
 
@@ -391,10 +393,18 @@ class UiSimSession:
             sim_id=sim_id,
             streams=SIMULATION_STREAMS,
         )
-        envelope = client.send(
-            "open_simulation_session",
-            payload=request.to_payload(),
-        )
+        with span(
+            "elesim_ui.sim_session.UiSimSession._send_open",
+            attributes={
+                "code.function.name": "elesim_ui.sim_session.UiSimSession._send_open",
+                "elesim.flow.id": "simulation.session.open",
+            },
+            kind="producer",
+        ):
+            envelope = client.send(
+                "open_simulation_session",
+                payload=request.to_payload(),
+            )
         with self._lock:
             self._opening_request_id = request.request_id
             self._opening_deadline = self.clock() + self.open_timeout_s
@@ -412,11 +422,19 @@ class UiSimSession:
             request_id=uuid.uuid4().hex,
             session_id=session_id,
         )
-        envelope = client.send(
-            "close_simulation_session",
-            payload=request.to_payload(),
-            lease_id=session_id,
-        )
+        with span(
+            "elesim_ui.sim_session.UiSimSession._send_close",
+            attributes={
+                "code.function.name": "elesim_ui.sim_session.UiSimSession._send_close",
+                "elesim.flow.id": "simulation.session.close",
+            },
+            kind="producer",
+        ):
+            envelope = client.send(
+                "close_simulation_session",
+                payload=request.to_payload(),
+                lease_id=session_id,
+            )
         with self._lock:
             self._closing_session_id = session_id
             self._sent_messages[str(envelope.message_id)] = ("close", session_id)
@@ -440,12 +458,23 @@ class UiSimSession:
                 arguments=queued.arguments,
             )
             try:
-                envelope = client.send(
-                    "simulation_command",
-                    target_id=target_id,
-                    payload=request.to_payload(),
-                    lease_id=session_id,
-                )
+                with sampled_span(
+                    "elesim_ui.sim_session.UiSimSession._flush_commands",
+                    sample_key=f"ui.simulation:{queued.command}",
+                    every=10 if queued.command in _COALESCED_COMMANDS else 1,
+                    attributes={
+                        "code.function.name": "elesim_ui.sim_session.UiSimSession._flush_commands",
+                        "elesim.flow.id": f"simulation.command.{queued.command}",
+                        "elesim.simulation.command": queued.command,
+                    },
+                    kind="producer",
+                ):
+                    envelope = client.send(
+                        "simulation_command",
+                        target_id=target_id,
+                        payload=request.to_payload(),
+                        lease_id=session_id,
+                    )
             except Exception:
                 # Do not lose an operator command merely because the Sim
                 # boot vanished between discovery and the direct DDS write.
@@ -1013,6 +1042,7 @@ class UiSimSession:
                 client = self.peer_factory(
                     EndpointDescriptor(self.endpoint_id, "ui", ()),
                     settings=self.settings,
+                    trace_context_provider=current_trace_context,
                 )
             while not self._stop.is_set():
                 try:

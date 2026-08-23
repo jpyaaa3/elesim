@@ -56,6 +56,53 @@ def test_parse_syntax_error_is_explicit_unparsed_node():
     assert "error" in nodes[0].detail
 
 
+def test_parse_records_ports_data_control_and_ui_actions():
+    source = '''
+import imgui
+
+def work(value: int = 3) -> str:
+    if value:
+        result = str(value)
+    else:
+        result = "empty"
+    for item in (result,):
+        result = item
+    if imgui.button(f"Run {value}##run"):
+        return result
+    raise RuntimeError(result)
+'''
+    nodes, edges = _parse("ui/src/panel.py", source, "modified")
+    work = next(node for node in nodes if node.name == "work")
+    assert work.detail["parameter_ports"][0]["annotation"] == "int"
+    assert work.detail["parameter_ports"][0]["default"] == 3
+    assert work.detail["return_annotation"] == "str"
+    assert work.detail["ui_widgets"][0]["id"] == "run"
+    assert work.detail["ui_widgets"][0]["dynamic"] is True
+    assert work.detail["ui_widgets"][0]["expression"].startswith("f'Run")
+    assert work.detail["ui_widgets"][0]["control"] == []
+    assert work.detail["branches"] and work.detail["loops"] and work.detail["raise_sites"]
+    assert any(edge["kind"] == "data-write" for edge in edges)
+    assert any(
+        edge["kind"] == "data-write"
+        and edge["target_name"] == "result"
+        and edge["detail"]["control"]
+        for edge in edges
+    )
+    assert any(
+        edge["kind"] == "call"
+        and edge["target_name"] == "str"
+        and {item["kind"] for item in edge["detail"]["control"]} == {"branch"}
+        for edge in edges
+    )
+    assert any(
+        edge["kind"] == "call"
+        and edge["target_name"] == "imgui.button"
+        and not edge["detail"]["control"]
+        for edge in edges
+    )
+    assert any(edge["kind"] == "exception" and edge["target_name"] == "RuntimeError" for edge in edges)
+
+
 def _git_repo(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
@@ -98,5 +145,6 @@ def test_cache_roundtrip_preserves_snapshot_shape(tmp_path: Path):
     assert [node.id for node in first.nodes] == [node.id for node in second.nodes]
     assert [edge.id for edge in first.edges] == [edge.id for edge in second.edges]
     payload = json.loads((root / ".elesim/analysis/code-map/snapshot.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 5
+    assert "flows" in payload
     assert all("id" in edge for edge in payload["edges"])

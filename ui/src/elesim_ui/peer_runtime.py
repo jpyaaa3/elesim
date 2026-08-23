@@ -12,7 +12,9 @@ from elesim_protocol import (
     EndpointDescriptor,
     Envelope,
     PeerClient,
+    current_trace_context,
 )
+from elesim_protocol.tracing import sampled_span
 
 
 _SIMULATION_MESSAGES = frozenset(
@@ -207,6 +209,7 @@ class UiPeerHub:
                         self._client = self._client_factory(
                             EndpointDescriptor(self.endpoint_id, "ui", ()),
                             settings=self._settings,
+                            trace_context_provider=current_trace_context,
                         )
                     client = self._client
                     client.heartbeat()
@@ -243,6 +246,23 @@ class UiPeerHub:
             self._condition.notify_all()
 
     def _dispatch(self, message: Envelope) -> None:
+        message_type = message.message_type
+        every = 60 if message_type in {"telemetry", "simulation_status", "rgbd_frame", "state"} else 1
+        with sampled_span(
+            "elesim_ui.peer_runtime.UiPeerHub._dispatch",
+            sample_key=f"ui.receive:{message_type}",
+            every=every,
+            attributes={
+                "code.function.name": "elesim_ui.peer_runtime.UiPeerHub._dispatch",
+                "elesim.flow.id": f"ui.receive.{message_type}",
+                "messaging.message.type": message_type,
+            },
+            kind="consumer",
+            trace_context=message.trace_context,
+        ):
+            self._dispatch_untraced(message)
+
+    def _dispatch_untraced(self, message: Envelope) -> None:
         destination = (
             "sim"
             if message.message_type in _SIMULATION_MESSAGES

@@ -10,6 +10,11 @@ from elesim_ui.operator import RemoteControlService, RemotePanelState
 from elesim_ui.operator_session import OperatorSession
 from elesim_ui.peer_runtime import UiPeerHub
 from elesim_ui.sim_session import UiSimSession
+from elesim_protocol import (
+    configure_protocol_tracing,
+    shutdown_protocol_tracing,
+)
+from elesim_protocol.tracing import span
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +27,21 @@ def main() -> None:
     parser.add_argument("--sim-id", default="")
     parser.add_argument("--no-webrtc", action="store_true")
     args = parser.parse_args()
+    configure_protocol_tracing("elesim-ui")
+    try:
+        with span(
+            "elesim_ui.main.main",
+            attributes={
+                "code.function.name": "elesim_ui.main.main",
+                "elesim.flow.id": "ui.lifecycle",
+            },
+        ):
+            _run(args)
+    finally:
+        shutdown_protocol_tracing()
+
+
+def _run(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     pilot_id = str(args.pilot_id).strip() or config.pilot_id
     sim_id = str(args.sim_id).strip() or config.sim_id

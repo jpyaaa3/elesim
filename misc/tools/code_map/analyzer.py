@@ -12,11 +12,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .model import Edge, Node, SCHEMA_VERSION, Snapshot
-from .semantics import build_workflows, semantic_nodes_and_edges
+from .semantics import build_flow_catalog, build_workflows, semantic_nodes_and_edges
 
 
 ROLE_ROOTS = {"pilot", "sim", "ui", "robot", "packages", "installer", "model", "misc"}
 CALLBACK_CALLS = {"submit", "create_task", "add_done_callback", "call_soon", "call_later", "run_in_executor"}
+WIDGET_CALLS = {
+    "button", "small_button", "arrow_button", "checkbox", "radio_button", "selectable",
+    "slider_float", "slider_int", "drag_float", "drag_int", "input_text", "input_float",
+    "input_int", "combo", "begin_combo", "menu_item", "invisible_button",
+}
 
 
 def _git(root: Path, *args: str, check: bool = True) -> str:
@@ -71,6 +76,70 @@ def _literal_strings(tree: ast.AST, limit: int = 16) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _annotation(node: ast.AST | None) -> str:
+    if node is None:
+        return ""
+    try:
+        return ast.unparse(node)
+    except (AttributeError, TypeError):
+        return ""
+
+
+def _target_names(node: ast.AST) -> list[str]:
+    if isinstance(node, (ast.Tuple, ast.List)):
+        result: list[str] = []
+        for item in node.elts:
+            result.extend(_target_names(item))
+        return result
+    name = _name(node)
+    return [name] if name else []
+
+
+def _literal_value(node: ast.AST | None) -> Any:
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool, type(None))):
+        return node.value
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        values = [_literal_value(item) for item in node.elts]
+        return values if all(value is not None for value in values) else None
+    return ""
+
+
+def _argument_defaults(args: ast.arguments) -> list[tuple[ast.arg, ast.AST | None]]:
+    positional = [*args.posonlyargs, *args.args]
+    missing = len(positional) - len(args.defaults)
+    result = [(argument, None) for argument in positional[:missing]]
+    result.extend(zip(positional[missing:], args.defaults))
+    result.extend((argument, default) for argument, default in zip(args.kwonlyargs, args.kw_defaults))
+    return result
+
+
+def _widget_id(label: str, kind: str) -> str:
+    value = label.split("##", 1)[1] if "##" in label else label
+    value = re.sub(r"[^A-Za-z0-9_.:-]+", "-", value.strip()).strip("-")
+    return value or kind
+
+
+def _widget_label(node: ast.AST | None) -> tuple[str, bool]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value, False
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            elif isinstance(value, ast.FormattedValue):
+                parts.append("{" + (_annotation(value.value) or "value") + "}")
+        return "".join(parts), True
+    if isinstance(node, ast.IfExp):
+        body, _ = _widget_label(node.body)
+        otherwise, _ = _widget_label(node.orelse)
+        labels = [value.split("##", 1)[0].strip() for value in (body, otherwise)]
+        return " / ".join(value for value in labels if value), True
+    return "", True
+
+
 class _Visitor(ast.NodeVisitor):
     def __init__(self, path: str, change: str) -> None:
         self.path = path
@@ -82,12 +151,23 @@ class _Visitor(ast.NodeVisitor):
         self.nodes: list[Node] = []
         self.raw_edges: list[dict[str, Any]] = []
         self.imports: dict[str, str] = {}
+        self.control_stack: list[dict[str, Any]] = []
 
     def current_id(self) -> str:
         qualname = ".".join([self.module, *self.stack]) if self.stack else self.module
         return _node_id(self.role, self.path, qualname)
 
     def add_edge(self, target: str, kind: str, line: int, confidence: str = "unresolved") -> None:
+        self.add_edge_detail(target, kind, line, confidence=confidence)
+
+    def add_edge_detail(
+        self,
+        target: str,
+        kind: str,
+        line: int,
+        confidence: str = "unresolved",
+        detail: dict[str, Any] | None = None,
+    ) -> None:
         if target:
             self.raw_edges.append(
                 {
@@ -96,8 +176,22 @@ class _Visitor(ast.NodeVisitor):
                     "kind": kind,
                     "line": line,
                     "confidence": confidence,
+                    "detail": detail or {},
                 }
             )
+
+    def current_detail(self) -> dict[str, Any] | None:
+        current = self.current_id()
+        for node in reversed(self.nodes):
+            if node.id == current:
+                return node.detail
+        return None
+
+    def record(self, key: str, value: Any) -> None:
+        detail = self.current_detail()
+        if detail is None:
+            return
+        detail.setdefault(key, []).append(value)
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -131,7 +225,18 @@ class _Visitor(ast.NodeVisitor):
             detail["bases"] = [_name(item) for item in getattr(node, "bases", [])]
         else:
             args = getattr(node, "args")
-            detail["parameters"] = [arg.arg for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+            all_args = (*args.posonlyargs, *args.args, *args.kwonlyargs)
+            detail["parameters"] = [arg.arg for arg in all_args]
+            detail["parameter_ports"] = [
+                {
+                    "name": arg.arg,
+                    "annotation": _annotation(arg.annotation),
+                    "default": _literal_value(default),
+                    "kind": "kwonly" if arg in args.kwonlyargs else "positional",
+                }
+                for arg, default in _argument_defaults(args)
+            ]
+            detail["return_annotation"] = _annotation(getattr(node, "returns", None))
             detail["strings"] = _literal_strings(node)
         self.nodes.append(
             Node(
@@ -170,8 +275,115 @@ class _Visitor(ast.NodeVisitor):
             for keyword in node.keywords:
                 if keyword.arg == "target":
                     self.add_edge(_name(keyword.value), "thread", node.lineno)
-        self.add_edge(called, "call", node.lineno)
+        call_detail = {
+            "arguments": [_name(argument) or _literal_value(argument) for argument in node.args],
+            "keywords": {
+                keyword.arg or "**": _name(keyword.value) or _literal_value(keyword.value)
+                for keyword in node.keywords
+            },
+            "control": [dict(item) for item in self.control_stack],
+        }
+        self.add_edge_detail(called, "call", node.lineno, detail=call_detail)
+        if called.startswith("imgui.") and leaf in WIDGET_CALLS:
+            label_node = node.args[0] if node.args else None
+            label, dynamic = _widget_label(label_node)
+            self.record(
+                "ui_widgets",
+                {
+                    "kind": leaf,
+                    "label": str(label or ""),
+                    "id": _widget_id(str(label or ""), leaf),
+                    "expression": _annotation(label_node),
+                    "dynamic": dynamic,
+                    "control": [dict(item) for item in self.control_stack],
+                    "line": node.lineno,
+                },
+            )
+        if called and (
+            called.startswith("service.")
+            or called.startswith("panel.service.")
+            or ".service." in called
+        ):
+            self.record("operator_calls", called.rsplit(".", 1)[-1])
         self.generic_visit(node)
+
+    def visit_Return(self, node: ast.Return) -> None:
+        self.record(
+            "return_sites",
+            {
+                "line": node.lineno,
+                "value": _name(node.value) if node.value is not None else "",
+                "literal": _literal_value(node.value) if node.value is not None else None,
+                "control": [dict(item) for item in self.control_stack],
+            },
+        )
+        self.generic_visit(node)
+
+    def visit_Raise(self, node: ast.Raise) -> None:
+        value = _name(node.exc) if node.exc is not None else ""
+        self.record(
+            "raise_sites",
+            {"line": node.lineno, "value": value, "control": [dict(item) for item in self.control_stack]},
+        )
+        self.add_edge_detail(
+            value or "raise",
+            "exception",
+            node.lineno,
+            detail={"control": [dict(item) for item in self.control_stack]},
+        )
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        names = [name for target in node.targets for name in _target_names(target)]
+        control = [dict(item) for item in self.control_stack]
+        self.record("assignments", {"line": node.lineno, "targets": names, "value": _name(node.value), "control": control})
+        for name in names:
+            self.add_edge_detail(name, "data-write", node.lineno, confidence="inferred", detail={"targets": names, "control": control})
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        names = _target_names(node.target)
+        control = [dict(item) for item in self.control_stack]
+        self.record("assignments", {"line": node.lineno, "targets": names, "value": _name(node.value), "control": control})
+        for name in names:
+            self.add_edge_detail(name, "data-write", node.lineno, confidence="inferred", detail={"targets": names, "control": control})
+        self.generic_visit(node)
+
+    def visit_If(self, node: ast.If) -> None:
+        self.record("branches", {"line": node.lineno, "test": _name(node.test) or _literal_value(node.test), "control": [dict(item) for item in self.control_stack]})
+        self.visit(node.test)
+        self.control_stack.append({"kind": "branch", "line": node.lineno, "arm": "body"})
+        for child in node.body:
+            self.visit(child)
+        self.control_stack.pop()
+        if node.orelse:
+            self.control_stack.append({"kind": "branch", "line": node.lineno, "arm": "else"})
+            for child in node.orelse:
+                self.visit(child)
+            self.control_stack.pop()
+
+    def visit_For(self, node: ast.For) -> None:
+        self.record("loops", {"kind": "for", "line": node.lineno, "target": _name(node.target), "control": [dict(item) for item in self.control_stack]})
+        self.visit(node.target)
+        self.visit(node.iter)
+        self.control_stack.append({"kind": "loop", "line": node.lineno})
+        for child in node.body:
+            self.visit(child)
+        self.control_stack.pop()
+        for child in node.orelse:
+            self.visit(child)
+
+    visit_AsyncFor = visit_For
+
+    def visit_While(self, node: ast.While) -> None:
+        self.record("loops", {"kind": "while", "line": node.lineno, "test": _name(node.test), "control": [dict(item) for item in self.control_stack]})
+        self.visit(node.test)
+        self.control_stack.append({"kind": "loop", "line": node.lineno})
+        for child in node.body:
+            self.visit(child)
+        self.control_stack.pop()
+        for child in node.orelse:
+            self.visit(child)
 
 
 def _parse(path: str, source: str, change: str) -> tuple[list[Node], list[dict[str, Any]]]:
@@ -243,13 +455,16 @@ def _resolve_edges(nodes: list[Node], raw: Iterable[dict[str, Any]]) -> list[Edg
             and target_role in deployment_roles
             and source_role != target_role
         )
-        if item["kind"] == "call" and confidence == "unresolved":
-            continue
+        detail = dict(item.get("detail", {}))
+        if confidence == "unresolved":
+            detail["resolution_gap"] = target_name
+        if violation:
+            detail["boundary_violation"] = True
         edges.append(
             Edge(
                 item["source"], target, item["kind"], "static", confidence,
                 path=_path_from_id(item["source"]), line=item["line"],
-                detail={"boundary_violation": violation} if violation else {},
+                detail=detail,
             )
         )
     unique: dict[str, Edge] = {edge.id: edge for edge in edges if edge.source != edge.target}
@@ -259,6 +474,22 @@ def _resolve_edges(nodes: list[Node], raw: Iterable[dict[str, Any]]) -> list[Edg
 def _path_from_id(node_id: str) -> str:
     parts = node_id.split(":", 2)
     return parts[1] if len(parts) == 3 else ""
+
+
+def _external_nodes(edges: Iterable[Edge]) -> list[Node]:
+    targets = sorted({edge.target for edge in edges if edge.target.startswith("external:")})
+    return [
+        Node(
+            target,
+            "external",
+            target.removeprefix("external:"),
+            target.removeprefix("external:"),
+            "",
+            "boundary",
+            detail={"resolution_gap": True},
+        )
+        for target in targets
+    ]
 
 
 def _head(root: Path) -> str:
@@ -371,6 +602,7 @@ def analyze_repository(root: Path, *, use_cache: bool = True) -> Snapshot:
                     ],
                     workflows=cached["workflows"],
                     stats=cached["stats"],
+                    flows=cached.get("flows", []),
                 )
         except (OSError, ValueError, TypeError, KeyError):
             pass
@@ -401,6 +633,7 @@ def analyze_repository(root: Path, *, use_cache: bool = True) -> Snapshot:
     semantic_nodes, semantic_edges = semantic_nodes_and_edges(nodes)
     nodes.extend(semantic_nodes)
     edges = _resolve_edges(nodes, raw_edges) + structure_edges + entry_edges + semantic_edges
+    nodes.extend(_external_nodes(edges))
     _mark_orphans(nodes, edges)
     snapshot = Snapshot(
         digest=digest,
@@ -414,6 +647,7 @@ def analyze_repository(root: Path, *, use_cache: bool = True) -> Snapshot:
             "unparsed": sum(node.kind == "unparsed" for node in nodes),
             "changed": sum(node.change != "unchanged" for node in nodes),
         },
+        flows=build_flow_catalog(nodes, edges),
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(json.dumps(snapshot.as_dict(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
