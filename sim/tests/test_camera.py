@@ -7,6 +7,7 @@ from elesim_protocol import RgbdIntrinsicsSample, RgbdSample
 
 from elesim_sim.vision.sim_camera.mount import (
     _OPTICAL_FROM_GENESIS_CAMERA,
+    Node9EyeInHandCamera,
     ObserverCamera,
     genesis_drag_zoom_delta,
     genesis_scroll_zoom_delta,
@@ -23,6 +24,33 @@ from elesim_sim.vision.sim_camera.types import SimCameraFrame, SimCameraIntrinsi
 
 
 CONFIG_DIR = Path(__file__).parents[1] / "config"
+
+
+def test_hand_eye_capture_converts_rgb_and_depth() -> None:
+    class Camera:
+        @staticmethod
+        def render(**_kwargs):
+            rgb = np.full((3, 4, 3), 0.5, dtype=np.float32)
+            depth = np.full((3, 4), 1.25, dtype=np.float32)
+            return rgb, depth, None, None
+
+    intrinsics = SimCameraIntrinsics(
+        fx=4.0,
+        fy=4.0,
+        cx=2.0,
+        cy=1.5,
+        width=4,
+        height=3,
+    )
+    camera = Node9EyeInHandCamera(camera=Camera(), intrinsics=intrinsics)
+
+    frame = camera.capture(prefer_gpu=False)
+
+    assert frame.color_bgr.shape == (3, 4, 3)
+    assert frame.color_bgr.dtype == np.uint8
+    assert frame.depth_raw.shape == (3, 4)
+    assert frame.depth_raw.dtype == np.uint16
+    assert np.all(frame.depth_raw == 1250)
 
 
 class _FakeTensor:

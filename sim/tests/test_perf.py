@@ -17,6 +17,15 @@ def test_capture_deadline_preserves_fractional_frame_cadence() -> None:
     assert math.isclose(deadline, 3.0 * period)
 
 
+def test_perf_logger_empty_path_reports_without_creating_a_file() -> None:
+    logger = PerfLogger(enabled=True, interval_s=0.25, log_path="")
+    try:
+        assert logger._log_file is None
+        assert logger._writer is None
+    finally:
+        logger.close()
+
+
 def test_perf_logger_writes_camera_substage_metrics(tmp_path) -> None:
     path = tmp_path / "perf.csv"
     logger = PerfLogger(enabled=True, interval_s=0.25, log_path=str(path))

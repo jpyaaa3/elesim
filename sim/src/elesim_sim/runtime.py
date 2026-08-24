@@ -222,8 +222,10 @@ class PerfLogger:
     def _resolve_log_path(raw: str) -> Optional[Path]:
         value = str(raw or "").strip()
         if not value:
-            stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
-            return Path("logs") / "perf" / stamp
+            # Empty means periodic stdout metrics only. Runtime images may
+            # have a read-only working directory, so CSV output requires an
+            # explicit installer-mounted writable path.
+            return None
         path = Path(value).expanduser()
         if path.is_dir() or value.endswith(("/", os.sep)):
             stamp = time.strftime("sim_perf_%Y%m%d_%H%M%S.csv")
