@@ -123,6 +123,7 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
         "peer",
         "rgbd",
         "serde",
+        "tracing",
         "transport",
     )
 )
@@ -157,6 +158,7 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
             "calibration/zed_mini.hand_eye.json",
             "calibration/d435.hand_eye.json",
             "config.yaml",
+            "mock_objects/demo_box.obj",
             "runtime.yaml",
         ),
         "ui": (

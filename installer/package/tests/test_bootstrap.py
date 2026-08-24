@@ -11,7 +11,7 @@ import tarfile
 import threading
 import urllib.error
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -291,6 +291,20 @@ def test_source_snapshot_rejects_unowned_protocol_python_module(
 
     with pytest.raises(BootstrapError, match="unexpected protocol Python"):
         bootstrap_module._validate_source_snapshot(root)
+
+
+def test_protocol_tracing_module_is_owned_by_bootstrap_manifest() -> None:
+    assert (
+        PurePosixPath("packages/protocol/src/elesim_protocol/tracing.py")
+        in bootstrap_module._BOOTSTRAP_PROTOCOL_PYTHON_FILES
+    )
+
+
+def test_sim_mock_object_is_owned_by_bootstrap_manifest() -> None:
+    assert (
+        PurePosixPath("sim/config/mock_objects/demo_box.obj")
+        in bootstrap_module._BOOTSTRAP_ROLE_CONFIG_FILES
+    )
 
 
 @pytest.mark.parametrize(
