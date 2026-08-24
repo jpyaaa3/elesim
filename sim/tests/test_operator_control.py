@@ -61,12 +61,15 @@ def test_mailbox_bounds_results_and_supports_incremental_flush() -> None:
 def test_runtime_controller_preserves_pause_across_reset_and_single_steps() -> None:
     resets: list[str] = []
     observer_commands: list[tuple[str, dict[str, object]]] = []
+    cancellations: list[str] = []
     controller = SimulationOperatorController(
         reset_environment=lambda: resets.append("reset"),
         observer_command=lambda name, args: observer_commands.append((name, args)),
+        mock_hug_cancel=cancellations.append,
     )
 
     assert controller.apply(command("pause", {})) == (True, "paused")
+    assert cancellations == ["simulation paused"]
     assert controller.apply(command("step", {"count": 2})) == (True, "step queued")
     assert controller.should_step() is True
     assert controller.should_step() is True
@@ -121,3 +124,24 @@ def test_speed_and_debug_visibility_are_part_of_status() -> None:
     assert status.speed == 0.5
     assert status.debug_visible is False
     assert status.sim_time_s == 2.5
+
+
+def test_mock_object_commands_and_status_use_genesis_thread_callbacks() -> None:
+    applied: list[tuple[str, dict[str, object]]] = []
+    controller = SimulationOperatorController(
+        reset_environment=lambda: None,
+        observer_command=lambda _name, _args: None,
+        mock_object_command=lambda name, args: applied.append((name, args)),
+        mock_object_status=lambda: {
+            "available_assets": ("demo_box",),
+            "state": "empty",
+            "revision": 0,
+        },
+    )
+    spawn = command(
+        "spawn_mock_object",
+        {"asset_id": "demo_box", "position": [0.5, 0.0, 0.4], "euler_deg": [0.0, 0.0, 0.0]},
+    )
+    assert controller.apply(spawn) == (True, "mock object updated")
+    assert applied[0][0] == "spawn_mock_object"
+    assert controller.status(sim_time_s=0.0).mock_object.available_assets == ("demo_box",)

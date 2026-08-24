@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from elesim_pilot.pick import ControlClient, ControlService, PanelState
-from elesim_protocol import SimMappingConfig
+from elesim_protocol import SimMappingConfig, SimQ
 
 
 class Sender:
@@ -62,3 +62,28 @@ def test_workflow_commands_cannot_be_delegated_to_robot_or_sim() -> None:
     client = ControlClient(cfg=SimMappingConfig())
     with pytest.raises(RuntimeError, match="pilot deployment"):
         client.send_mobile_pick_start()
+
+
+def test_final_mock_hug_target_carries_stale_plan_fence() -> None:
+    sender = Sender()
+    client = ControlClient(cfg=SimMappingConfig())
+    client.attach_sender(sender)
+    solution = type(
+        "Solution",
+        (),
+        {
+            "solution_id": "hug-1",
+            "object_revision": 2,
+            "object_sha256": "a" * 64,
+            "final_q": (-0.1, 0.0, 0.2, 0.2),
+        },
+    )()
+    client.send_mock_hug_target(
+        q=SimQ(*solution.final_q),
+        solution=solution,
+        execution_context=("sim-a", "boot-a", "lease-a"),
+    )
+    message, force = sender.messages[-1]
+    assert message["mock_hug"]["object_revision"] == 2
+    assert message["mock_hug"]["target_boot_id"] == "boot-a"
+    assert force is True

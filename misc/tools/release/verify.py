@@ -447,6 +447,7 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
     if role == "sim":
         _require_path(release / "model/bundles/default/bundle.json")
         _require_path(release / "model/bundles/d435/bundle.json")
+        _require_path(release / "config/mock_objects/demo_box.obj")
     interfaces = release / "interfaces/elesim_interfaces"
     _require_path(interfaces, kind="directory")
     _require_path(interfaces / "package.xml")
@@ -614,10 +615,17 @@ elif role == "robot":
 elif role == "sim":
     from elesim_sim.config import load_app_config, load_runtime_role_config
     from elesim_sim.model_bundle import validate_model_bundle
+    from elesim_sim.simulation.mock_objects import MockObjectCatalog
     load_app_config(str(config))
     load_runtime_role_config(str(release / "config/runtime.yaml"))
     validate_model_bundle(release / "model/bundles/default")
     validate_model_bundle(release / "model/bundles/d435")
+    mock_catalog = MockObjectCatalog(release / "config/mock_objects")
+    mock_assets = mock_catalog.assets()
+    if not mock_assets:
+        raise AssertionError("sim mock object catalog is empty")
+    for mock_asset in mock_assets:
+        mock_catalog.load(mock_asset)
 
 module = importlib.import_module(main_module)
 origin = pathlib.Path(module.__file__).resolve()

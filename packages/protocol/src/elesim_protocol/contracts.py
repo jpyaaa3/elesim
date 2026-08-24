@@ -125,7 +125,10 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     "motion_command": _contract(
         "motion_command", ("pilot",), ("robot", "sim"),
         qos="best-effort-motion-depth-1", authority="target owner motion lease",
-        notes="validated MotionCommandRequest; estop remains local-safe",
+        notes=(
+            "validated MotionCommandRequest; estop remains local-safe; "
+            "optional mock_hug final-target identity is stale-fenced by Sim"
+        ),
     ),
     "telemetry": _contract(
         "telemetry", ("robot", "sim"), ("pilot", "ui"),
@@ -161,7 +164,8 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     ),
     "simulation_command": _contract(
         "simulation_command", ("ui",), ("sim",),
-        authority="sim UI-session lease", notes="validated SimulationCommandRequest",
+        authority="sim UI-session lease",
+        notes="validated SimulationCommandRequest; mock object commands carry asset id/pose, never OBJ bytes",
     ),
     "simulation_result": _contract(
         "simulation_result", ("sim",), ("ui",),
@@ -170,7 +174,7 @@ DDS_CONTRACTS: Mapping[str, DdsContract] = {
     "simulation_status": _contract(
         "simulation_status", ("sim",), ("ui", "pilot"),
         qos="reliable-control", authority="sim UI-session lease",
-        notes="validated SimulationStatusPayload",
+        notes="validated SimulationStatusPayload with optional bounded mock planning projection",
     ),
     "webrtc_signal": _contract(
         "webrtc_signal", ("ui", "sim"), ("sim", "ui"),

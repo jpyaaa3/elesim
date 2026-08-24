@@ -200,6 +200,29 @@ def test_runtime_rejects_wrong_lease_without_touching_hardware() -> None:
     assert arm.target is None
 
 
+def test_runtime_rejects_mock_hug_target_without_touching_hardware() -> None:
+    value, arm = runtime()
+    value.grant_lease("pilot-a", "lease-a")
+
+    ok, reason = value.apply(
+        command(
+            {
+                "command": "target",
+                "q": [-0.1, 0.0, 0.1, -0.1],
+                "mock_hug": {
+                    "solution_id": "solution-a",
+                    "object_revision": 1,
+                    "object_sha256": "a" * 64,
+                    "final_q": [-0.1, 0.0, 0.1, -0.1],
+                },
+            }
+        )
+    )
+
+    assert (ok, reason) == (False, "mock_hug_is_simulation_only")
+    assert arm.target is None
+
+
 def test_lease_revoke_holds_position_mode_arm_instead_of_writing_velocity_register() -> None:
     value, arm = runtime()
     value.grant_lease("pilot-a", "lease-a")

@@ -303,6 +303,36 @@ class ControlClient:
     def send_target_q(self, q: SimQ, *, source: str = "ui", force: bool = False) -> None:
         self._send_target_q(q, source=source, force=force)
 
+    def send_mock_hug_target(
+        self,
+        *,
+        q: SimQ,
+        solution: object | None = None,
+        execution_context: tuple[str, str, str] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "t": "target",
+            "source": "mock_hug",
+            "q": [q.linear_m, q.roll_rad, q.theta1_rad, q.theta2_rad],
+        }
+        if solution is not None:
+            payload["mock_hug"] = {
+                "solution_id": str(getattr(solution, "solution_id")),
+                "object_revision": int(getattr(solution, "object_revision")),
+                "object_sha256": str(getattr(solution, "object_sha256")),
+                "final_q": list(getattr(solution, "final_q")),
+            }
+            if execution_context is not None:
+                target_id, target_boot_id, target_lease_id = execution_context
+                payload["mock_hug"].update(
+                    {
+                        "target_id": str(target_id),
+                        "target_boot_id": str(target_boot_id),
+                        "target_lease_id": str(target_lease_id),
+                    }
+                )
+        self._send(payload, force=solution is not None)
+
     def send_target_values(
         self,
         *,

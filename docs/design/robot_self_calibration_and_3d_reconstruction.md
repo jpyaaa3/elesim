@@ -1,7 +1,7 @@
 # 로봇 자체 보정 및 3D 재구축 전략
 
 상태: 연구/설계 초안  
-갱신일: 2026-08-22  
+갱신일: 2026-08-24
 범위: 로봇 팔의 기구학 오차, 하중 의존 처짐, eye-in-hand RGB-D/IMU
 불확실성, point-cloud 재구축, 그리고 이를 조사하기 위해 필요한
 Pilot/Robot/Sim/UI/protocol 경계.
@@ -969,6 +969,34 @@ manifest에 기록하며 backend 부재를 성공이나 fallback으로 처리하
 path containment, size/vertex limit, finite coordinate validation, deterministic
 mock file을 사용해 local PLY/OBJ artifact를 load한다. visual mesh가 load됐다는
 이유만으로 Genesis collision behavior를 변경하지 않는다.
+
+실행 중 새로 생성되어 사전 catalog 등록이 불가능한 reconstruction mesh는
+Genesis scene을 매번 rebuild하는 방식으로 시작하지 않는다. 별도 prototype에서
+다음의 bounded visual/collision 이중 표현을 검증한다.
+
+- scene build 전에 `enable_custom_vverts=True`인 visual-only triangle pool을
+  하나 예약한다. 이것은 EleSim 설계상의 이름이며 Genesis의 별도 entity type이
+  아니다.
+- pool face topology는 독립된 triangle 연속열로 고정하고, reconstruction
+  snapshot을 triangle soup으로 펼친 뒤 `set_vverts()`로 vertex 위치만
+  갱신한다. 사용하지 않는 triangle은 퇴화시켜 숨긴다.
+- 초기 용량은 4,096 triangles로 제한한다. live preview는 1,024 triangles,
+  settled result는 4,096 triangles를 목표로 하며, 별도 profiling을 통과한
+  경우에만 최대 8,192 triangles를 허용한다. 초과 입력은 Pilot의 명시적
+  decimation 결과가 없으면 거부한다.
+- visual snapshot 갱신은 reconstruction revision 변경 시 또는 최대 2--5 Hz로
+  제한한다. Genesis/WebRTC frame loop와 DDS callback에서 mesh 변환을 수행하지
+  않는다.
+- visual vertex 변경은 collision geometry를 변경하지 않는다. planning/physics는
+  별도로 미리 예약한 bounded box/capsule/convex proxy pool을 사용하고 두 표현은
+  동일 artifact revision/hash로 묶는다.
+- runtime normal, shading, camera sensor 반영, GPU memory, scene-build time,
+  `set_vverts()` p50/p95 latency와 observer/hand-eye FPS를 Genesis 1.2.0에서
+  측정한다. normal 갱신이 불충분하면 첫 prototype은 neutral/unlit 표현과
+  depth/silhouette 검증으로 제한한다.
+- 이 prototype이 실패하거나 품질 한계를 넘는 경우에만 cancellable scene
+  replacement/rebuild를 명시적 fallback으로 설계한다. 조용한 rebuild나
+  media-ready 상태의 장시간 정지는 허용하지 않는다.
 
 #### Gate P6
 

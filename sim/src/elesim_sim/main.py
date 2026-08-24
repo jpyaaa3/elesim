@@ -29,6 +29,8 @@ from elesim_sim.media import (
 )
 from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.simulation.operator_control import SimulationOperatorMailbox
+from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
+from elesim_sim.simulation.mock_object_state import MockObjectState
 from elesim_sim.telemetry import RuntimeTelemetry
 from elesim_sim.turn import load_turn_credential_provider
 from elesim_sim.vision.frame_hub import FrameHub
@@ -140,7 +142,10 @@ def _run() -> None:
         for stream in video_specs:
             streams[stream] = _webrtc_descriptor(endpoint_id, stream)
 
-    state = SimulationStateSource(bundle.mapping_config)
+    mock_object_state = MockObjectState(
+        MockObjectCatalog(resolve_mock_object_catalog_root(_ROOT))
+    )
+    state = SimulationStateSource(bundle.mapping_config, mock_object_state=mock_object_state)
     runtime_ready_event = threading.Event()
 
     def simulation_session_ready() -> tuple[bool, str]:
@@ -184,6 +189,7 @@ def _run() -> None:
             rgbd_endpoint_id=endpoint_id,
             rgbd_boot_id=endpoint.peer_identity.boot_id,
             runtime_ready_event=runtime_ready_event,
+            mock_object_state=mock_object_state,
         )
     finally:
         endpoint.close()

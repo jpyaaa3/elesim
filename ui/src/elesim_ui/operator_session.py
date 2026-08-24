@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
+    CAPABILITY_SIM_MOCK_HUG,
     DdsTransportError,
     DdsRuntimeSettings,
     EndpointDescriptor,
@@ -265,7 +266,7 @@ class OperatorSession:
         try:
             if endpoint is None:
                 endpoint = self.peer_factory(
-                    EndpointDescriptor(self.ui_id, "ui", ()),
+                    EndpointDescriptor(self.ui_id, "ui", (CAPABILITY_SIM_MOCK_HUG,)),
                     settings=self.settings,
                     trace_context_provider=current_trace_context,
                 )

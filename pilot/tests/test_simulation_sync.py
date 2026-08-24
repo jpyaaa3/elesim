@@ -42,3 +42,19 @@ def test_cancellation_runs_outside_the_status_accept_path() -> None:
 
     assert sync.process_one() is True
     assert service.calls == ["pick", "gaze"]
+
+
+def test_pause_and_target_change_cancel_registered_workflows_and_clear_status() -> None:
+    service = Service()
+    sync = SimulationWorkflowSync(service, autostart=False)
+    reasons: list[str] = []
+    sync.add_cancel_callback(reasons.append)
+    sync.accept(status(epoch=1, paused=False))
+
+    sync.accept(status(epoch=1, paused=True))
+    assert sync.process_one() is True
+    assert reasons == ["simulation paused"]
+
+    sync.clear("motion target changed")
+    assert sync.latest is None
+    assert reasons[-1] == "motion target changed"

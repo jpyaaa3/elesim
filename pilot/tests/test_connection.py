@@ -219,6 +219,41 @@ def test_estop_bypasses_lease_but_requires_a_known_target() -> None:
     )
 
 
+def test_queued_mock_hug_cannot_be_retargeted_after_submission() -> None:
+    value, sink, endpoint = connection()
+    value.active_target = "sim-a"
+    value.lease_id = "lease-b"
+    value.endpoints = [
+        {
+            "endpoint_id": "sim-a",
+            "role": "sim",
+            "instance_id": "boot-a",
+            "capabilities": ["simulation.mock_hug.v1"],
+        }
+    ]
+    value.submit(
+        {
+            "t": "target",
+            "q": [-0.1, 0.0, 0.2, 0.2],
+            "mock_hug": {
+                "solution_id": "hug-1",
+                "object_revision": 1,
+                "object_sha256": "a" * 64,
+                "final_q": [-0.1, 0.0, 0.2, 0.2],
+                "target_id": "sim-a",
+                "target_boot_id": "boot-a",
+                "target_lease_id": "lease-a",
+            },
+        },
+        force=True,
+    )
+
+    value.drain_outbox(endpoint, now=1.0)
+
+    assert endpoint.sent == []
+    assert sink.errors[-1] == "mock_hug_route_fence_changed"
+
+
 def test_invalid_operator_result_does_not_escape_the_connection_thread() -> None:
     value, sink, endpoint = connection()
     value.operator_handler = lambda _payload: {

@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable
 
 from elesim_protocol import (
+    MockObjectStatePayload,
     SimulationCommandRequest,
     SimulationResultPayload,
     SimulationStatusPayload,
@@ -173,9 +174,15 @@ class SimulationOperatorController:
         *,
         reset_environment: Callable[[], None],
         observer_command: Callable[[str, dict[str, Any]], None],
+        mock_object_command: Callable[[str, dict[str, Any]], None] | None = None,
+        mock_object_status: Callable[[], dict[str, Any]] | None = None,
+        mock_hug_cancel: Callable[[str], None] | None = None,
     ) -> None:
         self.reset_environment = reset_environment
         self.observer_command = observer_command
+        self.mock_object_command = mock_object_command
+        self.mock_object_status = mock_object_status
+        self.mock_hug_cancel = mock_hug_cancel
         self.paused = False
         self.speed = 1.0
         self.debug_visible = True
@@ -191,6 +198,8 @@ class SimulationOperatorController:
             return True, "view updated"
         if name == "pause":
             self.paused = True
+            if self.mock_hug_cancel is not None:
+                self.mock_hug_cancel("simulation paused")
             return True, "paused"
         if name == "resume":
             self.paused = False
@@ -210,6 +219,11 @@ class SimulationOperatorController:
         if name == "set_debug_visible":
             self.debug_visible = bool(command.arguments["visible"])
             return True, "debug visibility updated"
+        if name in {"spawn_mock_object", "remove_mock_object", "detach_mock_object"}:
+            if self.mock_object_command is None:
+                return False, "mock object support is unavailable"
+            self.mock_object_command(name, dict(command.arguments))
+            return True, "mock object updated"
         return False, "unsupported simulation command"
 
     def reset(self) -> None:
@@ -234,12 +248,16 @@ class SimulationOperatorController:
         return dirty
 
     def status(self, *, sim_time_s: float) -> SimulationStatusPayload:
+        mock_object = None
+        if self.mock_object_status is not None:
+            mock_object = MockObjectStatePayload.from_payload(self.mock_object_status())
         return SimulationStatusPayload(
             epoch=self.epoch,
             paused=self.paused,
             speed=self.speed,
             debug_visible=self.debug_visible,
             sim_time_s=max(0.0, float(sim_time_s)),
+            mock_object=mock_object,
         )
 
 

@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from elesim_protocol import (
+    CAPABILITY_SIM_MOCK_HUG,
     DdsPeerNode,
     DdsTransportError,
     EndpointDescriptor,
@@ -365,6 +366,59 @@ def test_sim_owns_ui_session_and_webrtc_signaling_fence() -> None:
     assert [message.message_type for message in _messages(ui)] == [
         "simulation_session_revoked"
     ]
+
+
+def test_mock_status_extension_is_sent_only_to_capable_protocol_v6_peers() -> None:
+    bus = _Bus()
+    pilot = PeerClient(EndpointDescriptor("pilot-a", "pilot"), node_factory=bus.factory)
+    ui = PeerClient(
+        EndpointDescriptor("ui-a", "ui", (CAPABILITY_SIM_MOCK_HUG,)),
+        node_factory=bus.factory,
+    )
+    sim = PeerClient(
+        EndpointDescriptor("sim-a", "sim", (CAPABILITY_SIM_MOCK_HUG,)),
+        node_factory=bus.factory,
+    )
+    pilot.send("select_target", payload={"target_id": "sim-a"})
+    _messages(sim)
+    _messages(pilot)
+    ui.send(
+        "open_simulation_session",
+        payload={
+            "schema_version": 1,
+            "request_id": "mock-open",
+            "sim_id": "sim-a",
+            "streams": ["observer"],
+        },
+    )
+    _messages(sim)
+    _messages(ui)
+    status = {
+        "schema_version": 1,
+        "epoch": 0,
+        "paused": False,
+        "speed": 1.0,
+        "debug_visible": True,
+        "sim_time_s": 0.0,
+        "mock_object": {
+            "available_assets": ["box.obj"],
+            "state": "spawned",
+            "asset_id": "box",
+            "revision": 1,
+            "sha256": "a" * 64,
+            "position": [0.0, 0.0, 0.0],
+            "euler_deg": [0.0, 0.0, 0.0],
+            "silhouette_xz": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            "solution_id": "",
+            "attached": False,
+            "reason": "",
+        },
+    }
+
+    sim.send("simulation_status", target_id="server", payload=status)
+
+    assert "mock_object" not in _messages(pilot)[0].payload
+    assert _messages(ui)[0].payload["mock_object"]["asset_id"] == "box"
 
 
 def test_simulation_session_survives_a_bounded_discovery_gap() -> None:

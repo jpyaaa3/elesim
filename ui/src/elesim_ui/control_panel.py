@@ -28,6 +28,7 @@ from .panels import (
     draw_go2_panel,
     draw_hardware_panel,
     draw_ik_panel,
+    draw_mock_object_panel,
     draw_perception_panel,
     draw_resolution_panel,
     draw_sag_panel,
@@ -171,6 +172,11 @@ class ControlPanel:
         self._control_u_pending_until = 0.0
         self._control_u_pending: dict[str, float] = {}
         self._control_u_send_period_s = 1.0 / 30.0
+        self._mock_object_asset = "demo_box"
+        self._mock_object_position = [0.50, 0.0, 0.40]
+        self._mock_object_euler_deg = [0.0, 0.0, 0.0]
+        self._mock_hug_solution: dict[str, object] = {}
+        self._mock_object_message = ""
         self._go2_was_active = False
         # GO2 teleop is a deadman command, not a render-rate stream.  Keep
         # the command cadence below the UI frame rate so a 60/144 Hz display
@@ -769,6 +775,7 @@ class ControlPanel:
                 self._draw_panel_stack(
                     (
                         draw_perception_panel,
+                        draw_mock_object_panel,
                     ),
                     item_width=second_item_w,
                 )
@@ -811,6 +818,7 @@ class ControlPanel:
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
+                    draw_mock_object_panel,
                 ),
                 item_width=max(scaled(self, 120.0), right_w * 0.45),
             )
@@ -827,6 +835,7 @@ class ControlPanel:
                     draw_status_panel,
                     draw_resolution_panel,
                     draw_perception_panel,
+                    draw_mock_object_panel,
                 ),
                 item_width=max(scaled(self, 120.0), avail_w * 0.45),
             )

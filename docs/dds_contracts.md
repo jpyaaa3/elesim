@@ -47,6 +47,15 @@ hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track이다.
 `motion_command`는 latest command 성격의 depth-1 best effort다. Estop과 local
 deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
 
+Mock hug의 마지막 `motion_command`는 `mock_hug` 메타데이터
+(`solution_id`, object lifecycle `revision`, OBJ `sha256`, `final_q`)를 함께
+보낸다. 실행 시 캡처한 exact Sim endpoint/boot/lease도 routing fence로
+포함하며 Pilot 송신 직전과 Sim 수신 직후에 다시 확인한다. Sim은 각
+waypoint를 적용하기 전에 현재 spawn identity와 고정된
+`final_q`를 다시 검증하고, 마지막 자세가 정착한 뒤에만 attach한다. 이
+메타데이터는 motion lease를 대체하거나 새 authority를 만들지 않는다.
+Robot은 `mock_hug`가 붙은 target을 하드웨어에 쓰기 전에 명시적으로 거부한다.
+
 ## 3. Simulation session과 media
 
 | message | sender → receiver | authority/용도 | QoS | payload 규칙 |
@@ -65,6 +74,17 @@ deadman은 이 carrier나 DDS discovery callback에 의존하지 않는다.
 Sim이 session authority를 소유한다. motion lease와 UI session은 서로 다른
 권한이다. `simulation_session_opened`가 오기 전 UI가 media를 요청하면
 bounded retry/diagnostic만 발생하고 권한이 생기지 않는다.
+
+`simulation_command`의 mock-object surface는 catalog `asset_id`와 pose만
+받는다. OBJ bytes/path는 `PeerEnvelope`에 넣지 않는다. Sim은 시작 전에
+local catalog를 검증하고 scene build 전에 bounded entity pool을 준비한다.
+`simulation_status.mock_object`는 Pilot 계산용 world-oriented XZ convex
+hull(최대 64점), lifecycle revision과 SHA-256만 전달한다. 이 additive
+필드는 `simulation.mock_hug.v1` capability를 광고한 v6 peer에만 전달하여
+기존 strict v6 status parser를 깨지 않는다. `spawn_mock_object`,
+`remove_mock_object`, `detach_mock_object`는 UI session에 묶이며, 실제 arm
+motion은 계속 Pilot motion lease에만 묶인다. pose는 ±10 m, Euler는 ±360°로
+제한한다.
 
 ## 4. RGB-D QoS
 

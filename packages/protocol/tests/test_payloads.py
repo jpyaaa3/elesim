@@ -14,6 +14,7 @@ from elesim_protocol import (
 from elesim_protocol.payloads import (
     CloseSimulationSessionRequest,
     DiscoverRequest,
+    MockObjectStatePayload,
     MotionCommandRequest,
     OpenSimulationSessionRequest,
     OperatorIntentRequest,
@@ -161,6 +162,12 @@ def test_simulation_session_open_and_close_contracts_are_bounded() -> None:
         ("reset", {}),
         ("set_speed", {"scale": 0.5}),
         ("set_debug_visible", {"visible": False}),
+        (
+            "spawn_mock_object",
+            {"asset_id": "demo-box", "position": [0.5, 0.0, 0.4], "euler_deg": [0.0, 0.0, 0.0]},
+        ),
+        ("remove_mock_object", {}),
+        ("detach_mock_object", {}),
     ),
 )
 def test_simulation_command_contract_accepts_the_public_command_surface(
@@ -178,6 +185,26 @@ def test_simulation_command_contract_accepts_the_public_command_surface(
     )
     assert parsed.command == command
     assert parsed.arguments == arguments
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"asset_id": "box", "position": [10.1, 0.0, 0.0], "euler_deg": [0.0, 0.0, 0.0]},
+        {"asset_id": "box", "position": [0.0, 0.0, 0.0], "euler_deg": [0.0, 361.0, 0.0]},
+    ],
+)
+def test_mock_spawn_pose_is_bounded_before_reaching_genesis(arguments) -> None:
+    with pytest.raises(ProtocolError, match="within"):
+        SimulationCommandRequest.from_payload(
+            {
+                "schema_version": 1,
+                "request_id": "request-spawn",
+                "session_id": "session-a",
+                "command": "spawn_mock_object",
+                "arguments": arguments,
+            }
+        )
 
 
 @pytest.mark.parametrize(
@@ -294,6 +321,97 @@ def test_session_and_status_payloads_round_trip_their_typed_shape() -> None:
     )
     assert status.epoch == 2
     assert status.paused is True
+
+
+def test_mock_object_status_is_bounded_and_round_trips() -> None:
+    digest = "a" * 64
+    mock_object = MockObjectStatePayload.from_payload(
+        {
+            "available_assets": ["demo-box"],
+            "state": "spawned",
+            "asset_id": "demo-box",
+            "revision": 4,
+            "sha256": digest,
+            "position": [0.5, 0.0, 0.4],
+            "euler_deg": [0.0, 0.0, 0.0],
+            "silhouette_xz": [[-0.1, -0.1], [0.1, -0.1], [0.0, 0.1]],
+            "solution_id": "",
+            "attached": False,
+            "reason": "",
+        }
+    )
+    status = SimulationStatusPayload(
+        epoch=1,
+        paused=False,
+        speed=1.0,
+        debug_visible=True,
+        sim_time_s=0.0,
+        mock_object=mock_object,
+    )
+    assert SimulationStatusPayload.from_payload(status.to_payload()) == status
+
+    bad = mock_object.to_payload()
+    bad["asset_id"] = "../escape"
+    with pytest.raises(ProtocolError, match="basename-like"):
+        MockObjectStatePayload.from_payload(bad)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"state": "empty", "asset_id": "box"},
+        {"state": "spawned", "revision": 0},
+        {"state": "executing", "solution_id": ""},
+        {"state": "spawned", "attached": True},
+    ],
+)
+def test_mock_object_state_rejects_inconsistent_lifecycle_fields(updates) -> None:
+    payload = {
+        "available_assets": ["box.obj"],
+        "state": "spawned",
+        "asset_id": "box",
+        "revision": 1,
+        "sha256": "a" * 64,
+        "position": [0.0, 0.0, 0.0],
+        "euler_deg": [0.0, 0.0, 0.0],
+        "silhouette_xz": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        "solution_id": "",
+        "attached": False,
+        "reason": "",
+    }
+    payload.update(updates)
+
+    with pytest.raises(ProtocolError, match="mock object|mock hug"):
+        MockObjectStatePayload.from_payload(payload)
+
+
+def test_mock_hug_execution_is_fenced_to_object_identity_and_final_q() -> None:
+    digest = "b" * 64
+    payload = {
+        "command": "target",
+        "q": [0.1, 0.2, 0.3, 0.4],
+        "mock_hug": {
+            "solution_id": "solution-1",
+            "object_revision": 7,
+            "object_sha256": digest,
+            "final_q": [0.1, 0.2, 0.3, 0.4],
+            "target_id": "sim-a",
+            "target_boot_id": "boot-a",
+            "target_lease_id": "lease-a",
+        },
+    }
+    parsed = MotionCommandRequest.from_payload(payload)
+    assert parsed.mock_hug is not None
+    assert parsed.mock_hug.object_revision == 7
+    assert parsed.mock_hug.target_boot_id == "boot-a"
+
+    payload["q"] = [0.1, 0.2, 0.3, 0.35]
+    waypoint = MotionCommandRequest.from_payload(payload)
+    assert waypoint.q != waypoint.mock_hug.final_q
+
+    del payload["mock_hug"]["target_lease_id"]
+    with pytest.raises(ProtocolError, match="routing fence"):
+        MotionCommandRequest.from_payload(payload)
 
 
 def test_new_routed_payloads_are_validated_before_transport() -> None:

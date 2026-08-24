@@ -34,6 +34,7 @@ from .authority import (
     SimulationSessionAuthority,
 )
 from .messages import (
+    CAPABILITY_SIM_MOCK_HUG,
     MEDIA_SECURITY_DDS,
     MEDIA_SECURITY_DTLS_SRTP,
     MEDIA_SECURITY_NONE,
@@ -1476,13 +1477,20 @@ class PeerClient:
         first: Optional[Envelope] = None
         seen: set[PeerIdentity] = set()
         for recipient, authority_id in recipients:
-            if recipient in seen or self.node.describe(recipient) is None:
+            peer = self.node.describe(recipient)
+            if recipient in seen or peer is None:
                 continue
             seen.add(recipient)
+            recipient_payload = dict(payload)
+            if CAPABILITY_SIM_MOCK_HUG not in peer.descriptor.capabilities:
+                # Protocol-v6 status was originally strict.  Keep the additive
+                # mock extension invisible to v6 peers that did not advertise
+                # support instead of making a rolling deployment fail parsing.
+                recipient_payload.pop("mock_object", None)
             envelope = self._envelope(
                 "simulation_status",
                 target_id=recipient.endpoint_id,
-                payload=payload,
+                payload=recipient_payload,
                 lease_id=lease_id or authority_id,
                 trace_context=trace_context,
             )

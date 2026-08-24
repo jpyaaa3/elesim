@@ -9,6 +9,7 @@ import pytest
 from elesim_protocol import (
     DdsTransportError,
     Envelope,
+    PeerIdentity,
     SimMappingConfig,
     SimulationSessionGrantedPayload,
     SimulationStatusPayload,
@@ -87,6 +88,30 @@ def test_estop_is_accepted_without_a_lease() -> None:
 
     assert state.go2_vel() == (0.0, 0.0, 0.0)
     assert client.sent[-1][1]["payload"]["ok"] is True
+
+
+def test_mock_hug_route_fence_must_name_this_exact_sim_boot_and_lease() -> None:
+    value, state, client = endpoint()
+    value.peer_identity = PeerIdentity("sim-a", "boot-a")
+    before = state.estimate_q()
+    payload = {
+        "command": "target",
+        "q": [-0.1, 0.0, 0.2, 0.2],
+        "mock_hug": {
+            "solution_id": "hug-1",
+            "object_revision": 1,
+            "object_sha256": "a" * 64,
+            "final_q": [-0.1, 0.0, 0.2, 0.2],
+            "target_id": "sim-a",
+            "target_boot_id": "old-boot",
+            "target_lease_id": "lease-a",
+        },
+    }
+
+    value.handle_envelope(client, message(payload))
+
+    assert state.estimate_q() == before
+    assert client.sent[-1][1]["payload"]["reason"] == "mock_hug_route_fence_mismatch"
 
 
 def test_runtime_telemetry_is_merged_and_sent_as_canonical_q() -> None:
@@ -170,6 +195,39 @@ def test_simulation_command_is_queued_until_the_genesis_thread_completes_it() ->
     assert client.sent[-1][0] == "simulation_result"
     assert client.sent[-1][1]["target_id"] == "ui-a"
     assert client.sent[-1][1]["payload"]["request_id"] == "pause-1"
+
+
+def test_mock_object_spawn_is_session_bound_and_queued_for_the_genesis_thread() -> None:
+    value, _state, client = endpoint()
+    grant_simulation_session(value, client)
+    value.handle_envelope(
+        client,
+        Envelope(
+            message_type="simulation_command",
+            source_id="ui-a",
+            target_id="sim-a",
+            payload={
+                "schema_version": 1,
+                "request_id": "spawn-1",
+                "session_id": "session-a",
+                "command": "spawn_mock_object",
+                "arguments": {
+                    "asset_id": "demo_box.obj",
+                    "position": [0.5, 0.0, 0.4],
+                    "euler_deg": [0.0, 0.0, 0.0],
+                },
+            },
+            seq=3,
+            timestamp=1.0,
+            message_id="spawn-message",
+            lease_id="session-a",
+        ),
+    )
+
+    pending = value.operator_mailbox.drain()
+    assert len(pending) == 1
+    assert pending[0].command == "spawn_mock_object"
+    assert pending[0].arguments["asset_id"] == "demo_box.obj"
 
 
 def test_simulation_command_rejects_a_mismatched_operator_session_lease() -> None:

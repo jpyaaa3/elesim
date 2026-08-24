@@ -251,6 +251,7 @@ ENDPOINT_ROLES = frozenset({"pilot", "robot", "sim", "ui"})
 CAPABILITY_OPERATOR_CONTROL = "operator_control"
 CAPABILITY_MOTION_ARM = "motion.arm"
 CAPABILITY_MOTION_GO2 = "motion.go2"
+CAPABILITY_SIM_MOCK_HUG = "simulation.mock_hug.v1"
 CAPABILITY_STREAM_RGBD = "stream.rgbd"
 CAPABILITY_STREAM_OBSERVER = "stream.observer"
 CAPABILITY_STREAM_HAND_EYE_PREVIEW = "stream.hand_eye_preview"

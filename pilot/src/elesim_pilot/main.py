@@ -9,10 +9,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from elesim_protocol import (
+    CAPABILITY_SIM_MOCK_HUG,
     DdsRuntimeSettings,
     MEDIA_KIND_RGBD,
     MEDIA_TRANSPORT_DDS,
     MediaStreamDescriptor,
+    SimQ,
 )
 
 from elesim_pilot.connection import PilotConnection
@@ -20,6 +22,7 @@ from elesim_pilot.operator import OperatorDispatcher
 from elesim_pilot.runtime import build_control_runtime
 from elesim_pilot.config import load_app_config, load_runtime_role_config
 from elesim_pilot.pick import ControlClient
+from elesim_pilot.pick.mock_hug import MockHugCoordinator
 from elesim_pilot.observability.tracing import configure_tracing, shutdown_tracing, span
 from elesim_pilot.simulation_sync import SimulationWorkflowSync
 
@@ -38,6 +41,49 @@ class _ControlFacade:
         self._service = service
         self._connection = connection
         self._dds_settings = dds_settings
+        self._mock_hug: MockHugCoordinator | None = None
+
+    def attach_mock_hug(self, coordinator: MockHugCoordinator) -> None:
+        self._mock_hug = coordinator
+
+    def compute_mock_hug(self) -> dict[str, object]:
+        if self._mock_hug is None:
+            raise RuntimeError("mock hug coordinator is not initialized")
+        self._require_sim_target()
+        return self._mock_hug.compute()
+
+    def execute_mock_hug(self, solution_id: str) -> dict[str, object]:
+        if self._mock_hug is None:
+            raise RuntimeError("mock hug coordinator is not initialized")
+        self._require_sim_target()
+        return self._mock_hug.execute(solution_id)
+
+    def _require_sim_target(self) -> None:
+        self.mock_hug_execution_context()
+
+    def mock_hug_execution_context(self) -> tuple[str, str, str]:
+        target = str(self._connection.active_target)
+        descriptor = next(
+            (
+                value
+                for value in self._connection.endpoints
+                if str(value.get("endpoint_id", "")) == target
+            ),
+            None,
+        )
+        capabilities = () if descriptor is None else tuple(descriptor.get("capabilities", ()))
+        boot_id = "" if descriptor is None else str(descriptor.get("instance_id", ""))
+        lease_id = str(self._connection.lease_id)
+        if (
+            not target
+            or descriptor is None
+            or str(descriptor.get("role", "")) != "sim"
+            or CAPABILITY_SIM_MOCK_HUG not in capabilities
+            or not boot_id
+            or not lease_id
+        ):
+            raise RuntimeError("mock hug requires a capable exact Sim boot and motion lease")
+        return target, boot_id, lease_id
 
     def __getattr__(self, name):
         return getattr(self._service, name)
@@ -109,6 +155,21 @@ def _run() -> None:
         dds_settings=role.dds,
     )
     simulation_sync = SimulationWorkflowSync(runtime.service)
+    mock_hug = MockHugCoordinator(
+        link,
+        lambda: simulation_sync.latest,
+        lambda: SimQ(
+            float(runtime.state.linear),
+            float(runtime.state.roll),
+            float(runtime.state.theta1),
+            float(runtime.state.theta2),
+        ),
+        mapping=bundle.mapping_config,
+        execution_context=facade.mock_hug_execution_context,
+    )
+    facade.attach_mock_hug(mock_hug)
+    simulation_sync.add_cancel_callback(mock_hug.cancel)
+    connection.on_target_changed = simulation_sync.clear
     dispatcher = OperatorDispatcher(runtime.state, facade)
     connection.on_target_selected = facade.configure_target_stream
     connection.operator_handler = dispatcher.handle
@@ -124,6 +185,7 @@ def _run() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        mock_hug.close()
         simulation_sync.close()
         runtime.service.close()
         connection.close()

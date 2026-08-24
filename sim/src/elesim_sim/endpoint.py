@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Optional
 from elesim_protocol import (
     CAPABILITY_MOTION_ARM,
     CAPABILITY_MOTION_GO2,
+    CAPABILITY_SIM_MOCK_HUG,
     CAPABILITY_STREAM_HAND_EYE_PREVIEW,
     CAPABILITY_STREAM_OBSERVER,
     CAPABILITY_STREAM_RGBD,
@@ -18,6 +19,7 @@ from elesim_protocol import (
     EndpointDescriptor,
     Envelope,
     MediaStreamDescriptor,
+    MotionCommandRequest,
     PeerClient,
     PeerIdentity,
     ProtocolError,
@@ -392,8 +394,19 @@ class SimEndpoint:
         if not ok:
             return ok, reason
         try:
+            parsed = MotionCommandRequest.from_payload(payload)
+            mock_hug = parsed.mock_hug
+            if mock_hug is not None and mock_hug.target_id:
+                identity = self.peer_identity
+                if (
+                    identity is None
+                    or mock_hug.target_id != self.endpoint_id
+                    or mock_hug.target_boot_id != identity.boot_id
+                    or mock_hug.target_lease_id != message.lease_id
+                ):
+                    return False, "mock_hug_route_fence_mismatch"
             return True, self.state.apply_command(payload)
-        except ValueError as exc:
+        except (ProtocolError, ValueError) as exc:
             reason = str(exc)
             return False, reason if reason else "invalid_command"
 
@@ -609,7 +622,11 @@ class SimEndpoint:
         print(f"[sim-dds] event={event} {rendered}", flush=True)
 
     def _run(self) -> None:
-        capabilities = [CAPABILITY_MOTION_ARM, CAPABILITY_MOTION_GO2]
+        capabilities = [
+            CAPABILITY_MOTION_ARM,
+            CAPABILITY_MOTION_GO2,
+            CAPABILITY_SIM_MOCK_HUG,
+        ]
         if "rgbd" in self.streams:
             capabilities.append(CAPABILITY_STREAM_RGBD)
         if "observer" in self.streams:

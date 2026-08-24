@@ -30,7 +30,13 @@ def _vector(raw: object, length: int, *, name: str) -> tuple[float, ...]:
 class SimulationStateSource:
     """Latest-value command mailbox shared by protocol and simulation threads."""
 
-    def __init__(self, mapping: SimMappingConfig, *, clock=time.monotonic) -> None:
+    def __init__(
+        self,
+        mapping: SimMappingConfig,
+        *,
+        clock=time.monotonic,
+        mock_object_state: Any = None,
+    ) -> None:
         self.mapping = mapping
         self.clock = clock
         self._lock = threading.RLock()
@@ -50,6 +56,7 @@ class SimulationStateSource:
         self._sim_target: Optional[np.ndarray] = None
         self._sim_reset_seq = 0
         self._debug_markers: list[dict[str, Any]] = []
+        self._mock_object_state = mock_object_state
         self._last_update_at: Optional[float] = None
         self._torque_enabled = False
 
@@ -84,6 +91,15 @@ class SimulationStateSource:
         parsed = MotionCommandRequest.from_payload(payload)
         body = parsed.raw
         with self._lock:
+            if parsed.mock_hug is not None:
+                if self._mock_object_state is None:
+                    raise ValueError("mock hug support is unavailable")
+                self._mock_object_state.accept_execution(
+                    parsed.mock_hug.solution_id,
+                    parsed.mock_hug.object_revision,
+                    parsed.mock_hug.object_sha256,
+                    parsed.mock_hug.final_q,
+                )
             if parsed.q is not None:
                 self._q = SimQ(*parsed.q)
             if parsed.go2_velocity is not None:
@@ -131,6 +147,11 @@ class SimulationStateSource:
     def revoke_control(self) -> None:
         with self._lock:
             self._go2_velocity = (0.0, 0.0, 0.0)
+            if (
+                self._mock_object_state is not None
+                and self._mock_object_state.state == "executing"
+            ):
+                self._mock_object_state.fail("motion lease revoked")
 
     def estimate_q(self) -> SimQ:
         with self._lock:

@@ -164,6 +164,28 @@ QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
 현재 QP/MPC solver와 DDS serialization은 CPU domain이며, GPU offload는
 별도 측정·검증 없이는 가정하지 않는다.
 
+### Mock object hug vertical slice
+
+Sim의 `config/mock_objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis
+scene build 뒤 동적 mesh 추가를 가정하지 않기 위해 catalog entity는 scene
+build 전에 숨김 위치에 준비하고, UI session 명령은 기존 entity의 pose만
+바꾼다. OBJ 파일이나 host path는 DDS에 싣지 않는다.
+
+Pilot은 Sim status의 content hash, lifecycle revision, world-oriented XZ convex hull을
+입력으로 target-first 두 section 감싸안기 자세와 개활지 국소 보간 경로를
+계산한다. 모든 motion waypoint에 동일 identity와 최종 자세를 첨부하며 Sim은
+적용 전에 이를 다시 검증한다. 최종 자세가 연속 sample에서 정착한 경우에만 mock object를 arm tip에
+논리적으로 attach한다. 이 결과는 물리 파지 성공이나 collision-free RRT의
+증명이 아니다. 향후 scan/reconstruction producer는 같은 bounded artifact
+descriptor를 만들고, environment-aware planner와 motor-load verifier는 Pilot의
+local planner 및 Sim mock verifier 경계에서 교체한다.
+
+이 기능은 protocol major 6의 capability-gated additive extension이다. Sim은
+`simulation.mock_hug.v1` capability가 없는 v6 peer에는 기존 status shape만
+보내며, Pilot은 capability를 광고한 정확한 Sim boot와 motion lease를 실행
+전체에서 고정한다. 따라서 target/boot/lease 변경은 다음 waypoint 전에 실행을
+취소한다.
+
 ## 6. 모델과 설정 lifecycle
 
 `model/bundles/default/assets`가 ZED Mini의 canonical builder input이며,

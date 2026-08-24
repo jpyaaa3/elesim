@@ -53,6 +53,24 @@ def test_release_config_excludes_only_public_template(
     assert (release / "config/perception/detector.yolo.example.json").is_file()
 
 
+def test_sim_release_config_keeps_the_validated_mock_object_catalog(tmp_path: Path) -> None:
+    project = tmp_path / "sim"
+    config = project / "config"
+    catalog = config / "mock_objects"
+    catalog.mkdir(parents=True)
+    (config / "config.yaml").write_text("runtime: true\n", encoding="utf-8")
+    (config / "runtime.yaml").write_text("runtime: true\n", encoding="utf-8")
+    (config / "runtime.public.example.yaml").write_text("public: true\n", encoding="utf-8")
+    fixture = catalog / "demo_box.obj"
+    fixture.write_text("v 0 0 0\nv 1 0 0\nv 0 0 1\nf 1 2 3\n", encoding="utf-8")
+    release = tmp_path / "release"
+
+    copy_role_config(project, release, "sim")
+
+    assert (release / "config/mock_objects/demo_box.obj").read_bytes() == fixture.read_bytes()
+    assert not (release / "config/runtime.public.example.yaml").exists()
+
+
 def test_sim_release_contains_only_the_immutable_bundle() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

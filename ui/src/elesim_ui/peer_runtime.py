@@ -7,6 +7,7 @@ from collections import deque
 from typing import Any, Callable, Iterator, Mapping, Optional
 
 from elesim_protocol import (
+    CAPABILITY_SIM_MOCK_HUG,
     DdsRuntimeSettings,
     DdsTransportError,
     EndpointDescriptor,
@@ -207,7 +208,11 @@ class UiPeerHub:
                 with self._io_lock:
                     if self._client is None:
                         self._client = self._client_factory(
-                            EndpointDescriptor(self.endpoint_id, "ui", ()),
+                            EndpointDescriptor(
+                                self.endpoint_id,
+                                "ui",
+                                (CAPABILITY_SIM_MOCK_HUG,),
+                            ),
                             settings=self._settings,
                             trace_context_provider=current_trace_context,
                         )

@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
+    CAPABILITY_SIM_MOCK_HUG,
     DdsRuntimeSettings,
     DdsTransportError,
     EndpointDescriptor,
@@ -91,6 +92,7 @@ class PilotConnection:
         self.endpoints: list[dict[str, Any]] = []
         self.operator_handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
         self.on_target_selected: Optional[Callable[[dict[str, Any]], None]] = None
+        self.on_target_changed: Optional[Callable[[str], None]] = None
         self.simulation_status_handler: Optional[
             Callable[[SimulationStatusPayload], None]
         ] = None
@@ -137,7 +139,7 @@ class PilotConnection:
             EndpointDescriptor(
                 self.pilot_id,
                 "pilot",
-                (CAPABILITY_OPERATOR_CONTROL,),
+                (CAPABILITY_OPERATOR_CONTROL, CAPABILITY_SIM_MOCK_HUG),
             ),
             settings=self.dds_settings,
             trace_context_provider=current_trace_context,
@@ -235,6 +237,7 @@ class PilotConnection:
                 lease=self.lease_id,
             )
             self.state_sink.target_changed(self.active_target)
+            self._notify_target_changed(self.active_target)
             descriptor = next(
                 (value for value in self.endpoints if value.get("endpoint_id") == self.active_target),
                 None,
@@ -260,6 +263,7 @@ class PilotConnection:
             self._selection_requested = ""
             self._selection_requested_at = None
             self.state_sink.target_changed("")
+            self._notify_target_changed("")
             endpoint.send("discover", payload={})
             self._last_discover_at = time.monotonic()
             return
@@ -362,6 +366,14 @@ class PilotConnection:
         self._selection_requested = self.desired_target
         self._selection_requested_at = current
 
+    def _notify_target_changed(self, target_id: str) -> None:
+        if self.on_target_changed is None:
+            return
+        try:
+            self.on_target_changed(str(target_id))
+        except Exception as exc:
+            self.state_sink.accept_error(f"target change callback failed: {exc}")
+
     def drain_outbox(self, endpoint: Any, *, now: float) -> None:
         while True:
             try:
@@ -429,6 +441,36 @@ class PilotConnection:
                 reason="no_active_lease",
             )
             return
+        mock_hug = payload.get("mock_hug")
+        if isinstance(mock_hug, Mapping) and mock_hug.get("target_id"):
+            descriptor = next(
+                (
+                    value
+                    for value in self.endpoints
+                    if str(value.get("endpoint_id", "")) == self.active_target
+                ),
+                None,
+            )
+            route = (
+                self.active_target,
+                "" if descriptor is None else str(descriptor.get("instance_id", "")),
+                self.lease_id,
+            )
+            expected = tuple(
+                str(mock_hug.get(name, ""))
+                for name in ("target_id", "target_boot_id", "target_lease_id")
+            )
+            if route != expected:
+                self.state_sink.accept_error("mock_hug_route_fence_changed")
+                self._diagnostic(
+                    "motion",
+                    dedupe="mock-hug-route-fence",
+                    state="blocked",
+                    source=self.pilot_id,
+                    target=self.active_target,
+                    reason="mock_hug_route_fence_changed",
+                )
+                return
         command = str(payload.get("command", "unknown"))
         every = 10 if command == "target" else 1
         with sampled_span(

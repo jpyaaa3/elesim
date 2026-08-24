@@ -63,6 +63,8 @@ from elesim_sim.robot.arm.sag_model import segment_errors_from_model
 from elesim_sim.observability.tracing import configure_tracing, shutdown_tracing, span
 from elesim_sim.media import FrameDispatchWorker
 from elesim_sim.simulation.operator_control import SimulationOperatorController
+from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
+from elesim_sim.simulation.mock_object_state import MockObjectState
 from elesim_sim.simulation.genesis.utils import to_numpy_1d_copy as _to_numpy_1d
 
 
@@ -977,6 +979,7 @@ class SimScene:
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
+    mock_object_entities: dict[str, object] = field(default_factory=dict)
     n_nodes: int = 0
     n_seg: int = 0
     sim_step_count: int = 0
@@ -1068,6 +1071,22 @@ class SimScene:
             return False
         self.sim_target_xyz = pos.copy()
         return True
+
+    def set_mock_object_pose(
+        self,
+        asset_id: str,
+        position: tuple[float, float, float],
+        euler_deg: tuple[float, float, float],
+    ) -> None:
+        for name, entity in self.mock_object_entities.items():
+            entity.set_pos(position if name == asset_id else (0.0, 0.0, -100.0))
+            if name == asset_id:
+                quat = Rot.from_euler("xyz", euler_deg, degrees=True).as_quat()
+                entity.set_quat(np.array([quat[3], quat[0], quat[1], quat[2]], dtype=float))
+
+    def hide_mock_objects(self) -> None:
+        for entity in self.mock_object_entities.values():
+            entity.set_pos((0.0, 0.0, -100.0))
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         if self.mover is None:
@@ -2261,6 +2280,17 @@ class RuntimePrep:
         if bool(a.spawn.sim_target_enable):
             self._spawn_perception_target()
 
+        for filename in a.mock_object_catalog.assets():
+            artifact = a.mock_object_catalog.load(filename)
+            path = a.mock_object_catalog.root / filename
+            morph = gs.morphs.Mesh(
+                file=str(path),
+                pos=(0.0, 0.0, -100.0),
+                fixed=True,
+                collision=False,
+            )
+            a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph)
+
         eye_camera = None
         if bool(a.cfg.sim_camera_enable) and str(a.cfg.hand_eye_config).strip():
             from elesim_sim.vision.sim_camera import Node9EyeInHandCamera
@@ -2445,6 +2475,9 @@ class SimRuntime:
         self.operator = SimulationOperatorController(
             reset_environment=self._reset_environment,
             observer_command=self._apply_observer_command,
+            mock_object_command=self._apply_mock_object_command,
+            mock_object_status=self.app.mock_object_state.snapshot,
+            mock_hug_cancel=self._cancel_mock_hug,
         )
         self.operator.debug_visible = bool(app.spawn.draw_debug_markers)
 
@@ -2454,6 +2487,8 @@ class SimRuntime:
         if a.state_source is not None:
             a.state_source.seed_estimate_q(start_q)
         a.sim_scene.reset_environment(mapping_cfg=a._proto_cfg)
+        a.sim_scene.hide_mock_objects()
+        a.mock_object_state.reset()
         self._force_hand_eye_capture = True
 
     def _apply_observer_command(self, command: str, arguments: dict[str, Any]) -> None:
@@ -2461,6 +2496,47 @@ class SimRuntime:
         if camera is None:
             raise RuntimeError("observer camera is disabled")
         camera.apply_operator_command(command, arguments)
+
+    def _cancel_mock_hug(self, reason: str) -> None:
+        state = self.app.mock_object_state
+        if state.state == "executing":
+            state.fail(reason)
+
+    def _apply_mock_object_command(self, command: str, arguments: dict[str, Any]) -> None:
+        a = self.app
+        if command == "spawn_mock_object":
+            asset_id = str(arguments["asset_id"]).removesuffix(".obj")
+            if asset_id not in a.sim_scene.mock_object_entities:
+                raise RuntimeError(f"mock object entity is not prepared: {asset_id}")
+            snapshot = a.mock_object_state.spawn(
+                arguments["asset_id"], arguments["position"], arguments["euler_deg"]
+            )
+            try:
+                a.sim_scene.set_mock_object_pose(
+                    str(snapshot["asset_id"]),
+                    tuple(snapshot["position"]),
+                    tuple(snapshot["euler_deg"]),
+                )
+            except Exception as exc:
+                a.mock_object_state.fail(str(exc) or type(exc).__name__)
+                raise
+        elif command == "remove_mock_object":
+            a.sim_scene.hide_mock_objects()
+            a.mock_object_state.remove()
+        elif command == "detach_mock_object":
+            snapshot = a.mock_object_state.detach()
+            # Detach restores the declared spawn pose.  Leaving the entity at
+            # its last tip-following pose would make the visible scene disagree
+            # with the status pose used by the next planning request.
+            try:
+                a.sim_scene.set_mock_object_pose(
+                    str(snapshot["asset_id"]),
+                    tuple(snapshot["position"]),
+                    tuple(snapshot["euler_deg"]),
+                )
+            except Exception as exc:
+                a.mock_object_state.fail(str(exc) or type(exc).__name__)
+                raise
 
     def _apply_operator_commands(self) -> None:
         mailbox = self.app.operator_mailbox
@@ -2785,6 +2861,25 @@ class SimRuntime:
                         rgb_enabled=bool(a.cfg.sim_camera_rgb),
                         depth_enabled=bool(a.cfg.sim_camera_depth),
                     )
+                    mock_state = a.mock_object_state.state
+                    if mock_state == "executing" and a.sim_scene.mover is not None:
+                        actual = a.sim_scene.mover.current_4dof_q()
+                        a.mock_object_state.observe_q(
+                            (actual.linear_m, actual.roll_rad, actual.theta1_rad, actual.theta2_rad)
+                        )
+                        next_mock_state = a.mock_object_state.state
+                        if next_mock_state != mock_state:
+                            self._status_dirty = True
+                        mock_state = next_mock_state
+                    if mock_state == "attached":
+                        tip = a.sim_scene.actual_tip_world(a.layout)
+                        snapshot = a.mock_object_state.snapshot()
+                        if tip is not None:
+                            a.sim_scene.set_mock_object_pose(
+                                str(snapshot["asset_id"]),
+                                tuple(float(v) for v in tip),
+                                (0.0, 0.0, 0.0),
+                            )
                     self._force_hand_eye_capture = False
                 observer_dirty = self.operator.take_observer_dirty()
                 observer_needs_frame = (
@@ -2841,6 +2936,7 @@ class GenesisApp:
         rgbd_endpoint_id: str = "sim-default",
         rgbd_boot_id: str = "",
         runtime_ready_event: Optional[Any] = None,
+        mock_object_state: Optional[MockObjectState] = None,
     ):
         self.params = params if params is not None else SimParam()
         self.cfg = cfg if cfg is not None else SimConfig()
@@ -2862,6 +2958,10 @@ class GenesisApp:
             video_mailboxes=video_mailboxes,
             camera_gpu_convert=bool(self.cfg.camera_gpu_convert),
         )
+        self.mock_object_state = mock_object_state or MockObjectState(
+            MockObjectCatalog(resolve_mock_object_catalog_root(_REPO_ROOT))
+        )
+        self.mock_object_catalog = self.mock_object_state.catalog
         self.state_source = state_source
         self.feedback_pub = feedback_publisher
         self.operator_mailbox = operator_mailbox
@@ -2985,6 +3085,7 @@ def run_runtime(
     rgbd_endpoint_id: str = "sim-default",
     rgbd_boot_id: str = "",
     runtime_ready_event: Optional[Any] = None,
+    mock_object_state: Optional[MockObjectState] = None,
 ) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -3093,6 +3194,7 @@ def run_runtime(
         rgbd_endpoint_id=rgbd_endpoint_id,
         rgbd_boot_id=rgbd_boot_id,
         runtime_ready_event=runtime_ready_event,
+        mock_object_state=mock_object_state,
     )
     app.run()
 

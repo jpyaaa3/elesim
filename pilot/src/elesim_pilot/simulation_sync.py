@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from elesim_protocol import SimulationStatusPayload
 
@@ -32,6 +32,7 @@ class SimulationWorkflowSync:
         self._reasons: queue.Queue[str] = queue.Queue()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._cancel_callbacks: list[Callable[[str], None]] = []
         if autostart:
             self.start()
 
@@ -50,6 +51,17 @@ class SimulationWorkflowSync:
             daemon=True,
         )
         self._thread.start()
+
+    def add_cancel_callback(self, callback: Callable[[str], None]) -> None:
+        if not callable(callback):
+            raise TypeError("simulation cancellation callback must be callable")
+        self._cancel_callbacks.append(callback)
+
+    def clear(self, reason: str = "simulation target changed") -> None:
+        with self._lock:
+            self._latest = None
+        for callback in tuple(self._cancel_callbacks):
+            callback(reason)
 
     def accept(self, status: SimulationStatusPayload) -> None:
         if not isinstance(status, SimulationStatusPayload):
@@ -70,6 +82,8 @@ class SimulationWorkflowSync:
         try:
             self.service.stop_pick_e2e()
             self.service.stop_gaze_stabilizer()
+            for callback in tuple(self._cancel_callbacks):
+                callback(reason)
             print(f"[pilot_agent] visual workflows stopped: {reason}")
         finally:
             with self._lock:

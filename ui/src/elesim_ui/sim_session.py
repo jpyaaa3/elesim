@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
+    CAPABILITY_SIM_MOCK_HUG,
     CloseSimulationSessionRequest,
     DdsRuntimeSettings,
     EndpointDescriptor,
@@ -1040,7 +1041,7 @@ class UiSimSession:
         try:
             if client is None:
                 client = self.peer_factory(
-                    EndpointDescriptor(self.endpoint_id, "ui", ()),
+                    EndpointDescriptor(self.endpoint_id, "ui", (CAPABILITY_SIM_MOCK_HUG,)),
                     settings=self.settings,
                     trace_context_provider=current_trace_context,
                 )

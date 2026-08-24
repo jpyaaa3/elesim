@@ -30,8 +30,19 @@ SIMULATION_COMMANDS = frozenset(
         "reset",
         "set_speed",
         "set_debug_visible",
+        "spawn_mock_object",
+        "remove_mock_object",
+        "detach_mock_object",
     }
 )
+
+MOCK_OBJECT_STATES = frozenset(
+    {"empty", "spawned", "executing", "attached", "error"}
+)
+_MAX_MOCK_OBJECT_ASSETS = 16
+_MAX_MOCK_OBJECT_SILHOUETTE_POINTS = 64
+_MAX_MOCK_OBJECT_POSITION_M = 10.0
+_MAX_MOCK_OBJECT_EULER_DEG = 360.0
 
 
 def _object(payload: object, *, context: str) -> dict[str, Any]:
@@ -53,6 +64,34 @@ def _identifier(raw: object, *, name: str) -> str:
     return value
 
 
+def _optional_identifier(raw: object, *, name: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    return _identifier(value, name=name)
+
+
+def _asset_id(raw: object, *, name: str = "mock object asset id") -> str:
+    value = _identifier(raw, name=name)
+    if len(value) > 64 or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+        for character in value
+    ):
+        raise ProtocolError(f"{name} must be a basename-like identifier")
+    if value in {".", ".."}:
+        raise ProtocolError(f"{name} must be a basename-like identifier")
+    return value
+
+
+def _sha256(raw: object, *, name: str, allow_empty: bool = False) -> str:
+    value = str(raw or "").strip().lower()
+    if allow_empty and not value:
+        return ""
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ProtocolError(f"{name} must be a lowercase SHA-256 hex digest")
+    return value
+
+
 def _finite(raw: object, *, name: str) -> float:
     if isinstance(raw, bool) or not isinstance(raw, Real):
         raise ProtocolError(f"{name} must be a finite number")
@@ -67,6 +106,19 @@ def _vector(raw: object, length: int, *, name: str) -> tuple[float, ...]:
         count = {3: "three", 4: "four"}.get(length, str(length))
         raise ProtocolError(f"{name} must contain exactly {count} finite numbers")
     return tuple(_finite(value, name=name) for value in raw)
+
+
+def _bounded_vector(
+    raw: object,
+    length: int,
+    *,
+    name: str,
+    absolute_maximum: float,
+) -> tuple[float, ...]:
+    values = _vector(raw, length, name=name)
+    if any(abs(value) > absolute_maximum for value in values):
+        raise ProtocolError(f"{name} values must be within ±{absolute_maximum:g}")
+    return values
 
 
 def _schema(raw: Mapping[str, Any], *, context: str) -> None:
@@ -219,11 +271,72 @@ class OperatorViewSnapshot:
 
 
 @dataclass(frozen=True)
+class MockHugExecutionRequest:
+    solution_id: str
+    object_revision: int
+    object_sha256: str
+    final_q: tuple[float, float, float, float]
+    target_id: str = ""
+    target_boot_id: str = ""
+    target_lease_id: str = ""
+
+    @classmethod
+    def from_payload(cls, payload: object) -> "MockHugExecutionRequest":
+        raw = _object(payload, context="mock hug execution")
+        _unknown(
+            raw,
+            {
+                "solution_id", "object_revision", "object_sha256", "final_q",
+                "target_id", "target_boot_id", "target_lease_id",
+            },
+            context="mock hug execution",
+        )
+        target_values = tuple(
+            _optional_identifier(raw.get(name), name=f"mock hug {name}")
+            for name in ("target_id", "target_boot_id", "target_lease_id")
+        )
+        if any(target_values) and not all(target_values):
+            raise ProtocolError("mock hug routing fence must contain target, boot and lease")
+        return cls(
+            solution_id=_identifier(raw.get("solution_id"), name="mock hug solution id"),
+            object_revision=_integer(
+                raw.get("object_revision"),
+                name="mock hug object revision",
+                minimum=1,
+                maximum=2**31 - 1,
+            ),
+            object_sha256=_sha256(raw.get("object_sha256"), name="mock hug object sha256"),
+            final_q=tuple(_vector(raw.get("final_q"), 4, name="mock hug final_q")),
+            target_id=target_values[0],
+            target_boot_id=target_values[1],
+            target_lease_id=target_values[2],
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "solution_id": self.solution_id,
+            "object_revision": self.object_revision,
+            "object_sha256": self.object_sha256,
+            "final_q": list(self.final_q),
+        }
+        if self.target_id:
+            payload.update(
+                {
+                    "target_id": self.target_id,
+                    "target_boot_id": self.target_boot_id,
+                    "target_lease_id": self.target_lease_id,
+                }
+            )
+        return payload
+
+
+@dataclass(frozen=True)
 class MotionCommandRequest:
     command: str
     q: Optional[tuple[float, float, float, float]]
     go2_velocity: Optional[tuple[float, float, float]]
     raw: dict[str, Any]
+    mock_hug: Optional[MockHugExecutionRequest] = None
 
     @classmethod
     def from_payload(cls, payload: object) -> "MotionCommandRequest":
@@ -248,7 +361,12 @@ class MotionCommandRequest:
                 name="go2 velocity",
             )
             velocity = (values[0], values[1], values[2])
-        return cls(command=command, q=q, go2_velocity=velocity, raw=raw)
+        mock_hug = None
+        if "mock_hug" in raw:
+            if command != "target" or q is None:
+                raise ProtocolError("mock_hug requires a target motion command with q")
+            mock_hug = MockHugExecutionRequest.from_payload(raw["mock_hug"])
+        return cls(command=command, q=q, go2_velocity=velocity, mock_hug=mock_hug, raw=raw)
 
 
 @dataclass(frozen=True)
@@ -542,6 +660,22 @@ class SimulationCommandRequest:
         if command == "set_debug_visible":
             _unknown(raw, {"visible"}, context="set_debug_visible arguments")
             return {"visible": _boolean(raw.get("visible"), name="debug visible")}
+        if command == "spawn_mock_object":
+            _unknown(raw, {"asset_id", "position", "euler_deg"}, context="spawn_mock_object arguments")
+            return {
+                "asset_id": _asset_id(raw.get("asset_id")),
+                "position": list(_bounded_vector(
+                    raw.get("position"), 3, name="mock object position",
+                    absolute_maximum=_MAX_MOCK_OBJECT_POSITION_M,
+                )),
+                "euler_deg": list(_bounded_vector(
+                    raw.get("euler_deg"), 3, name="mock object euler_deg",
+                    absolute_maximum=_MAX_MOCK_OBJECT_EULER_DEG,
+                )),
+            }
+        if command in {"remove_mock_object", "detach_mock_object"}:
+            _unknown(raw, set(), context=f"{command} arguments")
+            return {}
         _unknown(raw, set(), context=f"{command} arguments")
         return {}
 
@@ -601,6 +735,107 @@ class SimulationResultPayload:
 
 
 @dataclass(frozen=True)
+class MockObjectStatePayload:
+    """Bounded planning projection for one Sim-local immutable OBJ artifact."""
+
+    available_assets: tuple[str, ...] = ()
+    state: str = "empty"
+    asset_id: str = ""
+    revision: int = 0
+    sha256: str = ""
+    position: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    euler_deg: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    silhouette_xz: tuple[tuple[float, float], ...] = ()
+    solution_id: str = ""
+    attached: bool = False
+    reason: str = ""
+
+    @classmethod
+    def from_payload(cls, payload: object) -> "MockObjectStatePayload":
+        raw = _object(payload, context="mock object state")
+        allowed = {
+            "available_assets", "state", "asset_id", "revision", "sha256",
+            "position", "euler_deg", "silhouette_xz", "solution_id", "attached", "reason",
+        }
+        _unknown(raw, allowed, context="mock object state")
+        assets_raw = raw.get("available_assets", ())
+        if not isinstance(assets_raw, (list, tuple)) or len(assets_raw) > _MAX_MOCK_OBJECT_ASSETS:
+            raise ProtocolError(
+                f"mock object available_assets must contain at most {_MAX_MOCK_OBJECT_ASSETS} entries"
+            )
+        assets = tuple(_asset_id(value) for value in assets_raw)
+        if len(set(assets)) != len(assets):
+            raise ProtocolError("mock object available_assets must not contain duplicates")
+        state = str(raw.get("state", "")).strip()
+        if state not in MOCK_OBJECT_STATES:
+            raise ProtocolError(f"unsupported mock object state: {state!r}")
+        revision = _integer(
+            raw.get("revision", 0), name="mock object revision", minimum=0, maximum=2**31 - 1
+        )
+        silhouette_raw = raw.get("silhouette_xz", ())
+        if not isinstance(silhouette_raw, (list, tuple)) or len(silhouette_raw) > _MAX_MOCK_OBJECT_SILHOUETTE_POINTS:
+            raise ProtocolError(
+                "mock object silhouette_xz must contain at most "
+                f"{_MAX_MOCK_OBJECT_SILHOUETTE_POINTS} points"
+            )
+        silhouette = tuple(
+            tuple(_vector(point, 2, name="mock object silhouette point"))
+            for point in silhouette_raw
+        )
+        raw_asset_id = str(raw.get("asset_id", "") or "").strip()
+        asset_id = _asset_id(raw_asset_id) if raw_asset_id else ""
+        digest = _sha256(raw.get("sha256"), name="mock object sha256", allow_empty=True)
+        solution_id = _optional_identifier(
+            raw.get("solution_id"), name="mock hug solution id"
+        )
+        attached = _boolean(raw.get("attached", False), name="mock object attached")
+        if state != "empty" and (not asset_id or not digest or len(silhouette) < 3):
+            raise ProtocolError("active mock object state requires asset_id, sha256 and a polygon")
+        if state != "empty" and revision < 1:
+            raise ProtocolError("active mock object state requires a positive revision")
+        if state == "empty" and (asset_id or digest or silhouette or solution_id or attached):
+            raise ProtocolError("empty mock object state cannot retain active object fields")
+        if (state in {"executing", "attached"}) != bool(solution_id):
+            raise ProtocolError("mock hug solution id must match executing/attached state")
+        if attached != (state == "attached"):
+            raise ProtocolError("mock object attached flag must match attached state")
+        return cls(
+            available_assets=assets,
+            state=state,
+            asset_id=asset_id,
+            revision=revision,
+            sha256=digest,
+            position=tuple(_bounded_vector(
+                raw.get("position", (0.0, 0.0, 0.0)), 3,
+                name="mock object position", absolute_maximum=_MAX_MOCK_OBJECT_POSITION_M,
+            )),
+            euler_deg=tuple(_bounded_vector(
+                raw.get("euler_deg", (0.0, 0.0, 0.0)), 3,
+                name="mock object euler_deg", absolute_maximum=_MAX_MOCK_OBJECT_EULER_DEG,
+            )),
+            silhouette_xz=silhouette,
+            solution_id=solution_id,
+            attached=attached,
+            reason=_text(raw.get("reason", ""), name="mock object reason", maximum=512, allow_empty=True),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "available_assets": list(self.available_assets),
+            "state": self.state,
+            "asset_id": self.asset_id,
+            "revision": self.revision,
+            "sha256": self.sha256,
+            "position": list(self.position),
+            "euler_deg": list(self.euler_deg),
+            "silhouette_xz": [list(point) for point in self.silhouette_xz],
+            "solution_id": self.solution_id,
+            "attached": self.attached,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
 class SimulationStatusPayload:
     epoch: int
     paused: bool
@@ -608,13 +843,17 @@ class SimulationStatusPayload:
     debug_visible: bool
     sim_time_s: float
     schema_version: int = SIMULATION_SCHEMA_VERSION
+    mock_object: Optional[MockObjectStatePayload] = None
 
     @classmethod
     def from_payload(cls, payload: object) -> "SimulationStatusPayload":
         raw = _object(payload, context="simulation_status")
         _unknown(
             raw,
-            {"schema_version", "epoch", "paused", "speed", "debug_visible", "sim_time_s"},
+            {
+                "schema_version", "epoch", "paused", "speed", "debug_visible", "sim_time_s",
+                "mock_object",
+            },
             context="simulation_status",
         )
         _schema(raw, context="simulation status")
@@ -631,10 +870,15 @@ class SimulationStatusPayload:
             speed=speed,
             debug_visible=_boolean(raw.get("debug_visible"), name="debug visible"),
             sim_time_s=sim_time_s,
+            mock_object=(
+                None
+                if raw.get("mock_object") is None
+                else MockObjectStatePayload.from_payload(raw["mock_object"])
+            ),
         )
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "epoch": self.epoch,
             "paused": self.paused,
@@ -642,6 +886,9 @@ class SimulationStatusPayload:
             "debug_visible": self.debug_visible,
             "sim_time_s": self.sim_time_s,
         }
+        if self.mock_object is not None:
+            payload["mock_object"] = self.mock_object.to_payload()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -781,11 +1028,14 @@ __all__ = [
     "CloseSimulationSessionRequest",
     "DiscoverRequest",
     "MotionCommandRequest",
+    "MockHugExecutionRequest",
+    "MockObjectStatePayload",
     "OpenSimulationSessionRequest",
     "OperatorIntentRequest",
     "OperatorViewSnapshot",
     "SelectTargetRequest",
     "SIMULATION_COMMANDS",
+    "MOCK_OBJECT_STATES",
     "SIMULATION_SCHEMA_VERSION",
     "SIMULATION_STREAMS",
     "SimulationCommandRequest",
