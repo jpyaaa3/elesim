@@ -6,7 +6,6 @@ from elesim_ui.sim_view import (
     OBSERVER_ASPECT,
     SimViewState,
     _center_crop_uv,
-    _genesis_drag_zoom_delta,
     _genesis_scroll_zoom_delta,
     _fit_aspect_size,
     _mouse_delta_xy,
@@ -50,12 +49,6 @@ def test_genesis_wheel_zoom_uses_the_pinned_ninety_percent_ratio() -> None:
     assert _genesis_scroll_zoom_delta(1.0) < 0.0
     assert _genesis_scroll_zoom_delta(-1.0) > 0.0
     assert _genesis_scroll_zoom_delta(0.0) == 0.0
-
-
-def test_genesis_right_drag_zoom_is_finite_and_bounded() -> None:
-    assert _genesis_drag_zoom_delta(0.0, height=540.0) == 0.0
-    assert -2.0 < _genesis_drag_zoom_delta(1.0, height=540.0) < 0.0
-    assert _genesis_drag_zoom_delta(-1.0, height=540.0) > 0.0
 
 
 def test_observer_display_is_fitted_to_genesis_four_by_three() -> None:

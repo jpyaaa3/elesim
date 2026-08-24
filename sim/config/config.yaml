@@ -78,8 +78,8 @@ simulation:
       jpeg: true
       jpeg_quality: 85
       max_hz: 20.0
-      width: 640
-      height: 480
+      width: 320
+      height: 240
       fov_deg: 60.0
       pos: [0.45, -1.8, 1.8]
       lookat: [0.45, 0.0, 0.25]

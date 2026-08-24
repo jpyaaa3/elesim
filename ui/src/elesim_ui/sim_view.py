@@ -33,10 +33,10 @@ def _scene_grab_delta(
 ) -> tuple[float, float]:
     """Map pointer motion to direct-grab scene motion.
 
-    Genesis' camera transform is expressed as camera motion, while this UI
-    presents the rendered image as a surface the operator grabs.  Negating
-    both axes at the input boundary makes the scene follow the pointer while
-    leaving the Genesis camera/trackball math in Sim unchanged.
+    The camera transform is expressed as view motion, while this UI presents
+    the rendered image as a surface the operator grabs.  Negating both axes at
+    the input boundary makes the scene follow the pointer; Sim then applies
+    the normalized delta as fixed-eye pan/tilt.
     """
 
     return (
@@ -52,16 +52,6 @@ def _genesis_scroll_zoom_delta(clicks: float) -> float:
     if not math.isfinite(value):
         return 0.0
     return math.log(0.90) * value / 1.5
-
-
-def _genesis_drag_zoom_delta(normalized_dy: float, *, height: float) -> float:
-    """Protocol zoom unit for Genesis' right-button vertical drag."""
-
-    value = float(normalized_dy)
-    h = max(float(height), 1.0)
-    multiplier = 2.0 - math.exp((value * h) / (0.5 * h))
-    multiplier = min(20.0, max(0.08, multiplier))
-    return math.log(multiplier) / 1.5
 
 
 OBSERVER_ASPECT = 4.0 / 3.0
@@ -481,16 +471,9 @@ class SimView:
         )
         if imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
             self.session.send_command("orbit", {"dx": dx, "dy": dy})
-        # Genesis: middle-button drag pans; right-button drag zooms.  The
-        # previous UI used right-button pan, which made the remote camera feel
-        # unlike the native viewer.
-        elif imgui.is_mouse_dragging(2) and abs(dx) + abs(dy) > 0.0:
-            self.session.send_command("pan", {"dx": dx, "dy": dy})
-        elif imgui.is_mouse_dragging(1) and abs(dy) > 0.0:
-            self.session.send_command(
-                "zoom",
-                {"delta": _genesis_drag_zoom_delta(dy, height=height)},
-            )
+        # Dragging is deliberately limited to fixed-eye pan/tilt.  Zoom stays
+        # on the wheel so an accidental secondary-button drag cannot re-create
+        # the CAD-trackball feel this view avoids.
         wheel = float(getattr(io, "mouse_wheel", 0.0))
         if abs(wheel) > 1e-6:
             self.session.send_command("zoom", {"delta": _genesis_scroll_zoom_delta(wheel)})
@@ -522,7 +505,6 @@ class SimView:
 __all__ = [
     "SimView",
     "SimViewState",
-    "_genesis_drag_zoom_delta",
     "_genesis_scroll_zoom_delta",
     "_scene_grab_delta",
 ]

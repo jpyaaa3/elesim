@@ -24,21 +24,32 @@ def observer() -> ObserverCamera:
     )
 
 
-def test_orbit_preserves_radius_and_zoom_changes_only_radius() -> None:
+def test_primary_drag_pans_and_tilts_without_moving_or_rolling_the_camera() -> None:
     value = observer()
+    original_eye = np.asarray(value.pos)
     original_target = np.asarray(value.lookat)
     original_radius = np.linalg.norm(np.asarray(value.pos) - original_target)
 
     value.apply_operator_command("orbit", {"dx": 0.2, "dy": -0.1})
 
-    np.testing.assert_allclose(value.lookat, original_target)
-    assert np.linalg.norm(np.asarray(value.pos) - original_target) == pytest.approx(
+    np.testing.assert_allclose(value.pos, original_eye)
+    assert not np.allclose(value.lookat, original_target)
+    assert np.linalg.norm(np.asarray(value.lookat) - original_eye) == pytest.approx(
         original_radius
     )
+    forward = np.asarray(value.lookat) - np.asarray(value.pos)
+    right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
+    assert right[2] == pytest.approx(0.0)
+
+
+def test_zoom_changes_only_the_camera_target_distance() -> None:
+    value = observer()
+    original_target = np.asarray(value.lookat)
+    original_radius = np.linalg.norm(np.asarray(value.pos) - original_target)
 
     value.apply_operator_command("zoom", {"delta": -0.2})
 
-    assert np.linalg.norm(np.asarray(value.pos) - original_target) < original_radius
+    assert np.linalg.norm(np.asarray(value.pos) - np.asarray(value.lookat)) < original_radius
 
 
 def test_pan_moves_eye_and_target_together_and_reset_restores_initial_pose() -> None:

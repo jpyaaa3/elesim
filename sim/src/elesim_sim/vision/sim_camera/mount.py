@@ -329,11 +329,15 @@ class ObserverCamera:
             mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
-            # Genesis Trackball rotates azimuth opposite to screen x and
-            # elevation opposite to screen y, with a hard ±89° pole clamp.
-            yaw = math.atan2(float(offset[1]), float(offset[0])) - dx_px / mindim
-            horizontal = max(float(np.linalg.norm(offset[:2])), 1e-9)
-            pitch = math.atan2(float(offset[2]), horizontal) - dy_px / mindim
+            # Keep the transport command name for protocol compatibility, but
+            # make primary-drag a conventional fixed-eye pan/tilt.  Orbiting
+            # the eye around the target felt like a CAD trackball and could
+            # visually suggest roll.  A world-Z up vector and the pole clamp
+            # leave no roll degree of freedom here.
+            forward = target - eye
+            yaw = math.atan2(float(forward[1]), float(forward[0])) - dx_px / mindim
+            horizontal = max(float(np.linalg.norm(forward[:2])), 1e-9)
+            pitch = math.atan2(float(forward[2]), horizontal) - dy_px / mindim
             pitch = float(
                 np.clip(
                     pitch,
@@ -341,14 +345,14 @@ class ObserverCamera:
                     GENESIS_TRACKBALL_MAX_ELEVATION_RAD,
                 )
             )
-            offset = radius * np.array(
+            forward = radius * np.array(
                 [
                     math.cos(pitch) * math.cos(yaw),
                     math.cos(pitch) * math.sin(yaw),
                     math.sin(pitch),
                 ]
             )
-            eye = target + offset
+            target = eye + forward
         elif name == "zoom":
             radius = float(np.clip(radius * math.exp(float(arguments["delta"]) * 1.5), 0.08, 20.0))
             eye = target + offset / max(float(np.linalg.norm(offset)), 1e-9) * radius

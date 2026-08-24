@@ -175,8 +175,8 @@
     and protocol wheels; no Router tree is emitted. The Robot wheel and release
     require both Robot and Unitree-bridge entrypoints plus exactly two systemd
     units.
-  - The observer camera uses the pinned Genesis 1.2.0 trackball semantics
-    (left orbit, middle pan, right/scroll zoom and ±89° pole clamp). The UI
+  - The observer camera uses fixed-eye pan/tilt for primary dragging, keeps
+    world-Z up with a ±89° pole clamp, and reserves zoom for the wheel. The UI
     renders observer and hand-eye streams in one separate resizable native
     camera window; closing it hides it and the main panel can reopen it.
     Canonical Roll display direction is positive while raw Robot motor polarity
