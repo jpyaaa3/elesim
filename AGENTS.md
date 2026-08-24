@@ -177,9 +177,9 @@
     and protocol wheels; no Router tree is emitted. The Robot wheel and release
     require both Robot and Unitree-bridge entrypoints plus exactly two systemd
     units.
-  - The observer camera uses fixed-eye pan/tilt for primary dragging, keeps
-    world-Z up with a ±89° pole clamp, starts from Genesis ViewerOptions defaults,
-    and reserves zoom for the wheel. The UI compensates the hand-eye camera's
+  - The observer camera uses fixed-eye pan/tilt for primary dragging, middle-drag
+    translation, keeps world-Z up with a ±89° pole clamp, starts from Genesis
+    ViewerOptions defaults, and reserves zoom for the wheel. The UI compensates the hand-eye camera's
     180-degree physical mount roll for operator presentation only. Camera
     capture is bounded by both wall-clock and simulation-time cadence so a slow
     physics loop cannot trigger both renders on every step. The UI

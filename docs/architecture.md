@@ -145,8 +145,9 @@ bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않�
 
 UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 Genesis
 1.2.x `ViewerOptions`의 기본 위치·look-at·world-Z up·FOV에서 시작한다. 기본
-드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고, 확대/축소는
-휠로 분리한다. Hand-eye의 operator view는 under-slung 180도 roll mount를
+좌클릭 드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고,
+휠클릭 드래그는 시점 평행이동, 휠 회전은 확대/축소를 수행한다. Hand-eye의
+operator view는 under-slung 180도 roll mount를
 화면에서 보정하며, DDS RGB-D와 calibration frame은 원본 방향을 유지한다.
 두 카메라의 capture cadence는 wall clock과 simulation time을 모두 만족해야
 한다. 느린 physics step이 wall-clock 주기를 항상 초과하더라도 매 step마다 두

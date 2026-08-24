@@ -485,11 +485,13 @@ class SimView:
             width=width,
             height=height,
         )
-        if imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
+        # Middle drag translates the eye and look-at point together, matching
+        # the useful part of Genesis' trackball controls. Primary drag changes
+        # only yaw/pitch with world-Z up, so it can never introduce camera roll.
+        if imgui.is_mouse_dragging(2) and abs(dx) + abs(dy) > 0.0:
+            self.session.send_command("pan", {"dx": dx, "dy": dy})
+        elif imgui.is_mouse_dragging(0) and abs(dx) + abs(dy) > 0.0:
             self.session.send_command("orbit", {"dx": dx, "dy": dy})
-        # Dragging is deliberately limited to fixed-eye pan/tilt.  Zoom stays
-        # on the wheel so an accidental secondary-button drag cannot re-create
-        # the CAD-trackball feel this view avoids.
         wheel = float(getattr(io, "mouse_wheel", 0.0))
         if abs(wheel) > 1e-6:
             self.session.send_command("zoom", {"delta": _genesis_scroll_zoom_delta(wheel)})

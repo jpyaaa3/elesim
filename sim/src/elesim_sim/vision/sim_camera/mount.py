@@ -419,9 +419,6 @@ class ObserverCamera:
 
         target_w = int(self.intrinsics.width)
         target_h = int(self.intrinsics.height)
-        pose_started = time.perf_counter()
-        self._set_camera_pose()
-        _emit_timing(timing_sink, "pose", pose_started)
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()

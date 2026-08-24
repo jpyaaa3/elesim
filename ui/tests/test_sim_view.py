@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
+
+import elesim_ui.sim_view as sim_view
 
 from elesim_ui.sim_view import (
     OBSERVER_ASPECT,
@@ -35,6 +38,50 @@ def test_camera_drag_uses_direct_grab_direction() -> None:
         0.1,
         -0.1,
     )
+
+
+def test_middle_drag_pans_observer_without_orbiting(monkeypatch) -> None:
+    sent = []
+    view = sim_view.SimView.__new__(sim_view.SimView)
+    view.session = SimpleNamespace(
+        send_command=lambda command, arguments: sent.append((command, arguments))
+    )
+    monkeypatch.setattr(
+        sim_view.imgui,
+        "get_io",
+        lambda: SimpleNamespace(mouse_delta=(20.0, -10.0), mouse_wheel=0.0),
+    )
+    monkeypatch.setattr(
+        sim_view.imgui,
+        "is_mouse_dragging",
+        lambda button: button == 2,
+    )
+
+    view._handle_observer_input(width=200.0, height=100.0)
+
+    assert sent == [("pan", {"dx": 0.1, "dy": -0.1})]
+
+
+def test_left_drag_rotates_observer_without_roll_command(monkeypatch) -> None:
+    sent = []
+    view = sim_view.SimView.__new__(sim_view.SimView)
+    view.session = SimpleNamespace(
+        send_command=lambda command, arguments: sent.append((command, arguments))
+    )
+    monkeypatch.setattr(
+        sim_view.imgui,
+        "get_io",
+        lambda: SimpleNamespace(mouse_delta=(20.0, -10.0), mouse_wheel=0.0),
+    )
+    monkeypatch.setattr(
+        sim_view.imgui,
+        "is_mouse_dragging",
+        lambda button: button == 0,
+    )
+
+    view._handle_observer_input(width=200.0, height=100.0)
+
+    assert sent == [("orbit", {"dx": 0.1, "dy": -0.1})]
 
 
 def test_hand_eye_operator_view_compensates_the_rolled_mount() -> None:
