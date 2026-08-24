@@ -143,9 +143,12 @@ DDS endpoint는 boot identity를 일찍 광고하지만, Sim scene과 media work
 bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않는다.
 따라서 UI의 초기 request는 잠시 거부될 수 있고, 새 descriptor 이후 재시도된다.
 
-UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer의 기본
+UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 Genesis
+1.2.x `ViewerOptions`의 기본 위치·look-at·world-Z up·FOV에서 시작한다. 기본
 드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고, 확대/축소는
-휠로 분리한다. WebRTC offer/answer
+휠로 분리한다. Hand-eye의 operator view는 under-slung 180도 roll mount를
+화면에서 보정하며, DDS RGB-D와 calibration frame은 원본 방향을 유지한다.
+WebRTC offer/answer
 signaling은 Sim 소유의 reliable DDS request/reply이고, 픽셀은 DTLS/SRTP다.
 Coturn은 필요할 때 ICE media candidate만 relay하며 DDS discovery/control/
 RGB-D/signaling을 relay하지 않는다.

@@ -60,11 +60,11 @@ class SimConfig:
     sim_observer_camera_jpeg: bool = True
     sim_observer_camera_jpeg_quality: int = 85
     sim_observer_camera_max_hz: float = 20.0
-    sim_observer_camera_width: int = 960
-    sim_observer_camera_height: int = 540
-    sim_observer_camera_fov_deg: float = 55.0
-    sim_observer_camera_pos: tuple[float, float, float] = (0.45, -1.8, 0.55)
-    sim_observer_camera_lookat: tuple[float, float, float] = (0.45, 0.0, 0.25)
+    sim_observer_camera_width: int = 320
+    sim_observer_camera_height: int = 240
+    sim_observer_camera_fov_deg: float = 40.0
+    sim_observer_camera_pos: tuple[float, float, float] = (3.5, 0.5, 2.5)
+    sim_observer_camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
 
     perf_log_enable: bool = False
     perf_log_interval_s: float = 2.0

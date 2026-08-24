@@ -3073,14 +3073,15 @@ def _runtime_down_wrapper(
     infrastructure_services: tuple[str, ...] = (),
 ) -> str:
     command = "docker compose -f " + shlex.quote(str(compose))
+    rendered_services = " ".join(shlex.quote(service) for service in services)
     manager_purge = (
-        "manager_purge_requested=0\n"
+        "purge_requested=0\n"
         "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
-        "  manager_purge_requested=1\n"
+        "  purge_requested=1\n"
         "  shift\n"
         "fi\n"
         "purge_manager() {\n"
-        "  (( manager_purge_requested )) || return 0\n"
+        "  (( purge_requested )) || return 0\n"
         "  if ! docker container inspect elesim-manager >/dev/null 2>&1; then\n"
         "    return 0\n"
         "  fi\n"
@@ -3090,6 +3091,23 @@ def _runtime_down_wrapper(
     manager_purge_action = (
         "manager_purge_status=0\n"
         "purge_manager || manager_purge_status=$?\n"
+    )
+    shutdown_function = (
+        "shutdown_runtime() {\n"
+        "  if (( purge_requested )); then\n"
+        f"    {command} down --remove-orphans\n"
+        "  elif runtime_has_role_containers; then\n"
+        f"    {command} rm -f -s {rendered_services}\n"
+        "  else\n"
+        "    printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다. Tailscale sidecar는 유지합니다.\\n' >&2\n"
+        "  fi\n"
+        "}\n"
+        if infrastructure_services
+        else (
+            "shutdown_runtime() {\n"
+            f"  {command} down --remove-orphans\n"
+            "}\n"
+        )
     )
     presence = _runtime_presence_function(compose=compose, services=services)
     project_presence = _runtime_presence_function(
@@ -3112,6 +3130,7 @@ def _runtime_down_wrapper(
                 + manager_purge
                 + presence
                 + project_presence
+                + shutdown_function
                 + "if (( $# != 0 )); then\n"
                 + "  printf '사용법: elesim-down [--purge]\n' >&2\n"
                 + "  exit 64\n"
@@ -3119,8 +3138,7 @@ def _runtime_down_wrapper(
                 + "down_status=0\n"
                 + "if runtime_has_project_containers; then\n"
                 + "  set +e\n"
-                + command
-                + " down --remove-orphans\n"
+                + "shutdown_runtime\n"
                 + "  down_status=$?\n"
                 + "  set -e\n"
                 + "else\n"
@@ -3144,14 +3162,14 @@ def _runtime_down_wrapper(
             + manager_purge
             + presence
             + project_presence
+            + shutdown_function
             + "if (( $# != 0 )); then\n"
             + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
             + "  exit 64\n"
             + "fi\n"
             + "if runtime_has_project_containers; then\n"
             + "  set +e\n"
-            + command
-            + " down --remove-orphans\n"
+            + "shutdown_runtime\n"
             + "  down_status=$?\n"
             + "  set -e\n"
             + "else\n"
@@ -3175,6 +3193,7 @@ def _runtime_down_wrapper(
         + manager_purge
         + presence
         + project_presence
+        + shutdown_function
         + "if (( $# != 0 )); then\n"
         + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
         + "  exit 64\n"
@@ -3198,9 +3217,7 @@ def _runtime_down_wrapper(
         + "fi\n"
         + "down_status=0\n"
         + "if (( project_present )); then\n"
-        + "  "
-        + command
-        + " down --remove-orphans || down_status=$?\n"
+        + "  shutdown_runtime || down_status=$?\n"
         + "else\n"
         + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
         + "fi\n"

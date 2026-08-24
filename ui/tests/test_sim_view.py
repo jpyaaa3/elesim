@@ -9,6 +9,7 @@ from elesim_ui.sim_view import (
     _genesis_scroll_zoom_delta,
     _fit_aspect_size,
     _mouse_delta_xy,
+    _orient_stream_uv,
     _pip_rect,
     _scene_grab_delta,
 )
@@ -31,9 +32,16 @@ def test_mouse_delta_accepts_tuple_and_rejects_unknown_shapes() -> None:
 
 def test_camera_drag_uses_direct_grab_direction() -> None:
     assert _scene_grab_delta(100.0, -50.0, width=1000.0, height=500.0) == (
-        -0.1,
         0.1,
+        -0.1,
     )
+
+
+def test_hand_eye_operator_view_compensates_the_rolled_mount() -> None:
+    uv = (0.1, 0.2, 0.9, 0.8)
+
+    assert _orient_stream_uv("observer", uv) == uv
+    assert _orient_stream_uv("hand_eye_preview", uv) == (0.9, 0.8, 0.1, 0.2)
 
 
 def test_view_state_swaps_named_streams() -> None:

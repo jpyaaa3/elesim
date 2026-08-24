@@ -22,6 +22,11 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     bundle = load_app_config(str(CONFIG_DIR / name))
     assert bundle.sim_config.sim_camera_width > 0
     assert bundle.sim_config.sim_camera_height > 0
+    assert bundle.sim_config.sim_observer_camera_width == 320
+    assert bundle.sim_config.sim_observer_camera_height == 240
+    assert bundle.sim_config.sim_observer_camera_fov_deg == 40.0
+    assert bundle.sim_config.sim_observer_camera_pos == (3.5, 0.5, 2.5)
+    assert bundle.sim_config.sim_observer_camera_lookat == (0.0, 0.0, 0.5)
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")

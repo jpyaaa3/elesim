@@ -244,6 +244,7 @@ class ObserverCamera:
     intrinsics: SimCameraIntrinsics
     pos: tuple[float, float, float]
     lookat: tuple[float, float, float]
+    up: tuple[float, float, float] = (0.0, 0.0, 1.0)
     depth_scale: float = 0.001
     _seq: int = 0
     _pose_warned: bool = False
@@ -255,20 +256,22 @@ class ObserverCamera:
         cls,
         scene,
         *,
-        res: tuple[int, int] = (960, 540),
-        fov_deg: float = 55.0,
-        pos: tuple[float, float, float] = (0.45, -1.8, 0.55),
-        lookat: tuple[float, float, float] = (0.45, 0.0, 0.25),
+        res: tuple[int, int] = (320, 240),
+        fov_deg: float = 40.0,
+        pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
+        lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
     ) -> "ObserverCamera":
         """Register camera before ``scene.build()``."""
         w, h = int(res[0]), int(res[1])
         pos_t = tuple(float(x) for x in pos)
         lookat_t = tuple(float(x) for x in lookat)
+        up_t = (0.0, 0.0, 1.0)
         try:
             camera = scene.add_camera(
                 res=(w, h),
                 pos=pos_t,
                 lookat=lookat_t,
+                up=up_t,
                 fov=float(fov_deg),
                 GUI=False,
                 debug=False,
@@ -281,7 +284,7 @@ class ObserverCamera:
                 debug=False,
             )
         intr = intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg)
-        return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t)
+        return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t, up=up_t)
 
     def _set_camera_pose(self) -> None:
         if self._reset_pos is None:
@@ -290,7 +293,7 @@ class ObserverCamera:
         if not hasattr(self.camera, "set_pose"):
             return
         try:
-            self.camera.set_pose(pos=self.pos, lookat=self.lookat)
+            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
             return
         except TypeError:
             try:

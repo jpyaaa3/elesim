@@ -9,10 +9,12 @@ from elesim_sim.vision.sim_camera.types import SimCameraIntrinsics
 
 class Camera:
     def __init__(self) -> None:
-        self.poses: list[tuple[tuple[float, ...], tuple[float, ...]]] = []
+        self.poses: list[
+            tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]
+        ] = []
 
-    def set_pose(self, *, pos, lookat) -> None:
-        self.poses.append((tuple(pos), tuple(lookat)))
+    def set_pose(self, *, pos, lookat, up) -> None:
+        self.poses.append((tuple(pos), tuple(lookat), tuple(up)))
 
 
 def observer() -> ObserverCamera:
@@ -34,12 +36,15 @@ def test_primary_drag_pans_and_tilts_without_moving_or_rolling_the_camera() -> N
 
     np.testing.assert_allclose(value.pos, original_eye)
     assert not np.allclose(value.lookat, original_target)
+    assert value.lookat[0] > original_target[0]
+    assert value.lookat[2] > original_target[2]
     assert np.linalg.norm(np.asarray(value.lookat) - original_eye) == pytest.approx(
         original_radius
     )
     forward = np.asarray(value.lookat) - np.asarray(value.pos)
     right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
     assert right[2] == pytest.approx(0.0)
+    assert value.camera.poses[-1][2] == (0.0, 0.0, 1.0)
 
 
 def test_zoom_changes_only_the_camera_target_distance() -> None:

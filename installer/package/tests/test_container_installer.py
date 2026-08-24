@@ -530,6 +530,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
     assert "down --remove-orphans" in down_wrapper
+    assert "rm -f -s" in down_wrapper
     assert "elesim-down [--purge]" in down_wrapper
     assert "docker rm -f elesim-manager" in down_wrapper
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
@@ -1950,6 +1951,56 @@ def test_runtime_down_purge_removes_only_the_exact_manager_container(
     )
     assert purged.returncode == 0
     assert (tmp_path / "manager-purged").exists()
+
+
+def test_runtime_down_keeps_tailscale_until_purge(tmp_path: Path) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
+    wrapper = tmp_path / "elesim-down"
+    wrapper.write_text(
+        _runtime_down_wrapper(
+            compose=compose,
+            logs_root=tmp_path / "logs",
+            services=("pilot", "sim", "ui"),
+            archive_enabled=False,
+            guard="",
+            infrastructure_services=("tailscale",),
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+        }
+    )
+
+    normal = subprocess.run(
+        (wrapper,), env=environment, text=True, capture_output=True, check=False
+    )
+    normal_calls = calls.read_text(encoding="utf-8")
+    assert normal.returncode == 0
+    assert "rm -f -s pilot sim ui" in normal_calls
+    assert "down --remove-orphans" not in normal_calls
+
+    calls.unlink()
+    purged = subprocess.run(
+        (wrapper, "--purge"),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    purge_calls = calls.read_text(encoding="utf-8")
+    assert purged.returncode == 0
+    assert "down --remove-orphans" in purge_calls
+    assert "rm -f -s pilot sim ui" not in purge_calls
 
 
 def test_runtime_up_refuses_xhost_before_unwritable_state_is_mutated(

@@ -33,15 +33,13 @@ def _scene_grab_delta(
 ) -> tuple[float, float]:
     """Map pointer motion to direct-grab scene motion.
 
-    The camera transform is expressed as view motion, while this UI presents
-    the rendered image as a surface the operator grabs.  Negating both axes at
-    the input boundary makes the scene follow the pointer; Sim then applies
-    the normalized delta as fixed-eye pan/tilt.
+    Positive pointer deltas map to positive screen-space pan/tilt input.  Sim
+    owns the world-frame conversion and keeps the camera roll fixed.
     """
 
     return (
-        -float(raw_dx) / max(float(width), 1.0),
-        -float(raw_dy) / max(float(height), 1.0),
+        float(raw_dx) / max(float(width), 1.0),
+        float(raw_dy) / max(float(height), 1.0),
     )
 
 
@@ -95,6 +93,18 @@ def _center_crop_uv(
     visible_height = source_aspect / target_aspect
     top = (1.0 - visible_height) * 0.5
     return 0.0, top, 1.0, 1.0 - top
+
+
+def _orient_stream_uv(
+    stream: str,
+    uv: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Return presentation UVs for one camera stream."""
+
+    u0, v0, u1, v1 = (float(value) for value in uv)
+    if str(stream) == "hand_eye_preview":
+        return u1, v1, u0, v0
+    return u0, v0, u1, v1
 
 
 def _pip_rect(
@@ -272,10 +282,13 @@ class SimView:
             setter = getattr(imgui, "set_cursor_screen_pos", None)
             if callable(setter):
                 setter((cursor_x + (float(width) - draw_width) * 0.5, cursor_y))
-        uv0_x, uv0_y, uv1_x, uv1_y = _center_crop_uv(
-            source_width,
-            height,
-            target_aspect,
+        uv0_x, uv0_y, uv1_x, uv1_y = _orient_stream_uv(
+            stream,
+            _center_crop_uv(
+                source_width,
+                height,
+                target_aspect,
+            ),
         )
         imgui.image(
             texture,
@@ -344,7 +357,7 @@ class SimView:
                 source_height,
                 version=version,
             )
-            self._draw_list_image(draw_list, texture, rect)
+            self._draw_list_image(draw_list, texture, rect, stream=stream)
         else:
             _draw_text(
                 draw_list,
@@ -383,11 +396,14 @@ class SimView:
         draw_list: Any,
         texture: int,
         rect: tuple[float, float, float, float],
+        *,
+        stream: str,
     ) -> None:
         x0, y0, x1, y1 = rect
+        u0, v0, u1, v1 = _orient_stream_uv(stream, (0.0, 0.0, 1.0, 1.0))
         for args in (
-            (texture, (x0, y0), (x1, y1), (0.0, 0.0), (1.0, 1.0)),
-            (texture, x0, y0, x1, y1, (0.0, 0.0), (1.0, 1.0)),
+            (texture, (x0, y0), (x1, y1), (u0, v0), (u1, v1)),
+            (texture, x0, y0, x1, y1, (u0, v0), (u1, v1)),
         ):
             try:
                 draw_list.add_image(*args)
@@ -506,5 +522,6 @@ __all__ = [
     "SimView",
     "SimViewState",
     "_genesis_scroll_zoom_delta",
+    "_orient_stream_uv",
     "_scene_grab_delta",
 ]

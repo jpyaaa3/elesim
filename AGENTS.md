@@ -132,7 +132,9 @@
   - The privileged Tailscale sidecar uses the official rolling `stable` image,
     as recommended for immutable Tailscale containers. Only the explicit
     `elesim-tailscale update` pull/recreate action advances it; ordinary starts
-    do not pull implicitly. Docker context and Engine ID remain pinned: a v1-v8
+    do not pull implicitly. Ordinary `elesim-down` leaves the enrolled sidecar
+    running; only `elesim-down --purge` tears it down. Docker context and Engine
+    ID remain pinned: a v1-v8
     install may acquire that daemon identity only when exact install-labelled
     Docker artifacts prove ownership on that daemon. Empty or foreign daemons
     fail closed. A later Engine-ID reset has no automatic rebind.
@@ -176,7 +178,9 @@
     require both Robot and Unitree-bridge entrypoints plus exactly two systemd
     units.
   - The observer camera uses fixed-eye pan/tilt for primary dragging, keeps
-    world-Z up with a ±89° pole clamp, and reserves zoom for the wheel. The UI
+    world-Z up with a ±89° pole clamp, starts from Genesis ViewerOptions defaults,
+    and reserves zoom for the wheel. The UI compensates the hand-eye camera's
+    180-degree physical mount roll for operator presentation only. The UI
     renders observer and hand-eye streams in one separate resizable native
     camera window; closing it hides it and the main panel can reopen it.
     Canonical Roll display direction is positive while raw Robot motor polarity

@@ -176,9 +176,10 @@ def test_observer_camera_uses_genesis_scroll_ratio() -> None:
 
 def test_observer_camera_pole_clamp_and_genesis_pan_scale() -> None:
     class _Camera:
-        def set_pose(self, *, pos, lookat):
+        def set_pose(self, *, pos, lookat, up):
             self.pos = pos
             self.lookat = lookat
+            self.up = up
 
     camera = _Camera()
     observer = ObserverCamera(
@@ -193,6 +194,7 @@ def test_observer_camera_pole_clamp_and_genesis_pan_scale() -> None:
     offset = np.asarray(observer.pos) - np.asarray(observer.lookat)
     elevation = np.arctan2(offset[2], np.linalg.norm(offset[:2]))
     assert abs(float(elevation)) <= np.radians(89.0) + 1e-6
+    assert camera.up == (0.0, 0.0, 1.0)
     before = np.asarray(observer.lookat)
     observer.apply_operator_command("pan", {"dx": 0.1, "dy": 0.0})
     assert not np.allclose(before, observer.lookat)

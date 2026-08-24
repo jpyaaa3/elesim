@@ -80,9 +80,10 @@ simulation:
       max_hz: 20.0
       width: 320
       height: 240
-      fov_deg: 60.0
-      pos: [0.45, -1.8, 1.8]
-      lookat: [0.45, 0.0, 0.25]
+      # Genesis 1.2.x ViewerOptions defaults, in its right-handed Z-up world.
+      fov_deg: 40.0
+      pos: [3.5, 0.5, 2.5]
+      lookat: [0.0, 0.0, 0.5]
   performance:
     log_enable: false
     log_interval_s: 2.0

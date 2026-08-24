@@ -232,8 +232,10 @@ elesim-status               # host/IP/container/GPU/DDS/media 요약
 ```
 
 `elesim-down`은 managed Coturn과 Developer profile의 `elesim-jaeger`도 해당
-설치가 소유하면 함께 중지한다. 로그 archive 실패가 있어도 shutdown은 시도하며
-최종 exit status에는 archive 실패를 반영한다.
+설치가 소유하면 함께 중지한다. Docker Desktop의 `elesim-tailscale` sidecar는
+일반 `elesim-down`에서 유지되며 `elesim-down --purge`에서만 내려간다. 로그
+archive 실패가 있어도 shutdown은 시도하며 최종 exit status에는 archive 실패를
+반영한다.
 
 연결 관리자의 “restart”는 런타임 설정을 원자적으로 재적용하는 동작이 아니므로
 사용하지 않는다. 전체 재시작은 각 호스트의 정확한 prefix에서 `elesim-down`
