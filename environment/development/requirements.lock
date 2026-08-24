@@ -1,5 +1,6 @@
 numpy==1.26.4
 scipy==1.15.3
+shapely==2.1.2
 PyYAML==6.0.2
 pyserial==3.5
 dynamixel-sdk==4.0.5

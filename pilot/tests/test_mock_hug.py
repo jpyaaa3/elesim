@@ -8,7 +8,9 @@ from elesim_protocol import MockObjectStatePayload, SimMappingConfig, SimQ, Simu
 from elesim_pilot.pick.mock_hug import MockHugCoordinator, MockHugError, solve_mock_hug
 
 
-def status(*, revision: int = 1, size: float = 0.08) -> SimulationStatusPayload:
+def status(
+    *, revision: int = 1, x_size: float = 0.06, z_size: float = 0.08
+) -> SimulationStatusPayload:
     return SimulationStatusPayload(
         epoch=0,
         paused=False,
@@ -22,7 +24,12 @@ def status(*, revision: int = 1, size: float = 0.08) -> SimulationStatusPayload:
             revision=revision,
             sha256="a" * 64,
             position=(0.5, 0.0, 0.4),
-            silhouette_xz=((-size, -size), (size, -size), (size, size), (-size, size)),
+            silhouette_xz=(
+                (-x_size, -z_size),
+                (x_size, -z_size),
+                (x_size, z_size),
+                (-x_size, z_size),
+            ),
         ),
     )
 
@@ -37,14 +44,27 @@ def test_solver_generates_bounded_directional_open_space_path() -> None:
     assert result.final_q == result.waypoints[-1]
     assert cfg.seg1_q_min_rad <= result.final_q[2] <= cfg.seg1_q_max_rad
     assert cfg.seg2_q_min_rad <= result.final_q[3] <= cfg.seg2_q_max_rad
+    assert result.contact_mode in {"arc2", "stick"}
+    assert result.section_source in {"exact-xz", "conservative-circumcircle"}
+    assert len(result.contacts) == 2
+    assert result.total_turns_rad == pytest.approx(
+        (5.0 * result.final_q[2], 5.0 * result.final_q[3])
+    )
+    # The old placeholder forced both sections to the same radius-derived
+    # angle.  A contact solution independently determines both total turns.
+    assert result.final_q[2] != pytest.approx(result.final_q[3])
 
 
 def test_solver_rejects_absent_attached_and_oversized_objects() -> None:
     empty = SimulationStatusPayload(0, False, 1.0, True, 0.0)
     with pytest.raises(MockHugError, match="no spawned"):
         solve_mock_hug(empty, current_q=SimQ(0, 0, 0, 0), mapping=SimMappingConfig())
-    with pytest.raises(MockHugError, match="too large"):
-        solve_mock_hug(status(size=0.3), current_q=SimQ(0, 0, 0, 0), mapping=SimMappingConfig())
+    with pytest.raises(MockHugError, match="no feasible|fixed 0.25"):
+        solve_mock_hug(
+            status(x_size=0.3, z_size=0.3),
+            current_q=SimQ(0, 0, 0, 0),
+            mapping=SimMappingConfig(),
+        )
 
 
 def test_solution_identity_changes_with_spawn_revision() -> None:

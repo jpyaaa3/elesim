@@ -1,12 +1,10 @@
 """Mock-object hug planning owned by Pilot.
 
-This is deliberately an open-space local planner.  It consumes Sim's bounded
-2-D planning projection and leaves obstacle-aware approach planning behind a
-small planner interface for the later reconstruction/RRT stage.  The target-
-first identity and two-section closure are adapted from ``grasp/hug/hug.py``;
-its Shapely contact-pair optimizer is not imported across repositories.  The
-present bounded approximation is therefore mock-only, not a physical grasp
-certificate.
+This consumes Sim's bounded XZ section and runs the target-first contact-pair
+solver ported from ``grasp/hug/hug.py``.  The resulting total section turns are
+mapped onto EleSim's five distributed joints per section.  Approach motion is
+still open-space interpolation, so this is a planar capture certificate rather
+than an obstacle-aware or force-closure proof.
 """
 
 from __future__ import annotations
@@ -21,6 +19,8 @@ from typing import Callable, Optional, Protocol
 
 from elesim_protocol import SimMappingConfig, SimQ, SimulationStatusPayload
 
+from .hug_geometry import HugGeometryError, solve_cross_section
+
 
 class MockHugError(RuntimeError):
     pass
@@ -33,6 +33,11 @@ class MockHugSolution:
     object_sha256: str
     final_q: tuple[float, float, float, float]
     waypoints: tuple[tuple[float, float, float, float], ...]
+    section_source: str
+    contact_mode: str
+    section_length_m: float
+    total_turns_rad: tuple[float, float]
+    contacts: tuple[tuple[float, float], tuple[float, float]]
     clearance_mode: str = "open-space"
 
     def to_payload(self) -> dict[str, object]:
@@ -42,6 +47,11 @@ class MockHugSolution:
             "object_sha256": self.object_sha256,
             "final_q": list(self.final_q),
             "waypoints": [list(value) for value in self.waypoints],
+            "section_source": self.section_source,
+            "contact_mode": self.contact_mode,
+            "section_length_m": self.section_length_m,
+            "total_turns_rad": list(self.total_turns_rad),
+            "contacts": [list(value) for value in self.contacts],
             "clearance_mode": self.clearance_mode,
         }
 
@@ -81,31 +91,56 @@ def solve_mock_hug(
         raise MockHugError(f"mock object is not available for planning ({obj.state})")
     if len(obj.silhouette_xz) < 3:
         raise MockHugError("mock object has no usable XZ silhouette")
-    xs = [point[0] for point in obj.silhouette_xz]
-    zs = [point[1] for point in obj.silhouette_xz]
-    radius = 0.5 * math.hypot(max(xs) - min(xs), max(zs) - min(zs))
-    if radius > 0.18:
-        raise MockHugError(f"mock object is too large for bounded mock hug ({radius:.3f} m)")
 
-    # The present mock is a target-local closure estimate, not global path
-    # planning.  World X chooses prismatic reach; Y/Z choose the curl plane.
+    try:
+        candidate = solve_cross_section(obj.silhouette_xz)[0]
+    except HugGeometryError as exc:
+        raise MockHugError(f"hug contact solver found no feasible section: {exc}") from exc
+
+    # hug.py turn1/turn2 are total constant-curvature section turns.  EleSim's
+    # q stores the equal per-joint turn for five joints in each section.
+    distributed_joints_per_section = 5
+    total_turn1, total_turn2 = candidate.turn1, candidate.turn2
+    # Mirror the complete planar solution when its pocket lies below the
+    # selected radial half-plane.  This preserves contacts and capture score.
+    if candidate.translation[0] < 0.0:
+        total_turn1, total_turn2 = -total_turn1, -total_turn2
+
+    # World X still chooses prismatic reach; Y/Z select the solved XZ plane.
+    # Obstacle-aware placement remains the later local-planner replacement.
     linear = min(mapping.linear_q_max_m, max(mapping.linear_q_min_m, 0.45 - obj.position[0]))
-    roll = math.atan2(obj.position[1], max(0.05, obj.position[2]))
+    roll = math.atan2(-obj.position[1], max(0.05, obj.position[2]))
     roll = min(mapping.roll_q_max_rad, max(mapping.roll_q_min_rad, roll))
-    closure = min(math.radians(34.0), max(math.radians(12.0), math.radians(15.0) + radius * 1.6))
-    theta1 = min(mapping.seg1_q_max_rad, max(mapping.seg1_q_min_rad, closure))
-    theta2 = min(mapping.seg2_q_max_rad, max(mapping.seg2_q_min_rad, closure))
+    theta1 = total_turn1 / distributed_joints_per_section
+    theta2 = total_turn2 / distributed_joints_per_section
+    if not mapping.seg1_q_min_rad <= theta1 <= mapping.seg1_q_max_rad:
+        raise MockHugError("hug solution exceeds section-1 bend limits")
+    if not mapping.seg2_q_min_rad <= theta2 <= mapping.seg2_q_max_rad:
+        raise MockHugError("hug solution exceeds section-2 bend limits")
     goal = SimQ(linear, roll, theta1, theta2)
     waypoints = (planner or OpenSpaceTrajectoryPlanner()).plan(current_q, goal)
     identity = {
         "revision": obj.revision,
         "sha256": obj.sha256,
         "final_q": list(waypoints[-1]),
+        "contacts": [list(candidate.contact1), list(candidate.contact2)],
+        "turns": [total_turn1, total_turn2],
     }
     solution_id = hashlib.sha256(
         json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:24]
-    return MockHugSolution(solution_id, obj.revision, obj.sha256, waypoints[-1], waypoints)
+    return MockHugSolution(
+        solution_id,
+        obj.revision,
+        obj.sha256,
+        waypoints[-1],
+        waypoints,
+        candidate.section_source,
+        candidate.mode,
+        candidate.length,
+        (total_turn1, total_turn2),
+        (candidate.contact1, candidate.contact2),
+    )
 
 
 class MockHugCoordinator:
