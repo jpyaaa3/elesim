@@ -133,3 +133,46 @@ def test_sim_scene_transport_sinks_do_not_block_camera_capture() -> None:
     finally:
         release_publisher.set()
         scene.close_frame_dispatchers()
+
+
+def test_camera_rate_limit_requires_simulation_time_to_advance(monkeypatch) -> None:
+    class Frame:
+        color_bgr = np.zeros((3, 4, 3), dtype=np.uint8)
+
+    class Camera:
+        def __init__(self) -> None:
+            self.captures = 0
+
+        def capture(self, **_kwargs: object) -> Frame:
+            self.captures += 1
+            return Frame()
+
+    now = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    camera = Camera()
+    scene = SimScene(eye_camera=camera)
+
+    scene.maybe_publish_camera(
+        arm_q=None,
+        max_hz=30.0,
+        sim_time_s=0.0,
+        force=True,
+        depth_enabled=False,
+    )
+    now[0] = 102.0
+    scene.maybe_publish_camera(
+        arm_q=None,
+        max_hz=30.0,
+        sim_time_s=0.02,
+        depth_enabled=False,
+    )
+    assert camera.captures == 1
+
+    now[0] = 104.0
+    scene.maybe_publish_camera(
+        arm_q=None,
+        max_hz=30.0,
+        sim_time_s=0.04,
+        depth_enabled=False,
+    )
+    assert camera.captures == 2

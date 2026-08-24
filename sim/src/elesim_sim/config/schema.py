@@ -66,7 +66,7 @@ class SimConfig:
     sim_observer_camera_pos: tuple[float, float, float] = (3.5, 0.5, 2.5)
     sim_observer_camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
 
-    perf_log_enable: bool = False
+    perf_log_enable: bool = True
     perf_log_interval_s: float = 2.0
     perf_log_path: str = ""
 

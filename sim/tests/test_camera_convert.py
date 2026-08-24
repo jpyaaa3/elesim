@@ -115,3 +115,32 @@ def test_cuda_conversion_matches_cpu_within_one_uint8_level() -> None:
     assert gpu_depth.shape == cpu_depth.shape == (3, 4)
     assert int(np.max(np.abs(gpu_color.astype(np.int16) - cpu_color.astype(np.int16)))) <= 1
     np.testing.assert_array_equal(gpu_depth, cpu_depth)
+
+
+@pytest.mark.skipif(
+    not _cuda_available(),
+    reason="CUDA device is required for the GPU synchronization regression",
+)
+def test_genesis_cuda_rgb_conversion_avoids_scalar_readback() -> None:
+    import torch
+
+    rgb = torch.rand((8, 8, 3), dtype=torch.float32, device="cuda")
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ]
+    ) as profile:
+        result = rgb_to_bgr(
+            rgb,
+            target_width=8,
+            target_height=8,
+            prefer_gpu=True,
+            normalized_float=True,
+        )
+
+    assert result.shape == (8, 8, 3)
+    assert not any(
+        "local_scalar_dense" in event.key
+        for event in profile.key_averages()
+    )

@@ -85,7 +85,7 @@ simulation:
       pos: [3.5, 0.5, 2.5]
       lookat: [0.0, 0.0, 0.5]
   performance:
-    log_enable: false
+    log_enable: true
     log_interval_s: 2.0
     log_path: ''
 

@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import csv
+import math
 import time
 
-from elesim_sim.runtime import PerfLogger
+from elesim_sim.runtime import PerfLogger, _advance_capture_deadline
+
+
+def test_capture_deadline_preserves_fractional_frame_cadence() -> None:
+    period = 1.0 / 30.0
+    deadline = _advance_capture_deadline(0.0, 0.0, period)
+    assert math.isclose(deadline, period)
+    deadline = _advance_capture_deadline(deadline, 0.04, period)
+    assert math.isclose(deadline, 2.0 * period)
+    deadline = _advance_capture_deadline(deadline, 0.08, period)
+    assert math.isclose(deadline, 3.0 * period)
 
 
 def test_perf_logger_writes_camera_substage_metrics(tmp_path) -> None:

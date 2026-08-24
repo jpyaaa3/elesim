@@ -40,6 +40,24 @@ from elesim_sim.vision.webrtc import available as webrtc_available
 _ROOT = Path(__file__).resolve().parents[2]
 
 
+def _configure_gpu_render_environment(*, use_gpu: bool, viewer: bool) -> None:
+    """Keep headless OpenGL and CUDA on the operator-selected GPU."""
+
+    if not bool(use_gpu):
+        return
+    # Make numeric CUDA indices match the PCI/nvidia-smi order.  General
+    # inherit-mode exposes every GPU and narrows CUDA with this variable.
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+    if bool(viewer):
+        return
+    # Headless pyrender must use EGL.  Otherwise DISPLAY can select a separate
+    # graphics GPU and every camera render crosses the device boundary.
+    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if visible.isdecimal() and "," not in visible:
+        os.environ.setdefault("EGL_DEVICE_ID", visible)
+
+
 def _rgbd_descriptor(
     *,
     topic: str,
@@ -87,6 +105,11 @@ def _run() -> None:
             if "--cpu" in sim_args or not bool(bundle.sim_config.use_gpu)
             else "auto"
         )
+
+    _configure_gpu_render_environment(
+        use_gpu=bool(bundle.sim_config.use_gpu) and "--cpu" not in sim_args,
+        viewer="--viewer" in sim_args,
+    )
 
     development_rebuild = os.environ.get("ELESIM_SIM_DEV_REBUILD", "").strip() == "1"
     model_bundle = ""

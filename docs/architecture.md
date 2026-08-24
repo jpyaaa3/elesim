@@ -148,6 +148,15 @@ UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 G
 드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고, 확대/축소는
 휠로 분리한다. Hand-eye의 operator view는 under-slung 180도 roll mount를
 화면에서 보정하며, DDS RGB-D와 calibration frame은 원본 방향을 유지한다.
+두 카메라의 capture cadence는 wall clock과 simulation time을 모두 만족해야
+한다. 느린 physics step이 wall-clock 주기를 항상 초과하더라도 매 step마다 두
+render를 강제하여 real-time factor를 더 악화시키지 않는다.
+GPU 모드의 Genesis는 `performance_mode`를 사용한다. Headless Sim은 EGL을
+사용하며 숫자형 `CUDA_VISIBLE_DEVICES`가 하나면 동일한 `EGL_DEVICE_ID`를
+선택해 렌더링과 계산이 서로 다른 GPU에 걸리지 않게 한다. Genesis의 정규화된
+RGB는 resize, channel reorder, uint8 변환까지 CUDA에서 처리하고 DDS/PyAV가
+요구하는 최종 host frame만 한 번 전송한다. Native Viewer는 창 시스템의 OpenGL
+선택을 유지한다.
 WebRTC offer/answer
 signaling은 Sim 소유의 reliable DDS request/reply이고, 픽셀은 DTLS/SRTP다.
 Coturn은 필요할 때 ICE media candidate만 relay하며 DDS discovery/control/

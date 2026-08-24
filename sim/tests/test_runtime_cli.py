@@ -1,14 +1,61 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import elesim_sim.runtime as runtime
 from elesim_sim.config import load_app_config
+from elesim_sim.main import _configure_gpu_render_environment
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+    monkeypatch.delenv("EGL_DEVICE_ID", raising=False)
+
+    _configure_gpu_render_environment(use_gpu=True, viewer=False)
+
+    assert os.environ["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+    assert os.environ["PYOPENGL_PLATFORM"] == "egl"
+    assert os.environ["EGL_DEVICE_ID"] == "2"
+
+
+def test_viewer_does_not_force_headless_egl(monkeypatch) -> None:
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+    monkeypatch.delenv("EGL_DEVICE_ID", raising=False)
+
+    _configure_gpu_render_environment(use_gpu=True, viewer=True)
+
+    assert "PYOPENGL_PLATFORM" not in os.environ
+    assert "EGL_DEVICE_ID" not in os.environ
+
+
+def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
+    captured = {}
+
+    class InitObserved(Exception):
+        pass
+
+    def observe_init(**kwargs) -> None:
+        captured.update(kwargs)
+        raise InitObserved
+
+    monkeypatch.setattr(runtime.gs, "init", observe_init)
+    app = SimpleNamespace(cfg=SimpleNamespace(use_go2=False, use_gpu=True))
+
+    with pytest.raises(InitObserved):
+        runtime.RuntimePrep(app).init_genesis("")
+
+    assert captured["backend"] is runtime.gs.gpu
+    assert captured["logging_level"] == "warning"
+    assert captured["performance_mode"] is True
 
 
 def test_viewer_flag_overrides_remote_profile(monkeypatch) -> None:

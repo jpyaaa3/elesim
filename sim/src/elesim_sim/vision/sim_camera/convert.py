@@ -64,15 +64,16 @@ def _cuda_rgb_to_bgr(
     *,
     target_width: int,
     target_height: int,
+    normalized_float: Optional[bool],
     timing_sink: Optional[TimingSink],
 ) -> Optional[np.ndarray]:
     """Convert a CUDA RGB tensor and transfer one final BGR image to the host.
 
     Genesis normally returns HxWx3 float tensors in the [0, 1] range.  The
-    max-value check preserves the legacy handling of uint8 and float [0, 255]
-    outputs as well.  The scalar reduction is intentional: it is one small
-    synchronization, followed by the single image transfer required by the
-    WebRTC/DDS boundary.
+    Genesis' floating render output is normalized.  That boundary passes
+    ``normalized_float=True`` so conversion remains on-device until the one
+    image transfer required by DDS/WebRTC.  ``None`` keeps range auto-detection
+    for other callers, at the cost of one scalar synchronization.
     """
 
     try:
@@ -93,8 +94,12 @@ def _cuda_rgb_to_bgr(
         # poisoning the reduction.  +inf is represented above the normalized
         # range so normalized finite values are not accidentally scaled.
         work = torch.nan_to_num(work, nan=0.0, posinf=255.0, neginf=0.0)
-        max_value = float(torch.amax(work).item()) if work.numel() else 0.0
-        if max_value <= 1.0:
+        is_normalized = normalized_float
+        if is_normalized is None:
+            is_normalized = bool(
+                float(torch.amax(work).item()) <= 1.0 if work.numel() else True
+            )
+        if is_normalized:
             work = work * 255.0
         pixels = torch.clamp(work, 0.0, 255.0).to(dtype=torch.uint8)
         pixels = pixels[..., :3]
@@ -173,6 +178,7 @@ def rgb_to_bgr(
     target_width: int,
     target_height: int,
     prefer_gpu: bool = True,
+    normalized_float: Optional[bool] = None,
     timing_sink: Optional[TimingSink] = None,
 ) -> np.ndarray:
     """Return a contiguous uint8 BGR image from a Genesis RGB result."""
@@ -184,6 +190,7 @@ def rgb_to_bgr(
                 value,
                 target_width=int(target_width),
                 target_height=int(target_height),
+                normalized_float=normalized_float,
                 timing_sink=timing_sink,
             )
             if converted is not None:

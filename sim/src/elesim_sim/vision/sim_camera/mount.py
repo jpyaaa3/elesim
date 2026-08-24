@@ -191,6 +191,7 @@ class Node9EyeInHandCamera:
                 target_width=target_w,
                 target_height=target_h,
                 prefer_gpu=bool(prefer_gpu),
+                normalized_float=True,
                 timing_sink=timing_sink,
             )
         else:
@@ -202,6 +203,7 @@ class Node9EyeInHandCamera:
                 target_width=target_w,
                 target_height=target_h,
                 prefer_gpu=bool(prefer_gpu),
+                normalized_float=True,
                 timing_sink=timing_sink,
             )
         else:

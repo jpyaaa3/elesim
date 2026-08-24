@@ -116,6 +116,18 @@ def _ensure_genesis_cache_dir() -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _advance_capture_deadline(previous: float, current: float, period: float) -> float:
+    """Advance a simulation-time camera deadline without accumulating backlog."""
+
+    deadline = max(0.0, float(previous))
+    now = max(0.0, float(current))
+    interval = max(1e-9, float(period))
+    if deadline > now + 1e-9:
+        return deadline
+    missed = int((now - deadline) // interval) + 1
+    return deadline + missed * interval
+
+
 class PerfLogger:
     _BASE_NAMES = ("loop", "poll", "go2", "markers", "feedback", "physics", "camera")
     _GO2_DETAIL_NAMES = (
@@ -986,6 +998,8 @@ class SimScene:
     _sim_wall_start_s: float = field(default_factory=time.perf_counter)
     _last_camera_publish_t: float = 0.0
     _last_observer_camera_publish_t: float = 0.0
+    _next_camera_publish_sim_t: float = 0.0
+    _next_observer_camera_publish_sim_t: float = 0.0
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
@@ -1358,6 +1372,10 @@ class SimScene:
             )
         self.sim_step_count = 0
         self._sim_wall_start_s = time.perf_counter()
+        self._last_camera_publish_t = 0.0
+        self._last_observer_camera_publish_t = 0.0
+        self._next_camera_publish_sim_t = 0.0
+        self._next_observer_camera_publish_sim_t = 0.0
         print(
             "[sim] environment reset | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
             % (
@@ -1377,22 +1395,28 @@ class SimScene:
         *,
         arm_q: Optional[tuple[float, float, float, float]],
         max_hz: float,
+        sim_time_s: Optional[float] = None,
         force: bool = False,
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
     ) -> None:
         if self.eye_camera is None:
             return
-        import time
-
         period = 1.0 / max(1.0, float(max_hz))
-        now = time.time()
-        if not force and (now - float(self._last_camera_publish_t)) < period:
+        now_mono = time.monotonic()
+        if not force and (
+            (now_mono - float(self._last_camera_publish_t)) < period
+            or (
+                sim_time_s is not None
+                and float(sim_time_s) + 1e-9
+                < float(self._next_camera_publish_sim_t)
+            )
+        ):
             return
         try:
             frame = self.eye_camera.capture(
                 arm_q=arm_q,
-                ts=now,
+                ts=time.time(),
                 rgb_enabled=bool(rgb_enabled),
                 depth_enabled=bool(depth_enabled),
                 prefer_gpu=bool(self.camera_gpu_convert),
@@ -1415,7 +1439,13 @@ class SimScene:
                 self.rgbd_dispatcher.submit("hand_eye_preview", frame)
             elif self.camera_publisher is not None:
                 self.camera_publisher.publish(frame)
-            self._last_camera_publish_t = now
+            self._last_camera_publish_t = now_mono
+            if sim_time_s is not None:
+                self._next_camera_publish_sim_t = _advance_capture_deadline(
+                    self._next_camera_publish_sim_t,
+                    float(sim_time_s),
+                    period,
+                )
         except Exception as exc:
             print(f"[sim_camera] capture/publish failed: {exc}")
 
@@ -1423,19 +1453,25 @@ class SimScene:
         self,
         *,
         max_hz: float,
+        sim_time_s: Optional[float] = None,
         force: bool = False,
     ) -> None:
         if self.observer_camera is None:
             return
-        import time
-
         period = 1.0 / max(1.0, float(max_hz))
-        now = time.time()
-        if not force and (now - float(self._last_observer_camera_publish_t)) < period:
+        now_mono = time.monotonic()
+        if not force and (
+            (now_mono - float(self._last_observer_camera_publish_t)) < period
+            or (
+                sim_time_s is not None
+                and float(sim_time_s) + 1e-9
+                < float(self._next_observer_camera_publish_sim_t)
+            )
+        ):
             return
         try:
             frame = self.observer_camera.capture(
-                ts=now,
+                ts=time.time(),
                 rgb_enabled=True,
                 depth_enabled=False,
                 prefer_gpu=bool(self.camera_gpu_convert),
@@ -1457,7 +1493,13 @@ class SimScene:
                 self.rgbd_dispatcher.submit("observer", frame)
             elif self.observer_camera_publisher is not None:
                 self.observer_camera_publisher.publish(frame)
-            self._last_observer_camera_publish_t = now
+            self._last_observer_camera_publish_t = now_mono
+            if sim_time_s is not None:
+                self._next_observer_camera_publish_sim_t = _advance_capture_deadline(
+                    self._next_observer_camera_publish_sim_t,
+                    float(sim_time_s),
+                    period,
+                )
         except Exception as exc:
             print(f"[sim_camera] observer capture/publish failed: {exc}")
 
@@ -2199,10 +2241,20 @@ class RuntimePrep:
         backend_name = "gpu" if a.cfg.use_gpu else "cpu"
         print(f"[runtime] genesis backend requested: {backend_name}")
         _ensure_genesis_cache_dir()
+        init_kwargs = {"backend": backend, "logging_level": "warning"}
+        if bool(a.cfg.use_gpu):
+            # Runtime inputs are validated before this boundary; favor device
+            # throughput over Genesis' interactive debugging synchronization.
+            init_kwargs["performance_mode"] = True
         try:
-            gs.init(backend=backend, logging_level="warning")
+            gs.init(**init_kwargs)
         except TypeError:
-            gs.init(backend=backend)
+            # Compatibility with Genesis versions predating performance_mode.
+            init_kwargs.pop("performance_mode", None)
+            try:
+                gs.init(**init_kwargs)
+            except TypeError:
+                gs.init(backend=backend)
 
         gravity = tuple(float(x) for x in a.params.gravity)
         if use_go2 and gravity == (0.0, 0.0, 0.0):
@@ -2629,12 +2681,14 @@ class SimRuntime:
                         float(start_q.theta2_rad),
                     ),
                     max_hz=float(a.cfg.sim_camera_max_hz),
+                    sim_time_s=0.0,
                     force=True,
                     rgb_enabled=bool(a.cfg.sim_camera_rgb),
                     depth_enabled=bool(a.cfg.sim_camera_depth),
                 )
                 a.sim_scene.maybe_publish_observer_camera(
                     max_hz=float(a.cfg.sim_observer_camera_max_hz),
+                    sim_time_s=0.0,
                     force=True,
                 )
                 self._status_dirty = True
@@ -2857,6 +2911,7 @@ class SimRuntime:
                     a.sim_scene.maybe_publish_camera(
                         arm_q=arm_q,
                         max_hz=float(a.cfg.sim_camera_max_hz),
+                        sim_time_s=a.sim_scene.sim_time_s(float(a.params.dt)),
                         force=self._force_hand_eye_capture,
                         rgb_enabled=bool(a.cfg.sim_camera_rgb),
                         depth_enabled=bool(a.cfg.sim_camera_depth),
@@ -2888,6 +2943,7 @@ class SimRuntime:
                 if did_step or observer_dirty or observer_needs_frame:
                     a.sim_scene.maybe_publish_observer_camera(
                         max_hz=float(a.cfg.sim_observer_camera_max_hz),
+                        sim_time_s=a.sim_scene.sim_time_s(float(a.params.dt)),
                         force=observer_dirty,
                     )
                 perf.section("camera", t_sec)
@@ -3030,6 +3086,7 @@ class GenesisApp:
             self.sim_scene.maybe_publish_camera(
                 arm_q=None,
                 max_hz=float(self.cfg.sim_camera_max_hz),
+                sim_time_s=0.0,
                 force=True,
                 rgb_enabled=bool(self.cfg.sim_camera_rgb),
                 depth_enabled=bool(self.cfg.sim_camera_depth),
@@ -3048,6 +3105,7 @@ class GenesisApp:
         if self.sim_scene.observer_camera is not None:
             self.sim_scene.maybe_publish_observer_camera(
                 max_hz=float(self.cfg.sim_observer_camera_max_hz),
+                sim_time_s=0.0,
                 force=True,
             )
             if not self.sim_scene.flush_video_frame("observer", timeout_s=2.0):
