@@ -31,15 +31,17 @@ def _scene_grab_delta(
     width: float,
     height: float,
 ) -> tuple[float, float]:
-    """Map pointer motion to direct-grab scene motion.
+    """Map pointer motion to the observer's inverted drag convention.
 
-    Positive pointer deltas map to positive screen-space pan/tilt input.  Sim
-    owns the world-frame conversion and keeps the camera roll fixed.
+    The Genesis observer mapping currently feels reversed to the operator, so
+    both horizontal (pan/yaw) and vertical (tilt) drag components are inverted
+    at the UI boundary. Sim still owns the world-frame conversion and keeps
+    camera roll fixed. Wheel zoom is handled independently and is unchanged.
     """
 
     return (
-        float(raw_dx) / max(float(width), 1.0),
-        float(raw_dy) / max(float(height), 1.0),
+        -float(raw_dx) / max(float(width), 1.0),
+        -float(raw_dy) / max(float(height), 1.0),
     )
 
 
