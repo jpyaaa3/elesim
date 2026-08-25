@@ -78,6 +78,9 @@ def _run() -> None:
     config = load_config(args.config)
     endpoint_id = str(args.id).strip() or config.endpoint_id
     camera_enabled = config.camera.enabled if args.camera is None else bool(args.camera)
+    # The Robot advertises/publishes its source topic. Pilot relays the
+    # already-encoded sample to the broker topic from the generated rgbd
+    # section, so no raw source is exposed as the public stream.
     rgbd_topic = str(args.rgbd_topic).strip() or config.camera.topic
 
     streams = {}
@@ -91,6 +94,7 @@ def _run() -> None:
                 if config.dds.security_profile == "sros2"
                 else MEDIA_SECURITY_NONE
             ),
+            format=config.rgbd.format,
         )
 
     capabilities = [CAPABILITY_MOTION_ARM]
@@ -133,6 +137,7 @@ def _run() -> None:
                 width=config.camera.width,
                 height=config.camera.height,
                 fps=config.camera.fps,
+                wire_format=config.rgbd.format,
             )
             if camera_enabled
             else None

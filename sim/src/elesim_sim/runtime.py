@@ -2898,6 +2898,10 @@ class RuntimePrep:
                 endpoint_id=a.rgbd_endpoint_id,
                 boot_id=a.rgbd_boot_id,
                 settings=a.dds_settings,
+                wire_format=a.rgbd_wire_format,
+                color_codec="jpeg" if bool(a.cfg.sim_camera_jpeg) else "raw",
+                depth_codec="zlib",
+                jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
             )
 
         if observer_camera is not None:
@@ -3515,6 +3519,7 @@ class GenesisApp:
         rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
         rgbd_endpoint_id: str = "sim-default",
         rgbd_boot_id: str = "",
+        rgbd_wire_format: str = "raw-rgbd-v1",
         runtime_ready_event: Optional[Any] = None,
         mock_object_state: Optional[MockObjectState] = None,
     ):
@@ -3557,6 +3562,7 @@ class GenesisApp:
         )
         self.rgbd_endpoint_id = str(rgbd_endpoint_id)
         self.rgbd_boot_id = str(rgbd_boot_id)
+        self.rgbd_wire_format = str(rgbd_wire_format).strip().lower() or "raw-rgbd-v1"
         self.runtime_ready_event = runtime_ready_event
         if self.cfg.sim_camera_enable and not self.rgbd_topic.startswith("/"):
             raise ValueError(
@@ -3725,6 +3731,7 @@ def run_runtime(
     rgbd_topic: str = "/elesim/sim_default/rgbd/frame",
     rgbd_endpoint_id: str = "sim-default",
     rgbd_boot_id: str = "",
+    rgbd_wire_format: str = "raw-rgbd-v1",
     runtime_ready_event: Optional[Any] = None,
     mock_object_state: Optional[MockObjectState] = None,
 ) -> None:
@@ -3834,6 +3841,7 @@ def run_runtime(
         rgbd_topic=rgbd_topic,
         rgbd_endpoint_id=rgbd_endpoint_id,
         rgbd_boot_id=rgbd_boot_id,
+        rgbd_wire_format=rgbd_wire_format,
         runtime_ready_event=runtime_ready_event,
         mock_object_state=mock_object_state,
     )

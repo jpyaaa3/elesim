@@ -979,13 +979,15 @@ class ConnectionTopology:
         if self.dds_graph.discovery_mode == "multicast":
             return ()
         # The runtime-network doctor is a separate DDS participant from the
-        # application roles.  It therefore needs the host's own advertised
-        # address even when that host carries only one role; otherwise a
-        # single-role Sim (or Pilot/UI) cannot be observed by its local
-        # readiness probe when multicast is disabled.  The self seed is a
-        # discovery locator only; application traffic still uses the live
-        # endpoint locators advertised by DDS.
-        peers: list[str] = [host.dds.address]
+        # application roles.  Full topologies and a one-host simulation
+        # topology therefore retain the local seed for that probe.  A
+        # distributed simulation-only topology has Pilot/Sim on one host and
+        # UI on another; its static list is intentionally remote-only so the
+        # two-host edge path does not loop its own locator back into DDS.
+        include_self = not (
+            self.topology_mode == "simulation-only" and len(self.hosts) > 1
+        )
+        peers: list[str] = [host.dds.address] if include_self else []
         peers.extend(
             other.dds.address
             for other in self.hosts

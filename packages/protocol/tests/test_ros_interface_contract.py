@@ -12,6 +12,7 @@ def test_ros_interface_package_declares_all_phase_one_surfaces() -> None:
     expected = {
         "msg/EndpointDescriptor.msg",
         "msg/EndpointHeartbeat.msg",
+        "msg/EncodedRgbdFrame.msg",
         "msg/LeaseFence.msg",
         "msg/MotionAck.msg",
         "msg/MotionCommand.msg",

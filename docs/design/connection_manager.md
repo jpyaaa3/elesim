@@ -101,6 +101,32 @@ boundary를 정리한다. 한 host에 aggregate CA private key나 unrelated encl
 `trusted-network`는 새 generation 없이도 명시적 interface/firewall trust를
 검증해야 하고, external SROS2는 operator-supplied keystore를 그대로 유지한다.
 
+### RGB-D 권장 배치
+
+`simulation-only`에서 connection manager는 다음 배치를 유효한 일반 topology로
+취급한다.
+
+```yaml
+topology_mode: simulation-only
+hosts:
+  - id: compute
+    units:
+      - id: runtime
+        assignments:
+          - {role: pilot, endpoint_id: pilot-main}
+          - {role: sim, endpoint_id: sim-default}
+  - id: operator
+    units:
+      - id: runtime
+        assignments:
+          - {role: ui, endpoint_id: ui-main}
+```
+
+이 배치는 새 role이나 Router를 만들지 않는다. source인 Sim과 RGB-D edge broker인
+Pilot을 같은 Compose unit에 두어 raw handoff를 host 밖으로 내보내지 않고, UI는
+Pilot이 소유하는 encoded broker stream만 받는다. `full`에서는 같은 원칙으로
+Robot source와 Pilot broker 사이의 local handoff를 우선한다.
+
 ## 5. Host lifecycle
 
 `start`는 Compose/systemd management state만 다룬다. full start는 모든 선택

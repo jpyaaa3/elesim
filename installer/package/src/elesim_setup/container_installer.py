@@ -589,6 +589,7 @@ class ContainerInstaller:
             root / "packages/elesim_interfaces/package.xml",
             root / "packages/elesim_interfaces/CMakeLists.txt",
             root / "packages/elesim_interfaces/msg/RgbdFrame.msg",
+            root / "packages/elesim_interfaces/msg/EncodedRgbdFrame.msg",
             root / "installer/package/pyproject.toml",
             root / "environment/containers/Dockerfile.app",
             root / "environment/containers/Dockerfile.tools",

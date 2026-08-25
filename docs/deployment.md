@@ -146,6 +146,14 @@ schema v4는 DDS endpoint와 SSH endpoint를 별도로 보관한다.
 | `full` | 2–4 host, Pilot/Sim/UI/Robot 각 1회 | native Jetson unit 필수 |
 | `simulation-only` | 1–3 host, Pilot/Sim/UI 각 1회 | 저장하지 않음 |
 
+`simulation-only`의 RGB-D 지연을 줄이려면 두 host 배치를 권장한다. 한
+deployment unit에 `[pilot, sim]`, 다른 unit/host에 `[ui]`를 배치한다. Sim은
+Genesis RGB-D source이고 source edge에서 encoded sample을 만든다. Pilot은
+source DDS topic을 받아 perception과 broker relay를 담당한다(legacy raw source만
+Pilot에서 encode). UI는 Pilot broker의 encoded stream만 구독한다.
+세 role을 한 host에 두는 기존 local-sim 배치도 유효하지만, source raw RGB-D를
+별도 host로 먼저 보내는 배치는 새 배포에서 사용하지 않는다.
+
 schema v1–v3 입력은 읽을 때 v4로 normalize한다(v1은 `full`). 한 host에 여러
 role 또는 독립 deployment unit이 있을 수 있다. Robot은 native `robot-native`
 unit, Pilot/UI 같은 container role은 별도 `runtime` unit으로 관리할 수 있다.

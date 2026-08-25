@@ -189,6 +189,47 @@ def rgbd_topic(state: InstallState, role: str) -> str:
     return f"/{state.dds.system_id}/{dds_node_key(state, role)}/rgbd/frame"
 
 
+def rgbd_broker_topic(state: InstallState) -> str:
+    """Return the inter-host RGB-D topic owned by Pilot.
+
+    Source and local handoff topics remain role-specific while the encoded
+    stream has one stable owner.  Keeping this derivation in the installer
+    prevents a custom Pilot endpoint from silently producing a stale topic.
+    Runtime publishers/subscribers may adopt this field independently; the
+    generated config is the deployment contract for that migration.
+    """
+
+    return rgbd_topic(state, "pilot")
+
+
+def _rgbd_role_config(
+    state: InstallState,
+    *,
+    source_role: str,
+    local_handoff: str,
+) -> dict[str, Any]:
+    """Describe the bounded RGB-D edge-broker contract in role config.
+
+    This is deliberately configuration metadata, not a second runtime role.
+    Source processes encode before a source topic leaves the camera edge; the
+    Pilot relay handles legacy raw input and owns the encoded latest-only
+    inter-host output.
+    """
+
+    return {
+        "schema_version": 1,
+        "broker_role": "pilot",
+        "source_role": source_role,
+        "local_handoff": local_handoff,
+        "wire": {
+            "format": "encoded-rgbd-v1",
+            "capability": "stream.rgbd.broker.v1",
+            "topic": rgbd_broker_topic(state),
+            "latest_only": True,
+        },
+    }
+
+
 def generate_role_configs(
     state: InstallState,
     *,
@@ -299,6 +340,11 @@ def _pilot_config(state: InstallState, source: Path) -> dict[str, Any]:
     )
     raw["runtime"] = runtime
     raw["dds"] = _dds_payload(state, "pilot")
+    raw["rgbd"] = _rgbd_role_config(
+        state,
+        source_role="auto",
+        local_handoff="source-dds-to-pilot",
+    )
     raw.pop("security", None)
     return raw
 
@@ -316,6 +362,11 @@ def _ui_config(state: InstallState, source: Path) -> dict[str, Any]:
     )
     raw["runtime"] = runtime
     raw["dds"] = _dds_payload(state, "ui")
+    raw["rgbd"] = _rgbd_role_config(
+        state,
+        source_role="pilot",
+        local_handoff="none",
+    )
     raw.pop("security", None)
     return raw
 
@@ -354,6 +405,11 @@ def _sim_config(state: InstallState, source: Path) -> dict[str, Any]:
     )
     raw["runtime"] = runtime
     raw["dds"] = _dds_payload(state, "sim")
+    raw["rgbd"] = _rgbd_role_config(
+        state,
+        source_role="sim",
+        local_handoff="source-dds-to-pilot",
+    )
     raw.pop("security", None)
     turn = dict(raw.get("turn") or {})
     turn["urls"] = list(state.network.turn_urls)
@@ -425,6 +481,11 @@ def _robot_config(
     camera.pop("advertise", None)
     camera["topic"] = rgbd_topic(state, "robot")
     raw["camera"] = camera
+    raw["rgbd"] = _rgbd_role_config(
+        state,
+        source_role="robot",
+        local_handoff="source-dds-to-pilot",
+    )
     if robot_host is not None:
         host = robot_host.validate()
         go2 = dict(raw.get("go2") or {})
@@ -525,6 +586,7 @@ __all__ = [
     "generated_app_config_path",
     "generated_config_path",
     "generated_dds_config_path",
+    "rgbd_broker_topic",
     "rgbd_topic",
     "role_keystore_path",
     "role_directory",

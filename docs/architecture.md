@@ -21,9 +21,9 @@ full topology (2–4 hosts)
 
 simulation-only topology (1–3 hosts)
 
-                 pilot ─── DDS ─── sim
-                   ▲                │
-                   └──── ui ────────┘
+             [pilot + sim] ─── DDS ─── ui
+                   │                  ▲
+                   └──── local RGB-D ─┘
 ```
 
 `simulation-only`은 Pilot/Sim/UI만 갖고 Robot 또는 Jetson placeholder를
@@ -39,10 +39,10 @@ registry나 권한 부여기가 아니다.
 
 | 역할 | 소유 | 소유하지 않는 것 |
 | --- | --- | --- |
-| `pilot` | Vision, Arm model, Look/Aim/Grasp, Gaze, target 생성, 한 target lease | 물리 I/O, Genesis, UI 구현 |
-| `sim` | Genesis, prebuilt model, virtual telemetry/RGB-D, motion lease, UI simulation session, observer/hand-eye 렌더와 WebRTC signaling/media | operator workflow, 물리 하드웨어 |
+| `pilot` | Vision, Arm model, Look/Aim/Grasp, Gaze, target 생성, 한 target lease, RGB-D edge broker | 물리 I/O, Genesis, UI 구현 |
+| `sim` | Genesis, prebuilt model, virtual telemetry/RGB-D source, motion lease, UI simulation session, observer/hand-eye 렌더와 WebRTC signaling/media | operator workflow, 물리 하드웨어, inter-host RGB-D broker |
 | `ui` | operator intent, simulation control, 상태 표시, 두 WebRTC 수신 화면 | IK/workflow, hardware driver, Genesis |
-| `robot` | Dynamixel/GO2 I/O, RGB-D, motion lease, deadman, limit, local safety | model builder, IK, UI, Sim |
+| `robot` | Dynamixel/GO2 I/O, RGB-D source, motion lease, deadman, limit, local safety | model builder, IK, UI, Sim, inter-host RGB-D broker |
 
 Robot과 Sim은 자기 motion lease의 유일한 authority다. Sim은 UI
 simulation session의 유일한 authority다. discovery, `ROS_DOMAIN_ID`, static
@@ -113,9 +113,19 @@ Pilot은 discovery interval마다 `select_target`을 반복하고 Sim/Robot의
 
 ### RGB-D
 
-RGB-D는 `RgbdFrame` typed DDS sample 하나로 전달하는 latest-only coherent
-stream이다. subscriber backlog를 만들지 않으며, 오래된 frame은 새 frame으로
-덮어쓴다. Robot과 Sim의 RGB-D topic은 `dds_contracts.md`의 QoS·권한 표를
+RGB-D의 source는 Robot 또는 Sim이지만 inter-host broker는 Pilot 하나다. source
+edge가 raw frame을 encoded latest-only sample로 바꾸고 Pilot이 이를 검증·relay
+한다. legacy raw source만 Pilot이 한 번 encode한다. Pilot은 encoded stream을
+`/rgbd/frame`으로 publish하고 UI와 필요 시 Sim은 broker stream을 decode한다.
+source가 둘인 구성에서 source topic을 inter-host consumer가 직접 구독하는 것은
+금지한다.
+
+기존 `RgbdFrame` typed DDS sample은 migration/diagnostic 호환 경계로 남을 수
+있지만, 새 배포의 외부 stream descriptor는 `encoded_rgbd_v1`과
+`stream.rgbd.broker.v1` capability를 명시해야 한다. codec, calibration ID,
+depth scale, sequence와 payload bound는 encoded frame metadata가 소유하며
+`StreamDescriptor` 구조나 protocol major를 불필요하게 확장하지 않는다.
+자세한 배치와 실패 경계는 [`design/rgbd_edge_broker.md`](design/rgbd_edge_broker.md)를
 따른다.
 
 ## 5. Sim 내부 구조와 영상

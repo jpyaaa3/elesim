@@ -28,6 +28,33 @@ class RuntimeRoleConfig:
     streams: dict[str, str] = field(default_factory=dict)
     dds: DdsRuntimeSettings = field(default_factory=DdsRuntimeSettings)
     turn: TurnConfig = field(default_factory=TurnConfig)
+    rgbd: dict[str, Any] = field(default_factory=dict)
+
+
+def _rgbd_section(raw: object, source: Path) -> dict[str, Any]:
+    """Validate the edge-broker metadata before a Sim can advertise a stream."""
+
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{source}: rgbd must be an object")
+    result = dict(raw)
+    wire = result.get("wire", {})
+    if not isinstance(wire, Mapping):
+        raise ValueError(f"{source}: rgbd.wire must be an object")
+    wire = dict(wire)
+    format_name = str(wire.get("format", "raw-rgbd-v1")).strip().lower()
+    if format_name not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+        raise ValueError(f"{source}: unsupported rgbd.wire.format {format_name!r}")
+    topic = str(wire.get("topic", "")).strip()
+    if format_name == "encoded-rgbd-v1" and (not topic or not topic.startswith("/")):
+        raise ValueError(f"{source}: encoded rgbd.wire.topic must be an absolute topic")
+    if str(result.get("broker_role", "pilot")).strip() != "pilot":
+        raise ValueError(f"{source}: rgbd.broker_role must be 'pilot'")
+    wire["format"] = format_name
+    wire["topic"] = topic
+    result["wire"] = wire
+    return result
 
 
 def _section(raw: Mapping[str, Any], name: str, source: Path) -> dict[str, Any]:
@@ -113,4 +140,5 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
             static_auth_secret_file=secret_path,
             credential_file=credential_path,
         ),
+        rgbd=_rgbd_section(raw.get("rgbd"), source),
     )

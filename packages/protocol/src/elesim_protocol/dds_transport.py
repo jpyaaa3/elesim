@@ -742,7 +742,11 @@ class DdsPeerNode:
             stream.media_kind = str(descriptor.media_kind)
             stream.endpoint = str(descriptor.endpoint)
             stream.message_type = (
-                "elesim_interfaces/msg/RgbdFrame"
+                "elesim_interfaces/msg/EncodedRgbdFrame"
+                if descriptor.media_kind == "rgbd"
+                and descriptor.transport == "dds"
+                and descriptor.format == "encoded-rgbd-v1"
+                else "elesim_interfaces/msg/RgbdFrame"
                 if descriptor.media_kind == "rgbd"
                 and descriptor.transport == "dds"
                 else ""
@@ -752,6 +756,8 @@ class DdsPeerNode:
                 if descriptor.transport == "dds"
                 else ""
             )
+            if hasattr(stream, "format"):
+                stream.format = str(descriptor.format)
             streams.append(stream)
         message.streams = streams
         return message
@@ -780,6 +786,7 @@ class DdsPeerNode:
                         if str(stream.transport) == MEDIA_TRANSPORT_DDS
                         else MEDIA_SECURITY_DTLS_SRTP
                     ),
+                    format=str(getattr(stream, "format", "")),
                 )
             endpoint = EndpointDescriptor(
                 endpoint_id=identity.endpoint_id,

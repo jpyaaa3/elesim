@@ -11,6 +11,7 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EndpointDescriptor.msg"
   "msg/EndpointHeartbeat.msg"
+  "msg/EncodedRgbdFrame.msg"
   "msg/LeaseFence.msg"
   "msg/MotionAck.msg"
   "msg/MotionCommand.msg"

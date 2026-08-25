@@ -11,6 +11,8 @@ from typing import Any, Callable, Mapping, Optional
 from elesim_protocol import (
     CAPABILITY_OPERATOR_CONTROL,
     CAPABILITY_SIM_MOCK_HUG,
+    CAPABILITY_STREAM_RGBD,
+    CAPABILITY_STREAM_RGBD_BROKER,
     DdsRuntimeSettings,
     DdsTransportError,
     EndpointDescriptor,
@@ -19,6 +21,11 @@ from elesim_protocol import (
     ProtocolError,
     SimMappingConfig,
     SimulationStatusPayload,
+    MEDIA_KIND_RGBD,
+    MEDIA_SECURITY_DDS,
+    MEDIA_SECURITY_NONE,
+    MEDIA_TRANSPORT_DDS,
+    MediaStreamDescriptor,
     encode_value,
 )
 from .observability.tracing import current_trace_context, message_span, sampled_span
@@ -71,6 +78,7 @@ class PilotConnection:
         mapping: SimMappingConfig,
         state_sink: Any,
         dds_settings: Optional[DdsRuntimeSettings] = None,
+        rgbd_topic: str = "",
         send_hz: float = 30.0,
         discover_period_s: float = 1.0,
         endpoint_factory: Callable[..., Any] = PeerClient,
@@ -80,6 +88,7 @@ class PilotConnection:
         self.mapping = mapping
         self.state_sink = state_sink
         self.dds_settings = dds_settings
+        self.rgbd_topic = str(rgbd_topic).strip()
         self.send_period_s = 0.0 if send_hz <= 0.0 else 1.0 / float(send_hz)
         self.discover_period_s = max(0.1, float(discover_period_s))
         self.endpoint_factory = endpoint_factory
@@ -135,11 +144,28 @@ class PilotConnection:
         self._outbox.put(_Submission("select", {"target_id": self.desired_target}, True))
 
     def _run(self) -> None:
+        streams = {}
+        capabilities = [CAPABILITY_OPERATOR_CONTROL, CAPABILITY_SIM_MOCK_HUG]
+        if self.rgbd_topic:
+            streams["rgbd"] = MediaStreamDescriptor(
+                transport=MEDIA_TRANSPORT_DDS,
+                media_kind=MEDIA_KIND_RGBD,
+                endpoint=self.rgbd_topic,
+                security=(
+                    MEDIA_SECURITY_DDS
+                    if self.dds_settings is not None
+                    and self.dds_settings.security_profile == "sros2"
+                    else MEDIA_SECURITY_NONE
+                ),
+                format="encoded-rgbd-v1",
+            )
+            capabilities.extend((CAPABILITY_STREAM_RGBD, CAPABILITY_STREAM_RGBD_BROKER))
         endpoint = self.endpoint_factory(
             EndpointDescriptor(
                 self.pilot_id,
                 "pilot",
-                (CAPABILITY_OPERATOR_CONTROL, CAPABILITY_SIM_MOCK_HUG),
+                tuple(capabilities),
+                streams=streams or None,
             ),
             settings=self.dds_settings,
             trace_context_provider=current_trace_context,

@@ -300,6 +300,13 @@ def test_protocol_tracing_module_is_owned_by_bootstrap_manifest() -> None:
     )
 
 
+def test_protocol_encoded_rgbd_module_is_owned_by_bootstrap_manifest() -> None:
+    assert (
+        PurePosixPath("packages/protocol/src/elesim_protocol/encoded_rgbd.py")
+        in bootstrap_module._BOOTSTRAP_PROTOCOL_PYTHON_FILES
+    )
+
+
 def test_sim_mock_object_is_owned_by_bootstrap_manifest() -> None:
     assert (
         PurePosixPath("sim/config/mock_objects/demo_box.obj")

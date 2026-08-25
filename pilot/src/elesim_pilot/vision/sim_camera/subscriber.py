@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from elesim_protocol import DdsRgbdSubscriber, DdsRuntimeSettings
+from elesim_protocol import (
+    DdsEncodedRgbdSubscriber,
+    DdsRgbdSubscriber,
+    DdsRuntimeSettings,
+    rgbd_from_encoded_frame,
+)
 
 from elesim_pilot.observability.tracing import sampled_traced
 from elesim_pilot.vision.sim_camera.types import (
@@ -24,11 +29,21 @@ class SimCameraSubscriber:
         dds_settings: DdsRuntimeSettings | None = None,
         expected_source_id: str = "",
         expected_boot_id: str = "",
+        wire_format: str = "raw-rgbd-v1",
     ) -> None:
         self.topic = str(topic)
         self.endpoint_id = str(endpoint_id)
         self.dds_settings = dds_settings
-        self._subscriber = DdsRgbdSubscriber(
+        self.wire_format = str(wire_format).strip().lower() or "raw-rgbd-v1"
+        if self.wire_format not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+            raise ValueError(f"unsupported RGB-D wire format: {wire_format!r}")
+        subscriber_factory = (
+            DdsEncodedRgbdSubscriber
+            if self.wire_format == "encoded-rgbd-v1"
+            else DdsRgbdSubscriber
+        )
+        self._encoded = self.wire_format == "encoded-rgbd-v1"
+        self._subscriber = subscriber_factory(
             self.topic,
             endpoint_id=self.endpoint_id,
             settings=self.dds_settings,
@@ -59,6 +74,8 @@ class SimCameraSubscriber:
         sample = self._subscriber.recv_latest(timeout_ms=timeout_ms)
         if sample is None:
             return None
+        if self._encoded:
+            sample = rgbd_from_encoded_frame(sample)
         intrinsics = sample.intrinsics
         return SimCameraFrame(
             color_bgr=sample.color_bgr,

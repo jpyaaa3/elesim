@@ -24,6 +24,7 @@ FAIL = "FAIL"
 WARN = "WARN"
 SKIP = "SKIP"
 RGBD_TYPE = "elesim_interfaces/msg/RgbdFrame"
+ENCODED_RGBD_TYPE = "elesim_interfaces/msg/EncodedRgbdFrame"
 PEER_ENVELOPE_TYPE = "elesim_interfaces/msg/PeerEnvelope"
 
 
@@ -465,13 +466,14 @@ def probe_rgbd_frame(
     state: InstallState,
     *,
     timeout_s: float,
+    encoded: bool = False,
 ) -> dict[str, int]:
     """Wait for one typed DDS RGBD sample on the configured Sim topic."""
 
     _prepare_dds_environment(state)
     try:
         import rclpy
-        from elesim_interfaces.msg import RgbdFrame
+        from elesim_interfaces.msg import EncodedRgbdFrame, RgbdFrame
         from rclpy.qos import qos_profile_sensor_data
     except ImportError as exc:
         raise RuntimeError(
@@ -493,8 +495,9 @@ def probe_rgbd_frame(
         executor = _context_executor(rclpy, context)
         if executor is not None:
             executor.add_node(node)
+        message_type = EncodedRgbdFrame if encoded else RgbdFrame
         subscription = node.create_subscription(
-            RgbdFrame,
+            message_type,
             rgbd_topic(state, "sim"),
             received.append,
             qos_profile_sensor_data,
@@ -510,6 +513,13 @@ def probe_rgbd_frame(
         if not received:
             raise TimeoutError("DDS RGBD frame timeout")
         message = received[0]
+        if encoded:
+            return {
+                "color_width": int(getattr(message, "width", 0)),
+                "color_height": int(getattr(message, "height", 0)),
+                "depth_width": int(getattr(message, "width", 0)) if bool(getattr(message, "has_depth", False)) else 0,
+                "depth_height": int(getattr(message, "height", 0)) if bool(getattr(message, "has_depth", False)) else 0,
+            }
         color = getattr(message, "color", None)
         depth = getattr(message, "depth", None)
         result = {
@@ -710,11 +720,12 @@ class NetworkDoctor:
     ) -> None:
         topic = rgbd_topic(self.state, "sim")
         types = graph.topics.get(topic, ())
-        if RGBD_TYPE not in types:
+        expected_type = ENCODED_RGBD_TYPE if ENCODED_RGBD_TYPE in types else RGBD_TYPE
+        if expected_type not in types:
             detail = (
                 f"{topic}가 graph에 없음"
                 if not types
-                else f"{topic}: 예상 {RGBD_TYPE}, 실제 {', '.join(types)}"
+                else f"{topic}: 예상 {expected_type}, 실제 {', '.join(types)}"
             )
             report.add(
                 "RGBD topic",
@@ -723,7 +734,7 @@ class NetworkDoctor:
                 "Sim publisher와 system_id/sim_id를 확인하십시오",
             )
             return
-        report.add("RGBD topic", PASS, f"{topic} ({RGBD_TYPE}, sensor QoS)")
+        report.add("RGBD topic", PASS, f"{topic} ({expected_type}, sensor QoS)")
         if not self.active:
             report.add("RGBD frame", SKIP, "실제 sample 검사는 --active에서 수행")
             return
@@ -731,6 +742,7 @@ class NetworkDoctor:
             metadata = probe_rgbd_frame(
                 self.state,
                 timeout_s=max(self.timeout_s, 5.0),
+                encoded=expected_type == ENCODED_RGBD_TYPE,
             )
             report.add(
                 "RGBD frame",

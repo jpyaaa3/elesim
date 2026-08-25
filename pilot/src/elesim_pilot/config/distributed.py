@@ -19,6 +19,33 @@ class RuntimeRoleConfig:
     active_target: str = ""
     camera_enabled: bool = False
     streams: dict[str, str] = field(default_factory=dict)
+    rgbd: dict[str, Any] = field(default_factory=dict)
+
+
+def _rgbd_section(raw: object, source: Path) -> dict[str, Any]:
+    """Validate the additive RGB-D edge metadata without hiding bad YAML."""
+
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{source}: rgbd must be an object")
+    result = dict(raw)
+    wire = result.get("wire", {})
+    if not isinstance(wire, dict):
+        raise ValueError(f"{source}: rgbd.wire must be an object")
+    wire = dict(wire)
+    format_name = str(wire.get("format", "raw-rgbd-v1")).strip().lower()
+    if format_name not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+        raise ValueError(f"{source}: unsupported rgbd.wire.format {format_name!r}")
+    topic = str(wire.get("topic", "")).strip()
+    if format_name == "encoded-rgbd-v1" and (not topic or not topic.startswith("/")):
+        raise ValueError(f"{source}: encoded rgbd.wire.topic must be an absolute topic")
+    wire["format"] = format_name
+    wire["topic"] = topic
+    result["wire"] = wire
+    if str(result.get("broker_role", "pilot")).strip() != "pilot":
+        raise ValueError(f"{source}: rgbd.broker_role must be 'pilot'")
+    return result
 
 
 def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
@@ -69,4 +96,5 @@ def load_runtime_role_config(path: str | Path) -> RuntimeRoleConfig:
         active_target=str(runtime.get("active_target", "")),
         camera_enabled=bool(runtime.get("camera_enabled", False)),
         streams={str(key): str(value) for key, value in streams.items()},
+        rgbd=_rgbd_section(raw.get("rgbd"), source),
     )

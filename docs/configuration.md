@@ -34,6 +34,32 @@ Pilot과 Sim의 `config/config.yaml`은
 프로파일은 각각의 `calibration/<profile>.hand_eye.json`, driver, model bundle을
 함께 결정하며 서로 다른 calibration/bundle 조합은 시작 전에 거부된다.
 
+### RGB-D edge broker
+
+설치 생성 runtime config에는 RGB-D source와 inter-host broker를 구분하는
+`rgbd` metadata가 들어간다.
+
+```yaml
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: auto
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    latest_only: true
+```
+
+Pilot은 source가 Robot인지 Sim인지에 관계없이 encoded RGB-D 외부 stream의
+단일 broker owner다. source는 카메라 경계에서 한 번 encode하며, legacy raw
+source만 Pilot relay가 encode한다. `simulation-only`에서는 Sim과 Pilot을 한
+Compose unit에 둘 수 있지만 source와 Pilot 사이에는 bounded DDS source topic을
+사용한다. Robot도 `source-dds-to-pilot` handoff를 사용한다. UI는
+`broker_role: pilot` stream을 decode하며 source camera topic을 publish하지 않는다.
+endpoint ID가 바뀌면 설치기가 broker topic도 함께 다시 계산한다.
+
 ## 2. 공통 DDS 필드
 
 모든 역할의 runtime DDS profile은 다음 값을 갖는다.

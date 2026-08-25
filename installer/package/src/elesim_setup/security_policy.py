@@ -87,11 +87,17 @@ def render_role_policy(
         for target_role in ("robot", "sim")
         if target_role in endpoint_keys
     }
+    rgbd_broker_topic = f"/{system_id}/{endpoint_keys.get('pilot', 'pilot_main')}/rgbd/frame"
     if role in rgbd_topics:
         publish.add(rgbd_topics[role])
+    # Only Pilot owns the public encoded broker topic. Robot/Sim publish their
+    # source topics; the Pilot relay validates/pass-throughs those samples.
+    if role == "pilot":
+        publish.add(rgbd_broker_topic)
     # Every installed role may run the local active network doctor. This grants
     # read-only RGBD diagnostics without granting another role's publisher.
     subscribe.update(rgbd_topics.values())
+    subscribe.add(rgbd_broker_topic)
 
     root = ET.Element("policy", {"version": "0.2.0"})
     enclaves = ET.SubElement(root, "enclaves")

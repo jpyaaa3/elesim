@@ -440,6 +440,7 @@ class PerceptionActions:
                 dds_settings=cfg.sim_camera_dds_settings,
                 expected_source_id=str(cfg.sim_camera_source_id),
                 expected_boot_id=str(cfg.sim_camera_source_boot_id),
+                wire_format=str(cfg.sim_camera_wire_format),
             ) as cam:
                 frame = cam.capture(retries=60)
             return save_perception_frame_bundle(

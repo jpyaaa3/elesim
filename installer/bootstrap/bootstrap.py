@@ -117,6 +117,7 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
         "authority",
         "contracts",
         "dds_transport",
+        "encoded_rgbd",
         "messages",
         "operator",
         "payloads",

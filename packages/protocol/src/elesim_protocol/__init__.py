@@ -66,6 +66,19 @@ from .rgbd import (
     RgbdIntrinsicsSample,
     RgbdSample,
 )
+from .encoded_rgbd import (
+    DdsEncodedRgbdPublisher,
+    DdsEncodedRgbdSubscriber,
+    EncodedRgbdFrame,
+    RgbdEncodedMetadata,
+    decode_image_payload,
+    decode_payload,
+    encoded_frame_from_rgbd,
+    encode_image_payload,
+    encode_payload,
+    rgbd_from_encoded_frame,
+    validate_encoded_frame,
+)
 from .transport import (
     DdsPeerNode,
     DdsRuntimeSettings,
