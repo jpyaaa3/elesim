@@ -70,6 +70,8 @@ from elesim_sim.vision.sim_camera.async_worker import (
     CameraRenderSpec,
     CameraRenderWorker,
     CameraStateSnapshot,
+    movable_urdf_joint_names,
+    resolve_single_dof_indices,
 )
 
 
@@ -1077,6 +1079,8 @@ class SimScene:
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
+    camera_joint_names: tuple[str, ...] = ()
+    _camera_source_dof_indices: Optional[tuple[int, ...]] = None
 
     def configure_camera_render_worker(
         self,
@@ -1093,6 +1097,8 @@ class SimScene:
         worker = CameraRenderWorker(spec, streams, self._on_async_frame)
         worker.start(timeout_s=float(timeout_s), wait=bool(wait))
         self.camera_render_worker = worker
+        self.camera_joint_names = tuple(spec.robot_joint_names)
+        self._camera_source_dof_indices = None
         if bool(wait):
             print(
                 "[sim-camera] async render worker ready "
@@ -1169,25 +1175,27 @@ class SimScene:
         """
 
         entity = self.go2_entity if self.go2_entity is not None else getattr(self.mover, "entity", None)
-        robot_q: Optional[tuple[float, ...]] = None
-        robot_q_indices: Optional[tuple[int, ...]] = None
+        robot_joint_positions: Optional[tuple[float, ...]] = None
         root_pos: Optional[tuple[float, float, float]] = None
         root_quat: Optional[tuple[float, float, float, float]] = None
         if entity is not None:
-            try:
-                raw = entity.get_dofs_position()
-                values = _to_numpy_1d(raw)
-                if values.size:
-                    robot_q = tuple(float(value) for value in values.reshape(-1))
-                    robot_q_indices = tuple(range(int(values.size)))
-            except Exception:
-                if self.mover is not None:
-                    try:
-                        values = self.mover.get_dofs_position()
-                        robot_q = tuple(float(value) for value in values.reshape(-1))
-                        robot_q_indices = tuple(int(value) for value in self.mover.dofs_idx_local)
-                    except Exception:
-                        pass
+            if self.camera_joint_names:
+                if self._camera_source_dof_indices is None:
+                    self._camera_source_dof_indices = resolve_single_dof_indices(
+                        entity, self.camera_joint_names
+                    )
+                values = _to_numpy_1d(
+                    entity.get_dofs_position(
+                        dofs_idx_local=list(self._camera_source_dof_indices)
+                    )
+                )
+                if values.size != len(self._camera_source_dof_indices):
+                    raise RuntimeError(
+                        "physics camera joint snapshot size mismatch: "
+                        f"{values.size} values for "
+                        f"{len(self._camera_source_dof_indices)} joints"
+                    )
+                robot_joint_positions = tuple(float(value) for value in values)
             if self.go2_entity is not None:
                 try:
                     pos = _to_numpy_1d(self.go2_entity.get_pos())[:3]
@@ -1219,8 +1227,7 @@ class SimScene:
             sim_step=int(self.sim_step_count),
             sim_time_s=float(sim_time_s or 0.0),
             arm_q=arm_q,
-            robot_q=robot_q,
-            robot_q_indices=robot_q_indices,
+            robot_joint_positions=robot_joint_positions,
             root_pos=root_pos,
             root_quat_wxyz=root_quat,
             mock_asset_id=str(mock.get("asset_id", "")),
@@ -2615,7 +2622,9 @@ class RuntimePrep:
             target_radius=float(a.spawn.sim_target_radius),
             target_color_rgba=tuple(float(x) for x in a.spawn.sim_target_color_rgba),
             target_gravity=bool(a.spawn.sim_target_gravity),
+            robot_joint_names=movable_urdf_joint_names(str(urdf_path)),
         )
+
     def _detect_n_nodes(self, entity) -> int:
         a = self.app
         if a.layout.bend_joint_names:

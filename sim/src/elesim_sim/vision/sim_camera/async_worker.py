@@ -19,6 +19,7 @@ from multiprocessing.queues import Queue
 import queue
 import threading
 import time
+import xml.etree.ElementTree as ET
 from typing import Any, Callable, Mapping, Optional
 
 import numpy as np
@@ -57,6 +58,7 @@ class CameraRenderSpec:
     target_radius: float = 0.025
     target_color_rgba: tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
     target_gravity: bool = False
+    robot_joint_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not str(self.urdf_path).strip():
@@ -75,8 +77,7 @@ class CameraStateSnapshot:
     sim_step: int
     sim_time_s: float
     arm_q: Optional[tuple[float, float, float, float]] = None
-    robot_q: Optional[tuple[float, ...]] = None
-    robot_q_indices: Optional[tuple[int, ...]] = None
+    robot_joint_positions: Optional[tuple[float, ...]] = None
     root_pos: Optional[tuple[float, float, float]] = None
     root_quat_wxyz: Optional[tuple[float, float, float, float]] = None
     mock_asset_id: str = ""
@@ -214,8 +215,40 @@ def _make_urdf_morph(
             )
 
 
+def movable_urdf_joint_names(urdf_path: str) -> tuple[str, ...]:
+    """Return the stable one-DOF joint order shared by both Genesis scenes."""
+
+    root = ET.parse(str(urdf_path)).getroot()
+    names = tuple(
+        str(joint.attrib.get("name", "")).strip()
+        for joint in root.findall(".//joint")
+        if str(joint.attrib.get("type", "fixed")).strip().lower() != "fixed"
+    )
+    if not names or any(not name for name in names) or len(set(names)) != len(names):
+        raise ValueError("camera render URDF must contain unique named movable joints")
+    return names
+
+
+def resolve_single_dof_indices(
+    entity: Any, joint_names: tuple[str, ...]
+) -> tuple[int, ...]:
+    """Resolve named URDF joints without assuming equal floating-base layouts."""
+
+    indices: list[int] = []
+    for name in joint_names:
+        joint = entity.get_joint(name)
+        raw = np.asarray(joint.dofs_idx_local, dtype=int).reshape(-1)
+        if raw.size != 1:
+            raise RuntimeError(
+                f"camera render joint '{name}' has {raw.size} DOFs; exactly one is required"
+            )
+        indices.append(int(raw[0]))
+    return tuple(indices)
+
+
 def _apply_snapshot(
     entity: Any,
+    robot_dof_indices: tuple[int, ...],
     mock_entities: Mapping[str, Any],
     target_entity: Any,
     observer: Any,
@@ -224,38 +257,18 @@ def _apply_snapshot(
     """Apply one latest state and report whether the observer pose changed."""
 
     observer_pose_changed = False
-    if snapshot.robot_q is not None:
-        q = np.asarray(snapshot.robot_q, dtype=float).reshape(-1)
-        try:
-            if snapshot.robot_q_indices is None:
-                entity.set_dofs_position(q)
-            else:
-                entity.set_dofs_position(
-                    q,
-                    dofs_idx_local=list(snapshot.robot_q_indices),
-                )
-        except Exception:
-            # A render replica may have a different fixed-link DOF layout than
-            # the physics entity.  Its visual arm remains useful if the shared
-            # arm subset can still be applied.
-            if snapshot.robot_q_indices is not None:
-                try:
-                    entity.set_dofs_position(
-                        q,
-                        dofs_idx_local=list(snapshot.robot_q_indices),
-                    )
-                except Exception:
-                    pass
+    if snapshot.robot_joint_positions is not None:
+        q = np.asarray(snapshot.robot_joint_positions, dtype=float).reshape(-1)
+        if q.size != len(robot_dof_indices):
+            raise RuntimeError(
+                "camera render joint snapshot size mismatch: "
+                f"{q.size} values for {len(robot_dof_indices)} joints"
+            )
+        entity.set_dofs_position(q, dofs_idx_local=list(robot_dof_indices))
     if snapshot.root_pos is not None:
-        try:
-            entity.set_pos(np.asarray(snapshot.root_pos, dtype=float).reshape(3))
-        except Exception:
-            pass
+        entity.set_pos(np.asarray(snapshot.root_pos, dtype=float).reshape(3))
     if snapshot.root_quat_wxyz is not None:
-        try:
-            entity.set_quat(np.asarray(snapshot.root_quat_wxyz, dtype=float).reshape(4))
-        except Exception:
-            pass
+        entity.set_quat(np.asarray(snapshot.root_quat_wxyz, dtype=float).reshape(4))
 
     active = str(snapshot.mock_asset_id).strip()
     position = snapshot.mock_position
@@ -432,6 +445,7 @@ def _camera_render_process_main(
                 lookat=tuple(float(v) for v in spec.observer_lookat),
             )
         scene.build()
+        robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:
             eye.bind(entity, hand_eye_path=str(spec.hand_eye_config))
         results.put({"type": "ready", "ok": True})
@@ -466,8 +480,13 @@ def _camera_render_process_main(
                     requested_names.extend(str(name) for name in requested)
             if stop.is_set():
                 break
-            observer_pose_changed = _apply_snapshot(
-                entity, mock_entities, target_entity, observer, snapshot
+            _apply_snapshot(
+                entity,
+                robot_dof_indices,
+                mock_entities,
+                target_entity,
+                observer,
+                snapshot,
             )
             for stream in tuple(dict.fromkeys(requested_names)):
                 try:
@@ -484,13 +503,14 @@ def _camera_render_process_main(
                             rgb_enabled=bool(spec.hand_eye_rgb),
                             depth_enabled=bool(spec.hand_eye_depth),
                             prefer_gpu=bool(spec.gpu_convert),
+                            force_render=True,
                         )
                     elif stream == "observer" and observer is not None:
                         frame = observer.capture(
                             rgb_enabled=True,
                             depth_enabled=False,
                             prefer_gpu=bool(spec.gpu_convert),
-                            force_render=observer_pose_changed,
+                            force_render=True,
                         )
                     else:
                         continue
@@ -841,4 +861,6 @@ __all__ = [
     "CameraStateSnapshot",
     "CameraRenderWorker",
     "SharedRgbdMailbox",
+    "movable_urdf_joint_names",
+    "resolve_single_dof_indices",
 ]

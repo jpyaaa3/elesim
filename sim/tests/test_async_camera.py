@@ -15,8 +15,9 @@ from elesim_sim.vision.sim_camera.async_worker import (
     CameraRenderWorker,
     SharedRgbdMailbox,
     _apply_snapshot,
+    resolve_single_dof_indices,
 )
-from elesim_sim.vision.sim_camera.mount import ObserverCamera
+from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
 from elesim_sim.vision.sim_camera.types import SimCameraIntrinsics
 
 
@@ -43,15 +44,14 @@ def test_render_snapshot_is_serializable_and_has_epoch_fields() -> None:
         sim_step=12,
         sim_time_s=0.24,
         arm_q=(1.0, 2.0, 3.0, 4.0),
-        robot_q=(0.0, 1.0),
-        robot_q_indices=(0, 1),
+        robot_joint_positions=(0.0, 1.0),
         observer_pos=(1.0, 2.0, 3.0),
         observer_lookat=(0.0, 0.0, 0.0),
         target_position=(0.5, 0.0, 0.2),
     )
     assert snapshot.epoch == 3
     assert snapshot.sim_step == 12
-    assert snapshot.robot_q_indices == (0, 1)
+    assert snapshot.robot_joint_positions == (0.0, 1.0)
     assert snapshot.target_position == (0.5, 0.0, 0.2)
 
 
@@ -72,6 +72,7 @@ def test_render_replica_applies_observer_pose_snapshot() -> None:
     )
     changed = _apply_snapshot(
         entity=object(),
+        robot_dof_indices=(),
         mock_entities={},
         target_entity=None,
         observer=observer,
@@ -92,6 +93,172 @@ def test_render_replica_applies_observer_pose_snapshot() -> None:
         (1.0, 0.0, 0.0),
         (0.0, 0.0, 1.0),
     )
+
+
+def test_render_replica_maps_floating_source_joints_by_name() -> None:
+    """A fixed visual replica must not reuse floating-source DOF offsets."""
+
+    class Joint:
+        def __init__(self, index: int) -> None:
+            self.dofs_idx_local = index
+
+    class Entity:
+        # The source's floating base would put these joints at (7, 9), while
+        # this fixed visual replica has a compact, independently built layout.
+        joints = {"arm_shoulder": Joint(2), "arm_elbow": Joint(5)}
+
+        def __init__(self) -> None:
+            self.position_writes = []
+
+        def get_joint(self, name: str) -> Joint:
+            return self.joints[name]
+
+        def set_dofs_position(self, values, *, dofs_idx_local) -> None:
+            self.position_writes.append(
+                (tuple(float(value) for value in values), tuple(dofs_idx_local))
+            )
+
+    entity = Entity()
+    # The source/floating-base positions would be at (7, 9). Resolve the
+    # independently built fixed replica by names instead of reusing them.
+    visual_dof_indices = resolve_single_dof_indices(
+        entity, ("arm_shoulder", "arm_elbow")
+    )
+    changed = _apply_snapshot(
+        entity=entity,
+        robot_dof_indices=visual_dof_indices,
+        mock_entities={},
+        target_entity=None,
+        observer=None,
+        snapshot=CameraStateSnapshot(
+            epoch=0,
+            sim_step=1,
+            sim_time_s=0.02,
+            robot_joint_positions=(0.25, -0.5),
+        ),
+    )
+
+    assert changed is False
+    assert entity.position_writes == [((0.25, -0.5), (2, 5))]
+
+
+def test_render_replica_fails_visibly_for_an_unmapped_source_joint() -> None:
+    class Joint:
+        dofs_idx_local = 1
+
+    class Entity:
+        def get_joint(self, name: str) -> Joint:
+            if name == "arm_shoulder":
+                return Joint()
+            raise KeyError(name)
+
+        def set_dofs_position(self, *_args, **_kwargs) -> None:
+            raise AssertionError("an incomplete joint map must not be applied")
+
+    with pytest.raises(KeyError, match="arm_elbow"):
+        resolve_single_dof_indices(Entity(), ("arm_shoulder", "arm_elbow"))
+
+
+def test_render_replica_rejects_a_joint_position_count_mismatch() -> None:
+    class Entity:
+        def set_dofs_position(self, *_args, **_kwargs) -> None:
+            raise AssertionError("a mismatched snapshot must not be applied")
+
+    with pytest.raises(RuntimeError, match="size mismatch"):
+        _apply_snapshot(
+            entity=Entity(),
+            robot_dof_indices=(2, 5),
+            mock_entities={},
+            target_entity=None,
+            observer=None,
+            snapshot=CameraStateSnapshot(
+                epoch=0,
+                sim_step=1,
+                sim_time_s=0.02,
+                robot_joint_positions=(0.25,),
+            ),
+        )
+
+
+def test_observer_capture_forces_refresh_after_robot_state_snapshot() -> None:
+    """Robot motion must force a fresh observer render even at a fixed pose."""
+
+    class Camera:
+        def __init__(self) -> None:
+            self.render_calls = []
+
+        def render(self, **kwargs):
+            self.render_calls.append(kwargs)
+            return np.ones((2, 2, 3), dtype=np.float32), None, None, None
+
+    class Entity:
+        def __init__(self) -> None:
+            self.position_writes = []
+
+        def set_dofs_position(self, values, *, dofs_idx_local) -> None:
+            self.position_writes.append(
+                (tuple(float(value) for value in values), tuple(dofs_idx_local))
+            )
+
+    camera = Camera()
+    observer = ObserverCamera(
+        camera=camera,
+        intrinsics=SimCameraIntrinsics(100.0, 100.0, 1.0, 1.0, 2, 2),
+        pos=(3.5, 0.5, 2.5),
+        lookat=(0.0, 0.0, 0.5),
+    )
+    entity = Entity()
+    for step, position in ((1, 0.1), (2, 0.7)):
+        _apply_snapshot(
+            entity=entity,
+            robot_dof_indices=(0,),
+            mock_entities={},
+            target_entity=None,
+            observer=observer,
+            snapshot=CameraStateSnapshot(
+                epoch=0,
+                sim_step=step,
+                sim_time_s=0.02 * step,
+                robot_joint_positions=(position,),
+                observer_pos=observer.pos,
+                observer_lookat=observer.lookat,
+            ),
+        )
+        observer.capture(
+            rgb_enabled=True,
+            depth_enabled=False,
+            prefer_gpu=False,
+            force_render=True,
+        )
+
+    assert entity.position_writes == [((0.1,), (0,)), ((0.7,), (0,))]
+    assert [call["force_render"] for call in camera.render_calls] == [True, True]
+
+
+def test_hand_eye_capture_propagates_force_render() -> None:
+    class Camera:
+        def __init__(self) -> None:
+            self.render_calls = []
+
+        def render(self, **kwargs):
+            self.render_calls.append(kwargs)
+            return np.ones((2, 2, 3), dtype=np.float32), None, None, None
+
+    camera = Camera()
+    eye = Node9EyeInHandCamera(
+        camera=camera,
+        intrinsics=SimCameraIntrinsics(100.0, 100.0, 1.0, 1.0, 2, 2),
+    )
+    eye.capture(
+        rgb_enabled=True,
+        depth_enabled=False,
+        prefer_gpu=False,
+        force_render=True,
+    )
+
+    assert camera.render_calls == [
+        {"rgb": True, "depth": False, "force_render": True}
+    ]
 
 
 def test_render_spec_rejects_missing_urdf() -> None:

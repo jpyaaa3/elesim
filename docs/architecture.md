@@ -154,6 +154,12 @@ queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual repl
 오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
 장치 진단을 위한 명시적 fallback일 뿐이다.
 
+물리 scene의 floating-base 엔티티와 카메라 scene의 fixed-base 복제본은 로컬
+DOF 번호를 공유하지 않는다. Snapshot은 URDF의 이름 있는 movable joint 순서로
+관절값만 전달하고, 양쪽 프로세스가 각자의 로컬 DOF 번호를 독립적으로
+해석한다. Root 위치·회전은 별도 필드로 전달하며, 이름·개수·DOF 수 불일치는
+초기화 또는 capture를 명시적으로 실패시킨다.
+
 각 Genesis scene/camera object는 자신이 생성된 프로세스에서만 접근한다. media
 worker의 encode, signaling, ICE 지연이 physics나 DDS receive loop를 block하지
 않는다. 카메라 프로세스가 런타임 중 실패해도 해당 media operation만 실패하고

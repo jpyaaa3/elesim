@@ -173,6 +173,7 @@ class Node9EyeInHandCamera:
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
         prefer_gpu: bool = True,
+        force_render: bool = False,
         timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
@@ -182,7 +183,16 @@ class Node9EyeInHandCamera:
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
-            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            try:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled),
+                    depth=bool(depth_enabled),
+                    force_render=bool(force_render),
+                )
+            except TypeError:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
+                )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:
