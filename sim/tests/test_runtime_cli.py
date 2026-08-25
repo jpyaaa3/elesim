@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
     monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
     monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
@@ -27,6 +29,7 @@ def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
 
 
 def test_viewer_does_not_force_headless_egl(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
     monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
     monkeypatch.delenv("EGL_DEVICE_ID", raising=False)
@@ -35,6 +38,20 @@ def test_viewer_does_not_force_headless_egl(monkeypatch) -> None:
 
     assert "PYOPENGL_PLATFORM" not in os.environ
     assert "EGL_DEVICE_ID" not in os.environ
+
+
+def test_macos_gpu_render_leaves_egl_unset(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+    monkeypatch.delenv("EGL_DEVICE_ID", raising=False)
+
+    _configure_gpu_render_environment(use_gpu=True, viewer=False)
+
+    assert "PYOPENGL_PLATFORM" not in os.environ
+    assert "EGL_DEVICE_ID" not in os.environ
+    assert "CUDA_DEVICE_ORDER" not in os.environ
 
 
 def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
