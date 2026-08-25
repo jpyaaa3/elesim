@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -71,11 +71,14 @@ def resolve_device(cfg: WrapGraspConfig) -> torch.device:
 
 @dataclass
 class LinkIndex:
-    """Link-index bookkeeping used to classify contacts.
+    """Link-index bookkeeping, in both index spaces Genesis uses.
 
-    Genesis reports contacts as global link indices, so the only way to tell
-    "arm touched the object" from "arm touched the floor" is to know which
-    indices belong to which body.
+    Genesis has two: ``link.idx`` is global across every entity in the scene
+    (the floor is 0, the robot follows, then the support and the object), while
+    ``link.idx_local`` indexes within one entity.  ``get_contacts`` reports the
+    global one; ``get_links_pos`` is indexed by the local one.  Mixing them is
+    an off-by-one that silently reads the neighbouring link's pose, so both are
+    kept explicitly and the field names say which is which.
     """
 
     robot_all: tuple[int, ...]
@@ -86,6 +89,9 @@ class LinkIndex:
     support: tuple[int, ...]
     segment2_mid: int
     name_by_index: dict[int, str]
+    #: Robot-local indices, for get_links_pos / get_links_quat.
+    arm_local: tuple[int, ...] = ()
+    segment2_mid_local: int = 0
 
     def as_tensors(self, device: torch.device) -> dict[str, torch.Tensor]:
         def t(values: tuple[int, ...]) -> torch.Tensor:
@@ -104,8 +110,18 @@ class LinkIndex:
 class WrapGraspScene:
     """Owns the Genesis scene, its entities and the resolved index maps."""
 
-    def __init__(self, cfg: WrapGraspConfig, *, n_envs: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        cfg: WrapGraspConfig,
+        *,
+        n_envs: Optional[int] = None,
+        camera_specs: Sequence[Mapping[str, Any]] = (),
+    ) -> None:
         self.cfg = cfg
+        # Genesis requires cameras to exist before scene.build(), so they are
+        # declared up front rather than attached afterwards.
+        self.camera_specs = list(camera_specs)
+        self.cameras: dict[str, Any] = {}
         self.n_envs = int(n_envs if n_envs is not None else cfg.runtime.n_envs)
         self.device = resolve_device(cfg)
         self.bundle_dir = resolve_bundle_dir(cfg)
@@ -194,6 +210,11 @@ class WrapGraspScene:
             surface=gs.surfaces.Rough(color=(0.85, 0.55, 0.20, 1.0)),
         )
 
+        for spec in self.camera_specs:
+            name = str(spec.get("name", f"cam{len(self.cameras)}"))
+            kwargs = {k: v for k, v in spec.items() if k != "name"}
+            self.cameras[name] = self.scene.add_camera(**kwargs)
+
         self.scene.build(n_envs=self.n_envs)
         self._built = True
         self._post_build()
@@ -212,15 +233,20 @@ class WrapGraspScene:
         arm_prefixes = tuple(str(p) for p in self.cfg.arm.arm_link_prefixes)
         robot_all: list[int] = []
         arm: list[int] = []
+        arm_local: list[int] = []
         go2: list[int] = []
         names: dict[int, str] = {}
+        local_by_global: dict[int, int] = {}
         for link in self.robot.links:
             idx = int(link.idx)
+            local = int(getattr(link, "idx_local", idx))
             name = str(link.name)
             robot_all.append(idx)
             names[idx] = name
+            local_by_global[idx] = local
             if name.startswith(arm_prefixes):
                 arm.append(idx)
+                arm_local.append(local)
             else:
                 go2.append(idx)
         obj_idx: list[int] = []
@@ -254,6 +280,8 @@ class WrapGraspScene:
             support=tuple(support_idx),
             segment2_mid=int(mid_matches[0]),
             name_by_index=names,
+            arm_local=tuple(arm_local),
+            segment2_mid_local=int(local_by_global[int(mid_matches[0])]),
         )
 
     def _configure_arm_gains(self) -> None:

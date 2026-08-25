@@ -172,7 +172,7 @@ def probe(
     dofs = list(scene.arm_dofs.all_indices)
     _drive_to_pose(scene, mapper, poses.to(device), dofs)
 
-    arm_ids = torch.tensor(sorted(scene.links.arm), device=device, dtype=torch.long)
+    arm_ids = torch.tensor(sorted(scene.links.arm_local), device=device, dtype=torch.long)
     link_pos = scene.robot.get_links_pos()[:, arm_ids, :]
 
     snap = ContactClassifier(scene).classify(n_envs)
@@ -319,7 +319,7 @@ def placement_search(
     dofs = list(scene.arm_dofs.all_indices)
     _drive_to_pose(scene, mapper, poses.to(device), dofs)
 
-    arm_ids = torch.tensor(sorted(scene.links.arm), device=device, dtype=torch.long)
+    arm_ids = torch.tensor(sorted(scene.links.arm_local), device=device, dtype=torch.long)
     link_pos = scene.robot.get_links_pos()[:, arm_ids, :]
 
     # A pose that already collides with the floor, the support or the quadruped

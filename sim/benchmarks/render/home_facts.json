@@ -1,0 +1,21 @@
+{
+  "pose": "home",
+  "waypoint": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "object_centre": [
+    0.2251,
+    -0.1251,
+    0.5599
+  ],
+  "phi_deg": 0.0,
+  "near_links": 1,
+  "caged": false,
+  "object_contacts": 0,
+  "floor_or_support_touch": false,
+  "quadruped_touch": false,
+  "arm_self_touch": false
+}

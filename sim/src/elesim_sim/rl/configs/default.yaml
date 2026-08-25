@@ -84,18 +84,29 @@ arm:
 support:
   enable: true
   # Top surface height; the object centre sits half its height above this.
-  height_m: 0.46
+  # 0.448 puts the cylinder's mid-height at z = 0.548, the plane the coil
+  # forms in.  The post top stays 0.10 m below the arm, so it is not in the way.
+  height_m: 0.448
   # Half-extents of the support box.  A slim post, not a table: the placement
   # search measured 1130 of 1764 sweep poses colliding with a 0.06 m
   # half-extent box against 585 with this one, because the support sits in the
   # middle of the arm's working volume.  The floor itself blocks nothing at
   # this height (0 collisions), so the support is the whole cost.
   half_extents_xy: [0.02, 0.02]
-  # Column position, taken from sim/benchmarks/placement.md rather than
-  # guessed.  The arm wraps best around a point offset to one side; with the
-  # object at (0.30, 0.0) the reachable peak was 68 deg and nothing reached the
-  # gate, against 194 deg here.
-  center_xy: [0.225, -0.125]
+  # Column position measured from the arm itself, not searched for.
+  #
+  # At roll = -90 deg the bend plane is horizontal (link-cloud extent
+  # 0.224 x 0.231 x 0.203 m, against 0.218 x 0.101 x 0.373 m at roll = 0), and
+  # that horizontal coil is what can surround an upright cylinder.  Fitting a
+  # circle to the arm links in that pose gives a centre of (0.357, 0.116) with
+  # a radius of 0.097-0.142 m over the reachable bend range, and a residual
+  # scatter of 1-17 mm -- the coil really is circular.  The object goes at that
+  # centre, so the cylinder sits in the hole the arm closes around.
+  #
+  # An earlier guess of (0.225, -0.125) was inside the quadruped's own body:
+  # renders showed the post and cylinder resting on the robot's back, which is
+  # what made the wrap measurements meaningless.
+  center_xy: [0.357, 0.116]
 
 object:
   kind: cylinder

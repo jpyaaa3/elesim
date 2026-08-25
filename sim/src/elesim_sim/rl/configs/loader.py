@@ -110,9 +110,9 @@ class SupportConfig:
     """
 
     enable: bool = True
-    height_m: float = 0.46
+    height_m: float = 0.448
     half_extents_xy: tuple[float, float] = (0.02, 0.02)
-    center_xy: tuple[float, float] = (0.225, -0.125)
+    center_xy: tuple[float, float] = (0.357, 0.116)
 
 
 @dataclass(frozen=True)

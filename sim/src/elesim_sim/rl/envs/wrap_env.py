@@ -118,10 +118,12 @@ class WrapGraspEnv:
 
         self._arm_dofs = list(self.scene.arm_dofs.all_indices)
         self._bend_slice = slice(2, 2 + len(self.cfg.arm.bend_joints))
+        # Robot-*local* indices: get_links_pos is indexed per entity, while
+        # links.arm holds the scene-global ids that get_contacts reports.
         self._arm_link_ids = torch.tensor(
-            sorted(self.scene.links.arm), device=self.device, dtype=torch.long
+            sorted(self.scene.links.arm_local), device=self.device, dtype=torch.long
         )
-        self._anchor_link = int(self.scene.links.segment2_mid)
+        self._anchor_link = int(self.scene.links.segment2_mid_local)
 
         z = lambda *shape: torch.zeros(*shape, device=self.device, dtype=torch.float32)  # noqa: E731
         self.episode_length_buf = torch.zeros(
