@@ -83,6 +83,11 @@ class WrapGraspEnv:
             device=self.device,
             rate_limit=(rate.linear_m, rate.roll_rad, rate.theta_rad, rate.theta_rad),
         )
+        self._home_waypoint = torch.tensor(
+            [float(v) for v in self.cfg.arm.home_waypoint],
+            device=self.device,
+            dtype=torch.float32,
+        )
         self._generator = torch.Generator(device=self.device)
         self._generator.manual_seed(int(self.cfg.runtime.seed))
 
@@ -137,6 +142,11 @@ class WrapGraspEnv:
         self._load_proxy = z(self.num_envs, self.num_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
         self._waypoint_from = z(self.num_envs, self.num_actions)
+        #: Set by eval to pin one object condition across every env, so a batch
+        #: is just a faster way to collect episodes of the *same* condition
+        #: rather than a mixture the per-condition table could not separate.
+        self._eval_override: Optional[dict[str, float]] = None
+        self._last_reasons: dict[str, torch.Tensor] = {}
         self._failure_counts = {
             mode: torch.zeros(1, device=self.device, dtype=torch.long)
             for mode in FAILURE_MODES
@@ -153,7 +163,31 @@ class WrapGraspEnv:
         self._obs_delay = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
 
         self._reset_idx(None)
+        self._settle_at_home_and_baseline_contacts()
         self._obs = self._build_observations()
+
+    def _settle_at_home_and_baseline_contacts(self) -> None:
+        """Let the arm settle at Home, then baseline the contacts it rests on.
+
+        The reset writes joint positions directly, so the first physics steps
+        resolve whatever overlap the Home pose starts with.  Only once that has
+        settled is the contact set a fair description of "resting at Home"
+        rather than of the reset transient.  Done once at construction: the
+        excluded set is a property of the pose, not of an individual episode.
+        """
+        targets = self.mapper.joint_targets()
+        for _ in range(int(self.cfg.macro_step.substeps)):
+            self.scene.robot.control_dofs_position(
+                targets, dofs_idx_local=self._arm_dofs
+            )
+            self.scene.step()
+        excluded = self.classifier.set_baseline_from_current_contacts()
+        if excluded:
+            print(
+                f"[wrap-env] excluding {excluded} link pair(s) already in "
+                f"contact at the Home pose"
+            )
+        self.contacts.reset()
 
     # -- rsl_rl contract ---------------------------------------------------
 
@@ -195,9 +229,13 @@ class WrapGraspEnv:
         timeout = self.episode_length_buf >= self.max_episode_length
         dones = reward_out.terminate | timeout
 
+        self._last_reasons = reward_out.termination_reason
         extras: dict[str, Any] = {
             "log": self._logging_extras(reward_out, contact, state, timeout),
             "time_outs": timeout,
+            # Exposed so evaluation can classify a finished episode; the done
+            # flag alone cannot tell a collision from a dropped object.
+            "termination_reason": reward_out.termination_reason,
         }
         self._tally(reward_out, timeout, dones)
 
@@ -393,7 +431,7 @@ class WrapGraspEnv:
         if critic_cfg.include_true_joint_state:
             priv += 2 * len(self._arm_dofs)
         if critic_cfg.include_contact_forces:
-            priv += 1 + len(self.scene.links.arm) + 3
+            priv += 1 + len(self.scene.links.arm) + 4
         if critic_cfg.include_true_object_pose:
             priv += 7
         if critic_cfg.include_coverage:
@@ -475,6 +513,7 @@ class WrapGraspEnv:
                 torch.stack(
                     (
                         contact.floor_touch.to(torch.float32),
+                        contact.support_touch.to(torch.float32),
                         contact.go2_touch.to(torch.float32),
                         contact.self_touch.to(torch.float32),
                     ),
@@ -562,7 +601,14 @@ class WrapGraspEnv:
             u = torch.rand(shape, device=self.device, generator=self._generator)
             return lo + u * (hi - lo)
 
-        if dr.enable:
+        override = self._eval_override
+        if override is not None:
+            radius = torch.full((n,), float(override["radius_m"]), device=self.device)
+            mass = torch.full((n,), float(obj.mass_kg), device=self.device)
+            base_x = float(override["x_m"])
+            jitter = torch.zeros((n, 3), device=self.device)
+            yaw = torch.full((n,), float(override["yaw_rad"]), device=self.device)
+        elif dr.enable:
             radius = rnd((n,), *dr.object_radius_m)
             mass = rnd((n,), *dr.object_mass_kg)
             jitter = torch.stack(
@@ -584,6 +630,11 @@ class WrapGraspEnv:
             device=self.device,
             dtype=torch.float32,
         )
+        if override is not None:
+            # The condition grid varies the object's x; y and the height stay
+            # on the support column.
+            base = base.clone()
+            base[0] = float(override["x_m"])
         pos = base.unsqueeze(0) + jitter
         half = torch.cos(yaw * 0.5)
         quat = torch.stack(
@@ -617,7 +668,10 @@ class WrapGraspEnv:
             self._load_proxy[env_ids] = 0.0
             self._last_joint_cmd[env_ids] = 0.0
 
-        self.mapper.reset(env_ids)
+        # Reset to the configured Home pose, not to an implicit all-zeros that
+        # happens to mean "arm straight out" -- a configuration the real arm
+        # never starts from.
+        self.mapper.reset(env_ids, home=self._home_waypoint)
         if env_ids is None:
             self._waypoint_from[:] = self.mapper.waypoint
         else:
@@ -679,6 +733,7 @@ class WrapGraspEnv:
         log["contact/object_touch"] = contact.object_touch.to(torch.float32).mean()
         log["contact/non_target"] = contact.non_target_collision.to(torch.float32).mean()
         log["contact/floor"] = contact.floor_touch.to(torch.float32).mean()
+        log["contact/support"] = contact.support_touch.to(torch.float32).mean()
         log["contact/go2"] = contact.go2_touch.to(torch.float32).mean()
         log["contact/self"] = contact.self_touch.to(torch.float32).mean()
         # A saturated contact buffer means readings may be incomplete; surface

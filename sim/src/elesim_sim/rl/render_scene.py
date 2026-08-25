@@ -96,6 +96,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--res", type=int, nargs=2, default=(960, 720))
     parser.add_argument("--ramp", type=int, default=120)
     parser.add_argument("--tag", default=None)
+    parser.add_argument(
+        "--place-object-after", action="store_true",
+        help="pose the arm first, then set the object at its configured centre",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
@@ -132,6 +136,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for _ in range(60):
         scene.robot.control_dofs_position(final, dofs_idx_local=dofs)
         scene.step()
+
+    if args.place_object_after:
+        # Answers the static question -- "with the object where it belongs, is
+        # this pose a wrap?" -- separately from the dynamic one, which is
+        # whether the arm can get there without sweeping the object out of the
+        # way.  The second is the policy's problem; conflating them makes a
+        # correct pose look wrong.
+        centre = torch.tensor(
+            [[float(v) for v in cfg.object_center()]], device=scene.device
+        )
+        scene.object.set_pos(centre)
+        scene.object.set_quat(
+            torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=scene.device)
+        )
+        for setter in ("set_vel", "set_ang"):
+            fn = getattr(scene.object, setter, None)
+            if callable(fn):
+                try:
+                    fn(torch.zeros((1, 3), device=scene.device))
+                except Exception:
+                    pass
+        for _ in range(30):
+            scene.robot.control_dofs_position(final, dofs_idx_local=dofs)
+            scene.step()
 
     # Report what the picture is showing, so an image and its numbers cannot
     # drift apart.

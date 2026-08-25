@@ -44,7 +44,7 @@ class RuntimeConfig:
 @dataclass(frozen=True)
 class Go2Config:
     enable: bool = True
-    spawn_xyz: tuple[float, float, float] = (0.0, 0.0, 0.32)
+    spawn_xyz: Optional[tuple[float, float, float]] = None
     freeze_legs: bool = True
     base_fixed: bool = True
     leg_pose_rad: tuple[float, float, float] = (0.0, 0.9, -1.8)
@@ -52,6 +52,8 @@ class Go2Config:
 
 @dataclass(frozen=True)
 class SceneConfig:
+    #: Application config the mechanism's parameters are read from.
+    app_config: str = "sim/config/config.yaml"
     dt: float = 0.01
     solver_substeps: int = 1
     max_collision_pairs: int = 512
@@ -66,9 +68,13 @@ class SceneConfig:
 
 @dataclass(frozen=True)
 class ArmLimits:
-    linear_m: tuple[float, float] = (-0.230, 0.0)
-    roll_rad: tuple[float, float] = (-3.1416, 3.1416)
-    bend_per_node_rad: float = 0.62832
+    #: None on any field means "read it from the application config".  The
+    #: mechanism's own numbers are the source of truth; hand-copying them into
+    #: this file is what produced four separate disagreements with the real
+    #: system (see rl/app_config.py).
+    linear_m: Optional[tuple[float, float]] = None
+    roll_rad: Optional[tuple[float, float]] = None
+    bend_per_node_rad: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -86,9 +92,14 @@ class ArmConfig:
     n_seg: int = 5
     linear_axis_sign: float = 1.0
     roll_axis_sign: float = 1.0
-    bend_axis_sign: float = -1.0
+    bend_axis_sign: float = 1.0
     limits: ArmLimits = field(default_factory=ArmLimits)
     gains: ArmGains = field(default_factory=ArmGains)
+    #: Named UI preset to reset to ("home" or "extend_arm"), converted through
+    #: the application's own u-space mapping.  An explicit `home_waypoint`
+    #: overrides it.
+    home_preset: str = "home"
+    home_waypoint: Optional[tuple[float, float, float, float]] = None
     segment2_mid_link: str = "node7"
     arm_link_prefixes: tuple[str, ...] = ("node", "wedge", "housing", "gripper")
 
@@ -113,7 +124,7 @@ class SupportConfig:
     enable: bool = True
     height_m: float = 0.459
     half_extents_xy: tuple[float, float] = (0.02, 0.02)
-    center_xy: tuple[float, float] = (0.562, 0.125)
+    center_xy: tuple[float, float] = (0.500, -0.075)
 
 
 @dataclass(frozen=True)
@@ -138,9 +149,9 @@ class SettleConfig:
 
 @dataclass(frozen=True)
 class RateLimitConfig:
-    linear_m: float = 0.02
-    roll_rad: float = 0.20
-    theta_rad: float = 0.10
+    linear_m: float = 0.04
+    roll_rad: float = 0.30
+    theta_rad: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -217,7 +228,7 @@ class RewardConfig:
 @dataclass(frozen=True)
 class LiftConfig:
     trigger_rad: float = 2.0944
-    roll_target_rad: float = 1.5708
+    roll_target_rad: float = 0.0
     roll_rate_rad_per_substep: float = 0.01
     hold_substeps: int = 100
     max_rel_translation_m: float = 0.03
@@ -361,6 +372,42 @@ class WrapGraspConfig:
     train: TrainConfig = field(default_factory=TrainConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+
+    def resolved_from_app(self) -> "WrapGraspConfig":
+        """Fill every unset mechanism value from the application config."""
+        from ..app_config import load_mechanism
+
+        mech = load_mechanism(self.scene.app_config)
+        limits = self.arm.limits
+        limits = dataclasses.replace(
+            limits,
+            linear_m=limits.linear_m or mech.linear_m,
+            roll_rad=limits.roll_rad or mech.roll_rad,
+            bend_per_node_rad=(
+                limits.bend_per_node_rad
+                if limits.bend_per_node_rad is not None
+                else mech.bend_per_node_rad
+            ),
+        )
+        home = self.arm.home_waypoint
+        if home is None:
+            try:
+                home = mech.presets[str(self.arm.home_preset)]
+            except KeyError as exc:
+                known = sorted(mech.presets)
+                raise ConfigError(
+                    f"arm.home_preset={self.arm.home_preset!r} is not a known UI "
+                    f"preset; known: {known}"
+                ) from exc
+        arm = dataclasses.replace(self.arm, limits=limits, home_waypoint=home)
+
+        go2 = self.scene.go2
+        if go2.spawn_xyz is None:
+            go2 = dataclasses.replace(
+                go2, spawn_xyz=(0.0, 0.0, mech.go2_spawn_height_m)
+            )
+        scene = dataclasses.replace(self.scene, go2=go2)
+        return dataclasses.replace(self, arm=arm, scene=scene)
 
     def object_center(self) -> tuple[float, float, float]:
         """Reset position of the object centre.
@@ -561,7 +608,7 @@ def load_config(
         raise ConfigError(
             f"config schema_version {version} != supported {SCHEMA_VERSION}"
         )
-    return _build(WrapGraspConfig, raw)
+    return _build(WrapGraspConfig, raw).resolved_from_app()
 
 
 def to_dict(cfg: Any) -> Any:

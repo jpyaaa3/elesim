@@ -43,7 +43,8 @@ class ContactSnapshot:
     object_touch: torch.Tensor          # bool: any arm-object contact
     object_force: torch.Tensor          # float: summed |force| on the object
     object_link_hits: torch.Tensor      # bool (n_envs, n_arm_links)
-    floor_touch: torch.Tensor           # bool: arm or trunk hit the floor
+    floor_touch: torch.Tensor           # bool: arm hit the ground plane
+    support_touch: torch.Tensor         # bool: arm hit the object's support
     self_touch: torch.Tensor            # bool: robot self-collision
     go2_touch: torch.Tensor             # bool: arm hit the quadruped body
     max_penetration: torch.Tensor       # float
@@ -58,6 +59,19 @@ class ContactClassifier:
             raise RuntimeError("scene must be built before classifying contacts")
         self.scene = scene
         self.device = scene.device
+        #: Link pairs already touching at the reset pose, excluded from the
+        #: collision verdict.  The stowed Home pose folds the arm back over the
+        #: quadruped's head and mounting plate, so those contacts are a property
+        #: of where the episode starts, not of anything the policy did -- left
+        #: in, every episode terminates on its first step.  Genesis does the
+        #: same thing for its own neutral configuration.
+        #:
+        #: The exclusion is per pair and applies for the whole episode, so a
+        #: genuine later crash between the *same two links* is also forgiven.
+        #: That is the cost of the simpler rule; pairs that only ever touch at
+        #: Home are unaffected.
+        self._excluded_pairs: Optional[torch.Tensor] = None
+        self._pair_stride = 0
         self._idx = scene.links.as_tensors(self.device)
         arm_sorted = sorted(scene.links.arm)
         self._arm_order = {idx: pos for pos, idx in enumerate(arm_sorted)}
@@ -75,6 +89,29 @@ class ContactClassifier:
 
     def _to_device(self, contacts: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return {k: v.to(self.device) for k, v in contacts.items()}
+
+    def _encode_pairs(self, link_a: torch.Tensor, link_b: torch.Tensor) -> torch.Tensor:
+        lo = torch.minimum(link_a, link_b)
+        hi = torch.maximum(link_a, link_b)
+        return lo * self._pair_stride + hi
+
+    def set_baseline_from_current_contacts(self) -> int:
+        """Record the pairs touching right now as the excluded baseline.
+
+        Call once, with the arm settled at the reset pose.
+        """
+        raw = self.scene.robot.get_contacts(exclude_self_contact=False)
+        c = self._to_device(raw)
+        valid = c["valid_mask"]
+        if valid.shape[-1] == 0:
+            self._excluded_pairs = None
+            return 0
+        link_a = c["link_a"].long()
+        link_b = c["link_b"].long()
+        self._pair_stride = int(max(int(link_a.max()), int(link_b.max())) + 1)
+        pairs = self._encode_pairs(link_a, link_b)[valid]
+        self._excluded_pairs = torch.unique(pairs)
+        return int(self._excluded_pairs.numel())
 
     def _arm_positions(self, link_ids: torch.Tensor) -> torch.Tensor:
         """Map global link indices to arm-local columns; -1 when not an arm link."""
@@ -96,6 +133,7 @@ class ContactClassifier:
                 (n_envs, max(self.n_arm_links, 1)), device=dev, dtype=torch.bool
             ),
             floor_touch=false_.clone(),
+            support_touch=false_.clone(),
             self_touch=false_.clone(),
             go2_touch=false_.clone(),
             max_penetration=zero.clone(),
@@ -120,15 +158,27 @@ class ContactClassifier:
         force = c["force_a"]
         penetration = c["penetration"]
 
+        if self._excluded_pairs is not None and self._excluded_pairs.numel():
+            baseline = torch.isin(
+                self._encode_pairs(link_a, link_b), self._excluded_pairs
+            )
+            # Drop baseline rows from *every* verdict, target contact included:
+            # a pair resting together at Home is not news either way.
+            valid = valid & ~baseline
+
         obj_idx = self._idx["object"]
-        # The support the object stands on is a non-target body just like the
-        # floor: hitting it is a collision, not a grasp.
-        floor_idx = torch.cat((self._idx["floor"], self._idx["support"]))
+        # The support is a non-target body just like the floor, but it is
+        # reported separately: they are in completely different places, so
+        # merging them leaves the logs unable to say which one the arm keeps
+        # running into.
+        floor_idx = self._idx["floor"]
+        support_idx = self._idx["support"]
         arm_idx = self._idx["arm"]
         go2_idx = self._idx["go2"]
 
         a_obj, b_obj = _isin(link_a, obj_idx), _isin(link_b, obj_idx)
         a_flo, b_flo = _isin(link_a, floor_idx), _isin(link_b, floor_idx)
+        a_sup, b_sup = _isin(link_a, support_idx), _isin(link_b, support_idx)
         a_arm, b_arm = _isin(link_a, arm_idx), _isin(link_b, arm_idx)
         a_go2, b_go2 = _isin(link_a, go2_idx), _isin(link_b, go2_idx)
 
@@ -139,6 +189,7 @@ class ContactClassifier:
         # other; scoring those as policy failures would terminate every
         # episode on the first substep regardless of what the arm did.
         floor_rows = valid & ((a_arm & b_flo) | (a_flo & b_arm))
+        support_rows = valid & ((a_arm & b_sup) | (a_sup & b_arm))
         go2_rows = valid & ((a_arm & b_go2) | (a_go2 & b_arm))
         # Arm-against-arm self collision.  Genesis already drops the pairs that
         # touch in the neutral configuration, so what remains is real.
@@ -164,6 +215,7 @@ class ContactClassifier:
             object_force=object_force,
             object_link_hits=link_hits,
             floor_touch=floor_rows.any(dim=-1),
+            support_touch=support_rows.any(dim=-1),
             self_touch=self_rows.any(dim=-1),
             go2_touch=go2_rows.any(dim=-1),
             max_penetration=pen.abs().amax(dim=-1),
@@ -182,6 +234,7 @@ class ContactAggregate:
     object_link_hits: torch.Tensor
     non_target_collision: torch.Tensor
     floor_touch: torch.Tensor
+    support_touch: torch.Tensor
     self_touch: torch.Tensor
     go2_touch: torch.Tensor
     max_penetration: torch.Tensor
@@ -207,6 +260,7 @@ class ContactAggregator:
             "object_force_peak": torch.zeros(n, device=dev, dtype=torch.float32),
             "object_link_hits": torch.zeros((n, cols), device=dev, dtype=torch.bool),
             "floor_touch": torch.zeros(n, device=dev, dtype=torch.bool),
+            "support_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "self_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "go2_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "max_penetration": torch.zeros(n, device=dev, dtype=torch.float32),
@@ -222,6 +276,7 @@ class ContactAggregator:
         )
         acc["object_link_hits"] |= snap.object_link_hits
         acc["floor_touch"] |= snap.floor_touch
+        acc["support_touch"] |= snap.support_touch
         acc["self_touch"] |= snap.self_touch
         acc["go2_touch"] |= snap.go2_touch
         acc["max_penetration"] = torch.maximum(
@@ -234,13 +289,16 @@ class ContactAggregator:
         acc = self._acc
         # "Non-target" is arm contact with anything that is not the object:
         # the floor, the quadruped body, or the arm itself.
-        non_target = acc["floor_touch"] | acc["go2_touch"] | acc["self_touch"]
+        non_target = (
+            acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"] | acc["self_touch"]
+        )
         return ContactAggregate(
             object_touch=acc["object_touch"].clone(),
             object_force_peak=acc["object_force_peak"].clone(),
             object_link_hits=acc["object_link_hits"].clone(),
             non_target_collision=non_target,
             floor_touch=acc["floor_touch"].clone(),
+            support_touch=acc["support_touch"].clone(),
             self_touch=acc["self_touch"].clone(),
             go2_touch=acc["go2_touch"].clone(),
             max_penetration=acc["max_penetration"].clone(),

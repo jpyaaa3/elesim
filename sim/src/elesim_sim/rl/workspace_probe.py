@@ -327,11 +327,13 @@ def placement_search(
     # terminates on exactly this, so counting such poses as feasible would
     # overstate how many solutions the policy can actually reach.
     snap = ContactClassifier(scene).classify(n_envs)
-    collides = snap.floor_touch | snap.go2_touch | snap.self_touch
+    collides = (
+        snap.floor_touch | snap.support_touch | snap.go2_touch | snap.self_touch
+    )
     object_contacts = snap.object_link_hits.sum(dim=-1)
     collision_breakdown = {
-        # floor_touch covers the support too: both are non-target ground.
-        "floor_or_support": int(snap.floor_touch.sum()),
+        "floor": int(snap.floor_touch.sum()),
+        "support": int(snap.support_touch.sum()),
         "quadruped": int(snap.go2_touch.sum()),
         "arm_self": int(snap.self_touch.sum()),
     }
