@@ -91,7 +91,11 @@ _register(
     {
         "use_gpu",
         "camera_gpu_convert",
+        "camera_execution",
+        "camera_worker_start_timeout_s",
+        "camera_first_frame_timeout_s",
         "enable_viewer",
+        "visualizer_max_hz",
         "telemetry_max_hz",
         "floor",
         "use_hardware",
@@ -291,6 +295,28 @@ def build_bundle_from_yaml(data: Mapping[str, Any], *, config_dir: str) -> AppCo
     for component in _COMPONENT_TYPES:
         components[component] = replace(getattr(defaults, component), **updates[component])
 
+    sim_config = components["sim_config"]
+    execution = str(sim_config.camera_execution).strip().lower()
+    if execution not in {"async_process", "sync_legacy"}:
+        raise ConfigValidationError(
+            "simulation.runtime.camera_execution must be async_process or sync_legacy"
+        )
+    if float(sim_config.camera_worker_start_timeout_s) <= 0.0:
+        raise ConfigValidationError(
+            "simulation.runtime.camera_worker_start_timeout_s must be positive"
+        )
+    if float(sim_config.camera_first_frame_timeout_s) <= 0.0:
+        raise ConfigValidationError(
+            "simulation.runtime.camera_first_frame_timeout_s must be positive"
+        )
+    if float(sim_config.visualizer_max_hz) < 0.0:
+        raise ConfigValidationError(
+            "simulation.runtime.visualizer_max_hz must be non-negative"
+        )
+    components["sim_config"] = replace(
+        sim_config,
+        camera_execution=execution,
+    )
     sim_config = components["sim_config"]
     resolved: dict[str, str] = {}
     for name in ("build_dir", "hand_eye_config"):

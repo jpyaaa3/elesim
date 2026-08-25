@@ -28,6 +28,9 @@ def test_sim_configs_load_with_role_owned_schema(name: str) -> None:
     assert bundle.sim_config.sim_observer_camera_pos == (3.5, 0.5, 2.5)
     assert bundle.sim_config.sim_observer_camera_lookat == (0.0, 0.0, 0.5)
     assert bundle.sim_config.perf_log_enable is True
+    assert bundle.sim_config.camera_execution == "async_process"
+    assert bundle.sim_config.camera_first_frame_timeout_s == 30.0
+    assert bundle.sim_config.visualizer_max_hz == 30.0
     assert not hasattr(bundle, "pick_config")
     assert not hasattr(bundle, "perception_config")
     assert not hasattr(bundle, "gaze_stabilizer_config")
@@ -71,4 +74,28 @@ def test_sim_rejects_ini_configuration(tmp_path: Path) -> None:
     path = tmp_path / "legacy.ini"
     path.write_text("[runtime]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="YAML"):
+        load_app_config(str(path))
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    (
+        ("camera_execution", "threaded", "camera_execution"),
+        ("camera_worker_start_timeout_s", 0, "camera_worker_start_timeout_s"),
+        ("camera_first_frame_timeout_s", 0, "camera_first_frame_timeout_s"),
+        ("visualizer_max_hz", -1, "visualizer_max_hz"),
+    ),
+)
+def test_sim_rejects_invalid_performance_policy(
+    tmp_path: Path, key: str, value: object, message: str
+) -> None:
+    path = tmp_path / "invalid-performance.yaml"
+    path.write_text(
+        "schema_version: 1\n"
+        "simulation:\n"
+        "  runtime:\n"
+        f"    {key}: {value}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigValidationError, match=message):
         load_app_config(str(path))

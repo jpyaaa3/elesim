@@ -124,20 +124,32 @@ Sim은 하나의 deployable application, DDS participant, SROS2 enclave다. 다�
 physics/authority와 media worker를 내부적으로 분리한다.
 
 ```text
-Genesis scene thread
-  ├─ physics, leases, session gate
-  └─ latest-only frame slots (observer, hand-eye)
-                         │
-                         ▼
-                    media worker
-                   aiortc / FFmpeg / ICE
+Physics/authority process                 visual-only Genesis process
+  ├─ physics, leases, session gate       ├─ camera scene + camera.render()
+  ├─ latest state snapshots ────────────►├─ latest-only shared RGB-D slots
+  └─ DDS receive/telemetry                └─ no collision/authority updates
+                                      │
+                                      ▼
+                                  media worker
+                                 aiortc / FFmpeg / ICE
 ```
 
-Genesis scene/camera object는 scene owner thread에서만 접근한다. frame slot은
-고정 크기이며 producer/consumer backlog가 없다. media worker의 encode,
-signaling, ICE 지연이 physics나 DDS receive loop를 block하지 않는다. worker
-실패는 해당 media operation을 실패시킬 뿐 Sim heartbeat·lease·session
-authority를 죽이지 않는다.
+기본 `camera_execution: async_process` 모드에서는 Genesis physics scene과
+카메라 scene을 서로 다른 프로세스에 둔다. physics 프로세스는 카메라 객체나
+`camera.render()`를 호출하지 않고, bounded `CameraStateSnapshot`만 latest-only
+queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual replica에 적용해
+렌더하고, 고정 크기 공유 메일박스에 최신 RGB-D 한 장만 쓴다. 따라서 느린 EGL
+첫 렌더, GPU 동기화, host frame 복사가 physics step·DDS receive loop를
+직접 block하지 않는다. 메일박스와 command/result queue에는 backlog가 없으며,
+오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
+장치 진단을 위한 명시적 fallback일 뿐이다.
+
+각 Genesis scene/camera object는 자신이 생성된 프로세스에서만 접근한다. media
+worker의 encode, signaling, ICE 지연이 physics나 DDS receive loop를 block하지
+않는다. 카메라 프로세스가 런타임 중 실패해도 해당 media operation만 실패하고
+Sim의 heartbeat·lease·session authority는 살아 있어야 한다. 초기 scene/worker
+생성 실패는 잘못된 배포를 조기에 드러내기 위해 명시적으로 startup failure로
+처리한다.
 
 DDS endpoint는 boot identity를 일찍 광고하지만, Sim scene과 media worker의
 bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않는다.

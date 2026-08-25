@@ -56,7 +56,17 @@ simulation:
   runtime:
     use_gpu: true
     camera_gpu_convert: true
+    # Camera rendering runs in a visual-only Genesis process.  The legacy
+    # synchronous path is diagnostic-only and must be selected explicitly.
+    camera_execution: async_process
+    camera_worker_start_timeout_s: 180.0
+    # Genesis may spend several seconds on the first EGL render after scene
+    # build.  Readiness waits for that first frame without blocking physics.
+    camera_first_frame_timeout_s: 30.0
     enable_viewer: true
+    # Keep the local Genesis viewer useful without forcing a visualizer/GPU
+    # synchronization on every physics step.  Zero restores legacy behavior.
+    visualizer_max_hz: 30.0
     # DDS telemetry is a latest-only state snapshot. It does not need to force
     # four synchronous Genesis readbacks on every 50 Hz physics step.
     telemetry_max_hz: 20.0

@@ -34,7 +34,17 @@ class SimConfig:
     # This switch allows an A/B profile with the same GPU-rendered scene while
     # forcing the legacy host conversion path.
     camera_gpu_convert: bool = True
+    # ``async_process`` keeps Genesis camera rendering out of the physics
+    # loop.  ``sync_legacy`` is retained only for diagnostics and compatibility
+    # with camera unit tests that do not start a render worker.
+    camera_execution: str = "async_process"
+    camera_worker_start_timeout_s: float = 180.0
+    camera_first_frame_timeout_s: float = 30.0
     enable_viewer: bool = True
+    # Native desktop viewer refresh cadence.  Zero preserves Genesis' legacy
+    # per-physics-step visualizer update; headless profiles leave the viewer
+    # disabled and never enter this path.
+    visualizer_max_hz: float = 30.0
     telemetry_max_hz: float = 20.0
     floor: bool = True
     use_hardware: bool = False

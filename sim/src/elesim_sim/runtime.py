@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import time
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 def _configure_numba_cache_dir() -> None:
@@ -66,6 +66,11 @@ from elesim_sim.simulation.operator_control import SimulationOperatorController
 from elesim_sim.simulation.mock_objects import MockObjectCatalog, resolve_mock_object_catalog_root
 from elesim_sim.simulation.mock_object_state import MockObjectState
 from elesim_sim.simulation.genesis.utils import to_numpy_1d_copy as _to_numpy_1d
+from elesim_sim.vision.sim_camera.async_worker import (
+    CameraRenderSpec,
+    CameraRenderWorker,
+    CameraStateSnapshot,
+)
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1046,10 +1051,14 @@ class SimScene:
     video_mailboxes: object = None
     frame_dispatcher: object = None
     rgbd_dispatcher: object = None
+    camera_render_worker: Optional[CameraRenderWorker] = None
+    camera_render_epoch: int = 0
     camera_timing_sink: object = None
     go2_timing_sink: object = None
     camera_gpu_convert: bool = True
     update_visualizer_on_step: bool = True
+    visualizer_max_hz: float = 0.0
+    _last_visualizer_update_t: float = 0.0
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
@@ -1063,9 +1072,168 @@ class SimScene:
     _next_camera_publish_sim_t: float = 0.0
     _next_observer_camera_publish_sim_t: float = 0.0
     _latest_camera_axes: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+    _render_mock_snapshot: dict[str, Any] = field(default_factory=dict)
+    _async_frame_seen: set[str] = field(default_factory=set)
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
+
+    def configure_camera_render_worker(
+        self,
+        spec: CameraRenderSpec,
+        streams: Mapping[str, tuple[int, int]],
+        *,
+        timeout_s: float = 180.0,
+        wait: bool = True,
+    ) -> None:
+        """Start the visual-only Genesis process outside the physics loop."""
+
+        if self.camera_render_worker is not None:
+            return
+        worker = CameraRenderWorker(spec, streams, self._on_async_frame)
+        worker.start(timeout_s=float(timeout_s), wait=bool(wait))
+        self.camera_render_worker = worker
+        if bool(wait):
+            print(
+                "[sim-camera] async render worker ready "
+                f"streams={','.join(sorted(streams))}",
+                flush=True,
+            )
+
+    def wait_camera_render_worker(self, *, timeout_s: float = 180.0) -> None:
+        worker = self.camera_render_worker
+        if worker is None:
+            return
+        if not worker.wait_ready(timeout_s=float(timeout_s)):
+            raise RuntimeError(worker.failure or "camera render worker failed to start")
+        print(
+            "[sim-camera] async render worker ready "
+            f"streams={','.join(sorted(worker.streams))}",
+            flush=True,
+        )
+
+    def _on_async_frame(self, stream: str, frame: Any) -> None:
+        """Receive a coherent frame from the render process.
+
+        This callback runs on the worker receiver thread.  It only performs
+        bounded hand-offs to the existing media/DDS dispatchers; no Genesis
+        method is called in this path.
+        """
+
+        name = str(stream)
+        if name not in self._async_frame_seen:
+            self._async_frame_seen.add(name)
+            intrinsics = getattr(frame, "intrinsics", None)
+            size = (
+                f"{int(intrinsics.width)}x{int(intrinsics.height)}"
+                if intrinsics is not None
+                else "?"
+            )
+            print(
+                f"[sim-camera] async frame ready stream={name} "
+                f"size={size}",
+                flush=True,
+            )
+        if name == "hand_eye_preview":
+            axes = (
+                getattr(frame, "camera_world_origin", None),
+                getattr(frame, "camera_world_look", None),
+                getattr(frame, "camera_world_right", None),
+            )
+            if all(value is not None for value in axes):
+                self._latest_camera_axes = tuple(
+                    np.asarray(value, dtype=float).reshape(3) for value in axes
+                )
+        if self.frame_dispatcher is not None:
+            self.frame_dispatcher.submit(name, frame)
+        else:
+            self._dispatch_video_frame(name, frame)
+        if self.rgbd_dispatcher is not None:
+            self.rgbd_dispatcher.submit(name, frame)
+        elif name == "hand_eye_preview" and self.camera_publisher is not None:
+            self.camera_publisher.publish(frame)
+        elif name == "observer" and self.observer_camera_publisher is not None:
+            self.observer_camera_publisher.publish(frame)
+
+    def _camera_state_snapshot(
+        self,
+        *,
+        arm_q: Optional[tuple[float, float, float, float]],
+        sim_time_s: Optional[float],
+        mock_snapshot: Optional[Mapping[str, Any]] = None,
+    ) -> CameraStateSnapshot:
+        """Collect one bounded state sample for the visual replica.
+
+        The sample is taken only at a camera deadline.  It is deliberately
+        smaller than a frame and is never used for feedback or control.
+        """
+
+        entity = self.go2_entity if self.go2_entity is not None else getattr(self.mover, "entity", None)
+        robot_q: Optional[tuple[float, ...]] = None
+        robot_q_indices: Optional[tuple[int, ...]] = None
+        root_pos: Optional[tuple[float, float, float]] = None
+        root_quat: Optional[tuple[float, float, float, float]] = None
+        if entity is not None:
+            try:
+                raw = entity.get_dofs_position()
+                values = _to_numpy_1d(raw)
+                if values.size:
+                    robot_q = tuple(float(value) for value in values.reshape(-1))
+                    robot_q_indices = tuple(range(int(values.size)))
+            except Exception:
+                if self.mover is not None:
+                    try:
+                        values = self.mover.get_dofs_position()
+                        robot_q = tuple(float(value) for value in values.reshape(-1))
+                        robot_q_indices = tuple(int(value) for value in self.mover.dofs_idx_local)
+                    except Exception:
+                        pass
+            if self.go2_entity is not None:
+                try:
+                    pos = _to_numpy_1d(self.go2_entity.get_pos())[:3]
+                    root_pos = tuple(float(value) for value in pos)
+                except Exception:
+                    pass
+                try:
+                    quat = _to_numpy_1d(self.go2_entity.get_quat())[:4]
+                    root_quat = tuple(float(value) for value in quat)
+                except Exception:
+                    pass
+        mock = dict(mock_snapshot or {})
+        observer = self.observer_camera
+        observer_pos = (
+            tuple(float(value) for value in observer.pos)
+            if observer is not None
+            else None
+        )
+        observer_lookat = (
+            tuple(float(value) for value in observer.lookat)
+            if observer is not None
+            else None
+        )
+        position = mock.get("position")
+        euler = mock.get("euler_deg")
+        target = self.sim_target_xyz
+        return CameraStateSnapshot(
+            epoch=int(self.camera_render_epoch),
+            sim_step=int(self.sim_step_count),
+            sim_time_s=float(sim_time_s or 0.0),
+            arm_q=arm_q,
+            robot_q=robot_q,
+            robot_q_indices=robot_q_indices,
+            root_pos=root_pos,
+            root_quat_wxyz=root_quat,
+            mock_asset_id=str(mock.get("asset_id", "")),
+            mock_position=(tuple(float(value) for value in position) if isinstance(position, (list, tuple)) and len(position) == 3 else None),
+            mock_euler_deg=(tuple(float(value) for value in euler) if isinstance(euler, (list, tuple)) and len(euler) == 3 else None),
+            target_position=(
+                tuple(float(value) for value in target)
+                if target is not None and len(target) == 3
+                else None
+            ),
+            observer_pos=observer_pos,
+            observer_lookat=observer_lookat,
+        )
 
     def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
         """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
@@ -1160,10 +1328,16 @@ class SimScene:
             if name == asset_id:
                 quat = Rot.from_euler("xyz", euler_deg, degrees=True).as_quat()
                 entity.set_quat(np.array([quat[3], quat[0], quat[1], quat[2]], dtype=float))
+        self._render_mock_snapshot = {
+            "asset_id": str(asset_id),
+            "position": tuple(float(value) for value in position),
+            "euler_deg": tuple(float(value) for value in euler_deg),
+        }
 
     def hide_mock_objects(self) -> None:
         for entity in self.mock_object_entities.values():
             entity.set_pos((0.0, 0.0, -100.0))
+        self._render_mock_snapshot = {}
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
         tip, _direction = self.actual_tip_pose_world(layout)
@@ -1420,6 +1594,45 @@ class SimScene:
                 refresh_visualizer=bool(self.update_visualizer_on_step),
             )
             self.sim_step_count += 1
+            self.update_visualizer_if_due()
+
+    def update_visualizer_if_due(self) -> None:
+        """Refresh the optional native viewer at a bounded rate.
+
+        Genesis' default ``Scene.step`` refreshes the visualizer on every
+        physics step.  That is useful for a tiny local demo but needlessly
+        synchronizes the device when the physics rate is higher than the
+        operator display rate.  Headless scenes have no visualizer and return
+        immediately.  ``update_visualizer_on_step`` retains the legacy
+        per-step behavior for direct callers and compatibility tests.
+        """
+
+        if self.update_visualizer_on_step or self.scene is None:
+            return
+        max_hz = float(self.visualizer_max_hz)
+        if max_hz <= 0.0:
+            return
+        now = time.monotonic()
+        period = 1.0 / max(1.0, max_hz)
+        if now - float(self._last_visualizer_update_t) < period:
+            return
+        visualizer = getattr(self.scene, "visualizer", None)
+        update = getattr(visualizer, "update", None)
+        if not callable(update):
+            return
+        try:
+            # ``force=False`` avoids the full visualizer reset path and lets
+            # Genesis refresh an already-built native viewer in place.
+            update(force=False, auto=True)
+            self._last_visualizer_update_t = now
+        except TypeError:
+            try:
+                update(False, True)
+                self._last_visualizer_update_t = now
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def observe_go2_timing(self, name: str, duration_s: float) -> None:
         sink = self.go2_timing_sink
@@ -1494,6 +1707,10 @@ class SimScene:
         self._next_camera_publish_sim_t = 0.0
         self._next_observer_camera_publish_sim_t = 0.0
         self._latest_camera_axes = None
+        self._last_visualizer_update_t = 0.0
+        self.camera_render_epoch += 1
+        if self.camera_render_worker is not None:
+            self.camera_render_worker.bump_epoch()
         print(
             "[sim] environment reset | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
             % (
@@ -1530,6 +1747,21 @@ class SimScene:
                 < float(self._next_camera_publish_sim_t)
             )
         ):
+            return
+        if self.camera_render_worker is not None:
+            snapshot = self._camera_state_snapshot(
+                arm_q=arm_q,
+                sim_time_s=sim_time_s,
+                mock_snapshot=self._render_mock_snapshot,
+            )
+            if self.camera_render_worker.submit(snapshot, ("hand_eye_preview",)):
+                self._last_camera_publish_t = now_mono
+                if sim_time_s is not None:
+                    self._next_camera_publish_sim_t = _advance_capture_deadline(
+                        self._next_camera_publish_sim_t,
+                        float(sim_time_s),
+                        period,
+                    )
             return
         try:
             frame = self.eye_camera.capture(
@@ -1595,6 +1827,21 @@ class SimScene:
                 < float(self._next_observer_camera_publish_sim_t)
             )
         ):
+            return
+        if self.camera_render_worker is not None:
+            snapshot = self._camera_state_snapshot(
+                arm_q=None,
+                sim_time_s=sim_time_s,
+                mock_snapshot=self._render_mock_snapshot,
+            )
+            if self.camera_render_worker.submit(snapshot, ("observer",)):
+                self._last_observer_camera_publish_t = now_mono
+                if sim_time_s is not None:
+                    self._next_observer_camera_publish_sim_t = _advance_capture_deadline(
+                        self._next_observer_camera_publish_sim_t,
+                        float(sim_time_s),
+                        period,
+                    )
             return
         try:
             frame = self.observer_camera.capture(
@@ -1694,6 +1941,10 @@ class SimScene:
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         if self._latest_camera_axes is not None:
             return tuple(axis.copy() for axis in self._latest_camera_axes)
+        if self.camera_render_worker is not None:
+            # Do not fall through to Genesis camera.get_transform() from the
+            # physics process while the async worker is warming up.
+            return None
         if self.eye_camera is not None:
             axes = self.eye_camera.camera_axes_world()
             if axes is not None:
@@ -1728,6 +1979,10 @@ class SimScene:
     def close_frame_dispatchers(self) -> None:
         """Stop transport workers before their publishers are closed."""
 
+        if self.camera_render_worker is not None:
+            self.camera_render_worker.close()
+            self.camera_render_worker = None
+
         if self.frame_dispatcher is not None:
             self.frame_dispatcher.close()
         if self.rgbd_dispatcher is not None:
@@ -1735,6 +1990,12 @@ class SimScene:
 
     def flush_video_frame(self, stream: str, *, timeout_s: float = 1.0) -> bool:
         """Synchronize one startup frame with the WebRTC mailbox."""
+
+        if self.camera_render_worker is not None:
+            if not self.camera_render_worker.wait_for_frame(
+                str(stream), timeout_s=float(timeout_s)
+            ):
+                return False
 
         dispatcher = self.frame_dispatcher
         if dispatcher is None:
@@ -2300,6 +2561,60 @@ class RuntimePrep:
 
     def __init__(self, app: "GenesisApp"):
         self.app = app
+
+    def camera_render_spec(self, urdf_path: str) -> CameraRenderSpec:
+        """Build the immutable recipe for the visual-only camera process."""
+
+        a = self.app
+        use_go2 = bool(getattr(a.cfg, "use_go2", False))
+        spawn_pos = tuple(float(x) for x in a.spawn.spawn_xyz)
+        spawn_euler = tuple(float(x) for x in a.spawn.spawn_euler_deg)
+        if use_go2:
+            robot_pos = (
+                float(spawn_pos[0]),
+                float(spawn_pos[1]),
+                float(a.spawn.go2_spawn_height),
+            )
+            robot_euler = tuple(float(x) for x in a.spawn.go2_spawn_euler_deg)
+        else:
+            robot_pos = spawn_pos
+            robot_euler = spawn_euler
+        gravity = tuple(float(x) for x in a.params.gravity)
+        if use_go2 and gravity == (0.0, 0.0, 0.0):
+            gravity = (0.0, 0.0, -9.81)
+        assets = tuple(
+            str(a.mock_object_catalog.root / filename)
+            for filename in a.mock_object_catalog.assets()
+        )
+        return CameraRenderSpec(
+            urdf_path=str(urdf_path),
+            robot_pos=robot_pos,
+            robot_euler_deg=robot_euler,
+            requires_jac_and_ik=use_go2,
+            use_gpu=bool(a.cfg.use_gpu),
+            gpu_convert=bool(a.cfg.camera_gpu_convert),
+            dt=float(a.params.dt),
+            gravity=gravity,
+            substeps=int(a.params.substeps),
+            floor=bool(a.cfg.floor),
+            hand_eye_config=str(a.cfg.hand_eye_config),
+            hand_eye_width=int(a.cfg.sim_camera_width),
+            hand_eye_height=int(a.cfg.sim_camera_height),
+            hand_eye_fov_deg=float(a.cfg.sim_camera_fov_deg),
+            hand_eye_rgb=bool(a.cfg.sim_camera_rgb),
+            hand_eye_depth=bool(a.cfg.sim_camera_depth),
+            observer_width=int(a.cfg.sim_observer_camera_width),
+            observer_height=int(a.cfg.sim_observer_camera_height),
+            observer_fov_deg=float(a.cfg.sim_observer_camera_fov_deg),
+            observer_pos=tuple(float(x) for x in a.cfg.sim_observer_camera_pos),
+            observer_lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
+            mock_assets=assets,
+            target_enable=bool(a.spawn.sim_target_enable),
+            target_xyz=tuple(float(x) for x in a.spawn.sim_target_xyz),
+            target_radius=float(a.spawn.sim_target_radius),
+            target_color_rgba=tuple(float(x) for x in a.spawn.sim_target_color_rgba),
+            target_gravity=bool(a.spawn.sim_target_gravity),
+        )
     def _detect_n_nodes(self, entity) -> int:
         a = self.app
         if a.layout.bend_joint_names:
@@ -2663,6 +2978,7 @@ class SimRuntime:
 
     def __init__(self, app: "GenesisApp"):
         self.app = app
+
         self._applied_sim_reset_seq: int = 0
         self._applied_go2_sport_pose_seq: int = 0
         self._applied_go2_obstacles_avoid_seq: int = 0
@@ -3216,11 +3532,14 @@ class GenesisApp:
         self._proto_cfg = mapping_cfg if mapping_cfg is not None else proto.SimMappingConfig()
         self.layout = JointLayout()
         self.markers = MarkerSet()
+        viewer_enabled = bool(self.cfg.enable_viewer)
+        visualizer_max_hz = max(0.0, float(getattr(self.cfg, "visualizer_max_hz", 0.0)))
         self.sim_scene = SimScene(
             frame_hub=frame_hub,
             video_mailboxes=video_mailboxes,
             camera_gpu_convert=bool(self.cfg.camera_gpu_convert),
-            update_visualizer_on_step=bool(self.cfg.enable_viewer),
+            update_visualizer_on_step=bool(viewer_enabled and visualizer_max_hz <= 0.0),
+            visualizer_max_hz=visualizer_max_hz if viewer_enabled else 0.0,
         )
         self.mock_object_state = mock_object_state or MockObjectState(
             MockObjectCatalog(resolve_mock_object_catalog_root(_REPO_ROOT))
@@ -3281,7 +3600,54 @@ class GenesisApp:
     def run(self) -> None:
         urdf_path = AssetProcessor(self).prepare_assets()
         runtime = RuntimePrep(self)
-        runtime.init_genesis(urdf_path)
+        async_cameras = (
+            str(getattr(self.cfg, "camera_execution", "sync_legacy")).strip().lower()
+            == "async_process"
+            and (
+                (
+                    bool(self.cfg.sim_camera_enable)
+                    and str(self.cfg.hand_eye_config).strip()
+                )
+                or bool(self.cfg.sim_observer_camera_enable)
+            )
+        )
+        try:
+            if async_cameras:
+                streams: dict[str, tuple[int, int]] = {}
+                if bool(self.cfg.sim_camera_enable) and str(self.cfg.hand_eye_config).strip():
+                    streams["hand_eye_preview"] = (
+                        int(self.cfg.sim_camera_width),
+                        int(self.cfg.sim_camera_height),
+                    )
+                if bool(self.cfg.sim_observer_camera_enable):
+                    streams["observer"] = (
+                        int(self.cfg.sim_observer_camera_width),
+                        int(self.cfg.sim_observer_camera_height),
+                    )
+                # Start building the visual replica before the main Genesis
+                # scene so the two expensive startup operations overlap.
+                self.sim_scene.configure_camera_render_worker(
+                    runtime.camera_render_spec(urdf_path),
+                    streams,
+                    timeout_s=float(
+                        getattr(self.cfg, "camera_worker_start_timeout_s", 180.0)
+                    ),
+                    wait=False,
+                )
+            runtime.init_genesis(urdf_path)
+            if async_cameras:
+                self.sim_scene.wait_camera_render_worker(
+                    timeout_s=float(
+                        getattr(self.cfg, "camera_worker_start_timeout_s", 180.0)
+                    )
+                )
+        except BaseException:
+            # A worker may already own a CUDA context when the main scene
+            # fails to build (or vice versa).  Always tear it down before
+            # propagating the original startup error so Compose restart loops
+            # do not accumulate orphan renderer processes.
+            self.sim_scene.close_frame_dispatchers()
+            raise
         self.sim_scene.configure_frame_dispatchers()
         self.sim_scene.start_frame_dispatchers()
         # Prime both network cameras before advertising the session as ready.
@@ -3300,7 +3666,10 @@ class GenesisApp:
                 depth_enabled=bool(self.cfg.sim_camera_depth),
             )
             if not self.sim_scene.flush_video_frame(
-                "hand_eye_preview", timeout_s=2.0
+                "hand_eye_preview",
+                timeout_s=float(
+                    getattr(self.cfg, "camera_first_frame_timeout_s", 30.0)
+                ),
             ):
                 print(
                     "[sim-media] initial hand-eye frame was not dispatched before readiness",
@@ -3316,7 +3685,12 @@ class GenesisApp:
                 sim_time_s=0.0,
                 force=True,
             )
-            if not self.sim_scene.flush_video_frame("observer", timeout_s=2.0):
+            if not self.sim_scene.flush_video_frame(
+                "observer",
+                timeout_s=float(
+                    getattr(self.cfg, "camera_first_frame_timeout_s", 30.0)
+                ),
+            ):
                 print(
                     "[sim-media] initial observer frame was not dispatched before readiness",
                     flush=True,
