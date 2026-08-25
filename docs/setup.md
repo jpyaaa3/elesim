@@ -131,9 +131,13 @@ shell은 설치 직후 한 번만 다음을 실행한다.
 source ~/.bashrc
 ```
 
-Uninstaller와 ownership manifest는 제거가 끝날 때까지 보존한다. 다른
-프로젝트의 home, source checkout, Docker image, Tailscale admin record,
-external keystore는 EleSim이 소유하지 않는다.
+Uninstaller는 설치 manifest로 확인된 이 설치의 prefix/bin/runtime 산출물,
+managed security view, logs, operator Authority와 EleSim 로컬 image를 제거하는
+host-local factory reset 경계다. BuildKit/download cache는 재사용 가능한
+cache이므로 삭제하지 않는다. 다른 프로젝트의 home, source checkout,
+Tailscale admin record, 외부 keystore/TURN credential은 EleSim이 생성했다는
+소유 증거가 없으므로 보존한다. 외부 보안 상태의 폐기와 재발급은
+`elesim-connections`의 managed generation transaction에서 수행한다.
 
 ## 5. GPU 정책
 
