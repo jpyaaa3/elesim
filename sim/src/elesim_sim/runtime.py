@@ -2428,8 +2428,15 @@ class RuntimePrep:
             cam_lookat = (spawn_pos[0] + 0.25, spawn_pos[1], spawn_pos[2])
             cam_pos = (spawn_pos[0] + 1.10, spawn_pos[1] - 1.00, spawn_pos[2] + 1.10)
 
+        # Genesis leaves its no-slip contact postprocess disabled by default.
+        # Enable a small, bounded number of iterations so stance feet do not
+        # accumulate tangential solver drift while the Go2 MPC is holding
+        # contact.  This is a solver stabilization setting, not a substitute
+        # for the MPC friction-cone coefficient or contact calibration.
+        rigid_opts = gs.options.RigidOptions(noslip_iterations=5)
         a.sim_scene.scene = gs.Scene(
             sim_options=sim_opts,
+            rigid_options=rigid_opts,
             viewer_options=gs.options.ViewerOptions(
                 camera_pos=cam_pos,
                 camera_lookat=cam_lookat,
