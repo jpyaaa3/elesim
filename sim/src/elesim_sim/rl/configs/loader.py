@@ -1,0 +1,555 @@
+"""Typed loader for the wrap-grasp RL configuration.
+
+Every tunable the RL stack uses is declared here and sourced from YAML.  The
+loader is deliberately strict: an unknown key is an error rather than a
+silently ignored typo, because a misspelled reward weight that quietly keeps
+its default is indistinguishable from a training bug.
+"""
+
+from __future__ import annotations
+
+import collections.abc
+import copy
+import dataclasses
+from dataclasses import dataclass, field, fields, is_dataclass
+from pathlib import Path
+from typing import Any, Mapping, MutableMapping, Optional, Sequence
+
+import yaml
+
+_CONFIG_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = _CONFIG_DIR / "default.yaml"
+
+SCHEMA_VERSION = 1
+
+
+class ConfigError(ValueError):
+    """Raised for malformed or unknown configuration entries."""
+
+
+# --------------------------------------------------------------------------
+# Leaf sections
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    backend: str = "gpu"
+    torch_device: str = "auto"
+    n_envs: int = 256
+    seed: int = 0
+    deterministic: bool = False
+
+
+@dataclass(frozen=True)
+class Go2Config:
+    enable: bool = True
+    spawn_xyz: tuple[float, float, float] = (0.0, 0.0, 0.32)
+    freeze_legs: bool = True
+    base_fixed: bool = True
+    leg_pose_rad: tuple[float, float, float] = (0.0, 0.9, -1.8)
+
+
+@dataclass(frozen=True)
+class SceneConfig:
+    dt: float = 0.01
+    solver_substeps: int = 1
+    max_collision_pairs: int = 512
+    show_viewer: bool = False
+    model_bundle: str = ""
+    urdf_relpath: str = "robot.urdf"
+    floor: bool = True
+    friction: Optional[float] = None
+    go2: Go2Config = field(default_factory=Go2Config)
+
+
+@dataclass(frozen=True)
+class ArmLimits:
+    linear_m: tuple[float, float] = (-0.230, 0.0)
+    roll_rad: tuple[float, float] = (-3.1416, 3.1416)
+    bend_per_node_rad: float = 0.62832
+
+
+@dataclass(frozen=True)
+class ArmGains:
+    kp: float = 200.0
+    kv: float = 20.0
+    force_range: float = 100.0
+
+
+@dataclass(frozen=True)
+class ArmConfig:
+    linear_joint: str = "j_plate_housing"
+    roll_joint: str = "j_housing_wedge"
+    bend_joints: tuple[str, ...] = ()
+    n_seg: int = 5
+    linear_axis_sign: float = 1.0
+    roll_axis_sign: float = 1.0
+    bend_axis_sign: float = -1.0
+    limits: ArmLimits = field(default_factory=ArmLimits)
+    gains: ArmGains = field(default_factory=ArmGains)
+    segment2_mid_link: str = "node7"
+    arm_link_prefixes: tuple[str, ...] = ("node", "wedge", "housing", "gripper")
+
+    def __post_init__(self) -> None:
+        if self.bend_joints and len(self.bend_joints) < 2 * self.n_seg:
+            raise ConfigError(
+                f"arm.bend_joints has {len(self.bend_joints)} entries but "
+                f"n_seg={self.n_seg} needs at least {2 * self.n_seg}"
+            )
+
+
+@dataclass(frozen=True)
+class ObjectConfig:
+    kind: str = "cylinder"
+    radius_m: float = 0.045
+    height_m: float = 0.20
+    mass_kg: float = 0.30
+    pos_xyz: tuple[float, float, float] = (0.28, 0.0, 0.10)
+    collision: bool = True
+    fixed: bool = False
+
+
+@dataclass(frozen=True)
+class SettleConfig:
+    mode: str = "fixed"
+    joint_vel_thresh: float = 0.05
+    object_vel_thresh: float = 0.02
+    hold_substeps: int = 5
+    min_substeps: int = 10
+
+
+@dataclass(frozen=True)
+class RateLimitConfig:
+    linear_m: float = 0.02
+    roll_rad: float = 0.20
+    theta_rad: float = 0.10
+
+
+@dataclass(frozen=True)
+class MacroStepConfig:
+    max_steps: int = 15
+    substeps: int = 40
+    settle: SettleConfig = field(default_factory=SettleConfig)
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+
+    def __post_init__(self) -> None:
+        if self.settle.min_substeps > self.substeps:
+            raise ConfigError(
+                "macro_step.settle.min_substeps must not exceed macro_step.substeps"
+            )
+
+
+@dataclass(frozen=True)
+class BetaConfig:
+    """Residual joint model (backlash + deflection).
+
+    The numbers are placeholders from the paper's manual configuration table.
+    `measured` stays False until real identification data replaces them, and
+    the training/eval reports surface that flag so a run is never mistaken for
+    one calibrated against hardware.
+    """
+
+    enable: bool = True
+    measured: bool = False
+    beta0_deg: float = 0.8
+    load_slope_deg_per_kg: float = 0.66
+    beta0_jitter_deg: float = 0.2
+    directional: bool = True
+    estimator_gain: float = 0.8
+    estimator_noise_deg: float = 0.15
+    apply_bundle_sag_model: bool = False
+
+
+@dataclass(frozen=True)
+class RewardWeights:
+    coverage_progress: float = 2.0
+    approach_shaping: float = 0.5
+    step_cost: float = -0.05
+    non_target_collision: float = -1.0
+    object_disturbance: float = -0.5
+    object_topple: float = -2.0
+    success: float = 5.0
+
+
+@dataclass(frozen=True)
+class CoverageConfig:
+    n_bins: int = 180
+    radial_band_m: float = 0.09
+
+
+@dataclass(frozen=True)
+class DisturbanceConfig:
+    deadband_m: float = 0.005
+    max_displacement_m: float = 0.06
+    max_tilt_rad: float = 0.60
+
+
+@dataclass(frozen=True)
+class RewardConfig:
+    weights: RewardWeights = field(default_factory=RewardWeights)
+    approach_d0: float = 0.20
+    coverage: CoverageConfig = field(default_factory=CoverageConfig)
+    disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
+
+
+@dataclass(frozen=True)
+class LiftConfig:
+    roll_target_rad: float = 1.5708
+    roll_rate_rad_per_substep: float = 0.01
+    hold_substeps: int = 100
+    max_rel_translation_m: float = 0.03
+    max_rel_rotation_rad: float = 0.5
+    min_height_m: float = 0.02
+
+
+@dataclass(frozen=True)
+class SuccessConfig:
+    criterion: str = "geometric"
+    coverage_target_rad: float = 3.0019
+    lift: LiftConfig = field(default_factory=LiftConfig)
+
+    def __post_init__(self) -> None:
+        if self.criterion not in ("geometric", "lift"):
+            raise ConfigError(f"unknown success.criterion: {self.criterion!r}")
+
+
+@dataclass(frozen=True)
+class ObsNoiseConfig:
+    joint_rad: float = 0.005
+    object_pos_m: float = 0.004
+    object_rot_rad: float = 0.02
+    load_proxy: float = 0.02
+
+
+@dataclass(frozen=True)
+class ActorObsConfig:
+    include_joint_estimate: bool = True
+    include_object_geometry: bool = True
+    include_load_proxy: bool = True
+    include_step_index: bool = True
+    noise: ObsNoiseConfig = field(default_factory=ObsNoiseConfig)
+    delay_steps: tuple[int, int] = (0, 2)
+
+
+@dataclass(frozen=True)
+class CriticObsConfig:
+    include_true_joint_state: bool = True
+    include_contact_forces: bool = True
+    include_true_object_pose: bool = True
+    include_coverage: bool = True
+
+
+@dataclass(frozen=True)
+class ObservationConfig:
+    actor: ActorObsConfig = field(default_factory=ActorObsConfig)
+    critic_privileged: CriticObsConfig = field(default_factory=CriticObsConfig)
+
+
+@dataclass(frozen=True)
+class DomainRandomisationConfig:
+    enable: bool = True
+    friction: tuple[float, float] = (0.6, 1.2)
+    object_mass_kg: tuple[float, float] = (0.15, 0.60)
+    object_radius_m: tuple[float, float] = (0.035, 0.060)
+    object_pos_jitter_m: tuple[float, float, float] = (0.03, 0.03, 0.01)
+    object_yaw_jitter_rad: float = 0.35
+
+
+@dataclass(frozen=True)
+class CurriculumStage:
+    randomise_object_pose: bool = False
+    randomise_object_radius: bool = False
+    approach_shaping: bool = True
+    success_criterion: str = "geometric"
+
+
+@dataclass(frozen=True)
+class CurriculumConfig:
+    stage: int = 1
+    stages: Mapping[int, CurriculumStage] = field(default_factory=dict)
+
+    def active(self) -> CurriculumStage:
+        try:
+            return self.stages[int(self.stage)]
+        except KeyError as exc:
+            known = sorted(self.stages)
+            raise ConfigError(
+                f"curriculum.stage={self.stage} is not defined; known stages: {known}"
+            ) from exc
+
+
+@dataclass(frozen=True)
+class PolicyConfig:
+    class_name: str = "ActorCritic"
+    init_noise_std: float = 0.5
+    actor_hidden_dims: tuple[int, ...] = (256, 128, 64)
+    critic_hidden_dims: tuple[int, ...] = (256, 128, 64)
+    activation: str = "elu"
+
+
+@dataclass(frozen=True)
+class AlgorithmConfig:
+    class_name: str = "PPO"
+    value_loss_coef: float = 1.0
+    use_clipped_value_loss: bool = True
+    clip_param: float = 0.2
+    entropy_coef: float = 0.005
+    num_learning_epochs: int = 5
+    num_mini_batches: int = 4
+    learning_rate: float = 3e-4
+    schedule: str = "adaptive"
+    gamma: float = 0.99
+    lam: float = 0.95
+    desired_kl: float = 0.01
+    max_grad_norm: float = 1.0
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    max_iterations: int = 1500
+    save_interval: int = 50
+    experiment_name: str = "wrap_grasp"
+    run_name: str = ""
+    log_dir: str = "sim/rl_runs"
+    resume: str = ""
+    policy: PolicyConfig = field(default_factory=PolicyConfig)
+    algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
+    num_steps_per_env: int = 16
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    n_envs_sweep: tuple[int, ...] = (256, 1024, 4096, 8192)
+    warmup_steps: int = 20
+    measure_steps: int = 200
+    out_path: str = "sim/benchmarks/step_rate.md"
+
+
+@dataclass(frozen=True)
+class PoseGrid:
+    x_m: tuple[float, ...] = (0.24, 0.28, 0.32)
+    yaw_rad: tuple[float, ...] = (-0.3, 0.0, 0.3)
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    episodes_per_condition: int = 20
+    pose_grid: PoseGrid = field(default_factory=PoseGrid)
+    radius_grid_m: tuple[float, ...] = (0.035, 0.045, 0.060)
+    render_episodes: int = 1
+    out_dir: str = "sim/rl_runs/eval"
+
+
+@dataclass(frozen=True)
+class WrapGraspConfig:
+    schema_version: int = SCHEMA_VERSION
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    scene: SceneConfig = field(default_factory=SceneConfig)
+    arm: ArmConfig = field(default_factory=ArmConfig)
+    object: ObjectConfig = field(default_factory=ObjectConfig)
+    macro_step: MacroStepConfig = field(default_factory=MacroStepConfig)
+    beta: BetaConfig = field(default_factory=BetaConfig)
+    reward: RewardConfig = field(default_factory=RewardConfig)
+    success: SuccessConfig = field(default_factory=SuccessConfig)
+    observation: ObservationConfig = field(default_factory=ObservationConfig)
+    domain_randomisation: DomainRandomisationConfig = field(
+        default_factory=DomainRandomisationConfig
+    )
+    curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
+    train: TrainConfig = field(default_factory=TrainConfig)
+    benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
+    eval: EvalConfig = field(default_factory=EvalConfig)
+
+    def resolved_for_curriculum(self) -> "WrapGraspConfig":
+        """Apply the active curriculum stage on top of the base config.
+
+        The stage is the single switch the spec asks for; it overrides the
+        randomisation flags and the success criterion so a stage change never
+        requires editing the other sections by hand.
+        """
+        stage = self.curriculum.active()
+        dr = self.domain_randomisation
+        if not stage.randomise_object_pose:
+            dr = dataclasses.replace(
+                dr, object_pos_jitter_m=(0.0, 0.0, 0.0), object_yaw_jitter_rad=0.0
+            )
+        if not stage.randomise_object_radius:
+            r = self.object.radius_m
+            dr = dataclasses.replace(dr, object_radius_m=(r, r))
+        reward = self.reward
+        if not stage.approach_shaping:
+            reward = dataclasses.replace(
+                reward,
+                weights=dataclasses.replace(reward.weights, approach_shaping=0.0),
+            )
+        success = dataclasses.replace(self.success, criterion=stage.success_criterion)
+        return dataclasses.replace(
+            self, domain_randomisation=dr, reward=reward, success=success
+        )
+
+
+# --------------------------------------------------------------------------
+# Construction
+# --------------------------------------------------------------------------
+
+
+def _coerce(value: Any, annotation: Any, path: str) -> Any:
+    """Convert a YAML value into the annotated dataclass field type."""
+    origin = getattr(annotation, "__origin__", None)
+    args = getattr(annotation, "__args__", ())
+
+    # Optional[X] -> X or None
+    if origin is not None and type(None) in args:
+        if value is None:
+            return None
+        inner = next(a for a in args if a is not type(None))
+        return _coerce(value, inner, path)
+
+    if is_dataclass(annotation):
+        if not isinstance(value, Mapping):
+            raise ConfigError(f"{path}: expected a mapping, got {type(value).__name__}")
+        return _build(annotation, value, path)
+
+    if origin is tuple:
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            raise ConfigError(f"{path}: expected a sequence")
+        # tuple[X, ...] (homogeneous) vs tuple[X, Y, Z] (fixed arity)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return tuple(_coerce(v, args[0], f"{path}[{i}]") for i, v in enumerate(value))
+        if len(args) != len(value):
+            raise ConfigError(
+                f"{path}: expected {len(args)} entries, got {len(value)}"
+            )
+        return tuple(
+            _coerce(v, a, f"{path}[{i}]") for i, (v, a) in enumerate(zip(value, args))
+        )
+
+    if origin in (collections.abc.Mapping, collections.abc.MutableMapping, dict):
+        if not isinstance(value, Mapping):
+            raise ConfigError(f"{path}: expected a mapping")
+        key_t, val_t = args
+        return {
+            _coerce(k, key_t, f"{path}.{k}"): _coerce(v, val_t, f"{path}.{k}")
+            for k, v in value.items()
+        }
+
+    if annotation is bool:
+        if not isinstance(value, bool):
+            raise ConfigError(f"{path}: expected a boolean, got {value!r}")
+        return value
+    if annotation is int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"{path}: expected an integer, got {value!r}")
+        return int(value)
+    if annotation is float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConfigError(f"{path}: expected a number, got {value!r}")
+        return float(value)
+    if annotation is str:
+        if not isinstance(value, str):
+            raise ConfigError(f"{path}: expected a string, got {value!r}")
+        return value
+    return value
+
+
+def _build(cls: type, data: Mapping[str, Any], path: str = "") -> Any:
+    known = {f.name: f for f in fields(cls)}
+    unknown = sorted(set(data) - set(known))
+    if unknown:
+        where = path or cls.__name__
+        raise ConfigError(f"{where}: unknown configuration keys {unknown}")
+    kwargs: dict[str, Any] = {}
+    for name, value in data.items():
+        child = f"{path}.{name}" if path else name
+        kwargs[name] = _coerce(value, known[name].type, child)
+    return cls(**kwargs)
+
+
+def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> None:
+    for key, value in overlay.items():
+        if (
+            key in base
+            and isinstance(base[key], MutableMapping)
+            and isinstance(value, Mapping)
+        ):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = copy.deepcopy(value)
+
+
+def _resolve_annotations() -> None:
+    """Turn the string annotations from `from __future__ import annotations`
+    into real types so `_coerce` can dispatch on them."""
+    import typing
+
+    module_ns = dict(globals())
+    for cls in list(module_ns.values()):
+        if is_dataclass(cls) and getattr(cls, "__module__", "") == __name__:
+            hints = typing.get_type_hints(cls, globalns=module_ns)
+            for f in fields(cls):
+                f.type = hints.get(f.name, f.type)
+
+
+_resolve_annotations()
+
+
+def parse_override(text: str) -> tuple[list[str], Any]:
+    """Parse a `--set a.b.c=value` token into a key path and a YAML value."""
+    if "=" not in text:
+        raise ConfigError(f"override must be key=value, got {text!r}")
+    key, _, raw = text.partition("=")
+    keys = [k for k in key.strip().split(".") if k]
+    if not keys:
+        raise ConfigError(f"override has an empty key: {text!r}")
+    return keys, yaml.safe_load(raw)
+
+
+def load_config(
+    path: Optional[str | Path] = None,
+    *,
+    overlays: Sequence[str | Path] = (),
+    overrides: Sequence[str] = (),
+) -> WrapGraspConfig:
+    """Load `default.yaml`, then overlay files, then `key=value` overrides."""
+    base_path = Path(path) if path else DEFAULT_CONFIG_PATH
+    with open(base_path, "r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    if not isinstance(raw, MutableMapping):
+        raise ConfigError(f"{base_path}: top level must be a mapping")
+
+    for overlay_path in overlays:
+        with open(overlay_path, "r", encoding="utf-8") as handle:
+            overlay = yaml.safe_load(handle) or {}
+        if not isinstance(overlay, Mapping):
+            raise ConfigError(f"{overlay_path}: top level must be a mapping")
+        _deep_merge(raw, overlay)
+
+    for override in overrides:
+        keys, value = parse_override(override)
+        cursor: MutableMapping[str, Any] = raw
+        for key in keys[:-1]:
+            nxt = cursor.get(key)
+            if not isinstance(nxt, MutableMapping):
+                nxt = {}
+                cursor[key] = nxt
+            cursor = nxt
+        cursor[keys[-1]] = value
+
+    version = raw.get("schema_version", SCHEMA_VERSION)
+    if version != SCHEMA_VERSION:
+        raise ConfigError(
+            f"config schema_version {version} != supported {SCHEMA_VERSION}"
+        )
+    return _build(WrapGraspConfig, raw)
+
+
+def to_dict(cfg: Any) -> Any:
+    """Plain-data view of a config, for logging and run reproduction."""
+    if is_dataclass(cfg):
+        return {f.name: to_dict(getattr(cfg, f.name)) for f in fields(cfg)}
+    if isinstance(cfg, Mapping):
+        return {k: to_dict(v) for k, v in cfg.items()}
+    if isinstance(cfg, tuple):
+        return [to_dict(v) for v in cfg]
+    return cfg

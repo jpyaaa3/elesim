@@ -1,0 +1,271 @@
+# Wrap-grasp RL configuration.  Every tunable lives here; the code must not
+# hardcode any of these values.  Sections map 1:1 onto the dataclasses in
+# `elesim_sim.rl.configs.loader`.
+schema_version: 1
+
+runtime:
+  # Genesis compute backend.  "gpu" resolves to CUDA on Linux and Metal on
+  # macOS; "cpu" is the portable fallback.  Nothing here assumes NVIDIA.
+  backend: gpu
+  # Torch device for the policy.  "auto" picks cuda -> mps -> cpu.
+  torch_device: auto
+  n_envs: 256
+  seed: 0
+  # Torch deterministic algorithms.  Slower; use for reproduction runs.
+  deterministic: false
+
+scene:
+  dt: 0.01
+  # Genesis rigid-solver substeps per scene.step().
+  solver_substeps: 1
+  # Contact-constraint buffer.  Genesis halts the sim if the real pair count
+  # exceeds this, and get_contacts() returns at most this many rows per env.
+  max_collision_pairs: 512
+  show_viewer: false
+  # Empty -> resolved relative to the repo root (model/bundles/default).
+  model_bundle: ""
+  urdf_relpath: robot.urdf
+  floor: true
+  # null keeps whatever the URDF/Genesis default is.  Set to override.
+  friction: null
+  go2:
+    enable: true
+    spawn_xyz: [0.0, 0.0, 0.32]
+    # The quadruped is scenery for wrap grasping: freeze the legs so they
+    # cannot walk away mid-episode, and treat the trunk as a collision body.
+    freeze_legs: true
+    # Weld the trunk to the world.  Wrap grasping is not a locomotion task
+    # and a toppling base would inject failures that have nothing to do with
+    # the policy under test.
+    base_fixed: true
+    # Held leg pose, in radians, as (hip, thigh, calf) repeated per leg.
+    leg_pose_rad: [0.0, 0.9, -1.8]
+
+arm:
+  # Joint names come from the bundle URDF.  Segment 1 is the proximal five
+  # bend nodes, segment 2 the distal five.
+  linear_joint: j_plate_housing
+  roll_joint: j_housing_wedge
+  bend_joints:
+    - j_wedge_node0
+    - j_node0_node1
+    - j_node1_node2
+    - j_node2_node3
+    - j_node3_node4
+    - j_node4_node5
+    - j_node5_node6
+    - j_node6_node7
+    - j_node7_node8
+    - j_node8_node9
+  n_seg: 5
+  # Sign conventions mirror runtime.JointLayout.
+  linear_axis_sign: 1.0
+  roll_axis_sign: 1.0
+  bend_axis_sign: -1.0
+  limits:
+    linear_m: [-0.230, 0.0]
+    roll_rad: [-3.1416, 3.1416]
+    # Per-node bend limit.  Segment total is n_seg times this.
+    bend_per_node_rad: 0.62832
+  gains:
+    kp: 200.0
+    kv: 20.0
+    force_range: 100.0
+  # Link names used for coverage and approach shaping.
+  segment2_mid_link: node7
+  # Links that must never touch anything but the object.
+  arm_link_prefixes: [node, wedge, housing, gripper]
+
+object:
+  kind: cylinder
+  radius_m: 0.045
+  height_m: 0.20
+  mass_kg: 0.30
+  # Base-frame position of the cylinder centre at reset.
+  pos_xyz: [0.28, 0.0, 0.10]
+  collision: true
+  # A graspable object must be a free body: disturbance and topple checks are
+  # meaningless for a fixed entity.
+  fixed: false
+
+macro_step:
+  # Rule 1: this is a macro-step MDP, not a 50 Hz reactive controller.
+  max_steps: 15
+  # Substeps simulated per macro step (settle window).
+  substeps: 40
+  settle:
+    # "fixed" always runs `substeps`; "velocity" stops early once the arm and
+    # object velocities fall under the thresholds for `hold_substeps`.
+    mode: fixed
+    joint_vel_thresh: 0.05
+    object_vel_thresh: 0.02
+    hold_substeps: 5
+    min_substeps: 10
+  # Per-macro-step waypoint increment caps (the action is scaled into these).
+  rate_limit:
+    linear_m: 0.02
+    roll_rad: 0.20
+    theta_rad: 0.10
+
+beta:
+  # Rule 3: interface only.  These are placeholder values from the paper's
+  # Table II manual configuration and MUST be replaced with measurements.
+  enable: true
+  measured: false
+  beta0_deg: 0.8
+  load_slope_deg_per_kg: 0.66
+  # Randomisation of beta0 across envs (uniform, absolute degrees).
+  beta0_jitter_deg: 0.2
+  # Sign convention: backlash opposes the last commanded direction.
+  directional: true
+  # The estimator hook models an on-robot beta compensator.  1.0 = perfect
+  # compensation in the observation, 0.0 = actor sees the raw corrupted angle.
+  estimator_gain: 0.8
+  estimator_noise_deg: 0.15
+  # The bundle already carries a sag model that runtime.target_from_4dof
+  # applies.  Enabling both double-counts deflection, so this is off here.
+  apply_bundle_sag_model: false
+
+reward:
+  weights:
+    coverage_progress: 2.0
+    approach_shaping: 0.5
+    step_cost: -0.05
+    non_target_collision: -1.0
+    object_disturbance: -0.5
+    object_topple: -2.0
+    success: 5.0
+  # Approach shaping normaliser d0 (metres).
+  approach_d0: 0.20
+  # Coverage is measured about the object's *current* centre.
+  coverage:
+    # Arc-length bin count for the azimuth occupancy histogram.  Coverage is
+    # rounded down to a whole bin, so this also sets how much true wrap angle
+    # the measurement gives away: 180 bins = 2 deg, matching the resolution of
+    # the prior geometry sweep.
+    n_bins: 180
+    # An arm link counts as occupying its azimuth bin within this radial band
+    # around the object surface (metres).
+    radial_band_m: 0.09
+  disturbance:
+    # Continuous penalty is applied to displacement beyond this dead-band.
+    deadband_m: 0.005
+    # Terminating thresholds.
+    max_displacement_m: 0.06
+    max_tilt_rad: 0.60
+
+success:
+  # Rule: the geometric gate is a curriculum stand-in for the lift test.
+  # 172 deg is the peak wrap angle the prior geometry sweep reached
+  # (misc/analysis/wrap_grasp on the motion_planning branch); do not set this
+  # to 180 deg and call the resulting zero success rate a training failure.
+  criterion: geometric        # geometric | lift
+  coverage_target_rad: 3.0019 # 172 deg
+  lift:
+    # Lifting this arm means rotating roll so the bend plane goes from
+    # horizontal to vertical.  The object lying down ~90 deg is expected;
+    # uprightness is NOT part of the success test.
+    roll_target_rad: 1.5708
+    roll_rate_rad_per_substep: 0.01
+    hold_substeps: 100
+    # Retention: the object must not fall and must keep its pose relative to
+    # segment 2 within these tolerances for the whole lift plus hold.
+    max_rel_translation_m: 0.03
+    max_rel_rotation_rad: 0.5
+    min_height_m: 0.02
+
+observation:
+  # Rule 2: the actor never sees simulator ground truth.
+  actor:
+    include_joint_estimate: true
+    include_object_geometry: true   # (r, height, base-frame pose)
+    include_load_proxy: true        # previous-step joint torque proxy
+    include_step_index: true
+    noise:
+      joint_rad: 0.005
+      object_pos_m: 0.004
+      object_rot_rad: 0.02
+      load_proxy: 0.02
+    # Macro-step observation delay drawn uniformly from this inclusive range.
+    delay_steps: [0, 2]
+  critic_privileged:
+    include_true_joint_state: true
+    include_contact_forces: true
+    include_true_object_pose: true
+    include_coverage: true
+
+domain_randomisation:
+  enable: true
+  friction: [0.6, 1.2]
+  object_mass_kg: [0.15, 0.60]
+  object_radius_m: [0.035, 0.060]
+  object_pos_jitter_m: [0.03, 0.03, 0.01]
+  object_yaw_jitter_rad: 0.35
+
+curriculum:
+  # Rule: switchable by config, not by code edits.
+  stage: 1
+  stages:
+    1:
+      randomise_object_pose: false
+      randomise_object_radius: false
+      approach_shaping: true
+      success_criterion: geometric
+    2:
+      randomise_object_pose: true
+      randomise_object_radius: false
+      approach_shaping: false
+      success_criterion: lift
+    3:
+      randomise_object_pose: true
+      randomise_object_radius: true
+      approach_shaping: false
+      success_criterion: lift
+
+train:
+  # rsl_rl PPO.  Field names follow rsl_rl's train/policy/algorithm configs.
+  max_iterations: 1500
+  save_interval: 50
+  experiment_name: wrap_grasp
+  run_name: ""
+  log_dir: sim/rl_runs
+  resume: ""
+  policy:
+    class_name: ActorCritic
+    init_noise_std: 0.5
+    actor_hidden_dims: [256, 128, 64]
+    critic_hidden_dims: [256, 128, 64]
+    activation: elu
+  algorithm:
+    class_name: PPO
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 0.005
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 0.0003
+    schedule: adaptive
+    gamma: 0.99
+    lam: 0.95
+    desired_kl: 0.01
+    max_grad_norm: 1.0
+  # Macro steps collected per env per PPO iteration.
+  num_steps_per_env: 16
+
+benchmark:
+  # T1 / gate G1.  Lower the sweep on memory-limited hosts; the script records
+  # the first N that fails instead of pretending it ran.
+  n_envs_sweep: [256, 1024, 4096, 8192]
+  warmup_steps: 20
+  measure_steps: 200
+  out_path: sim/benchmarks/step_rate.md
+
+eval:
+  episodes_per_condition: 20
+  pose_grid:
+    x_m: [0.24, 0.28, 0.32]
+    yaw_rad: [-0.3, 0.0, 0.3]
+  radius_grid_m: [0.035, 0.045, 0.060]
+  render_episodes: 1
+  out_dir: sim/rl_runs/eval
