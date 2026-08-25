@@ -612,6 +612,13 @@ def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> 
     assert _command_timeout(("/usr/local/bin/elesim-tailscale", "login"), 2) == 600
     assert (
         _command_timeout(
+            ("/usr/local/bin/elesim-net", "doctor", "--timeout", "300", "--json"),
+            2,
+        )
+        == 360
+    )
+    assert (
+        _command_timeout(
             ("/usr/local/bin/elesim-tailscale", "status", "--json"), 2
         )
         == 2
@@ -650,6 +657,40 @@ def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
             300,
         )
     ]
+
+
+def test_local_runtime_doctor_outlives_its_inner_probe_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[float] = []
+
+    def fake_helper(
+        _argv,
+        *,
+        socket_path: str,
+        timeout_s: float,
+        output=None,
+    ) -> RemoteCommandResult:
+        assert socket_path == "/run/elesim-helper.sock"
+        assert output is None
+        forwarded.append(timeout_s)
+        return RemoteCommandResult(0, '{"ok": true}\n', "")
+
+    monkeypatch.setenv("ELESIM_HOST_HELPER_SOCKET", "/run/elesim-helper.sock")
+    monkeypatch.setattr(secure_deployment, "_run_through_host_helper", fake_helper)
+
+    result = _LocalSession(timeout_s=30).run(
+        (
+            "/opt/elesim/bin/elesim-net",
+            "doctor",
+            "--timeout",
+            "300",
+            "--json",
+        )
+    )
+
+    assert result.exit_status == 0
+    assert forwarded == [360]
 
 
 def test_local_gpu_inventory_probe_is_forwarded_to_the_host_helper(

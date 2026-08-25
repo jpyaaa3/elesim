@@ -2335,6 +2335,45 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     assert "run --rm --build tools elesim-net" not in wrapper
 
 
+def test_container_net_doctor_reuses_tools_image_after_runtime_build(
+    local_state, tmp_path: Path
+) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+
+    fake_bin = tmp_path / "fake-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+        }
+    )
+
+    result = subprocess.run(
+        (
+            state.bin_path / "elesim-net",
+            "doctor",
+            "--timeout",
+            "300",
+            "--json",
+        ),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"schema_version": 1}
+    commands = calls.read_text(encoding="utf-8").splitlines()
+    assert any("image inspect elesim/tools:local" in command for command in commands)
+    assert not any("build --quiet tools" in command for command in commands)
+
+
 def test_container_install_records_host_uninstaller_and_docker_uuid(
     local_state,
 ) -> None:

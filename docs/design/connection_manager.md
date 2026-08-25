@@ -160,12 +160,16 @@ manager readiness는 다음을 서로 다른 상태로 기록한다.
 
 1. Compose/systemd container started
 2. namespace interface/address/route structurally valid
-3. exact endpoint descriptor + matching boot heartbeat discovered
+3. exact endpoint descriptor + matching boot heartbeat discovered (bounded to
+   five minutes so a cold Genesis scene build cannot trigger a premature
+   rollback)
 4. Sim scene/media startup handshake complete
 5. authority/session grant 및 WebRTC signaling response
 
-“container running”은 3–5를 의미하지 않는다. `sim-default`가 늦게 나타나면
-Sim log의 scene build/descriptor/heartbeat를 기다린다. `__enter__` 같은
+“container running”은 3–5를 의미하지 않는다. DDS liveness gate는
+descriptor/heartbeat까지만 기다리고, UI의 simulation session/media handshake는
+별도로 재시도한다. `sim-default`가 늦게 나타나면 Sim log의 scene
+build/descriptor/heartbeat를 기다린다. `__enter__` 같은
 container Python/RMW 예외는 stale image 또는 runtime dependency 문제로
 diagnose하고, source/host Python을 우회하지 않는다.
 

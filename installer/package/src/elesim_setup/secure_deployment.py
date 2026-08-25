@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import shlex
@@ -45,6 +46,11 @@ MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 MAX_REMOTE_OUTPUT_BYTES = 64 * 1024
 _HOST_HELPER_RESPONSE_GRACE_S = 2.0
 _BUILD_COMMAND_TIMEOUT_S = 30 * 60
+# ``elesim-net doctor --timeout N`` is an in-container bounded wait.  The
+# enclosing local helper/SSH command must outlive it, otherwise a normal
+# Genesis cold start is reported as a host-helper timeout before the doctor
+# can return its JSON result.
+_DDS_DOCTOR_COMMAND_GRACE_S = 60.0
 # Compose lifecycle commands are detached, but Docker may still spend time
 # creating networks, extracting image layers, or waiting for a runtime
 # backend.  The old 30-second local default made a valid ``up --no-build``
@@ -207,6 +213,21 @@ def _command_timeout(argv: Sequence[str], base: float) -> float:
     """Return a bounded timeout appropriate for one managed command."""
 
     values = tuple(str(value) for value in argv)
+    if (
+        len(values) >= 4
+        and PurePosixPath(values[0]).name == "elesim-net"
+        and values[1] == "doctor"
+        and values[2] == "--timeout"
+    ):
+        try:
+            doctor_timeout = float(values[3])
+        except (TypeError, ValueError):
+            doctor_timeout = 0.0
+        if math.isfinite(doctor_timeout) and doctor_timeout > 0:
+            return max(
+                float(base),
+                doctor_timeout + float(_DDS_DOCTOR_COMMAND_GRACE_S),
+            )
     if "build" in values:
         return max(float(base), float(_BUILD_COMMAND_TIMEOUT_S))
     if (
@@ -609,7 +630,7 @@ class HostOperations(Protocol):
         self,
         host: ManagedHost,
         expected_peer_ids: Sequence[str],
-        timeout_s: float = 60.0,
+        timeout_s: float = 5 * 60.0,
     ) -> Mapping[str, Any]: ...
 
     def status(self, host: ManagedHost) -> Mapping[str, Any]: ...
@@ -1327,7 +1348,7 @@ class SshHostOperations:
         self,
         host: ManagedHost,
         expected_peer_ids: Sequence[str],
-        timeout_s: float = 60.0,
+        timeout_s: float = 5 * 60.0,
     ) -> Mapping[str, Any]:
         if timeout_s <= 0:
             raise ValueError("runtime doctor timeout must be positive")

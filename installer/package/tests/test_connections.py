@@ -236,7 +236,7 @@ def test_runtime_start_builds_every_host_before_launching_any_host(
 
         @staticmethod
         def runtime_doctor(_host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 60
+            assert timeout_s == 300
             return {"ok": True, "results": []}
 
         def stop(self, _host) -> None:
@@ -420,10 +420,10 @@ def test_runtime_start_reports_dds_readiness_after_launch(
 
     assert events[:2] == ["launch:operator", "launch:jetson"]
     assert set(events[2:]) == {
-        "doctor:operator:pilot-main,robot-go2,sim-main,ui-main:60",
-        "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:60",
+        "doctor:operator:pilot-main,robot-go2,sim-main,ui-main:300",
+        "doctor:jetson:pilot-main,robot-go2,sim-main,ui-main:300",
     }
-    assert any("DDS endpoint 준비 상태" in message for message in logs)
+    assert any("DDS endpoint liveness" in message for message in logs)
     assert any("endpoint descriptor/heartbeat 확인" in message for message in logs)
 
 
@@ -435,7 +435,7 @@ def test_runtime_readiness_checks_hosts_concurrently(
 
     class Operations(_NoopNetworkPreparation):
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 60
+            assert timeout_s == 300
             barrier.wait(timeout=1)
             return {"ok": True, "results": []}
 
@@ -463,7 +463,7 @@ def test_runtime_readiness_distinguishes_probe_exception_from_missing_peers(
 
     class Operations(_NoopNetworkPreparation):
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 60
+            assert timeout_s == 300
             raise AttributeError("__enter__")
 
     operations = {host.host_id: Operations() for host in topology.hosts}
@@ -557,7 +557,7 @@ def test_runtime_readiness_fails_on_malformed_results_payload(
             return None
 
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 60
+            assert timeout_s == 300
             return {"ok": False, "results": None}
 
         def stop(self, _host) -> None:
@@ -617,7 +617,7 @@ def test_runtime_readiness_preserves_compensating_stop_failures(
             return None
 
         def runtime_doctor(self, _host, _expected_peer_ids, *, timeout_s):
-            assert timeout_s == 60
+            assert timeout_s == 300
             return {"ok": False, "results": None}
 
         def stop(self, _host) -> None:

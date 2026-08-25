@@ -41,7 +41,10 @@ from .security_authority import Sros2Authority, new_generation_id
 
 
 Log = Callable[[str], None]
-_DDS_READINESS_TIMEOUT_S = 60.0
+# Genesis scene construction is performed after the Sim DDS endpoint starts.
+# Keep the liveness gate bounded, but long enough for a cold GPU/container
+# startup; UI session/media readiness remains a separate retrying handshake.
+_DDS_READINESS_TIMEOUT_S = 5 * 60.0
 
 
 def _exception_detail(error: BaseException) -> str:
@@ -548,19 +551,26 @@ class ConnectionDeploymentRunner:
         hosts: Sequence[ManagedHost],
         log: Log,
     ) -> None:
-        """Report application-level DDS readiness after detached launch.
+        """Report application-level DDS liveness after detached launch.
 
         ``docker compose up -d`` only proves that containers were created.  A
         Sim process may still be building a Genesis scene, and a Docker
         Desktop/WSL namespace may be unable to receive a peer heartbeat.  The
         DDS endpoint thread starts before the Sim scene build, so a bounded
-        strict probe is safe here: a missing co-located or remote endpoint must
-        fail the start instead of presenting a silently partitioned graph.
+        strict probe waits for the exact descriptor/boot-heartbeat pair before
+        accepting the graph.  This gate deliberately does not wait for the Sim
+        scene/media session; UI continues its own session retry while Genesis
+        builds.  A missing co-located or remote endpoint must fail the start
+        instead of presenting a silently partitioned graph.
         The same read-only probe remains available through
         ``elesim-net doctor --strict-peers``.
         """
 
-        log("DDS endpoint 준비 상태를 확인합니다 (컨테이너 시작과 별도).")
+        log(
+            "DDS endpoint 준비 상태를 확인합니다 (DDS endpoint liveness; "
+            "컨테이너/Sim scene·media "
+            "session과 별도, 최대 5분)."
+        )
         failures: list[str] = []
         expected = tuple(
             sorted(
@@ -627,8 +637,9 @@ class ConnectionDeploymentRunner:
             failures.append(f"{host.host_id}: {detail[:768]}")
             log(
                 f"DDS readiness: {host.host_id} — "
-                f"실패: {detail[:768]}; Sim 장면 빌드 또는 Docker Desktop/WSL "
-                "네트워크 namespace와 DDS UDP 경로를 확인하십시오"
+                f"실패: {detail[:768]}; DDS descriptor/heartbeat 경로와 "
+                "Docker Desktop/WSL 네트워크 namespace를 확인하십시오 "
+                "(Sim scene/media session은 별도 게이트입니다)"
             )
         if failures:
             raise RuntimeError(
