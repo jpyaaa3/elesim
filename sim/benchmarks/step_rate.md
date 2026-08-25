@@ -7,7 +7,8 @@ Throughput of the contact-enabled wrap scene (arm + cylinder + floor + GO2 trunk
 - `20` warm-up steps, then `100` timed `scene.step()` calls.
 - Each `N` runs in its own child process, so a point that runs out of memory is recorded as a failure instead of aborting the sweep.
 - Physics `dt = 0.01` s, solver substeps `1`, `max_collision_pairs = 512`.
-- Memory is peak process RSS. On unified-memory hosts (Apple silicon) that is the honest figure: there is no separate VRAM pool to read.
+- Memory is peak process RSS. On unified-memory hosts (Apple silicon) that is the honest figure: there is no separate VRAM pool to read, and GPU-side allocations may not appear in RSS at all, so treat it as a lower bound.
+- `with_contact = True`. When true the arm is ramped into a wrapping pose first, so the timed loop carries live contacts. A run with `live contacts = 0` is measuring a scene where contact is enabled but never happens, and its rate does not describe wrap grasping.
 
 ## Environment
 
@@ -28,10 +29,10 @@ Genesis backend requested: `gpu`. `torch_cuda` is the CUDA the torch wheel was b
 
 ## Results
 
-| N envs | total steps/s | per-env steps/s | build s | peak RSS | device alloc | contact buffer |
-|---:|---:|---:|---:|---:|---:|---:|
-| 64 | 16,001 | 250.0 | 9.7 | 0.88 GiB | 0.00 GiB | 5 |
-| 256 | 56,751 | 221.7 | 12.1 | 0.92 GiB | 0.00 GiB | 5 |
-| 1024 | 137,180 | 134.0 | 13.2 | 0.89 GiB | 0.00 GiB | 5 |
-| 4096 | 543,339 | 132.7 | 29.5 | 0.84 GiB | 0.01 GiB | 5 |
+| N envs | total steps/s | per-env steps/s | build s | peak RSS | device alloc | contact buffer | live contacts |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 256 | 18,558 | 72.5 | 9.0 | 0.94 GiB | 0.00 GiB | 10 | 0 |
+| 1024 | 51,285 | 50.1 | 8.0 | 0.96 GiB | 0.00 GiB | 11 | 0 |
+| 2048 | 48,696 | 23.8 | 17.7 | 0.90 GiB | 0.01 GiB | 10 | 0 |
+| 4096 | 517,462 | 126.3 | 17.5 | 0.94 GiB | 0.01 GiB | 0 | 0 |
 

@@ -110,6 +110,9 @@ class CoverageResult:
     occupied_bins: torch.Tensor  # (n_envs, n_bins) bool
     n_near_links: torch.Tensor   # (n_envs,) links inside the scoring band
     min_surface_dist: torch.Tensor  # (n_envs,) closest link-to-surface distance
+    gap_rad: torch.Tensor        # (n_envs,) widest uncovered arc
+    gap_width_m: torch.Tensor    # (n_envs,) free opening across that gap
+    caged: torch.Tensor          # (n_envs,) bool: opening narrower than object
 
 
 class CoverageMeter:
@@ -236,6 +239,18 @@ class CoverageMeter:
         # the success gate must never be met by a quantisation artefact.
         phi = (runs - 1).clamp_min(0).to(torch.float32) * self.bin_width
 
+        # Caging: a wrap angle says nothing on its own.  The object escapes
+        # unless the free opening left by the widest gap is narrower than the
+        # object itself, which is the gate the prior geometry sweep applied.
+        gap_bins = max_circular_run(~occupied)
+        gap = gap_bins.to(torch.float32) * self.bin_width
+        wrap_radius = torch.where(
+            near, radial, torch.zeros_like(radial)
+        ).sum(dim=-1) / near.sum(dim=-1).clamp_min(1).to(radial.dtype)
+        chord = 2.0 * wrap_radius * torch.sin((gap * 0.5).clamp(max=math.pi / 2))
+        gap_width = (chord - 2.0 * float(link_radius_m)).clamp_min(0.0)
+        caged = near.any(dim=-1) & (gap_width < 2.0 * r.squeeze(-1))
+
         masked = torch.where(near, surface_dist, torch.full_like(surface_dist, 1e6))
         min_dist = masked.amin(dim=-1)
         # No qualifying link: fall back to the raw closest surface distance so
@@ -248,4 +263,7 @@ class CoverageMeter:
             occupied_bins=occupied,
             n_near_links=near.sum(dim=-1),
             min_surface_dist=min_dist,
+            gap_rad=gap,
+            gap_width_m=gap_width,
+            caged=caged,
         )

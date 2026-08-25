@@ -83,6 +83,7 @@ class LinkIndex:
     go2: tuple[int, ...]
     object_: tuple[int, ...]
     floor: tuple[int, ...]
+    support: tuple[int, ...]
     segment2_mid: int
     name_by_index: dict[int, str]
 
@@ -96,6 +97,7 @@ class LinkIndex:
             "go2": t(self.go2),
             "object": t(self.object_),
             "floor": t(self.floor),
+            "support": t(self.support),
         }
 
 
@@ -111,6 +113,8 @@ class WrapGraspScene:
         self.robot: Any = None
         self.object: Any = None
         self.floor: Any = None
+        self.support: Any = None
+        self.object_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self.arm_dofs: Optional[ArmDofIndex] = None
         self.go2_leg_dofs: tuple[int, ...] = ()
         self.links: Optional[LinkIndex] = None
@@ -160,14 +164,30 @@ class WrapGraspScene:
             )
         )
 
+        support_cfg = self.cfg.support
+        if support_cfg.enable:
+            hx, hy = (float(v) for v in support_cfg.half_extents_xy)
+            cx, cy = (float(v) for v in support_cfg.center_xy)
+            top = float(support_cfg.height_m)
+            self.support = self.scene.add_entity(
+                gs.morphs.Box(
+                    size=(hx * 2.0, hy * 2.0, top),
+                    pos=(cx, cy, top * 0.5),
+                    fixed=True,
+                    collision=True,
+                ),
+                surface=gs.surfaces.Rough(color=(0.45, 0.45, 0.50, 1.0)),
+            )
+
         obj = self.cfg.object
         if str(obj.kind).lower() != "cylinder":
             raise ValueError(f"unsupported object.kind: {obj.kind!r}")
+        self.object_center = self.cfg.object_center()
         self.object = self.scene.add_entity(
             gs.morphs.Cylinder(
                 radius=float(obj.radius_m),
                 height=float(obj.height_m),
-                pos=tuple(float(v) for v in obj.pos_xyz),
+                pos=tuple(float(v) for v in self.object_center),
                 fixed=bool(obj.fixed),
                 collision=bool(obj.collision),
             ),
@@ -212,6 +232,11 @@ class WrapGraspScene:
             for link in self.floor.links:
                 floor_idx.append(int(link.idx))
                 names[int(link.idx)] = f"floor/{link.name}"
+        support_idx: list[int] = []
+        if self.support is not None:
+            for link in self.support.links:
+                support_idx.append(int(link.idx))
+                names[int(link.idx)] = f"support/{link.name}"
 
         mid_name = str(self.cfg.arm.segment2_mid_link)
         mid_matches = [i for i, n in names.items() if n == mid_name]
@@ -226,6 +251,7 @@ class WrapGraspScene:
             go2=tuple(go2),
             object_=tuple(obj_idx),
             floor=tuple(floor_idx),
+            support=tuple(support_idx),
             segment2_mid=int(mid_matches[0]),
             name_by_index=names,
         )
@@ -278,7 +304,7 @@ class WrapGraspScene:
         friction = self.cfg.scene.friction
         if friction is None:
             return  # keep whatever the URDF and Genesis defaults provide
-        for entity in (self.robot, self.object, self.floor):
+        for entity in (self.robot, self.object, self.floor, self.support):
             if entity is None:
                 continue
             setter = getattr(entity, "set_friction", None)
@@ -306,6 +332,8 @@ class WrapGraspScene:
             "n_robot_links": len(self.links.robot_all),
             "n_arm_links": len(self.links.arm),
             "n_go2_links": len(self.links.go2),
+            "support": bool(self.support is not None),
+            "object_center": [round(float(v), 4) for v in self.object_center],
             "arm_dofs": list(self.arm_dofs.all_indices) if self.arm_dofs else [],
             "go2_leg_dofs": list(self.go2_leg_dofs),
         }

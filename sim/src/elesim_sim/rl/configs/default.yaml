@@ -76,13 +76,35 @@ arm:
   # Links that must never touch anything but the object.
   arm_link_prefixes: [node, wedge, housing, gripper]
 
+# The cylinder stands on a support, not on the ground.  The workspace probe
+# (sim/benchmarks/workspace.md) measured a peak wrap of 86 deg for a
+# floor-standing cylinder against 272 deg once the height restriction was
+# lifted: the floor is what stops the arm closing underneath the object.  A
+# raised support is also the realistic case for a quadruped-mounted arm.
+support:
+  enable: true
+  # Top surface height; the object centre sits half its height above this.
+  height_m: 0.46
+  # Half-extents of the support box.  A slim post, not a table: the placement
+  # search measured 1130 of 1764 sweep poses colliding with a 0.06 m
+  # half-extent box against 585 with this one, because the support sits in the
+  # middle of the arm's working volume.  The floor itself blocks nothing at
+  # this height (0 collisions), so the support is the whole cost.
+  half_extents_xy: [0.02, 0.02]
+  # Column position, taken from sim/benchmarks/placement.md rather than
+  # guessed.  The arm wraps best around a point offset to one side; with the
+  # object at (0.30, 0.0) the reachable peak was 68 deg and nothing reached the
+  # gate, against 194 deg here.
+  center_xy: [0.225, -0.125]
+
 object:
   kind: cylinder
   radius_m: 0.045
   height_m: 0.20
   mass_kg: 0.30
-  # Base-frame position of the cylinder centre at reset.
-  pos_xyz: [0.28, 0.0, 0.10]
+  # Cylinder centre at reset.  Leave null to seat it on the support
+  # automatically (support.height_m + height_m / 2).
+  pos_xyz: null
   collision: true
   # A graspable object must be a free body: disturbance and topple checks are
   # meaningless for a fixed entity.
@@ -147,6 +169,30 @@ reward:
     # An arm link counts as occupying its azimuth bin within this radial band
     # around the object surface (metres).
     radial_band_m: 0.09
+    # Node capsule radius, from the collision model measured in
+    # misc/analysis/wrap_grasp (56.22 mm, isotropic).  Used to convert a link
+    # origin into a surface distance, so a link resting on the object reads ~0
+    # instead of its own radius -- and so a centre that would put a link
+    # *inside* the object can be rejected as physically impossible.
+    link_radius_m: 0.05622
+    # Tolerance on that rejection, in metres.
+    interpenetration_tol_m: 0.002
+    # Caging is always measured and logged; this switch decides whether it also
+    # gates the geometric success criterion.
+    #
+    # It defaults to false because caging and a 172 deg gate are mutually
+    # exclusive, not because caging is unimportant.  When a link rests on the
+    # object the wrap radius is R = r + link_radius, so an opening spanning a
+    # gap of 180 deg or more measures 2R - 2*link_radius = exactly 2r: at half
+    # a turn the object slips straight out.  Caging therefore requires strictly
+    # more than 180 deg of wrap, which no pose in the prior geometry sweep
+    # reached either ("secure wrap not reached anywhere", peak 172 deg).
+    #
+    # Turning this on makes the geometric gate stricter than the configured
+    # coverage target and is only coherent with coverage_target_rad > pi.  The
+    # lift test is the real retention check; `caged` is reported alongside the
+    # wrap angle so a run can never claim a grasp that geometry says leaks.
+    require_caging: false
   disturbance:
     # Continuous penalty is applied to displacement beyond this dead-band.
     deadband_m: 0.005
@@ -223,35 +269,52 @@ curriculum:
       success_criterion: lift
 
 train:
-  # rsl_rl PPO.  Field names follow rsl_rl's train/policy/algorithm configs.
   max_iterations: 1500
   save_interval: 50
   experiment_name: wrap_grasp
   run_name: ""
   log_dir: sim/rl_runs
   resume: ""
-  policy:
-    class_name: ActorCritic
-    init_noise_std: 0.5
-    actor_hidden_dims: [256, 128, 64]
-    critic_hidden_dims: [256, 128, 64]
-    activation: elu
-  algorithm:
-    class_name: PPO
-    value_loss_coef: 1.0
-    use_clipped_value_loss: true
-    clip_param: 0.2
-    entropy_coef: 0.005
-    num_learning_epochs: 5
-    num_mini_batches: 4
-    learning_rate: 0.0003
-    schedule: adaptive
-    gamma: 0.99
-    lam: 0.95
-    desired_kl: 0.01
-    max_grad_norm: 1.0
   # Macro steps collected per env per PPO iteration.
   num_steps_per_env: 16
+  # Handed to rsl_rl verbatim.  rsl_rl owns and validates this schema, so
+  # mirroring it in typed dataclasses here would only create a second copy to
+  # keep in sync across rsl_rl versions.  Matches rsl-rl-lib 5.4.x.
+  runner:
+    # Asymmetric actor-critic: the critic additionally sees the privileged
+    # group (simulator truth), the actor never does.
+    obs_groups:
+      actor: [policy]
+      critic: [policy, privileged]
+    actor:
+      class_name: rsl_rl.models.MLPModel
+      hidden_dims: [256, 128, 64]
+      activation: elu
+      obs_normalization: true
+      distribution_cfg:
+        class_name: rsl_rl.modules.GaussianDistribution
+        init_std: 0.5
+        std_type: scalar
+        learn_std: true
+    critic:
+      class_name: rsl_rl.models.MLPModel
+      hidden_dims: [256, 128, 64]
+      activation: elu
+      obs_normalization: true
+    algorithm:
+      class_name: rsl_rl.algorithms.PPO
+      value_loss_coef: 1.0
+      use_clipped_value_loss: true
+      clip_param: 0.2
+      entropy_coef: 0.005
+      num_learning_epochs: 5
+      num_mini_batches: 4
+      learning_rate: 0.0003
+      schedule: adaptive
+      gamma: 0.99
+      lam: 0.95
+      desired_kl: 0.01
+      max_grad_norm: 1.0
 
 benchmark:
   # T1 / gate G1.  Lower the sweep on memory-limited hosts; the script records
@@ -259,6 +322,12 @@ benchmark:
   n_envs_sweep: [256, 1024, 4096, 8192]
   warmup_steps: 20
   measure_steps: 200
+  # Drive the arm into a wrap before timing, so the measured rate reflects a
+  # scene with live contacts rather than one merely capable of them.
+  with_contact: true
+  # (linear, roll, theta1, theta2) of the pose used for that, taken from the
+  # workspace probe's peak at the configured object placement.
+  wrap_pose: [0.0, -1.5708, 0.4712, 0.4712]
   out_path: sim/benchmarks/step_rate.md
 
 eval:

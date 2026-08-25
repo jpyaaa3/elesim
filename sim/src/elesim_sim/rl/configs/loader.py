@@ -100,12 +100,28 @@ class ArmConfig:
 
 
 @dataclass(frozen=True)
+class SupportConfig:
+    """Fixed box the object stands on.
+
+    Wrapping a cylinder that rests on the ground is not feasible for this arm
+    (86 deg peak wrap, measured); raising the object is what makes the task
+    possible at all.  The support is a collision body like the floor, so
+    hitting it is a non-target collision.
+    """
+
+    enable: bool = True
+    height_m: float = 0.46
+    half_extents_xy: tuple[float, float] = (0.02, 0.02)
+    center_xy: tuple[float, float] = (0.225, -0.125)
+
+
+@dataclass(frozen=True)
 class ObjectConfig:
     kind: str = "cylinder"
     radius_m: float = 0.045
     height_m: float = 0.20
     mass_kg: float = 0.30
-    pos_xyz: tuple[float, float, float] = (0.28, 0.0, 0.10)
+    pos_xyz: Optional[tuple[float, float, float]] = None
     collision: bool = True
     fixed: bool = False
 
@@ -176,6 +192,9 @@ class RewardWeights:
 class CoverageConfig:
     n_bins: int = 180
     radial_band_m: float = 0.09
+    link_radius_m: float = 0.05622
+    interpenetration_tol_m: float = 0.002
+    require_caging: bool = False
 
 
 @dataclass(frozen=True)
@@ -280,32 +299,6 @@ class CurriculumConfig:
 
 
 @dataclass(frozen=True)
-class PolicyConfig:
-    class_name: str = "ActorCritic"
-    init_noise_std: float = 0.5
-    actor_hidden_dims: tuple[int, ...] = (256, 128, 64)
-    critic_hidden_dims: tuple[int, ...] = (256, 128, 64)
-    activation: str = "elu"
-
-
-@dataclass(frozen=True)
-class AlgorithmConfig:
-    class_name: str = "PPO"
-    value_loss_coef: float = 1.0
-    use_clipped_value_loss: bool = True
-    clip_param: float = 0.2
-    entropy_coef: float = 0.005
-    num_learning_epochs: int = 5
-    num_mini_batches: int = 4
-    learning_rate: float = 3e-4
-    schedule: str = "adaptive"
-    gamma: float = 0.99
-    lam: float = 0.95
-    desired_kl: float = 0.01
-    max_grad_norm: float = 1.0
-
-
-@dataclass(frozen=True)
 class TrainConfig:
     max_iterations: int = 1500
     save_interval: int = 50
@@ -313,9 +306,11 @@ class TrainConfig:
     run_name: str = ""
     log_dir: str = "sim/rl_runs"
     resume: str = ""
-    policy: PolicyConfig = field(default_factory=PolicyConfig)
-    algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
     num_steps_per_env: int = 16
+    #: Passed straight through to rsl_rl.  Deliberately untyped: rsl_rl owns
+    #: this schema and it moves between versions, so validating it here would
+    #: mean maintaining a second copy that silently drifts.
+    runner: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -323,6 +318,8 @@ class BenchmarkConfig:
     n_envs_sweep: tuple[int, ...] = (256, 1024, 4096, 8192)
     warmup_steps: int = 20
     measure_steps: int = 200
+    with_contact: bool = True
+    wrap_pose: tuple[float, float, float, float] = (0.0, -1.5708, 0.4712, 0.4712)
     out_path: str = "sim/benchmarks/step_rate.md"
 
 
@@ -347,6 +344,7 @@ class WrapGraspConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     scene: SceneConfig = field(default_factory=SceneConfig)
     arm: ArmConfig = field(default_factory=ArmConfig)
+    support: SupportConfig = field(default_factory=SupportConfig)
     object: ObjectConfig = field(default_factory=ObjectConfig)
     macro_step: MacroStepConfig = field(default_factory=MacroStepConfig)
     beta: BetaConfig = field(default_factory=BetaConfig)
@@ -360,6 +358,25 @@ class WrapGraspConfig:
     train: TrainConfig = field(default_factory=TrainConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+
+    def object_center(self) -> tuple[float, float, float]:
+        """Reset position of the object centre.
+
+        With `object.pos_xyz` unset the cylinder is seated on the support, so
+        the two cannot silently drift apart when the support height changes.
+        """
+        if self.object.pos_xyz is not None:
+            return self.object.pos_xyz
+        if not self.support.enable:
+            raise ConfigError(
+                "object.pos_xyz must be set explicitly when support.enable is false"
+            )
+        cx, cy = self.support.center_xy
+        return (
+            float(cx),
+            float(cy),
+            float(self.support.height_m) + float(self.object.height_m) * 0.5,
+        )
 
     def resolved_for_curriculum(self) -> "WrapGraspConfig":
         """Apply the active curriculum stage on top of the base config.

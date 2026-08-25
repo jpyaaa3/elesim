@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
+import torch
 
 from .configs.loader import load_config, WrapGraspConfig
 
@@ -49,6 +50,7 @@ class PointResult:
     peak_rss_bytes: Optional[int] = None
     device_alloc_bytes: Optional[int] = None
     contact_buffer: Optional[int] = None
+    live_contacts: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -123,8 +125,43 @@ def environment_report() -> dict[str, Any]:
     return report
 
 
+def _drive_into_wrap(cfg: WrapGraspConfig, scene, steps: int = 80) -> None:
+    """Ramp the arm into a wrapping pose so contacts are actually live.
+
+    Timing the scene at its neutral pose measures a scene where contact is
+    *enabled* but never *happens* -- the contact buffer stays empty and the
+    constraint count is at its floor.  A wrap-grasp step rate that never
+    touched the object is not the step rate of wrap grasping, so the arm is
+    driven to the best pose the workspace probe found before the clock starts.
+    """
+    from .arm_kinematics import ArmWaypointMapper
+
+    rate = cfg.macro_step.rate_limit
+    mapper = ArmWaypointMapper(
+        cfg.arm,
+        n_envs=scene.n_envs,
+        device=scene.device,
+        rate_limit=(rate.linear_m, rate.roll_rad, rate.theta_rad, rate.theta_rad),
+    )
+    target = torch.tensor(
+        [float(v) for v in cfg.benchmark.wrap_pose],
+        device=scene.device,
+        dtype=torch.float32,
+    ).view(1, 4).expand(scene.n_envs, 4)
+    home = torch.zeros_like(target)
+    dofs = list(scene.arm_dofs.all_indices)
+    for i in range(steps):
+        alpha = float(i + 1) / steps
+        scene.robot.control_dofs_position(
+            mapper.joint_targets(home + (target - home) * alpha), dofs_idx_local=dofs
+        )
+        scene.step()
+
+
 def measure_point(cfg: WrapGraspConfig, n_envs: int) -> PointResult:
     """Build the wrap scene at `n_envs` and time steady-state stepping."""
+    import torch
+
     from .scene import WrapGraspScene
 
     bench = cfg.benchmark
@@ -133,6 +170,9 @@ def measure_point(cfg: WrapGraspConfig, n_envs: int) -> PointResult:
         scene = WrapGraspScene(cfg, n_envs=n_envs).build()
         build_s = time.perf_counter() - t0
 
+        if bench.with_contact:
+            _drive_into_wrap(cfg, scene)
+
         for _ in range(int(bench.warmup_steps)):
             scene.step()
 
@@ -140,6 +180,7 @@ def measure_point(cfg: WrapGraspConfig, n_envs: int) -> PointResult:
         # env will actually query every substep.
         contacts = scene.robot.get_contacts(with_entity=scene.object)
         buffer_width = int(contacts["valid_mask"].shape[-1])
+        live_contacts = int(contacts["valid_mask"].sum())
 
         steps = int(bench.measure_steps)
         t0 = time.perf_counter()
@@ -157,6 +198,7 @@ def measure_point(cfg: WrapGraspConfig, n_envs: int) -> PointResult:
             peak_rss_bytes=_peak_rss_bytes(),
             device_alloc_bytes=_device_alloc_bytes(scene.device.type),
             contact_buffer=buffer_width,
+            live_contacts=live_contacts,
         )
     except Exception as exc:  # noqa: BLE001 - the failure itself is the datum
         return PointResult(
@@ -250,7 +292,16 @@ def render_report(
     )
     lines.append(
         "- Memory is peak process RSS. On unified-memory hosts (Apple silicon) "
-        "that is the honest figure: there is no separate VRAM pool to read."
+        "that is the honest figure: there is no separate VRAM pool to read, and "
+        "GPU-side allocations may not appear in RSS at all, so treat it as a "
+        "lower bound."
+    )
+    lines.append(
+        f"- `with_contact = {cfg.benchmark.with_contact}`. When true the arm is "
+        "ramped into a wrapping pose first, so the timed loop carries live "
+        "contacts. A run with `live contacts = 0` is measuring a scene where "
+        "contact is enabled but never happens, and its rate does not describe "
+        "wrap grasping."
     )
     lines.append("")
     lines.append("## Environment")
@@ -280,20 +331,21 @@ def render_report(
     lines.append("")
     lines.append(
         "| N envs | total steps/s | per-env steps/s | build s | peak RSS | "
-        "device alloc | contact buffer |"
+        "device alloc | contact buffer | live contacts |"
     )
-    lines.append("|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in results:
         if r.ok:
             lines.append(
                 f"| {r.n_envs} | {r.total_steps_per_s:,.0f} | "
                 f"{r.per_env_steps_per_s:,.1f} | {r.build_s:,.1f} | "
                 f"{_fmt_bytes(r.peak_rss_bytes)} | "
-                f"{_fmt_bytes(r.device_alloc_bytes)} | {r.contact_buffer} |"
+                f"{_fmt_bytes(r.device_alloc_bytes)} | {r.contact_buffer} | "
+                f"{r.live_contacts} |"
             )
         else:
             lines.append(
-                f"| {r.n_envs} | **failed** | - | - | - | - | - |"
+                f"| {r.n_envs} | **failed** | - | - | - | - | - | - |"
             )
     lines.append("")
     failures = [r for r in results if not r.ok]

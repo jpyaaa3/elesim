@@ -84,19 +84,46 @@ class ContactClassifier:
 
     # -- main entry point --------------------------------------------------
 
+    def _empty_snapshot(self, n_envs: int) -> ContactSnapshot:
+        """Snapshot for a step with no detected contacts."""
+        dev = self.device
+        false_ = torch.zeros(n_envs, device=dev, dtype=torch.bool)
+        zero = torch.zeros(n_envs, device=dev, dtype=torch.float32)
+        return ContactSnapshot(
+            object_touch=false_.clone(),
+            object_force=zero.clone(),
+            object_link_hits=torch.zeros(
+                (n_envs, max(self.n_arm_links, 1)), device=dev, dtype=torch.bool
+            ),
+            floor_touch=false_.clone(),
+            self_touch=false_.clone(),
+            go2_touch=false_.clone(),
+            max_penetration=zero.clone(),
+            overflow=false_.clone(),
+        )
+
     def classify(self, n_envs: int) -> ContactSnapshot:
         """Query Genesis once and classify every contact row."""
         robot = self.scene.robot
         raw = robot.get_contacts(exclude_self_contact=False)
         c = self._to_device(raw)
         valid = c["valid_mask"]
+        # Genesis sizes the contact buffer to the number of pairs it actually
+        # detected, which is zero when nothing is touching.  Reductions over a
+        # zero-width dim are not merely awkward -- `amax` raises, and
+        # `all(dim=-1)` returns True, which would report a buffer overflow on
+        # precisely the steps where there are no contacts at all.
+        if valid.shape[-1] == 0:
+            return self._empty_snapshot(n_envs)
         link_a = c["link_a"].long()
         link_b = c["link_b"].long()
         force = c["force_a"]
         penetration = c["penetration"]
 
         obj_idx = self._idx["object"]
-        floor_idx = self._idx["floor"]
+        # The support the object stands on is a non-target body just like the
+        # floor: hitting it is a collision, not a grasp.
+        floor_idx = torch.cat((self._idx["floor"], self._idx["support"]))
         arm_idx = self._idx["arm"]
         go2_idx = self._idx["go2"]
 
