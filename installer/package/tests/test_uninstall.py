@@ -1109,7 +1109,9 @@ def test_tailscale_cleanup_resumes_sidecar_when_host_postcheck_fails(
     )
 
 
-def test_docker_deletes_only_exact_manifest_objects(tmp_path: Path) -> None:
+def test_docker_removes_only_exact_containers_and_preserves_image_cache(
+    tmp_path: Path,
+) -> None:
     compose = tmp_path / "install/containers/compose.yaml"
     docker = DockerOwnership(
         install_uuid="11111111-1111-4111-8111-111111111111",
@@ -1131,7 +1133,12 @@ def test_docker_deletes_only_exact_manifest_objects(tmp_path: Path) -> None:
         "--force",
         "sha256:container",
     ) in runner.commands
-    assert ("docker", "image", "rm", "elesim/sim:local") in runner.commands
+    assert not any(
+        values[:3] == ("docker", "image", "rm") for values in runner.commands
+    )
+    assert not any(
+        values[:3] == ("docker", "image", "inspect") for values in runner.commands
+    )
     assert not any("prune" in command for values in runner.commands for command in values)
 
 

@@ -94,6 +94,8 @@ down 또는 `--purge`만으로 고쳐지지 않고 update/build가 필요하다.
 성공한 update는 설치 UUID가 일치하는 이전 local image 중 태그와 container
 참조가 모두 없는 것만 정확한 image ID로 정리한다. 실행 중 container가 아직
 참조하는 이전 image와 foreign/upstream image는 보존하며 전역 prune은 하지 않는다.
+`elesim-uninstall`도 같은 원칙을 따른다. 설치가 만든 runtime/container는
+제거하지만 `elesim/*:local` image와 BuildKit cache까지 삭제하지 않는다.
 
 전체 multi-host 시작은 connection manager가 모든 host build를 먼저 완료한
 뒤 `--no-build` launch를 수행한다. BuildKit plain progress는 host 라벨과

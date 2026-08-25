@@ -117,11 +117,16 @@ def plan_uninstall(
     tailscale_state_cleanup: TailscaleStateCleanup | None = None
     if manifest.docker is not None:
         tailscale_state = _owned_tailscale_state_path(manifest)
+        # Factory reset removes the exact runtime containers and managed
+        # filesystem roots.  Images are reusable cache, not an installation
+        # boundary, so do not inspect or remove them here.  Keep image
+        # inspection available to the standalone ownership probe below.
         containers, images, tailscale_state_cleanup = _validate_docker(
             manifest.docker,
             runner=runner,
             tailscale_state=tailscale_state,
             require_tailscale_state=tailscale_state is not None,
+            inspect_images=False,
         )
         if (
             tailscale_state_cleanup is not None
@@ -1018,6 +1023,7 @@ def _validate_docker(
     runner: CommandRunner | None,
     tailscale_state: Path | None = None,
     require_tailscale_state: bool = False,
+    inspect_images: bool = True,
 ) -> tuple[
     tuple[DockerObject, ...],
     tuple[DockerObject, ...],
@@ -1131,39 +1137,40 @@ def _validate_docker(
                 runner=command_runner,
             )
 
-    listed_images = command_runner(
-        ("docker", "image", "ls", "--all", "--format", "{{.Repository}}:{{.Tag}}")
-    )
-    if listed_images.returncode != 0:
-        raise UninstallSafetyError(
-            "Docker image 목록을 확인할 수 없습니다: " + listed_images.stderr.strip()
-        )
-    image_names = {
-        value.strip() for value in listed_images.stdout.splitlines() if value.strip()
-    }
     images: list[DockerObject] = []
-    for name in ownership.local_images:
-        if name not in image_names:
-            continue
-        result = command_runner(("docker", "image", "inspect", name))
-        if result.returncode != 0:
+    if inspect_images:
+        listed_images = command_runner(
+            ("docker", "image", "ls", "--all", "--format", "{{.Repository}}:{{.Tag}}")
+        )
+        if listed_images.returncode != 0:
             raise UninstallSafetyError(
-                f"목록에 있던 Docker image를 inspect할 수 없습니다: {name}: "
-                + result.stderr.strip()
+                "Docker image 목록을 확인할 수 없습니다: " + listed_images.stderr.strip()
             )
-        payload = _inspect_object(result.stdout, kind="image", name=name)
-        labels = _labels(payload)
-        project = labels.get("com.docker.compose.project", "")
-        install_uuid = labels.get(DOCKER_INSTALL_UUID_LABEL, "")
-        if project != ownership.project or install_uuid != ownership.install_uuid:
-            raise UninstallSafetyError(
-                f"local image 태그가 다른 설치 소유입니다: {name}: "
-                f"project={project!r} install_uuid={install_uuid!r}"
-            )
-        object_id = str(payload.get("Id", ""))
-        if not object_id:
-            raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
-        images.append(DockerObject(name=name, object_id=object_id))
+        image_names = {
+            value.strip() for value in listed_images.stdout.splitlines() if value.strip()
+        }
+        for name in ownership.local_images:
+            if name not in image_names:
+                continue
+            result = command_runner(("docker", "image", "inspect", name))
+            if result.returncode != 0:
+                raise UninstallSafetyError(
+                    f"목록에 있던 Docker image를 inspect할 수 없습니다: {name}: "
+                    + result.stderr.strip()
+                )
+            payload = _inspect_object(result.stdout, kind="image", name=name)
+            labels = _labels(payload)
+            project = labels.get("com.docker.compose.project", "")
+            install_uuid = labels.get(DOCKER_INSTALL_UUID_LABEL, "")
+            if project != ownership.project or install_uuid != ownership.install_uuid:
+                raise UninstallSafetyError(
+                    f"local image 태그가 다른 설치 소유입니다: {name}: "
+                    f"project={project!r} install_uuid={install_uuid!r}"
+                )
+            object_id = str(payload.get("Id", ""))
+            if not object_id:
+                raise UninstallSafetyError(f"Docker image ID가 비어 있습니다: {name}")
+            images.append(DockerObject(name=name, object_id=object_id))
     return tuple(containers), tuple(images), tailscale_cleanup
 
 
