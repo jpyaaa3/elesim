@@ -32,11 +32,14 @@ def test_perf_logger_writes_camera_substage_metrics(tmp_path) -> None:
     try:
         logger.reset_loop()
         logger.observe("render", 0.001)
+        logger.observe("render", 0.003)
         logger.observe("rgb_convert", 0.002)
         logger.observe("go2_mpc_solve", 0.003)
         logger.observe("go2_bridge_sync", 0.004)
         logger.observe("unknown", 0.003)
         logger.section("camera", time.perf_counter() - 0.004)
+        logger.mark_step(True, 0.02)
+        logger.mark_step(False, 0.02)
         logger._last_report_t = time.perf_counter() - 1.0
         logger.report_if_due()
     finally:
@@ -48,7 +51,12 @@ def test_perf_logger_writes_camera_substage_metrics(tmp_path) -> None:
     row = rows[0]
     assert float(row["process_cpu_pct"]) >= 0.0
     assert float(row["camera_render_avg_ms"]) > 0.0
+    assert math.isclose(float(row["camera_render_avg_ms"]), 2.0, rel_tol=0.05)
     assert float(row["camera_rgb_convert_avg_ms"]) > 0.0
     assert row["camera_depth_convert_avg_ms"] == "0.0"
     assert float(row["go2_mpc_solve_avg_ms"]) > 0.0
     assert float(row["go2_bridge_sync_avg_ms"]) > 0.0
+    assert row["steps"] == "1"
+    assert row["skipped_steps"] == "1"
+    assert float(row["step_hz"]) > 0.0
+    assert float(row["sim_realtime_factor"]) > 0.0

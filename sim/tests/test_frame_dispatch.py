@@ -176,3 +176,31 @@ def test_camera_rate_limit_requires_simulation_time_to_advance(monkeypatch) -> N
         depth_enabled=False,
     )
     assert camera.captures == 2
+
+
+def test_hand_eye_capture_caches_frame_pose_without_another_genesis_readback() -> None:
+    class Frame:
+        color_bgr = np.zeros((3, 4, 3), dtype=np.uint8)
+        camera_world_origin = (1.0, 2.0, 3.0)
+        camera_world_look = (0.0, 1.0, 0.0)
+        camera_world_right = (1.0, 0.0, 0.0)
+
+    class Camera:
+        def capture(self, **_kwargs: object) -> Frame:
+            return Frame()
+
+        def camera_axes_world(self) -> object:
+            raise AssertionError("cached camera feedback must not query Genesis")
+
+    scene = SimScene(eye_camera=Camera())
+    scene.maybe_publish_camera(
+        arm_q=None,
+        max_hz=30.0,
+        force=True,
+        depth_enabled=False,
+    )
+
+    origin, look, right = scene.camera_axes_world(hand_eye_path="unused")
+    assert np.array_equal(origin, np.array([1.0, 2.0, 3.0]))
+    assert np.array_equal(look, np.array([0.0, 1.0, 0.0]))
+    assert np.array_equal(right, np.array([1.0, 0.0, 0.0]))

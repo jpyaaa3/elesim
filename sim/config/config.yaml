@@ -23,8 +23,13 @@ profiles:
       cameras:
         hand_eye:
           enable: true
+          # Two synchronous Genesis render passes at 30+20 Hz consume more
+          # than one wall second per simulated second on the target renderer.
+          # The remote profile favors stable fresh frames over queued cadence.
+          max_hz: 10.0
         observer:
           enable: true
+          max_hz: 10.0
 
   # Jetson/native profile: no desktop viewer or network camera rendering.
   jetson:
@@ -52,6 +57,9 @@ simulation:
     use_gpu: true
     camera_gpu_convert: true
     enable_viewer: true
+    # DDS telemetry is a latest-only state snapshot. It does not need to force
+    # four synchronous Genesis readbacks on every 50 Hz physics step.
+    telemetry_max_hz: 20.0
     floor: true
     use_hardware: false
     use_go2: true

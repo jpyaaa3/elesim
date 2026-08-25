@@ -129,7 +129,19 @@ def _advance_capture_deadline(previous: float, current: float, period: float) ->
 
 
 class PerfLogger:
-    _BASE_NAMES = ("loop", "poll", "go2", "markers", "feedback", "physics", "camera")
+    _BASE_NAMES = (
+        "loop",
+        "poll",
+        "go2",
+        "command",
+        "markers",
+        "tip_readback",
+        "feedback",
+        "physics",
+        "camera",
+        "pacing",
+        "status",
+    )
     _GO2_DETAIL_NAMES = (
         "go2_bridge_sync",
         "go2_mpc_prepare",
@@ -152,6 +164,11 @@ class PerfLogger:
         "wall_time_s",
         "samples",
         "fps",
+        "loop_hz",
+        "step_hz",
+        "sim_realtime_factor",
+        "steps",
+        "skipped_steps",
         "process_cpu_pct",
         "loop_avg_ms",
         "loop_max_ms",
@@ -159,14 +176,22 @@ class PerfLogger:
         "poll_max_ms",
         "go2_avg_ms",
         "go2_max_ms",
+        "command_avg_ms",
+        "command_max_ms",
         "markers_avg_ms",
         "markers_max_ms",
+        "tip_readback_avg_ms",
+        "tip_readback_max_ms",
         "feedback_avg_ms",
         "feedback_max_ms",
         "physics_avg_ms",
         "physics_max_ms",
         "camera_avg_ms",
         "camera_max_ms",
+        "pacing_avg_ms",
+        "pacing_max_ms",
+        "status_avg_ms",
+        "status_max_ms",
         "camera_render_avg_ms",
         "camera_render_max_ms",
         "camera_rgb_convert_avg_ms",
@@ -203,8 +228,12 @@ class PerfLogger:
         self._last_report_t = time.perf_counter()
         self._last_process_cpu_t = time.process_time()
         self._count = 0
+        self._steps = 0
+        self._skipped_steps = 0
+        self._simulated_s = 0.0
         self._sum: dict[str, float] = {}
         self._max: dict[str, float] = {}
+        self._events: dict[str, int] = {}
         self._t0 = self._last_report_t
         self._started_wall = time.time()
         self._log_file = None
@@ -265,6 +294,18 @@ class PerfLogger:
     def _record(self, name: str, duration_s: float) -> None:
         self._sum[name] = self._sum.get(name, 0.0) + float(duration_s)
         self._max[name] = max(self._max.get(name, 0.0), float(duration_s))
+        self._events[name] = self._events.get(name, 0) + 1
+
+    def mark_step(self, did_step: bool, sim_dt_s: float) -> None:
+        """Count actual physics advances separately from outer-loop samples."""
+
+        if not self.enabled:
+            return
+        if did_step:
+            self._steps += 1
+            self._simulated_s += max(0.0, float(sim_dt_s))
+        else:
+            self._skipped_steps += 1
 
     def report_if_due(self) -> None:
         if not self.enabled:
@@ -272,30 +313,44 @@ class PerfLogger:
         now = time.perf_counter()
         loop_dt = now - self._t0
         self._count += 1
-        self._sum["loop"] = self._sum.get("loop", 0.0) + loop_dt
-        self._max["loop"] = max(self._max.get("loop", 0.0), loop_dt)
+        self._record("loop", loop_dt)
         elapsed = now - self._last_report_t
         if elapsed < self.interval_s:
             return
         count = max(1, self._count)
-        fps = count / max(1e-9, elapsed)
+        loop_hz = count / max(1e-9, elapsed)
+        step_hz = self._steps / max(1e-9, elapsed)
+        sim_realtime_factor = self._simulated_s / max(1e-9, elapsed)
         process_cpu_elapsed = max(0.0, time.process_time() - self._last_process_cpu_t)
         process_cpu_pct = 100.0 * process_cpu_elapsed / max(1e-9, elapsed)
         row = {
             "wall_time_s": time.time() - self._started_wall,
             "samples": count,
-            "fps": fps,
+            "fps": loop_hz,
+            "loop_hz": loop_hz,
+            "step_hz": step_hz,
+            "sim_realtime_factor": sim_realtime_factor,
+            "steps": self._steps,
+            "skipped_steps": self._skipped_steps,
             "process_cpu_pct": process_cpu_pct,
         }
-        parts = [f"fps={fps:.1f}", f"cpu={process_cpu_pct:.1f}%"]
+        parts = [
+            f"loop_hz={loop_hz:.1f}",
+            f"step_hz={step_hz:.1f}",
+            f"rtf={sim_realtime_factor:.3f}",
+            f"steps={self._steps}",
+            f"skipped={self._skipped_steps}",
+            f"cpu={process_cpu_pct:.1f}%",
+        ]
         for name in (*self._BASE_NAMES, *self._CAMERA_DETAIL_NAMES, *self._GO2_DETAIL_NAMES):
-            avg_ms = 1000.0 * self._sum.get(name, 0.0) / count
+            event_count = max(1, self._events.get(name, 0))
+            avg_ms = 1000.0 * self._sum.get(name, 0.0) / event_count
             max_ms = 1000.0 * self._max.get(name, 0.0)
             row[f"{name}_avg_ms"] = avg_ms
             row[f"{name}_max_ms"] = max_ms
             if name not in self._sum:
                 continue
-            parts.append(f"{name}={avg_ms:.2f}/{max_ms:.2f}ms")
+            parts.append(f"{name}={avg_ms:.2f}/{max_ms:.2f}ms[n={event_count}]")
         print("[perf] " + " ".join(parts))
         if self._writer is not None:
             self._writer.writerow(row)
@@ -304,8 +359,12 @@ class PerfLogger:
         self._last_report_t = now
         self._last_process_cpu_t = time.process_time()
         self._count = 0
+        self._steps = 0
+        self._skipped_steps = 0
+        self._simulated_s = 0.0
         self._sum.clear()
         self._max.clear()
+        self._events.clear()
 
     def close(self) -> None:
         if self._log_file is not None:
@@ -990,6 +1049,7 @@ class SimScene:
     camera_timing_sink: object = None
     go2_timing_sink: object = None
     camera_gpu_convert: bool = True
+    update_visualizer_on_step: bool = True
     hand_eye_config_path: str = ""
     sim_target_entity: object = None
     sim_target_xyz: Optional[np.ndarray] = None
@@ -1002,6 +1062,7 @@ class SimScene:
     _last_observer_camera_publish_t: float = 0.0
     _next_camera_publish_sim_t: float = 0.0
     _next_observer_camera_publish_sim_t: float = 0.0
+    _latest_camera_axes: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
     _arm_mount_pos_body: Optional[np.ndarray] = None
     _arm_mount_rot_body: Optional[Rot] = None
     _force_instant_arm_frames: int = 0
@@ -1105,49 +1166,100 @@ class SimScene:
             entity.set_pos((0.0, 0.0, -100.0))
 
     def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
+        tip, _direction = self.actual_tip_pose_world(layout)
+        return tip
+
+    def actual_tip_pose_world(
+        self, layout: JointLayout
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Read each required Genesis link pose once for tip telemetry."""
+
         if self.mover is None:
-            return None
+            return None, None
         try:
+            poses: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+            entity = self.mover.entity
+
+            required_names = list(dict.fromkeys(
+                [str(name) for name, _offset in layout.tip_points]
+                + ([str(layout.tip_link_name)] if layout.tip_link_name else [])
+            ))
+            if required_names and all(
+                hasattr(entity, method)
+                for method in ("get_links_pos", "get_links_quat")
+            ):
+                links = [entity.get_link(name) for name in required_names]
+                indices = [int(link.idx_local) for link in links]
+
+                def numpy_rows(raw: object, width: int) -> np.ndarray:
+                    if hasattr(raw, "detach"):
+                        raw = raw.detach()
+                    if hasattr(raw, "cpu"):
+                        raw = raw.cpu()
+                    if hasattr(raw, "numpy"):
+                        raw = raw.numpy()
+                    return np.asarray(raw, dtype=float).reshape(-1, width)
+
+                positions = numpy_rows(
+                    entity.get_links_pos(links_idx_local=indices), 3
+                )
+                quaternions = numpy_rows(
+                    entity.get_links_quat(links_idx_local=indices), 4
+                )
+                poses.update({
+                    name: (positions[index], quaternions[index])
+                    for index, name in enumerate(required_names)
+                })
+
+            def pose(link_name: str) -> tuple[np.ndarray, np.ndarray]:
+                cached = poses.get(link_name)
+                if cached is not None:
+                    return cached
+                link = entity.get_link(link_name)
+                value = (
+                    self._to_numpy_1d(link.get_pos())[:3],
+                    self._to_numpy_1d(link.get_quat())[:4],
+                )
+                poses[link_name] = value
+                return value
+
+            tip_result: Optional[np.ndarray] = None
             if layout.tip_points:
                 pts: List[np.ndarray] = []
                 for link_name, local_offset in layout.tip_points:
-                    link = self.mover.entity.get_link(link_name)
-                    p = self._to_numpy_1d(link.get_pos())[:3]
-                    q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
+                    p, q_wxyz = pose(str(link_name))
                     local = np.asarray(local_offset, dtype=float).reshape(3)
                     tip = gs_geom.transform_by_trans_quat(local, p, q_wxyz)
                     pts.append(np.array(tip, dtype=float))
                 if pts:
-                    return np.mean(np.stack(pts, axis=0), axis=0)
-            if not layout.tip_link_name:
-                return None
-            link = self.mover.entity.get_link(layout.tip_link_name)
-            p = self._to_numpy_1d(link.get_pos())[:3]
-            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
-            local = np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
-            tip = gs_geom.transform_by_trans_quat(local, p, q_wxyz)
-            return np.array(tip, dtype=float)
-        except Exception:
-            return None
+                    tip_result = np.mean(np.stack(pts, axis=0), axis=0)
+            elif layout.tip_link_name:
+                p, q_wxyz = pose(str(layout.tip_link_name))
+                local = np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
+                tip_result = np.array(
+                    gs_geom.transform_by_trans_quat(local, p, q_wxyz), dtype=float
+                )
 
-    def actual_tip_direction_world(self, layout: JointLayout) -> Optional[np.ndarray]:
-        if self.mover is None:
-            return None
-        try:
+            direction_result: Optional[np.ndarray] = None
             local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
             axis_norm = float(np.linalg.norm(local_axis))
-            if axis_norm <= 1e-9 or not layout.tip_link_name:
-                return None
-            link = self.mover.entity.get_link(str(layout.tip_link_name))
-            q_wxyz = self._to_numpy_1d(link.get_quat())[:4]
-            R_tip = _rot_from_wxyz(q_wxyz).as_matrix()
-            direction = R_tip @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3) @ (local_axis / axis_norm)
-            norm = float(np.linalg.norm(direction))
-            if norm <= 1e-9:
-                return None
-            return (direction / norm).reshape(3)
+            if axis_norm > 1e-9 and layout.tip_link_name:
+                _p, q_wxyz = pose(str(layout.tip_link_name))
+                direction = (
+                    _rot_from_wxyz(q_wxyz).as_matrix()
+                    @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3)
+                    @ (local_axis / axis_norm)
+                )
+                norm = float(np.linalg.norm(direction))
+                if norm > 1e-9:
+                    direction_result = (direction / norm).reshape(3)
+            return tip_result, direction_result
         except Exception:
-            return None
+            return None, None
+
+    def actual_tip_direction_world(self, layout: JointLayout) -> Optional[np.ndarray]:
+        _tip, direction = self.actual_tip_pose_world(layout)
+        return direction
 
     def desired_tip_pos_from_cmd_target(
         self,
@@ -1303,7 +1415,10 @@ class SimScene:
         if self.scene is not None:
             if int(self.sim_step_count) <= 0:
                 self._sim_wall_start_s = time.perf_counter()
-            self.scene.step()
+            self.scene.step(
+                update_visualizer=bool(self.update_visualizer_on_step),
+                refresh_visualizer=bool(self.update_visualizer_on_step),
+            )
             self.sim_step_count += 1
 
     def observe_go2_timing(self, name: str, duration_s: float) -> None:
@@ -1378,6 +1493,7 @@ class SimScene:
         self._last_observer_camera_publish_t = 0.0
         self._next_camera_publish_sim_t = 0.0
         self._next_observer_camera_publish_sim_t = 0.0
+        self._latest_camera_axes = None
         print(
             "[sim] environment reset | u=(%.1f, %.1f, %.1f, %.1f) q=(%.4f, %.4f, %.4f, %.4f)"
             % (
@@ -1424,6 +1540,15 @@ class SimScene:
                 prefer_gpu=bool(self.camera_gpu_convert),
                 timing_sink=self.camera_timing_sink,
             )
+            axes = (
+                getattr(frame, "camera_world_origin", None),
+                getattr(frame, "camera_world_look", None),
+                getattr(frame, "camera_world_right", None),
+            )
+            if all(value is not None for value in axes):
+                self._latest_camera_axes = tuple(
+                    np.asarray(value, dtype=float).reshape(3) for value in axes
+                )
             if self.frame_dispatcher is not None:
                 self.frame_dispatcher.submit("hand_eye_preview", frame)
             else:
@@ -1567,6 +1692,8 @@ class SimScene:
             )
 
     def camera_axes_world(self, *, hand_eye_path: str, parent_link: str = "node9") -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        if self._latest_camera_axes is not None:
+            return tuple(axis.copy() for axis in self._latest_camera_axes)
         if self.eye_camera is not None:
             axes = self.eye_camera.camera_axes_world()
             if axes is not None:
@@ -1773,8 +1900,19 @@ class SimMover:
             theta2_rad=float(theta2),
         )
 
-    def _apply_q_direct(self, q_target: np.ndarray) -> None:
-        self.entity.set_dofs_position(q_target, dofs_idx_local=self.dofs_idx_local)
+    def _apply_all_direct(self, q_target: np.ndarray) -> None:
+        values = list(np.asarray(q_target, dtype=float).reshape(-1))
+        indices = list(self.dofs_idx_local)
+        for index, value in (
+            (self._claw_left_idx, self._claw_left_cmd),
+            (self._claw_right_idx, self._claw_right_cmd),
+        ):
+            if index is not None:
+                indices.append(int(index))
+                values.append(float(value))
+        self.entity.set_dofs_position(
+            np.asarray(values, dtype=float), dofs_idx_local=indices
+        )
 
     def set_sag_model(self, sag_model: dict[str, Any]) -> None:
         self._sag_model = dict(sag_model or {})
@@ -1789,7 +1927,6 @@ class SimMover:
         max_step = float(self._claw_rate) * float(self.p.dt)
         self._claw_left_cmd = float(np.clip(self._claw_left_target, self._claw_left_cmd - max_step, self._claw_left_cmd + max_step))
         self._claw_right_cmd = float(np.clip(self._claw_right_target, self._claw_right_cmd - max_step, self._claw_right_cmd + max_step))
-        self._apply_claw_direct(self._claw_left_cmd, self._claw_right_cmd)
 
     def set_claw_closed(self, closed: bool) -> None:
         self._claw_closed = bool(closed)
@@ -1835,16 +1972,16 @@ class SimMover:
         self._last_q_target = q_target
         self._last_q_target_cmd = (float(linear_m), float(roll), float(theta1), float(theta2))
         self._q_cmd = self._rate.step(self._q_cmd, q_target, dt=float(self.p.dt))
-        self._apply_q_direct(self._q_cmd)
         self._step_claws()
+        self._apply_all_direct(self._q_cmd)
 
     def set_4dof_instant(self, linear_m: float, roll: float, theta1: float, theta2: float) -> None:
         q_target = self.target_from_4dof(linear_m, roll, theta1, theta2)
         self._last_q_target = q_target
         self._last_q_target_cmd = (float(linear_m), float(roll), float(theta1), float(theta2))
         self._q_cmd = q_target.copy()
-        self._apply_q_direct(q_target)
         self._step_claws()
+        self._apply_all_direct(q_target)
 
 
 class AssetProcessor:
@@ -2524,6 +2661,9 @@ class SimRuntime:
         self._applied_go2_obstacles_avoid_seq: int = 0
         self._t_mirror_status_log: float = 0.0
         self._last_status_publish_t: float = 0.0
+        self._next_feedback_sim_t: float = 0.0
+        self._sim_tip_cache: Optional[np.ndarray] = None
+        self._sim_tip_dir_cache: Optional[np.ndarray] = None
         self._status_dirty = True
         self._force_hand_eye_capture = True
         self.operator = SimulationOperatorController(
@@ -2535,6 +2675,27 @@ class SimRuntime:
         )
         self.operator.debug_visible = bool(app.spawn.draw_debug_markers)
 
+    def _feedback_due(self, sim_time_s: float) -> bool:
+        period = 1.0 / max(1.0, float(self.app.cfg.telemetry_max_hz))
+        now = max(0.0, float(sim_time_s))
+        if now + 1e-9 < self._next_feedback_sim_t:
+            return False
+        self._next_feedback_sim_t = _advance_capture_deadline(
+            self._next_feedback_sim_t, now, period
+        )
+        return True
+
+    def _refresh_tip_feedback_cache(self, due: bool) -> None:
+        """Refresh expensive Genesis link telemetry only at its bounded cadence."""
+
+        if not due:
+            return
+        started = time.perf_counter()
+        self._sim_tip_cache, self._sim_tip_dir_cache = (
+            self.app.sim_scene.actual_tip_pose_world(self.app.layout)
+        )
+        self._perf.section("tip_readback", started)
+
     def _reset_environment(self) -> None:
         a = self.app
         start_q = proto.default_start_sim_q(a._proto_cfg)
@@ -2544,6 +2705,9 @@ class SimRuntime:
         a.sim_scene.hide_mock_objects()
         a.mock_object_state.reset()
         self._force_hand_eye_capture = True
+        self._next_feedback_sim_t = 0.0
+        self._sim_tip_cache = None
+        self._sim_tip_dir_cache = None
 
     def _apply_observer_command(self, command: str, arguments: dict[str, Any]) -> None:
         camera = self.app.sim_scene.observer_camera
@@ -2743,6 +2907,7 @@ class SimRuntime:
             interval_s=float(getattr(a.cfg, "perf_log_interval_s", 2.0)),
             log_path=str(getattr(a.cfg, "perf_log_path", "")),
         )
+        self._perf = perf
         a.sim_scene.camera_timing_sink = perf.observe
         a.sim_scene.go2_timing_sink = perf.observe
 
@@ -2756,12 +2921,11 @@ class SimRuntime:
                 if sim_target_xyz is not None:
                     a.sim_scene.set_sim_target_position(sim_target_xyz)
                 self._maybe_log_mirror_status(time.time())
-                ik_target = a.state_source.ik_target_xyz() if a.state_source is not None else None
-                ik_target_dir = a.state_source.ik_target_dir() if a.state_source is not None else None
                 sag_model = a.state_source.sag_model() if a.state_source is not None else {}
                 a.sim_scene.mover.set_sag_model(sag_model)
                 claw_closed = a.state_source.claw_closed() if a.state_source is not None else False
                 a.sim_scene.mover.set_claw_closed(claw_closed)
+                q_errmodel = a._errmodel_q() if a._has_state_source() else None
                 perf.section("poll", t_sec)
                 t_sec = time.perf_counter()
                 if a.sim_scene.go2 is not None:
@@ -2780,7 +2944,6 @@ class SimRuntime:
                             float(go2_vel[1]),
                             float(go2_vel[2]),
                         )
-                    q_errmodel = a._errmodel_q() if a._has_state_source() else None
                     if q_errmodel is not None:
                         a.sim_scene.go2.set_arm_q_for_metrics(
                             (
@@ -2791,20 +2954,23 @@ class SimRuntime:
                             )
                         )
                 perf.section("go2", t_sec)
-                q_errmodel = a._errmodel_q() if a._has_state_source() else None
+                t_sec = time.perf_counter()
                 if q_errmodel is not None:
                     a.sim_scene.apply_sim_q(q_errmodel)
+                perf.section("command", t_sec)
 
                 t_sec = time.perf_counter()
-                sim_tip = a.sim_scene.actual_tip_world(a.layout)
-                sim_tip_dir = a.sim_scene.actual_tip_direction_world(a.layout)
+                sim_time_s = a.sim_scene.sim_time_s(float(a.params.dt))
+                feedback_due = a.feedback_pub is not None and self._feedback_due(sim_time_s)
+                self._refresh_tip_feedback_cache(feedback_due)
+                sim_tip = self._sim_tip_cache
+                sim_tip_dir = self._sim_tip_dir_cache
                 cam_origin = cam_look = cam_right = None
                 if a.sim_scene.eye_camera is not None and str(a.cfg.hand_eye_config).strip():
                     cam_axes = a.sim_scene.camera_axes_world(hand_eye_path=str(a.cfg.hand_eye_config))
                     if cam_axes is not None:
                         cam_origin, cam_look, cam_right = cam_axes
-                if a.feedback_pub is not None:
-                    sim_time_s = a.sim_scene.sim_time_s(float(a.params.dt))
+                if feedback_due:
                     sim_wall_elapsed_s = a.sim_scene.sim_wall_elapsed_s()
                     sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
                     sim_step_count = int(a.sim_scene.sim_step_count)
@@ -2897,9 +3063,10 @@ class SimRuntime:
                 if did_step:
                     a.sim_scene.step()
                 perf.section("physics", t_sec)
+                perf.mark_step(did_step, float(a.params.dt))
                 if did_step and a.sim_scene.go2 is not None and a.sim_scene.go2.mirror_mode:
                     a.sim_scene.go2.reapply_last_mirror_pose()
-                q_cam = a._errmodel_q() if a._has_state_source() else None
+                q_cam = q_errmodel
                 arm_q = None
                 if q_cam is not None:
                     arm_q = (
@@ -2949,6 +3116,7 @@ class SimRuntime:
                         force=observer_dirty,
                     )
                 perf.section("camera", t_sec)
+                t_sec = time.perf_counter()
                 if did_step and bool(getattr(a.params, "realtime", True)):
                     a.sim_scene.throttle_realtime(
                         float(a.params.dt),
@@ -2959,7 +3127,10 @@ class SimRuntime:
                     )
                 elif not did_step:
                     time.sleep(min(0.02, float(a.params.dt)))
+                perf.section("pacing", t_sec)
+                t_sec = time.perf_counter()
                 self._publish_simulation_status()
+                perf.section("status", t_sec)
                 perf.report_if_due()
         except KeyboardInterrupt:
             pass
@@ -3015,6 +3186,7 @@ class GenesisApp:
             frame_hub=frame_hub,
             video_mailboxes=video_mailboxes,
             camera_gpu_convert=bool(self.cfg.camera_gpu_convert),
+            update_visualizer_on_step=bool(self.cfg.enable_viewer),
         )
         self.mock_object_state = mock_object_state or MockObjectState(
             MockObjectCatalog(resolve_mock_object_catalog_root(_REPO_ROOT))

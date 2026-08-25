@@ -35,6 +35,7 @@ class SimConfig:
     # forcing the legacy host conversion path.
     camera_gpu_convert: bool = True
     enable_viewer: bool = True
+    telemetry_max_hz: float = 20.0
     floor: bool = True
     use_hardware: bool = False
     use_go2: bool = False
