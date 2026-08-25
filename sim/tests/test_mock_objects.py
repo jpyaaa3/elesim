@@ -14,6 +14,9 @@ from elesim_sim.simulation.mock_objects import (
 )
 
 
+DEMO_BOX = Path(__file__).resolve().parents[1] / "config/mock_objects/demo_box.obj"
+
+
 def _cube() -> str:
     return """\
 # A cube with duplicate XZ points at the top and bottom.
@@ -190,3 +193,21 @@ def test_catalog_freezes_the_artifact_used_by_the_built_scene(tmp_path: Path) ->
     path.write_text(_cube().replace("v -1 0 -1", "v -2 0 -1"), encoding="utf-8")
 
     assert catalog.load("cube.obj") is first
+
+
+def test_builtin_demo_box_faces_point_outward_for_genesis_backface_culling() -> None:
+    artifact = MockObjectCatalog(DEMO_BOX.parent).load(DEMO_BOX.name)
+    signed_volume = 0.0
+    for face in artifact.faces:
+        anchor = artifact.vertices[face[0]]
+        for index in range(1, len(face) - 1):
+            left = artifact.vertices[face[index]]
+            right = artifact.vertices[face[index + 1]]
+            cross = (
+                left[1] * right[2] - left[2] * right[1],
+                left[2] * right[0] - left[0] * right[2],
+                left[0] * right[1] - left[1] * right[0],
+            )
+            signed_volume += sum(a * b for a, b in zip(anchor, cross)) / 6.0
+
+    assert signed_volume > 0.0
