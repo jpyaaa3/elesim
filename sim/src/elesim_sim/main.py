@@ -61,7 +61,12 @@ def _configure_gpu_render_environment(*, use_gpu: bool, viewer: bool) -> None:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
     visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
     if visible.isdecimal() and "," not in visible:
-        os.environ.setdefault("EGL_DEVICE_ID", visible)
+        # CUDA_VISIBLE_DEVICES is a host-facing selection, but CUDA and EGL
+        # enumerate the selected devices again inside the container.  When a
+        # single host GPU (for example ``2``) is exposed, it is device 0 in
+        # that namespace; passing the host index to EGL makes it reject a
+        # valid one-GPU allocation as "Invalid device ID".
+        os.environ.setdefault("EGL_DEVICE_ID", "0")
 
 
 def _rgbd_descriptor(

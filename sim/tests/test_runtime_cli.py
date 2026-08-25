@@ -14,7 +14,7 @@ from elesim_sim.main import _configure_gpu_render_environment
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
+def test_headless_gpu_render_remaps_single_selected_device_for_egl(monkeypatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
     monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
@@ -25,7 +25,7 @@ def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
 
     assert os.environ["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
     assert os.environ["PYOPENGL_PLATFORM"] == "egl"
-    assert os.environ["EGL_DEVICE_ID"] == "2"
+    assert os.environ["EGL_DEVICE_ID"] == "0"
 
 
 def test_viewer_does_not_force_headless_egl(monkeypatch) -> None:
