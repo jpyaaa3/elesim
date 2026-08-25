@@ -106,7 +106,11 @@ class LiftTest:
         self.lift = cfg.lift
         self.n_envs = int(n_envs)
         self.device = device
-        self.threshold = float(cfg.coverage_target_rad)
+        # The lift is attempted at its own permissive threshold.  Tying it to
+        # the coverage target would make the wrap angle an objective again by
+        # the back door: nothing would ever be lifted until the geometry gate
+        # was met, so retention could never fail informatively.
+        self.threshold = float(cfg.lift.trigger_rad)
         z = lambda dtype: torch.zeros(self.n_envs, device=device, dtype=dtype)  # noqa: E731
         self.phase = z(torch.long)
         self.substep = z(torch.long)

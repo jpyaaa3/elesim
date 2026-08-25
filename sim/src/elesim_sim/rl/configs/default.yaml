@@ -137,8 +137,18 @@ object:
 macro_step:
   # Rule 1: this is a macro-step MDP, not a 50 Hz reactive controller.
   max_steps: 15
-  # Substeps simulated per macro step (settle window).
+  # Substeps simulated per macro step.
   substeps: 40
+  # Fraction of those substeps spent *moving* to the new waypoint, with the
+  # joint target interpolated across them; the rest is settling.
+  #
+  # Without this the target jumps by a whole rate limit at the start of the
+  # step -- 0.20 rad of roll at once -- and the arm swats the object out of
+  # position before the wrap can close: measured 17 mm of object displacement
+  # and the wrap collapsing from 252 deg to 16 deg.  The spec's macro step is
+  # "move and settle", and this is the move.  It does not change the MDP: the
+  # policy still issues one waypoint per macro step.
+  move_fraction: 0.6
   settle:
     # "fixed" always runs `substeps`; "velocity" stops early once the arm and
     # object velocities fall under the thresholds for `hold_substeps`.
@@ -239,13 +249,28 @@ reward:
     max_tilt_rad: 0.60
 
 success:
-  # Rule: the geometric gate is a curriculum stand-in for the lift test.
-  # 172 deg is the peak wrap angle the prior geometry sweep reached
-  # (misc/analysis/wrap_grasp on the motion_planning branch); do not set this
-  # to 180 deg and call the resulting zero success rate a training failure.
-  criterion: geometric        # geometric | lift
+  # The success criterion is the lift test: whether the object is actually
+  # retained.  Wrap angle is a *shaping* signal, not an objective.
+  #
+  # A geometric gate is still available, and the spec allows it as an
+  # early-curriculum stand-in, but it makes a poor objective and it is not the
+  # default.  It rewards a pose rather than a behaviour -- a measured pose
+  # reached Phi = 250 deg with zero object contacts, the arm merely encircling
+  # the object with clearance -- and at any threshold at or below 180 deg it is
+  # provably not a grasp, because the escape opening is then at least the
+  # object's own diameter.  The dense early signal comes from
+  # reward.weights.approach_shaping, which is continuous at any distance;
+  # a success bonus does not need to be dense.
+  criterion: lift             # lift | geometric
+  # Wrap angle past which the object counts as wrapped.  Two uses, neither of
+  # them "success": it stops the pre-wrap disturbance penalty (moving a wrapped
+  # object is the goal), and with criterion=geometric it is the gate.
   coverage_target_rad: 3.0019 # 172 deg
   lift:
+    # Wrap angle at which the scripted lift is attempted.  Deliberately
+    # permissive: an attempt costs a few substeps, and letting the policy try
+    # early and fail retention is more informative than never trying.
+    trigger_rad: 2.0944       # 120 deg
     # Lifting this arm means rotating roll so the bend plane goes from
     # horizontal to vertical.  The object lying down ~90 deg is expected;
     # uprightness is NOT part of the success test.
@@ -294,7 +319,7 @@ curriculum:
       randomise_object_pose: false
       randomise_object_radius: false
       approach_shaping: true
-      success_criterion: geometric
+      success_criterion: lift
     2:
       randomise_object_pose: true
       randomise_object_radius: false

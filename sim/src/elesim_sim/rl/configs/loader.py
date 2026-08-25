@@ -147,6 +147,7 @@ class RateLimitConfig:
 class MacroStepConfig:
     max_steps: int = 15
     substeps: int = 40
+    move_fraction: float = 0.6
     settle: SettleConfig = field(default_factory=SettleConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
@@ -215,6 +216,7 @@ class RewardConfig:
 
 @dataclass(frozen=True)
 class LiftConfig:
+    trigger_rad: float = 2.0944
     roll_target_rad: float = 1.5708
     roll_rate_rad_per_substep: float = 0.01
     hold_substeps: int = 100
@@ -225,7 +227,7 @@ class LiftConfig:
 
 @dataclass(frozen=True)
 class SuccessConfig:
-    criterion: str = "geometric"
+    criterion: str = "lift"
     coverage_target_rad: float = 3.0019
     lift: LiftConfig = field(default_factory=LiftConfig)
 
@@ -281,7 +283,7 @@ class CurriculumStage:
     randomise_object_pose: bool = False
     randomise_object_radius: bool = False
     approach_shaping: bool = True
-    success_criterion: str = "geometric"
+    success_criterion: str = "lift"
 
 
 @dataclass(frozen=True)

@@ -136,6 +136,7 @@ class WrapGraspEnv:
         self._object_axis0 = z(self.num_envs, 3)
         self._load_proxy = z(self.num_envs, self.num_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
+        self._waypoint_from = z(self.num_envs, self.num_actions)
         self._failure_counts = {
             mode: torch.zeros(1, device=self.device, dtype=torch.long)
             for mode in FAILURE_MODES
@@ -218,6 +219,7 @@ class WrapGraspEnv:
         masked = torch.where(
             follows_policy.unsqueeze(-1), actions, torch.zeros_like(actions)
         )
+        self._waypoint_from = self.mapper.waypoint.clone()
         self.mapper.apply_action(masked)
 
     def _commanded_joints(self) -> torch.Tensor:
@@ -240,13 +242,21 @@ class WrapGraspEnv:
         return realised
 
     def _simulate_macro_step(self) -> None:
-        commanded = self._commanded_joints()
-        targets = self._realised_joints(commanded)
         settle = self.cfg.macro_step.settle
         substeps = int(self.cfg.macro_step.substeps)
+        # Interpolate the joint target across the moving portion of the window
+        # instead of stepping it to the new waypoint at once.  A whole rate
+        # limit applied in one substep is an impulse, and the arm knocks the
+        # object out of place before it can close around it.
+        move_steps = max(1, int(round(substeps * float(self.cfg.macro_step.move_fraction))))
+        start = self._waypoint_from
+        end = self.mapper.waypoint
         hold = 0
 
         for i in range(substeps):
+            alpha = min(1.0, float(i + 1) / move_steps)
+            waypoint = start + (end - start) * alpha
+            targets = self._realised_joints(self.mapper.joint_targets(waypoint))
             if self.lift is not None:
                 targets = self._apply_lift_script(targets)
             self.scene.robot.control_dofs_position(
@@ -608,6 +618,10 @@ class WrapGraspEnv:
             self._last_joint_cmd[env_ids] = 0.0
 
         self.mapper.reset(env_ids)
+        if env_ids is None:
+            self._waypoint_from[:] = self.mapper.waypoint
+        else:
+            self._waypoint_from[env_ids] = self.mapper.waypoint[env_ids]
         self.beta.reset(env_ids)
         if self.lift is not None:
             self.lift.reset(env_ids)
