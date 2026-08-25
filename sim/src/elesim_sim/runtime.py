@@ -2703,6 +2703,29 @@ class SimRuntime:
         )
         self._perf.section("tip_readback", started)
 
+    def _camera_axes_for_feedback(
+        self, due: bool
+    ) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """Read hand-eye pose only when the bounded feedback snapshot is due.
+
+        Genesis camera transforms are device-backed tensors.  Entering that
+        path from every outer-loop iteration can force a host synchronization
+        even though the pose is only emitted with telemetry.  The camera
+        publisher keeps its own latest frame pose for subsequent snapshots;
+        this helper deliberately leaves it untouched between feedback ticks.
+        """
+
+        a = self.app
+        if (
+            not due
+            or a.sim_scene.eye_camera is None
+            or not str(a.cfg.hand_eye_config).strip()
+        ):
+            return None
+        return a.sim_scene.camera_axes_world(
+            hand_eye_path=str(a.cfg.hand_eye_config)
+        )
+
     def _reset_environment(self) -> None:
         a = self.app
         start_q = proto.default_start_sim_q(a._proto_cfg)
@@ -2973,10 +2996,14 @@ class SimRuntime:
                 sim_tip = self._sim_tip_cache
                 sim_tip_dir = self._sim_tip_dir_cache
                 cam_origin = cam_look = cam_right = None
-                if a.sim_scene.eye_camera is not None and str(a.cfg.hand_eye_config).strip():
-                    cam_axes = a.sim_scene.camera_axes_world(hand_eye_path=str(a.cfg.hand_eye_config))
-                    if cam_axes is not None:
-                        cam_origin, cam_look, cam_right = cam_axes
+                # Camera pose is only consumed by the bounded feedback
+                # snapshot below.  Calling camera_axes_world on every outer
+                # loop can fall through to Genesis get_transform(), which
+                # synchronizes the GPU even while telemetry is not due (and
+                # while the first camera frame is still being produced).
+                cam_axes = self._camera_axes_for_feedback(feedback_due)
+                if cam_axes is not None:
+                    cam_origin, cam_look, cam_right = cam_axes
                 if feedback_due:
                     sim_wall_elapsed_s = a.sim_scene.sim_wall_elapsed_s()
                     sim_realtime_factor = a.sim_scene.sim_realtime_factor(float(a.params.dt))
