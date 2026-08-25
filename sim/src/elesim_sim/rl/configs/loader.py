@@ -56,6 +56,7 @@ class SceneConfig:
     solver_substeps: int = 1
     max_collision_pairs: int = 512
     show_viewer: bool = False
+    decompose_robot_error_threshold: Optional[float] = 0.15
     model_bundle: str = ""
     urdf_relpath: str = "robot.urdf"
     floor: bool = True
@@ -110,9 +111,9 @@ class SupportConfig:
     """
 
     enable: bool = True
-    height_m: float = 0.448
+    height_m: float = 0.459
     half_extents_xy: tuple[float, float] = (0.02, 0.02)
-    center_xy: tuple[float, float] = (0.357, 0.116)
+    center_xy: tuple[float, float] = (0.562, 0.125)
 
 
 @dataclass(frozen=True)
@@ -191,8 +192,8 @@ class RewardWeights:
 @dataclass(frozen=True)
 class CoverageConfig:
     n_bins: int = 180
-    radial_band_m: float = 0.09
-    link_radius_m: float = 0.05622
+    radial_band_m: float = 0.04
+    link_radius_m: float = 0.035
     interpenetration_tol_m: float = 0.002
     require_caging: bool = False
 

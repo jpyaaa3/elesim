@@ -22,6 +22,17 @@ scene:
   # exceeds this, and get_contacts() returns at most this many rows per env.
   max_collision_pairs: 512
   show_viewer: false
+  # Convex-decomposition threshold for the robot's collision meshes.
+  #
+  # Genesis defaults this to infinity for robots, which means no decomposition
+  # ever runs and every link collapses to a single convex hull.  For the nodes
+  # that is harmless -- they are already convex, hull volume equals mesh volume.
+  # For the gripper it is not: the open jaw gets filled in, inflating
+  # gripper_base by 330% and the claws by 59%, and it was gripper-to-housing
+  # contact that capped the reachable wrap angle.  A finite threshold lets CoACD
+  # split concave links into several convex pieces instead.  Costs build time.
+  # Set to null to keep the Genesis default.
+  decompose_robot_error_threshold: 0.15
   # Empty -> resolved relative to the repo root (model/bundles/default).
   model_bundle: ""
   urdf_relpath: robot.urdf
@@ -84,29 +95,31 @@ arm:
 support:
   enable: true
   # Top surface height; the object centre sits half its height above this.
-  # 0.448 puts the cylinder's mid-height at z = 0.548, the plane the coil
-  # forms in.  The post top stays 0.10 m below the arm, so it is not in the way.
-  height_m: 0.448
+  # 0.459 puts the cylinder's mid-height at z = 0.559, the plane the coil forms
+  # in.  The post top stays 0.10 m below the arm, so it is not in the way.
+  height_m: 0.459
   # Half-extents of the support box.  A slim post, not a table: the placement
   # search measured 1130 of 1764 sweep poses colliding with a 0.06 m
   # half-extent box against 585 with this one, because the support sits in the
   # middle of the arm's working volume.  The floor itself blocks nothing at
   # this height (0 collisions), so the support is the whole cost.
   half_extents_xy: [0.02, 0.02]
-  # Column position measured from the arm itself, not searched for.
+  # Column position measured from the arm, at the *distal* segment's coil.
   #
-  # At roll = -90 deg the bend plane is horizontal (link-cloud extent
-  # 0.224 x 0.231 x 0.203 m, against 0.218 x 0.101 x 0.373 m at roll = 0), and
-  # that horizontal coil is what can surround an upright cylinder.  Fitting a
-  # circle to the arm links in that pose gives a centre of (0.357, 0.116) with
-  # a radius of 0.097-0.142 m over the reachable bend range, and a residual
-  # scatter of 1-17 mm -- the coil really is circular.  The object goes at that
-  # centre, so the cylinder sits in the hole the arm closes around.
+  # Bending both segments equally curls the arm from its own base, so the coil
+  # radius drops to ~0.10 m centred ~0.12 m from the housing -- and the tip
+  # drives into the housing, 60 mm deep at 40 N.  That is what a symmetric
+  # sweep finds, and it is not what the two-segment arm is for.
   #
-  # An earlier guess of (0.225, -0.125) was inside the quadruped's own body:
-  # renders showed the post and cylinder resting on the robot's back, which is
-  # what made the wrap measurements meaningless.
-  center_xy: [0.357, 0.116]
+  # Segment 2 alone at full bend (36 deg/node) with segment 1 nearly straight
+  # forms a coil of radius 0.080 m that segment 1 then carries clear of the
+  # base: 260 deg of wrap, caged, no collision anywhere.  46 of 64 swept
+  # (theta1, theta2) pairs are collision-free and 24 of those close a usable
+  # coil, so the policy has a continuous solution manifold rather than a point.
+  #
+  # (0.562, 0.125) is the coil centre at theta1 = 5.1 deg/node, chosen mid-range
+  # so the policy can move theta1 either way to bring the coil onto the object.
+  center_xy: [0.562, 0.125]
 
 object:
   kind: cylinder
@@ -178,15 +191,29 @@ reward:
     # the prior geometry sweep.
     n_bins: 180
     # An arm link counts as occupying its azimuth bin within this radial band
-    # around the object surface (metres).
-    radial_band_m: 0.09
-    # Node capsule radius, from the collision model measured in
-    # misc/analysis/wrap_grasp (56.22 mm, isotropic).  Used to convert a link
-    # origin into a surface distance, so a link resting on the object reads ~0
-    # instead of its own radius -- and so a centre that would put a link
-    # *inside* the object can be rejected as physically impossible.
-    link_radius_m: 0.05622
-    # Tolerance on that rejection, in metres.
+    # around the object surface (metres).  Kept near the node's own in-plane
+    # half-size: a band of 0.09 let a link 9 cm clear of the surface score
+    # towards the wrap angle, which is how a coil that never touched the object
+    # still read 250 deg.
+    radial_band_m: 0.04
+    # Effective node half-size *in the bending plane*, measured from the
+    # collision mesh (model/bundles/default/assets/node/node_mesh.obj).
+    #
+    # The node is a hexagonal barrel: 50 mm along the chain (the joint pitch),
+    # 88 mm across the hinge axis, and 70 mm in the plane it bends in, tapering
+    # to a hinge edge at each end so neighbours can rotate without clashing.
+    # Only the in-plane 70 mm matters here -- half of it, 35 mm -- because that
+    # is what sets how closely a link surface can approach the object as the arm
+    # curls around it.
+    #
+    # The 56.22 mm quoted as the "node capsule radius" in
+    # misc/analysis/wrap_grasp is sqrt(44^2 + 35^2): the 3D corner distance,
+    # which folds in the width along the hinge axis, a dimension that has no
+    # bearing on curling.  Using it overstated the link by 60% and, because the
+    # caging test subtracts 2*link_radius from the escape chord, made caging
+    # look easier than it is rather than harder.
+    link_radius_m: 0.035
+    # Tolerance on the interpenetration rejection, in metres.
     interpenetration_tol_m: 0.002
     # Caging is always measured and logged; this switch decides whether it also
     # gates the geometric success criterion.

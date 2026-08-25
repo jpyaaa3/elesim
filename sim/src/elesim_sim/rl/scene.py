@@ -170,15 +170,18 @@ class WrapGraspScene:
         urdf_path = self.bundle_dir / str(scene_cfg.urdf_relpath)
         if not urdf_path.is_file():
             raise FileNotFoundError(f"bundle URDF not found: {urdf_path}")
-        self.robot = self.scene.add_entity(
-            gs.morphs.URDF(
-                file=str(urdf_path),
-                pos=tuple(float(v) for v in scene_cfg.go2.spawn_xyz),
-                fixed=bool(scene_cfg.go2.base_fixed),
-                merge_fixed_links=False,
-                default_armature=0.0,
+        urdf_kwargs: dict[str, Any] = {
+            "file": str(urdf_path),
+            "pos": tuple(float(v) for v in scene_cfg.go2.spawn_xyz),
+            "fixed": bool(scene_cfg.go2.base_fixed),
+            "merge_fixed_links": False,
+            "default_armature": 0.0,
+        }
+        if scene_cfg.decompose_robot_error_threshold is not None:
+            urdf_kwargs["decompose_robot_error_threshold"] = float(
+                scene_cfg.decompose_robot_error_threshold
             )
-        )
+        self.robot = self.scene.add_entity(gs.morphs.URDF(**urdf_kwargs))
 
         support_cfg = self.cfg.support
         if support_cfg.enable:
