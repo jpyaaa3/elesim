@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -44,6 +45,11 @@ def _configure_gpu_render_environment(*, use_gpu: bool, viewer: bool) -> None:
     """Keep headless OpenGL and CUDA on the operator-selected GPU."""
 
     if not bool(use_gpu):
+        return
+    # macOS renders through Metal/CGL.  There is no CUDA device order to pin
+    # and no EGL library to load, so forcing PYOPENGL_PLATFORM=egl below would
+    # only make pyrender fail to import.
+    if sys.platform == "darwin":
         return
     # Make numeric CUDA indices match the PCI/nvidia-smi order.  General
     # inherit-mode exposes every GPU and narrows CUDA with this variable.
