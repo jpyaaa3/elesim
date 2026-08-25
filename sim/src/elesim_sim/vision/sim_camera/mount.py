@@ -257,7 +257,7 @@ class ObserverCamera:
         cls,
         scene,
         *,
-        res: tuple[int, int] = (320, 240),
+        res: tuple[int, int] = (640, 480),
         fov_deg: float = 40.0,
         pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
         lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
@@ -413,6 +413,7 @@ class ObserverCamera:
         rgb_enabled: bool = True,
         depth_enabled: bool = False,
         prefer_gpu: bool = True,
+        force_render: bool = False,
         timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
@@ -422,7 +423,17 @@ class ObserverCamera:
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
-            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            try:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled),
+                    depth=bool(depth_enabled),
+                    force_render=bool(force_render),
+                )
+            except TypeError:
+                # Genesis 1.1 and older do not expose ``force_render``.
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
+                )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:

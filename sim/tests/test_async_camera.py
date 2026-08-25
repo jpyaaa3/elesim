@@ -14,7 +14,10 @@ from elesim_sim.vision.sim_camera.async_worker import (
     CameraStateSnapshot,
     CameraRenderWorker,
     SharedRgbdMailbox,
+    _apply_snapshot,
 )
+from elesim_sim.vision.sim_camera.mount import ObserverCamera
+from elesim_sim.vision.sim_camera.types import SimCameraIntrinsics
 
 
 def test_shared_rgbd_mailbox_is_latest_only_and_coherent() -> None:
@@ -50,6 +53,45 @@ def test_render_snapshot_is_serializable_and_has_epoch_fields() -> None:
     assert snapshot.sim_step == 12
     assert snapshot.robot_q_indices == (0, 1)
     assert snapshot.target_position == (0.5, 0.0, 0.2)
+
+
+def test_render_replica_applies_observer_pose_snapshot() -> None:
+    class Camera:
+        def __init__(self) -> None:
+            self.poses = []
+
+        def set_pose(self, *, pos, lookat, up):
+            self.poses.append((tuple(pos), tuple(lookat), tuple(up)))
+
+    camera = Camera()
+    observer = ObserverCamera(
+        camera=camera,
+        intrinsics=SimCameraIntrinsics(100.0, 100.0, 32.0, 24.0, 64, 48),
+        pos=(0.0, -2.0, 1.0),
+        lookat=(0.0, 0.0, 0.0),
+    )
+    changed = _apply_snapshot(
+        entity=object(),
+        mock_entities={},
+        target_entity=None,
+        observer=observer,
+        snapshot=CameraStateSnapshot(
+            epoch=0,
+            sim_step=1,
+            sim_time_s=0.02,
+            observer_pos=(1.0, -2.0, 1.0),
+            observer_lookat=(1.0, 0.0, 0.0),
+        ),
+    )
+
+    assert changed is True
+    assert observer.pos == (1.0, -2.0, 1.0)
+    assert observer.lookat == (1.0, 0.0, 0.0)
+    assert camera.poses[-1] == (
+        (1.0, -2.0, 1.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
 
 
 def test_render_spec_rejects_missing_urdf() -> None:

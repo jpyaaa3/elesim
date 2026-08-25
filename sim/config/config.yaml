@@ -96,8 +96,8 @@ simulation:
       jpeg: true
       jpeg_quality: 85
       max_hz: 20.0
-      width: 320
-      height: 240
+      width: 640
+      height: 480
       # Genesis 1.2.x ViewerOptions defaults, in its right-handed Z-up world.
       fov_deg: 40.0
       pos: [3.5, 0.5, 2.5]

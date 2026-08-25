@@ -46,8 +46,8 @@ class CameraRenderSpec:
     hand_eye_fov_deg: float = 60.0
     hand_eye_rgb: bool = True
     hand_eye_depth: bool = True
-    observer_width: int = 320
-    observer_height: int = 240
+    observer_width: int = 640
+    observer_height: int = 480
     observer_fov_deg: float = 40.0
     observer_pos: tuple[float, float, float] = (3.5, 0.5, 2.5)
     observer_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
@@ -220,7 +220,10 @@ def _apply_snapshot(
     target_entity: Any,
     observer: Any,
     snapshot: CameraStateSnapshot,
-) -> None:
+) -> bool:
+    """Apply one latest state and report whether the observer pose changed."""
+
+    observer_pose_changed = False
     if snapshot.robot_q is not None:
         q = np.asarray(snapshot.robot_q, dtype=float).reshape(-1)
         try:
@@ -290,13 +293,19 @@ def _apply_snapshot(
         snapshot.observer_pos is not None or snapshot.observer_lookat is not None
     ):
         try:
+            previous_pos = tuple(float(v) for v in observer.pos)
+            previous_lookat = tuple(float(v) for v in observer.lookat)
             pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
             lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
             observer.pos = tuple(float(v) for v in pos)
             observer.lookat = tuple(float(v) for v in lookat)
+            observer_pose_changed = (
+                observer.pos != previous_pos or observer.lookat != previous_lookat
+            )
             observer._set_camera_pose()
         except Exception:
             pass
+    return observer_pose_changed
 
 
 def _camera_render_process_main(
@@ -457,7 +466,9 @@ def _camera_render_process_main(
                     requested_names.extend(str(name) for name in requested)
             if stop.is_set():
                 break
-            _apply_snapshot(entity, mock_entities, target_entity, observer, snapshot)
+            observer_pose_changed = _apply_snapshot(
+                entity, mock_entities, target_entity, observer, snapshot
+            )
             for stream in tuple(dict.fromkeys(requested_names)):
                 try:
                     if stream not in capture_logged:
@@ -479,6 +490,7 @@ def _camera_render_process_main(
                             rgb_enabled=True,
                             depth_enabled=False,
                             prefer_gpu=bool(spec.gpu_convert),
+                            force_render=observer_pose_changed,
                         )
                     else:
                         continue

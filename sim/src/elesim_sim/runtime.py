@@ -1849,6 +1849,7 @@ class SimScene:
                 rgb_enabled=True,
                 depth_enabled=False,
                 prefer_gpu=bool(self.camera_gpu_convert),
+                force_render=bool(force),
                 timing_sink=self.camera_timing_sink,
             )
             if self.frame_dispatcher is not None:

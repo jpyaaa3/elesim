@@ -71,8 +71,8 @@ class SimConfig:
     sim_observer_camera_jpeg: bool = True
     sim_observer_camera_jpeg_quality: int = 85
     sim_observer_camera_max_hz: float = 20.0
-    sim_observer_camera_width: int = 320
-    sim_observer_camera_height: int = 240
+    sim_observer_camera_width: int = 640
+    sim_observer_camera_height: int = 480
     sim_observer_camera_fov_deg: float = 40.0
     sim_observer_camera_pos: tuple[float, float, float] = (3.5, 0.5, 2.5)
     sim_observer_camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
