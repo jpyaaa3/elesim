@@ -472,6 +472,9 @@ def test_download_source_caches_only_install_source_boundary(
             "pilot/tests/test_dummy.py": b"raise AssertionError\n",
             "installer/package/tests/test_dummy.py": b"raise AssertionError\n",
             "misc/research/dummy.bin": b"research-only\n",
+            "misc/tools/setup_preview.py": b"raise AssertionError\n",
+            "docs/README.md": b"repository-only docs\n",
+            "environment/coturn/README.md": b"standalone helper\n",
         },
     )
     monkeypatch.setattr(
@@ -503,6 +506,9 @@ def test_download_source_caches_only_install_source_boundary(
     assert not (root / "pilot/tests").exists()
     assert not (root / "installer/package/tests").exists()
     assert not (root / "misc/research").exists()
+    assert not (root / "misc/tools/setup_preview.py").exists()
+    assert not (root / "docs").exists()
+    assert not (root / "environment/coturn").exists()
 
 
 def test_download_source_validates_completed_snapshot_with_conditional_get(

@@ -862,7 +862,9 @@ def _resolve_native_robot_host() -> NativeRobotHost:
     try:
         account = pwd.getpwuid(os.getuid())
     except KeyError:
-        pass
+        # Containers can run with a numeric UID that has no passwd entry.
+        # Environment-provided identity and HOME remain valid fallbacks.
+        account = None
     robot_user = configured_user or (account.pw_name if account is not None else "")
     configured_home = (
         os.environ.get("ELESIM_OPERATOR_HOME", "").strip()

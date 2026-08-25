@@ -165,6 +165,48 @@ def test_dds_publisher_maps_encoded_frame_without_raw_image_fields() -> None:
     assert message.has_depth is True
 
 
+def test_dds_publisher_maps_numpy_pose_metadata_without_truthiness_check() -> None:
+    sent: list[object] = []
+    publisher = object.__new__(DdsEncodedRgbdPublisher)
+    publisher._closed = False
+    publisher.endpoint_id = "pilot-main"
+    publisher.boot_id = "boot-1"
+    publisher.wall_clock = lambda: 10.0
+    publisher.published = 0
+    publisher.dropped = 0
+    publisher.last_drop_reason = ""
+
+    class Message:
+        def __init__(self) -> None:
+            self.source = type("Source", (), {})()
+            self.capture_time = type("Time", (), {"sec": 0, "nanosec": 0})()
+
+    publisher._RosEncodedRgbdFrame = Message
+    publisher._publisher = type(
+        "Publisher", (), {"publish": lambda _self, value: sent.append(value)}
+    )()
+
+    frame = _frame(
+        metadata=RgbdEncodedMetadata(
+            fx=1.0,
+            fy=2.0,
+            cx=3.0,
+            cy=4.0,
+            arm_q=np.array([0.1, 0.2, 0.3, 0.4]),
+            camera_world_origin=np.array([1.0, 2.0, 3.0]),
+            camera_world_look=np.array([4.0, 5.0, 6.0]),
+            camera_world_right=np.array([7.0, 8.0, 9.0]),
+        )
+    )
+
+    assert publisher.publish(frame) is True
+    message = sent[0]
+    assert message.arm_q == [0.1, 0.2, 0.3, 0.4]
+    assert message.camera_world_origin == [1.0, 2.0, 3.0]
+    assert message.camera_world_look == [4.0, 5.0, 6.0]
+    assert message.camera_world_right == [7.0, 8.0, 9.0]
+
+
 def test_dds_subscriber_decodes_and_validates_latest_sample() -> None:
     message = type("Message", (), {})()
     message.source = type("Source", (), {"endpoint_id": "pilot-main", "boot_id": "boot-1"})()

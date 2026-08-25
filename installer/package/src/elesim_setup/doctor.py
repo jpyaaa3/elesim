@@ -62,6 +62,28 @@ class DdsPeerProbe:
 
     descriptors: tuple[str, ...]
     heartbeats: tuple[str, ...]
+    matched: tuple[str, ...] = ()
+
+    @property
+    def live_peers(self) -> tuple[str, ...]:
+        """Return peers proven live by a matching descriptor and heartbeat."""
+
+        return tuple(sorted(set(self.matched)))
+
+
+def _peer_observation(message: Any) -> tuple[str, tuple[str, int]] | None:
+    """Extract the identity tuple shared by descriptor and heartbeat messages."""
+
+    peer = getattr(message, "peer", None)
+    endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
+    if not endpoint_id:
+        return None
+    boot_id = str(getattr(peer, "boot_id", "")).strip()
+    try:
+        revision = int(getattr(message, "descriptor_revision", 0))
+    except (TypeError, ValueError):
+        revision = 0
+    return endpoint_id, (boot_id, revision)
 
 
 def _rclpy_import() -> Any:
@@ -381,6 +403,9 @@ def probe_dds_peer_state(
     executor = None
     descriptor_ids: set[str] = set()
     heartbeat_ids: set[str] = set()
+    descriptor_identity: dict[str, tuple[str, int]] = {}
+    heartbeat_identity: dict[str, tuple[str, int]] = {}
+    matched_ids: set[str] = set()
     expected_ids = {
         str(value).strip() for value in expected_peers if str(value).strip()
     }
@@ -401,17 +426,37 @@ def probe_dds_peer_state(
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
 
+        def refresh_match(endpoint_id: str) -> None:
+            descriptor = descriptor_identity.get(endpoint_id)
+            heartbeat = heartbeat_identity.get(endpoint_id)
+            if (
+                descriptor is not None
+                and descriptor == heartbeat
+                and descriptor[0]
+                and descriptor[1] > 0
+            ):
+                matched_ids.add(endpoint_id)
+            else:
+                matched_ids.discard(endpoint_id)
+
+        def record_observation(
+            message: Any,
+            seen: set[str],
+            identities: dict[str, tuple[str, int]],
+        ) -> None:
+            observation = _peer_observation(message)
+            if observation is None:
+                return
+            endpoint_id, identity = observation
+            seen.add(endpoint_id)
+            identities[endpoint_id] = identity
+            refresh_match(endpoint_id)
+
         def on_descriptor(message: Any) -> None:
-            peer = getattr(message, "peer", None)
-            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
-            if endpoint_id:
-                descriptor_ids.add(endpoint_id)
+            record_observation(message, descriptor_ids, descriptor_identity)
 
         def on_heartbeat(message: Any) -> None:
-            peer = getattr(message, "peer", None)
-            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
-            if endpoint_id:
-                heartbeat_ids.add(endpoint_id)
+            record_observation(message, heartbeat_ids, heartbeat_identity)
 
         descriptor_subscription = node.create_subscription(
             EndpointDescriptor,
@@ -442,8 +487,7 @@ def probe_dds_peer_state(
             )
             if (
                 expected_ids
-                and expected_ids.issubset(descriptor_ids)
-                and expected_ids.issubset(heartbeat_ids)
+                and expected_ids.issubset(matched_ids)
             ):
                 break
         node.destroy_subscription(descriptor_subscription)
@@ -451,6 +495,7 @@ def probe_dds_peer_state(
         return DdsPeerProbe(
             descriptors=tuple(sorted(descriptor_ids)),
             heartbeats=tuple(sorted(heartbeat_ids)),
+            matched=tuple(sorted(matched_ids)),
         )
     finally:
         if executor is not None:
@@ -648,18 +693,22 @@ class NetworkDoctor:
             return
         descriptors = set(probe.descriptors)
         heartbeats = set(probe.heartbeats)
+        live_peers = set(probe.live_peers)
         missing_descriptors = tuple(
             peer for peer in self.expected_peers if peer not in descriptors
         )
         missing_heartbeats = tuple(
             peer for peer in self.expected_peers if peer not in heartbeats
         )
+        missing_live = tuple(
+            peer for peer in self.expected_peers if peer not in live_peers
+        )
         missing = tuple(
             peer
             for peer in self.expected_peers
             if peer in missing_descriptors or peer in missing_heartbeats
         )
-        if not missing:
+        if not missing and not missing_live:
             report.add(
                 "DDS peers",
                 PASS,
@@ -670,11 +719,25 @@ class NetworkDoctor:
         status = FAIL if self.strict_peers else WARN
         descriptor_text = ", ".join(sorted(descriptors)) or "없음"
         heartbeat_text = ", ".join(sorted(heartbeats)) or "없음"
-        detail_parts = [f"미발견: {', '.join(missing)}"]
+        detail_parts: list[str] = []
+        if missing:
+            detail_parts.append(f"미발견: {', '.join(missing)}")
         if missing_descriptors:
             detail_parts.append(f"descriptor 없음: {', '.join(missing_descriptors)}")
         if missing_heartbeats:
             detail_parts.append(f"heartbeat 없음: {', '.join(missing_heartbeats)}")
+        mismatched = tuple(
+            peer
+            for peer in self.expected_peers
+            if peer not in missing_descriptors
+            and peer not in missing_heartbeats
+            and peer in missing_live
+        )
+        if mismatched:
+            detail_parts.append(
+                "descriptor/heartbeat boot 또는 revision 불일치: "
+                + ", ".join(mismatched)
+            )
         report.add(
             "DDS peers",
             status,

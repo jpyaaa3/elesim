@@ -63,6 +63,20 @@ def endpoint() -> tuple[SimEndpoint, SimulationStateSource, Client]:
     return value, state, client
 
 
+def test_webrtc_close_callback_failure_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
+    value, _state, _client = endpoint()
+
+    def fail(_session_id: str) -> None:
+        raise RuntimeError("close boom")
+
+    value._run_webrtc_close(fail, "session-a")
+
+    output = capsys.readouterr().out
+    assert "event=webrtc" in output
+    assert "state=close_failed" in output
+    assert "close boom" in output
+
+
 def test_endpoint_applies_only_fresh_commands_from_active_lease() -> None:
     value, state, client = endpoint()
     command = message({"command": "target", "q": [-0.1, 0.2, 0.3, -0.3]})

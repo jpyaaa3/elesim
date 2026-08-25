@@ -478,8 +478,8 @@ def test_simulation_only_allows_pilot_sim_edge_unit_with_remote_ui() -> None:
 
     assert restored.host("compute").roles == ("pilot", "sim")
     assert restored.host("operator").roles == ("ui",)
-    assert restored.discovery_peers("compute") == ("100.64.0.52",)
-    assert restored.discovery_peers("operator") == ("100.64.0.51",)
+    assert restored.discovery_peers("compute") == ("100.64.0.51", "100.64.0.52")
+    assert restored.discovery_peers("operator") == ("100.64.0.52", "100.64.0.51")
 
 
 def test_legacy_schema_v1_is_loaded_as_full_and_normalized() -> None:

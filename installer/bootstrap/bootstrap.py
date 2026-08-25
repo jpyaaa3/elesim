@@ -203,8 +203,20 @@ _BOOTSTRAP_EXCLUDED_CONFIG_FILES = frozenset(
         PurePosixPath("robot/config/public.example.yaml"),
     }
 )
+# Repository-only material is intentionally tracked for development and
+# research, but never belongs in the curl-installed setup snapshot.  Keep the
+# boundary explicit so adding a future source tree cannot accidentally ship
+# docs, research tools, or the standalone TURN helper.
 _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
-    ("tests", "fixtures", "__pycache__", ".pytest_cache")
+    (
+        "tests",
+        "fixtures",
+        "__pycache__",
+        ".pytest_cache",
+        "docs",
+        "misc",
+        "coturn",
+    )
 )
 
 

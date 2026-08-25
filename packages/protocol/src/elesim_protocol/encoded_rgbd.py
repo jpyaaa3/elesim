@@ -388,6 +388,25 @@ def _vector(value: object, size: int, label: str) -> None:
         raise ValueError(f"RGB-D {label} must contain {size} finite values")
 
 
+def _vector_values(value: object, default: tuple[float, ...]) -> list[float]:
+    """Return a metadata vector without evaluating it for truthiness.
+
+    Camera pose values commonly arrive as NumPy arrays.  NumPy deliberately
+    rejects boolean evaluation of arrays with more than one element, so
+    ``value or default`` is not a valid optional-vector operation here.
+    Validation has already checked the vector shape and finiteness before this
+    helper is used by the publisher; this function only performs the wire
+    conversion and handles the genuinely absent (``None``) case.
+    """
+
+    if value is None:
+        return list(default)
+    try:
+        return [float(component) for component in value]  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("RGB-D metadata vector is not iterable") from exc
+
+
 def validate_encoded_frame(
     frame: EncodedRgbdFrame,
     *,
@@ -576,16 +595,22 @@ class DdsEncodedRgbdPublisher(_RgbdRosEndpoint):
         message.cy = float(metadata.cy)
         message.calibration_id = str(metadata.calibration_id)
         message.has_arm_q = metadata.arm_q is not None
-        message.arm_q = list(metadata.arm_q or (0.0, 0.0, 0.0, 0.0))
+        message.arm_q = _vector_values(metadata.arm_q, (0.0, 0.0, 0.0, 0.0))
         pose = (
             metadata.camera_world_origin,
             metadata.camera_world_look,
             metadata.camera_world_right,
         )
         message.has_camera_pose = all(value is not None for value in pose)
-        message.camera_world_origin = list(metadata.camera_world_origin or (0.0, 0.0, 0.0))
-        message.camera_world_look = list(metadata.camera_world_look or (0.0, 0.0, 0.0))
-        message.camera_world_right = list(metadata.camera_world_right or (0.0, 0.0, 0.0))
+        message.camera_world_origin = _vector_values(
+            metadata.camera_world_origin, (0.0, 0.0, 0.0)
+        )
+        message.camera_world_look = _vector_values(
+            metadata.camera_world_look, (0.0, 0.0, 0.0)
+        )
+        message.camera_world_right = _vector_values(
+            metadata.camera_world_right, (0.0, 0.0, 0.0)
+        )
         self._publisher.publish(message)
         self.published += 1
         self.last_drop_reason = ""
