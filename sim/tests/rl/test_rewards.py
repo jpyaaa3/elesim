@@ -1,0 +1,219 @@
+"""Unit tests for the wrap-grasp reward terms.
+
+Each test pins the *sign and magnitude* of one term for a hand-constructed
+state, which is what makes a later regression legible: a reward that silently
+flips sign trains a policy to do the opposite of the task.
+"""
+
+from __future__ import annotations
+
+import math
+
+import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
+import pytest
+import torch
+
+from elesim_sim.rl.configs.loader import load_config
+from elesim_sim.rl.envs.coverage import CoverageMeter
+from elesim_sim.rl.envs.rewards import (
+    TERM_NAMES,
+    RewardBook,
+    RewardInputs,
+    approach_shaping,
+    coverage_progress,
+    object_disturbance,
+)
+
+_TWO_PI = 2.0 * math.pi
+
+#: Coverage is computed in float32; a few micro-degrees of rounding is noise,
+#: not the systematic bin-width over-credit these tests exist to catch.
+_FLOAT_TOL_DEG = 1e-3
+
+
+@pytest.fixture(scope="module")
+def cfg():
+    return load_config()
+
+
+@pytest.fixture
+def device():
+    return torch.device("cpu")
+
+
+def _book(cfg, device, n_envs=1):
+    return RewardBook(
+        cfg.reward,
+        n_envs=n_envs,
+        device=device,
+        wrap_threshold_rad=cfg.success.coverage_target_rad,
+    )
+
+
+def _inputs(n=1, **kw):
+    base = dict(
+        phi=torch.zeros(n),
+        surface_dist=torch.zeros(n),
+        object_touch=torch.zeros(n, dtype=torch.bool),
+        non_target_collision=torch.zeros(n, dtype=torch.bool),
+        object_displacement=torch.zeros(n),
+        object_tilt=torch.zeros(n),
+        success=torch.zeros(n, dtype=torch.bool),
+    )
+    base.update(kw)
+    return RewardInputs(**base)
+
+
+# -- individual terms ------------------------------------------------------
+
+
+def test_coverage_progress_is_signed_fraction_of_a_turn():
+    quarter = torch.tensor([math.pi / 2])
+    zero = torch.tensor([0.0])
+    assert coverage_progress(quarter, zero).item() == pytest.approx(0.25)
+    # Losing coverage must cost exactly what gaining it paid, otherwise
+    # wrap/unwrap cycling is a reward farm.
+    assert coverage_progress(zero, quarter).item() == pytest.approx(-0.25)
+
+
+def test_approach_shaping_rewards_closing_and_stops_after_contact():
+    far, near = torch.tensor([0.20]), torch.tensor([0.10])
+    untouched = torch.zeros(1, dtype=torch.bool)
+    closing = approach_shaping(near, far, d0=0.20, touched=untouched)
+    assert closing.item() == pytest.approx(0.5)
+    receding = approach_shaping(far, near, d0=0.20, touched=untouched)
+    assert receding.item() == pytest.approx(-0.5)
+    touched = torch.ones(1, dtype=torch.bool)
+    assert approach_shaping(near, far, d0=0.20, touched=touched).item() == 0.0
+
+
+def test_object_disturbance_has_a_deadband():
+    assert object_disturbance(torch.tensor([0.004]), deadband_m=0.005).item() == 0.0
+    assert object_disturbance(torch.tensor([0.015]), deadband_m=0.005).item() == (
+        pytest.approx(0.010)
+    )
+
+
+# -- weighted totals and termination ---------------------------------------
+
+
+def test_step_cost_is_the_only_term_on_an_idle_step(cfg, device):
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    out = book.step(_inputs())
+    assert out.total.item() == pytest.approx(cfg.reward.weights.step_cost)
+    assert not bool(out.terminate.item())
+
+
+def test_non_target_collision_penalises_and_terminates(cfg, device):
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    out = book.step(_inputs(non_target_collision=torch.ones(1, dtype=torch.bool)))
+    assert out.terms["non_target_collision"].item() == pytest.approx(
+        cfg.reward.weights.non_target_collision
+    )
+    assert bool(out.terminate.item())
+    assert bool(out.termination_reason["collision"].item())
+
+
+def test_topple_terminates_and_costs_more_than_disturbance(cfg, device):
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    beyond = cfg.reward.disturbance.max_displacement_m + 0.01
+    out = book.step(_inputs(object_displacement=torch.tensor([beyond])))
+    assert bool(out.termination_reason["topple"].item())
+    assert out.terms["object_topple"].item() == pytest.approx(
+        cfg.reward.weights.object_topple
+    )
+    assert abs(cfg.reward.weights.object_topple) > abs(
+        cfg.reward.weights.object_disturbance
+    )
+
+
+def test_success_pays_the_bonus_and_terminates(cfg, device):
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    out = book.step(_inputs(success=torch.ones(1, dtype=torch.bool)))
+    assert out.terms["success"].item() == pytest.approx(cfg.reward.weights.success)
+    assert bool(out.termination_reason["success"].item())
+
+
+def test_disturbance_stops_being_charged_once_wrapped(cfg, device):
+    """Moving a wrapped object is the goal, not a fault."""
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    wrapped = torch.tensor([cfg.success.coverage_target_rad])
+    book.step(_inputs(phi=wrapped))
+    out = book.step(_inputs(phi=wrapped, object_displacement=torch.tensor([0.03])))
+    assert out.terms["object_disturbance"].item() == 0.0
+    assert not bool(out.termination_reason["topple"].item())
+
+
+def test_episode_sums_accumulate_every_term(cfg, device):
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    for _ in range(3):
+        book.step(_inputs())
+    sums = book.episode_sums()
+    assert set(sums) == set(TERM_NAMES)
+    assert sums["step_cost"].item() == pytest.approx(3 * cfg.reward.weights.step_cost)
+
+
+# -- the "half wrapped" configuration the spec asks for --------------------
+
+
+def test_half_wrapped_arm_scores_a_half_turn_of_coverage(cfg, device):
+    """Twelve links on a semicircle at the surface -> phi = 180 deg, +1.0 reward."""
+    radius = cfg.object.radius_m
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, math.pi, 12)
+    links = torch.stack(
+        (radius * torch.cos(angles), radius * torch.sin(angles), torch.zeros(12)),
+        dim=-1,
+    ).unsqueeze(0)
+    res = meter.measure(
+        links,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([radius]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    phi_deg = math.degrees(float(res.phi_rad[0]))
+    # Coverage rounds down to a whole bin, so it may under-report but must not
+    # exceed the true 180 deg beyond float32 noise.
+    assert 175.0 <= phi_deg <= 180.0 + _FLOAT_TOL_DEG
+
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    out = book.step(_inputs(phi=res.phi_rad, object_touch=torch.ones(1, dtype=torch.bool)))
+    expected = cfg.reward.weights.coverage_progress * (float(res.phi_rad[0]) / _TWO_PI)
+    assert out.terms["coverage_progress"].item() == pytest.approx(expected)
+    assert out.terms["coverage_progress"].item() > 0.9
+
+
+def test_coverage_never_exceeds_the_true_arc(cfg, device):
+    """Guard against the success gate being met by quantisation."""
+    radius = cfg.object.radius_m
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    for true_deg in (30.0, 90.0, 172.0, 270.0):
+        angles = torch.linspace(0.0, math.radians(true_deg), 24)
+        links = torch.stack(
+            (radius * torch.cos(angles), radius * torch.sin(angles), torch.zeros(24)),
+            dim=-1,
+        ).unsqueeze(0)
+        res = meter.measure(
+            links,
+            torch.zeros(1, 3),
+            torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+            radius_m=torch.tensor([radius]),
+            height_m=torch.tensor([cfg.object.height_m]),
+        )
+        assert math.degrees(float(res.phi_rad[0])) <= true_deg + _FLOAT_TOL_DEG

@@ -1,0 +1,453 @@
+# Wrap-grasp RL configuration.  Every tunable lives here; the code must not
+# hardcode any of these values.  Sections map 1:1 onto the dataclasses in
+# `elesim_sim.rl.configs.loader`.
+schema_version: 1
+
+runtime:
+  # Genesis compute backend.  "gpu" resolves to CUDA on Linux and Metal on
+  # macOS; "cpu" is the portable fallback.  Nothing here assumes NVIDIA.
+  backend: gpu
+  # Torch device for the policy.  "auto" picks cuda -> mps -> cpu.
+  torch_device: auto
+  n_envs: 256
+  seed: 0
+  # Torch deterministic algorithms.  Slower; use for reproduction runs.
+  deterministic: false
+
+scene:
+  dt: 0.01
+  # Genesis rigid-solver substeps per scene.step().
+  solver_substeps: 1
+  # Contact-constraint buffer.  Genesis halts the sim if the real pair count
+  # exceeds this, and get_contacts() returns at most this many rows per env.
+  #
+  # Measured across a grid of wrapping poses, the worst single env held 27
+  # contacts and the buffer never exceeded 29 rows, so 512 already had ample
+  # headroom.  Raised anyway for margin, but note this is *not* what caused the
+  # run to die: exceeding the buffer halts with its own message, whereas the
+  # failure was "Invalid constraint forces causing 'nan'", i.e. the solver
+  # diverging.  That one scales with environment count, not buffer size.
+  max_collision_pairs: 1024
+  show_viewer: false
+  # The mechanism's own parameters are read from here.
+  app_config: sim/config/config.yaml
+  # Convex-decomposition threshold for the robot's collision meshes.
+  #
+  # Genesis defaults this to infinity for robots, which means no decomposition
+  # ever runs and every link collapses to a single convex hull.  For the nodes
+  # that is harmless -- they are already convex, hull volume equals mesh volume.
+  # For the gripper it is not: the open jaw gets filled in, inflating
+  # gripper_base by 330% and the claws by 59%, and it was gripper-to-housing
+  # contact that capped the reachable wrap angle.  A finite threshold lets CoACD
+  # split concave links into several convex pieces instead.  Costs build time.
+  # Set to null to keep the Genesis default.
+  decompose_robot_error_threshold: 0.15
+  # Empty -> resolved relative to the repo root (model/bundles/default).
+  model_bundle: ""
+  urdf_relpath: robot.urdf
+  floor: true
+  # null keeps whatever the URDF/Genesis default is.  Set to override.
+  friction: null
+  go2:
+    enable: true
+    # null -> the application config's go2_spawn_height.  Taking it from the
+    # schema default instead gave 0.42 against the app's actual 0.32.
+    spawn_xyz: null
+    # The quadruped is scenery for wrap grasping: freeze the legs so they
+    # cannot walk away mid-episode, and treat the trunk as a collision body.
+    freeze_legs: true
+    # Weld the trunk to the world.  Wrap grasping is not a locomotion task
+    # and a toppling base would inject failures that have nothing to do with
+    # the policy under test.
+    base_fixed: true
+    # Held leg pose, in radians, as (hip, thigh, calf) repeated per leg.
+    leg_pose_rad: [0.0, 0.9, -1.8]
+
+arm:
+  # Joint names come from the bundle URDF.  Segment 1 is the proximal five
+  # bend nodes, segment 2 the distal five.
+  linear_joint: j_plate_housing
+  roll_joint: j_housing_wedge
+  bend_joints:
+    - j_wedge_node0
+    - j_node0_node1
+    - j_node1_node2
+    - j_node2_node3
+    - j_node3_node4
+    - j_node4_node5
+    - j_node5_node6
+    - j_node6_node7
+    - j_node7_node8
+    - j_node8_node9
+  n_seg: 5
+  # Sign conventions mirror runtime.JointLayout.
+  linear_axis_sign: 1.0
+  roll_axis_sign: 1.0
+  # +1, not the -1 that runtime.JointLayout uses.  Waypoints here are already
+  # in the canonical q convention that control_u_to_sim_q produces, so applying
+  # the runtime's extra negation flips the bend and folds the arm through the
+  # quadruped's own body: the UI's Home preset came out with 74 mm of
+  # penetration at 495 N instead of resting clear.
+  bend_axis_sign: 1.0
+  # Reset pose, taken from the UI's Home preset so training starts where the
+  # real arm starts.  The preset is u_linear=180, u_roll=180, u_s1=u_s2=10 in
+  # slider units (pilot.pick.actions.home_controls), which
+  # elesim_protocol.messages.control_u_to_sim_q maps to these physical values:
+  # the arm folded almost to its per-node limit, not straight out.
+  # Reset pose: a named UI preset, converted through the app's own u-space
+  # mapping.  Set home_waypoint explicitly to override.
+  home_preset: home
+  home_waypoint: null
+  # null on any limit means: read it from the application config.
+  limits:
+    linear_m: null
+    roll_rad: null
+    bend_per_node_rad: null
+  gains:
+    kp: 200.0
+    kv: 20.0
+    force_range: 100.0
+  # Link names used for coverage and approach shaping.
+  segment2_mid_link: node7
+  # Links that must never touch anything but the object.
+  arm_link_prefixes: [node, wedge, housing, gripper]
+
+# The cylinder stands on a support, not on the ground.  The workspace probe
+# (sim/benchmarks/workspace.md) measured a peak wrap of 86 deg for a
+# floor-standing cylinder against 272 deg once the height restriction was
+# lifted: the floor is what stops the arm closing underneath the object.  A
+# raised support is also the realistic case for a quadruped-mounted arm.
+support:
+  enable: true
+  # Top surface height; the object centre sits half its height above this.
+  # 0.459 puts the cylinder's mid-height at z = 0.559, the plane the coil forms
+  # in.  The post top stays 0.10 m below the arm, so it is not in the way.
+  height_m: 0.459
+  # Half-extents of the support box.  Wide enough to actually carry the
+  # object: the randomisation range goes to a 120 mm cylinder, and a post
+  # narrower than that leaves it balanced on an overhang, so the lightest touch
+  # tips it.  That is what the it300 evaluation was measuring -- topple rates
+  # tracked object radius monotonically (35 mm: survives; 45 mm and 60 mm:
+  # ~100% topple within a few steps), which is the signature of the stand, not
+  # of the policy.
+  #
+  # Widening costs almost nothing in arm clearance, because the post ends
+  # 100 mm below the plane the coil forms in: measured over a pose sweep,
+  # collisions rise only from 190/525 at 40 mm to 206/525 at 120 mm.  The
+  # earlier 40 mm choice came from a sweep taken while bend_axis_sign was
+  # inverted, where the arm was passing through the quadruped and the support
+  # attribution was meaningless.
+  half_extents_xy: [0.065, 0.065]
+  # Column position from the placement search with every mechanism value
+  # corrected (sim/benchmarks/placement2.md): 258 deg of reachable wrap here,
+  # 3 of 1764 swept poses clearing the 172 deg gate and 2 caging.  Both y signs
+  # work by mirror symmetry.
+  #
+  # Earlier values were measured with bend_axis_sign inverted, which mirrors
+  # the coil in y, so they pointed at the wrong side of the robot.
+  center_xy: [0.500, -0.075]
+
+object:
+  kind: cylinder
+  radius_m: 0.045
+  height_m: 0.20
+  mass_kg: 0.30
+  # Cylinder centre at reset.  Leave null to seat it on the support
+  # automatically (support.height_m + height_m / 2).
+  pos_xyz: null
+  collision: true
+  # A graspable object must be a free body: disturbance and topple checks are
+  # meaningless for a fixed entity.
+  fixed: false
+
+macro_step:
+  # Rule 1: this is a macro-step MDP, not a 50 Hz reactive controller.
+  max_steps: 15
+  # Substeps simulated per macro step.
+  substeps: 40
+  # Fraction of those substeps spent *moving* to the new waypoint, with the
+  # joint target interpolated across them; the rest is settling.
+  #
+  # Without this the target jumps by a whole rate limit at the start of the
+  # step -- 0.20 rad of roll at once -- and the arm swats the object out of
+  # position before the wrap can close: measured 17 mm of object displacement
+  # and the wrap collapsing from 252 deg to 16 deg.  The spec's macro step is
+  # "move and settle", and this is the move.  It does not change the MDP: the
+  # policy still issues one waypoint per macro step.
+  move_fraction: 0.6
+  settle:
+    # "fixed" always runs `substeps`; "velocity" stops early once the arm and
+    # object velocities fall under the thresholds for `hold_substeps`.
+    mode: fixed
+    joint_vel_thresh: 0.05
+    object_vel_thresh: 0.02
+    hold_substeps: 5
+    min_substeps: 10
+  # Per-macro-step waypoint increment caps (the action is scaled into these).
+  # Per-macro-step waypoint increment caps.
+  #
+  # Sized so the Home pose can actually reach a wrapping pose inside the
+  # episode: from Home, roll has 90 deg to travel and theta2 has 70 deg, and at
+  # the old caps that alone cost 8 and 13 of 18 steps, leaving nothing for the
+  # approach.  These reach it in about 6, and the interpolation across
+  # move_fraction keeps the larger increment from arriving as an impulse.
+  rate_limit:
+    linear_m: 0.04
+    roll_rad: 0.30
+    theta_rad: 0.25
+
+beta:
+  # Rule 3: interface only.  These are placeholder values from the paper's
+  # Table II manual configuration and MUST be replaced with measurements.
+  enable: true
+  measured: false
+  beta0_deg: 0.8
+  load_slope_deg_per_kg: 0.66
+  # Randomisation of beta0 across envs (uniform, absolute degrees).
+  beta0_jitter_deg: 0.2
+  # Sign convention: backlash opposes the last commanded direction.
+  directional: true
+  # The estimator hook models an on-robot beta compensator.  1.0 = perfect
+  # compensation in the observation, 0.0 = actor sees the raw corrupted angle.
+  estimator_gain: 0.8
+  estimator_noise_deg: 0.15
+  # The bundle already carries a sag model that runtime.target_from_4dof
+  # applies.  Enabling both double-counts deflection, so this is off here.
+  apply_bundle_sag_model: false
+
+reward:
+  weights:
+    coverage_progress: 2.0
+    approach_shaping: 0.5
+    step_cost: -0.05
+    non_target_collision: -1.0
+    object_disturbance: -0.5
+    object_topple: -2.0
+    success: 5.0
+  # Approach shaping normaliser d0 (metres).
+  approach_d0: 0.20
+  # Coverage is measured about the object's *current* centre.
+  coverage:
+    # Arc-length bin count for the azimuth occupancy histogram.  Coverage is
+    # rounded down to a whole bin, so this also sets how much true wrap angle
+    # the measurement gives away: 180 bins = 2 deg, matching the resolution of
+    # the prior geometry sweep.
+    n_bins: 180
+    # An arm link counts as occupying its azimuth bin within this radial band
+    # around the object surface (metres).  Kept near the node's own in-plane
+    # half-size: a band of 0.09 let a link 9 cm clear of the surface score
+    # towards the wrap angle, which is how a coil that never touched the object
+    # still read 250 deg.
+    radial_band_m: 0.04
+    # Effective node half-size *in the bending plane*, measured from the
+    # collision mesh (model/bundles/default/assets/node/node_mesh.obj).
+    #
+    # The node is a hexagonal barrel: 50 mm along the chain (the joint pitch),
+    # 88 mm across the hinge axis, and 70 mm in the plane it bends in, tapering
+    # to a hinge edge at each end so neighbours can rotate without clashing.
+    # Only the in-plane 70 mm matters here -- half of it, 35 mm -- because that
+    # is what sets how closely a link surface can approach the object as the arm
+    # curls around it.
+    #
+    # The 56.22 mm quoted as the "node capsule radius" in
+    # misc/analysis/wrap_grasp is sqrt(44^2 + 35^2): the 3D corner distance,
+    # which folds in the width along the hinge axis, a dimension that has no
+    # bearing on curling.  Using it overstated the link by 60% and, because the
+    # caging test subtracts 2*link_radius from the escape chord, made caging
+    # look easier than it is rather than harder.
+    link_radius_m: 0.035
+    # Tolerance on the interpenetration rejection, in metres.
+    interpenetration_tol_m: 0.002
+    # Caging is always measured and logged; this switch decides whether it also
+    # gates the geometric success criterion.
+    #
+    # It defaults to false because caging and a 172 deg gate are mutually
+    # exclusive, not because caging is unimportant.  When a link rests on the
+    # object the wrap radius is R = r + link_radius, so an opening spanning a
+    # gap of 180 deg or more measures 2R - 2*link_radius = exactly 2r: at half
+    # a turn the object slips straight out.  Caging therefore requires strictly
+    # more than 180 deg of wrap, which no pose in the prior geometry sweep
+    # reached either ("secure wrap not reached anywhere", peak 172 deg).
+    #
+    # Turning this on makes the geometric gate stricter than the configured
+    # coverage target and is only coherent with coverage_target_rad > pi.  The
+    # lift test is the real retention check; `caged` is reported alongside the
+    # wrap angle so a run can never claim a grasp that geometry says leaks.
+    require_caging: false
+  disturbance:
+    # Continuous penalty is applied to displacement beyond this dead-band.
+    deadband_m: 0.005
+    # Terminating thresholds.
+    max_displacement_m: 0.06
+    max_tilt_rad: 0.60
+
+success:
+  # The success criterion is the lift test: whether the object is actually
+  # retained.  Wrap angle is a *shaping* signal, not an objective.
+  #
+  # A geometric gate is still available, and the spec allows it as an
+  # early-curriculum stand-in, but it makes a poor objective and it is not the
+  # default.  It rewards a pose rather than a behaviour -- a measured pose
+  # reached Phi = 250 deg with zero object contacts, the arm merely encircling
+  # the object with clearance -- and at any threshold at or below 180 deg it is
+  # provably not a grasp, because the escape opening is then at least the
+  # object's own diameter.  The dense early signal comes from
+  # reward.weights.approach_shaping, which is continuous at any distance;
+  # a success bonus does not need to be dense.
+  criterion: lift             # lift | geometric
+  # Wrap angle past which the object counts as wrapped.  Two uses, neither of
+  # them "success": it stops the pre-wrap disturbance penalty (moving a wrapped
+  # object is the goal), and with criterion=geometric it is the gate.
+  coverage_target_rad: 3.0019 # 172 deg
+  lift:
+    # Wrap angle at which the scripted lift is attempted.  Deliberately
+    # permissive: an attempt costs a few substeps, and letting the policy try
+    # early and fail retention is more informative than never trying.
+    trigger_rad: 2.0944       # 120 deg
+    # Lifting this arm means rotating roll so the bend plane goes from
+    # horizontal to vertical.  The object lying down ~90 deg is expected;
+    # uprightness is NOT part of the success test.
+    # Roll angle that puts the bend plane vertical, which is what lifting
+    # means for this arm.  Measured: roll = 0 gives a vertical bend plane and
+    # roll = +/-90 deg a horizontal one, and the wrap forms in the horizontal
+    # one.  So the lift rotates *to* zero.  Targeting +90 deg from a wrap at
+    # -90 deg would sweep 180 deg and unwrap the object on the way.
+    roll_target_rad: 0.0
+    roll_rate_rad_per_substep: 0.01
+    hold_substeps: 100
+    # Retention: the object must not fall and must keep its pose relative to
+    # segment 2 within these tolerances for the whole lift plus hold.
+    max_rel_translation_m: 0.03
+    max_rel_rotation_rad: 0.5
+    min_height_m: 0.02
+
+observation:
+  # Rule 2: the actor never sees simulator ground truth.
+  actor:
+    include_joint_estimate: true
+    include_object_geometry: true   # (r, height, base-frame pose)
+    include_load_proxy: true        # previous-step joint torque proxy
+    include_step_index: true
+    noise:
+      joint_rad: 0.005
+      object_pos_m: 0.004
+      object_rot_rad: 0.02
+      load_proxy: 0.02
+    # Macro-step observation delay drawn uniformly from this inclusive range.
+    delay_steps: [0, 2]
+  critic_privileged:
+    include_true_joint_state: true
+    include_contact_forces: true
+    include_true_object_pose: true
+    include_coverage: true
+
+domain_randomisation:
+  enable: true
+  friction: [0.6, 1.2]
+  object_mass_kg: [0.15, 0.60]
+  object_radius_m: [0.035, 0.060]
+  object_pos_jitter_m: [0.03, 0.03, 0.01]
+  object_yaw_jitter_rad: 0.35
+
+curriculum:
+  # Rule: switchable by config, not by code edits.
+  stage: 1
+  stages:
+    1:
+      randomise_object_pose: false
+      randomise_object_radius: false
+      approach_shaping: true
+      success_criterion: lift
+    2:
+      randomise_object_pose: true
+      randomise_object_radius: false
+      approach_shaping: false
+      success_criterion: lift
+    3:
+      randomise_object_pose: true
+      randomise_object_radius: true
+      approach_shaping: false
+      success_criterion: lift
+
+train:
+  max_iterations: 1500
+  save_interval: 50
+  experiment_name: wrap_grasp
+  run_name: ""
+  log_dir: sim/rl_runs
+  resume: ""
+  # Macro steps collected per env per PPO iteration.
+  num_steps_per_env: 16
+  # Handed to rsl_rl verbatim.  rsl_rl owns and validates this schema, so
+  # mirroring it in typed dataclasses here would only create a second copy to
+  # keep in sync across rsl_rl versions.  Matches rsl-rl-lib 5.4.x.
+  runner:
+    # Asymmetric actor-critic: the critic additionally sees the privileged
+    # group (simulator truth), the actor never does.
+    obs_groups:
+      actor: [policy]
+      critic: [policy, privileged]
+    actor:
+      class_name: rsl_rl.models.MLPModel
+      hidden_dims: [256, 128, 64]
+      activation: elu
+      obs_normalization: true
+      distribution_cfg:
+        class_name: rsl_rl.modules.GaussianDistribution
+        init_std: 0.5
+        std_type: scalar
+        learn_std: true
+    critic:
+      class_name: rsl_rl.models.MLPModel
+      hidden_dims: [256, 128, 64]
+      activation: elu
+      obs_normalization: true
+    algorithm:
+      class_name: rsl_rl.algorithms.PPO
+      value_loss_coef: 1.0
+      use_clipped_value_loss: true
+      clip_param: 0.2
+      entropy_coef: 0.005
+      num_learning_epochs: 5
+      num_mini_batches: 4
+      learning_rate: 0.0003
+      schedule: adaptive
+      gamma: 0.99
+      lam: 0.95
+      desired_kl: 0.01
+      max_grad_norm: 1.0
+
+benchmark:
+  # T1 / gate G1.  Lower the sweep on memory-limited hosts; the script records
+  # the first N that fails instead of pretending it ran.
+  n_envs_sweep: [256, 1024, 4096, 8192]
+  warmup_steps: 20
+  measure_steps: 200
+  # Drive the arm into a wrap before timing, so the measured rate reflects a
+  # scene with live contacts rather than one merely capable of them.
+  with_contact: true
+  # (linear, roll, theta1, theta2) of the pose used for that, taken from the
+  # workspace probe's peak at the configured object placement.
+  wrap_pose: [0.0, -1.5708, 0.4712, 0.4712]
+  out_path: sim/benchmarks/step_rate.md
+
+eval:
+  episodes_per_condition: 20
+  # Conditions are *offsets* from the configured object centre, in metres, not
+  # absolute positions.  Absolute values silently decouple from
+  # support.center_xy: an earlier grid of x = 0.24/0.28/0.32 against a support
+  # at x = 0.5 left the cylinder hanging 0.18 m off its post, so it fell on the
+  # first step and all 13824 episodes scored as `topple` -- a result about
+  # gravity, not about the policy.
+  #
+  # The support moves with the object, so an offset is a genuinely different
+  # placement rather than the object being pushed off its stand.  Ranges are
+  # kept near the training jitter (+/-0.03 m); far outside it the policy is
+  # being asked about states it never saw.
+  pose_offset_grid:
+    x_m: [-0.03, 0.0, 0.03]
+    y_m: [0.0]
+    yaw_rad: [-0.3, 0.0, 0.3]
+  radius_grid_m: [0.035, 0.045, 0.06]
+  render_episodes: 1
+  out_dir: sim/rl_runs/eval

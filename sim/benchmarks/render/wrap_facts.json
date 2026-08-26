@@ -1,0 +1,21 @@
+{
+  "pose": "given",
+  "waypoint": [
+    0.0,
+    -1.5708,
+    0.4712,
+    0.4712
+  ],
+  "object_centre": [
+    0.357,
+    0.116,
+    0.5479
+  ],
+  "phi_deg": 276.0,
+  "near_links": 15,
+  "caged": true,
+  "object_contacts": 0,
+  "floor_or_support_touch": false,
+  "quadruped_touch": false,
+  "arm_self_touch": true
+}

@@ -29,6 +29,10 @@ addons/opencv/images/
 
 *.log
 
+# RL training runs: tensorboard events plus 1.2 MB checkpoints every
+# save_interval iterations.  Generated locally and not worth versioning.
+/sim/rl_runs/
+
 # Runtime / experiment logs (generated locally).
 # Keep the ROS/colcon `log/` tree and the application's `logs/` archive
 # separate on disk, but ignore both complete root-level trees.  The leading
