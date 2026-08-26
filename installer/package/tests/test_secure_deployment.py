@@ -39,12 +39,59 @@ from elesim_setup.secure_deployment import (
     _lifecycle_command,
     _managed_turn_from_state,
     _LocalSession,
+    _ParamikoProxySocket,
     _ParamikoSession,
     ssh_sha256_fingerprint,
 )
 
 
 FINGERPRINT = "SHA256:" + "A" * 43
+
+
+def test_paramiko_proxy_socket_swallows_established_broken_pipe() -> None:
+    class ProxyCommandFailure(Exception):
+        pass
+
+    class Process:
+        poll = staticmethod(lambda: 0)
+
+    class Proxy:
+        process = Process()
+
+        @staticmethod
+        def send(_content: bytes) -> int:
+            raise ProxyCommandFailure(
+                "proxy returned nonzero exit status: Broken pipe"
+            )
+
+        @staticmethod
+        def close() -> None:
+            pass
+
+    proxy = _ParamikoProxySocket(Proxy())
+    proxy.mark_established()
+
+    assert proxy.send(b"channel-close") == len(b"channel-close")
+
+
+def test_paramiko_proxy_socket_does_not_hide_startup_broken_pipe() -> None:
+    class ProxyCommandFailure(Exception):
+        pass
+
+    class Proxy:
+        @staticmethod
+        def send(_content: bytes) -> int:
+            raise ProxyCommandFailure(
+                "proxy returned nonzero exit status: Broken pipe"
+            )
+
+        @staticmethod
+        def close() -> None:
+            pass
+
+    proxy = _ParamikoProxySocket(Proxy())
+    with pytest.raises(ProxyCommandFailure, match="Broken pipe"):
+        proxy.send(b"kex")
 
 
 def _ssh(host: str = "server.example", identity: str = "~/.ssh/key") -> SshEndpoint:

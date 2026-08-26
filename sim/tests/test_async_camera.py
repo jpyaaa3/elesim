@@ -19,6 +19,7 @@ from elesim_sim.vision.sim_camera.async_worker import (
     _apply_snapshot,
     _genesis_init_kwargs,
     _put_latest_frame_result,
+    movable_urdf_joint_names,
     resolve_single_dof_indices,
 )
 from elesim_sim.vision.sim_camera.mount import (
@@ -312,6 +313,45 @@ def test_render_spec_rejects_missing_urdf() -> None:
         )
 
 
+def test_hand_eye_worker_uses_the_arm_visual_tree() -> None:
+    root = Path(__file__).parents[2] / "model" / "bundles" / "default"
+    arm_urdf = root / "arm.urdf"
+    robot_urdf = root / "robot.urdf"
+    spec = CameraRenderSpec(
+        urdf_path=str(robot_urdf),
+        robot_pos=(0.0, 0.0, 0.4),
+        robot_euler_deg=(0.0, 0.0, 0.0),
+        requires_jac_and_ik=False,
+        use_gpu=False,
+        gpu_convert=False,
+        dt=0.02,
+        gravity=(0.0, 0.0, -9.81),
+        substeps=1,
+        floor=False,
+        hand_eye_config=str(
+            Path(__file__).parents[1] / "config/calibration/zed_mini.hand_eye.json"
+        ),
+        hand_eye_urdf_path=str(arm_urdf),
+        hand_eye_robot_pos=(0.35, 0.0, 0.48),
+        hand_eye_robot_euler_deg=(0.0, 0.0, 0.0),
+        hand_eye_robot_joint_names=movable_urdf_joint_names(str(arm_urdf)),
+        robot_joint_names=movable_urdf_joint_names(str(robot_urdf)),
+    )
+    worker = CameraRenderWorker(
+        spec,
+        {"hand_eye_preview": (8, 6), "observer": (8, 6)},
+        lambda _stream, _frame: None,
+    )
+    try:
+        assert worker._spec_for_stream("observer").urdf_path == str(robot_urdf)
+        hand_eye_spec = worker._spec_for_stream("hand_eye_preview")
+        assert hand_eye_spec.urdf_path == str(arm_urdf)
+        assert hand_eye_spec.robot_pos == (0.35, 0.0, 0.48)
+        assert hand_eye_spec.robot_joint_names == movable_urdf_joint_names(str(arm_urdf))
+    finally:
+        worker.close()
+
+
 def test_async_camera_submission_does_not_call_scene_camera() -> None:
     class Worker:
         ready = True
@@ -510,7 +550,7 @@ def test_real_async_camera_worker_delivers_latest_observer_frame() -> None:
             dt=0.02,
             gravity=(0.0, 0.0, 0.0),
             substeps=1,
-            floor=False,
+            floor=True,
             observer_width=64,
             observer_height=48,
         ),
@@ -534,5 +574,133 @@ def test_real_async_camera_worker_delivers_latest_observer_frame() -> None:
         assert frame.color_bgr.shape == (48, 64, 3)
         assert frame.depth_raw.shape == (48, 64)
         assert worker.diagnostics()["completed"]["observer"] >= 1
+    finally:
+        worker.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("ELESIM_RUN_ASYNC_CAMERA_INTEGRATION") != "1",
+    reason="real Genesis camera worker smoke is opt-in",
+)
+def test_real_async_camera_workers_keep_hand_eye_and_observer_live() -> None:
+    """Both streams must render after a large visual-state change.
+
+    This deliberately uses the combined robot only for the observer.  The
+    hand-eye process receives the same snapshot but is built from arm.urdf;
+    the two cold Genesis scenes and their render deadlines are independent.
+    """
+
+    root = Path(__file__).parents[2] / "model" / "bundles" / "default"
+    arm_urdf = root / "arm.urdf"
+    robot_urdf = root / "robot.urdf"
+    calibration = Path(__file__).parents[1] / "config/calibration/zed_mini.hand_eye.json"
+    arm_names = movable_urdf_joint_names(str(arm_urdf))
+    robot_names = movable_urdf_joint_names(str(robot_urdf))
+    received: dict[str, int] = {"hand_eye_preview": 0, "observer": 0}
+    received_frames: dict[str, list[object]] = {
+        "hand_eye_preview": [],
+        "observer": [],
+    }
+    received_events = {
+        name: threading.Event() for name in received
+    }
+
+    def on_frame(stream: str, frame: object) -> None:
+        received[stream] += 1
+        received_frames[stream].append(frame)
+        received_events[stream].set()
+
+    worker = CameraRenderWorker(
+        CameraRenderSpec(
+            urdf_path=str(robot_urdf),
+            robot_pos=(0.0, 0.0, 0.42),
+            robot_euler_deg=(0.0, 0.0, 0.0),
+            requires_jac_and_ik=False,
+            use_gpu=True,
+            gpu_convert=True,
+            dt=0.02,
+            gravity=(0.0, 0.0, -9.81),
+            substeps=1,
+            floor=True,
+            hand_eye_config=str(calibration),
+            hand_eye_width=64,
+            hand_eye_height=48,
+            observer_width=64,
+            observer_height=48,
+            hand_eye_urdf_path=str(arm_urdf),
+            hand_eye_robot_pos=(0.35, 0.0, 0.50),
+            hand_eye_robot_euler_deg=(0.0, 0.0, 0.0),
+            hand_eye_robot_joint_names=arm_names,
+            robot_joint_names=robot_names,
+            target_enable=True,
+            target_xyz=(1.15, 0.0, 0.50),
+            target_radius=0.08,
+        ),
+        {"hand_eye_preview": (64, 48), "observer": (64, 48)},
+        on_frame,
+    )
+    try:
+        worker.start(timeout_s=180.0)
+        assert worker.diagnostics()["alive"] is True
+        assert set(worker.diagnostics()["ready_streams"]) == {
+            "hand_eye_preview",
+            "observer",
+        }
+        snapshot = CameraStateSnapshot(
+            epoch=0,
+            sim_step=1,
+            sim_time_s=0.02,
+            arm_q=(0.0, 0.0, 0.0, 0.0),
+            robot_joint_positions=tuple(0.0 for _ in robot_names),
+            root_pos=(0.0, 0.0, 0.42),
+            root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            hand_eye_robot_joint_positions=tuple(0.0 for _ in arm_names),
+            hand_eye_root_pos=(0.35, 0.0, 0.50),
+            hand_eye_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+            target_position=(1.15, 0.0, 0.50),
+            observer_pos=(1.0, 1.0, 1.0),
+            observer_lookat=(0.0, 0.0, 0.0),
+        )
+        assert worker.submit(snapshot, ("hand_eye_preview", "observer"))
+        for stream, event in received_events.items():
+            assert event.wait(timeout=60.0), (stream, worker.diagnostics())
+        assert all(count >= 1 for count in received.values())
+        for stream, frames in received_frames.items():
+            frame = frames[-1]
+            color = np.asarray(getattr(frame, "color_bgr"), dtype=np.uint8)
+            assert color.shape == (48, 64, 3)
+            assert int(np.ptp(color)) > 0, (stream, worker.diagnostics())
+            assert getattr(frame, "camera_world_origin", None) is not None
+
+        # Move both visual trees substantially and ensure the latest-only
+        # queues do not leave either stream stuck on its first frame.
+        for event in received_events.values():
+            event.clear()
+        snapshot = CameraStateSnapshot(
+            epoch=0,
+            sim_step=2,
+            sim_time_s=0.04,
+            arm_q=(0.12, -0.18, 0.35, -0.25),
+            robot_joint_positions=tuple(0.2 for _ in robot_names),
+            root_pos=(0.8, -0.4, 0.65),
+            root_quat_wxyz=(0.9238795, 0.0, 0.0, 0.3826834),
+            hand_eye_robot_joint_positions=tuple(-0.3 for _ in arm_names),
+            hand_eye_root_pos=(1.15, -0.4, 0.73),
+            hand_eye_root_quat_wxyz=(0.9238795, 0.0, 0.0, 0.3826834),
+            target_position=(1.75, -0.4, 0.73),
+            observer_pos=(2.0, -1.0, 1.5),
+            observer_lookat=(0.8, -0.4, 0.6),
+        )
+        assert worker.submit(snapshot, ("hand_eye_preview", "observer"))
+        for stream, event in received_events.items():
+            assert event.wait(timeout=60.0), (stream, worker.diagnostics())
+        diagnostics = worker.diagnostics()
+        assert diagnostics["completed"]["hand_eye_preview"] >= 2, diagnostics
+        assert diagnostics["completed"]["observer"] >= 2, diagnostics
+        for stream, frames in received_frames.items():
+            assert len(frames) >= 2
+            first = np.asarray(getattr(frames[0], "color_bgr"), dtype=np.uint8)
+            latest = np.asarray(getattr(frames[-1], "color_bgr"), dtype=np.uint8)
+            assert int(np.count_nonzero(first != latest)) > 0, (stream, diagnostics)
     finally:
         worker.close()

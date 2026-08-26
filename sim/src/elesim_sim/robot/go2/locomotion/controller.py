@@ -44,6 +44,8 @@ class RaibertTrotController:
         self._swing_end_body: Dict[LegId, np.ndarray] = {}
         self._leg_q_des: Dict[LegId, np.ndarray] = {}
         self._prev_leg_q_cmd: Optional[np.ndarray] = None
+        self._last_base_pos: Optional[np.ndarray] = None
+        self._last_base_quat_wxyz: Optional[np.ndarray] = None
         self._base_dof_idx = self._detect_base_dof_idx()
         self._init_pd_and_pose()
 
@@ -57,6 +59,7 @@ class RaibertTrotController:
         self._entity.set_dofs_kv(kv, dofs_idx_local=leg_dofs)
         self._entity.set_dofs_position(self._kin.stand_q, dofs_idx_local=leg_dofs)
         self._entity.control_dofs_position(self._kin.stand_q, dofs_idx_local=leg_dofs)
+        self._prev_leg_q_cmd = np.asarray(self._kin.stand_q, dtype=float).reshape(-1).copy()
 
         base_pos, base_rot = self._read_base_pose()
         for leg in ALL_LEGS:
@@ -77,6 +80,7 @@ class RaibertTrotController:
             foot_world = self._stance_world_target(leg)
             q_leg = self._solve_leg_ik(leg, foot_world, fallback=self._stand_q_for_leg(leg))
             q_des_parts.extend(q_leg.tolist())
+        self._prev_leg_q_cmd = np.asarray(q_des_parts, dtype=float).reshape(-1).copy()
         self._entity.control_dofs_position(np.asarray(q_des_parts, dtype=float), dofs_idx_local=leg_dofs)
 
     def set_command(self, cmd: Go2Command) -> None:
@@ -236,6 +240,8 @@ class RaibertTrotController:
         base = self._entity.get_link("base")
         pos = _to_numpy_1d(base.get_pos())[:3]
         quat = _to_numpy_1d(base.get_quat())[:4]
+        self._last_base_pos = pos.copy()
+        self._last_base_quat_wxyz = quat.copy()
         return pos, _rot_from_wxyz(quat)
 
     def _read_base_velocity(self, base_rot: Rot) -> Tuple[np.ndarray, np.ndarray]:

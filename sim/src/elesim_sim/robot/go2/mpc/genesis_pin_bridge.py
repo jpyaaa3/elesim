@@ -16,6 +16,8 @@ class GenesisPinBridge:
         self._entity = entity
         self._leg_dof_idxs = [int(i) for i in leg_dof_idxs]
         self._payload = payload
+        self.last_q: np.ndarray | None = None
+        self.last_dq: np.ndarray | None = None
 
     def read_pin_q_dq(self) -> tuple[np.ndarray, np.ndarray]:
         base = self._entity.get_link("base")
@@ -35,6 +37,10 @@ class GenesisPinBridge:
 
     def sync_pin_model(self, pin_model) -> None:
         q, dq = self.read_pin_q_dq()
+        # The camera renderer consumes this already-read controller state.  It
+        # must not issue a second GPU->CPU readback merely to pose a frame.
+        self.last_q = q.copy()
+        self.last_dq = dq.copy()
         pin_model.update_model(q, dq)
         if self._payload is not None:
             self._payload.apply(pin_model)

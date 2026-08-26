@@ -76,6 +76,11 @@ def _upload_stdin(connection: socket.socket, input_fd: int) -> None:
             except (BrokenPipeError, ConnectionResetError, OSError):
                 # The remote SSH endpoint may finish and close first.
                 return
+    except (BrokenPipeError, ConnectionResetError, OSError, ValueError):
+        # Paramiko can close its stdin pipe at the same time that the remote
+        # Tailscale SSH endpoint closes the stream. Reading that closed file
+        # descriptor is normal proxy teardown, not a proxy process failure.
+        return
     finally:
         try:
             connection.shutdown(socket.SHUT_WR)

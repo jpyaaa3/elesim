@@ -5,16 +5,17 @@
   },
   "mass": 0.15,
   "com": [
-    0.0,
-    0.0,
-    0.0
+    -0.307764717,
+    8.4744e-05,
+    0.016626409
   ],
   "inertia": {
-    "ixx": 0.07502083333333333,
-    "iyy": 0.30002083333333335,
-    "izz": 0.375,
-    "ixy": 0.0,
-    "ixz": 0.0,
-    "iyz": 0.0
-  }
+    "ixx": 0.0005096254066,
+    "iyy": 0.003383362676,
+    "izz": 0.003509202154,
+    "ixy": -2.528823814e-06,
+    "ixz": 0.0003795704673,
+    "iyz": -2.260431485e-07
+  },
+  "inertia_note": "Recomputed from the collision mesh at the declared mass. The previous values were based on an obsolete oversized plate estimate and diverged the contact solver."
 }

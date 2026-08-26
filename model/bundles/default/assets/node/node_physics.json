@@ -10,11 +10,12 @@
     0.0
   ],
   "inertia": {
-    "ixx": 9.93559147e-05,
-    "iyy": 4.83345352e-05,
-    "izz": 7.80452872e-05,
-    "ixy": 0.0,
-    "ixz": 0.0,
-    "iyz": 0.0
-  }
+    "ixx": 1.49033872e-05,
+    "iyy": 7.250180282e-06,
+    "izz": 1.170679308e-05,
+    "ixy": -2.224843724e-22,
+    "ixz": 2.224843724e-22,
+    "iyz": -0.0
+  },
+  "inertia_note": "Recomputed from the collision mesh at the declared mass. The previous values were based on an obsolete oversized plate estimate and diverged the contact solver."
 }
