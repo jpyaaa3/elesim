@@ -123,7 +123,7 @@ class SupportConfig:
 
     enable: bool = True
     height_m: float = 0.459
-    half_extents_xy: tuple[float, float] = (0.02, 0.02)
+    half_extents_xy: tuple[float, float] = (0.065, 0.065)
     center_xy: tuple[float, float] = (0.500, -0.075)
 
 

@@ -123,12 +123,21 @@ support:
   # 0.459 puts the cylinder's mid-height at z = 0.559, the plane the coil forms
   # in.  The post top stays 0.10 m below the arm, so it is not in the way.
   height_m: 0.459
-  # Half-extents of the support box.  A slim post, not a table: the placement
-  # search measured 1130 of 1764 sweep poses colliding with a 0.06 m
-  # half-extent box against 585 with this one, because the support sits in the
-  # middle of the arm's working volume.  The floor itself blocks nothing at
-  # this height (0 collisions), so the support is the whole cost.
-  half_extents_xy: [0.02, 0.02]
+  # Half-extents of the support box.  Wide enough to actually carry the
+  # object: the randomisation range goes to a 120 mm cylinder, and a post
+  # narrower than that leaves it balanced on an overhang, so the lightest touch
+  # tips it.  That is what the it300 evaluation was measuring -- topple rates
+  # tracked object radius monotonically (35 mm: survives; 45 mm and 60 mm:
+  # ~100% topple within a few steps), which is the signature of the stand, not
+  # of the policy.
+  #
+  # Widening costs almost nothing in arm clearance, because the post ends
+  # 100 mm below the plane the coil forms in: measured over a pose sweep,
+  # collisions rise only from 190/525 at 40 mm to 206/525 at 120 mm.  The
+  # earlier 40 mm choice came from a sweep taken while bend_axis_sign was
+  # inverted, where the arm was passing through the quadruped and the support
+  # attribution was meaningless.
+  half_extents_xy: [0.065, 0.065]
   # Column position from the placement search with every mechanism value
   # corrected (sim/benchmarks/placement2.md): 258 deg of reachable wrap here,
   # 3 of 1764 swept poses clearing the 172 deg gate and 2 caging.  Both y signs

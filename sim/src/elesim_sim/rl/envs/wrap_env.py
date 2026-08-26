@@ -744,6 +744,16 @@ class WrapGraspEnv:
             float(self.cfg.success.coverage_target_rad), device=self.device
         )
         log["wrap/surface_dist_m"] = state["surface_dist"].mean()
+        # Waypoint usage per DoF.  The wrap needs roll near +/-90 deg to put the
+        # bend plane horizontal, so a policy whose roll stays near its Home zero
+        # cannot be wrapping whatever else the other terms say.
+        wp = self.mapper.waypoint
+        log["waypoint/linear_m"] = wp[:, 0].mean()
+        log["waypoint/roll_rad"] = wp[:, 1].mean()
+        log["waypoint/roll_abs_rad"] = wp[:, 1].abs().mean()
+        log["waypoint/roll_abs_max_rad"] = wp[:, 1].abs().max()
+        log["waypoint/theta1_rad"] = wp[:, 2].mean()
+        log["waypoint/theta2_rad"] = wp[:, 3].mean()
         # Logged whether or not it gates success: a wrap that reaches the
         # coverage target while `caged` stays at zero is not holding anything.
         log["wrap/caged"] = state["caged"].to(torch.float32).mean()
