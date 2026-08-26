@@ -20,7 +20,14 @@ scene:
   solver_substeps: 1
   # Contact-constraint buffer.  Genesis halts the sim if the real pair count
   # exceeds this, and get_contacts() returns at most this many rows per env.
-  max_collision_pairs: 512
+  #
+  # Measured across a grid of wrapping poses, the worst single env held 27
+  # contacts and the buffer never exceeded 29 rows, so 512 already had ample
+  # headroom.  Raised anyway for margin, but note this is *not* what caused the
+  # run to die: exceeding the buffer halts with its own message, whereas the
+  # failure was "Invalid constraint forces causing 'nan'", i.e. the solver
+  # diverging.  That one scales with environment count, not buffer size.
+  max_collision_pairs: 1024
   show_viewer: false
   # The mechanism's own parameters are read from here.
   app_config: sim/config/config.yaml

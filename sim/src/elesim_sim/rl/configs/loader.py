@@ -56,7 +56,7 @@ class SceneConfig:
     app_config: str = "sim/config/config.yaml"
     dt: float = 0.01
     solver_substeps: int = 1
-    max_collision_pairs: int = 512
+    max_collision_pairs: int = 1024
     show_viewer: bool = False
     decompose_robot_error_threshold: Optional[float] = 0.15
     model_bundle: str = ""

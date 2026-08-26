@@ -147,6 +147,11 @@ class WrapGraspEnv:
         #: rather than a mixture the per-condition table could not separate.
         self._eval_override: Optional[dict[str, float]] = None
         self._last_reasons: dict[str, torch.Tensor] = {}
+        #: Optional callback invoked after every physics substep, as
+        #: ``monitor(env, substep_index)``.  Used by the divergence diagnostic
+        #: to sample state at the resolution the solver actually fails at; a
+        #: macro-step-level look is far too coarse to catch it.
+        self.substep_monitor: Optional[Any] = None
         self._failure_counts = {
             mode: torch.zeros(1, device=self.device, dtype=torch.long)
             for mode in FAILURE_MODES
@@ -302,6 +307,8 @@ class WrapGraspEnv:
             )
             self.scene.step()
             self.contacts.accumulate()
+            if self.substep_monitor is not None:
+                self.substep_monitor(self, i)
 
             if self.lift is not None:
                 self.lift.advance(self._lift_observation())
