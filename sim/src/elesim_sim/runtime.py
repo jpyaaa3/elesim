@@ -1033,8 +1033,11 @@ class SimScene:
     go2_entity: object = None
     walking_metrics: object = None
     eye_camera: object = None
+    hand_eye_enabled: bool = False
     camera_publisher: object = None
     observer_camera: object = None
+    observer_view: object = None
+    observer_enabled: bool = False
     observer_camera_publisher: object = None
     frame_hub: object = None
     video_mailboxes: object = None
@@ -1195,7 +1198,7 @@ class SimScene:
                 except Exception:
                     pass
         mock = dict(mock_snapshot or {})
-        observer = self.observer_camera
+        observer = self.observer_view
         observer_pos = (
             tuple(float(value) for value in observer.pos)
             if observer is not None
@@ -1729,7 +1732,7 @@ class SimScene:
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
     ) -> None:
-        if self.eye_camera is None:
+        if not self.hand_eye_enabled:
             return
         period = 1.0 / max(1.0, float(max_hz))
         now_mono = time.monotonic()
@@ -1809,7 +1812,7 @@ class SimScene:
         sim_time_s: Optional[float] = None,
         force: bool = False,
     ) -> None:
-        if self.observer_camera is None:
+        if not self.observer_enabled:
             return
         period = 1.0 / max(1.0, float(max_hz))
         now_mono = time.monotonic()
@@ -2585,7 +2588,9 @@ class RuntimePrep:
             urdf_path=str(urdf_path),
             robot_pos=robot_pos,
             robot_euler_deg=robot_euler,
-            requires_jac_and_ik=use_go2,
+            # The replica only applies named joint positions from snapshots;
+            # it never evaluates IK or Jacobians.
+            requires_jac_and_ik=False,
             use_gpu=bool(a.cfg.use_gpu),
             gpu_convert=bool(a.cfg.camera_gpu_convert),
             dt=float(a.params.dt),
@@ -2685,7 +2690,7 @@ class RuntimePrep:
         else:
             print("[Collision] NoClipPairs present, but runtime collision-pair API was not found.")
 
-    def init_genesis(self, urdf_path: str) -> None:
+    def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool = True) -> None:
         a = self.app
         use_go2 = bool(getattr(a.cfg, "use_go2", False))
         backend = gs.gpu if a.cfg.use_gpu else gs.cpu
@@ -2795,8 +2800,18 @@ class RuntimePrep:
             )
             a.sim_scene.mock_object_entities[artifact.asset_id] = a.sim_scene.scene.add_entity(morph)
 
+        hand_eye_enabled = bool(a.cfg.sim_camera_enable) and bool(
+            str(a.cfg.hand_eye_config).strip()
+        )
+        observer_enabled = bool(getattr(a.cfg, "sim_observer_camera_enable", False))
+        a.sim_scene.hand_eye_enabled = hand_eye_enabled
+        a.sim_scene.observer_enabled = observer_enabled
+        a.sim_scene.hand_eye_config_path = (
+            str(a.cfg.hand_eye_config) if hand_eye_enabled else ""
+        )
+
         eye_camera = None
-        if bool(a.cfg.sim_camera_enable) and str(a.cfg.hand_eye_config).strip():
+        if attach_scene_cameras and hand_eye_enabled:
             from elesim_sim.vision.sim_camera import Node9EyeInHandCamera
 
             eye_camera = Node9EyeInHandCamera.create(
@@ -2806,7 +2821,7 @@ class RuntimePrep:
             )
 
         observer_camera = None
-        if bool(getattr(a.cfg, "sim_observer_camera_enable", False)):
+        if attach_scene_cameras and observer_enabled:
             from elesim_sim.vision.sim_camera import ObserverCamera
 
             observer_camera = ObserverCamera.create(
@@ -2877,7 +2892,7 @@ class RuntimePrep:
         if eye_camera is not None:
             eye_camera.bind(ent, hand_eye_path=str(a.cfg.hand_eye_config))
             a.sim_scene.eye_camera = eye_camera
-            a.sim_scene.hand_eye_config_path = str(a.cfg.hand_eye_config)
+        if hand_eye_enabled:
             from elesim_sim.vision.sim_camera import SimCameraPublisher
 
             a.sim_scene.camera_publisher = SimCameraPublisher(
@@ -2891,8 +2906,23 @@ class RuntimePrep:
                 jpeg_quality=int(a.cfg.sim_camera_jpeg_quality),
             )
 
-        if observer_camera is not None:
+        if observer_enabled:
+            if observer_camera is None:
+                from elesim_sim.vision.sim_camera import ObserverViewState
+
+                observer_view = ObserverViewState.create(
+                    res=(
+                        int(a.cfg.sim_observer_camera_width),
+                        int(a.cfg.sim_observer_camera_height),
+                    ),
+                    fov_deg=float(a.cfg.sim_observer_camera_fov_deg),
+                    pos=tuple(float(x) for x in a.cfg.sim_observer_camera_pos),
+                    lookat=tuple(float(x) for x in a.cfg.sim_observer_camera_lookat),
+                )
+            else:
+                observer_view = observer_camera
             a.sim_scene.observer_camera = observer_camera
+            a.sim_scene.observer_view = observer_view
             print(
                 "[sim_camera] observer WebRTC source | res=%dx%d pos=%s lookat=%s"
                 % (
@@ -3026,7 +3056,7 @@ class SimRuntime:
         a = self.app
         if (
             not due
-            or a.sim_scene.eye_camera is None
+            or not a.sim_scene.hand_eye_enabled
             or not str(a.cfg.hand_eye_config).strip()
         ):
             return None
@@ -3048,10 +3078,10 @@ class SimRuntime:
         self._sim_tip_dir_cache = None
 
     def _apply_observer_command(self, command: str, arguments: dict[str, Any]) -> None:
-        camera = self.app.sim_scene.observer_camera
-        if camera is None:
+        view = self.app.sim_scene.observer_view
+        if view is None:
             raise RuntimeError("observer camera is disabled")
-        camera.apply_operator_command(command, arguments)
+        view.apply_operator_command(command, arguments)
 
     def _cancel_mock_hug(self, reason: str) -> None:
         state = self.app.mock_object_state
@@ -3628,7 +3658,7 @@ class GenesisApp:
                     ),
                     wait=False,
                 )
-            runtime.init_genesis(urdf_path)
+            runtime.init_genesis(urdf_path, attach_scene_cameras=not async_cameras)
             if async_cameras:
                 self.sim_scene.wait_camera_render_worker(
                     timeout_s=float(
@@ -3650,7 +3680,7 @@ class GenesisApp:
         # empty fallback while the observer was already usable.  ``--no-viewer``
         # does not disable either camera, and this capture does not touch the
         # native Genesis viewer.
-        if self.sim_scene.eye_camera is not None:
+        if self.sim_scene.hand_eye_enabled:
             self.sim_scene.maybe_publish_camera(
                 arm_q=None,
                 max_hz=float(self.cfg.sim_camera_max_hz),
@@ -3673,7 +3703,7 @@ class GenesisApp:
         # ready.  The UI can negotiate WebRTC as soon as the readiness gate
         # opens; waiting for the first physics-loop iteration made a paused
         # or slow-to-start scene appear permanently stuck at “video waiting”.
-        if self.sim_scene.observer_camera is not None:
+        if self.sim_scene.observer_enabled:
             self.sim_scene.maybe_publish_observer_camera(
                 max_hz=float(self.cfg.sim_observer_camera_max_hz),
                 sim_time_s=0.0,

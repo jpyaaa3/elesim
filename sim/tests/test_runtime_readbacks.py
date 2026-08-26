@@ -136,6 +136,7 @@ def test_tip_readback_does_not_bypass_telemetry_cadence() -> None:
 def test_camera_pose_readback_does_not_bypass_feedback_cadence() -> None:
     class Scene:
         eye_camera = object()
+        hand_eye_enabled = True
         calls = 0
 
         def camera_axes_world(self, *, hand_eye_path: str):

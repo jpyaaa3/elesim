@@ -248,10 +248,9 @@ class Node9EyeInHandCamera:
 
 
 @dataclass
-class ObserverCamera:
-    """Operator-controlled Genesis camera for the remote scene view."""
+class ObserverViewState:
+    """Renderer-independent observer pose controlled by the operator."""
 
-    camera: Any
     intrinsics: SimCameraIntrinsics
     pos: tuple[float, float, float]
     lookat: tuple[float, float, float]
@@ -265,62 +264,30 @@ class ObserverCamera:
     @classmethod
     def create(
         cls,
-        scene,
         *,
         res: tuple[int, int] = (640, 480),
         fov_deg: float = 40.0,
         pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
         lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
-    ) -> "ObserverCamera":
-        """Register camera before ``scene.build()``."""
+    ) -> "ObserverViewState":
         w, h = int(res[0]), int(res[1])
-        pos_t = tuple(float(x) for x in pos)
-        lookat_t = tuple(float(x) for x in lookat)
-        up_t = (0.0, 0.0, 1.0)
-        try:
-            camera = scene.add_camera(
-                res=(w, h),
-                pos=pos_t,
-                lookat=lookat_t,
-                up=up_t,
-                fov=float(fov_deg),
-                GUI=False,
-                debug=False,
-            )
-        except TypeError:
-            camera = scene.add_camera(
-                res=(w, h),
-                fov=float(fov_deg),
-                GUI=False,
-                debug=False,
-            )
-        intr = intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg)
-        return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t, up=up_t)
+        return cls(
+            intrinsics=intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg),
+            pos=tuple(float(x) for x in pos),
+            lookat=tuple(float(x) for x in lookat),
+        )
+
+    def _apply_pose(self) -> None:
+        """Hook implemented by the legacy in-process Genesis camera."""
 
     def _set_camera_pose(self) -> None:
         if self._reset_pos is None:
             self._reset_pos = self.pos
             self._reset_lookat = self.lookat
-        if not hasattr(self.camera, "set_pose"):
-            return
-        try:
-            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
-            return
-        except TypeError:
-            try:
-                self.camera.set_pose(self.pos, self.lookat)
-                return
-            except Exception as exc:
-                if not self._pose_warned:
-                    self._pose_warned = True
-                    print(f"[sim_camera] observer pose update failed: {exc}")
-        except Exception as exc:
-            if not self._pose_warned:
-                self._pose_warned = True
-                print(f"[sim_camera] observer pose update failed: {exc}")
+        self._apply_pose()
 
     def apply_operator_command(self, command: str, arguments: dict[str, Any]) -> None:
-        """Apply a validated camera command on the Genesis owner thread."""
+        """Update the observer view without requiring a Genesis camera."""
 
         import math
 
@@ -343,11 +310,6 @@ class ObserverCamera:
             mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
-            # Keep the transport command name for protocol compatibility, but
-            # make primary-drag a conventional fixed-eye pan/tilt.  Orbiting
-            # the eye around the target felt like a CAD trackball and could
-            # visually suggest roll.  A world-Z up vector and the pole clamp
-            # leave no roll degree of freedom here.
             forward = target - eye
             yaw = math.atan2(float(forward[1]), float(forward[0])) - dx_px / mindim
             horizontal = max(float(np.linalg.norm(forward[:2])), 1e-9)
@@ -378,7 +340,6 @@ class ObserverCamera:
             dy_px = float(arguments["dy"]) * height
             forward = target - eye
             forward /= max(float(np.linalg.norm(forward)), 1e-9)
-            # Camera-to-world x/y axes used by Genesis Trackball's pan path.
             right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
             right /= max(float(np.linalg.norm(right)), 1e-9)
             up = np.cross(right, forward)
@@ -393,6 +354,69 @@ class ObserverCamera:
         self.pos = tuple(float(value) for value in eye)
         self.lookat = tuple(float(value) for value in target)
         self._set_camera_pose()
+
+
+@dataclass
+class ObserverCamera(ObserverViewState):
+    """Legacy in-process Genesis camera plus operator-controlled view state."""
+
+    camera: Any = None
+
+    @classmethod
+    def create(
+        cls,
+        scene,
+        *,
+        res: tuple[int, int] = (640, 480),
+        fov_deg: float = 40.0,
+        pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
+        lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
+    ) -> "ObserverCamera":
+        """Register camera before ``scene.build()``."""
+        view = ObserverViewState.create(res=res, fov_deg=fov_deg, pos=pos, lookat=lookat)
+        try:
+            camera = scene.add_camera(
+                res=(int(res[0]), int(res[1])),
+                pos=view.pos,
+                lookat=view.lookat,
+                up=view.up,
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        except TypeError:
+            camera = scene.add_camera(
+                res=(int(res[0]), int(res[1])),
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        return cls(
+            intrinsics=view.intrinsics,
+            pos=view.pos,
+            lookat=view.lookat,
+            up=view.up,
+            camera=camera,
+        )
+
+    def _apply_pose(self) -> None:
+        if not hasattr(self.camera, "set_pose"):
+            return
+        try:
+            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
+            return
+        except TypeError:
+            try:
+                self.camera.set_pose(self.pos, self.lookat)
+                return
+            except Exception as exc:
+                if not self._pose_warned:
+                    self._pose_warned = True
+                    print(f"[sim_camera] observer pose update failed: {exc}")
+        except Exception as exc:
+            if not self._pose_warned:
+                self._pose_warned = True
+                print(f"[sim_camera] observer pose update failed: {exc}")
 
     def _camera_pose_world(self) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
         origin = np.asarray(self.pos, dtype=float).reshape(3)

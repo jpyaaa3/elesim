@@ -3,6 +3,7 @@ from __future__ import annotations
 _EXPORTS = {
     "Node9EyeInHandCamera": "mount",
     "ObserverCamera": "mount",
+    "ObserverViewState": "mount",
     "SimCameraFrame": "types",
     "SimCameraIntrinsics": "types",
     "SimCameraPublisher": "publisher",

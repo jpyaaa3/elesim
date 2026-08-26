@@ -75,6 +75,67 @@ def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
     assert captured["performance_mode"] is True
 
 
+def test_async_runtime_builds_the_physics_scene_without_scene_cameras(monkeypatch) -> None:
+    captured = {}
+
+    class StopAfterInit(Exception):
+        pass
+
+    class FakeAssetProcessor:
+        def __init__(self, _app) -> None:
+            pass
+
+        def prepare_assets(self) -> str:
+            return "/model/robot.urdf"
+
+    class FakeRuntimePrep:
+        def __init__(self, _app) -> None:
+            pass
+
+        def camera_render_spec(self, urdf_path: str):
+            assert urdf_path == "/model/robot.urdf"
+            return object()
+
+        def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool) -> None:
+            captured["urdf_path"] = urdf_path
+            captured["attach_scene_cameras"] = attach_scene_cameras
+            raise StopAfterInit
+
+    class Scene:
+        def configure_camera_render_worker(self, *_args, **_kwargs) -> None:
+            captured["worker_started"] = True
+
+        def close_frame_dispatchers(self) -> None:
+            captured["closed"] = True
+
+    app = SimpleNamespace(
+        cfg=SimpleNamespace(
+            camera_execution="async_process",
+            sim_camera_enable=True,
+            hand_eye_config="/config/hand-eye.json",
+            sim_observer_camera_enable=True,
+            sim_camera_width=640,
+            sim_camera_height=480,
+            sim_observer_camera_width=640,
+            sim_observer_camera_height=480,
+            camera_worker_start_timeout_s=180.0,
+        ),
+        sim_scene=Scene(),
+    )
+    monkeypatch.setattr(runtime, "AssetProcessor", FakeAssetProcessor)
+    monkeypatch.setattr(runtime, "RuntimePrep", FakeRuntimePrep)
+
+    with pytest.raises(StopAfterInit):
+        runtime.GenesisApp.run(app)
+
+    assert captured == {
+        "worker_started": True,
+        "urdf_path": "/model/robot.urdf",
+        "attach_scene_cameras": False,
+        "closed": True,
+    }
+
+
 def test_viewer_flag_overrides_remote_profile(monkeypatch) -> None:
     captured = {}
 

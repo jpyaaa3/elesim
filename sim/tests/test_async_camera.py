@@ -17,7 +17,11 @@ from elesim_sim.vision.sim_camera.async_worker import (
     _apply_snapshot,
     resolve_single_dof_indices,
 )
-from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
+from elesim_sim.vision.sim_camera.mount import (
+    Node9EyeInHandCamera,
+    ObserverCamera,
+    ObserverViewState,
+)
 from elesim_sim.vision.sim_camera.types import SimCameraIntrinsics
 
 
@@ -278,13 +282,6 @@ def test_render_spec_rejects_missing_urdf() -> None:
 
 
 def test_async_camera_submission_does_not_call_scene_camera() -> None:
-    class Camera:
-        pos = (1.0, 2.0, 3.0)
-        lookat = (0.0, 0.0, 0.0)
-
-        def capture(self, **_kwargs):  # pragma: no cover - must not run
-            raise AssertionError("async mode must not capture on the physics thread")
-
     class Worker:
         ready = True
 
@@ -304,7 +301,18 @@ def test_async_camera_submission_does_not_call_scene_camera() -> None:
             self.closed = True
 
     worker = Worker()
-    scene = SimScene(eye_camera=Camera(), observer_camera=Camera(), camera_render_worker=worker)
+    scene = SimScene(
+        hand_eye_enabled=True,
+        observer_enabled=True,
+        observer_view=ObserverViewState.create(
+            res=(64, 48),
+            pos=(1.0, 2.0, 3.0),
+            lookat=(0.0, 0.0, 0.0),
+        ),
+        camera_render_worker=worker,
+    )
+    assert scene.eye_camera is None
+    assert scene.observer_camera is None
     scene.sim_target_xyz = np.array([0.8, 0.0, 0.2], dtype=float)
 
     scene.maybe_publish_camera(
@@ -330,6 +338,45 @@ def test_async_camera_submission_does_not_call_scene_camera() -> None:
     assert worker.epochs == 1
     scene.close_frame_dispatchers()
     assert worker.closed is True
+
+
+def test_async_hand_eye_dispatch_publishes_rgbd_without_a_physics_camera() -> None:
+    class Publisher:
+        def __init__(self) -> None:
+            self.frames = []
+
+        def publish(self, frame) -> None:
+            self.frames.append(frame)
+
+    frame = object()
+    publisher = Publisher()
+    scene = SimScene(
+        hand_eye_enabled=True,
+        camera_publisher=publisher,
+    )
+
+    scene._on_async_frame("hand_eye_preview", frame)
+
+    assert scene.eye_camera is None
+    assert publisher.frames == [frame]
+
+
+def test_async_observer_commands_update_snapshot_without_a_physics_camera() -> None:
+    view = ObserverViewState.create(
+        res=(640, 480),
+        pos=(0.0, -2.0, 1.0),
+        lookat=(0.0, 0.0, 0.0),
+    )
+    scene = SimScene(observer_enabled=True, observer_view=view)
+    original = (view.pos, view.lookat)
+
+    view.apply_operator_command("pan", {"dx": 0.1, "dy": -0.2})
+    snapshot = scene._camera_state_snapshot(arm_q=None, sim_time_s=0.0)
+
+    assert scene.observer_camera is None
+    assert (view.pos, view.lookat) != original
+    assert snapshot.observer_pos == view.pos
+    assert snapshot.observer_lookat == view.lookat
 
 
 def test_visualizer_refresh_is_rate_limited_when_legacy_step_refresh_is_off(monkeypatch) -> None:
