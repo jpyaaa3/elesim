@@ -98,15 +98,21 @@ def _read_torque_limits(entity, dof_idxs: list[int], *, safety_scale: float) -> 
     scale = float(safety_scale)
     if not np.isfinite(scale) or not 0.0 < scale <= 1.0:
         raise ValueError(f"torque_safety_scale must be in (0, 1], got {scale}")
-    expected_shape = (2, len(dof_idxs))
-    ranges = _to_numpy_1d(
-        entity.get_dofs_force_range(dofs_idx_local=dof_idxs)
-    ).reshape(expected_shape)
-    if ranges.shape != expected_shape:
+    raw_ranges = entity.get_dofs_force_range(dofs_idx_local=dof_idxs)
+    if not isinstance(raw_ranges, tuple) or len(raw_ranges) != 2:
         raise RuntimeError(
-            f"Genesis returned invalid GO2 force-range shape {ranges.shape}; "
-            f"expected {expected_shape}"
+            "Genesis returned an invalid GO2 force-range value; expected "
+            "the (lower_limits, upper_limits) tuple"
         )
+    lower = _to_numpy_1d(raw_ranges[0])
+    upper = _to_numpy_1d(raw_ranges[1])
+    expected_limit_shape = (len(dof_idxs),)
+    if lower.shape != expected_limit_shape or upper.shape != expected_limit_shape:
+        raise RuntimeError(
+            "Genesis returned invalid GO2 force-range shapes "
+            f"{lower.shape} and {upper.shape}; expected {expected_limit_shape}"
+        )
+    ranges = np.stack((lower, upper))
     limits = np.min(np.abs(ranges), axis=0) * scale
     if not np.all(np.isfinite(limits)) or np.any(limits <= 0.0):
         raise RuntimeError(f"Genesis returned invalid GO2 force ranges: {ranges.tolist()}")

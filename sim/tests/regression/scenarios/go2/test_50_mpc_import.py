@@ -76,7 +76,7 @@ class Go2MpcImportTests(unittest.TestCase):
             def get_dofs_force_range(*, dofs_idx_local):
                 self.assertEqual(dofs_idx_local, list(range(12)))
                 upper = np.array([23.7, 23.7, 35.55] * 4)
-                return np.vstack((-upper, upper))
+                return -upper, upper
 
         limits = controller._read_torque_limits(Entity(), list(range(12)), safety_scale=0.9)
         np.testing.assert_allclose(limits, np.array([21.33, 21.33, 31.995] * 4))
@@ -88,7 +88,10 @@ class Go2MpcImportTests(unittest.TestCase):
         class Entity:
             @staticmethod
             def get_dofs_force_range(*, dofs_idx_local):
-                return self._CudaLikeTensor(np.vstack((-upper, upper)))
+                return (
+                    self._CudaLikeTensor(-upper),
+                    self._CudaLikeTensor(upper),
+                )
 
         limits = controller._read_torque_limits(
             Entity(), list(range(12)), safety_scale=0.9
