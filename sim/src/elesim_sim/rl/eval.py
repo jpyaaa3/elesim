@@ -240,24 +240,55 @@ def render_report(
     return "\n".join(lines) + "\n"
 
 
-def _record_episode(env: WrapGraspEnv, policy, *, steps: int):
-    """Roll one episode with the camera recording, and return the camera.
+def _record_episode(
+    env: WrapGraspEnv,
+    policy,
+    *,
+    macro_steps: int,
+    every: int,
+    episodes: int,
+) -> Any:
+    """Record a rollout, sampling frames per *substep*.
 
-    Recorded after the condition grid so the frames show the policy under the
-    configured reset distribution rather than a pinned eval condition.
+    One frame per macro step is far too sparse to watch: a macro step covers
+    `macro_step.substeps * dt` of simulated time -- 0.4 s at the defaults -- so
+    a full 15-step episode collapses into 15 frames, and an episode that ends
+    early into three.  Frames are taken inside the substep loop instead, via
+    the environment's substep hook, which is also the only place the arm's
+    motion between waypoints is visible at all.
+
+    Recording spans `episodes` episodes so a policy that terminates early still
+    produces something watchable; resets show as cuts.
     """
     camera = env.scene.cameras["eval"]
     camera.start_recording()
     env._eval_override = None
-    obs, _ = env.reset()
-    for _ in range(steps):
-        with torch.inference_mode():
-            actions = policy(obs)
-        obs, _, dones, _ = env.step(actions)
-        camera.render()
-        if bool(dones[0]):
-            break
+
+    stride = max(1, int(every))
+    counter = {"substep": 0}
+
+    def monitor(_env: WrapGraspEnv, _substep: int) -> None:
+        if counter["substep"] % stride == 0:
+            camera.render()
+        counter["substep"] += 1
+
+    previous_monitor = env.substep_monitor
+    env.substep_monitor = monitor
+    try:
+        finished = 0
+        obs, _ = env.reset()
+        for _ in range(int(macro_steps)):
+            with torch.inference_mode():
+                actions = policy(obs)
+            obs, _, dones, _ = env.step(actions)
+            if bool(dones[0]):
+                finished += 1
+                if finished >= max(1, int(episodes)):
+                    break
+    finally:
+        env.substep_monitor = previous_monitor
     return camera
+
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -270,9 +301,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--out", default=None)
     parser.add_argument(
         "--render", type=int, default=0,
-        help="record this many macro steps of one env to an mp4",
+        help="record up to this many macro steps to an mp4",
     )
-    parser.add_argument("--render-fps", type=int, default=10)
+    parser.add_argument(
+        "--render-every", type=int, default=4,
+        help="capture a frame every Nth physics substep",
+    )
+    parser.add_argument(
+        "--render-episodes", type=int, default=None,
+        help="stop after this many episodes (default: eval.render_episodes)",
+    )
+    parser.add_argument(
+        "--render-fps", type=int, default=None,
+        help="output fps (default: real time for the substep stride)",
+    )
     parser.add_argument(
         "--video-out", default=None, help="mp4 path (default: alongside the report)"
     )
@@ -340,15 +382,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
 
     if args.render > 0:
-        video = _record_episode(env, policy, steps=int(args.render))
+        stride = max(1, int(args.render_every))
+        # Default to real time: one frame per `stride` substeps of `dt` each.
+        fps = args.render_fps or max(1, round(1.0 / (cfg.scene.dt * stride)))
+        video = _record_episode(
+            env,
+            policy,
+            macro_steps=int(args.render),
+            every=stride,
+            episodes=int(args.render_episodes or cfg.eval.render_episodes),
+        )
         out_video = Path(args.video_out) if args.video_out else None
         if out_video is None:
             out_video = Path(cfg.eval.out_dir) / "eval_episode.mp4"
         if not out_video.is_absolute():
             out_video = _REPO_ROOT / out_video
         out_video.parent.mkdir(parents=True, exist_ok=True)
-        video.stop_recording(save_to_filename=str(out_video), fps=int(args.render_fps))
-        print(f"[eval] wrote {out_video}")
+        video.stop_recording(save_to_filename=str(out_video), fps=int(fps))
+        print(f"[eval] wrote {out_video} (every {stride} substeps, {fps} fps)")
 
     report = render_report(results, cfg, str(ckpt))
     out = Path(args.out) if args.out else Path(cfg.eval.out_dir) / "eval.md"
