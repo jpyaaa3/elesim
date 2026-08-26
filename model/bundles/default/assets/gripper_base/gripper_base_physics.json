@@ -5,16 +5,17 @@
   },
   "mass": 0.015,
   "com": [
-    0.0071392,
-    0.0,
-    -0.0093273
+    0.007382233,
+    -0.0,
+    -0.016172105
   ],
   "inertia": {
-    "ixx": 0.0002668,
-    "ixy": 0.0,
-    "ixz": 0.0000045,
-    "iyy": 0.0000800,
-    "iyz": 0.0,
-    "izz": 0.0003024
-  }
+    "ixx": 1.389282121e-05,
+    "iyy": 5.401752022e-06,
+    "izz": 1.650893082e-05,
+    "ixy": -1.665577671e-22,
+    "ixz": 2.404246988e-07,
+    "iyz": 3.648746279e-22
+  },
+  "inertia_note": "Recomputed from the collision mesh at the declared mass. The generated values were 6.7x to 165x the geometry, which diverged the constraint solver under contact."
 }
