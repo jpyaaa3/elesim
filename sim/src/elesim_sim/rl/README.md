@@ -144,7 +144,8 @@ driver is available.
 ## Evaluation and export
 
 ```bash
-python -m elesim_sim.rl.eval --checkpoint <ckpt> --episodes 20 --render 40
+python -m elesim_sim.rl.eval --checkpoint <ckpt> --episodes 20 \
+  --render 40 --render-every 4 --render-episodes 3
 python -m elesim_sim.rl.export_traj --checkpoint <ckpt> --count 20
 ```
 
@@ -156,6 +157,14 @@ step and all 13824 episodes scored `topple` -- a result about gravity, not the
 policy.  A whole column of one failure mode, with `phi_max` equal to
 `phi_mean`, means every env terminated on step one; read that as a setup fault
 rather than a finding.
+
+Video frames are sampled per physics *substep*, not per macro step.  A macro
+step covers `substeps * dt` of simulated time -- 0.4 s at the defaults -- so one
+frame per macro step turns a 15-step episode into 15 frames, and the arm's
+motion between waypoints is not in the recording at all.  `--render-every N`
+sets the substep stride and the output fps defaults to real time for it;
+`--render-episodes` keeps recording across resets so an early termination still
+leaves something watchable.
 
 `eval` reports success per condition with failures split five ways —
 `collision`, `topple`, `retention`, `no_wrap`, `no_reach` — because a single
