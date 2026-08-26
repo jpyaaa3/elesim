@@ -1751,10 +1751,12 @@ class SimScene:
             return
         period = 1.0 / max(1.0, float(max_hz))
         now_mono = time.monotonic()
-        if not force and (
-            (now_mono - float(self._last_camera_publish_t)) < period
+        last_wall = float(self._last_camera_publish_t)
+        if (
+            (last_wall > 0.0 and (now_mono - last_wall) < period)
             or (
-                sim_time_s is not None
+                not force
+                and sim_time_s is not None
                 and float(sim_time_s) + 1e-9
                 < float(self._next_camera_publish_sim_t)
             )
@@ -1831,10 +1833,12 @@ class SimScene:
             return
         period = 1.0 / max(1.0, float(max_hz))
         now_mono = time.monotonic()
-        if not force and (
-            (now_mono - float(self._last_observer_camera_publish_t)) < period
+        last_wall = float(self._last_observer_camera_publish_t)
+        if (
+            (last_wall > 0.0 and (now_mono - last_wall) < period)
             or (
-                sim_time_s is not None
+                not force
+                and sim_time_s is not None
                 and float(sim_time_s) + 1e-9
                 < float(self._next_observer_camera_publish_sim_t)
             )

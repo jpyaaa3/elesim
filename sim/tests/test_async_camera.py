@@ -3,7 +3,9 @@ from __future__ import annotations
 import multiprocessing as mp
 import os
 from pathlib import Path
+import queue
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -16,6 +18,7 @@ from elesim_sim.vision.sim_camera.async_worker import (
     SharedRgbdMailbox,
     _apply_snapshot,
     _genesis_init_kwargs,
+    _put_latest_frame_result,
     resolve_single_dof_indices,
 )
 from elesim_sim.vision.sim_camera.mount import (
@@ -41,6 +44,18 @@ def test_shared_rgbd_mailbox_is_latest_only_and_coherent() -> None:
     assert captured_at == 2.0
     np.testing.assert_array_equal(color, second_color)
     np.testing.assert_array_equal(depth, second_depth)
+
+
+def test_frame_result_queue_replaces_stale_metadata_per_stream() -> None:
+    results: queue.Queue[dict[str, object]] = queue.Queue(maxsize=1)
+    assert _put_latest_frame_result(
+        results, {"type": "frame", "stream": "observer", "sequence": 1}
+    )
+    assert _put_latest_frame_result(
+        results, {"type": "frame", "stream": "observer", "sequence": 2}
+    )
+
+    assert results.get_nowait()["sequence"] == 2
 
 
 def test_render_snapshot_is_serializable_and_has_epoch_fields() -> None:
@@ -354,6 +369,44 @@ def test_async_camera_submission_does_not_call_scene_camera() -> None:
     assert worker.epochs == 1
     scene.close_frame_dispatchers()
     assert worker.closed is True
+
+
+def test_forced_observer_updates_stay_within_wall_clock_rate_limit(
+    monkeypatch,
+) -> None:
+    class Worker:
+        ready = True
+
+        def __init__(self) -> None:
+            self.submitted = []
+
+        def submit(self, snapshot, streams):
+            self.submitted.append((snapshot, streams))
+            return True
+
+    now = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    worker = Worker()
+    scene = SimScene(
+        observer_enabled=True,
+        observer_view=ObserverViewState.create(
+            res=(64, 48),
+            pos=(1.0, 2.0, 3.0),
+            lookat=(0.0, 0.0, 0.0),
+        ),
+        camera_render_worker=worker,
+    )
+
+    scene.maybe_publish_observer_camera(max_hz=20.0, sim_time_s=1.0, force=True)
+    now[0] += 0.01
+    scene.maybe_publish_observer_camera(max_hz=20.0, sim_time_s=1.0, force=True)
+    assert len(worker.submitted) == 1
+
+    # A forced update may bypass the frozen simulation-time deadline while
+    # paused, but it still cannot flood the render worker faster than max_hz.
+    now[0] += 0.05
+    scene.maybe_publish_observer_camera(max_hz=20.0, sim_time_s=1.0, force=True)
+    assert len(worker.submitted) == 2
 
 
 def test_async_hand_eye_dispatch_publishes_rgbd_without_a_physics_camera() -> None:

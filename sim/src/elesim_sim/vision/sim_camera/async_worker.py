@@ -330,6 +330,7 @@ def _camera_render_process_main(
     mailboxes: Mapping[str, SharedRgbdMailbox],
     commands: Queue,
     results: Queue,
+    frame_results: Mapping[str, Queue],
     ready: Any,
     stop: Any,
 ) -> None:
@@ -516,7 +517,8 @@ def _camera_render_process_main(
                         np.asarray(frame.depth_raw, dtype=np.uint16),
                         captured_at=float(frame.ts),
                     )
-                    results.put_nowait(
+                    _put_latest_frame_result(
+                        frame_results[stream],
                         {
                             "type": "frame",
                             "stream": stream,
@@ -539,12 +541,8 @@ def _camera_render_process_main(
                             "camera_world_origin": frame.camera_world_origin,
                             "camera_world_look": frame.camera_world_look,
                             "camera_world_right": frame.camera_world_right,
-                        }
+                        },
                     )
-                except queue.Full:
-                    # The mailbox already contains the newest pixels; the
-                    # parent only needs the newest metadata notification.
-                    pass
                 except Exception as exc:
                     if stream not in error_logged:
                         error_logged.add(stream)
@@ -569,6 +567,37 @@ def _camera_render_process_main(
             pass
     finally:
         ready.set()
+
+
+def _put_latest_frame_result(channel: Queue, message: Mapping[str, Any]) -> bool:
+    """Keep one latest metadata notification beside a latest pixel mailbox.
+
+    Pixels and their metadata must advance together.  Dropping the newest
+    notification when a shared-memory slot has already advanced leaves the
+    receiver with only stale sequence numbers; under sustained rendering that
+    can starve publication until rendering pauses.  Each stream has its own
+    one-item queue so replacing an old notification cannot starve the other
+    camera stream.
+    """
+
+    value = dict(message)
+    try:
+        channel.put_nowait(value)
+        return True
+    except queue.Full:
+        pass
+    try:
+        channel.get_nowait()
+    except queue.Empty:
+        # multiprocessing.Queue may report the full semaphore just before its
+        # feeder makes the item readable.  A later frame will retry without
+        # ever blocking the render process.
+        return False
+    try:
+        channel.put_nowait(value)
+        return True
+    except queue.Full:
+        return False
 
 
 class CameraRenderWorker:
@@ -599,6 +628,9 @@ class CameraRenderWorker:
         }
         self._commands = self._context.Queue(maxsize=2)
         self._results = self._context.Queue(maxsize=32)
+        self._frame_results = {
+            name: self._context.Queue(maxsize=1) for name in self.streams
+        }
         self._ready = self._context.Event()
         self._stop = self._context.Event()
         self._process = self._context.Process(
@@ -609,6 +641,7 @@ class CameraRenderWorker:
                 self.mailboxes,
                 self._commands,
                 self._results,
+                self._frame_results,
                 self._ready,
                 self._stop,
             ),
@@ -759,7 +792,7 @@ class CameraRenderWorker:
             self._process.join(1.0)
         if self._receiver is not None:
             self._receiver.join(1.0)
-        for channel in (self._commands, self._results):
+        for channel in (self._commands, self._results, *self._frame_results.values()):
             try:
                 channel.close()
                 channel.join_thread()
@@ -769,86 +802,98 @@ class CameraRenderWorker:
 
     def _receive_loop(self) -> None:
         while not self._closed:
+            messages: list[Any] = []
             try:
-                message = self._results.get(timeout=0.1)
+                messages.append(self._results.get_nowait())
             except queue.Empty:
+                pass
+            for channel in self._frame_results.values():
+                try:
+                    messages.append(channel.get_nowait())
+                except queue.Empty:
+                    pass
+            if not messages:
                 if self._started and not self._process.is_alive() and not self._ready_ok.is_set():
                     with self._lock:
                         self._failure = "camera render worker exited during startup"
                     self._ready_ok.set()
+                time.sleep(0.005)
                 continue
-            if not isinstance(message, dict):
-                continue
-            kind = str(message.get("type", ""))
-            if kind == "ready":
-                if not bool(message.get("ok", False)):
-                    with self._lock:
-                        self._failure = str(
-                            message.get("error")
-                            or "camera render worker startup failed"
-                        )
-                self._ready_ok.set()
-                continue
-            if kind == "error":
+            for message in messages:
+                self._receive_message(message)
+
+    def _receive_message(self, message: Any) -> None:
+        if not isinstance(message, dict):
+            return
+        kind = str(message.get("type", ""))
+        if kind == "ready":
+            if not bool(message.get("ok", False)):
                 with self._lock:
-                    self._failure = str(message.get("error") or "camera render failed")[:512]
-                continue
-            if kind != "frame":
-                continue
-            stream = str(message.get("stream", ""))
-            mailbox = self.mailboxes.get(stream)
-            if mailbox is None:
-                continue
-            message_epoch = int(message.get("epoch", 0))
+                    self._failure = str(
+                        message.get("error") or "camera render worker startup failed"
+                    )
+            self._ready_ok.set()
+            return
+        if kind == "error":
             with self._lock:
-                current_epoch = int(self._epoch)
-            if message_epoch < current_epoch:
-                continue
-            color, depth, sequence, captured_at = mailbox.latest()
-            expected = int(message.get("sequence", 0))
-            if color is None or depth is None or sequence != expected:
-                # A newer frame overwrote this metadata before the receiver
-                # copied it.  The next notification represents the latest
-                # slot; dropping this stale one preserves coherence.
-                continue
-            intr = message.get("intrinsics")
-            if not isinstance(intr, (tuple, list)) or len(intr) != 6:
-                continue
-            frame = SimCameraFrame(
-                color_bgr=color,
-                depth_raw=depth,
-                depth_scale=float(message.get("depth_scale", 0.001)),
-                intrinsics=SimCameraIntrinsics(
-                    fx=float(intr[0]),
-                    fy=float(intr[1]),
-                    cx=float(intr[2]),
-                    cy=float(intr[3]),
-                    width=int(intr[4]),
-                    height=int(intr[5]),
-                ),
-                seq=sequence,
-                ts=float(message.get("ts", captured_at)),
-                arm_q=message.get("arm_q"),
-                camera_world_origin=message.get("camera_world_origin"),
-                camera_world_look=message.get("camera_world_look"),
-                camera_world_right=message.get("camera_world_right"),
+                self._failure = str(message.get("error") or "camera render failed")[:512]
+            return
+        if kind != "frame":
+            return
+        stream = str(message.get("stream", ""))
+        mailbox = self.mailboxes.get(stream)
+        if mailbox is None:
+            return
+        message_epoch = int(message.get("epoch", 0))
+        with self._lock:
+            current_epoch = int(self._epoch)
+        if message_epoch < current_epoch:
+            return
+        color, depth, sequence, captured_at = mailbox.latest()
+        expected = int(message.get("sequence", 0))
+        if color is None or depth is None or sequence != expected:
+            # A newer frame overwrote this metadata before the receiver
+            # copied it.  The next notification represents the latest slot;
+            # dropping this stale one preserves coherence.
+            return
+        intr = message.get("intrinsics")
+        if not isinstance(intr, (tuple, list)) or len(intr) != 6:
+            return
+        frame = SimCameraFrame(
+            color_bgr=color,
+            depth_raw=depth,
+            depth_scale=float(message.get("depth_scale", 0.001)),
+            intrinsics=SimCameraIntrinsics(
+                fx=float(intr[0]),
+                fy=float(intr[1]),
+                cx=float(intr[2]),
+                cy=float(intr[3]),
+                width=int(intr[4]),
+                height=int(intr[5]),
+            ),
+            seq=sequence,
+            ts=float(message.get("ts", captured_at)),
+            arm_q=message.get("arm_q"),
+            camera_world_origin=message.get("camera_world_origin"),
+            camera_world_look=message.get("camera_world_look"),
+            camera_world_right=message.get("camera_world_right"),
+        )
+        with self._lock:
+            self._completed[stream] = int(self._completed.get(stream, 0)) + 1
+            self._last_sequence[stream] = sequence
+            render_ms = max(0.0, float(message.get("render_ms", 0.0)))
+            self._render_count[stream] = int(self._render_count.get(stream, 0)) + 1
+            self._render_sum_ms[stream] = (
+                float(self._render_sum_ms.get(stream, 0.0)) + render_ms
             )
+            self._render_max_ms[stream] = max(
+                float(self._render_max_ms.get(stream, 0.0)), render_ms
+            )
+        try:
+            self._on_frame(stream, frame)
+        except Exception as exc:
             with self._lock:
-                self._completed[stream] = int(self._completed.get(stream, 0)) + 1
-                self._last_sequence[stream] = sequence
-                render_ms = max(0.0, float(message.get("render_ms", 0.0)))
-                self._render_count[stream] = int(self._render_count.get(stream, 0)) + 1
-                self._render_sum_ms[stream] = (
-                    float(self._render_sum_ms.get(stream, 0.0)) + render_ms
-                )
-                self._render_max_ms[stream] = max(
-                    float(self._render_max_ms.get(stream, 0.0)), render_ms
-                )
-            try:
-                self._on_frame(stream, frame)
-            except Exception as exc:
-                with self._lock:
-                    self._failure = f"frame callback: {str(exc)[:480]}"
+                self._failure = f"frame callback: {str(exc)[:480]}"
 
 
 __all__ = [
