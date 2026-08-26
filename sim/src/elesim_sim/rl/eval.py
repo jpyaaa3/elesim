@@ -27,10 +27,15 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
+from .headless_gl import select_offscreen_gl
+
+_GL_PLATFORM = select_offscreen_gl()
+
 import torch
 
 from .configs.loader import load_config, to_dict, WrapGraspConfig
 from .envs.wrap_env import WrapGraspEnv
+from .scene import WrapGraspScene
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -177,6 +182,7 @@ def render_report(
     lines.append("|---|---|")
     lines.append(f"| success criterion | `{cfg.success.criterion}` |")
     lines.append(f"| curriculum stage | {cfg.curriculum.stage} |")
+    lines.append(f"| GL platform | `{_GL_PLATFORM}` |")
     lines.append(f"| episodes | {total_eps} |")
     lines.append(
         f"| overall success | **{total_ok}/{total_eps}"
@@ -220,6 +226,26 @@ def render_report(
     return "\n".join(lines) + "\n"
 
 
+def _record_episode(env: WrapGraspEnv, policy, *, steps: int):
+    """Roll one episode with the camera recording, and return the camera.
+
+    Recorded after the condition grid so the frames show the policy under the
+    configured reset distribution rather than a pinned eval condition.
+    """
+    camera = env.scene.cameras["eval"]
+    camera.start_recording()
+    env._eval_override = None
+    obs, _ = env.reset()
+    for _ in range(steps):
+        with torch.inference_mode():
+            actions = policy(obs)
+        obs, _, dones, _ = env.step(actions)
+        camera.render()
+        if bool(dones[0]):
+            break
+    return camera
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
@@ -228,10 +254,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--set", action="append", default=[], dest="overrides")
     parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--out", default=None)
+    parser.add_argument(
+        "--render", type=int, default=0,
+        help="record this many macro steps of one env to an mp4",
+    )
+    parser.add_argument("--render-fps", type=int, default=10)
+    parser.add_argument(
+        "--video-out", default=None, help="mp4 path (default: alongside the report)"
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
-    env = WrapGraspEnv(cfg)
+
+    camera_specs = []
+    if args.render > 0:
+        # Cameras must exist before scene.build(), so they are declared here and
+        # the scene is constructed with them rather than attached afterwards.
+        camera_specs = [
+            {
+                "name": "eval",
+                "res": (960, 720),
+                "pos": (1.25, -0.95, 1.05),
+                "lookat": tuple(float(v) for v in cfg.object_center()),
+                "fov": 40,
+            }
+        ]
+    scene = WrapGraspScene(cfg, camera_specs=camera_specs).build()
+    env = WrapGraspEnv(cfg, scene=scene)
 
     from rsl_rl.runners import OnPolicyRunner
 
@@ -268,6 +317,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"failures {last.failures}",
             flush=True,
         )
+
+    if args.render > 0:
+        video = _record_episode(env, policy, steps=int(args.render))
+        out_video = Path(args.video_out) if args.video_out else None
+        if out_video is None:
+            out_video = Path(cfg.eval.out_dir) / "eval_episode.mp4"
+        if not out_video.is_absolute():
+            out_video = _REPO_ROOT / out_video
+        out_video.parent.mkdir(parents=True, exist_ok=True)
+        video.stop_recording(save_to_filename=str(out_video), fps=int(args.render_fps))
+        print(f"[eval] wrote {out_video}")
 
     report = render_report(results, cfg, str(ckpt))
     out = Path(args.out) if args.out else Path(cfg.eval.out_dir) / "eval.md"

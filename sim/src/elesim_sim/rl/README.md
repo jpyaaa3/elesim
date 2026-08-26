@@ -106,10 +106,45 @@ pose reached 250 deg of wrap with zero object contacts — and at any threshold
 at or below 180 deg it is provably not a grasp, because the escape opening is
 then at least the object's own diameter.
 
+## Running eval beside a training job
+
+Pin each process to its own GPU with `CUDA_VISIBLE_DEVICES`.  Within a process
+the selected device is renumbered to 0, and nothing here hardcodes a device
+index, so both torch and Genesis follow it:
+
+```bash
+# GPU 0: training
+CUDA_VISIBLE_DEVICES=0 python -m elesim_sim.rl.train \
+  --set runtime.n_envs=4096 --stamp run1
+
+# GPU 1: evaluation against a checkpoint the training run has written
+CUDA_VISIBLE_DEVICES=1 PYOPENGL_PLATFORM=egl python -m elesim_sim.rl.eval \
+  --checkpoint sim/rl_runs/wrap_grasp/stage1_run1/model_200.pt \
+  --set runtime.n_envs=512 \
+  --episodes 20 --render 40 \
+  --out sim/rl_runs/eval/it200.md \
+  --video-out sim/rl_runs/eval/it200.mp4
+```
+
+Evaluate a *checkpoint file*, never the live run: the two processes share
+nothing, and checkpoints are complete on write.
+
+### Headless rendering
+
+A training server has no display, so pyrender must go through EGL.
+`rl/headless_gl.py` sets `PYOPENGL_PLATFORM=egl` automatically when there is no
+`DISPLAY` and the platform is not macOS -- macOS has no EGL and forcing it there
+breaks the import.  An existing value is always respected, so set
+`PYOPENGL_PLATFORM=osmesa` instead if the driver has no EGL.
+
+Rendering needs a GL-capable driver on the device.  If the eval GPU is in
+compute-only mode, run eval with `--render 0` and render separately where a
+driver is available.
+
 ## Evaluation and export
 
 ```bash
-python -m elesim_sim.rl.eval --checkpoint <ckpt> --episodes 20
+python -m elesim_sim.rl.eval --checkpoint <ckpt> --episodes 20 --render 40
 python -m elesim_sim.rl.export_traj --checkpoint <ckpt> --count 20
 ```
 

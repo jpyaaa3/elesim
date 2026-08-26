@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
+from .headless_gl import select_offscreen_gl
+
+_GL_PLATFORM = select_offscreen_gl()  # must precede the genesis import
+
 import numpy as np
 import torch
 
@@ -190,6 +194,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "quadruped_touch": bool(snap.go2_touch[0]),
         "arm_self_touch": bool(snap.self_touch[0]),
     }
+    facts["gl_platform"] = _GL_PLATFORM
     print(json.dumps(facts, indent=2))
 
     out_dir = Path(args.out)
