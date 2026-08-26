@@ -44,7 +44,7 @@ from .state import InstallState
 from .updater import render_update_wrapper
 
 
-GO2_MPC_PACKAGE = "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git"
+GO2_MPC_PACKAGE = "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32"
 ROBOT_SYSTEMD_UNIT = "elesim-robot.service"
 UNITREE_BRIDGE_SYSTEMD_UNIT = "elesim-unitree-bridge.service"
 NATIVE_RUNTIME_LOG_RETENTION = 5

@@ -37,7 +37,7 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from .credentials import tailscale_proxy_command
+from .credentials import proxy_failure_detail, tailscale_proxy_command
 
 
 MAX_BUNDLE_FILES = 256
@@ -801,7 +801,17 @@ class ParamikoConnector:
                 "connection-manager network path."
             ) from exc
         except OSError as exc:
-            detail = str(exc).strip() or exc.__class__.__name__
+            detail = proxy_failure_detail(connection, exc)
+            raise SshConnectionError(
+                f"SSH connection to {endpoint.host}:{endpoint.port} failed: {detail}. "
+                "Check the remote SSH service, Tailscale SSH/ACL, and the "
+                "connection-manager network path."
+            ) from exc
+        except Exception as exc:
+            ssh_error = getattr(paramiko, "SSHException", None)
+            if not isinstance(ssh_error, type) or not isinstance(exc, ssh_error):
+                raise
+            detail = proxy_failure_detail(connection, exc)
             raise SshConnectionError(
                 f"SSH connection to {endpoint.host}:{endpoint.port} failed: {detail}. "
                 "Check the remote SSH service, Tailscale SSH/ACL, and the "

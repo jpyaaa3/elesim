@@ -167,6 +167,14 @@ robot:
         mass_kg: 0.0
       mpc:
         leg_kv_damping: 3.0
+        # The upstream four-face rectangle permits sqrt(2)*mu diagonally.
+        # Keep the simulated surface at 0.8 and optimize conservatively.
+        physical_friction: 0.8
+        optimization_friction: 0.55
+        fz_max_n: 180.0
+        joint_armature: 0.01
+        joint_damping: 0.1
+        joint_frictionloss: 0.2
       general:
         mode: convex_mpc
         gait_hz: 2.2

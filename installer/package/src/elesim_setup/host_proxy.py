@@ -23,18 +23,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not path.is_absolute():
         parser.error("--socket must be absolute")
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    connection.connect(str(path))
-    connection.sendall(
-        json.dumps(
-            {"operation": "tailscale-nc", "host": args.host, "port": args.port},
-            separators=(",", ":"),
-        ).encode("utf-8")
-        + b"\n"
-    )
-    response = _read_line(connection)
-    payload = json.loads(response.decode("utf-8"))
-    if not payload.get("ok"):
-        raise RuntimeError(str(payload.get("error", "host proxy refused")))
+    try:
+        connection.connect(str(path))
+        connection.sendall(
+            json.dumps(
+                {"operation": "tailscale-nc", "host": args.host, "port": args.port},
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        response = _read_line(connection)
+        payload = json.loads(response.decode("utf-8"))
+        if not payload.get("ok"):
+            raise RuntimeError(str(payload.get("error", "host proxy refused")))
+    except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+        print(f"elesim-host-proxy: {exc}", file=sys.stderr, flush=True)
+        connection.close()
+        return 2
 
     worker = threading.Thread(
         target=_upload_stdin,

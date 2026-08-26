@@ -1043,6 +1043,70 @@ def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
     assert Transport.password_attempted is False
 
 
+def test_paramiko_connector_surfaces_tailscale_proxy_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SSHException(Exception):
+        pass
+
+    class Proxy:
+        def __init__(self, _command: str) -> None:
+            self.process = SimpleNamespace(
+                poll=lambda: 2,
+                stderr=io.BytesIO(
+                    b"elesim-host-proxy: host Tailscale nc failed "
+                    b"for 100.64.0.20:22 (exit 1): peer offline\n"
+                ),
+            )
+
+        def close(self) -> None:
+            pass
+
+    class Transport:
+        def __init__(self, _connection: object) -> None:
+            pass
+
+        def start_client(self, timeout: float) -> None:
+            raise SSHException("No existing session")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY", "1")
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_BIN", "/usr/local/bin/elesim-host-proxy"
+    )
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_SOCKET", "/run/elesim/helper.sock"
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko.proxy",
+        SimpleNamespace(ProxyCommand=Proxy),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(
+            SSHException=SSHException,
+            Transport=Transport,
+            SSHClient=lambda: object(),
+        ),
+    )
+    endpoint = SshEndpoint(
+        "100.64.0.20",
+        22,
+        "operator",
+        "",
+        FINGERPRINT,
+        auth_mode="tailscale",
+    )
+
+    with pytest.raises(RuntimeError, match="peer offline") as error:
+        ParamikoConnector(timeout_s=4).connect(endpoint)
+    assert "Broken pipe" not in str(error.value)
+
+
 class FakeSession:
     def __init__(self) -> None:
         self.commands: list[tuple[tuple[str, ...], bool]] = []

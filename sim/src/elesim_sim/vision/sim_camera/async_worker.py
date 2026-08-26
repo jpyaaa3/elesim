@@ -198,21 +198,9 @@ def _make_urdf_morph(
         prioritize_urdf_material=True,
         merge_fixed_links=not bool(requires_jac_and_ik),
         requires_jac_and_IK=bool(requires_jac_and_ik),
+        default_armature=0.0,
     )
-    try:
-        return gs.morphs.URDF(**common, default_armature=0.0)
-    except TypeError:
-        common.pop("requires_jac_and_IK", None)
-        common.pop("merge_fixed_links", None)
-        try:
-            return gs.morphs.URDF(**common, default_armature=0.0)
-        except TypeError:
-            return gs.morphs.URDF(
-                file=str(urdf_path),
-                pos=tuple(float(v) for v in pos),
-                euler=tuple(float(v) for v in euler_deg),
-                fixed=bool(fixed),
-            )
+    return gs.morphs.URDF(**common)
 
 
 def movable_urdf_joint_names(urdf_path: str) -> tuple[str, ...]:

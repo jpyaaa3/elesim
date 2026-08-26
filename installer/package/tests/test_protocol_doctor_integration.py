@@ -58,3 +58,28 @@ def test_sim_runtime_images_build_and_verify_casadi_osqp() -> None:
         assert "BUILD_OSQP_VERSION" in dockerfile
         assert "CMAKE_INSTALL_PREFIX=/opt/openrobots" in dockerfile
         assert 'ca.has_conic("osqp")' in dockerfile
+
+
+def test_go2_mpc_dependency_is_pinned_to_the_validated_commit() -> None:
+    commit = "1c63c6a762779887ab0431fd60db681dede6cb32"
+    package = f"git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@{commit}"
+    app = (ROOT / "environment/containers/Dockerfile.app").read_text(
+        encoding="utf-8"
+    )
+    development = (ROOT / "environment/development/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    installer = (
+        ROOT / "installer/package/src/elesim_setup/installer.py"
+    ).read_text(encoding="utf-8")
+    controller = (
+        ROOT / "sim/src/elesim_sim/robot/go2/mpc/controller.py"
+    ).read_text(encoding="utf-8")
+
+    assert package in app
+    assert package in development
+    assert f'GO2_MPC_PACKAGE = "{package}"' in installer
+    assert package in controller
+    assert 'go2-convex-mpc.git"' not in app
+    assert 'go2-convex-mpc.git"' not in installer
+    assert 'go2-convex-mpc.git "' not in controller

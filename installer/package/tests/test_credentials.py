@@ -9,6 +9,7 @@ import pytest
 from elesim_setup.credentials import (
     install_staged_credentials,
     probe_ssh_fingerprint,
+    proxy_failure_detail,
     validate_external_turn_credentials,
 )
 
@@ -176,6 +177,19 @@ def test_ssh_fingerprint_timeout_explains_container_and_tailscale_path(
     with pytest.raises(RuntimeError, match="Docker 컨테이너") as error:
         probe_ssh_fingerprint("100.74.222.24", 22)
     assert "tailscale" in str(error.value).lower()
+
+
+def test_proxy_failure_detail_prefers_host_helper_diagnostic() -> None:
+    process = SimpleNamespace(
+        poll=lambda: 2,
+        stderr=SimpleNamespace(
+            read=lambda _limit: b"elesim-host-proxy: peer offline; SSH disabled\n"
+        ),
+    )
+
+    assert proxy_failure_detail(
+        SimpleNamespace(process=process), BrokenPipeError("Broken pipe")
+    ) == "elesim-host-proxy: peer offline; SSH disabled"
 
 
 def test_external_turn_credentials_use_strict_bounded_json(tmp_path: Path) -> None:

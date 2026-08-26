@@ -44,11 +44,16 @@ class ArmPayloadCompensator:
         self._link_names = names if names else None
         self._link_ids: set[int] = set()
         if self._link_names is not None:
+            missing: list[str] = []
             for name in self._link_names:
                 try:
                     self._link_ids.add(id(arm_entity.get_link(name)))
-                except Exception:
-                    continue
+                except (KeyError, ValueError, AttributeError):
+                    missing.append(name)
+            if missing:
+                raise ValueError(
+                    f"Genesis arm entity is missing configured payload links: {sorted(missing)}"
+                )
 
     @staticmethod
     def _link_name(link) -> str:

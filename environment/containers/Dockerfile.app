@@ -103,7 +103,8 @@ RUN . /opt/ros/humble/setup.sh && \
 COPY protocol/ /tmp/elesim/protocol/
 COPY application/ /tmp/elesim/application/
 RUN if [ "$ROLE" = sim ] && [ "$INSTALL_GO2_MPC" = 1 ]; then \
-      python -m pip install --no-cache-dir "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git"; \
+      python -m pip install --no-cache-dir \
+        "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32"; \
     fi && \
     python -m pip install --no-cache-dir --no-deps /tmp/elesim/protocol /tmp/elesim/application && \
     if [ "$ROLE" = sim ]; then \

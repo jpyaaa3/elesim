@@ -56,7 +56,7 @@ from elesim_sim.config import (
 )
 from elesim_sim.robot.go2.locomotion import Go2Command
 from elesim_sim.robot.go2.locomotion.controller import RaibertTrotController
-from elesim_sim.robot.go2.locomotion.kinematics import GO2_READY_Q, GO2_STAND_Q, Go2KinematicsModel
+from elesim_sim.robot.go2.locomotion.kinematics import GO2_STAND_Q, Go2KinematicsModel
 from elesim_sim.robot.arm.rates import estimate_ideal_sim_rates
 from elesim_sim.core.runtime_urdf import select_runtime_urdf
 from elesim_sim.robot.arm.sag_model import segment_errors_from_model
@@ -467,6 +467,12 @@ class Go2Locomotion:
                 aux_kv=float(config.mpc_aux_kv),
                 tau_filter_alpha=float(config.mpc_tau_filter_alpha),
                 force_filter_alpha=float(config.mpc_force_filter_alpha),
+                physical_friction=float(config.mpc_physical_friction),
+                optimization_friction=float(config.mpc_optimization_friction),
+                fz_max_n=float(config.mpc_fz_max_n),
+                joint_armature=float(config.mpc_joint_armature),
+                joint_damping=float(config.mpc_joint_damping),
+                joint_frictionloss=float(config.mpc_joint_frictionloss),
                 foot_placement_scale=float(config.mpc_foot_placement_scale),
                 payload_enable=bool(config.mpc_payload_enable),
                 payload_mass_kg=float(config.mpc_payload_mass_kg),
@@ -810,17 +816,11 @@ def _make_urdf_morph(
         euler=euler,
         fixed=bool(fixed),
         prioritize_urdf_material=True,
-        merge_fixed_links=False,
         requires_jac_and_IK=bool(requires_jac_and_IK),
+        default_armature=0.0,
+        merge_fixed_links=not bool(requires_jac_and_IK),
     )
-    merge_fixed = not bool(requires_jac_and_IK)
-    try:
-        return gs.morphs.URDF(**common, default_armature=0.0, merge_fixed_links=merge_fixed)
-    except TypeError:
-        try:
-            return gs.morphs.URDF(**common, default_armature=0.0)
-        except TypeError:
-            return gs.morphs.URDF(file=urdf_path, pos=pos, euler=euler, fixed=bool(fixed))
+    return gs.morphs.URDF(**common)
 
 
 def _prepare_go2_urdf_with_config_colors(
@@ -893,29 +893,16 @@ def _prepare_go2_urdf_with_config_colors(
 
 def _set_go2_initial_leg_pose(go2_entity, *, pose_name: str = "ready") -> None:
     """Set GO2 leg joints after Genesis build so calf joints start within limits."""
-    pose = GO2_READY_Q if str(pose_name).strip().lower() == "ready" else GO2_STAND_Q
-    dof_idxs: list[int] = []
-    q_vals: list[float] = []
-    for joint_name, q in pose.items():
-        try:
-            joint = go2_entity.get_joint(str(joint_name))
-            raw_idxs = getattr(joint, "dofs_idx_local", None)
-        except Exception:
-            continue
-        if raw_idxs is None:
-            continue
-        for idx in np.asarray(raw_idxs, dtype=int).reshape(-1):
-            dof_idxs.append(int(idx))
-            q_vals.append(float(q))
-    if not dof_idxs:
-        return
-    q_arr = np.asarray(q_vals, dtype=float)
-    try:
-        go2_entity.set_dofs_position(q_arr, dofs_idx_local=dof_idxs)
-        go2_entity.control_dofs_position(q_arr, dofs_idx_local=dof_idxs)
-        print(f"[runtime] GO2 initial leg pose set: {pose_name} ({len(dof_idxs)} dofs)")
-    except Exception as exc:
-        print(f"[runtime] GO2 initial leg pose skipped: {exc}")
+    kinematics = Go2KinematicsModel.from_entity(go2_entity)
+    dof_idxs = kinematics.all_leg_dof_idx
+    q_arr = (
+        kinematics.ready_q
+        if str(pose_name).strip().lower() == "ready"
+        else kinematics.stand_q
+    )
+    go2_entity.set_dofs_position(q_arr, dofs_idx_local=dof_idxs)
+    go2_entity.control_dofs_position(q_arr, dofs_idx_local=dof_idxs)
+    print(f"[runtime] GO2 initial leg pose set: {pose_name} ({len(dof_idxs)} dofs)")
 
 
 @dataclass
@@ -2710,15 +2697,7 @@ class RuntimePrep:
             # Runtime inputs are validated before this boundary; favor device
             # throughput over Genesis' interactive debugging synchronization.
             init_kwargs["performance_mode"] = True
-        try:
-            gs.init(**init_kwargs)
-        except TypeError:
-            # Compatibility with Genesis versions predating performance_mode.
-            init_kwargs.pop("performance_mode", None)
-            try:
-                gs.init(**init_kwargs)
-            except TypeError:
-                gs.init(backend=backend)
+        gs.init(**init_kwargs)
 
         gravity = tuple(float(x) for x in a.params.gravity)
         if use_go2 and gravity == (0.0, 0.0, 0.0):
@@ -2753,12 +2732,14 @@ class RuntimePrep:
             cam_lookat = (spawn_pos[0] + 0.25, spawn_pos[1], spawn_pos[2])
             cam_pos = (spawn_pos[0] + 1.10, spawn_pos[1] - 1.00, spawn_pos[2] + 1.10)
 
-        # Genesis leaves its no-slip contact postprocess disabled by default.
-        # Enable a small, bounded number of iterations so stance feet do not
-        # accumulate tangential solver drift while the Go2 MPC is holding
-        # contact.  This is a solver stabilization setting, not a substitute
-        # for the MPC friction-cone coefficient or contact calibration.
-        rigid_opts = gs.options.RigidOptions(noslip_iterations=5)
+        # Keep the physical Newton solve explicit. Genesis 1.2's no-slip pass
+        # is an experimental postprocess and can hide controller/contact
+        # mismatch instead of enforcing the MPC's Coulomb cone.
+        rigid_opts = gs.options.RigidOptions(
+            constraint_solver=gs.constraint_solver.Newton,
+            iterations=50,
+            noslip_iterations=0,
+        )
         a.sim_scene.scene = gs.Scene(
             sim_options=sim_opts,
             rigid_options=rigid_opts,
@@ -2839,10 +2820,7 @@ class RuntimePrep:
         t_build = time.time()
         a.sim_scene.scene.build()
         if floor_ent is not None:
-            try:
-                floor_ent.set_friction(0.8)
-            except Exception:
-                pass
+            floor_ent.set_friction(float(a.go2_locomotion_config.mpc_physical_friction))
         print("[runtime] scene built in %.2fs" % (time.time() - t_build))
 
         if use_go2 and go2_entity is not None:
