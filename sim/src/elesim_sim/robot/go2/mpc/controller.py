@@ -98,10 +98,10 @@ def _read_torque_limits(entity, dof_idxs: list[int], *, safety_scale: float) -> 
     scale = float(safety_scale)
     if not np.isfinite(scale) or not 0.0 < scale <= 1.0:
         raise ValueError(f"torque_safety_scale must be in (0, 1], got {scale}")
-    ranges = np.asarray(
-        entity.get_dofs_force_range(dofs_idx_local=dof_idxs), dtype=float
-    )
     expected_shape = (2, len(dof_idxs))
+    ranges = _to_numpy_1d(
+        entity.get_dofs_force_range(dofs_idx_local=dof_idxs)
+    ).reshape(expected_shape)
     if ranges.shape != expected_shape:
         raise RuntimeError(
             f"Genesis returned invalid GO2 force-range shape {ranges.shape}; "
@@ -114,7 +114,7 @@ def _read_torque_limits(entity, dof_idxs: list[int], *, safety_scale: float) -> 
 
 
 def _verify_dof_parameter(name: str, actual, expected: np.ndarray) -> None:
-    measured = np.asarray(actual, dtype=float).reshape(-1)
+    measured = _to_numpy_1d(actual)
     if measured.shape != expected.shape or not np.allclose(measured, expected, rtol=1e-5, atol=1e-7):
         raise RuntimeError(
             f"Genesis GO2 {name} mismatch after configuration: "

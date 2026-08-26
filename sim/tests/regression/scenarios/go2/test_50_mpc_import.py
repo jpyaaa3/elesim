@@ -10,6 +10,19 @@ import numpy as np
 
 
 class Go2MpcImportTests(unittest.TestCase):
+    class _CudaLikeTensor:
+        def __init__(self, values):
+            self._values = np.asarray(values, dtype=float)
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self._values
+
+        def __array__(self, *_args, **_kwargs):
+            raise TypeError("CUDA tensor cannot be converted directly")
+
     def test_genesis_pin_bridge_import_without_convex_mpc(self) -> None:
         sys.modules.pop("convex_mpc", None)
         sys.modules.pop("elesim_sim.robot.go2.mpc.genesis_pin_bridge", None)
@@ -67,6 +80,20 @@ class Go2MpcImportTests(unittest.TestCase):
 
         limits = controller._read_torque_limits(Entity(), list(range(12)), safety_scale=0.9)
         np.testing.assert_allclose(limits, np.array([21.33, 21.33, 31.995] * 4))
+
+    def test_runtime_force_ranges_copy_cuda_tensor_to_host(self) -> None:
+        controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
+        upper = np.array([23.7, 23.7, 35.55] * 4)
+
+        class Entity:
+            @staticmethod
+            def get_dofs_force_range(*, dofs_idx_local):
+                return self._CudaLikeTensor(np.vstack((-upper, upper)))
+
+        limits = controller._read_torque_limits(
+            Entity(), list(range(12)), safety_scale=0.9
+        )
+        np.testing.assert_allclose(limits, upper * 0.9)
 
     def test_physics_parameters_are_applied_and_verified(self) -> None:
         controller_module = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
@@ -131,6 +158,13 @@ class Go2MpcImportTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "armature"):
             controller._apply_go2_physics_params()
+
+    def test_physics_parameter_readback_accepts_cuda_tensor(self) -> None:
+        controller = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
+        expected = np.full(12, 0.1)
+        controller._verify_dof_parameter(
+            "damping", self._CudaLikeTensor(expected), expected
+        )
 
     def test_solver_failure_is_not_hidden_behind_stale_forces(self) -> None:
         controller_module = importlib.import_module("elesim_sim.robot.go2.mpc.controller")
