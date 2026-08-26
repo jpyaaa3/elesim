@@ -978,13 +978,14 @@ class ConnectionTopology:
         host = self.host(host_id)
         if self.dds_graph.discovery_mode == "multicast":
             return ()
-        # The runtime-network doctor is a separate DDS participant from the
-        # application roles.  It therefore needs the host's own advertised
-        # address even when that host carries only one role; otherwise a
-        # single-role Sim (or Pilot/UI) cannot be observed by its local
-        # readiness probe when multicast is disabled.  The self seed is a
-        # discovery locator only; application traffic still uses the live
-        # endpoint locators advertised by DDS.
+        # Every participant on a static-discovery host must be able to seed
+        # the host-local graph as well as the remote graph.  Omitting the
+        # local locator for a distributed simulation-only topology leaves a
+        # co-located Pilot/Sim pair dependent on a remote UI participant to
+        # exchange discovery data.  CycloneDDS does not use an application
+        # peer as a discovery router, so that pair can see the UI while never
+        # becoming mutually live.  A participant ignores its own locator;
+        # retaining it is therefore safe and is required for co-located roles.
         peers: list[str] = [host.dds.address]
         peers.extend(
             other.dds.address

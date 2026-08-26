@@ -28,6 +28,8 @@ from typing import Callable, Sequence
 
 _MAX_REQUEST = 256 * 1024
 _MAX_OUTPUT = 64 * 1024
+_MAX_PROXY_ERROR = 4 * 1024
+_PROXY_CONNECT_TIMEOUT_S = 10.0
 _DEFAULT_COMMAND_TIMEOUT_S = 5 * 60
 _MAX_COMMAND_TIMEOUT_S = 30 * 60
 _ROLES = frozenset({"pilot", "sim", "ui"})
@@ -164,9 +166,33 @@ class _Handler(socketserver.StreamRequestHandler):
             (str(binary), "nc", target, str(port)),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        self._reply({"ok": True})
+        try:
+            initial = _wait_tailscale_proxy(
+                process,
+                target=target,
+                port=port,
+                timeout_s=_PROXY_CONNECT_TIMEOUT_S,
+            )
+        except BaseException:
+            _terminate_process(process)
+            raise
+        if not self._reply({"ok": True}):
+            _terminate_process(process)
+            return
+        try:
+            self.connection.sendall(initial)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            _terminate_process(process)
+            return
+
+        stderr_worker = threading.Thread(
+            target=_drain_pipe,
+            args=(process.stderr,),
+            daemon=True,
+        )
+        stderr_worker.start()
 
         def upload() -> None:
             assert process.stdin is not None
@@ -251,6 +277,73 @@ class _Handler(socketserver.StreamRequestHandler):
         except (ConnectionResetError, OSError):
             return True
         return data == b""
+
+
+def _wait_tailscale_proxy(
+    process: subprocess.Popen[bytes],
+    *,
+    target: str,
+    port: int,
+    timeout_s: float,
+) -> bytes:
+    """Wait for the remote SSH banner before declaring the proxy usable."""
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    deadline = time.monotonic() + max(0.1, float(timeout_s))
+    error = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _terminate_process(process)
+            raise HostHelperError(
+                f"host Tailscale nc timed out waiting for SSH at {target}:{port}"
+            )
+        readable, _writable, _exceptional = select.select(
+            [process.stdout, process.stderr], [], [], min(remaining, 0.1)
+        )
+        if process.stdout in readable:
+            data = os.read(process.stdout.fileno(), 32 * 1024)
+            if data:
+                return data
+        if process.stderr in readable and len(error) < _MAX_PROXY_ERROR:
+            chunk = os.read(
+                process.stderr.fileno(), _MAX_PROXY_ERROR - len(error)
+            )
+            error.extend(chunk)
+        returncode = process.poll()
+        if returncode is not None:
+            if len(error) < _MAX_PROXY_ERROR:
+                error.extend(process.stderr.read(_MAX_PROXY_ERROR - len(error)))
+            detail = " ".join(
+                error.decode("utf-8", errors="replace").strip().split()
+            )
+            suffix = f": {detail}" if detail else ""
+            raise HostHelperError(
+                f"host Tailscale nc failed for {target}:{port} "
+                f"(exit {returncode}){suffix}"
+            )
+
+
+def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _drain_pipe(pipe: object) -> None:
+    if pipe is None:
+        return
+    try:
+        while os.read(pipe.fileno(), 32 * 1024):  # type: ignore[attr-defined]
+            pass
+    except (OSError, ValueError):
+        pass
 
 
 def _validate_command(

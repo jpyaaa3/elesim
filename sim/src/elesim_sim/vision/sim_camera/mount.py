@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import time
 from typing import Any, Optional
@@ -25,10 +26,45 @@ _OPTICAL_FROM_GENESIS_CAMERA = np.linalg.inv(_OPTICAL_TO_GENESIS_CAMERA)
 # using the camera intrinsics so behavior does not depend on a particular
 # ImGui window size.
 GENESIS_TRACKBALL_MIN_DIM_FACTOR = 0.3
-GENESIS_TRACKBALL_PAN_DIVISOR = 5.0
-GENESIS_TRACKBALL_SCENE_SCALE = 5.0
 GENESIS_TRACKBALL_MAX_ELEVATION_RAD = float(np.radians(89.0))
 GENESIS_TRACKBALL_SCROLL_RATIO = 0.90
+
+
+def _rotate_vector_about_axis(
+    vector: np.ndarray,
+    axis: np.ndarray,
+    angle_rad: float,
+) -> np.ndarray:
+    """Rotate one vector with Rodrigues' formula."""
+
+    value = np.asarray(vector, dtype=float).reshape(3)
+    unit_axis = np.asarray(axis, dtype=float).reshape(3)
+    unit_axis /= max(float(np.linalg.norm(unit_axis)), 1e-9)
+    angle = float(angle_rad)
+    return (
+        value * math.cos(angle)
+        + np.cross(unit_axis, value) * math.sin(angle)
+        + unit_axis * float(np.dot(unit_axis, value)) * (1.0 - math.cos(angle))
+    )
+
+
+def _screen_basis(forward: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return stable world-space right/up axes for a roll-free camera."""
+
+    direction = np.asarray(forward, dtype=float).reshape(3)
+    direction /= max(float(np.linalg.norm(direction)), 1e-9)
+    world_up = np.array([0.0, 0.0, 1.0], dtype=float)
+    right = np.cross(direction, world_up)
+    right_norm = float(np.linalg.norm(right))
+    if right_norm <= 1e-9:
+        # The public pole clamp normally prevents this.  Keep a deterministic
+        # axis for malformed/restored poses exactly on world Z.
+        right = np.array([1.0, 0.0, 0.0], dtype=float)
+    else:
+        right /= right_norm
+    up = np.cross(right, direction)
+    up /= max(float(np.linalg.norm(up)), 1e-9)
+    return right, up
 
 
 def _emit_timing(sink: Optional[TimingSink], name: str, started: float) -> None:
@@ -173,6 +209,7 @@ class Node9EyeInHandCamera:
         rgb_enabled: bool = True,
         depth_enabled: bool = True,
         prefer_gpu: bool = True,
+        force_render: bool = False,
         timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
@@ -182,7 +219,22 @@ class Node9EyeInHandCamera:
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
-            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            # An attached camera is normally advanced as part of a Genesis
+            # scene step.  The async visual replica never steps physics, so
+            # explicitly follow the freshly applied link pose before every
+            # render.  This is harmless for the legacy in-process path.
+            if hasattr(self.camera, "move_to_attach"):
+                self.camera.move_to_attach()
+            try:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled),
+                    depth=bool(depth_enabled),
+                    force_render=bool(force_render),
+                )
+            except TypeError:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
+                )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:
@@ -238,10 +290,9 @@ class Node9EyeInHandCamera:
 
 
 @dataclass
-class ObserverCamera:
-    """Operator-controlled Genesis camera for the remote scene view."""
+class ObserverViewState:
+    """Renderer-independent observer pose controlled by the operator."""
 
-    camera: Any
     intrinsics: SimCameraIntrinsics
     pos: tuple[float, float, float]
     lookat: tuple[float, float, float]
@@ -255,64 +306,30 @@ class ObserverCamera:
     @classmethod
     def create(
         cls,
-        scene,
         *,
-        res: tuple[int, int] = (320, 240),
+        res: tuple[int, int] = (640, 480),
         fov_deg: float = 40.0,
         pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
         lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
-    ) -> "ObserverCamera":
-        """Register camera before ``scene.build()``."""
+    ) -> "ObserverViewState":
         w, h = int(res[0]), int(res[1])
-        pos_t = tuple(float(x) for x in pos)
-        lookat_t = tuple(float(x) for x in lookat)
-        up_t = (0.0, 0.0, 1.0)
-        try:
-            camera = scene.add_camera(
-                res=(w, h),
-                pos=pos_t,
-                lookat=lookat_t,
-                up=up_t,
-                fov=float(fov_deg),
-                GUI=False,
-                debug=False,
-            )
-        except TypeError:
-            camera = scene.add_camera(
-                res=(w, h),
-                fov=float(fov_deg),
-                GUI=False,
-                debug=False,
-            )
-        intr = intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg)
-        return cls(camera=camera, intrinsics=intr, pos=pos_t, lookat=lookat_t, up=up_t)
+        return cls(
+            intrinsics=intrinsics_from_fov(width=w, height=h, fov_deg=fov_deg),
+            pos=tuple(float(x) for x in pos),
+            lookat=tuple(float(x) for x in lookat),
+        )
+
+    def _apply_pose(self) -> None:
+        """Hook implemented by the legacy in-process Genesis camera."""
 
     def _set_camera_pose(self) -> None:
         if self._reset_pos is None:
             self._reset_pos = self.pos
             self._reset_lookat = self.lookat
-        if not hasattr(self.camera, "set_pose"):
-            return
-        try:
-            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
-            return
-        except TypeError:
-            try:
-                self.camera.set_pose(self.pos, self.lookat)
-                return
-            except Exception as exc:
-                if not self._pose_warned:
-                    self._pose_warned = True
-                    print(f"[sim_camera] observer pose update failed: {exc}")
-        except Exception as exc:
-            if not self._pose_warned:
-                self._pose_warned = True
-                print(f"[sim_camera] observer pose update failed: {exc}")
+        self._apply_pose()
 
     def apply_operator_command(self, command: str, arguments: dict[str, Any]) -> None:
-        """Apply a validated camera command on the Genesis owner thread."""
-
-        import math
+        """Update the observer view without requiring a Genesis camera."""
 
         if self._reset_pos is None:
             self._reset_pos = self.pos
@@ -333,48 +350,57 @@ class ObserverCamera:
             mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
-            # Keep the transport command name for protocol compatibility, but
-            # make primary-drag a conventional fixed-eye pan/tilt.  Orbiting
-            # the eye around the target felt like a CAD trackball and could
-            # visually suggest roll.  A world-Z up vector and the pole clamp
-            # leave no roll degree of freedom here.
-            forward = target - eye
-            yaw = math.atan2(float(forward[1]), float(forward[0])) - dx_px / mindim
-            horizontal = max(float(np.linalg.norm(forward[:2])), 1e-9)
-            pitch = math.atan2(float(forward[2]), horizontal) - dy_px / mindim
-            pitch = float(
+            forward = (target - eye) / radius
+            world_up = np.array([0.0, 0.0, 1.0], dtype=float)
+            forward = _rotate_vector_about_axis(
+                forward,
+                world_up,
+                -dx_px / mindim,
+            )
+            right, _up = _screen_basis(forward)
+            forward = _rotate_vector_about_axis(
+                forward,
+                right,
+                -dy_px / mindim,
+            )
+            forward /= max(float(np.linalg.norm(forward)), 1e-9)
+            elevation = math.asin(float(np.clip(forward[2], -1.0, 1.0)))
+            clamped = float(
                 np.clip(
-                    pitch,
+                    elevation,
                     -GENESIS_TRACKBALL_MAX_ELEVATION_RAD,
                     GENESIS_TRACKBALL_MAX_ELEVATION_RAD,
                 )
             )
-            forward = radius * np.array(
-                [
-                    math.cos(pitch) * math.cos(yaw),
-                    math.cos(pitch) * math.sin(yaw),
-                    math.sin(pitch),
-                ]
-            )
-            target = eye + forward
+            if not math.isclose(elevation, clamped, abs_tol=1e-12):
+                horizontal = forward.copy()
+                horizontal[2] = 0.0
+                horizontal /= max(float(np.linalg.norm(horizontal)), 1e-9)
+                forward = (
+                    math.cos(clamped) * horizontal
+                    + math.sin(clamped) * world_up
+                )
+            target = eye + radius * forward
         elif name == "zoom":
             radius = float(np.clip(radius * math.exp(float(arguments["delta"]) * 1.5), 0.08, 20.0))
             eye = target + offset / max(float(np.linalg.norm(offset)), 1e-9) * radius
         elif name == "pan":
             width = max(float(self.intrinsics.width), 1.0)
             height = max(float(self.intrinsics.height), 1.0)
-            mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
             forward = target - eye
             forward /= max(float(np.linalg.norm(forward)), 1e-9)
-            # Camera-to-world x/y axes used by Genesis Trackball's pan path.
-            right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
-            right /= max(float(np.linalg.norm(right)), 1e-9)
-            up = np.cross(right, forward)
+            right, up = _screen_basis(forward)
+            # Perspective screen-space pan: at the look-at plane, one pixel
+            # spans roughly distance/focal_length world units.  Moving the
+            # camera opposite the pointer makes the scene follow the grabbed
+            # point, matching common CAD viewport behavior.
+            focal_px = max(float(self.intrinsics.fx), float(self.intrinsics.fy), 1.0)
+            world_per_pixel = radius / focal_px
             shift = (
-                -dx_px / (GENESIS_TRACKBALL_PAN_DIVISOR * mindim) * GENESIS_TRACKBALL_SCENE_SCALE * right
-                -dy_px / (GENESIS_TRACKBALL_PAN_DIVISOR * mindim) * GENESIS_TRACKBALL_SCENE_SCALE * up
+                dx_px * world_per_pixel * right
+                - dy_px * world_per_pixel * up
             )
             eye += shift
             target += shift
@@ -383,6 +409,69 @@ class ObserverCamera:
         self.pos = tuple(float(value) for value in eye)
         self.lookat = tuple(float(value) for value in target)
         self._set_camera_pose()
+
+
+@dataclass
+class ObserverCamera(ObserverViewState):
+    """Legacy in-process Genesis camera plus operator-controlled view state."""
+
+    camera: Any = None
+
+    @classmethod
+    def create(
+        cls,
+        scene,
+        *,
+        res: tuple[int, int] = (640, 480),
+        fov_deg: float = 40.0,
+        pos: tuple[float, float, float] = (3.5, 0.5, 2.5),
+        lookat: tuple[float, float, float] = (0.0, 0.0, 0.5),
+    ) -> "ObserverCamera":
+        """Register camera before ``scene.build()``."""
+        view = ObserverViewState.create(res=res, fov_deg=fov_deg, pos=pos, lookat=lookat)
+        try:
+            camera = scene.add_camera(
+                res=(int(res[0]), int(res[1])),
+                pos=view.pos,
+                lookat=view.lookat,
+                up=view.up,
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        except TypeError:
+            camera = scene.add_camera(
+                res=(int(res[0]), int(res[1])),
+                fov=float(fov_deg),
+                GUI=False,
+                debug=False,
+            )
+        return cls(
+            intrinsics=view.intrinsics,
+            pos=view.pos,
+            lookat=view.lookat,
+            up=view.up,
+            camera=camera,
+        )
+
+    def _apply_pose(self) -> None:
+        if not hasattr(self.camera, "set_pose"):
+            return
+        try:
+            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
+            return
+        except TypeError:
+            try:
+                self.camera.set_pose(self.pos, self.lookat)
+                return
+            except Exception as exc:
+                if not self._pose_warned:
+                    self._pose_warned = True
+                    print(f"[sim_camera] observer pose update failed: {exc}")
+        except Exception as exc:
+            if not self._pose_warned:
+                self._pose_warned = True
+                print(f"[sim_camera] observer pose update failed: {exc}")
 
     def _camera_pose_world(self) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
         origin = np.asarray(self.pos, dtype=float).reshape(3)
@@ -413,6 +502,7 @@ class ObserverCamera:
         rgb_enabled: bool = True,
         depth_enabled: bool = False,
         prefer_gpu: bool = True,
+        force_render: bool = False,
         timing_sink: Optional[TimingSink] = None,
     ) -> SimCameraFrame:
         import time
@@ -422,7 +512,17 @@ class ObserverCamera:
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
-            rgb, depth, _, _ = self.camera.render(rgb=bool(rgb_enabled), depth=bool(depth_enabled))
+            try:
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled),
+                    depth=bool(depth_enabled),
+                    force_render=bool(force_render),
+                )
+            except TypeError:
+                # Genesis 1.1 and older do not expose ``force_render``.
+                rgb, depth, _, _ = self.camera.render(
+                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
+                )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:

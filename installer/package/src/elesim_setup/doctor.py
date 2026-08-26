@@ -24,6 +24,7 @@ FAIL = "FAIL"
 WARN = "WARN"
 SKIP = "SKIP"
 RGBD_TYPE = "elesim_interfaces/msg/RgbdFrame"
+ENCODED_RGBD_TYPE = "elesim_interfaces/msg/EncodedRgbdFrame"
 PEER_ENVELOPE_TYPE = "elesim_interfaces/msg/PeerEnvelope"
 
 
@@ -61,6 +62,28 @@ class DdsPeerProbe:
 
     descriptors: tuple[str, ...]
     heartbeats: tuple[str, ...]
+    matched: tuple[str, ...] = ()
+
+    @property
+    def live_peers(self) -> tuple[str, ...]:
+        """Return peers proven live by a matching descriptor and heartbeat."""
+
+        return tuple(sorted(set(self.matched)))
+
+
+def _peer_observation(message: Any) -> tuple[str, tuple[str, int]] | None:
+    """Extract the identity tuple shared by descriptor and heartbeat messages."""
+
+    peer = getattr(message, "peer", None)
+    endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
+    if not endpoint_id:
+        return None
+    boot_id = str(getattr(peer, "boot_id", "")).strip()
+    try:
+        revision = int(getattr(message, "descriptor_revision", 0))
+    except (TypeError, ValueError):
+        revision = 0
+    return endpoint_id, (boot_id, revision)
 
 
 def _rclpy_import() -> Any:
@@ -380,6 +403,9 @@ def probe_dds_peer_state(
     executor = None
     descriptor_ids: set[str] = set()
     heartbeat_ids: set[str] = set()
+    descriptor_identity: dict[str, tuple[str, int]] = {}
+    heartbeat_identity: dict[str, tuple[str, int]] = {}
+    matched_ids: set[str] = set()
     expected_ids = {
         str(value).strip() for value in expected_peers if str(value).strip()
     }
@@ -400,17 +426,37 @@ def probe_dds_peer_state(
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
 
+        def refresh_match(endpoint_id: str) -> None:
+            descriptor = descriptor_identity.get(endpoint_id)
+            heartbeat = heartbeat_identity.get(endpoint_id)
+            if (
+                descriptor is not None
+                and descriptor == heartbeat
+                and descriptor[0]
+                and descriptor[1] > 0
+            ):
+                matched_ids.add(endpoint_id)
+            else:
+                matched_ids.discard(endpoint_id)
+
+        def record_observation(
+            message: Any,
+            seen: set[str],
+            identities: dict[str, tuple[str, int]],
+        ) -> None:
+            observation = _peer_observation(message)
+            if observation is None:
+                return
+            endpoint_id, identity = observation
+            seen.add(endpoint_id)
+            identities[endpoint_id] = identity
+            refresh_match(endpoint_id)
+
         def on_descriptor(message: Any) -> None:
-            peer = getattr(message, "peer", None)
-            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
-            if endpoint_id:
-                descriptor_ids.add(endpoint_id)
+            record_observation(message, descriptor_ids, descriptor_identity)
 
         def on_heartbeat(message: Any) -> None:
-            peer = getattr(message, "peer", None)
-            endpoint_id = str(getattr(peer, "endpoint_id", "")).strip()
-            if endpoint_id:
-                heartbeat_ids.add(endpoint_id)
+            record_observation(message, heartbeat_ids, heartbeat_identity)
 
         descriptor_subscription = node.create_subscription(
             EndpointDescriptor,
@@ -441,8 +487,7 @@ def probe_dds_peer_state(
             )
             if (
                 expected_ids
-                and expected_ids.issubset(descriptor_ids)
-                and expected_ids.issubset(heartbeat_ids)
+                and expected_ids.issubset(matched_ids)
             ):
                 break
         node.destroy_subscription(descriptor_subscription)
@@ -450,6 +495,7 @@ def probe_dds_peer_state(
         return DdsPeerProbe(
             descriptors=tuple(sorted(descriptor_ids)),
             heartbeats=tuple(sorted(heartbeat_ids)),
+            matched=tuple(sorted(matched_ids)),
         )
     finally:
         if executor is not None:
@@ -465,13 +511,14 @@ def probe_rgbd_frame(
     state: InstallState,
     *,
     timeout_s: float,
+    encoded: bool = False,
 ) -> dict[str, int]:
     """Wait for one typed DDS RGBD sample on the configured Sim topic."""
 
     _prepare_dds_environment(state)
     try:
         import rclpy
-        from elesim_interfaces.msg import RgbdFrame
+        from elesim_interfaces.msg import EncodedRgbdFrame, RgbdFrame
         from rclpy.qos import qos_profile_sensor_data
     except ImportError as exc:
         raise RuntimeError(
@@ -493,8 +540,9 @@ def probe_rgbd_frame(
         executor = _context_executor(rclpy, context)
         if executor is not None:
             executor.add_node(node)
+        message_type = EncodedRgbdFrame if encoded else RgbdFrame
         subscription = node.create_subscription(
-            RgbdFrame,
+            message_type,
             rgbd_topic(state, "sim"),
             received.append,
             qos_profile_sensor_data,
@@ -510,6 +558,13 @@ def probe_rgbd_frame(
         if not received:
             raise TimeoutError("DDS RGBD frame timeout")
         message = received[0]
+        if encoded:
+            return {
+                "color_width": int(getattr(message, "width", 0)),
+                "color_height": int(getattr(message, "height", 0)),
+                "depth_width": int(getattr(message, "width", 0)) if bool(getattr(message, "has_depth", False)) else 0,
+                "depth_height": int(getattr(message, "height", 0)) if bool(getattr(message, "has_depth", False)) else 0,
+            }
         color = getattr(message, "color", None)
         depth = getattr(message, "depth", None)
         result = {
@@ -638,18 +693,22 @@ class NetworkDoctor:
             return
         descriptors = set(probe.descriptors)
         heartbeats = set(probe.heartbeats)
+        live_peers = set(probe.live_peers)
         missing_descriptors = tuple(
             peer for peer in self.expected_peers if peer not in descriptors
         )
         missing_heartbeats = tuple(
             peer for peer in self.expected_peers if peer not in heartbeats
         )
+        missing_live = tuple(
+            peer for peer in self.expected_peers if peer not in live_peers
+        )
         missing = tuple(
             peer
             for peer in self.expected_peers
             if peer in missing_descriptors or peer in missing_heartbeats
         )
-        if not missing:
+        if not missing and not missing_live:
             report.add(
                 "DDS peers",
                 PASS,
@@ -660,11 +719,25 @@ class NetworkDoctor:
         status = FAIL if self.strict_peers else WARN
         descriptor_text = ", ".join(sorted(descriptors)) or "없음"
         heartbeat_text = ", ".join(sorted(heartbeats)) or "없음"
-        detail_parts = [f"미발견: {', '.join(missing)}"]
+        detail_parts: list[str] = []
+        if missing:
+            detail_parts.append(f"미발견: {', '.join(missing)}")
         if missing_descriptors:
             detail_parts.append(f"descriptor 없음: {', '.join(missing_descriptors)}")
         if missing_heartbeats:
             detail_parts.append(f"heartbeat 없음: {', '.join(missing_heartbeats)}")
+        mismatched = tuple(
+            peer
+            for peer in self.expected_peers
+            if peer not in missing_descriptors
+            and peer not in missing_heartbeats
+            and peer in missing_live
+        )
+        if mismatched:
+            detail_parts.append(
+                "descriptor/heartbeat boot 또는 revision 불일치: "
+                + ", ".join(mismatched)
+            )
         report.add(
             "DDS peers",
             status,
@@ -710,11 +783,12 @@ class NetworkDoctor:
     ) -> None:
         topic = rgbd_topic(self.state, "sim")
         types = graph.topics.get(topic, ())
-        if RGBD_TYPE not in types:
+        expected_type = ENCODED_RGBD_TYPE if ENCODED_RGBD_TYPE in types else RGBD_TYPE
+        if expected_type not in types:
             detail = (
                 f"{topic}가 graph에 없음"
                 if not types
-                else f"{topic}: 예상 {RGBD_TYPE}, 실제 {', '.join(types)}"
+                else f"{topic}: 예상 {expected_type}, 실제 {', '.join(types)}"
             )
             report.add(
                 "RGBD topic",
@@ -723,7 +797,7 @@ class NetworkDoctor:
                 "Sim publisher와 system_id/sim_id를 확인하십시오",
             )
             return
-        report.add("RGBD topic", PASS, f"{topic} ({RGBD_TYPE}, sensor QoS)")
+        report.add("RGBD topic", PASS, f"{topic} ({expected_type}, sensor QoS)")
         if not self.active:
             report.add("RGBD frame", SKIP, "실제 sample 검사는 --active에서 수행")
             return
@@ -731,6 +805,7 @@ class NetworkDoctor:
             metadata = probe_rgbd_frame(
                 self.state,
                 timeout_s=max(self.timeout_s, 5.0),
+                encoded=expected_type == ENCODED_RGBD_TYPE,
             )
             report.add(
                 "RGBD frame",

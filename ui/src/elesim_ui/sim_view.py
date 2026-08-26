@@ -31,15 +31,17 @@ def _scene_grab_delta(
     width: float,
     height: float,
 ) -> tuple[float, float]:
-    """Map pointer motion to direct-grab scene motion.
+    """Map pointer motion to the observer's scene-grab convention.
 
-    Positive pointer deltas map to positive screen-space pan/tilt input.  Sim
-    owns the world-frame conversion and keeps the camera roll fixed.
+    A drag moves the rendered scene with the pointer, as in a CAD viewport, so
+    the camera command uses the opposite pointer delta. Sim owns the conversion
+    from these normalized screen axes to a roll-free world-space camera pose.
+    Wheel zoom is handled independently and is unchanged.
     """
 
     return (
-        float(raw_dx) / max(float(width), 1.0),
-        float(raw_dy) / max(float(height), 1.0),
+        -float(raw_dx) / max(float(width), 1.0),
+        -float(raw_dy) / max(float(height), 1.0),
     )
 
 

@@ -612,6 +612,13 @@ def test_managed_command_timeout_keeps_build_and_lifecycle_limits_separate() -> 
     assert _command_timeout(("/usr/local/bin/elesim-tailscale", "login"), 2) == 600
     assert (
         _command_timeout(
+            ("/usr/local/bin/elesim-net", "doctor", "--timeout", "300", "--json"),
+            2,
+        )
+        == 360
+    )
+    assert (
+        _command_timeout(
             ("/usr/local/bin/elesim-tailscale", "status", "--json"), 2
         )
         == 2
@@ -650,6 +657,40 @@ def test_local_runtime_launcher_is_forwarded_to_the_host_helper(
             300,
         )
     ]
+
+
+def test_local_runtime_doctor_outlives_its_inner_probe_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[float] = []
+
+    def fake_helper(
+        _argv,
+        *,
+        socket_path: str,
+        timeout_s: float,
+        output=None,
+    ) -> RemoteCommandResult:
+        assert socket_path == "/run/elesim-helper.sock"
+        assert output is None
+        forwarded.append(timeout_s)
+        return RemoteCommandResult(0, '{"ok": true}\n', "")
+
+    monkeypatch.setenv("ELESIM_HOST_HELPER_SOCKET", "/run/elesim-helper.sock")
+    monkeypatch.setattr(secure_deployment, "_run_through_host_helper", fake_helper)
+
+    result = _LocalSession(timeout_s=30).run(
+        (
+            "/opt/elesim/bin/elesim-net",
+            "doctor",
+            "--timeout",
+            "300",
+            "--json",
+        )
+    )
+
+    assert result.exit_status == 0
+    assert forwarded == [360]
 
 
 def test_local_gpu_inventory_probe_is_forwarded_to_the_host_helper(
@@ -1000,6 +1041,70 @@ def test_paramiko_connector_does_not_treat_transport_failure_as_auth_fallback(
     with pytest.raises(RuntimeError, match="transport EOF"):
         ParamikoConnector(timeout_s=4).connect(endpoint)
     assert Transport.password_attempted is False
+
+
+def test_paramiko_connector_surfaces_tailscale_proxy_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SSHException(Exception):
+        pass
+
+    class Proxy:
+        def __init__(self, _command: str) -> None:
+            self.process = SimpleNamespace(
+                poll=lambda: 2,
+                stderr=io.BytesIO(
+                    b"elesim-host-proxy: host Tailscale nc failed "
+                    b"for 100.64.0.20:22 (exit 1): peer offline\n"
+                ),
+            )
+
+        def close(self) -> None:
+            pass
+
+    class Transport:
+        def __init__(self, _connection: object) -> None:
+            pass
+
+        def start_client(self, timeout: float) -> None:
+            raise SSHException("No existing session")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("ELESIM_TAILSCALE_PROXY", "1")
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_BIN", "/usr/local/bin/elesim-host-proxy"
+    )
+    monkeypatch.setenv(
+        "ELESIM_TAILSCALE_PROXY_SOCKET", "/run/elesim/helper.sock"
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko.proxy",
+        SimpleNamespace(ProxyCommand=Proxy),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(
+            SSHException=SSHException,
+            Transport=Transport,
+            SSHClient=lambda: object(),
+        ),
+    )
+    endpoint = SshEndpoint(
+        "100.64.0.20",
+        22,
+        "operator",
+        "",
+        FINGERPRINT,
+        auth_mode="tailscale",
+    )
+
+    with pytest.raises(RuntimeError, match="peer offline") as error:
+        ParamikoConnector(timeout_s=4).connect(endpoint)
+    assert "Broken pipe" not in str(error.value)
 
 
 class FakeSession:

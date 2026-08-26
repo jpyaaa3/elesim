@@ -229,6 +229,7 @@ class PerceptionConfig:
     sim_camera_dds_settings: object | None = None
     sim_camera_source_id: str = ""
     sim_camera_source_boot_id: str = ""
+    sim_camera_wire_format: str = "raw-rgbd-v1"
     run_local: bool = True
 
     def resolved_detector_config_path(self) -> Path:

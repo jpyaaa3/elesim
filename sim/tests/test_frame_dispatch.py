@@ -105,6 +105,7 @@ def test_sim_scene_transport_sinks_do_not_block_camera_capture() -> None:
 
     mailbox = SharedFrameMailbox.create(mp.get_context("fork"), width=4, height=3)
     scene = SimScene(
+        hand_eye_enabled=True,
         frame_hub=FrameHub(("rgbd", "observer", "hand_eye_preview")),
         video_mailboxes={"hand_eye_preview": mailbox},
     )
@@ -150,7 +151,7 @@ def test_camera_rate_limit_requires_simulation_time_to_advance(monkeypatch) -> N
     now = [100.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
     camera = Camera()
-    scene = SimScene(eye_camera=camera)
+    scene = SimScene(eye_camera=camera, hand_eye_enabled=True)
 
     scene.maybe_publish_camera(
         arm_q=None,
@@ -192,7 +193,7 @@ def test_hand_eye_capture_caches_frame_pose_without_another_genesis_readback() -
         def camera_axes_world(self) -> object:
             raise AssertionError("cached camera feedback must not query Genesis")
 
-    scene = SimScene(eye_camera=Camera())
+    scene = SimScene(eye_camera=Camera(), hand_eye_enabled=True)
     scene.maybe_publish_camera(
         arm_q=None,
         max_hz=30.0,

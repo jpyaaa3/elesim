@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import json
 import os
 import re
 import stat
@@ -551,6 +552,7 @@ role = sys.argv[3]
 owned_package = sys.argv[4]
 main_module = sys.argv[5]
 entrypoint = sys.argv[6]
+dependency_paths = sys.argv[7:]
 
 # The developer container intentionally installs all EleSim projects editable
 # into one venv.  ``PYTHONNOUSERSITE`` does not hide that venv site directory,
@@ -563,6 +565,12 @@ for key in ("purelib", "platlib"):
     base_site = sysconfig.get_path(key)
     if base_site and base_site not in sys.path:
         sys.path.append(base_site)
+for dependency_path in dependency_paths:
+    if dependency_path and dependency_path not in sys.path:
+        # Deliberately append the directory instead of calling site.addsitedir:
+        # runtime dependencies remain importable without executing editable
+        # EleSim .pth files from the all-project developer environment.
+        sys.path.append(dependency_path)
 
 def require_installed(name):
     module = importlib.import_module(name)
@@ -653,6 +661,45 @@ def _run_checked(command: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -
         )
 
 
+def _python_dependency_paths(
+    python: str, *, cwd: Path, env: Mapping[str, str]
+) -> tuple[str, ...]:
+    completed = subprocess.run(
+        (
+            python,
+            "-c",
+            "import json,sysconfig; "
+            "print(json.dumps([sysconfig.get_path('purelib'), "
+            "sysconfig.get_path('platlib')]))",
+        ),
+        cwd=cwd,
+        env=dict(env),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if completed.returncode:
+        raise ReleaseVerificationError(
+            "could not resolve verifier Python dependency paths:\n"
+            + completed.stdout.rstrip()
+        )
+    try:
+        values = json.loads(completed.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ReleaseVerificationError(
+            "verifier Python returned invalid dependency paths"
+        ) from exc
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) and value for value in values
+    ):
+        raise ReleaseVerificationError(
+            "verifier Python returned invalid dependency paths"
+        )
+    return tuple(dict.fromkeys(values))
+
+
 def verify_release_context(
     release: str | os.PathLike[str],
     role: str,
@@ -686,6 +733,9 @@ def verify_release_context(
             env=clean_env,
         )
         probe_env = _probe_environment(clean_env, target)
+        dependency_paths = _python_dependency_paths(
+            python, cwd=release_path, env=clean_env
+        )
         _run_checked(
             (
                 python,
@@ -698,6 +748,7 @@ def verify_release_context(
                 spec.package,
                 spec.main_module,
                 spec.entrypoint,
+                *dependency_paths,
             ),
             cwd=release_path,
             env=probe_env,

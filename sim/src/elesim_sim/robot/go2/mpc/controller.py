@@ -9,6 +9,12 @@ import numpy as np
 from elesim_sim.robot.go2.locomotion.kinematics import Go2KinematicsModel
 from elesim_sim.robot.go2.locomotion.types import Go2Command
 from elesim_sim.robot.go2.mpc.config import Go2MpcConfig
+from elesim_sim.robot.go2.mpc.constraints import (
+    MpcSchedule,
+    normal_force_variable_indices,
+    project_grf,
+)
+from elesim_sim.robot.go2.mpc.contact_diagnostics import GenesisContactDiagnostics
 from elesim_sim.robot.go2.mpc.control_rate import ControlRateInfo
 from elesim_sim.robot.go2.mpc.gait_adapter import ScaledGait
 from elesim_sim.robot.go2.mpc.genesis_pin_bridge import GenesisPinBridge
@@ -24,27 +30,6 @@ LEG_SLICE = {
     "RR": slice(9, 12),
 }
 
-HIP_LIM = 23.7
-ABD_LIM = 23.7
-KNEE_LIM = 45.43
-_TAU_LIM = np.array(
-    [
-        HIP_LIM,
-        ABD_LIM,
-        KNEE_LIM,
-        HIP_LIM,
-        ABD_LIM,
-        KNEE_LIM,
-        HIP_LIM,
-        ABD_LIM,
-        KNEE_LIM,
-        HIP_LIM,
-        ABD_LIM,
-        KNEE_LIM,
-    ],
-    dtype=float,
-)
-
 
 def _resolve_go2_urdf(go2_urdf_path: str | Path | None) -> tuple[Path, Path]:
     if go2_urdf_path is None or not str(go2_urdf_path).strip():
@@ -58,7 +43,11 @@ def _resolve_go2_urdf(go2_urdf_path: str | Path | None) -> tuple[Path, Path]:
     return go2_urdf.parent, go2_urdf
 
 
-def _require_convex_mpc(*, go2_urdf_path: str | Path | None = None):
+def _require_convex_mpc(
+    *,
+    go2_urdf_path: str | Path | None = None,
+    optimization_friction: float | None = None,
+):
     try:
         import casadi as ca
         import convex_mpc.centroidal_mpc as centroidal_mpc
@@ -69,15 +58,20 @@ def _require_convex_mpc(*, go2_urdf_path: str | Path | None = None):
         from convex_mpc.leg_controller import LegController
     except ImportError as exc:
         raise ImportError(
-            "convex_mpc is not installed. Run: pip install -e "
-            "git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git "
+            "convex_mpc is not installed. Run: pip install -e git+https://github.com/elijah-waichong-chan/go2-convex-mpc.git@1c63c6a762779887ab0431fd60db681dede6cb32 "
             "and conda install -c conda-forge pinocchio casadi"
         ) from exc
     go2_asset_dir, go2_urdf = _resolve_go2_urdf(go2_urdf_path)
     go2_robot_data.URDF_PATH = go2_urdf
     go2_robot_data.PACKAGE_DIRS = go2_asset_dir
+    if optimization_friction is not None:
+        mu = float(optimization_friction)
+        if not np.isfinite(mu) or mu <= 0.0:
+            raise ValueError(f"optimization_friction must be finite and positive, got {mu}")
+        centroidal_mpc.MU = mu
     if not ca.has_conic(str(centroidal_mpc.SOLVER_NAME)):
         for solver_name, solver_opts in (
+            ("qpoases", {"printLevel": "none"}),
             (
                 "qrqp",
                 {
@@ -87,7 +81,6 @@ def _require_convex_mpc(*, go2_urdf_path: str | Path | None = None):
                     "print_lincomb": False,
                 },
             ),
-            ("qpoases", {"printLevel": "none"}),
         ):
             if ca.has_conic(solver_name):
                 print(
@@ -99,6 +92,56 @@ def _require_convex_mpc(*, go2_urdf_path: str | Path | None = None):
                 break
     PinGo2Model = go2_robot_data.PinGo2Model
     return PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC
+
+
+def _read_torque_limits(entity, dof_idxs: list[int], *, safety_scale: float) -> np.ndarray:
+    scale = float(safety_scale)
+    if not np.isfinite(scale) or not 0.0 < scale <= 1.0:
+        raise ValueError(f"torque_safety_scale must be in (0, 1], got {scale}")
+    raw_ranges = entity.get_dofs_force_range(dofs_idx_local=dof_idxs)
+    if not isinstance(raw_ranges, tuple) or len(raw_ranges) != 2:
+        raise RuntimeError(
+            "Genesis returned an invalid GO2 force-range value; expected "
+            "the (lower_limits, upper_limits) tuple"
+        )
+    lower = _to_numpy_1d(raw_ranges[0])
+    upper = _to_numpy_1d(raw_ranges[1])
+    expected_limit_shape = (len(dof_idxs),)
+    if lower.shape != expected_limit_shape or upper.shape != expected_limit_shape:
+        raise RuntimeError(
+            "Genesis returned invalid GO2 force-range shapes "
+            f"{lower.shape} and {upper.shape}; expected {expected_limit_shape}"
+        )
+    ranges = np.stack((lower, upper))
+    limits = np.min(np.abs(ranges), axis=0) * scale
+    if not np.all(np.isfinite(limits)) or np.any(limits <= 0.0):
+        raise RuntimeError(f"Genesis returned invalid GO2 force ranges: {ranges.tolist()}")
+    return limits
+
+
+def _verify_dof_parameter(name: str, actual, expected: np.ndarray) -> None:
+    measured = _to_numpy_1d(actual)
+    if measured.shape != expected.shape or not np.allclose(measured, expected, rtol=1e-5, atol=1e-7):
+        raise RuntimeError(
+            f"Genesis GO2 {name} mismatch after configuration: "
+            f"expected={expected.tolist()} actual={measured.tolist()}"
+        )
+
+
+def _make_bounded_mpc(base_type, pin_model, trajectory, *, fz_max_n: float):
+    """Extend the pinned upstream MPC with a horizon-wide normal-force cap."""
+
+    limit = float(fz_max_n)
+    if not np.isfinite(limit) or limit <= 0.0:
+        raise ValueError(f"fz_max_n must be finite and positive, got {limit}")
+
+    class BoundedNormalForceMpc(base_type):
+        def _compute_bounds(self, traj):
+            lower, upper = super()._compute_bounds(traj)
+            upper[normal_force_variable_indices(int(traj.N))] = limit
+            return lower, upper
+
+    return BoundedNormalForceMpc(pin_model, trajectory)
 
 
 class ConvexMpcGenesisController:
@@ -119,8 +162,10 @@ class ConvexMpcGenesisController:
     ) -> None:
         self._go2_urdf_path = go2_urdf_path
         PinGo2Model, Gait, LegController, ComTraj, CentroidalMPC = _require_convex_mpc(
-            go2_urdf_path=self._go2_urdf_path
+            go2_urdf_path=self._go2_urdf_path,
+            optimization_friction=float(config.optimization_friction),
         )
+        self._leg_controller_type = LegController
 
         self._entity = entity
         self._dt = float(dt)
@@ -138,8 +183,6 @@ class ConvexMpcGenesisController:
         self._leg_dof_idxs = list(self._kin.all_leg_dof_idx)
         payload = None
         if arm_entity is not None and bool(config.payload_enable):
-            from elesim_sim.robot.go2.mpc.payload_model import ArmPayloadCompensator
-
             payload = ArmPayloadCompensator(
                 arm_entity,
                 mass_override_kg=float(config.payload_mass_kg),
@@ -163,17 +206,33 @@ class ConvexMpcGenesisController:
         self._traj = ComTraj(self._pin)
         self._mpc: CentroidalMPC | None = None
         self._U_opt = np.zeros((12, 1), dtype=float)
+        self._force_requested = np.zeros(12, dtype=float)
         self._force_filt = np.zeros(12, dtype=float)
         self._tau_filt = np.zeros(12, dtype=float)
         self._tau_hold = np.zeros(12, dtype=float)
+        self._tau_raw = np.zeros(12, dtype=float)
+        self._tau_limited = np.zeros(12, dtype=float)
         self._z_des_m = float(config.z_pos_des_m)
 
-        ctrl_hz = max(1.0, float(config.ctrl_hz))
         self._ctrl_decim = self._rate_info.ctrl_decim
-        mpc_hz = 1.0 / float(config.mpc_dt_s)
-        self._steps_per_mpc = max(1, int(round(self._rate_info.ctrl_hz_effective / mpc_hz)))
         self._ctrl_dt = float(self._ctrl_decim * self._dt)
-        self._tau_lim = _TAU_LIM * float(config.torque_safety_scale)
+        self._mpc_schedule = MpcSchedule.from_cadence(
+            self._rate_info.ctrl_hz_effective,
+            float(config.mpc_dt_s),
+        )
+        self._steps_per_mpc = self._mpc_schedule.solve_stride
+        self._mpc_dt_s = self._mpc_schedule.mpc_dt_s
+        diagnostic_steps = max(1, int(round(self._rate_info.ctrl_hz_effective / 10.0)))
+        self._contact_diagnostics = (
+            GenesisContactDiagnostics(entity, cadence_steps=diagnostic_steps)
+            if metrics is not None
+            else None
+        )
+        self._tau_lim = _read_torque_limits(
+            entity,
+            self._leg_dof_idxs,
+            safety_scale=float(config.torque_safety_scale),
+        )
         if self._metrics is not None:
             self._metrics.set_tau_limits(self._tau_lim)
             self._metrics.meta.control_rate = {
@@ -181,6 +240,9 @@ class ConvexMpcGenesisController:
                 "ctrl_hz_config": self._rate_info.ctrl_hz_config,
                 "ctrl_hz_effective": self._rate_info.ctrl_hz_effective,
                 "ctrl_decim": float(self._rate_info.ctrl_decim),
+                "mpc_dt_nominal_s": float(config.mpc_dt_s),
+                "mpc_dt_effective_s": self._mpc_dt_s,
+                "mpc_solve_stride": float(self._steps_per_mpc),
             }
             self._metrics.meta.pitch_trim_config = {
                 "gain_x_forward": float(config.pitch_trim_gain_x_forward),
@@ -193,7 +255,8 @@ class ConvexMpcGenesisController:
         print(
             "[go2_mpc] control rate: "
             f"sim={self._rate_info.sim_hz:.1f}Hz config={self._rate_info.ctrl_hz_config:.1f}Hz "
-            f"effective={self._rate_info.ctrl_hz_effective:.1f}Hz decim={self._rate_info.ctrl_decim}"
+            f"effective={self._rate_info.ctrl_hz_effective:.1f}Hz decim={self._rate_info.ctrl_decim} "
+            f"mpc_dt={self._mpc_dt_s:.4f}s stride={self._steps_per_mpc}"
         )
 
         self._init_pose_and_actuation()
@@ -217,9 +280,14 @@ class ConvexMpcGenesisController:
             0.0,
             self._z_des_m,
             0.0,
-            time_step=float(self._config.mpc_dt_s),
+            time_step=self._mpc_dt_s,
         )
-        self._mpc = CentroidalMPC(self._pin, self._traj)
+        self._mpc = _make_bounded_mpc(
+            CentroidalMPC,
+            self._pin,
+            self._traj,
+            fz_max_n=float(self._config.fz_max_n),
+        )
 
     def _observe_timing(self, name: str, started: float) -> None:
         sink = getattr(self, "_timing_sink", None)
@@ -243,25 +311,32 @@ class ConvexMpcGenesisController:
 
     def _apply_go2_physics_params(self) -> None:
         n = len(self._leg_dof_idxs)
-        try:
-            self._entity.set_friction(0.8)
-        except Exception:
-            pass
-        try:
-            self._entity.set_dofs_armature(
-                np.full(n, 0.01, dtype=float),
-                dofs_idx_local=self._leg_dof_idxs,
+        self._entity.set_friction(float(self._config.physical_friction))
+        specs = (
+            ("armature", self._entity.set_dofs_armature, self._entity.get_dofs_armature, self._config.joint_armature),
+            ("damping", self._entity.set_dofs_damping, self._entity.get_dofs_damping, self._config.joint_damping),
+            (
+                "frictionloss",
+                self._entity.set_dofs_frictionloss,
+                self._entity.get_dofs_frictionloss,
+                self._config.joint_frictionloss,
+            ),
+        )
+        for name, setter, getter, value in specs:
+            expected = np.full(n, float(value), dtype=float)
+            setter(expected, dofs_idx_local=self._leg_dof_idxs)
+            _verify_dof_parameter(
+                name,
+                getter(dofs_idx_local=self._leg_dof_idxs),
+                expected,
             )
-            self._entity.set_dofs_damping(
-                np.full(n, 0.1, dtype=float),
-                dofs_idx_local=self._leg_dof_idxs,
-            )
-            self._entity.set_dofs_frictionloss(
-                np.full(n, 0.2, dtype=float),
-                dofs_idx_local=self._leg_dof_idxs,
-            )
-        except Exception:
-            pass
+        print(
+            "[go2_mpc] verified Genesis plant: "
+            f"mu={float(self._config.physical_friction):.3f} "
+            f"armature={float(self._config.joint_armature):.4f} "
+            f"damping={float(self._config.joint_damping):.3f} "
+            f"frictionloss={float(self._config.joint_frictionloss):.3f}"
+        )
 
     def _set_torque_actuation(self) -> None:
         n = len(self._leg_dof_idxs)
@@ -289,15 +364,15 @@ class ConvexMpcGenesisController:
         self._set_ready_actuation()
 
     def _enter_torque_mode(self) -> None:
-        _, _, LegController, _, _ = _require_convex_mpc(
-            go2_urdf_path=self._go2_urdf_path
-        )
         self._ready_mode = False
         self._torque_mode = True
-        self._leg_controller = LegController()
+        self._leg_controller = self._leg_controller_type()
         self._ctrl_i = 0
         self._loco_time = 0.0
         self._tau_hold = np.zeros(12, dtype=float)
+        self._tau_raw = np.zeros(12, dtype=float)
+        self._tau_limited = np.zeros(12, dtype=float)
+        self._force_requested = np.zeros(12, dtype=float)
         self._force_filt = np.zeros(12, dtype=float)
         self._tau_filt = np.zeros(12, dtype=float)
         self._set_torque_actuation()
@@ -323,7 +398,7 @@ class ConvexMpcGenesisController:
             return
         self._traj.rpy_traj_world[1, :] = pitch_trim
         self._traj._continuousDynamics(self._pin)
-        self._traj._discreteDynamics(float(self._config.mpc_dt_s))
+        self._traj._discreteDynamics(self._mpc_dt_s)
 
     def _solve_mpc(self, vx: float, vy: float, z_des: float, wz: float) -> None:
         assert self._mpc is not None
@@ -336,7 +411,7 @@ class ConvexMpcGenesisController:
             float(vy),
             float(z_des),
             float(wz),
-            time_step=float(self._config.mpc_dt_s),
+            time_step=self._mpc_dt_s,
         )
         self._apply_payload_pitch_trim(vx)
         self._observe_timing("go2_mpc_prepare", started)
@@ -347,9 +422,20 @@ class ConvexMpcGenesisController:
         w_opt = sol["x"].full().flatten()
         n = int(self._traj.N)
         force_new = w_opt[12 * n : 12 * n + 12]
+        if force_new.shape != (12,) or not np.all(np.isfinite(force_new)):
+            raise RuntimeError(f"MPC returned invalid first-step GRF: {force_new}")
+        self._force_requested = force_new.copy()
         alpha = float(np.clip(self._config.force_filter_alpha, 0.05, 1.0))
         self._force_filt = alpha * force_new + (1.0 - alpha) * self._force_filt
-        self._U_opt[:, 0] = self._force_filt
+        projected = np.zeros(12, dtype=float)
+        for leg in LEG_NAMES:
+            leg_slice = LEG_SLICE[leg]
+            projected[leg_slice] = project_grf(
+                self._force_filt[leg_slice],
+                physical_mu=float(self._config.physical_friction),
+                fz_max=float(self._config.fz_max_n),
+            )
+        self._U_opt[:, 0] = projected
         self._observe_timing("go2_mpc_post", post_started)
 
     def _command_scale(self) -> float:
@@ -409,10 +495,11 @@ class ConvexMpcGenesisController:
             )
             tau_cmd[LEG_SLICE[leg]] = np.asarray(out.tau, dtype=float).reshape(3)
 
-        tau_cmd = np.clip(tau_cmd, -self._tau_lim, self._tau_lim)
-        tau_cmd = tau_cmd * self._torque_scale() + self._aux_pd_torque()
-        tau_cmd = np.clip(tau_cmd, -self._tau_lim, self._tau_lim)
-        result = self._filter_tau(tau_cmd)
+        self._tau_raw = tau_cmd.copy()
+        torque_limited = np.clip(tau_cmd, -self._tau_lim, self._tau_lim)
+        torque_limited = torque_limited * self._torque_scale() + self._aux_pd_torque()
+        self._tau_limited = np.clip(torque_limited, -self._tau_lim, self._tau_lim)
+        result = self._filter_tau(self._tau_limited)
         self._observe_timing("go2_mpc_torque", torque_started)
         return result
 
@@ -432,14 +519,16 @@ class ConvexMpcGenesisController:
         self._ready_mode = False
         self._ready_until_t = 0.0
         self._tau_hold = np.zeros(12, dtype=float)
+        self._tau_raw = np.zeros(12, dtype=float)
+        self._tau_limited = np.zeros(12, dtype=float)
         self._tau_filt = np.zeros(12, dtype=float)
         self._force_filt = np.zeros(12, dtype=float)
+        self._force_requested = np.zeros(12, dtype=float)
         self._U_opt = np.zeros((12, 1), dtype=float)
+        if self._contact_diagnostics is not None:
+            self._contact_diagnostics.reset()
         self._init_pose_and_actuation()
-        try:
-            self._entity.zero_all_dofs_velocity()
-        except Exception:
-            pass
+        self._entity.zero_all_dofs_velocity()
 
     def _record_metrics_sample(
         self,
@@ -485,6 +574,30 @@ class ConvexMpcGenesisController:
         )
         if self._metrics._rate_info is None:
             self._metrics.set_control_rate_info(self._rate_info)
+        if torque_update_flag and self._contact_diagnostics is not None:
+            mask = np.asarray(self._gait.compute_current_mask(self._sim_time), dtype=int).reshape(4)
+            sample = self._contact_diagnostics.sample(
+                step_index=self._ctrl_i,
+                elapsed_s=(
+                    self._ctrl_dt
+                    if self._ctrl_i == 0
+                    else self._contact_diagnostics.cadence_steps * self._ctrl_dt
+                ),
+                stance={leg: bool(mask[index]) for index, leg in enumerate(LEG_NAMES)},
+                desired_grf_world={
+                    leg: self._U_opt[LEG_SLICE[leg], 0] for leg in LEG_NAMES
+                },
+                physical_mu=float(self._config.physical_friction),
+            )
+            if sample is not None:
+                self._metrics.sample_contact(
+                    sample,
+                    sim_time_s=self._sim_time,
+                    raw_grf=self._force_requested,
+                    tau_raw=self._tau_raw,
+                    tau_limited=self._tau_limited,
+                    tau_applied=tau,
+                )
 
     def step(self) -> None:
         self._sim_time += self._dt

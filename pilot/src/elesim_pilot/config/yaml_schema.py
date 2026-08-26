@@ -187,6 +187,7 @@ _perception_runtime_injected = {
     "sim_camera_dds_settings",
     "sim_camera_source_id",
     "sim_camera_source_boot_id",
+    "sim_camera_wire_format",
 }
 _perception_runtime = (
     _field_names(PerceptionConfig)

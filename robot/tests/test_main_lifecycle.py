@@ -18,6 +18,7 @@ def _config(*, camera_enabled: bool) -> SimpleNamespace:
             fps=30,
         ),
         dds=SimpleNamespace(security_profile="trusted-network"),
+        rgbd=SimpleNamespace(format="encoded-rgbd-v1"),
         use_go2=True,
         mapping=object(),
         arm=object(),

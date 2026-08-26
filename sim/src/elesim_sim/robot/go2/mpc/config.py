@@ -25,6 +25,12 @@ class Go2MpcConfig:
     aux_kv: float = 6.0
     tau_filter_alpha: float = 0.25
     force_filter_alpha: float = 0.35
+    physical_friction: float = 0.8
+    optimization_friction: float = 0.55
+    fz_max_n: float = 180.0
+    joint_armature: float = 0.01
+    joint_damping: float = 0.1
+    joint_frictionloss: float = 0.2
     foot_placement_scale: float = 1.35
     payload_enable: bool = True
     payload_mass_kg: float = 0.0

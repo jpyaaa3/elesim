@@ -88,17 +88,33 @@ class Go2KinematicsModel:
         for leg in ALL_LEGS:
             idxs: List[int] = []
             for joint_name in _leg_joint_names(leg):
-                joint = entity.get_joint(joint_name)
+                try:
+                    joint = entity.get_joint(joint_name)
+                except (KeyError, ValueError, AttributeError) as exc:
+                    raise ValueError(f"GO2 model is missing required joint {joint_name!r}") from exc
                 raw_idxs = joint.dofs_idx_local
                 if raw_idxs is None:
-                    continue
-                for idx in np.asarray(raw_idxs, dtype=int).reshape(-1):
+                    raise ValueError(f"GO2 joint {joint_name!r} has no local DOF index")
+                joint_idxs = np.asarray(raw_idxs, dtype=int).reshape(-1)
+                if joint_idxs.size != 1:
+                    raise ValueError(
+                        f"GO2 joint {joint_name!r} must own exactly one DOF, got {joint_idxs.size}"
+                    )
+                for idx in joint_idxs:
                     idx_int = int(idx)
                     idxs.append(idx_int)
                     all_leg_dof_idx.append(idx_int)
                     stand_vals.append(float(GO2_STAND_Q.get(joint_name, 0.0)))
                     ready_vals.append(float(GO2_READY_Q.get(joint_name, 0.0)))
             leg_dof_idx[leg] = idxs
+
+        if len(all_leg_dof_idx) != len(GO2_LEG_JOINTS) or len(set(all_leg_dof_idx)) != len(
+            GO2_LEG_JOINTS
+        ):
+            raise ValueError(
+                "GO2 model must expose 12 distinct leg DOFs in FL/FR/RL/RR order; "
+                f"got {all_leg_dof_idx}"
+            )
 
         foot_link_names = {leg: f"{leg.value}_calf" for leg in ALL_LEGS}
         hip_link_names = {leg: f"{leg.value}_hip" for leg in ALL_LEGS}

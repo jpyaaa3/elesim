@@ -33,10 +33,10 @@ def test_mouse_delta_accepts_tuple_and_rejects_unknown_shapes() -> None:
     assert _mouse_delta_xy(None) == (0.0, 0.0)
 
 
-def test_camera_drag_uses_direct_grab_direction() -> None:
+def test_camera_drag_uses_scene_grab_direction() -> None:
     assert _scene_grab_delta(100.0, -50.0, width=1000.0, height=500.0) == (
-        0.1,
         -0.1,
+        0.1,
     )
 
 
@@ -59,7 +59,7 @@ def test_middle_drag_pans_observer_without_orbiting(monkeypatch) -> None:
 
     view._handle_observer_input(width=200.0, height=100.0)
 
-    assert sent == [("pan", {"dx": 0.1, "dy": -0.1})]
+    assert sent == [("pan", {"dx": -0.1, "dy": 0.1})]
 
 
 def test_left_drag_rotates_observer_without_roll_command(monkeypatch) -> None:
@@ -81,7 +81,7 @@ def test_left_drag_rotates_observer_without_roll_command(monkeypatch) -> None:
 
     view._handle_observer_input(width=200.0, height=100.0)
 
-    assert sent == [("orbit", {"dx": 0.1, "dy": -0.1})]
+    assert sent == [("orbit", {"dx": -0.1, "dy": 0.1})]
 
 
 def test_hand_eye_operator_view_compensates_the_rolled_mount() -> None:

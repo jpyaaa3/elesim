@@ -437,6 +437,51 @@ def test_simulation_only_topology_accepts_one_host_without_robot() -> None:
     assert restored.hosts[0].roles == ("pilot", "sim", "ui")
 
 
+def test_simulation_only_allows_pilot_sim_edge_unit_with_remote_ui() -> None:
+    topology = ConnectionTopology(
+        system_id="lab_sim_edge",
+        security_profile="sros2",
+        topology_mode="simulation-only",
+        dds_graph=DdsGraphSettings(discovery_mode="static"),
+        hosts=(
+            ManagedHost(
+                host_id="compute",
+                local=False,
+                dds=DdsEndpoint("100.64.0.51", "tailscale0"),
+                ssh=_ssh("compute.example"),
+                units=(
+                    DeploymentUnit(
+                        unit_id="runtime",
+                        assignments=(
+                            RoleAssignment("pilot", "pilot-main"),
+                            RoleAssignment("sim", "sim-default"),
+                        ),
+                    ),
+                ),
+            ),
+            ManagedHost(
+                host_id="operator",
+                local=True,
+                dds=DdsEndpoint("100.64.0.52", "tailscale0"),
+                ssh=None,
+                units=(
+                    DeploymentUnit(
+                        unit_id="runtime",
+                        assignments=(RoleAssignment("ui", "ui-main"),),
+                    ),
+                ),
+            ),
+        ),
+    ).validate()
+
+    restored = ConnectionTopology.from_dict(topology.to_dict())
+
+    assert restored.host("compute").roles == ("pilot", "sim")
+    assert restored.host("operator").roles == ("ui",)
+    assert restored.discovery_peers("compute") == ("100.64.0.51", "100.64.0.52")
+    assert restored.discovery_peers("operator") == ("100.64.0.52", "100.64.0.51")
+
+
 def test_legacy_schema_v1_is_loaded_as_full_and_normalized() -> None:
     raw = _topology().to_dict()
     raw["schema_version"] = 1

@@ -344,13 +344,21 @@ class SimEndpoint:
         handler = self.webrtc_session_close_handler
         if handler is None:
             return
-        executor = self._webrtc_executor
-        if executor is not None:
+        submitted = False
+        if self._webrtc_executor is not None:
             try:
-                executor.submit(handler, str(session_id))
-                return
+                self._webrtc_executor.submit(
+                    self._run_webrtc_close,
+                    handler,
+                    str(session_id),
+                )
+                submitted = True
             except RuntimeError:
-                pass
+                # ``close()`` may race with session revocation.  A closed
+                # executor is not a callback failure; use the thread fallback.
+                submitted = False
+        if submitted:
+            return
         threading.Thread(
             target=self._run_webrtc_close,
             args=(handler, str(session_id)),
@@ -358,12 +366,22 @@ class SimEndpoint:
             daemon=True,
         ).start()
 
-    @staticmethod
-    def _run_webrtc_close(handler: Callable[[str], None], session_id: str) -> None:
+    def _run_webrtc_close(
+        self,
+        handler: Callable[[str], None],
+        session_id: str,
+    ) -> None:
         try:
             handler(session_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._diagnostic(
+                "webrtc",
+                dedupe=f"close:{session_id}",
+                source=self.endpoint_id,
+                target=session_id,
+                state="close_failed",
+                reason=str(exc) or exc.__class__.__name__,
+            )
 
     def _validate_motion(self, message: Envelope, *, allow_estop: bool = False) -> tuple[bool, str]:
         if allow_estop:

@@ -13,6 +13,7 @@ from elesim_setup.configuration import (
     generate_role_configs,
     generated_app_config_path,
     generated_dds_config_path,
+    rgbd_broker_topic,
     rgbd_topic,
 )
 from elesim_setup.state import DdsSettings, NetworkSettings, TurnSettings
@@ -93,6 +94,22 @@ def test_generated_configs_use_dds_and_remove_router_tcp_fields(local_state) -> 
     assert "rgbd_bind" not in streams
     assert "rgbd_advertise" not in streams
     assert ui["runtime"]["pilot_id"] == "pilot-main"
+    assert pilot["rgbd"] == {
+        "schema_version": 1,
+        "broker_role": "pilot",
+        "source_role": "auto",
+        "local_handoff": "source-dds-to-pilot",
+        "wire": {
+            "format": "encoded-rgbd-v1",
+            "capability": "stream.rgbd.broker.v1",
+            "topic": "/elesim/pilot_main/rgbd/frame",
+            "latest_only": True,
+        },
+    }
+    assert sim["rgbd"]["broker_role"] == "pilot"
+    assert sim["rgbd"]["source_role"] == "sim"
+    assert sim["rgbd"]["local_handoff"] == "source-dds-to-pilot"
+    assert ui["rgbd"]["source_role"] == "pilot"
 
 
 def test_cyclonedds_xml_contains_interface_and_static_peers(
@@ -281,6 +298,7 @@ def test_custom_endpoint_ids_drive_node_keys_and_rgbd_topics(local_state) -> Non
     assert dds_node_key(state, "ui") == "ui_west_2"
     assert dds_node_key(state, "robot") == "robot_west_2"
     assert rgbd_topic(state, "sim") == "/elesim/sim_west_2/rgbd/frame"
+    assert rgbd_broker_topic(state) == "/elesim/pilot_a/rgbd/frame"
 
 
 def test_ui_and_robot_runtime_configs_use_configured_endpoint_ids(local_state) -> None:
@@ -298,6 +316,10 @@ def test_ui_and_robot_runtime_configs_use_configured_endpoint_ids(local_state) -
     assert _load(robot_written["robot"])["camera"]["topic"] == (
         "/elesim/robot_field/rgbd/frame"
     )
+    robot_rgbd = _load(robot_written["robot"])["rgbd"]
+    assert robot_rgbd["broker_role"] == "pilot"
+    assert robot_rgbd["source_role"] == "robot"
+    assert robot_rgbd["wire"]["topic"] == "/elesim/pilot_main/rgbd/frame"
 
 
 def test_sros2_enclave_is_role_specific(local_state, tmp_path) -> None:

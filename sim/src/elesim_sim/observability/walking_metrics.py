@@ -140,6 +140,20 @@ CAMERA_CSV_FIELDS = [
     "preview_solve_time_ms",
 ]
 
+CONTACT_CSV_FIELDS = [
+    "sim_time_s", "step_index", "leg", "stance",
+    "foot_px", "foot_py", "foot_pz",
+    "foot_vx", "foot_vy", "foot_vz",
+    "slip_speed_mps", "slip_distance_m",
+    "raw_fx", "raw_fy", "raw_fz",
+    "desired_fx", "desired_fy", "desired_fz",
+    "actual_fx", "actual_fy", "actual_fz",
+    "grf_error_norm", "friction_ratio",
+    "tau_raw_hip", "tau_raw_thigh", "tau_raw_calf",
+    "tau_limited_hip", "tau_limited_thigh", "tau_limited_calf",
+    "tau_applied_hip", "tau_applied_thigh", "tau_applied_calf",
+]
+
 
 @dataclass
 class WalkingMetricsMeta:
@@ -195,6 +209,10 @@ class WalkingMetricsLogger:
         self._walking_file = open(self._walking_path, "w", newline="", encoding="utf-8")
         self._walking_writer = csv.DictWriter(self._walking_file, fieldnames=WALKING_CSV_FIELDS)
         self._walking_writer.writeheader()
+        self._contact_path = self.log_dir / f"{self.run_id}_contact.csv"
+        self._contact_file = open(self._contact_path, "w", newline="", encoding="utf-8")
+        self._contact_writer = csv.DictWriter(self._contact_file, fieldnames=CONTACT_CSV_FIELDS)
+        self._contact_writer.writeheader()
         self._tau_lim: Optional[np.ndarray] = None
         self._started_at = time.time()
         self._rate_info: Optional[ControlRateInfo] = None
@@ -239,6 +257,55 @@ class WalkingMetricsLogger:
             self.meta.extra["effective_ctrl_hz_mean"] = float(self._rate_info.ctrl_hz_effective)
         self._write_meta()
         self._walking_file.close()
+        self._contact_file.close()
+
+    def sample_contact(
+        self,
+        sample,
+        *,
+        sim_time_s: float,
+        raw_grf: np.ndarray,
+        tau_raw: np.ndarray,
+        tau_limited: np.ndarray,
+        tau_applied: np.ndarray,
+    ) -> None:
+        """Write one low-cadence row per foot without additional Genesis reads."""
+
+        vectors = {
+            "raw": np.asarray(raw_grf, dtype=float).reshape(4, 3),
+            "tau_raw": np.asarray(tau_raw, dtype=float).reshape(4, 3),
+            "tau_limited": np.asarray(tau_limited, dtype=float).reshape(4, 3),
+            "tau_applied": np.asarray(tau_applied, dtype=float).reshape(4, 3),
+        }
+        for index, foot in enumerate(sample.feet):
+            pos = np.asarray(foot.position_world, dtype=float)
+            vel = np.asarray(foot.velocity_world, dtype=float)
+            desired = np.asarray(foot.desired_grf_world, dtype=float)
+            actual = np.asarray(foot.net_contact_force_world, dtype=float)
+            raw = vectors["raw"][index]
+            tau0 = vectors["tau_raw"][index]
+            tau1 = vectors["tau_limited"][index]
+            tau2 = vectors["tau_applied"][index]
+            self._contact_writer.writerow(
+                {
+                    "sim_time_s": float(sim_time_s),
+                    "step_index": int(sample.step_index),
+                    "leg": foot.leg.value,
+                    "stance": int(bool(foot.stance)),
+                    "foot_px": pos[0], "foot_py": pos[1], "foot_pz": pos[2],
+                    "foot_vx": vel[0], "foot_vy": vel[1], "foot_vz": vel[2],
+                    "slip_speed_mps": foot.slip_speed_mps,
+                    "slip_distance_m": foot.slip_distance_m,
+                    "raw_fx": raw[0], "raw_fy": raw[1], "raw_fz": raw[2],
+                    "desired_fx": desired[0], "desired_fy": desired[1], "desired_fz": desired[2],
+                    "actual_fx": actual[0], "actual_fy": actual[1], "actual_fz": actual[2],
+                    "grf_error_norm": float(np.linalg.norm(actual - desired)),
+                    "friction_ratio": "" if foot.friction_ratio is None else foot.friction_ratio,
+                    "tau_raw_hip": tau0[0], "tau_raw_thigh": tau0[1], "tau_raw_calf": tau0[2],
+                    "tau_limited_hip": tau1[0], "tau_limited_thigh": tau1[1], "tau_limited_calf": tau1[2],
+                    "tau_applied_hip": tau2[0], "tau_applied_thigh": tau2[1], "tau_applied_calf": tau2[2],
+                }
+            )
 
     def record_torque_step(self, *, recomputed: bool, hold: bool) -> None:
         self.counters.sim_step_count += 1

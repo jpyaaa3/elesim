@@ -589,6 +589,7 @@ class ContainerInstaller:
             root / "packages/elesim_interfaces/package.xml",
             root / "packages/elesim_interfaces/CMakeLists.txt",
             root / "packages/elesim_interfaces/msg/RgbdFrame.msg",
+            root / "packages/elesim_interfaces/msg/EncodedRgbdFrame.msg",
             root / "installer/package/pyproject.toml",
             root / "environment/containers/Dockerfile.app",
             root / "environment/containers/Dockerfile.tools",
@@ -1248,7 +1249,10 @@ class ContainerInstaller:
         # by the connection manager.  Compose's ``run --build`` writes build
         # progress to stdout before the tool starts, which corrupts that
         # contract.  Build quietly as a separate command, then leave the
-        # one-off container's stdout exclusively to ``elesim-net``.
+        # one-off container's stdout exclusively to ``elesim-net``. Runtime
+        # readiness invokes ``doctor`` immediately after ``elesim-up`` has
+        # already built the tools image; avoid rebuilding it for every host
+        # probe while retaining the fallback for a manual first invocation.
         write_executable(
             self.state.bin_path / "elesim-net",
             "#!/usr/bin/env bash\nset -euo pipefail\n"
@@ -1262,7 +1266,13 @@ class ContainerInstaller:
                 if self.state.container_network.uses_tailscale_sidecar
                 else ""
             )
-            + f"{command} build --quiet tools >/dev/null\n"
+            + "needs_tools_build=1\n"
+            + "if [[ ${1:-} == doctor ]] && docker image inspect elesim/tools:local >/dev/null 2>&1; then\n"
+            + "  needs_tools_build=0\n"
+            + "fi\n"
+            + "if [[ $needs_tools_build == 1 ]]; then\n"
+            + f"  {command} build --quiet tools >/dev/null\n"
+            + "fi\n"
             + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',

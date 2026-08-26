@@ -73,6 +73,22 @@ def test_media_stream_descriptor_rejects_invalid_security_combinations() -> None
         )
 
 
+def test_encoded_rgbd_descriptor_round_trips_and_is_not_implied_for_legacy() -> None:
+    descriptor = MediaStreamDescriptor(
+        transport="dds",
+        media_kind="rgbd",
+        endpoint="/elesim/pilot_main/rgbd/frame",
+        security="dds-security",
+        format="encoded-rgbd-v1",
+    )
+    assert MediaStreamDescriptor.from_dict(descriptor.to_dict()) == descriptor
+    legacy = MediaStreamDescriptor(
+        transport="dds",
+        media_kind="rgbd",
+        endpoint="/elesim/sim_default/rgbd/frame",
+        security="none",
+    )
+    assert "format" not in legacy.to_dict()
 def test_endpoint_descriptor_rejects_legacy_string_streams() -> None:
     with pytest.raises(ProtocolError, match="media stream descriptor"):
         EndpointDescriptor.from_dict(

@@ -46,6 +46,17 @@ class CameraConfig:
 
 
 @dataclass(frozen=True)
+class RgbdWireConfig:
+    """External RGB-D contract; raw camera ownership remains local."""
+
+    broker_role: str = "pilot"
+    source_role: str = "robot"
+    format: str = "raw-rgbd-v1"
+    topic: str = ""
+    latest_only: bool = True
+
+
+@dataclass(frozen=True)
 class SafetyConfig:
     command_deadman_s: float = 0.5
     monitor_period_s: float = 0.05
@@ -66,6 +77,7 @@ class RobotConfig:
     mapping: SimMappingConfig
     go2: Go2HardwareConfig
     camera: CameraConfig
+    rgbd: RgbdWireConfig
     safety: SafetyConfig
 
 
@@ -103,6 +115,14 @@ def _finite(value: object, *, name: str) -> float:
     if not math.isfinite(number):
         raise ValueError(f"{name} must be a finite number")
     return number
+
+
+def _bool(value: object, *, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _positive(value: object, *, name: str, allow_zero: bool = False) -> float:
@@ -267,6 +287,7 @@ def load_config(path: str | Path) -> RobotConfig:
         "mapping",
         "go2",
         "camera",
+        "rgbd",
         "safety",
         "dds",
     }
@@ -291,6 +312,25 @@ def load_config(path: str | Path) -> RobotConfig:
     mapping = SimMappingConfig(**mapping_values)
     go2 = Go2HardwareConfig(**_values(Go2HardwareConfig, root.get("go2"), context="go2"))
     camera = CameraConfig(**_values(CameraConfig, root.get("camera"), context="camera"))
+    rgbd_root = _mapping(root.get("rgbd"), context="rgbd")
+    wire_root = _mapping(rgbd_root.get("wire"), context="rgbd.wire")
+    rgbd = RgbdWireConfig(
+        broker_role=str(rgbd_root.get("broker_role", "pilot")),
+        source_role=str(rgbd_root.get("source_role", "robot")),
+        format=str(wire_root.get("format", "raw-rgbd-v1")).strip().lower(),
+        topic=str(wire_root.get("topic", "")).strip(),
+        latest_only=_bool(wire_root.get("latest_only", True), name="rgbd.wire.latest_only"),
+    )
+    if rgbd.broker_role != "pilot" or rgbd.source_role != "robot":
+        raise ValueError("rgbd broker_role/source_role must be pilot/robot")
+    if rgbd.format not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+        raise ValueError("rgbd.wire.format must be raw-rgbd-v1 or encoded-rgbd-v1")
+    if rgbd.format == "encoded-rgbd-v1" and (
+        not rgbd.topic or not rgbd.topic.startswith("/")
+    ):
+        raise ValueError("rgbd.wire.topic is required for encoded RGB-D")
+    if rgbd.topic and not rgbd.topic.startswith("/"):
+        raise ValueError("rgbd.wire.topic must be an absolute topic")
     safety = SafetyConfig(**_values(SafetyConfig, root.get("safety"), context="safety"))
 
     endpoint_id = str(runtime.get("endpoint_id", "robot-go2")).strip()
@@ -337,12 +377,14 @@ def load_config(path: str | Path) -> RobotConfig:
         mapping=mapping,
         go2=go2,
         camera=camera,
+        rgbd=rgbd,
         safety=safety,
     )
 
 
 __all__ = [
     "CameraConfig",
+    "RgbdWireConfig",
     "HardwareConfig",
     "RobotConfig",
     "SafetyConfig",

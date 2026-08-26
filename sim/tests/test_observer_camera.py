@@ -16,6 +16,15 @@ class Camera:
     def set_pose(self, *, pos, lookat, up) -> None:
         self.poses.append((tuple(pos), tuple(lookat), tuple(up)))
 
+    def render(self, *, rgb, depth, force_render=False):
+        self.force_render = bool(force_render)
+        return (
+            np.zeros((48, 64, 3), dtype=np.uint8) if rgb else None,
+            np.zeros((48, 64), dtype=np.float32) if depth else None,
+            None,
+            None,
+        )
+
 
 def observer() -> ObserverCamera:
     return ObserverCamera(
@@ -72,3 +81,9 @@ def test_pan_moves_eye_and_target_together_and_reset_restores_initial_pose() -> 
 
     np.testing.assert_allclose(value.pos, initial_eye)
     np.testing.assert_allclose(value.lookat, initial_target)
+
+
+def test_capture_forces_genesis_render_after_pose_update() -> None:
+    value = observer()
+    value.capture(force_render=True)
+    assert value.camera.force_render is True

@@ -131,9 +131,13 @@ shell은 설치 직후 한 번만 다음을 실행한다.
 source ~/.bashrc
 ```
 
-Uninstaller와 ownership manifest는 제거가 끝날 때까지 보존한다. 다른
-프로젝트의 home, source checkout, Docker image, Tailscale admin record,
-external keystore는 EleSim이 소유하지 않는다.
+Uninstaller는 설치 manifest로 확인된 이 설치의 prefix/bin/runtime 산출물,
+managed security view, logs, operator Authority와 EleSim 로컬 image를 제거하는
+host-local factory reset 경계다. BuildKit/download cache는 재사용 가능한
+cache이므로 삭제하지 않는다. 다른 프로젝트의 home, source checkout,
+Tailscale admin record, 외부 keystore/TURN credential은 EleSim이 생성했다는
+소유 증거가 없으므로 보존한다. 외부 보안 상태의 폐기와 재발급은
+`elesim-connections`의 managed generation transaction에서 수행한다.
 
 ## 5. GPU 정책
 
@@ -309,7 +313,7 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 
 | 증상 | 먼저 확인할 것 | 의미/조치 |
 | --- | --- | --- |
-| `DDS readiness` 실패 | `elesim-status`, `elesim-net namespace-check`, role log | interface/address/route와 실제 peer heartbeat를 분리해서 확인한다. SSH/HTTP 성공만으로 해결되지 않는다. |
+| `DDS readiness` 실패 | `elesim-status`, `elesim-net namespace-check`, role log | manager는 최대 5분 동안 exact descriptor/boot heartbeat만 기다린다. interface/address/route와 실제 peer heartbeat를 분리해서 확인한다. Sim scene/media session은 별도이며 UI가 재시도한다. SSH/HTTP 성공만으로 해결되지 않는다. |
 | `__enter__` 또는 `rclpy` 예외 | `elesim-update` 후 새 tools/runtime image인지, container Python/RMW 버전 | host Python을 고치지 말고 generated image를 재생성·재빌드한 뒤 `elesim-up`한다. |
 | `sim-default` 미발견 | Sim scene/media startup, Pilot/UI descriptor/heartbeat, security bundle | Sim container가 running이어도 session grant 전일 수 있다. scene handshake와 exact boot를 기다린다. |
 | Viewer가 다른 사용자 화면에 뜸 | `--viewer-user`, 해당 사용자의 X socket/Xauthority, `DISPLAY` | 연결 topology의 SSH username과 실제 display owner를 일치시킨다. 다른 사용자의 X를 허용하지 않는다. |

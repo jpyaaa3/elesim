@@ -58,7 +58,7 @@ def probe_ssh_fingerprint(
         detail = str(exc).strip() or exc.__class__.__name__
         raise SshProbeError(_probe_failure(host, port, detail)) from exc
     except Exception as exc:
-        detail = str(exc).strip() or exc.__class__.__name__
+        detail = proxy_failure_detail(connection, exc)
         raise SshProbeError(_probe_failure(host, port, f"SSH handshake failed: {detail}")) from exc
     finally:
         if transport is None:
@@ -168,6 +168,28 @@ def _probe_failure(host: str, port: int, reason: str) -> str:
     )
 
 
+def proxy_failure_detail(connection: object, exc: BaseException) -> str:
+    """Prefer the bounded host-proxy diagnostic over Paramiko's broken pipe."""
+
+    detail = str(exc).strip() or exc.__class__.__name__
+    process = getattr(connection, "process", None)
+    stderr = getattr(process, "stderr", None)
+    poll = getattr(process, "poll", None)
+    if process is None or stderr is None or not callable(poll) or poll() is None:
+        return detail
+    try:
+        raw = stderr.read(4096)
+    except (OSError, ValueError):
+        return detail
+    decoded = (
+        raw.decode("utf-8", errors="replace")
+        if isinstance(raw, bytes)
+        else str(raw or "")
+    )
+    proxy_detail = " ".join(decoded.strip().split())
+    return proxy_detail or detail
+
+
 def install_staged_credentials(
     staged_root: Path,
     destination_root: Path,
@@ -269,5 +291,6 @@ __all__ = [
     "probe_ssh_fingerprint",
     "SshProbeError",
     "tailscale_proxy_command",
+    "proxy_failure_detail",
     "validate_external_turn_credentials",
 ]

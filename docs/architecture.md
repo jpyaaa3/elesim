@@ -21,9 +21,9 @@ full topology (2–4 hosts)
 
 simulation-only topology (1–3 hosts)
 
-                 pilot ─── DDS ─── sim
-                   ▲                │
-                   └──── ui ────────┘
+             [pilot + sim] ─── DDS ─── ui
+                   │                  ▲
+                   └──── local RGB-D ─┘
 ```
 
 `simulation-only`은 Pilot/Sim/UI만 갖고 Robot 또는 Jetson placeholder를
@@ -39,10 +39,10 @@ registry나 권한 부여기가 아니다.
 
 | 역할 | 소유 | 소유하지 않는 것 |
 | --- | --- | --- |
-| `pilot` | Vision, Arm model, Look/Aim/Grasp, Gaze, target 생성, 한 target lease | 물리 I/O, Genesis, UI 구현 |
-| `sim` | Genesis, prebuilt model, virtual telemetry/RGB-D, motion lease, UI simulation session, observer/hand-eye 렌더와 WebRTC signaling/media | operator workflow, 물리 하드웨어 |
+| `pilot` | Vision, Arm model, Look/Aim/Grasp, Gaze, target 생성, 한 target lease, RGB-D edge broker | 물리 I/O, Genesis, UI 구현 |
+| `sim` | Genesis, prebuilt model, virtual telemetry/RGB-D source, motion lease, UI simulation session, observer/hand-eye 렌더와 WebRTC signaling/media | operator workflow, 물리 하드웨어, inter-host RGB-D broker |
 | `ui` | operator intent, simulation control, 상태 표시, 두 WebRTC 수신 화면 | IK/workflow, hardware driver, Genesis |
-| `robot` | Dynamixel/GO2 I/O, RGB-D, motion lease, deadman, limit, local safety | model builder, IK, UI, Sim |
+| `robot` | Dynamixel/GO2 I/O, RGB-D source, motion lease, deadman, limit, local safety | model builder, IK, UI, Sim, inter-host RGB-D broker |
 
 Robot과 Sim은 자기 motion lease의 유일한 authority다. Sim은 UI
 simulation session의 유일한 authority다. discovery, `ROS_DOMAIN_ID`, static
@@ -113,9 +113,19 @@ Pilot은 discovery interval마다 `select_target`을 반복하고 Sim/Robot의
 
 ### RGB-D
 
-RGB-D는 `RgbdFrame` typed DDS sample 하나로 전달하는 latest-only coherent
-stream이다. subscriber backlog를 만들지 않으며, 오래된 frame은 새 frame으로
-덮어쓴다. Robot과 Sim의 RGB-D topic은 `dds_contracts.md`의 QoS·권한 표를
+RGB-D의 source는 Robot 또는 Sim이지만 inter-host broker는 Pilot 하나다. source
+edge가 raw frame을 encoded latest-only sample로 바꾸고 Pilot이 이를 검증·relay
+한다. legacy raw source만 Pilot이 한 번 encode한다. Pilot은 encoded stream을
+`/rgbd/frame`으로 publish하고 UI와 필요 시 Sim은 broker stream을 decode한다.
+source가 둘인 구성에서 source topic을 inter-host consumer가 직접 구독하는 것은
+금지한다.
+
+기존 `RgbdFrame` typed DDS sample은 migration/diagnostic 호환 경계로 남을 수
+있지만, 새 배포의 외부 stream descriptor는 `encoded_rgbd_v1`과
+`stream.rgbd.broker.v1` capability를 명시해야 한다. codec, calibration ID,
+depth scale, sequence와 payload bound는 encoded frame metadata가 소유하며
+`StreamDescriptor` 구조나 protocol major를 불필요하게 확장하지 않는다.
+자세한 배치와 실패 경계는 [`design/rgbd_edge_broker.md`](design/rgbd_edge_broker.md)를
 따른다.
 
 ## 5. Sim 내부 구조와 영상
@@ -124,20 +134,46 @@ Sim은 하나의 deployable application, DDS participant, SROS2 enclave다. 다�
 physics/authority와 media worker를 내부적으로 분리한다.
 
 ```text
-Genesis scene thread
-  ├─ physics, leases, session gate
-  └─ latest-only frame slots (observer, hand-eye)
-                         │
-                         ▼
-                    media worker
-                   aiortc / FFmpeg / ICE
+Physics/authority process                 visual-only Genesis process
+  ├─ physics, leases, session gate       ├─ camera scene + camera.render()
+  ├─ latest state snapshots ────────────►├─ latest-only shared RGB-D slots
+  └─ DDS receive/telemetry                └─ no collision/authority updates
+                                      │
+                                      ▼
+                                  media worker
+                                 aiortc / FFmpeg / ICE
 ```
 
-Genesis scene/camera object는 scene owner thread에서만 접근한다. frame slot은
-고정 크기이며 producer/consumer backlog가 없다. media worker의 encode,
-signaling, ICE 지연이 physics나 DDS receive loop를 block하지 않는다. worker
-실패는 해당 media operation을 실패시킬 뿐 Sim heartbeat·lease·session
-authority를 죽이지 않는다.
+기본 `camera_execution: async_process` 모드에서는 Genesis physics scene과
+카메라 scene을 서로 다른 프로세스에 둔다. physics 프로세스는 카메라 객체나
+`camera.render()`를 호출하지 않고, bounded `CameraStateSnapshot`만 latest-only
+queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual replica에 적용해
+렌더하고, 고정 크기 공유 메일박스에 최신 RGB-D 한 장만 쓴다. 따라서 느린 EGL
+첫 렌더, GPU 동기화, host frame 복사가 physics step·DDS receive loop를
+직접 block하지 않는다. 메일박스와 command/result queue에는 backlog가 없으며,
+오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
+장치 진단을 위한 명시적 fallback일 뿐이다.
+
+Physics scene만 정상상태 step 처리량을 위해 Genesis `performance_mode`의 정적
+커널을 사용한다. Visual replica는 physics를 step하거나 IK/Jacobian을 계산하지
+않으므로 dynamic-array 모드로 시작해, 같은 GPU에서 physics scene의 cold build와
+두 번째 정적 커널 컴파일이 경쟁하지 않게 한다. 두 Genesis process의 cold build는
+겹치지 않으며 physics scene을 먼저 완성한 뒤 visual replica를 만든다. Convex MPC는 Pinocchio가
+kinematics를 소유하므로 physics URDF도 Genesis IK/Jacobian 생성을 끄되, arm mount와
+feedback에서 사용하는 고정 link 이름을 보존하기 위해 fixed-link 병합은 끈다.
+
+물리 scene의 floating-base 엔티티와 카메라 scene의 fixed-base 복제본은 로컬
+DOF 번호를 공유하지 않는다. Snapshot은 URDF의 이름 있는 movable joint 순서로
+관절값만 전달하고, 양쪽 프로세스가 각자의 로컬 DOF 번호를 독립적으로
+해석한다. Root 위치·회전은 별도 필드로 전달하며, 이름·개수·DOF 수 불일치는
+초기화 또는 capture를 명시적으로 실패시킨다.
+
+각 Genesis scene/camera object는 자신이 생성된 프로세스에서만 접근한다. media
+worker의 encode, signaling, ICE 지연이 physics나 DDS receive loop를 block하지
+않는다. 카메라 프로세스가 런타임 중 실패해도 해당 media operation만 실패하고
+Sim의 heartbeat·lease·session authority는 살아 있어야 한다. 초기 scene/worker
+생성 실패는 잘못된 배포를 조기에 드러내기 위해 명시적으로 startup failure로
+처리한다.
 
 DDS endpoint는 boot identity를 일찍 광고하지만, Sim scene과 media worker의
 bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않는다.
@@ -146,7 +182,8 @@ bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않�
 UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 Genesis
 1.2.x `ViewerOptions`의 기본 위치·look-at·world-Z up·FOV에서 시작한다. 기본
 좌클릭 드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고,
-휠클릭 드래그는 시점 평행이동, 휠 회전은 확대/축소를 수행한다. Hand-eye의
+휠클릭 드래그는 카메라의 screen-right/screen-up 평면에서 거리와 FOV에 비례한
+CAD식 시점 평행이동, 휠 회전은 확대/축소를 수행한다. Hand-eye의
 operator view는 under-slung 180도 roll mount를
 화면에서 보정하며, DDS RGB-D와 calibration frame은 원본 방향을 유지한다.
 두 카메라의 capture cadence는 wall clock과 simulation time을 모두 만족해야

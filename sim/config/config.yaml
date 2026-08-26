@@ -56,7 +56,17 @@ simulation:
   runtime:
     use_gpu: true
     camera_gpu_convert: true
+    # Camera rendering runs in a visual-only Genesis process.  The legacy
+    # synchronous path is diagnostic-only and must be selected explicitly.
+    camera_execution: async_process
+    camera_worker_start_timeout_s: 180.0
+    # Genesis may spend several seconds on the first EGL render after scene
+    # build.  Readiness waits for that first frame without blocking physics.
+    camera_first_frame_timeout_s: 30.0
     enable_viewer: true
+    # Keep the local Genesis viewer useful without forcing a visualizer/GPU
+    # synchronization on every physics step.  Zero restores legacy behavior.
+    visualizer_max_hz: 30.0
     # DDS telemetry is a latest-only state snapshot. It does not need to force
     # four synchronous Genesis readbacks on every 50 Hz physics step.
     telemetry_max_hz: 20.0
@@ -86,8 +96,8 @@ simulation:
       jpeg: true
       jpeg_quality: 85
       max_hz: 20.0
-      width: 320
-      height: 240
+      width: 640
+      height: 480
       # Genesis 1.2.x ViewerOptions defaults, in its right-handed Z-up world.
       fov_deg: 40.0
       pos: [3.5, 0.5, 2.5]
@@ -157,6 +167,14 @@ robot:
         mass_kg: 0.0
       mpc:
         leg_kv_damping: 3.0
+        # The upstream four-face rectangle permits sqrt(2)*mu diagonally.
+        # Keep the simulated surface at 0.8 and optimize conservatively.
+        physical_friction: 0.8
+        optimization_friction: 0.55
+        fz_max_n: 180.0
+        joint_armature: 0.01
+        joint_damping: 0.1
+        joint_frictionloss: 0.2
       general:
         mode: convex_mpc
         gait_hz: 2.2

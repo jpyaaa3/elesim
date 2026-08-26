@@ -678,6 +678,7 @@ class _PerceptionCaptureLifecycle(_PerceptionCaptureStorage):
                     dds_settings=cfg.sim_camera_dds_settings,
                     expected_source_id=str(cfg.sim_camera_source_id),
                     expected_boot_id=str(cfg.sim_camera_source_boot_id),
+                    wire_format=str(cfg.sim_camera_wire_format),
                 )
                 if use_search_track:
                     self._run_camera_search_track(

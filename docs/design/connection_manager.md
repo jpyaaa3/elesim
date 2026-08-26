@@ -101,6 +101,32 @@ boundary를 정리한다. 한 host에 aggregate CA private key나 unrelated encl
 `trusted-network`는 새 generation 없이도 명시적 interface/firewall trust를
 검증해야 하고, external SROS2는 operator-supplied keystore를 그대로 유지한다.
 
+### RGB-D 권장 배치
+
+`simulation-only`에서 connection manager는 다음 배치를 유효한 일반 topology로
+취급한다.
+
+```yaml
+topology_mode: simulation-only
+hosts:
+  - id: compute
+    units:
+      - id: runtime
+        assignments:
+          - {role: pilot, endpoint_id: pilot-main}
+          - {role: sim, endpoint_id: sim-default}
+  - id: operator
+    units:
+      - id: runtime
+        assignments:
+          - {role: ui, endpoint_id: ui-main}
+```
+
+이 배치는 새 role이나 Router를 만들지 않는다. source인 Sim과 RGB-D edge broker인
+Pilot을 같은 Compose unit에 두어 raw handoff를 host 밖으로 내보내지 않고, UI는
+Pilot이 소유하는 encoded broker stream만 받는다. `full`에서는 같은 원칙으로
+Robot source와 Pilot broker 사이의 local handoff를 우선한다.
+
 ## 5. Host lifecycle
 
 `start`는 Compose/systemd management state만 다룬다. full start는 모든 선택
@@ -134,12 +160,16 @@ manager readiness는 다음을 서로 다른 상태로 기록한다.
 
 1. Compose/systemd container started
 2. namespace interface/address/route structurally valid
-3. exact endpoint descriptor + matching boot heartbeat discovered
+3. exact endpoint descriptor + matching boot heartbeat discovered (bounded to
+   five minutes so a cold Genesis scene build cannot trigger a premature
+   rollback)
 4. Sim scene/media startup handshake complete
 5. authority/session grant 및 WebRTC signaling response
 
-“container running”은 3–5를 의미하지 않는다. `sim-default`가 늦게 나타나면
-Sim log의 scene build/descriptor/heartbeat를 기다린다. `__enter__` 같은
+“container running”은 3–5를 의미하지 않는다. DDS liveness gate는
+descriptor/heartbeat까지만 기다리고, UI의 simulation session/media handshake는
+별도로 재시도한다. `sim-default`가 늦게 나타나면 Sim log의 scene
+build/descriptor/heartbeat를 기다린다. `__enter__` 같은
 container Python/RMW 예외는 stale image 또는 runtime dependency 문제로
 diagnose하고, source/host Python을 우회하지 않는다.
 

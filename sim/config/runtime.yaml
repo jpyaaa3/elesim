@@ -6,6 +6,16 @@ runtime:
     rgbd_topic: /elesim/sim_default/rgbd/frame
     observer: webrtc://sim-default/observer
     hand_eye_preview: webrtc://sim-default/hand_eye_preview
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: sim
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    latest_only: true
 dds:
   system_id: elesim
   domain_id: 0

@@ -3,6 +3,7 @@ from __future__ import annotations
 _EXPORTS = {
     "Node9EyeInHandCamera": "mount",
     "ObserverCamera": "mount",
+    "ObserverViewState": "mount",
     "SimCameraFrame": "types",
     "SimCameraIntrinsics": "types",
     "SimCameraPublisher": "publisher",
@@ -10,6 +11,10 @@ _EXPORTS = {
     "hand_eye_to_genesis_attach_T": "mount",
     "intrinsics_from_fov": "mount",
     "load_hand_eye_offset_T": "mount",
+    "CameraRenderSpec": "async_worker",
+    "CameraStateSnapshot": "async_worker",
+    "CameraRenderWorker": "async_worker",
+    "SharedRgbdMailbox": "async_worker",
 }
 
 __all__ = sorted(_EXPORTS)

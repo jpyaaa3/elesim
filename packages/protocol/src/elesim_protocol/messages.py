@@ -253,6 +253,7 @@ CAPABILITY_MOTION_ARM = "motion.arm"
 CAPABILITY_MOTION_GO2 = "motion.go2"
 CAPABILITY_SIM_MOCK_HUG = "simulation.mock_hug.v1"
 CAPABILITY_STREAM_RGBD = "stream.rgbd"
+CAPABILITY_STREAM_RGBD_BROKER = "stream.rgbd.broker.v1"
 CAPABILITY_STREAM_OBSERVER = "stream.observer"
 CAPABILITY_STREAM_HAND_EYE_PREVIEW = "stream.hand_eye_preview"
 
@@ -262,6 +263,9 @@ MEDIA_TRANSPORTS = frozenset({MEDIA_TRANSPORT_DDS, MEDIA_TRANSPORT_WEBRTC})
 MEDIA_KIND_RGB = "rgb"
 MEDIA_KIND_RGBD = "rgbd"
 MEDIA_KINDS = frozenset({MEDIA_KIND_RGB, MEDIA_KIND_RGBD})
+MEDIA_FORMAT_RAW_RGBD_V1 = "raw-rgbd-v1"
+MEDIA_FORMAT_ENCODED_RGBD_V1 = "encoded-rgbd-v1"
+MEDIA_FORMATS = frozenset({"", MEDIA_FORMAT_RAW_RGBD_V1, MEDIA_FORMAT_ENCODED_RGBD_V1})
 MEDIA_SECURITY_NONE = "none"
 MEDIA_SECURITY_DDS = "dds-security"
 MEDIA_SECURITY_DTLS_SRTP = "dtls-srtp"
@@ -322,8 +326,11 @@ class MediaStreamDescriptor:
     media_kind: str
     endpoint: str
     security: str
+    # Additive descriptor field. Empty means the legacy raw RGB-D contract.
+    format: str = ""
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "format", str(self.format).strip().lower())
         if self.transport not in MEDIA_TRANSPORTS:
             raise ProtocolError(f"unsupported media transport: {self.transport!r}")
         if self.media_kind not in MEDIA_KINDS:
@@ -338,21 +345,31 @@ class MediaStreamDescriptor:
                 raise ProtocolError("WebRTC streams currently support RGB media only")
             if self.security != MEDIA_SECURITY_DTLS_SRTP:
                 raise ProtocolError("WebRTC streams must use DTLS-SRTP security")
+            if self.format:
+                raise ProtocolError("WebRTC streams do not carry an RGB-D format")
             return
         if self.transport == MEDIA_TRANSPORT_DDS:
             if self.security not in {MEDIA_SECURITY_NONE, MEDIA_SECURITY_DDS}:
                 raise ProtocolError(
                     "DDS streams must use plaintext trusted-network or DDS security"
                 )
+            stream_format = str(self.format).strip().lower()
+            if self.media_kind == MEDIA_KIND_RGBD and stream_format not in MEDIA_FORMATS:
+                raise ProtocolError(f"unsupported RGB-D stream format: {self.format!r}")
+            if self.media_kind != MEDIA_KIND_RGBD and stream_format:
+                raise ProtocolError("only RGB-D DDS streams may carry a format")
             return
 
     def to_dict(self) -> dict[str, str]:
-        return {
+        result = {
             "transport": self.transport,
             "media_kind": self.media_kind,
             "endpoint": self.endpoint,
             "security": self.security,
         }
+        if self.format:
+            result["format"] = self.format
+        return result
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "MediaStreamDescriptor":
@@ -360,7 +377,7 @@ class MediaStreamDescriptor:
             raise ProtocolError("media stream descriptor must be an object")
         unknown = sorted(
             set(raw)
-            - {"transport", "media_kind", "endpoint", "security"}
+            - {"transport", "media_kind", "endpoint", "security", "format"}
         )
         if unknown:
             raise ProtocolError("unknown media stream descriptor fields: " + ", ".join(unknown))
@@ -369,6 +386,7 @@ class MediaStreamDescriptor:
             media_kind=str(raw.get("media_kind", "")),
             endpoint=str(raw.get("endpoint", "")),
             security=str(raw.get("security", "")),
+            format=str(raw.get("format", "")),
         )
 
 

@@ -21,6 +21,7 @@ class SimRenderedCamera:
         dds_settings: DdsRuntimeSettings | None = None,
         expected_source_id: str = "",
         expected_boot_id: str = "",
+        wire_format: str = "raw-rgbd-v1",
     ) -> None:
         self._topic = str(topic)
         self._timeout_ms = int(timeout_ms)
@@ -28,6 +29,7 @@ class SimRenderedCamera:
         self._dds_settings = dds_settings
         self._expected_source_id = str(expected_source_id)
         self._expected_boot_id = str(expected_boot_id)
+        self._wire_format = str(wire_format).strip().lower() or "raw-rgbd-v1"
         self._sub: SimCameraSubscriber | None = None
 
     def start(self) -> None:
@@ -37,6 +39,7 @@ class SimRenderedCamera:
             dds_settings=self._dds_settings,
             expected_source_id=self._expected_source_id,
             expected_boot_id=self._expected_boot_id,
+            wire_format=self._wire_format,
         )
         self._sub.connect()
 

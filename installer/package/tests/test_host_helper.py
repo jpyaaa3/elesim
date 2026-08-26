@@ -14,7 +14,7 @@ from elesim_setup.host_helper import (
     _validate_command,
     _valid_tailscale_target,
 )
-from elesim_setup.host_proxy import _upload_stdin
+from elesim_setup.host_proxy import _upload_stdin, main as host_proxy_main
 from elesim_setup.secure_deployment import _run_through_host_helper
 
 
@@ -421,6 +421,83 @@ def test_tailscale_stream_releases_small_banner_before_eof(tmp_path: Path) -> No
         server.shutdown()
         server.server_close()
         worker.join(timeout=1)
+
+
+def test_tailscale_stream_rejects_failed_connection_before_success(
+    tmp_path: Path,
+) -> None:
+    compose = tmp_path / "compose.yaml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    proxy = tmp_path / "tailscale"
+    proxy.write_text(
+        "#!/bin/sh\n"
+        "printf 'peer is offline or SSH is disabled\\n' >&2\n"
+        "exit 7\n",
+        encoding="utf-8",
+    )
+    proxy.chmod(0o755)
+    socket_path = tmp_path / "helper.sock"
+    server = _Server(
+        str(socket_path),
+        compose=compose,
+        bin_dir=bin_dir,
+        project="elesim-runtime",
+        tailscale_bin=proxy,
+    )
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(1)
+            connection.connect(str(socket_path))
+            connection.sendall(
+                b'{"operation":"tailscale-nc","host":"100.64.0.2","port":22}\n'
+            )
+            response = json.loads(_recv_line(connection))
+        assert response["ok"] is False
+        assert "exit 7" in response["error"]
+        assert "peer is offline or SSH is disabled" in response["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=1)
+
+
+def test_host_proxy_reports_helper_refusal_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Connection:
+        response = bytearray(b'{"ok":false,"error":"peer offline"}\n')
+
+        @staticmethod
+        def connect(_path: str) -> None:
+            pass
+
+        @staticmethod
+        def sendall(_content: bytes) -> None:
+            pass
+
+        def recv(self, _size: int) -> bytes:
+            if not self.response:
+                return b""
+            return bytes((self.response.pop(0),))
+
+        @staticmethod
+        def close() -> None:
+            pass
+
+    monkeypatch.setattr(
+        "elesim_setup.host_proxy.socket.socket", lambda *_args: Connection()
+    )
+
+    assert host_proxy_main(
+        ("--socket", "/run/elesim/helper.sock", "nc", "100.64.0.2", "22")
+    ) == 2
+    error = capsys.readouterr().err
+    assert "elesim-host-proxy: peer offline" in error
+    assert "Traceback" not in error
 
 
 def test_host_proxy_upload_treats_peer_close_as_normal_eof() -> None:

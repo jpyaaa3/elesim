@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from elesim_protocol import (
+    DdsEncodedRgbdSubscriber,
     DdsRgbdSubscriber,
     DdsRuntimeSettings,
     RgbdSample,
@@ -37,6 +38,12 @@ def _sim_frame(sample: RgbdSample) -> SimCameraFrame:
     )
 
 
+def _sim_encoded_frame(sample: object) -> SimCameraFrame:
+    from elesim_protocol import rgbd_from_encoded_frame
+
+    return _sim_frame(rgbd_from_encoded_frame(sample))  # type: ignore[arg-type]
+
+
 class SimCameraSubscriber:
     """Receive the newest simulated RGB-D sample from DDS."""
 
@@ -48,9 +55,16 @@ class SimCameraSubscriber:
         settings: Optional[DdsRuntimeSettings] = None,
         expected_source_id: str = "",
         expected_boot_id: str = "",
+        wire_format: str = "raw-rgbd-v1",
         subscriber_factory: Callable[..., Any] = DdsRgbdSubscriber,
     ) -> None:
         self.topic = str(topic)
+        self.wire_format = str(wire_format).strip().lower() or "raw-rgbd-v1"
+        if self.wire_format not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+            raise ValueError(f"unsupported RGB-D wire format: {wire_format!r}")
+        if self.wire_format == "encoded-rgbd-v1" and subscriber_factory is DdsRgbdSubscriber:
+            subscriber_factory = DdsEncodedRgbdSubscriber
+        self._encoded = self.wire_format == "encoded-rgbd-v1"
         self._subscriber = subscriber_factory(
             self.topic,
             endpoint_id=str(endpoint_id),
@@ -77,7 +91,9 @@ class SimCameraSubscriber:
         timeout_ms: int = 500,
     ) -> Optional[SimCameraFrame]:
         sample = self._subscriber.recv_latest(timeout_ms=timeout_ms)
-        return None if sample is None else _sim_frame(sample)
+        return None if sample is None else (
+            _sim_encoded_frame(sample) if self._encoded else _sim_frame(sample)
+        )
 
 
-__all__ = ["SimCameraSubscriber", "_sim_frame"]
+__all__ = ["SimCameraSubscriber", "_sim_frame", "_sim_encoded_frame"]

@@ -14,7 +14,7 @@ from elesim_sim.main import _configure_gpu_render_environment
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
+def test_headless_gpu_render_remaps_single_selected_device_for_egl(monkeypatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
     monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
@@ -25,7 +25,7 @@ def test_headless_gpu_render_uses_selected_cuda_device(monkeypatch) -> None:
 
     assert os.environ["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
     assert os.environ["PYOPENGL_PLATFORM"] == "egl"
-    assert os.environ["EGL_DEVICE_ID"] == "2"
+    assert os.environ["EGL_DEVICE_ID"] == "0"
 
 
 def test_viewer_does_not_force_headless_egl(monkeypatch) -> None:
@@ -73,6 +73,109 @@ def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
     assert captured["backend"] is runtime.gs.gpu
     assert captured["logging_level"] == "warning"
     assert captured["performance_mode"] is True
+
+
+def test_convex_mpc_physics_morph_skips_genesis_ik_without_merging_links(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    class Morphs:
+        @staticmethod
+        def URDF(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+    monkeypatch.setattr(runtime, "gs", SimpleNamespace(morphs=Morphs()))
+
+    runtime._make_urdf_morph(
+        "/model/robot.urdf",
+        (0.0, 0.0, 0.32),
+        (0.0, 0.0, 0.0),
+        fixed=False,
+        requires_jac_and_IK=False,
+        merge_fixed_links=False,
+    )
+
+    assert captured["requires_jac_and_IK"] is False
+    assert captured["merge_fixed_links"] is False
+
+
+def test_only_legacy_raibert_controller_requires_genesis_ik() -> None:
+    convex = runtime.Go2LocomotionConfig(mode="convex_mpc")
+    raibert = runtime.Go2LocomotionConfig()
+    mirror = runtime.Go2LocomotionConfig(mirror_from_host=True)
+
+    assert runtime._requires_genesis_ik(convex) is False
+    assert runtime._requires_genesis_ik(raibert) is True
+    assert runtime._requires_genesis_ik(mirror) is False
+
+
+def test_async_runtime_builds_physics_before_starting_visual_worker(monkeypatch) -> None:
+    captured = {"order": []}
+
+    class StopAfterInit(Exception):
+        pass
+
+    class FakeAssetProcessor:
+        def __init__(self, _app) -> None:
+            pass
+
+        def prepare_assets(self) -> str:
+            return "/model/robot.urdf"
+
+    class FakeRuntimePrep:
+        def __init__(self, _app) -> None:
+            pass
+
+        def camera_render_spec(self, urdf_path: str):
+            assert urdf_path == "/model/robot.urdf"
+            return object()
+
+        def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool) -> None:
+            captured["urdf_path"] = urdf_path
+            captured["attach_scene_cameras"] = attach_scene_cameras
+            captured["order"].append("physics")
+
+    class Scene:
+        def configure_camera_render_worker(self, *_args, **_kwargs) -> None:
+            captured["worker_started"] = True
+            captured["order"].append("visual")
+
+        def wait_camera_render_worker(self, **_kwargs) -> None:
+            captured["order"].append("wait")
+            raise StopAfterInit
+
+        def close_frame_dispatchers(self) -> None:
+            captured["closed"] = True
+
+    app = SimpleNamespace(
+        cfg=SimpleNamespace(
+            camera_execution="async_process",
+            sim_camera_enable=True,
+            hand_eye_config="/config/hand-eye.json",
+            sim_observer_camera_enable=True,
+            sim_camera_width=640,
+            sim_camera_height=480,
+            sim_observer_camera_width=640,
+            sim_observer_camera_height=480,
+            camera_worker_start_timeout_s=180.0,
+        ),
+        sim_scene=Scene(),
+    )
+    monkeypatch.setattr(runtime, "AssetProcessor", FakeAssetProcessor)
+    monkeypatch.setattr(runtime, "RuntimePrep", FakeRuntimePrep)
+
+    with pytest.raises(StopAfterInit):
+        runtime.GenesisApp.run(app)
+
+    assert captured == {
+        "worker_started": True,
+        "urdf_path": "/model/robot.urdf",
+        "attach_scene_cameras": False,
+        "order": ["physics", "visual", "wait"],
+        "closed": True,
+    }
 
 
 def test_viewer_flag_overrides_remote_profile(monkeypatch) -> None:

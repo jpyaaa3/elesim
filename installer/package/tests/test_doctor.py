@@ -153,6 +153,7 @@ def test_doctor_reports_expected_peer_descriptors(
         lambda *_args, **_kwargs: DdsPeerProbe(
             descriptors=("sim-default",),
             heartbeats=("sim-default",),
+            matched=("sim-default",),
         ),
     )
 
@@ -178,6 +179,7 @@ def test_readiness_only_doctor_runs_only_strict_peer_probe(
         return DdsPeerProbe(
             descriptors=("sim-default",),
             heartbeats=("sim-default",),
+            matched=("sim-default",),
         )
 
     monkeypatch.setattr("elesim_setup.doctor.probe_dds_peer_state", peer_probe)
@@ -275,7 +277,8 @@ def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
         def dispatch_once(self, node) -> None:
             self.spin_calls += 1
             message = SimpleNamespace(
-                peer=SimpleNamespace(endpoint_id="sim-default")
+                peer=SimpleNamespace(endpoint_id="sim-default", boot_id="boot-sim"),
+                descriptor_revision=1,
             )
             node.callbacks[EndpointDescriptor](message)
             node.callbacks[EndpointHeartbeat](message)
@@ -317,13 +320,121 @@ def test_peer_probe_returns_as_soon_as_all_expected_peers_are_live(
     )
 
     assert result == DdsPeerProbe(
-        descriptors=("sim-default",), heartbeats=("sim-default",)
+        descriptors=("sim-default",),
+        heartbeats=("sim-default",),
+        matched=("sim-default",),
     )
     assert fake.spin_calls == 1
     assert len(created_executors) == 1
     assert created_executors[0].context is fake.node_context
     assert created_executors[0].removed is True
     assert created_executors[0].closed is True
+
+
+def test_peer_probe_does_not_pair_descriptor_and_heartbeat_from_different_boots(
+    local_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EndpointDescriptor:
+        pass
+
+    class EndpointHeartbeat:
+        pass
+
+    message_module = types.ModuleType("elesim_interfaces.msg")
+    message_module.EndpointDescriptor = EndpointDescriptor
+    message_module.EndpointHeartbeat = EndpointHeartbeat
+    package_module = types.ModuleType("elesim_interfaces")
+    package_module.msg = message_module
+    monkeypatch.setitem(sys.modules, "elesim_interfaces", package_module)
+    monkeypatch.setitem(sys.modules, "elesim_interfaces.msg", message_module)
+
+    qos_module = types.ModuleType("rclpy.qos")
+    qos_module.DurabilityPolicy = SimpleNamespace(
+        TRANSIENT_LOCAL="transient", VOLATILE="volatile"
+    )
+    qos_module.HistoryPolicy = SimpleNamespace(KEEP_LAST="keep-last")
+    qos_module.ReliabilityPolicy = SimpleNamespace(RELIABLE="reliable")
+    qos_module.QoSProfile = lambda **values: values
+    monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
+
+    class Context:
+        def shutdown(self) -> None:
+            return None
+
+    class Node:
+        def __init__(self) -> None:
+            self.callbacks = {}
+
+        def create_subscription(self, message_type, _topic, callback, _qos):
+            self.callbacks[message_type] = callback
+            return message_type
+
+        def destroy_subscription(self, _subscription) -> None:
+            return None
+
+        def destroy_node(self) -> None:
+            return None
+
+    class FakeRclpy:
+        context = SimpleNamespace(Context=Context)
+
+        def __init__(self) -> None:
+            self.node = Node()
+            self.node_context = None
+            self.dispatched = False
+
+        def init(self, **_kwargs) -> None:
+            return None
+
+        def create_node(self, *_args, **kwargs):
+            self.node_context = kwargs["context"]
+            return self.node
+
+        def dispatch_once(self, node) -> None:
+            if self.dispatched:
+                return
+            self.dispatched = True
+            descriptor = SimpleNamespace(
+                peer=SimpleNamespace(endpoint_id="sim-default", boot_id="new-boot"),
+                descriptor_revision=1,
+            )
+            heartbeat = SimpleNamespace(
+                peer=SimpleNamespace(endpoint_id="sim-default", boot_id="old-boot"),
+                descriptor_revision=1,
+            )
+            node.callbacks[EndpointDescriptor](descriptor)
+            node.callbacks[EndpointHeartbeat](heartbeat)
+
+    fake = FakeRclpy()
+
+    class Executor:
+        def __init__(self, *, context) -> None:
+            self.context = context
+
+        def add_node(self, _node) -> None:
+            return None
+
+        def spin_once(self, **_kwargs) -> None:
+            fake.dispatch_once(fake.node)
+
+        def remove_node(self, _node) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
+
+    fake.executors = SimpleNamespace(SingleThreadedExecutor=lambda *, context: Executor(context=context))
+    result = probe_dds_peer_state(
+        local_state(),
+        timeout_s=0.2,
+        expected_peers=("sim-default",),
+        import_rclpy=lambda: fake,
+    )
+
+    assert result.descriptors == ("sim-default",)
+    assert result.heartbeats == ("sim-default",)
+    assert result.matched == ()
 
 
 def test_doctor_strict_peer_probe_fails_when_target_is_missing(

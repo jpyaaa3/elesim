@@ -530,7 +530,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     assert "tailscale[0-9]+" in manager_wrapper
     assert "ELESIM_TAILSCALE_INTERFACE" in manager_wrapper
     assert "down --remove-orphans" in down_wrapper
-    assert "rm -f -s" in down_wrapper
+    assert "down --remove-orphans" in down_wrapper
     assert "elesim-down [--purge]" in down_wrapper
     assert "docker rm -f elesim-manager" in down_wrapper
     assert 'xhost -si:localuser:"$viewer_xhost_user"' in down_wrapper
@@ -738,7 +738,7 @@ def test_container_refresh_removes_manifest_owned_legacy_role_wrappers(
     assert str(legacy.resolve()) not in {wrapper.path for wrapper in manifest.wrappers}
 
 
-def test_sidecar_only_runtime_is_removed_by_down(local_state, tmp_path: Path) -> None:
+def test_sidecar_only_runtime_is_preserved_by_ordinary_down(local_state, tmp_path: Path) -> None:
     prefix = local_state().prefix_path
     state = local_state(
         roles=("ui",),
@@ -775,7 +775,8 @@ def test_sidecar_only_runtime_is_removed_by_down(local_state, tmp_path: Path) ->
     )
 
     assert result.returncode == 0, result.stderr
-    assert marker.is_file()
+    assert not marker.exists()
+    assert "Tailscale sidecar는 유지합니다" in result.stderr
 
 
 def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
@@ -2333,6 +2334,45 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     assert "net_service=tools" in wrapper
     assert 'run --rm -T "$net_service" elesim-net' in wrapper
     assert "run --rm --build tools elesim-net" not in wrapper
+
+
+def test_container_net_doctor_reuses_tools_image_after_runtime_build(
+    local_state, tmp_path: Path
+) -> None:
+    state = local_state(roles=("sim",), install_mode="container")
+    ContainerInstaller(state).run()
+
+    fake_bin = tmp_path / "fake-docker"
+    fake_bin.mkdir()
+    _fake_docker(fake_bin)
+    calls = tmp_path / "docker.calls"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+        }
+    )
+
+    result = subprocess.run(
+        (
+            state.bin_path / "elesim-net",
+            "doctor",
+            "--timeout",
+            "300",
+            "--json",
+        ),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"schema_version": 1}
+    commands = calls.read_text(encoding="utf-8").splitlines()
+    assert any("image inspect elesim/tools:local" in command for command in commands)
+    assert not any("build --quiet tools" in command for command in commands)
 
 
 def test_container_install_records_host_uninstaller_and_docker_uuid(

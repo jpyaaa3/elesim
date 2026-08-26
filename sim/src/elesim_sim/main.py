@@ -61,19 +61,26 @@ def _configure_gpu_render_environment(*, use_gpu: bool, viewer: bool) -> None:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
     visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
     if visible.isdecimal() and "," not in visible:
-        os.environ.setdefault("EGL_DEVICE_ID", visible)
+        # CUDA_VISIBLE_DEVICES is a host-facing selection, but CUDA and EGL
+        # enumerate the selected devices again inside the container.  When a
+        # single host GPU (for example ``2``) is exposed, it is device 0 in
+        # that namespace; passing the host index to EGL makes it reject a
+        # valid one-GPU allocation as "Invalid device ID".
+        os.environ.setdefault("EGL_DEVICE_ID", "0")
 
 
 def _rgbd_descriptor(
     *,
     topic: str,
     secure: bool,
+    format: str = "",
 ) -> MediaStreamDescriptor:
     return MediaStreamDescriptor(
         transport=MEDIA_TRANSPORT_DDS,
         media_kind=MEDIA_KIND_RGBD,
         endpoint=str(topic),
         security=MEDIA_SECURITY_DDS if secure else MEDIA_SECURITY_NONE,
+        format=str(format),
     )
 
 
@@ -157,8 +164,21 @@ def _run() -> None:
         print("[sim-media] WebRTC unavailable; install aiortc and av")
 
     streams: dict[str, MediaStreamDescriptor] = {}
+    # Keep these defined even when the optional hand-eye camera is disabled;
+    # runtime construction should not depend on that feature flag's branch.
+    rgbd_topic = ""
+    rgbd_format = "raw-rgbd-v1"
     if bool(bundle.sim_config.sim_camera_enable):
-        rgbd_topic = str(role.streams.get("rgbd_topic", "")).strip()
+        rgbd_runtime_topic = str(role.streams.get("rgbd_topic", "")).strip()
+        rgbd_section = dict(getattr(role, "rgbd", {}) or {})
+        rgbd_wire = rgbd_section.get("wire", {})
+        if not isinstance(rgbd_wire, dict):
+            raise ValueError("runtime rgbd.wire must be an object")
+        rgbd_broker_topic = str(rgbd_wire.get("topic", "")).strip()
+        rgbd_topic = rgbd_runtime_topic or rgbd_broker_topic
+        rgbd_format = str(rgbd_wire.get("format", "raw-rgbd-v1")).strip().lower()
+        if rgbd_format not in {"raw-rgbd-v1", "encoded-rgbd-v1"}:
+            raise ValueError(f"runtime rgbd.wire.format is unsupported: {rgbd_format!r}")
         if not rgbd_topic:
             raise ValueError(
                 "runtime.streams.rgbd_topic is required when the hand-eye camera is enabled"
@@ -166,6 +186,7 @@ def _run() -> None:
         streams["rgbd"] = _rgbd_descriptor(
             topic=rgbd_topic,
             secure=role.dds.security_profile == "sros2",
+            format=rgbd_format,
         )
     if media is not None:
         for stream in video_specs:
@@ -214,7 +235,8 @@ def _run() -> None:
             operator_mailbox=operator_mailbox,
             simulation_status_publisher=endpoint.publish_simulation_status,
             dds_settings=role.dds,
-            rgbd_topic=role.streams.get("rgbd_topic", ""),
+            rgbd_topic=rgbd_topic,
+            rgbd_wire_format=rgbd_format,
             rgbd_endpoint_id=endpoint_id,
             rgbd_boot_id=endpoint.peer_identity.boot_id,
             runtime_ready_event=runtime_ready_event,

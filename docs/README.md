@@ -30,7 +30,7 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
 | --- | --- |
 | 제어·발견 | 모든 역할이 직접 CycloneDDS/ROS 2 UDP peer로 통신한다. 중앙 Router, ZMQ, CURVE는 없다. |
 | 영상 | Sim이 observer/hand-eye WebRTC track을 만든다. DDS는 offer/answer 신호만 운반하고, 픽셀은 DTLS/SRTP로 흐른다. |
-| RGB-D | 최신 한 샘플만 유지하는 coherent typed DDS `RgbdFrame`이다. |
+| RGB-D | Robot/Sim source의 raw frame을 Pilot이 edge broker에서 한 번 encode하고, inter-host에는 Pilot 소유의 latest-only `encoded_rgbd_v1` DDS stream만 보낸다. |
 | 보안 | 소유 LAN/VPN의 `trusted-network` 또는 공유/비신뢰 망의 enforce-mode `sros2` 중 하나다. |
 | 일반 설치 | `elesim-runtime` Compose, `elesim-pilot`, `elesim-ui`, `elesim-sim`; Robot은 Jetson native-only다. |
 | 개발자 설치 | `elesim-runtime-dev`의 영속 `elesim-dev`; Jaeger는 선택적 `elesim-jaeger`다. |
@@ -55,6 +55,8 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
   SROS2/TURN, Docker Desktop sidecar, 검증 명령.
 - [`design/connection_manager.md`](design/connection_manager.md): schema v4의
   `full`/`simulation-only`, 독립 DDS·SSH endpoint, preflight와 security rollout.
+- [`design/rgbd_edge_broker.md`](design/rgbd_edge_broker.md): Pilot 소유 RGB-D
+  broker, source-local handoff와 `simulation-only` Pilot+Sim 배치.
 
 ### 연구·실험
 

@@ -19,9 +19,11 @@ prefix를 광고한다. descriptor와 같은 endpoint/boot의 heartbeat가 확�
 전에는 peer를 live authority로 취급하지 않는다. startup queue는 heartbeat
 timeout 동안 최대 512 envelope만 보관한다.
 
-RGB-D는 별도 typed `elesim_interfaces/msg/RgbdFrame` topic이다. observer와
-hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track이다.
-`webrtc_signal`만 PeerEnvelope에 들어간다.
+RGB-D는 source와 Pilot의 local handoff 이후 Pilot이 소유하는 별도 DDS stream이다.
+observer와 hand-eye 픽셀은 DDS payload가 아니며 WebRTC DTLS/SRTP track이다.
+`webrtc_signal`만 PeerEnvelope에 들어간다. 기존 typed
+`elesim_interfaces/msg/RgbdFrame`은 migration/diagnostic raw contract로 남을 수
+있지만 새 inter-host deployment는 encoded broker contract를 사용한다.
 
 ## 2. Control registry
 
@@ -88,10 +90,35 @@ motion은 계속 Pilot motion lease에만 묶인다. pose는 ±10 m, Euler는 ±
 
 ## 4. RGB-D QoS
 
-`RgbdFrame`은 timestamp, frame identity, dimensions, intrinsics와 RGB/depth
-payload를 함께 갖는 coherent sample이다. publisher와 subscriber는 latest-only
-depth-1 semantics를 사용하며, 오래된 sample을 backlog로 쌓지 않는다. Robot과
-Sim의 topic prefix는 endpoint boot/resource descriptor와 함께 광고된다.
+### Edge broker contract
+
+| 단계 | sender → receiver | carrier | payload |
+| --- | --- | --- | --- |
+| source edge handoff | Robot 또는 Sim → Pilot | bounded DDS source topic | encoded coherent RGB-D (legacy raw 입력 허용) |
+| encoded broker stream | Pilot → UI/optional Sim | DDS/SROS2 typed latest-only | `encoded_rgbd_v1` |
+
+Pilot은 `stream.rgbd.broker.v1` capability와 함께 `StreamDescriptor`를
+광고한다. descriptor의 기존 필드를 다음처럼 해석한다.
+
+```yaml
+name: rgbd
+transport: dds
+media_kind: rgbd
+endpoint: /elesim/pilot_main/rgbd/frame
+message_type: elesim_interfaces/msg/EncodedRgbdFrame
+qos_profile: sensor_data_latest_only
+```
+
+codec, dimensions, intrinsics/calibration ID, depth scale, sequence, source boot
+identity와 payload bound는 frame metadata에 있다. 새 descriptor field나
+protocol major bump는 이 migration에 필요하지 않다. `stream.rgbd.broker.v1`
+capability가 없는 peer에 encoded를 raw로 오인시켜 보내지 않는다.
+
+source 단계의 기존 `RgbdFrame`은 timestamp, frame identity, dimensions,
+intrinsics와 RGB/depth payload를 함께 갖는 coherent sample이다. 모든 publisher와
+subscriber는 latest-only depth-1 semantics를 사용하며 오래된 sample을 backlog로
+쌓지 않는다. 새 inter-host consumer는 Robot/Sim source topic을 직접 구독하지
+않고 Pilot broker endpoint만 사용한다.
 
 RGB-D는 WebRTC를 대체하지 않는다. Pilot/Sim이 제어·perception에 쓰는 정합
 sample과 UI가 보는 observer/hand-eye 영상은 서로 다른 경로다.

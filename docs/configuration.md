@@ -34,6 +34,32 @@ Pilot과 Sim의 `config/config.yaml`은
 프로파일은 각각의 `calibration/<profile>.hand_eye.json`, driver, model bundle을
 함께 결정하며 서로 다른 calibration/bundle 조합은 시작 전에 거부된다.
 
+### RGB-D edge broker
+
+설치 생성 runtime config에는 RGB-D source와 inter-host broker를 구분하는
+`rgbd` metadata가 들어간다.
+
+```yaml
+rgbd:
+  schema_version: 1
+  broker_role: pilot
+  source_role: auto
+  local_handoff: source-dds-to-pilot
+  wire:
+    format: encoded-rgbd-v1
+    capability: stream.rgbd.broker.v1
+    topic: /elesim/pilot_main/rgbd/frame
+    latest_only: true
+```
+
+Pilot은 source가 Robot인지 Sim인지에 관계없이 encoded RGB-D 외부 stream의
+단일 broker owner다. source는 카메라 경계에서 한 번 encode하며, legacy raw
+source만 Pilot relay가 encode한다. `simulation-only`에서는 Sim과 Pilot을 한
+Compose unit에 둘 수 있지만 source와 Pilot 사이에는 bounded DDS source topic을
+사용한다. Robot도 `source-dds-to-pilot` handoff를 사용한다. UI는
+`broker_role: pilot` stream을 decode하며 source camera topic을 publish하지 않는다.
+endpoint ID가 바뀌면 설치기가 broker topic도 함께 다시 계산한다.
+
 ## 2. 공통 DDS 필드
 
 모든 역할의 runtime DDS profile은 다음 값을 갖는다.
@@ -98,6 +124,24 @@ viewer:
 Pilot과 Sim policy는 독립적이다. Viewer는 기본 headless이며 `--view`와 검증된
 X11 display/user가 있어야 한다. 원격 SSH username과 X11 session owner가 다르면
 manager가 시작을 거부한다.
+
+Sim의 `simulation.runtime`에는 카메라 실행 정책도 있다.
+
+```yaml
+simulation:
+  runtime:
+    camera_execution: async_process  # async_process | sync_legacy
+    camera_worker_start_timeout_s: 180.0
+    camera_first_frame_timeout_s: 30.0
+    visualizer_max_hz: 30.0          # 0이면 legacy per-step refresh
+```
+
+`async_process`는 physics/authority와 visual-only Genesis camera scene을
+분리한다. physics 프로세스는 bounded state snapshot만 보내고, 렌더 프로세스는
+latest-only shared RGB-D slot에 최신 프레임만 유지한다. `sync_legacy`는 성능
+비교·장치 진단용 명시적 경로다. `camera_gpu_convert`가 꺼져 있으면 async
+렌더러의 최종 RGB/depth 변환도 CPU 경로를 사용한다. `visualizer_max_hz`는
+native Viewer에만 적용되며 headless Sim에는 영향을 주지 않는다.
 
 ## 5. TURN/WebRTC
 

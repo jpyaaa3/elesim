@@ -119,7 +119,9 @@ def test_policy_carrier_patterns_match_real_dds_peer_prefixes() -> None:
     assert f"{pilot_pattern}/motion" in subscribed
     assert f"{robot_pattern}/control" in published
     assert f"{robot_pattern}/motion" in published
-    assert "/elesim/pilot_main/rgbd/frame" not in subscribed
+    # The local network doctor is read-only but may inspect every active RGBD
+    # topic, including the Pilot-owned broker topic.
+    assert "/elesim/pilot_main/rgbd/frame" in subscribed
     assert "/elesim/robot_go2/rgbd/frame" in subscribed
 
 

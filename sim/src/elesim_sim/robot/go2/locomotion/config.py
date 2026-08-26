@@ -38,6 +38,12 @@ class Go2LocomotionConfig:
     mpc_aux_kv: float = 6.0
     mpc_tau_filter_alpha: float = 0.25
     mpc_force_filter_alpha: float = 0.35
+    mpc_physical_friction: float = 0.8
+    mpc_optimization_friction: float = 0.55
+    mpc_fz_max_n: float = 180.0
+    mpc_joint_armature: float = 0.01
+    mpc_joint_damping: float = 0.1
+    mpc_joint_frictionloss: float = 0.2
     mpc_foot_placement_scale: float = 1.35
     mpc_payload_enable: bool = True
     mpc_payload_mass_kg: float = 0.0

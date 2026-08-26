@@ -133,6 +133,33 @@ def test_tip_readback_does_not_bypass_telemetry_cadence() -> None:
     assert app.sim_scene.calls == 1
 
 
+def test_camera_pose_readback_does_not_bypass_feedback_cadence() -> None:
+    class Scene:
+        eye_camera = object()
+        hand_eye_enabled = True
+        calls = 0
+
+        def camera_axes_world(self, *, hand_eye_path: str):
+            assert hand_eye_path == "hand-eye.json"
+            self.calls += 1
+            return (
+                np.zeros(3),
+                np.array([0.0, 0.0, 0.08]),
+                np.array([0.08, 0.0, 0.0]),
+            )
+
+    app = GenesisApp(cfg=SimConfig(hand_eye_config="hand-eye.json"))
+    app.sim_scene = Scene()
+    runtime = SimRuntime(app)
+
+    assert runtime._camera_axes_for_feedback(False) is None
+    assert app.sim_scene.calls == 0
+
+    axes = runtime._camera_axes_for_feedback(True)
+    assert axes is not None
+    assert app.sim_scene.calls == 1
+
+
 def test_headless_scene_step_skips_redundant_visualizer_sync() -> None:
     class Scene:
         kwargs: dict[str, bool] | None = None

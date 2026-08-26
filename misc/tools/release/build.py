@@ -208,11 +208,6 @@ def copy_infrastructure(source: Path, release_root: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build isolated EleSim release contexts")
     parser.add_argument("--output", default="dist/releases")
-    parser.add_argument(
-        "--no-verify",
-        action="store_true",
-        help="skip isolated wheel install and entrypoint probes",
-    )
     args = parser.parse_args()
     output = (ROOT / args.output).resolve()
     wheel_dir = output.parent / "wheels"
@@ -249,9 +244,7 @@ def main() -> None:
         print(release)
 
     copy_infrastructure(ROOT / "environment", output)
-
-    if not args.no_verify:
-        verify_release_tree(output)
+    verify_release_tree(output)
 
 
 if __name__ == "__main__":
