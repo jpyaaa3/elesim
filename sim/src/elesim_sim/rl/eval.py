@@ -44,7 +44,10 @@ FAILURE_ORDER = ("collision", "topple", "retention", "no_wrap", "no_reach")
 
 @dataclass
 class ConditionResult:
+    dx_m: float
+    dy_m: float
     x_m: float
+    y_m: float
     yaw_rad: float
     radius_m: float
     episodes: int = 0
@@ -121,19 +124,28 @@ def evaluate_condition(
     env: WrapGraspEnv,
     policy,
     *,
-    x_m: float,
+    dx_m: float,
+    dy_m: float,
     yaw_rad: float,
     radius_m: float,
     episodes: int,
 ) -> ConditionResult:
     """Run `episodes` episodes with the object pinned to one condition."""
-    result = ConditionResult(x_m=x_m, yaw_rad=yaw_rad, radius_m=radius_m)
+    centre = env.cfg.object_center()
+    result = ConditionResult(
+        dx_m=dx_m, dy_m=dy_m,
+        x_m=float(centre[0]) + dx_m, y_m=float(centre[1]) + dy_m,
+        yaw_rad=yaw_rad, radius_m=radius_m,
+    )
     device = env.device
     tracker = EpisodeTracker(env.num_envs, device)
 
     # Pin the condition: every env gets the same object, so a batch of envs is
     # just a faster way to collect episodes of the same condition.
-    env._eval_override = {"x_m": x_m, "yaw_rad": yaw_rad, "radius_m": radius_m}
+    env._eval_override = {
+        "dx_m": dx_m, "dy_m": dy_m, "yaw_rad": yaw_rad, "radius_m": radius_m,
+    }
+    env.move_support_to(dx_m, dy_m)
     obs, _ = env.reset()
     tracker.reset(torch.arange(env.num_envs, device=device))
 
@@ -165,6 +177,7 @@ def evaluate_condition(
     result.phi_max_rad = phi_max
     result.phi_mean_rad = phi_total / max(phi_count, 1)
     env._eval_override = None
+    env.move_support_to(0.0, 0.0)
     return result
 
 
@@ -192,14 +205,15 @@ def render_report(
     lines.append("## Per condition")
     lines.append("")
     lines.append(
-        "| x (m) | yaw (deg) | radius (mm) | episodes | success | "
+        "| dx (m) | dy (m) | x (m) | yaw (deg) | radius (mm) | episodes | success | "
         + " | ".join(FAILURE_ORDER)
         + " | max Phi (deg) |"
     )
-    lines.append("|---:|---:|---:|---:|---:|" + "---:|" * (len(FAILURE_ORDER) + 1))
+    lines.append("|---:|---:|---:|---:|---:|---:|---:|" + "---:|" * (len(FAILURE_ORDER) + 1))
     for r in results:
         lines.append(
-            f"| {r.x_m:.3f} | {math.degrees(r.yaw_rad):.0f} | {r.radius_m * 1000:.0f} | "
+            f"| {r.dx_m:+.3f} | {r.dy_m:+.3f} | {r.x_m:.3f} | "
+            f"{math.degrees(r.yaw_rad):.0f} | {r.radius_m * 1000:.0f} | "
             f"{r.episodes} | {100.0 * r.success_rate:.0f}% | "
             + " | ".join(str(r.failures[k]) for k in FAILURE_ORDER)
             + f" | {math.degrees(r.phi_max_rad):.0f} |"
@@ -299,16 +313,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     episodes = int(args.episodes or ev.episodes_per_condition)
     results: list[ConditionResult] = []
     grid = list(
-        itertools.product(ev.pose_grid.x_m, ev.pose_grid.yaw_rad, ev.radius_grid_m)
+        itertools.product(
+            ev.pose_offset_grid.x_m,
+            ev.pose_offset_grid.y_m,
+            ev.pose_offset_grid.yaw_rad,
+            ev.radius_grid_m,
+        )
     )
-    for index, (x, yaw, radius) in enumerate(grid, start=1):
+    for index, (dx, dy, yaw, radius) in enumerate(grid, start=1):
         print(
-            f"[eval] {index}/{len(grid)}  x={x:.3f} yaw={yaw:+.2f} r={radius:.3f}",
+            f"[eval] {index}/{len(grid)}  dx={dx:+.3f} dy={dy:+.3f} "
+            f"yaw={yaw:+.2f} r={radius:.3f}",
             flush=True,
         )
         results.append(
             evaluate_condition(
-                env, policy, x_m=x, yaw_rad=yaw, radius_m=radius, episodes=episodes
+                env, policy, dx_m=dx, dy_m=dy, yaw_rad=yaw,
+                radius_m=radius, episodes=episodes,
             )
         )
         last = results[-1]

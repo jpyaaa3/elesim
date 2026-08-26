@@ -171,6 +171,24 @@ class WrapGraspEnv:
         self._settle_at_home_and_baseline_contacts()
         self._obs = self._build_observations()
 
+    def move_support_to(self, dx_m: float, dy_m: float) -> None:
+        """Shift the support so it stays under an offset object.
+
+        An eval condition that moved the object without the support would be
+        measuring free fall, not placement: the cylinder is a free body and its
+        post is only 40 mm across.
+        """
+        if self.scene.support is None:
+            return
+        cx, cy = self.cfg.support.center_xy
+        top = float(self.cfg.support.height_m)
+        target = torch.tensor(
+            [[float(cx) + float(dx_m), float(cy) + float(dy_m), top * 0.5]],
+            device=self.device,
+            dtype=torch.float32,
+        ).expand(self.num_envs, 3)
+        self.scene.support.set_pos(target)
+
     def _settle_at_home_and_baseline_contacts(self) -> None:
         """Let the arm settle at Home, then baseline the contacts it rests on.
 
@@ -612,8 +630,9 @@ class WrapGraspEnv:
         if override is not None:
             radius = torch.full((n,), float(override["radius_m"]), device=self.device)
             mass = torch.full((n,), float(obj.mass_kg), device=self.device)
-            base_x = float(override["x_m"])
             jitter = torch.zeros((n, 3), device=self.device)
+            jitter[:, 0] = float(override.get("dx_m", 0.0))
+            jitter[:, 1] = float(override.get("dy_m", 0.0))
             yaw = torch.full((n,), float(override["yaw_rad"]), device=self.device)
         elif dr.enable:
             radius = rnd((n,), *dr.object_radius_m)
@@ -637,11 +656,6 @@ class WrapGraspEnv:
             device=self.device,
             dtype=torch.float32,
         )
-        if override is not None:
-            # The condition grid varies the object's x; y and the height stay
-            # on the support column.
-            base = base.clone()
-            base[0] = float(override["x_m"])
         pos = base.unsqueeze(0) + jitter
         half = torch.cos(yaw * 0.5)
         quat = torch.stack(

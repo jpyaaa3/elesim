@@ -338,15 +338,18 @@ class BenchmarkConfig:
 
 
 @dataclass(frozen=True)
-class PoseGrid:
-    x_m: tuple[float, ...] = (0.24, 0.28, 0.32)
+class PoseOffsetGrid:
+    """Offsets from the configured object centre, in metres."""
+
+    x_m: tuple[float, ...] = (-0.03, 0.0, 0.03)
+    y_m: tuple[float, ...] = (0.0,)
     yaw_rad: tuple[float, ...] = (-0.3, 0.0, 0.3)
 
 
 @dataclass(frozen=True)
 class EvalConfig:
     episodes_per_condition: int = 20
-    pose_grid: PoseGrid = field(default_factory=PoseGrid)
+    pose_offset_grid: PoseOffsetGrid = field(default_factory=PoseOffsetGrid)
     radius_grid_m: tuple[float, ...] = (0.035, 0.045, 0.060)
     render_episodes: int = 1
     out_dir: str = "sim/rl_runs/eval"

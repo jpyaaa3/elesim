@@ -148,6 +148,15 @@ python -m elesim_sim.rl.eval --checkpoint <ckpt> --episodes 20 --render 40
 python -m elesim_sim.rl.export_traj --checkpoint <ckpt> --count 20
 ```
 
+Eval conditions are **offsets** from the configured object centre, and the
+support post moves with the object.  Absolute coordinates silently decouple
+from `support.center_xy`: a grid of x = 0.24/0.28/0.32 against a support at
+x = 0.5 hung the cylinder 0.18 m off its post, so it fell on the first macro
+step and all 13824 episodes scored `topple` -- a result about gravity, not the
+policy.  A whole column of one failure mode, with `phi_max` equal to
+`phi_mean`, means every env terminated on step one; read that as a setup fault
+rather than a finding.
+
 `eval` reports success per condition with failures split five ways —
 `collision`, `topple`, `retention`, `no_wrap`, `no_reach` — because a single
 success rate cannot separate "the arm never arrived" from "it wrapped and then
