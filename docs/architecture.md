@@ -154,6 +154,14 @@ queue에 넣는다. 카메라 프로세스는 그 snapshot을 자체 visual repl
 오래된 snapshot/frame은 새 데이터로 덮어쓴다. `sync_legacy`는 비교 측정과
 장치 진단을 위한 명시적 fallback일 뿐이다.
 
+Physics scene만 정상상태 step 처리량을 위해 Genesis `performance_mode`의 정적
+커널을 사용한다. Visual replica는 physics를 step하거나 IK/Jacobian을 계산하지
+않으므로 dynamic-array 모드로 시작해, 같은 GPU에서 physics scene의 cold build와
+두 번째 정적 커널 컴파일이 경쟁하지 않게 한다. 두 Genesis process의 cold build는
+겹치지 않으며 physics scene을 먼저 완성한 뒤 visual replica를 만든다. Convex MPC는 Pinocchio가
+kinematics를 소유하므로 physics URDF도 Genesis IK/Jacobian 생성을 끄되, arm mount와
+feedback에서 사용하는 고정 link 이름을 보존하기 위해 fixed-link 병합은 끈다.
+
 물리 scene의 floating-base 엔티티와 카메라 scene의 fixed-base 복제본은 로컬
 DOF 번호를 공유하지 않는다. Snapshot은 URDF의 이름 있는 movable joint 순서로
 관절값만 전달하고, 양쪽 프로세스가 각자의 로컬 DOF 번호를 독립적으로
@@ -174,7 +182,8 @@ bounded startup handshake가 끝나기 전에는 UI session을 grant하지 않�
 UI는 observer와 hand-eye를 별도 WebRTC track으로 받는다. Observer는 Genesis
 1.2.x `ViewerOptions`의 기본 위치·look-at·world-Z up·FOV에서 시작한다. 기본
 좌클릭 드래그는 카메라 위치와 world-Z up을 고정한 pan/tilt만 수행하고,
-휠클릭 드래그는 시점 평행이동, 휠 회전은 확대/축소를 수행한다. Hand-eye의
+휠클릭 드래그는 카메라의 screen-right/screen-up 평면에서 거리와 FOV에 비례한
+CAD식 시점 평행이동, 휠 회전은 확대/축소를 수행한다. Hand-eye의
 operator view는 under-slung 180도 roll mount를
 화면에서 보정하며, DDS RGB-D와 calibration frame은 원본 방향을 유지한다.
 두 카메라의 capture cadence는 wall clock과 simulation time을 모두 만족해야

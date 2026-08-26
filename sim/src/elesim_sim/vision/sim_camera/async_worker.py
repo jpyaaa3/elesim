@@ -203,6 +203,21 @@ def _make_urdf_morph(
     return gs.morphs.URDF(**common)
 
 
+def _genesis_init_kwargs(gs: Any, *, use_gpu: bool) -> dict[str, Any]:
+    """Use dynamic arrays for the visual replica to minimize cold startup.
+
+    The authoritative physics process keeps ``performance_mode=True`` for
+    steady-state stepping.  The camera replica never steps physics, so paying
+    for a second scene-specific static-kernel compilation only delays startup
+    and competes with the physics build on the same GPU.
+    """
+
+    return {
+        "backend": gs.gpu if bool(use_gpu) else gs.cpu,
+        "logging_level": "warning",
+    }
+
+
 def movable_urdf_joint_names(urdf_path: str) -> tuple[str, ...]:
     """Return the stable one-DOF joint order shared by both Genesis scenes."""
 
@@ -324,15 +339,7 @@ def _camera_render_process_main(
         import genesis as gs
         from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
 
-        backend = gs.gpu if bool(spec.use_gpu) else gs.cpu
-        init_kwargs = {"backend": backend, "logging_level": "warning"}
-        try:
-            if bool(spec.use_gpu):
-                init_kwargs["performance_mode"] = True
-            gs.init(**init_kwargs)
-        except TypeError:
-            init_kwargs.pop("performance_mode", None)
-            gs.init(**init_kwargs)
+        gs.init(**_genesis_init_kwargs(gs, use_gpu=bool(spec.use_gpu)))
 
         gravity = tuple(float(v) for v in spec.gravity)
         try:

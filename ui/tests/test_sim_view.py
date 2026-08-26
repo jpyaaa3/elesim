@@ -33,7 +33,7 @@ def test_mouse_delta_accepts_tuple_and_rejects_unknown_shapes() -> None:
     assert _mouse_delta_xy(None) == (0.0, 0.0)
 
 
-def test_camera_drag_inverts_pan_and_tilt_direction() -> None:
+def test_camera_drag_uses_scene_grab_direction() -> None:
     assert _scene_grab_delta(100.0, -50.0, width=1000.0, height=500.0) == (
         -0.1,
         0.1,

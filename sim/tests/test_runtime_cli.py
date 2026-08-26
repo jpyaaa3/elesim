@@ -75,8 +75,44 @@ def test_gpu_genesis_init_enables_performance_mode(monkeypatch) -> None:
     assert captured["performance_mode"] is True
 
 
-def test_async_runtime_builds_the_physics_scene_without_scene_cameras(monkeypatch) -> None:
+def test_convex_mpc_physics_morph_skips_genesis_ik_without_merging_links(
+    monkeypatch,
+) -> None:
     captured = {}
+
+    class Morphs:
+        @staticmethod
+        def URDF(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+    monkeypatch.setattr(runtime, "gs", SimpleNamespace(morphs=Morphs()))
+
+    runtime._make_urdf_morph(
+        "/model/robot.urdf",
+        (0.0, 0.0, 0.32),
+        (0.0, 0.0, 0.0),
+        fixed=False,
+        requires_jac_and_IK=False,
+        merge_fixed_links=False,
+    )
+
+    assert captured["requires_jac_and_IK"] is False
+    assert captured["merge_fixed_links"] is False
+
+
+def test_only_legacy_raibert_controller_requires_genesis_ik() -> None:
+    convex = runtime.Go2LocomotionConfig(mode="convex_mpc")
+    raibert = runtime.Go2LocomotionConfig()
+    mirror = runtime.Go2LocomotionConfig(mirror_from_host=True)
+
+    assert runtime._requires_genesis_ik(convex) is False
+    assert runtime._requires_genesis_ik(raibert) is True
+    assert runtime._requires_genesis_ik(mirror) is False
+
+
+def test_async_runtime_builds_physics_before_starting_visual_worker(monkeypatch) -> None:
+    captured = {"order": []}
 
     class StopAfterInit(Exception):
         pass
@@ -99,11 +135,16 @@ def test_async_runtime_builds_the_physics_scene_without_scene_cameras(monkeypatc
         def init_genesis(self, urdf_path: str, *, attach_scene_cameras: bool) -> None:
             captured["urdf_path"] = urdf_path
             captured["attach_scene_cameras"] = attach_scene_cameras
-            raise StopAfterInit
+            captured["order"].append("physics")
 
     class Scene:
         def configure_camera_render_worker(self, *_args, **_kwargs) -> None:
             captured["worker_started"] = True
+            captured["order"].append("visual")
+
+        def wait_camera_render_worker(self, **_kwargs) -> None:
+            captured["order"].append("wait")
+            raise StopAfterInit
 
         def close_frame_dispatchers(self) -> None:
             captured["closed"] = True
@@ -132,6 +173,7 @@ def test_async_runtime_builds_the_physics_scene_without_scene_cameras(monkeypatc
         "worker_started": True,
         "urdf_path": "/model/robot.urdf",
         "attach_scene_cameras": False,
+        "order": ["physics", "visual", "wait"],
         "closed": True,
     }
 

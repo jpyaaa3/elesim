@@ -809,7 +809,13 @@ def _make_urdf_morph(
     *,
     fixed: bool,
     requires_jac_and_IK: bool = False,
+    merge_fixed_links: Optional[bool] = None,
 ):
+    merge_links = (
+        not bool(requires_jac_and_IK)
+        if merge_fixed_links is None
+        else bool(merge_fixed_links)
+    )
     common = dict(
         file=urdf_path,
         pos=pos,
@@ -818,9 +824,18 @@ def _make_urdf_morph(
         prioritize_urdf_material=True,
         requires_jac_and_IK=bool(requires_jac_and_IK),
         default_armature=0.0,
-        merge_fixed_links=not bool(requires_jac_and_IK),
+        merge_fixed_links=merge_links,
     )
     return gs.morphs.URDF(**common)
+
+
+def _requires_genesis_ik(config: Go2LocomotionConfig) -> bool:
+    """Return whether the selected GO2 controller calls Genesis IK."""
+
+    return (
+        str(config.mode).strip().lower() != "convex_mpc"
+        and not bool(config.mirror_from_host)
+    )
 
 
 def _prepare_go2_urdf_with_config_colors(
@@ -2763,13 +2778,21 @@ class RuntimePrep:
             floor_ent = None
 
         if use_go2:
+            requires_genesis_ik = _requires_genesis_ik(a.go2_locomotion_config)
             ent = a.sim_scene.scene.add_entity(
                 _make_urdf_morph(
                     urdf_path,
                     go2_pos,
                     go2_euler,
                     fixed=False,
-                    requires_jac_and_IK=True,
+                    # Convex MPC owns its kinematics in Pinocchio and the
+                    # mirror path only applies named poses.  Keep Genesis IK
+                    # solely for the legacy Raibert controller that calls it.
+                    requires_jac_and_IK=requires_genesis_ik,
+                    # The combined GO2+arm runtime resolves fixed link names
+                    # for mounts, feedback and collision policy even when IK
+                    # kernels are unnecessary.
+                    merge_fixed_links=False,
                 )
             )
             go2_entity = ent
@@ -3636,8 +3659,8 @@ class GenesisApp:
             )
         )
         try:
+            streams: dict[str, tuple[int, int]] = {}
             if async_cameras:
-                streams: dict[str, tuple[int, int]] = {}
                 if bool(self.cfg.sim_camera_enable) and str(self.cfg.hand_eye_config).strip():
                     streams["hand_eye_preview"] = (
                         int(self.cfg.sim_camera_width),
@@ -3648,8 +3671,12 @@ class GenesisApp:
                         int(self.cfg.sim_observer_camera_width),
                         int(self.cfg.sim_observer_camera_height),
                     )
-                # Start building the visual replica before the main Genesis
-                # scene so the two expensive startup operations overlap.
+            # Complete the static-kernel physics build before creating the
+            # visual process.  Concurrent Genesis initialization on one GPU
+            # made both cold builds contend for compilation/cache/device
+            # resources and stretched the authoritative scene into minutes.
+            runtime.init_genesis(urdf_path, attach_scene_cameras=not async_cameras)
+            if async_cameras:
                 self.sim_scene.configure_camera_render_worker(
                     runtime.camera_render_spec(urdf_path),
                     streams,
@@ -3658,8 +3685,6 @@ class GenesisApp:
                     ),
                     wait=False,
                 )
-            runtime.init_genesis(urdf_path, attach_scene_cameras=not async_cameras)
-            if async_cameras:
                 self.sim_scene.wait_camera_render_worker(
                     timeout_s=float(
                         getattr(self.cfg, "camera_worker_start_timeout_s", 180.0)

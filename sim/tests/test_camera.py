@@ -9,6 +9,7 @@ from elesim_sim.vision.sim_camera.mount import (
     _OPTICAL_FROM_GENESIS_CAMERA,
     Node9EyeInHandCamera,
     ObserverCamera,
+    ObserverViewState,
     genesis_drag_zoom_delta,
     genesis_scroll_zoom_delta,
     hand_eye_to_genesis_attach_T,
@@ -202,7 +203,7 @@ def test_observer_camera_uses_genesis_scroll_ratio() -> None:
     assert genesis_drag_zoom_delta(0.0, height=540.0) == 0.0
 
 
-def test_observer_camera_pole_clamp_and_genesis_pan_scale() -> None:
+def test_observer_camera_pole_clamp_and_cad_screen_pan() -> None:
     class _Camera:
         def set_pose(self, *, pos, lookat, up):
             self.pos = pos
@@ -223,6 +224,40 @@ def test_observer_camera_pole_clamp_and_genesis_pan_scale() -> None:
     elevation = np.arctan2(offset[2], np.linalg.norm(offset[:2]))
     assert abs(float(elevation)) <= np.radians(89.0) + 1e-6
     assert camera.up == (0.0, 0.0, 1.0)
-    before = np.asarray(observer.lookat)
-    observer.apply_operator_command("pan", {"dx": 0.1, "dy": 0.0})
-    assert not np.allclose(before, observer.lookat)
+    eye_before = np.asarray(observer.pos)
+    target_before = np.asarray(observer.lookat)
+    forward = target_before - eye_before
+    forward /= np.linalg.norm(forward)
+    right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+
+    observer.apply_operator_command("pan", {"dx": 0.1, "dy": 0.1})
+
+    eye_shift = np.asarray(observer.pos) - eye_before
+    target_shift = np.asarray(observer.lookat) - target_before
+    np.testing.assert_allclose(eye_shift, target_shift)
+    assert float(np.dot(eye_shift, right)) > 0.0
+    assert float(np.dot(eye_shift, up)) < 0.0
+
+
+def test_observer_horizontal_drag_keeps_one_screen_direction_above_and_below() -> None:
+    def horizontal_motion(look_z: float) -> float:
+        observer = ObserverViewState.create(
+            res=(960, 540),
+            pos=(0.0, 0.0, 0.0),
+            lookat=(1.0, 0.0, look_z),
+        )
+        before = np.asarray(observer.lookat) - np.asarray(observer.pos)
+        before /= np.linalg.norm(before)
+        right = np.cross(before, np.array([0.0, 0.0, 1.0]))
+        right /= np.linalg.norm(right)
+
+        observer.apply_operator_command("orbit", {"dx": 0.05, "dy": 0.0})
+
+        after = np.asarray(observer.lookat) - np.asarray(observer.pos)
+        after /= np.linalg.norm(after)
+        return float(np.dot(after - before, right))
+
+    assert horizontal_motion(-0.7) > 0.0
+    assert horizontal_motion(0.7) > 0.0

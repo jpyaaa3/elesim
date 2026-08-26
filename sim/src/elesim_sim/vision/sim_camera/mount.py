@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import time
 from typing import Any, Optional
@@ -25,10 +26,45 @@ _OPTICAL_FROM_GENESIS_CAMERA = np.linalg.inv(_OPTICAL_TO_GENESIS_CAMERA)
 # using the camera intrinsics so behavior does not depend on a particular
 # ImGui window size.
 GENESIS_TRACKBALL_MIN_DIM_FACTOR = 0.3
-GENESIS_TRACKBALL_PAN_DIVISOR = 5.0
-GENESIS_TRACKBALL_SCENE_SCALE = 5.0
 GENESIS_TRACKBALL_MAX_ELEVATION_RAD = float(np.radians(89.0))
 GENESIS_TRACKBALL_SCROLL_RATIO = 0.90
+
+
+def _rotate_vector_about_axis(
+    vector: np.ndarray,
+    axis: np.ndarray,
+    angle_rad: float,
+) -> np.ndarray:
+    """Rotate one vector with Rodrigues' formula."""
+
+    value = np.asarray(vector, dtype=float).reshape(3)
+    unit_axis = np.asarray(axis, dtype=float).reshape(3)
+    unit_axis /= max(float(np.linalg.norm(unit_axis)), 1e-9)
+    angle = float(angle_rad)
+    return (
+        value * math.cos(angle)
+        + np.cross(unit_axis, value) * math.sin(angle)
+        + unit_axis * float(np.dot(unit_axis, value)) * (1.0 - math.cos(angle))
+    )
+
+
+def _screen_basis(forward: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return stable world-space right/up axes for a roll-free camera."""
+
+    direction = np.asarray(forward, dtype=float).reshape(3)
+    direction /= max(float(np.linalg.norm(direction)), 1e-9)
+    world_up = np.array([0.0, 0.0, 1.0], dtype=float)
+    right = np.cross(direction, world_up)
+    right_norm = float(np.linalg.norm(right))
+    if right_norm <= 1e-9:
+        # The public pole clamp normally prevents this.  Keep a deterministic
+        # axis for malformed/restored poses exactly on world Z.
+        right = np.array([1.0, 0.0, 0.0], dtype=float)
+    else:
+        right /= right_norm
+    up = np.cross(right, direction)
+    up /= max(float(np.linalg.norm(up)), 1e-9)
+    return right, up
 
 
 def _emit_timing(sink: Optional[TimingSink], name: str, started: float) -> None:
@@ -183,6 +219,12 @@ class Node9EyeInHandCamera:
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
+            # An attached camera is normally advanced as part of a Genesis
+            # scene step.  The async visual replica never steps physics, so
+            # explicitly follow the freshly applied link pose before every
+            # render.  This is harmless for the legacy in-process path.
+            if hasattr(self.camera, "move_to_attach"):
+                self.camera.move_to_attach()
             try:
                 rgb, depth, _, _ = self.camera.render(
                     rgb=bool(rgb_enabled),
@@ -289,8 +331,6 @@ class ObserverViewState:
     def apply_operator_command(self, command: str, arguments: dict[str, Any]) -> None:
         """Update the observer view without requiring a Genesis camera."""
 
-        import math
-
         if self._reset_pos is None:
             self._reset_pos = self.pos
             self._reset_lookat = self.lookat
@@ -310,42 +350,57 @@ class ObserverViewState:
             mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
-            forward = target - eye
-            yaw = math.atan2(float(forward[1]), float(forward[0])) - dx_px / mindim
-            horizontal = max(float(np.linalg.norm(forward[:2])), 1e-9)
-            pitch = math.atan2(float(forward[2]), horizontal) - dy_px / mindim
-            pitch = float(
+            forward = (target - eye) / radius
+            world_up = np.array([0.0, 0.0, 1.0], dtype=float)
+            forward = _rotate_vector_about_axis(
+                forward,
+                world_up,
+                -dx_px / mindim,
+            )
+            right, _up = _screen_basis(forward)
+            forward = _rotate_vector_about_axis(
+                forward,
+                right,
+                -dy_px / mindim,
+            )
+            forward /= max(float(np.linalg.norm(forward)), 1e-9)
+            elevation = math.asin(float(np.clip(forward[2], -1.0, 1.0)))
+            clamped = float(
                 np.clip(
-                    pitch,
+                    elevation,
                     -GENESIS_TRACKBALL_MAX_ELEVATION_RAD,
                     GENESIS_TRACKBALL_MAX_ELEVATION_RAD,
                 )
             )
-            forward = radius * np.array(
-                [
-                    math.cos(pitch) * math.cos(yaw),
-                    math.cos(pitch) * math.sin(yaw),
-                    math.sin(pitch),
-                ]
-            )
-            target = eye + forward
+            if not math.isclose(elevation, clamped, abs_tol=1e-12):
+                horizontal = forward.copy()
+                horizontal[2] = 0.0
+                horizontal /= max(float(np.linalg.norm(horizontal)), 1e-9)
+                forward = (
+                    math.cos(clamped) * horizontal
+                    + math.sin(clamped) * world_up
+                )
+            target = eye + radius * forward
         elif name == "zoom":
             radius = float(np.clip(radius * math.exp(float(arguments["delta"]) * 1.5), 0.08, 20.0))
             eye = target + offset / max(float(np.linalg.norm(offset)), 1e-9) * radius
         elif name == "pan":
             width = max(float(self.intrinsics.width), 1.0)
             height = max(float(self.intrinsics.height), 1.0)
-            mindim = GENESIS_TRACKBALL_MIN_DIM_FACTOR * min(width, height)
             dx_px = float(arguments["dx"]) * width
             dy_px = float(arguments["dy"]) * height
             forward = target - eye
             forward /= max(float(np.linalg.norm(forward)), 1e-9)
-            right = np.cross(forward, np.array([0.0, 0.0, 1.0]))
-            right /= max(float(np.linalg.norm(right)), 1e-9)
-            up = np.cross(right, forward)
+            right, up = _screen_basis(forward)
+            # Perspective screen-space pan: at the look-at plane, one pixel
+            # spans roughly distance/focal_length world units.  Moving the
+            # camera opposite the pointer makes the scene follow the grabbed
+            # point, matching common CAD viewport behavior.
+            focal_px = max(float(self.intrinsics.fx), float(self.intrinsics.fy), 1.0)
+            world_per_pixel = radius / focal_px
             shift = (
-                -dx_px / (GENESIS_TRACKBALL_PAN_DIVISOR * mindim) * GENESIS_TRACKBALL_SCENE_SCALE * right
-                -dy_px / (GENESIS_TRACKBALL_PAN_DIVISOR * mindim) * GENESIS_TRACKBALL_SCENE_SCALE * up
+                dx_px * world_per_pixel * right
+                - dy_px * world_per_pixel * up
             )
             eye += shift
             target += shift

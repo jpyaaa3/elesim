@@ -15,6 +15,7 @@ from elesim_sim.vision.sim_camera.async_worker import (
     CameraRenderWorker,
     SharedRgbdMailbox,
     _apply_snapshot,
+    _genesis_init_kwargs,
     resolve_single_dof_indices,
 )
 from elesim_sim.vision.sim_camera.mount import (
@@ -243,8 +244,13 @@ def test_hand_eye_capture_propagates_force_render() -> None:
     class Camera:
         def __init__(self) -> None:
             self.render_calls = []
+            self.events = []
+
+        def move_to_attach(self) -> None:
+            self.events.append("move")
 
         def render(self, **kwargs):
+            self.events.append("render")
             self.render_calls.append(kwargs)
             return np.ones((2, 2, 3), dtype=np.float32), None, None, None
 
@@ -260,9 +266,19 @@ def test_hand_eye_capture_propagates_force_render() -> None:
         force_render=True,
     )
 
+    assert camera.events[:2] == ["move", "render"]
     assert camera.render_calls == [
         {"rgb": True, "depth": False, "force_render": True}
     ]
+
+
+def test_visual_worker_avoids_static_performance_compile_on_gpu() -> None:
+    fake_genesis = type("Genesis", (), {"gpu": object(), "cpu": object()})()
+
+    kwargs = _genesis_init_kwargs(fake_genesis, use_gpu=True)
+
+    assert kwargs == {"backend": fake_genesis.gpu, "logging_level": "warning"}
+    assert "performance_mode" not in kwargs
 
 
 def test_render_spec_rejects_missing_urdf() -> None:
