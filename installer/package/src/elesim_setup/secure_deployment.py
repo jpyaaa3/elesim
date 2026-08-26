@@ -37,7 +37,11 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from .credentials import proxy_failure_detail, tailscale_proxy_command
+from .credentials import (
+    _ParamikoProxySocket,
+    proxy_failure_detail,
+    tailscale_proxy_command,
+)
 
 
 MAX_BUNDLE_FILES = 256
@@ -287,55 +291,6 @@ class RolloutError(RuntimeError):
         self.phase = phase
         self.cause = cause
         self.rollback_errors = tuple(rollback_errors)
-
-
-class _ParamikoProxySocket:
-    """Keep Paramiko's close race from becoming a misleading proxy failure.
-
-    Tailscale SSH may close the underlying TCP stream immediately after the
-    remote channel has sent its final close packet. Paramiko's background
-    transport thread can then try to write the local channel-close reply
-    through ``ProxyCommand`` after the proxy process has already observed EOF.
-    Paramiko turns that ordinary teardown ``EPIPE`` into an uncaught
-    ``ProxyCommandFailure`` traceback. Only an established connection and
-    only that exact broken-pipe case are suppressed; startup and handshake
-    failures still propagate normally.
-    """
-
-    def __init__(self, connection: object) -> None:
-        self._connection = connection
-        self._established = False
-
-    def mark_established(self) -> None:
-        self._established = True
-
-    def send(self, content: bytes) -> int:
-        try:
-            return int(self._connection.send(content))  # type: ignore[attr-defined]
-        except Exception as exc:
-            if self._established and _is_proxy_broken_pipe(exc):
-                # The peer has already closed the stream. Pretend the final
-                # SSH close packet was accepted so Paramiko can transition its
-                # transport to inactive without logging a traceback.
-                return len(content)
-            raise
-
-    def close(self) -> None:
-        self._connection.close()  # type: ignore[attr-defined]
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._connection, name)
-
-
-def _is_proxy_broken_pipe(exc: BaseException) -> bool:
-    """Recognize Paramiko's wrapped EPIPE without hiding other SSH errors."""
-
-    if isinstance(exc, BrokenPipeError):
-        return True
-    return (
-        type(exc).__name__ == "ProxyCommandFailure"
-        and "broken pipe" in str(exc).lower()
-    )
 
 
 @dataclass(frozen=True)
