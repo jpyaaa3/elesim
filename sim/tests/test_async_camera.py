@@ -116,6 +116,22 @@ def test_render_replica_applies_observer_pose_snapshot() -> None:
     )
 
 
+def test_observer_pose_failure_is_not_silenced() -> None:
+    class Camera:
+        def set_pose(self, **_kwargs) -> None:
+            raise RuntimeError("observer pose failed")
+
+    observer = ObserverCamera(
+        camera=Camera(),
+        intrinsics=SimCameraIntrinsics(100.0, 100.0, 32.0, 24.0, 64, 48),
+        pos=(0.0, -2.0, 1.0),
+        lookat=(0.0, 0.0, 0.0),
+    )
+
+    with pytest.raises(RuntimeError, match="observer pose failed"):
+        observer._apply_pose()
+
+
 def test_render_replica_maps_floating_source_joints_by_name() -> None:
     """A fixed visual replica must not reuse floating-source DOF offsets."""
 
@@ -207,6 +223,9 @@ def test_observer_capture_forces_refresh_after_robot_state_snapshot() -> None:
     class Camera:
         def __init__(self) -> None:
             self.render_calls = []
+
+        def set_pose(self, **_kwargs) -> None:
+            return None
 
         def render(self, **kwargs):
             self.render_calls.append(kwargs)
@@ -348,6 +367,122 @@ def test_hand_eye_worker_uses_the_arm_visual_tree() -> None:
         assert hand_eye_spec.urdf_path == str(arm_urdf)
         assert hand_eye_spec.robot_pos == (0.35, 0.0, 0.48)
         assert hand_eye_spec.robot_joint_names == movable_urdf_joint_names(str(arm_urdf))
+    finally:
+        worker.close()
+
+
+def test_camera_worker_reports_a_dead_render_process() -> None:
+    worker = CameraRenderWorker(
+        CameraRenderSpec(
+            urdf_path="visual.urdf",
+            robot_pos=(0.0, 0.0, 0.0),
+            robot_euler_deg=(0.0, 0.0, 0.0),
+            requires_jac_and_ik=False,
+            use_gpu=False,
+            gpu_convert=False,
+            dt=0.02,
+            gravity=(0.0, 0.0, -9.81),
+            substeps=1,
+            floor=False,
+        ),
+        {"observer": (8, 6)},
+        lambda _stream, _frame: None,
+    )
+    try:
+        worker._started = True
+        worker._check_process_health()
+        assert "observer" in worker.failure
+        assert worker._ready_ok.is_set()
+        assert worker.ready is False
+    finally:
+        worker.close()
+
+
+def test_camera_worker_marks_frame_complete_after_dispatch_callback() -> None:
+    worker: CameraRenderWorker
+    completed_seen: list[int] = []
+
+    def on_frame(_stream: str, _frame: object) -> None:
+        completed_seen.append(worker._completed["observer"])
+
+    worker = CameraRenderWorker(
+        CameraRenderSpec(
+            urdf_path="visual.urdf",
+            robot_pos=(0.0, 0.0, 0.0),
+            robot_euler_deg=(0.0, 0.0, 0.0),
+            requires_jac_and_ik=False,
+            use_gpu=False,
+            gpu_convert=False,
+            dt=0.02,
+            gravity=(0.0, 0.0, -9.81),
+            substeps=1,
+            floor=False,
+        ),
+        {"observer": (2, 2)},
+        on_frame,
+    )
+    try:
+        sequence = worker.mailboxes["observer"].publish(
+            np.zeros((2, 2, 3), dtype=np.uint8),
+            np.zeros((2, 2), dtype=np.uint16),
+            captured_at=1.0,
+        )
+        worker._receive_message(
+            {
+                "type": "frame",
+                "stream": "observer",
+                "epoch": 0,
+                "sequence": sequence,
+                "depth_scale": 0.001,
+                "intrinsics": (1.0, 1.0, 1.0, 1.0, 2, 2),
+                "ts": 1.0,
+            },
+            stream_hint="observer",
+        )
+        assert completed_seen == [0]
+        assert worker.diagnostics()["completed"]["observer"] == 1
+    finally:
+        worker.close()
+
+
+def test_camera_worker_rejects_invalid_render_timing() -> None:
+    worker = CameraRenderWorker(
+        CameraRenderSpec(
+            urdf_path="visual.urdf",
+            robot_pos=(0.0, 0.0, 0.0),
+            robot_euler_deg=(0.0, 0.0, 0.0),
+            requires_jac_and_ik=False,
+            use_gpu=False,
+            gpu_convert=False,
+            dt=0.02,
+            gravity=(0.0, 0.0, -9.81),
+            substeps=1,
+            floor=False,
+        ),
+        {"observer": (2, 2)},
+        lambda _stream, _frame: None,
+    )
+    try:
+        sequence = worker.mailboxes["observer"].publish(
+            np.zeros((2, 2, 3), dtype=np.uint8),
+            np.zeros((2, 2), dtype=np.uint16),
+            captured_at=1.0,
+        )
+        worker._receive_message(
+            {
+                "type": "frame",
+                "stream": "observer",
+                "epoch": 0,
+                "sequence": sequence,
+                "depth_scale": 0.001,
+                "intrinsics": (1.0, 1.0, 1.0, 1.0, 2, 2),
+                "ts": 1.0,
+                "render_ms": "invalid",
+            },
+            stream_hint="observer",
+        )
+        assert "invalid camera render timing" in worker.failure
+        assert worker.diagnostics()["completed"]["observer"] == 0
     finally:
         worker.close()
 

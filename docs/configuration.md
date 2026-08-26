@@ -143,6 +143,11 @@ latest-only shared RGB-D slot에 최신 프레임만 유지한다. `sync_legacy`
 렌더러의 최종 RGB/depth 변환도 CPU 경로를 사용한다. `visualizer_max_hz`는
 native Viewer에만 적용되며 headless Sim에는 영향을 주지 않는다.
 
+`camera_gpu_convert`가 켜진 상태에서 CUDA 변환이나 출력 shape 검증이 실패하면
+해당 Sim 시작/카메라 경로가 실패한다. CUDA tensor를 느린 host CPU 변환으로
+묵시적으로 되돌리지 않는다. CPU 변환을 진단하려면 `camera_gpu_convert: false`를
+명시한다.
+
 ## 5. TURN/WebRTC
 
 TURN은 Sim-owned optional media infrastructure다.

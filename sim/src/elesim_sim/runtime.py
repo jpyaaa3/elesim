@@ -139,6 +139,24 @@ def _advance_capture_deadline(previous: float, current: float, period: float) ->
     return deadline + missed * interval
 
 
+def _camera_publish_due(
+    *,
+    last_wall_s: float,
+    next_sim_s: float,
+    max_hz: float,
+    sim_time_s: Optional[float],
+    force: bool,
+) -> tuple[bool, float, float]:
+    """Apply the wall/simulation camera cadence shared by both streams."""
+
+    period = 1.0 / max(1.0, float(max_hz))
+    now_mono = time.monotonic()
+    blocked = last_wall_s > 0.0 and now_mono - float(last_wall_s) < period
+    if not force and sim_time_s is not None:
+        blocked = blocked or float(sim_time_s) + 1e-9 < float(next_sim_s)
+    return not blocked, period, now_mono
+
+
 class PerfLogger:
     _BASE_NAMES = (
         "loop",
@@ -1124,9 +1142,223 @@ class MarkerSet:
             self._dynamic_marker_sig.pop(key, None)
             self._clear_marker(scene, marker)
 
+class _SimSceneKinematicsMixin:
+    """Tip-pose helpers kept outside the scene lifecycle class."""
+
+    def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
+        tip, _direction = self.actual_tip_pose_world(layout)
+        return tip
+
+    def actual_tip_pose_world(
+        self, layout: JointLayout
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Read each required Genesis link pose once for tip telemetry."""
+
+        if self.mover is None:
+            return None, None
+        try:
+            poses: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+            entity = self.mover.entity
+
+            required_names = list(
+                dict.fromkeys(
+                    [str(name) for name, _offset in layout.tip_points]
+                    + ([str(layout.tip_link_name)] if layout.tip_link_name else [])
+                )
+            )
+            if required_names and all(
+                hasattr(entity, method)
+                for method in ("get_links_pos", "get_links_quat")
+            ):
+                links = [entity.get_link(name) for name in required_names]
+                indices = [int(link.idx_local) for link in links]
+
+                def numpy_rows(raw: object, width: int) -> np.ndarray:
+                    if hasattr(raw, "detach"):
+                        raw = raw.detach()
+                    if hasattr(raw, "cpu"):
+                        raw = raw.cpu()
+                    if hasattr(raw, "numpy"):
+                        raw = raw.numpy()
+                    return np.asarray(raw, dtype=float).reshape(-1, width)
+
+                positions = numpy_rows(
+                    entity.get_links_pos(links_idx_local=indices), 3
+                )
+                quaternions = numpy_rows(
+                    entity.get_links_quat(links_idx_local=indices), 4
+                )
+                poses.update(
+                    {
+                        name: (positions[index], quaternions[index])
+                        for index, name in enumerate(required_names)
+                    }
+                )
+
+            def pose(link_name: str) -> tuple[np.ndarray, np.ndarray]:
+                cached = poses.get(link_name)
+                if cached is not None:
+                    return cached
+                link = entity.get_link(link_name)
+                value = (
+                    self._to_numpy_1d(link.get_pos())[:3],
+                    self._to_numpy_1d(link.get_quat())[:4],
+                )
+                poses[link_name] = value
+                return value
+
+            tip_result: Optional[np.ndarray] = None
+            if layout.tip_points:
+                points: list[np.ndarray] = []
+                for link_name, local_offset in layout.tip_points:
+                    p, q_wxyz = pose(str(link_name))
+                    local = np.asarray(local_offset, dtype=float).reshape(3)
+                    points.append(
+                        np.asarray(
+                            gs_geom.transform_by_trans_quat(local, p, q_wxyz),
+                            dtype=float,
+                        )
+                    )
+                if points:
+                    tip_result = np.mean(np.stack(points, axis=0), axis=0)
+            elif layout.tip_link_name:
+                p, q_wxyz = pose(str(layout.tip_link_name))
+                local = np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
+                tip_result = np.asarray(
+                    gs_geom.transform_by_trans_quat(local, p, q_wxyz),
+                    dtype=float,
+                )
+
+            direction_result: Optional[np.ndarray] = None
+            local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
+            axis_norm = float(np.linalg.norm(local_axis))
+            if axis_norm > 1e-9 and layout.tip_link_name:
+                _p, q_wxyz = pose(str(layout.tip_link_name))
+                direction = (
+                    _rot_from_wxyz(q_wxyz).as_matrix()
+                    @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3)
+                    @ (local_axis / axis_norm)
+                )
+                norm = float(np.linalg.norm(direction))
+                if norm > 1e-9:
+                    direction_result = (direction / norm).reshape(3)
+            return tip_result, direction_result
+        except Exception:
+            return None, None
+
+    def actual_tip_direction_world(self, layout: JointLayout) -> Optional[np.ndarray]:
+        _tip, direction = self.actual_tip_pose_world(layout)
+        return direction
+
+    def _desired_link_transforms(
+        self,
+        layout: JointLayout,
+        model: SpawnConfig,
+        q_target_full: np.ndarray,
+    ) -> Optional[dict[str, tuple[np.ndarray, np.ndarray]]]:
+        if self.mover is None or not layout.fk_joint_chain:
+            return None
+        try:
+            q_vals = np.asarray(q_target_full, dtype=float).reshape(-1)
+            q_map = {
+                name: float(q_vals[index])
+                for index, name in enumerate(self.mover.dof_names())
+                if index < q_vals.size
+            }
+            spawn_pos = np.asarray(model.spawn_xyz, dtype=float).reshape(3)
+            spawn_euler = np.asarray(model.spawn_euler_deg, dtype=float).reshape(3)
+            spawn_rot = Rot.from_euler("xyz", spawn_euler, degrees=True).as_matrix()
+            root = layout.fk_root_link
+            root_local = layout.part_pose_root.get(
+                root, np.zeros(3, dtype=float)
+            )
+            link_tf: dict[str, tuple[np.ndarray, np.ndarray]] = {
+                root: (spawn_pos + spawn_rot @ root_local, spawn_rot.copy())
+            }
+            for meta in layout.fk_joint_chain:
+                parent = str(meta["parent"])
+                child = str(meta["child"])
+                if parent not in link_tf:
+                    continue
+                p_parent, parent_rot = link_tf[parent]
+                origin_parent = np.asarray(meta["origin_parent"], dtype=float).reshape(3)
+                axis_parent = np.asarray(meta["axis_parent"], dtype=float).reshape(3)
+                child_rot = np.asarray(
+                    meta.get("child_rot_parent", np.eye(3)), dtype=float
+                ).reshape(3, 3)
+                q = float(q_map.get(str(meta["name"]), 0.0))
+                if str(meta["type"]) == "prismatic":
+                    child_pos = p_parent + parent_rot @ (origin_parent + axis_parent * q)
+                    child_rot_world = parent_rot @ child_rot
+                elif str(meta["type"]) == "revolute":
+                    child_pos = p_parent + parent_rot @ origin_parent
+                    child_rot_world = (
+                        parent_rot
+                        @ Rot.from_rotvec(axis_parent * q).as_matrix()
+                        @ child_rot
+                    )
+                else:
+                    child_pos = p_parent + parent_rot @ origin_parent
+                    child_rot_world = parent_rot @ child_rot
+                link_tf[child] = (child_pos, child_rot_world)
+            return link_tf
+        except Exception:
+            return None
+
+    def desired_tip_pos_from_cmd_target(
+        self,
+        layout: JointLayout,
+        model: SpawnConfig,
+        q_target_full: np.ndarray,
+    ) -> Optional[np.ndarray]:
+        link_tf = self._desired_link_transforms(layout, model, q_target_full)
+        if link_tf is None:
+            return None
+        if layout.tip_points:
+            points: list[np.ndarray] = []
+            for link_name, local_offset in layout.tip_points:
+                pose = link_tf.get(link_name)
+                if pose is None:
+                    continue
+                p_tip, rot_tip = pose
+                points.append(
+                    p_tip + rot_tip @ np.asarray(local_offset, dtype=float).reshape(3)
+                )
+            if points:
+                return np.mean(np.stack(points, axis=0), axis=0)
+        if not layout.tip_link_name or layout.tip_link_name not in link_tf:
+            return None
+        p_tip, rot_tip = link_tf[layout.tip_link_name]
+        return p_tip + rot_tip @ np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
+
+    def desired_tip_dir_from_cmd_target(
+        self,
+        layout: JointLayout,
+        model: SpawnConfig,
+        q_target_full: np.ndarray,
+    ) -> Optional[np.ndarray]:
+        link_tf = self._desired_link_transforms(layout, model, q_target_full)
+        if link_tf is None:
+            return None
+        local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
+        norm_local = float(np.linalg.norm(local_axis))
+        if norm_local <= 1e-9 or not layout.tip_link_name:
+            return None
+        tip = link_tf.get(layout.tip_link_name)
+        if tip is None:
+            return None
+        _p_tip, tip_rot = tip
+        direction = (
+            tip_rot
+            @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3)
+            @ (local_axis / norm_local)
+        )
+        norm = float(np.linalg.norm(direction))
+        return None if norm <= 1e-9 else (direction / norm).reshape(3)
+
 
 @dataclass
-class SimScene:
+class SimScene(_SimSceneKinematicsMixin):
     scene: object = None
     mover: Optional["SimMover"] = None
     go2: Optional[Go2Locomotion] = None
@@ -1166,18 +1398,13 @@ class SimScene:
     _latest_camera_axes: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
     _render_mock_snapshot: dict[str, Any] = field(default_factory=dict)
     _async_frame_seen: set[str] = field(default_factory=set)
-    _arm_mount_pos_body: Optional[np.ndarray] = None
-    _arm_mount_rot_body: Optional[Rot] = None
+    _camera_failures: set[str] = field(default_factory=set)
     _force_instant_arm_frames: int = 0
     camera_joint_names: tuple[str, ...] = ()
-    _camera_source_dof_indices: Optional[tuple[int, ...]] = None
     camera_hand_eye_joint_names: tuple[str, ...] = ()
-    _camera_hand_eye_source_dof_indices: Optional[tuple[int, ...]] = None
     _camera_joint_position_cache: dict[str, float] = field(default_factory=dict)
     _camera_root_pos_cache: Optional[tuple[float, float, float]] = None
     _camera_root_quat_cache: Optional[tuple[float, float, float, float]] = None
-    _camera_hand_eye_root_pos_cache: Optional[tuple[float, float, float]] = None
-    _camera_hand_eye_root_quat_cache: Optional[tuple[float, float, float, float]] = None
     _camera_hand_eye_mount_pos_body: Optional[np.ndarray] = None
     _camera_hand_eye_mount_rot_body: Optional[Rot] = None
 
@@ -1197,16 +1424,12 @@ class SimScene:
         worker.start(timeout_s=float(timeout_s), wait=bool(wait))
         self.camera_render_worker = worker
         self.camera_joint_names = tuple(spec.robot_joint_names)
-        self._camera_source_dof_indices = None
         self.camera_hand_eye_joint_names = tuple(
             spec.hand_eye_robot_joint_names or spec.robot_joint_names
         )
-        self._camera_hand_eye_source_dof_indices = None
         self._camera_joint_position_cache.clear()
         self._camera_root_pos_cache = None
         self._camera_root_quat_cache = None
-        self._camera_hand_eye_root_pos_cache = None
-        self._camera_hand_eye_root_quat_cache = None
         self._camera_hand_eye_mount_pos_body = None
         self._camera_hand_eye_mount_rot_body = None
         if (
@@ -1232,18 +1455,6 @@ class SimScene:
                 f"streams={','.join(sorted(streams))}",
                 flush=True,
             )
-
-    def wait_camera_render_worker(self, *, timeout_s: float = 180.0) -> None:
-        worker = self.camera_render_worker
-        if worker is None:
-            return
-        if not worker.wait_ready(timeout_s=float(timeout_s)):
-            raise RuntimeError(worker.failure or "camera render worker failed to start")
-        print(
-            "[sim-camera] async render worker ready "
-            f"streams={','.join(sorted(worker.streams))}",
-            flush=True,
-        )
 
     def _on_async_frame(self, stream: str, frame: Any) -> None:
         """Receive a coherent frame from the render process.
@@ -1300,33 +1511,32 @@ class SimScene:
                 entity.get_dofs_position(dofs_idx_local=list(indices))
             )
             if values.size != len(indices):
-                return
+                raise RuntimeError(
+                    f"{values.size} values for {len(indices)} camera joints"
+                )
             self._camera_joint_position_cache.update(
                 {name: float(value) for name, value in zip(missing, values)}
             )
-        except Exception:
-            # A visual snapshot may legitimately contain no physical entity
-            # in unit tests or during a partial startup.  The next logical
-            # state update can fill the cache without blocking the loop.
-            return
+        except Exception as exc:
+            raise RuntimeError(f"camera joint state unavailable: {exc}") from exc
 
     def _camera_root_from_entity_once(self, entity: Any) -> None:
         """Seed the visual root pose without repeating device readbacks."""
 
         if self._camera_root_pos_cache is None:
-            try:
-                pos = self._to_numpy_1d(entity.get_pos())[:3]
-                if pos.size == 3:
-                    self._camera_root_pos_cache = tuple(float(value) for value in pos)
-            except Exception:
-                pass
+            pos = self._to_numpy_1d(entity.get_pos())
+            if pos.size < 3:
+                raise RuntimeError(
+                    f"camera root position has {pos.size} values; expected 3"
+                )
+            self._camera_root_pos_cache = tuple(float(value) for value in pos[:3])
         if self._camera_root_quat_cache is None:
-            try:
-                quat = self._to_numpy_1d(entity.get_quat())[:4]
-                if quat.size == 4:
-                    self._camera_root_quat_cache = tuple(float(value) for value in quat)
-            except Exception:
-                pass
+            quat = self._to_numpy_1d(entity.get_quat())
+            if quat.size < 4:
+                raise RuntimeError(
+                    f"camera root quaternion has {quat.size} values; expected 4"
+                )
+            self._camera_root_quat_cache = tuple(float(value) for value in quat[:4])
 
     def _camera_visual_state(
         self,
@@ -1355,8 +1565,8 @@ class SimScene:
                         for name, value in dict(mover_map_getter()).items()
                     }
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"camera arm state unavailable: {exc}") from exc
 
         root_pos = self._camera_root_pos_cache
         root_quat = self._camera_root_quat_cache
@@ -1371,12 +1581,19 @@ class SimScene:
                 root_quat = tuple(float(value) for value in go2_quat)
                 self._camera_root_pos_cache = root_pos
                 self._camera_root_quat_cache = root_quat
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f"camera GO2 state unavailable: {exc}") from exc
 
         def values_for(names: tuple[str, ...]) -> Optional[tuple[float, ...]]:
-            if not names or not all(name in self._camera_joint_position_cache for name in names):
+            if not names:
                 return None
+            missing = tuple(
+                name for name in names if name not in self._camera_joint_position_cache
+            )
+            if missing:
+                raise RuntimeError(
+                    "camera joint state missing: " + ", ".join(missing)
+                )
             return tuple(float(self._camera_joint_position_cache[name]) for name in names)
 
         hand_root_pos = root_pos
@@ -1403,8 +1620,6 @@ class SimScene:
                     hand_xyzw[2],
                 )
             )
-        self._camera_hand_eye_root_pos_cache = hand_root_pos
-        self._camera_hand_eye_root_quat_cache = hand_root_quat
         return (
             values_for(self.camera_joint_names),
             root_pos,
@@ -1473,49 +1688,6 @@ class SimScene:
             observer_lookat=observer_lookat,
         )
 
-    def record_arm_go2_mount(self, *, arm_ent, go2_ent) -> None:
-        """Store arm root pose relative to GO2 base (for per-step kinematic sync)."""
-        from elesim_sim.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
-
-        base = go2_ent.get_link("base")
-        base_pos = self._to_numpy_1d(base.get_pos())[:3]
-        base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
-        arm_pos = self._to_numpy_1d(arm_ent.get_pos())[:3]
-        arm_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(arm_ent.get_quat())[:4])
-        R_b = Rot.from_quat(base_quat_xyzw)
-        R_a = Rot.from_quat(arm_quat_xyzw)
-        self._arm_mount_pos_body = np.asarray(R_b.inv().apply(arm_pos - base_pos), dtype=float)
-        self._arm_mount_rot_body = R_b.inv() * R_a
-
-    def sync_arm_to_go2_base(self) -> None:
-        """Keep sim arm entity welded to GO2 base (Genesis weld can drift under MPC)."""
-        if (
-            self.go2_entity is None
-            or self.mover is None
-            or self._arm_mount_pos_body is None
-            or self._arm_mount_rot_body is None
-        ):
-            return
-        try:
-            from elesim_sim.robot.go2.mpc.genesis_pin_bridge import _quat_wxyz_to_xyzw
-
-            base = self.go2_entity.get_link("base")
-            arm_ent = self.mover.entity
-            base_pos = self._to_numpy_1d(base.get_pos())[:3]
-            base_quat_xyzw = _quat_wxyz_to_xyzw(self._to_numpy_1d(base.get_quat())[:4])
-            R_b = Rot.from_quat(base_quat_xyzw)
-            new_pos = base_pos + R_b.apply(self._arm_mount_pos_body)
-            new_rot = R_b * self._arm_mount_rot_body
-            quat_xyzw = new_rot.as_quat()
-            quat_wxyz = np.array(
-                [float(quat_xyzw[3]), float(quat_xyzw[0]), float(quat_xyzw[1]), float(quat_xyzw[2])],
-                dtype=float,
-            )
-            arm_ent.set_pos(new_pos)
-            arm_ent.set_quat(quat_wxyz)
-        except Exception:
-            pass
-
     @staticmethod
     def _to_numpy_1d(raw) -> np.ndarray:
         if hasattr(raw, "detach"):
@@ -1577,217 +1749,6 @@ class SimScene:
             entity.set_pos((0.0, 0.0, -100.0))
         self._render_mock_snapshot = {}
 
-    def actual_tip_world(self, layout: JointLayout) -> Optional[np.ndarray]:
-        tip, _direction = self.actual_tip_pose_world(layout)
-        return tip
-
-    def actual_tip_pose_world(
-        self, layout: JointLayout
-    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """Read each required Genesis link pose once for tip telemetry."""
-
-        if self.mover is None:
-            return None, None
-        try:
-            poses: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-            entity = self.mover.entity
-
-            required_names = list(dict.fromkeys(
-                [str(name) for name, _offset in layout.tip_points]
-                + ([str(layout.tip_link_name)] if layout.tip_link_name else [])
-            ))
-            if required_names and all(
-                hasattr(entity, method)
-                for method in ("get_links_pos", "get_links_quat")
-            ):
-                links = [entity.get_link(name) for name in required_names]
-                indices = [int(link.idx_local) for link in links]
-
-                def numpy_rows(raw: object, width: int) -> np.ndarray:
-                    if hasattr(raw, "detach"):
-                        raw = raw.detach()
-                    if hasattr(raw, "cpu"):
-                        raw = raw.cpu()
-                    if hasattr(raw, "numpy"):
-                        raw = raw.numpy()
-                    return np.asarray(raw, dtype=float).reshape(-1, width)
-
-                positions = numpy_rows(
-                    entity.get_links_pos(links_idx_local=indices), 3
-                )
-                quaternions = numpy_rows(
-                    entity.get_links_quat(links_idx_local=indices), 4
-                )
-                poses.update({
-                    name: (positions[index], quaternions[index])
-                    for index, name in enumerate(required_names)
-                })
-
-            def pose(link_name: str) -> tuple[np.ndarray, np.ndarray]:
-                cached = poses.get(link_name)
-                if cached is not None:
-                    return cached
-                link = entity.get_link(link_name)
-                value = (
-                    self._to_numpy_1d(link.get_pos())[:3],
-                    self._to_numpy_1d(link.get_quat())[:4],
-                )
-                poses[link_name] = value
-                return value
-
-            tip_result: Optional[np.ndarray] = None
-            if layout.tip_points:
-                pts: List[np.ndarray] = []
-                for link_name, local_offset in layout.tip_points:
-                    p, q_wxyz = pose(str(link_name))
-                    local = np.asarray(local_offset, dtype=float).reshape(3)
-                    tip = gs_geom.transform_by_trans_quat(local, p, q_wxyz)
-                    pts.append(np.array(tip, dtype=float))
-                if pts:
-                    tip_result = np.mean(np.stack(pts, axis=0), axis=0)
-            elif layout.tip_link_name:
-                p, q_wxyz = pose(str(layout.tip_link_name))
-                local = np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
-                tip_result = np.array(
-                    gs_geom.transform_by_trans_quat(local, p, q_wxyz), dtype=float
-                )
-
-            direction_result: Optional[np.ndarray] = None
-            local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
-            axis_norm = float(np.linalg.norm(local_axis))
-            if axis_norm > 1e-9 and layout.tip_link_name:
-                _p, q_wxyz = pose(str(layout.tip_link_name))
-                direction = (
-                    _rot_from_wxyz(q_wxyz).as_matrix()
-                    @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3)
-                    @ (local_axis / axis_norm)
-                )
-                norm = float(np.linalg.norm(direction))
-                if norm > 1e-9:
-                    direction_result = (direction / norm).reshape(3)
-            return tip_result, direction_result
-        except Exception:
-            return None, None
-
-    def actual_tip_direction_world(self, layout: JointLayout) -> Optional[np.ndarray]:
-        _tip, direction = self.actual_tip_pose_world(layout)
-        return direction
-
-    def desired_tip_pos_from_cmd_target(
-        self,
-        layout: JointLayout,
-        model: SpawnConfig,
-        q_target_full: np.ndarray,
-    ) -> Optional[np.ndarray]:
-        if self.mover is None or not layout.fk_joint_chain:
-            return None
-        try:
-            q_vals = np.asarray(q_target_full, dtype=float).reshape(-1)
-            q_map = {name: float(q_vals[i]) for i, name in enumerate(self.mover.dof_names()) if i < q_vals.size}
-
-            spawn_pos = np.array(model.spawn_xyz, dtype=float).reshape(3)
-            spawn_euler = np.array(model.spawn_euler_deg, dtype=float).reshape(3)
-            R_spawn = Rot.from_euler("xyz", spawn_euler, degrees=True).as_matrix()
-
-            link_tf: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-            root = layout.fk_root_link
-            p_root_local = layout.part_pose_root.get(root, np.array([0.0, 0.0, 0.0], dtype=float))
-            link_tf[root] = (spawn_pos + R_spawn @ p_root_local, R_spawn.copy())
-
-            for meta in layout.fk_joint_chain:
-                parent = str(meta["parent"])
-                child = str(meta["child"])
-                if parent not in link_tf:
-                    continue
-                p_parent, R_parent = link_tf[parent]
-                origin_parent = np.asarray(meta["origin_parent"], dtype=float).reshape(3)
-                axis_parent = np.asarray(meta["axis_parent"], dtype=float).reshape(3)
-                child_rot_parent = np.asarray(meta.get("child_rot_parent", np.eye(3)), dtype=float).reshape(3, 3)
-                q = float(q_map.get(str(meta["name"]), 0.0))
-                if str(meta["type"]) == "prismatic":
-                    p_child = p_parent + R_parent @ (origin_parent + axis_parent * q)
-                    R_child = R_parent @ child_rot_parent
-                elif str(meta["type"]) == "revolute":
-                    p_child = p_parent + R_parent @ origin_parent
-                    R_child = R_parent @ Rot.from_rotvec(axis_parent * q).as_matrix() @ child_rot_parent
-                else:
-                    p_child = p_parent + R_parent @ origin_parent
-                    R_child = R_parent @ child_rot_parent
-                link_tf[child] = (p_child, R_child)
-
-            if layout.tip_points:
-                pts: List[np.ndarray] = []
-                for link_name, local_offset in layout.tip_points:
-                    if link_name not in link_tf:
-                        continue
-                    p_tip, R_tip = link_tf[link_name]
-                    tip_world = p_tip + R_tip @ np.asarray(local_offset, dtype=float).reshape(3)
-                    pts.append(np.array(tip_world, dtype=float))
-                if pts:
-                    return np.mean(np.stack(pts, axis=0), axis=0)
-            if not layout.tip_link_name or layout.tip_link_name not in link_tf:
-                return None
-            p_tip, R_tip = link_tf[layout.tip_link_name]
-            tip_world = p_tip + R_tip @ np.asarray(layout.tip_local_offset, dtype=float).reshape(3)
-            return np.array(tip_world, dtype=float)
-        except Exception:
-            return None
-
-    def desired_tip_dir_from_cmd_target(
-        self,
-        layout: JointLayout,
-        model: SpawnConfig,
-        q_target_full: np.ndarray,
-    ) -> Optional[np.ndarray]:
-        if self.mover is None or not layout.fk_joint_chain:
-            return None
-        try:
-            q_vals = np.asarray(q_target_full, dtype=float).reshape(-1)
-            q_map = {name: float(q_vals[i]) for i, name in enumerate(self.mover.dof_names()) if i < q_vals.size}
-
-            spawn_pos = np.array(model.spawn_xyz, dtype=float).reshape(3)
-            spawn_euler = np.array(model.spawn_euler_deg, dtype=float).reshape(3)
-            R_spawn = Rot.from_euler("xyz", spawn_euler, degrees=True).as_matrix()
-
-            link_tf: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-            root = layout.fk_root_link
-            p_root_local = layout.part_pose_root.get(root, np.array([0.0, 0.0, 0.0], dtype=float))
-            link_tf[root] = (spawn_pos + R_spawn @ p_root_local, R_spawn.copy())
-
-            for meta in layout.fk_joint_chain:
-                parent = str(meta["parent"])
-                child = str(meta["child"])
-                if parent not in link_tf:
-                    continue
-                p_parent, R_parent = link_tf[parent]
-                origin_parent = np.asarray(meta["origin_parent"], dtype=float).reshape(3)
-                axis_parent = np.asarray(meta["axis_parent"], dtype=float).reshape(3)
-                child_rot_parent = np.asarray(meta.get("child_rot_parent", np.eye(3)), dtype=float).reshape(3, 3)
-                q = float(q_map.get(str(meta["name"]), 0.0))
-                if str(meta["type"]) == "prismatic":
-                    p_child = p_parent + R_parent @ (origin_parent + axis_parent * q)
-                    R_child = R_parent @ child_rot_parent
-                elif str(meta["type"]) == "revolute":
-                    p_child = p_parent + R_parent @ origin_parent
-                    R_child = R_parent @ Rot.from_rotvec(axis_parent * q).as_matrix() @ child_rot_parent
-                else:
-                    p_child = p_parent + R_parent @ origin_parent
-                    R_child = R_parent @ child_rot_parent
-                link_tf[child] = (p_child, R_child)
-
-            local_axis = np.asarray(layout.approach_axis_local, dtype=float).reshape(3)
-            norm_local = float(np.linalg.norm(local_axis))
-            if norm_local <= 1e-9 or not layout.tip_link_name or layout.tip_link_name not in link_tf:
-                return None
-            _p_tip, R_tip = link_tf[layout.tip_link_name]
-            direction = R_tip @ np.asarray(layout.approach_rot_tip, dtype=float).reshape(3, 3) @ (local_axis / norm_local)
-            norm = float(np.linalg.norm(direction))
-            if norm <= 1e-9:
-                return None
-            return (direction / norm).reshape(3)
-        except Exception:
-            return None
-
     def apply_spawn_arm_pose(
         self,
         mapping_cfg: proto.SimMappingConfig,
@@ -1802,7 +1763,6 @@ class SimScene:
                 float(start_q.theta1_rad),
                 float(start_q.theta2_rad),
             )
-        self.sync_arm_to_go2_base()
         if int(hold_instant_frames) > 0:
             self._force_instant_arm_frames = int(hold_instant_frames)
         return start_q
@@ -1975,18 +1935,14 @@ class SimScene:
     ) -> bool:
         if not self.hand_eye_enabled:
             return False
-        period = 1.0 / max(1.0, float(max_hz))
-        now_mono = time.monotonic()
-        last_wall = float(self._last_camera_publish_t)
-        if (
-            (last_wall > 0.0 and (now_mono - last_wall) < period)
-            or (
-                not force
-                and sim_time_s is not None
-                and float(sim_time_s) + 1e-9
-                < float(self._next_camera_publish_sim_t)
-            )
-        ):
+        due, period, now_mono = _camera_publish_due(
+            last_wall_s=float(self._last_camera_publish_t),
+            next_sim_s=float(self._next_camera_publish_sim_t),
+            max_hz=max_hz,
+            sim_time_s=sim_time_s,
+            force=force,
+        )
+        if not due:
             return False
         if self.camera_render_worker is not None:
             snapshot = self._camera_state_snapshot(
@@ -2048,7 +2004,7 @@ class SimScene:
                 )
             return True
         except Exception as exc:
-            print(f"[sim_camera] capture/publish failed: {exc}")
+            self._report_camera_failure("hand_eye_preview", exc)
             return False
 
     def maybe_publish_observer_camera(
@@ -2060,18 +2016,14 @@ class SimScene:
     ) -> bool:
         if not self.observer_enabled:
             return False
-        period = 1.0 / max(1.0, float(max_hz))
-        now_mono = time.monotonic()
-        last_wall = float(self._last_observer_camera_publish_t)
-        if (
-            (last_wall > 0.0 and (now_mono - last_wall) < period)
-            or (
-                not force
-                and sim_time_s is not None
-                and float(sim_time_s) + 1e-9
-                < float(self._next_observer_camera_publish_sim_t)
-            )
-        ):
+        due, period, now_mono = _camera_publish_due(
+            last_wall_s=float(self._last_observer_camera_publish_t),
+            next_sim_s=float(self._next_observer_camera_publish_sim_t),
+            max_hz=max_hz,
+            sim_time_s=sim_time_s,
+            force=force,
+        )
+        if not due:
             return False
         if self.camera_render_worker is not None:
             snapshot = self._camera_state_snapshot(
@@ -2123,7 +2075,7 @@ class SimScene:
                 )
             return True
         except Exception as exc:
-            print(f"[sim_camera] observer capture/publish failed: {exc}")
+            self._report_camera_failure("observer", exc)
             return False
 
     def _dispatch_video_frame(self, stream: str, frame: Any) -> None:
@@ -2154,6 +2106,20 @@ class SimScene:
             self.camera_publisher.publish(frame)
         elif name == "observer" and self.observer_camera_publisher is not None:
             self.observer_camera_publisher.publish(frame)
+
+    def _report_camera_failure(
+        self, stream: str, exc: Exception, *, reason: str = "capture/publish failed"
+    ) -> None:
+        name = str(stream)
+        if name in self._camera_failures:
+            return
+        self._camera_failures.add(name)
+        detail = str(exc).replace("\n", " ").replace("\r", " ").strip()
+        print(
+            f"[sim-camera] stream={name} {reason}: "
+            f"{detail[:512] or type(exc).__name__}",
+            flush=True,
+        )
 
     @staticmethod
     def _dispatch_error(stream: str, exc: Exception) -> None:
@@ -2214,7 +2180,7 @@ class SimScene:
                 parent_link=str(parent_link),
             )
         except Exception as exc:
-            print(f"[sim_camera] camera_axes_world failed: {exc}")
+            self._report_camera_failure("hand_eye_axes", exc, reason="pose feedback failed")
             return None
 
     def start_frame_dispatchers(self) -> None:
@@ -2237,35 +2203,64 @@ class SimScene:
         if self.rgbd_dispatcher is not None:
             self.rgbd_dispatcher.close()
 
+    def close_camera_publishers(self) -> None:
+        """Close camera publishers and report cleanup failures once."""
+
+        failures: list[str] = []
+        for attr in ("camera_publisher", "observer_camera_publisher"):
+            publisher = getattr(self, attr)
+            if publisher is None:
+                continue
+            try:
+                publisher.close()
+            except Exception as exc:
+                failures.append(f"{attr}: {exc}")
+            finally:
+                setattr(self, attr, None)
+        if failures:
+            print(
+                "[sim-media] camera publisher cleanup failed: "
+                + "; ".join(failures)[:512],
+                flush=True,
+            )
+
     def flush_video_frame(self, stream: str, *, timeout_s: float = 1.0) -> bool:
         """Synchronize one startup frame with the WebRTC mailbox."""
 
+        name = str(stream)
+        deadline = time.monotonic() + max(0.01, float(timeout_s))
         if self.camera_render_worker is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return False
             if not self.camera_render_worker.wait_for_frame(
-                str(stream), timeout_s=float(timeout_s)
+                name, timeout_s=remaining
             ):
                 return False
 
-        dispatcher = self.frame_dispatcher
-        if dispatcher is None:
-            return True
-        try:
-            name = str(stream)
-            flushed = bool(dispatcher.flush(name, timeout_s=float(timeout_s)))
-            if flushed:
-                stats = dispatcher.stats().get(name, {})
-                print(
-                    "[sim-media] stream=%s frame=dispatched submitted=%s processed=%s"
-                    % (
-                        name,
-                        int(stats.get("submitted", 0)),
-                        int(stats.get("processed", 0)),
-                    ),
-                    flush=True,
-                )
-            return flushed
-        except (KeyError, RuntimeError):
-            return False
+        for dispatcher_name, dispatcher in (
+            ("video", self.frame_dispatcher),
+            ("rgbd", self.rgbd_dispatcher),
+        ):
+            if dispatcher is None:
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0 or not dispatcher.flush(
+                name, timeout_s=remaining
+            ):
+                return False
+            stats = dispatcher.stats().get(name, {})
+            print(
+                "[sim-media] stream=%s dispatcher=%s submitted=%s processed=%s"
+                % (
+                    name,
+                    dispatcher_name,
+                    int(stats.get("submitted", 0)),
+                    int(stats.get("processed", 0)),
+                ),
+                flush=True,
+            )
+        return True
 
 
 class RateLimiter:
@@ -3545,16 +3540,7 @@ class SimRuntime:
     def _cleanup(self) -> None:
         a = self.app
         a.sim_scene.close_frame_dispatchers()
-        if a.sim_scene.camera_publisher is not None:
-            try:
-                a.sim_scene.camera_publisher.close()
-            except Exception:
-                pass
-        if a.sim_scene.observer_camera_publisher is not None:
-            try:
-                a.sim_scene.observer_camera_publisher.close()
-            except Exception:
-                pass
+        a.sim_scene.close_camera_publishers()
         if a.state_source is not None:
             a.state_source.close()
         if a.feedback_pub is not None:
@@ -3968,54 +3954,57 @@ class GenesisApp:
             # propagating the original startup error so Compose restart loops
             # do not accumulate orphan renderer processes.
             self.sim_scene.close_frame_dispatchers()
+            self.sim_scene.close_camera_publishers()
             raise
-        self.sim_scene.configure_frame_dispatchers()
-        self.sim_scene.start_frame_dispatchers()
-        # Prime both network cameras before advertising the session as ready.
-        # Observer used to be the only startup frame; a cold hand-eye render
-        # could therefore make its WebRTC track negotiate against the worker's
-        # empty fallback while the observer was already usable.  ``--no-viewer``
-        # does not disable either camera, and this capture does not touch the
-        # native Genesis viewer.
-        if self.sim_scene.hand_eye_enabled:
-            self.sim_scene.maybe_publish_camera(
-                arm_q=None,
-                max_hz=float(self.cfg.sim_camera_max_hz),
-                sim_time_s=0.0,
-                force=True,
-                rgb_enabled=bool(self.cfg.sim_camera_rgb),
-                depth_enabled=bool(self.cfg.sim_camera_depth),
+        try:
+            self.sim_scene.configure_frame_dispatchers()
+            self.sim_scene.start_frame_dispatchers()
+            first_frame_timeout = float(
+                getattr(self.cfg, "camera_first_frame_timeout_s", 30.0)
             )
-            if not self.sim_scene.flush_video_frame(
-                "hand_eye_preview",
-                timeout_s=float(
-                    getattr(self.cfg, "camera_first_frame_timeout_s", 30.0)
-                ),
-            ):
-                print(
-                    "[sim-media] initial hand-eye frame was not dispatched before readiness",
-                    flush=True,
-                )
-        # Prime the observer mailbox before advertising the simulation as
-        # ready.  The UI can negotiate WebRTC as soon as the readiness gate
-        # opens; waiting for the first physics-loop iteration made a paused
-        # or slow-to-start scene appear permanently stuck at “video waiting”.
-        if self.sim_scene.observer_enabled:
-            self.sim_scene.maybe_publish_observer_camera(
-                max_hz=float(self.cfg.sim_observer_camera_max_hz),
-                sim_time_s=0.0,
-                force=True,
-            )
-            if not self.sim_scene.flush_video_frame(
-                "observer",
-                timeout_s=float(
-                    getattr(self.cfg, "camera_first_frame_timeout_s", 30.0)
-                ),
-            ):
-                print(
-                    "[sim-media] initial observer frame was not dispatched before readiness",
-                    flush=True,
-                )
+
+            # Prime both network cameras before advertising the session as
+            # ready. A failed first frame is a startup failure, not an empty
+            # WebRTC track or a readiness shortcut.
+            if self.sim_scene.hand_eye_enabled:
+                if not self.sim_scene.maybe_publish_camera(
+                    arm_q=None,
+                    max_hz=float(self.cfg.sim_camera_max_hz),
+                    sim_time_s=0.0,
+                    force=True,
+                    rgb_enabled=bool(self.cfg.sim_camera_rgb),
+                    depth_enabled=bool(self.cfg.sim_camera_depth),
+                ):
+                    raise RuntimeError("initial hand-eye camera frame was rejected")
+                if not self.sim_scene.flush_video_frame(
+                    "hand_eye_preview", timeout_s=first_frame_timeout
+                ):
+                    worker = self.sim_scene.camera_render_worker
+                    detail = worker.failure if worker is not None else "timeout"
+                    raise RuntimeError(
+                        "initial hand-eye camera frame unavailable: "
+                        f"{detail or 'timeout'}"
+                    )
+            if self.sim_scene.observer_enabled:
+                if not self.sim_scene.maybe_publish_observer_camera(
+                    max_hz=float(self.cfg.sim_observer_camera_max_hz),
+                    sim_time_s=0.0,
+                    force=True,
+                ):
+                    raise RuntimeError("initial observer camera frame was rejected")
+                if not self.sim_scene.flush_video_frame(
+                    "observer", timeout_s=first_frame_timeout
+                ):
+                    worker = self.sim_scene.camera_render_worker
+                    detail = worker.failure if worker is not None else "timeout"
+                    raise RuntimeError(
+                        "initial observer camera frame unavailable: "
+                        f"{detail or 'timeout'}"
+                    )
+        except BaseException:
+            self.sim_scene.close_frame_dispatchers()
+            self.sim_scene.close_camera_publishers()
+            raise
         if self.runtime_ready_event is not None:
             self.runtime_ready_event.set()
             print("[runtime] scene/media readiness gate opened", flush=True)

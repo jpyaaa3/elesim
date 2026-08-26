@@ -301,50 +301,41 @@ def _apply_snapshot(
     position = snapshot.mock_position
     euler = snapshot.mock_euler_deg
     for name, mock in mock_entities.items():
-        try:
-            mock.set_pos(
-                position
-                if name == active and position is not None
-                else (0.0, 0.0, -100.0)
-            )
-            if name == active and euler is not None:
-                from scipy.spatial.transform import Rotation as Rot
+        mock.set_pos(
+            position
+            if name == active and position is not None
+            else (0.0, 0.0, -100.0)
+        )
+        if name == active and euler is not None:
+            from scipy.spatial.transform import Rotation as Rot
 
-                quat_xyzw = Rot.from_euler("xyz", euler, degrees=True).as_quat()
-                mock.set_quat(
-                    np.asarray(
-                        [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
-                        dtype=float,
-                    )
+            quat_xyzw = Rot.from_euler("xyz", euler, degrees=True).as_quat()
+            mock.set_quat(
+                np.asarray(
+                    [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
+                    dtype=float,
                 )
-        except Exception:
-            pass
+            )
 
     if target_entity is not None and snapshot.target_position is not None:
-        try:
-            target_entity.set_pos(np.asarray(snapshot.target_position, dtype=float).reshape(3))
-            zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
-            if callable(zero_velocity):
-                zero_velocity()
-        except Exception:
-            pass
+        target_entity.set_pos(np.asarray(snapshot.target_position, dtype=float).reshape(3))
+        zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
+        if callable(zero_velocity):
+            zero_velocity()
 
     if observer is not None and (
         snapshot.observer_pos is not None or snapshot.observer_lookat is not None
     ):
-        try:
-            previous_pos = tuple(float(v) for v in observer.pos)
-            previous_lookat = tuple(float(v) for v in observer.lookat)
-            pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
-            lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
-            observer.pos = tuple(float(v) for v in pos)
-            observer.lookat = tuple(float(v) for v in lookat)
-            observer_pose_changed = (
-                observer.pos != previous_pos or observer.lookat != previous_lookat
-            )
-            observer._set_camera_pose()
-        except Exception:
-            pass
+        previous_pos = tuple(float(v) for v in observer.pos)
+        previous_lookat = tuple(float(v) for v in observer.lookat)
+        pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
+        lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
+        observer.pos = tuple(float(v) for v in pos)
+        observer.lookat = tuple(float(v) for v in lookat)
+        observer_pose_changed = (
+            observer.pos != previous_pos or observer.lookat != previous_lookat
+        )
+        observer._set_camera_pose()
     return observer_pose_changed
 
 
@@ -360,6 +351,7 @@ def _camera_render_process_main(
 ) -> None:
     """Spawn target; all Genesis imports and device work stay here."""
 
+    startup_complete = False
     try:
         import genesis as gs
         from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
@@ -468,11 +460,11 @@ def _camera_render_process_main(
         robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:
             eye.bind(entity, hand_eye_path=str(spec.hand_eye_config))
-        results.put({"type": "ready", "ok": True})
+        results.put_nowait({"type": "ready", "ok": True})
         ready.set()
+        startup_complete = True
 
         capture_logged: set[str] = set()
-        error_logged: set[str] = set()
 
         while not stop.is_set():
             try:
@@ -483,7 +475,9 @@ def _camera_render_process_main(
                 break
             snapshot, requested = command
             if not isinstance(snapshot, CameraStateSnapshot):
-                continue
+                raise RuntimeError("camera render command has an invalid snapshot")
+            if not isinstance(requested, (tuple, list)):
+                raise RuntimeError("camera render command has invalid stream names")
             # Drain older snapshots.  A render worker never catches up on a
             # stale queue; it always applies the newest state available.
             requested_names = list(str(name) for name in requested)
@@ -495,9 +489,14 @@ def _camera_render_process_main(
                 if newer is None:
                     stop.set()
                     break
-                if isinstance(newer, tuple) and len(newer) == 2:
-                    snapshot, requested = newer
-                    requested_names.extend(str(name) for name in requested)
+                if not isinstance(newer, tuple) or len(newer) != 2:
+                    raise RuntimeError("camera render queue contains an invalid command")
+                snapshot, requested = newer
+                if not isinstance(snapshot, CameraStateSnapshot) or not isinstance(
+                    requested, (tuple, list)
+                ):
+                    raise RuntimeError("camera render queue contains an invalid command")
+                requested_names.extend(str(name) for name in requested)
             if stop.is_set():
                 break
             hand_eye_only = (
@@ -552,7 +551,7 @@ def _camera_render_process_main(
                             force_render=True,
                         )
                     else:
-                        continue
+                        raise RuntimeError(f"unknown camera stream requested: {stream}")
                     mailbox = mailboxes[stream]
                     render_ms = 1000.0 * max(0.0, time.perf_counter() - started)
                     sequence = mailbox.publish(
@@ -587,12 +586,10 @@ def _camera_render_process_main(
                         },
                     )
                 except Exception as exc:
-                    if stream not in error_logged:
-                        error_logged.add(stream)
-                        print(
-                            f"[sim-camera-worker] capture failed stream={stream}: {exc}",
-                            flush=True,
-                        )
+                    print(
+                        f"[sim-camera-worker] capture failed stream={stream}: {exc}",
+                        flush=True,
+                    )
                     try:
                         results.put_nowait(
                             {
@@ -603,10 +600,16 @@ def _camera_render_process_main(
                         )
                     except queue.Full:
                         pass
-    except BaseException as exc:
+                    return
+    except Exception as exc:
+        message = {
+            "type": "error" if startup_complete else "ready",
+            "ok": False,
+            "error": str(exc)[:512] or type(exc).__name__,
+        }
         try:
-            results.put_nowait({"type": "ready", "ok": False, "error": str(exc)[:512]})
-        except Exception:
+            results.put_nowait(message)
+        except queue.Full:
             pass
     finally:
         ready.set()
@@ -793,14 +796,56 @@ class CameraRenderWorker:
         with self._lock:
             return str(self._failure)
 
+    def _set_failure(self, detail: object) -> None:
+        text = str(detail).replace("\n", " ").replace("\r", " ").strip()[:512]
+        if not text:
+            text = type(detail).__name__
+        report = False
+        with self._lock:
+            if not self._failure:
+                self._failure = text
+                report = True
+        if report:
+            print(f"[sim-camera] worker failure: {text}", flush=True)
+
+    def _check_process_health(self) -> None:
+        if not self._started or self._closed:
+            return
+        ready_streams: list[str] = []
+        dead_streams: list[str] = []
+        all_ready = True
+        for name, state in self._processes.items():
+            alive = bool(state.process.is_alive())
+            if state.ready.is_set() and alive:
+                ready_streams.append(name)
+            else:
+                all_ready = False
+            if not alive and not state.stop.is_set():
+                dead_streams.append(f"{name} (exitcode={state.process.exitcode})")
+        if ready_streams:
+            with self._lock:
+                self._ready_streams.update(ready_streams)
+        if all_ready:
+            self._ready_ok.set()
+        if dead_streams:
+            self._set_failure("camera render worker exited: " + ", ".join(dead_streams))
+            self._ready_ok.set()
+
     def start(self, *, timeout_s: float = 180.0, wait: bool = True) -> None:
+        if self._closed:
+            raise RuntimeError("camera render worker is closed")
         if self._started:
             if bool(wait) and not self.ready:
                 raise RuntimeError(self.failure or "camera render worker is not ready")
             return
-        for state in self._processes.values():
-            state.process.start()
         self._started = True
+        try:
+            for state in self._processes.values():
+                state.process.start()
+        except Exception as exc:
+            self._set_failure(f"camera render worker failed to start: {exc}")
+            self.close()
+            raise RuntimeError(self.failure) from exc
         self._receiver = threading.Thread(
             target=self._receive_loop,
             name="sim-camera-render-receiver",
@@ -810,9 +855,9 @@ class CameraRenderWorker:
         if not bool(wait):
             return
         if not self.wait_ready(timeout_s=float(timeout_s)):
-            self._failure = "camera render worker startup timed out"
+            self._set_failure("camera render worker startup timed out")
             self.close()
-            raise RuntimeError(self._failure)
+            raise RuntimeError(self.failure)
         if not self.ready:
             failure = self.failure or "camera render worker failed during startup"
             self.close()
@@ -824,8 +869,7 @@ class CameraRenderWorker:
         if not self._started:
             return False
         if not self._ready_ok.wait(max(0.1, float(timeout_s))):
-            with self._lock:
-                self._failure = "camera render worker startup timed out"
+            self._set_failure("camera render worker startup timed out")
             return False
         return bool(self.ready)
 
@@ -884,11 +928,13 @@ class CameraRenderWorker:
             with self._lock:
                 if int(self._completed.get(name, 0)) > 0:
                     return True
+                if self._failure:
+                    return False
             if not self._stream_ready(name):
                 return False
             time.sleep(0.005)
         with self._lock:
-            return int(self._completed.get(name, 0)) > 0
+            return int(self._completed.get(name, 0)) > 0 and not self._failure
 
     def diagnostics(self) -> dict[str, Any]:
         with self._lock:
@@ -963,35 +1009,22 @@ class CameraRenderWorker:
                     messages.append((stream, state.frame_results.get_nowait()))
                 except queue.Empty:
                     pass
-            if not messages:
-                dead_before_ready = (
-                    self._started
-                    and any(
-                        not state.process.is_alive()
-                        and not state.ready.is_set()
-                        for state in self._processes.values()
-                    )
-                    and not self._ready_ok.is_set()
-                )
-                if dead_before_ready:
-                    with self._lock:
-                        self._failure = "camera render worker exited during startup"
-                    self._ready_ok.set()
-                time.sleep(0.005)
-                continue
             for stream, message in messages:
                 self._receive_message(message, stream_hint=stream)
+            self._check_process_health()
+            if not messages:
+                time.sleep(0.005)
 
     def _receive_message(self, message: Any, *, stream_hint: str = "") -> None:
         if not isinstance(message, dict):
+            self._set_failure("camera render worker sent an invalid message")
             return
         kind = str(message.get("type", ""))
         if kind == "ready":
             if not bool(message.get("ok", False)):
-                with self._lock:
-                    self._failure = str(
-                        message.get("error") or "camera render worker startup failed"
-                    )
+                self._set_failure(
+                    message.get("error") or "camera render worker startup failed"
+                )
                 self._ready_ok.set()
                 return
             if stream_hint:
@@ -1004,22 +1037,31 @@ class CameraRenderWorker:
                 self._ready_ok.set()
             return
         if kind == "error":
-            with self._lock:
-                self._failure = str(message.get("error") or "camera render failed")[:512]
+            stream = str(message.get("stream") or stream_hint).strip()
+            prefix = f"{stream}: " if stream else ""
+            self._set_failure(
+                prefix + str(message.get("error") or "camera render failed")
+            )
             return
         if kind != "frame":
+            self._set_failure(f"camera render worker sent unknown message type: {kind}")
             return
         stream = str(message.get("stream", ""))
         mailbox = self.mailboxes.get(stream)
         if mailbox is None:
+            self._set_failure(f"camera render worker sent an unknown stream: {stream}")
             return
-        message_epoch = int(message.get("epoch", 0))
+        try:
+            message_epoch = int(message["epoch"])
+            expected = int(message["sequence"])
+        except (KeyError, TypeError, ValueError) as exc:
+            self._set_failure(f"invalid camera frame metadata: {exc}")
+            return
         with self._lock:
             current_epoch = int(self._epoch)
         if message_epoch < current_epoch:
             return
         color, depth, sequence, captured_at = mailbox.latest()
-        expected = int(message.get("sequence", 0))
         if color is None or depth is None or sequence != expected:
             # A newer frame overwrote this metadata before the receiver
             # copied it.  The next notification represents the latest slot;
@@ -1027,30 +1069,37 @@ class CameraRenderWorker:
             return
         intr = message.get("intrinsics")
         if not isinstance(intr, (tuple, list)) or len(intr) != 6:
+            self._set_failure("invalid camera frame intrinsics")
             return
-        frame = SimCameraFrame(
-            color_bgr=color,
-            depth_raw=depth,
-            depth_scale=float(message.get("depth_scale", 0.001)),
-            intrinsics=SimCameraIntrinsics(
-                fx=float(intr[0]),
-                fy=float(intr[1]),
-                cx=float(intr[2]),
-                cy=float(intr[3]),
-                width=int(intr[4]),
-                height=int(intr[5]),
-            ),
-            seq=sequence,
-            ts=float(message.get("ts", captured_at)),
-            arm_q=message.get("arm_q"),
-            camera_world_origin=message.get("camera_world_origin"),
-            camera_world_look=message.get("camera_world_look"),
-            camera_world_right=message.get("camera_world_right"),
-        )
-        with self._lock:
-            self._completed[stream] = int(self._completed.get(stream, 0)) + 1
-            self._last_sequence[stream] = sequence
+        try:
+            frame = SimCameraFrame(
+                color_bgr=color,
+                depth_raw=depth,
+                depth_scale=float(message.get("depth_scale", 0.001)),
+                intrinsics=SimCameraIntrinsics(
+                    fx=float(intr[0]),
+                    fy=float(intr[1]),
+                    cx=float(intr[2]),
+                    cy=float(intr[3]),
+                    width=int(intr[4]),
+                    height=int(intr[5]),
+                ),
+                seq=sequence,
+                ts=float(message.get("ts", captured_at)),
+                arm_q=message.get("arm_q"),
+                camera_world_origin=message.get("camera_world_origin"),
+                camera_world_look=message.get("camera_world_look"),
+                camera_world_right=message.get("camera_world_right"),
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._set_failure(f"invalid camera frame metadata: {exc}")
+            return
+        try:
             render_ms = max(0.0, float(message.get("render_ms", 0.0)))
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._set_failure(f"invalid camera render timing: {exc}")
+            return
+        with self._lock:
             self._render_count[stream] = int(self._render_count.get(stream, 0)) + 1
             self._render_sum_ms[stream] = (
                 float(self._render_sum_ms.get(stream, 0.0)) + render_ms
@@ -1061,8 +1110,11 @@ class CameraRenderWorker:
         try:
             self._on_frame(stream, frame)
         except Exception as exc:
-            with self._lock:
-                self._failure = f"frame callback: {str(exc)[:480]}"
+            self._set_failure(f"frame callback: {str(exc)[:480]}")
+            return
+        with self._lock:
+            self._completed[stream] = int(self._completed.get(stream, 0)) + 1
+            self._last_sequence[stream] = sequence
 
 
 __all__ = [

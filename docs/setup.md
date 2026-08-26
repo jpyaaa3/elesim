@@ -325,6 +325,10 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | `elesim-update` 후 옛 동작 | update는 container를 교체하지 않음 | 정확한 prefix에서 `elesim-down` 후 `elesim-up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |
 
+curl bootstrap은 runtime에 필요하지 않은 `sim/src/elesim_sim/rl` 연구/학습
+스택을 source snapshot에서 제외한다. 이 디렉터리는 저장소에는 남아 있으므로
+연구 코드를 별도로 실행할 때는 checkout을 사용한다.
+
 ## 12. 자동 검증과 수동 gate
 
 Canonical 테스트는 setup-generated `elesim-dev`에서 실행한다.

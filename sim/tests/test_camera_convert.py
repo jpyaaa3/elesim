@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import elesim_sim.vision.sim_camera.convert as convert_module
 from elesim_sim.vision.sim_camera.convert import (
     depth_to_uint16,
     resize_cpu_if_needed,
@@ -70,6 +71,39 @@ def test_cpu_resize_keeps_color_and_depth_interpolation_contract() -> None:
     assert resized_color.dtype == np.uint8
     assert resized_depth.dtype == np.uint16
     assert names == ["rgb_resize", "depth_resize"]
+
+
+@pytest.mark.parametrize(
+    ("converter", "helper"),
+    (
+        (rgb_to_bgr, "_cuda_rgb_to_bgr"),
+        (depth_to_uint16, "_cuda_depth_to_uint16"),
+    ),
+)
+def test_cuda_conversion_errors_are_not_hidden_by_a_cpu_fallback(
+    monkeypatch: pytest.MonkeyPatch, converter, helper: str
+) -> None:
+    monkeypatch.setattr(convert_module, "_is_cuda_tensor", lambda _value: True)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("device conversion failed")
+
+    monkeypatch.setattr(convert_module, helper, fail)
+
+    with pytest.raises(RuntimeError, match="device conversion failed"):
+        converter(object(), target_width=2, target_height=2, prefer_gpu=True)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        np.zeros((2, 2, 2), dtype=np.float32),
+        np.zeros((2, 2, 3), dtype=np.float32),
+    ),
+)
+def test_depth_conversion_rejects_non_singleton_channel(value: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="HxW or HxWx1"):
+        depth_to_uint16(value, target_width=2, target_height=2, prefer_gpu=False)
 
 
 @pytest.mark.skipif(
