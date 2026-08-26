@@ -171,6 +171,11 @@ leaves something watchable.
 success rate cannot separate "the arm never arrived" from "it wrapped and then
 dropped it", and those call for different fixes.
 
+When collisions dominate, the report adds a second table splitting them by
+body -- `support`, `go2`, `self`, `floor` -- because "collision" on its own
+cannot say whether the arm is running into the object's stand, the quadruped it
+is mounted on, or itself, and those need different fixes.
+
 `export_traj` writes the per-macro-step 4-DoF waypoints for open-loop replay.
 Trajectory columns carry commands only; simulator-only quantities go in a
 separate diagnostics block. Two things the JSON states explicitly:

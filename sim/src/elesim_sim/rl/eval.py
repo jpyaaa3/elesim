@@ -41,6 +41,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 FAILURE_ORDER = ("collision", "topple", "retention", "no_wrap", "no_reach")
 
+#: Which body a colliding episode hit.  `collision` on its own cannot say
+#: whether the arm is running into the object's stand, the quadruped it is
+#: mounted on, or itself, and those need different fixes.
+COLLISION_BODIES = ("support", "go2", "self", "floor")
+
 
 @dataclass
 class ConditionResult:
@@ -53,6 +58,9 @@ class ConditionResult:
     episodes: int = 0
     successes: int = 0
     failures: dict[str, int] = field(default_factory=lambda: {k: 0 for k in FAILURE_ORDER})
+    collision_bodies: dict[str, int] = field(
+        default_factory=lambda: {k: 0 for k in COLLISION_BODIES}
+    )
     phi_max_rad: float = 0.0
     phi_mean_rad: float = 0.0
 
@@ -73,12 +81,21 @@ class EpisodeTracker:
         self.device = device
         self.touched = torch.zeros(n_envs, device=device, dtype=torch.bool)
         self.wrap_attempted = torch.zeros(n_envs, device=device, dtype=torch.bool)
+        self.hit = {
+            k: torch.zeros(n_envs, device=device, dtype=torch.bool)
+            for k in COLLISION_BODIES
+        }
         self.phi_max = torch.zeros(n_envs, device=device, dtype=torch.float32)
         self.phi_sum = torch.zeros(n_envs, device=device, dtype=torch.float32)
         self.steps = torch.zeros(n_envs, device=device, dtype=torch.float32)
 
     def update(self, env: WrapGraspEnv, phi: torch.Tensor) -> None:
         self.touched |= env.rewards.touched
+        contact = env.contacts.result()
+        self.hit["support"] |= contact.support_touch
+        self.hit["go2"] |= contact.go2_touch
+        self.hit["self"] |= contact.self_touch
+        self.hit["floor"] |= contact.floor_touch
         if env.lift is not None:
             self.wrap_attempted |= ~env.lift.follows_policy
         self.phi_max = torch.maximum(self.phi_max, phi)
@@ -93,6 +110,8 @@ class EpisodeTracker:
         self.phi_max[env_ids] = 0.0
         self.phi_sum[env_ids] = 0.0
         self.steps[env_ids] = 0.0
+        for value in self.hit.values():
+            value[env_ids] = False
 
 
 def classify(
@@ -101,11 +120,14 @@ def classify(
     reasons: dict[str, torch.Tensor],
     timeout: torch.Tensor,
     done_ids: torch.Tensor,
-) -> tuple[int, dict[str, int]]:
+) -> tuple[int, dict[str, int], dict[str, int]]:
     """Split finished episodes into one success bucket and five failure ones."""
     counts = {k: 0 for k in FAILURE_ORDER}
+    bodies = {k: 0 for k in COLLISION_BODIES}
     success = int(reasons["success"][done_ids].sum())
     collision = reasons["collision"][done_ids] & ~reasons["success"][done_ids]
+    for name in COLLISION_BODIES:
+        bodies[name] = int((collision & tracker.hit[name][done_ids]).sum())
     topple = reasons["topple"][done_ids] & ~reasons["success"][done_ids] & ~collision
     counts["collision"] = int(collision.sum())
     counts["topple"] = int(topple.sum())
@@ -117,7 +139,7 @@ def classify(
         other = other & ~retention
     counts["no_wrap"] = int((other & tracker.touched[done_ids]).sum())
     counts["no_reach"] = int((other & ~tracker.touched[done_ids]).sum())
-    return success, counts
+    return success, counts, bodies
 
 
 def evaluate_condition(
@@ -165,13 +187,15 @@ def evaluate_condition(
         done_ids = dones.nonzero(as_tuple=False).flatten()
         if done_ids.numel():
             reasons = extras.get("termination_reason") or env._last_reasons
-            success, counts = classify(
+            success, counts, bodies = classify(
                 env, tracker, reasons, extras["time_outs"], done_ids
             )
             result.episodes += int(done_ids.numel())
             result.successes += success
             for key, value in counts.items():
                 result.failures[key] += value
+            for key, value in bodies.items():
+                result.collision_bodies[key] += value
             tracker.reset(done_ids)
 
     result.phi_max_rad = phi_max
@@ -219,6 +243,37 @@ def render_report(
             + f" | {math.degrees(r.phi_max_rad):.0f} |"
         )
     lines.append("")
+    if any(sum(r.collision_bodies.values()) for r in results):
+        lines.append("## What the collisions hit")
+        lines.append("")
+        lines.append(
+            "A colliding episode may touch more than one body, so rows need not "
+            "sum to the `collision` count."
+        )
+        lines.append("")
+        lines.append(
+            "| dx (m) | yaw (deg) | radius (mm) | collision | "
+            + " | ".join(COLLISION_BODIES)
+            + " |"
+        )
+        lines.append("|---:|---:|---:|---:|" + "---:|" * len(COLLISION_BODIES))
+        for r in results:
+            lines.append(
+                f"| {r.dx_m:+.3f} | {math.degrees(r.yaw_rad):.0f} | "
+                f"{r.radius_m * 1000:.0f} | {r.failures['collision']} | "
+                + " | ".join(str(r.collision_bodies[k]) for k in COLLISION_BODIES)
+                + " |"
+            )
+        lines.append("")
+        totals = {
+            k: sum(r.collision_bodies[k] for r in results) for k in COLLISION_BODIES
+        }
+        worst = max(totals, key=lambda k: totals[k])
+        lines.append(
+            f"Across all conditions: " + ", ".join(f"`{k}` {v}" for k, v in totals.items())
+            + f".  The arm runs into **{worst}** most."
+        )
+        lines.append("")
     lines.append("## Failure meanings")
     lines.append("")
     lines.append("| bucket | meaning |")
@@ -377,7 +432,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         last = results[-1]
         print(
             f"[eval]     success {100.0 * last.success_rate:.0f}%  "
-            f"failures {last.failures}",
+            f"failures {last.failures} bodies {last.collision_bodies}",
             flush=True,
         )
 
