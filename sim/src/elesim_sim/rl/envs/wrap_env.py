@@ -269,7 +269,7 @@ class WrapGraspEnv:
         reward_out = self.rewards.step(
             RewardInputs(
                 phi=state["phi"],
-                surface_dist=state["surface_dist"],
+                surface_dist=self._shaping_distance(state),
                 object_touch=contact.object_touch,
                 non_target_collision=contact.non_target_collision,
                 object_displacement=state["displacement"],
@@ -431,6 +431,27 @@ class WrapGraspEnv:
             anchor_pos=pos[:, self._anchor_link, :],
             anchor_quat=quat[:, self._anchor_link, :],
         )
+
+    def _shaping_distance(self, state: dict[str, torch.Tensor]) -> torch.Tensor:
+        """Distance approach_shaping is measured against.
+
+        The segment-2 midpoint is a bad proxy for "am I getting closer".  The
+        wrap needs roll near +/-90 deg to put the bend plane horizontal, and
+        that rotation swings the midpoint *away* from the object before the
+        curl brings it back: measured along a scripted wrap, its distance runs
+        236 -> 250 mm over the six macro steps of roll while the arm is doing
+        exactly the right thing.  Shaping on it pays -0.5 for the manoeuvre the
+        task cannot be done without, which makes standing still the better
+        move, and two runs to iteration 300 came back with every episode
+        classified `no_reach`.
+
+        The nearest arm link falls monotonically over the same trajectory --
+        97 -> 78 mm through the roll, then 10 -> 0.9 mm as the coil closes -- so
+        it rewards the roll instead of punishing it.
+        """
+        if self.cfg.reward.approach_shaping_source == "anchor_link":
+            return state["surface_dist"]
+        return state["min_surface_dist"]
 
     def _read_state(self, contact: Optional[Any] = None) -> dict[str, torch.Tensor]:
         obj_pos = self.scene.object.get_pos()
@@ -812,7 +833,9 @@ class WrapGraspEnv:
             self._obs_delay[env_ids] = delay
 
         state = self._read_state()
-        self.rewards.reset(env_ids, phi0=state["phi"], dist0=state["surface_dist"])
+        self.rewards.reset(
+            env_ids, phi0=state["phi"], dist0=self._shaping_distance(state)
+        )
 
     # -- logging -----------------------------------------------------------
 
@@ -834,6 +857,7 @@ class WrapGraspEnv:
             float(self.cfg.success.coverage_target_rad), device=self.device
         )
         log["wrap/surface_dist_m"] = state["surface_dist"].mean()
+        log["wrap/min_surface_dist_m"] = state["min_surface_dist"].mean()
         # Waypoint usage per DoF.  The wrap needs roll near +/-90 deg to put the
         # bend plane horizontal, so a policy whose roll stays near its Home zero
         # cannot be wrapping whatever else the other terms say.

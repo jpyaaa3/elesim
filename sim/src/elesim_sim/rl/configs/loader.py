@@ -245,6 +245,14 @@ class SelfContactConfig:
 class RewardConfig:
     weights: RewardWeights = field(default_factory=RewardWeights)
     approach_d0: float = 0.20
+    approach_shaping_source: str = "nearest_link"
+
+    def __post_init__(self) -> None:
+        if self.approach_shaping_source not in ("nearest_link", "anchor_link"):
+            raise ConfigError(
+                "unknown reward.approach_shaping_source: "
+                f"{self.approach_shaping_source!r}"
+            )
     self_contact: SelfContactConfig = field(default_factory=SelfContactConfig)
     coverage: CoverageConfig = field(default_factory=CoverageConfig)
     disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)

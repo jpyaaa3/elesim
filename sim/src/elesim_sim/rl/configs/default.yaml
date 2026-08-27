@@ -303,6 +303,25 @@ reward:
     success: 5.0
   # Approach shaping normaliser d0 (metres).
   approach_d0: 0.20
+  # Which distance approach_shaping is measured against.
+  #
+  # `nearest_link` -- the closest arm link to the object surface.
+  # `anchor_link`  -- the segment-2 midpoint, which is what it used to be and
+  #                   is a bad proxy for "am I getting closer".  The wrap needs
+  #                   roll near +/-90 deg to put the bend plane horizontal, and
+  #                   that rotation swings the midpoint *away* before the curl
+  #                   brings it back: measured along a scripted wrap its
+  #                   distance runs 236 -> 250 mm over the six macro steps of
+  #                   roll while the arm is doing exactly the right thing.  So
+  #                   the term paid -0.5 for the one manoeuvre the task cannot
+  #                   be done without, standing still scored better than
+  #                   approaching (-0.75 against -0.84), and two runs to
+  #                   iteration 300 came back with all 13824 eval episodes
+  #                   classified `no_reach`.
+  #
+  # The nearest link falls monotonically over the same trajectory: 97 -> 78 mm
+  # through the roll, then 10 -> 0.9 mm as the coil closes.
+  approach_shaping_source: nearest_link
   # Which arm-against-arm contacts count towards non_target_collision, which
   # both penalises and terminates.
   self_contact:
