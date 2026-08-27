@@ -232,8 +232,8 @@ class WrapGraspEnv:
         self.contacts.reset()
         self._simulate_macro_step()
 
-        state = self._read_state()
         contact = self.contacts.result()
+        state = self._read_state(contact)
 
         success = self._evaluate_success(state, contact)
         reward_out = self.rewards.step(
@@ -385,16 +385,26 @@ class WrapGraspEnv:
             anchor_quat=quat[:, self._anchor_link, :],
         )
 
-    def _read_state(self) -> dict[str, torch.Tensor]:
+    def _read_state(self, contact: Optional[Any] = None) -> dict[str, torch.Tensor]:
         obj_pos = self.scene.object.get_pos()
         obj_quat = self.scene.object.get_quat()
         link_pos = self.scene.robot.get_links_pos()[:, self._arm_link_ids, :]
+        # Contact-based coverage needs the contact set for this macro step, so
+        # the aggregate is passed in rather than re-read: it is accumulated
+        # across the substep window, and a coverage computed from the settled
+        # instant alone would miss links that touched during the motion.
+        mask = None
+        if self.cfg.reward.coverage.source == "contact":
+            aggregate = contact if contact is not None else self.contacts.result()
+            mask = aggregate.object_link_hits
         cov = self.coverage.measure(
             link_pos,
             obj_pos,
             obj_quat,
             radius_m=self._object_radius,
             height_m=self._object_height,
+            link_radius_m=self.cfg.reward.coverage.link_radius_m,
+            contact_mask=mask,
         )
         anchor = self.scene.robot.get_links_pos()[:, self._anchor_link, :]
         radial = (anchor - obj_pos)

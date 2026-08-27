@@ -258,6 +258,19 @@ reward:
     link_radius_m: 0.035
     # Tolerance on the interpenetration rejection, in metres.
     interpenetration_tol_m: 0.002
+    # What counts as occupying an azimuth bin.
+    #
+    # `contact`  -- only links actually touching the object.  This is what the
+    #               task is about, and the simulator reports it exactly.
+    # `proximity`-- any link within radial_band_m of the surface.  Kept for
+    #               comparison; it credits a vertical hook with 56 deg against
+    #               a true coil's 86 deg, a margin too small to pay for the six
+    #               macro steps of roll the coil costs, so a policy trained on
+    #               it learns to hook instead of to wrap.
+    #
+    # With `contact`, Phi stays at zero until the arm actually touches; the
+    # dense signal during approach is reward.weights.approach_shaping's job.
+    source: contact
     # Caging is always measured and logged; this switch decides whether it also
     # gates the geometric success criterion.
     #

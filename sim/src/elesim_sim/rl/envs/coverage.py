@@ -193,6 +193,7 @@ class CoverageMeter:
         radius_m: torch.Tensor,
         height_m: torch.Tensor,
         link_radius_m: float = 0.0,
+        contact_mask: Optional[torch.Tensor] = None,
     ) -> CoverageResult:
         """Measure coverage.
 
@@ -208,6 +209,19 @@ class CoverageMeter:
         link_radius_m
             Effective link thickness, subtracted from the surface distance so a
             capsule touching the object reports ~0 rather than its own radius.
+        contact_mask
+            ``(n_envs, n_links)`` of links actually touching the object.  When
+            given, only those links occupy azimuth.
+
+            Proximity is a poor stand-in for wrapping.  A hook lying in a
+            vertical plane beside an upright cylinder scores 56 deg of azimuth
+            under the proximity rule -- three links a little apart in bearing,
+            bridged by the chain fill -- while a horizontal coil that genuinely
+            surrounds the object scores 86 deg.  A 30 deg edge does not pay for
+            the six macro steps of roll rotation the coil costs, so a policy
+            optimising it correctly learns to hook.  Contact does distinguish
+            them: a coil touches around the circumference, a hook touches at a
+            couple of points.
         """
         pos = link_pos.to(self.device, torch.float32)
         centre = object_pos.to(self.device, torch.float32).unsqueeze(1)
@@ -229,6 +243,10 @@ class CoverageMeter:
         within_height = along.abs() <= (h * 0.5 + self.radial_band_m)
         within_band = surface_dist <= self.radial_band_m
         near = within_height & within_band & (radial > 1e-6)
+        if contact_mask is not None:
+            # Contact already implies proximity; the height and radial tests
+            # stay as a guard against a stale mask.
+            near = near & contact_mask.to(self.device, torch.bool)
 
         angle = torch.atan2(planar_v, planar_u) % _TWO_PI
         occupied = self._occupancy(angle, near)

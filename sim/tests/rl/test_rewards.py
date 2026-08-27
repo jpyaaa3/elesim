@@ -217,3 +217,71 @@ def test_coverage_never_exceeds_the_true_arc(cfg, device):
             height_m=torch.tensor([cfg.object.height_m]),
         )
         assert math.degrees(float(res.phi_rad[0])) <= true_deg + _FLOAT_TOL_DEG
+
+
+# -- contact-based coverage ------------------------------------------------
+
+
+def test_contact_coverage_ignores_links_that_are_merely_close(cfg, device):
+    """Proximity credits a hook; contact does not.
+
+    A hook lying beside the cylinder has links near it in bearing but touching
+    at one point.  Under the proximity rule those links bridge into an arc and
+    the hook scores nearly as much as a real wrap, which is why a policy
+    trained on it never pays the six macro steps of roll a coil costs.
+    """
+    radius = cfg.object.radius_m
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, math.pi, 8)
+    links = torch.stack(
+        (radius * torch.cos(angles), radius * torch.sin(angles), torch.zeros(8)),
+        dim=-1,
+    ).unsqueeze(0)
+    common = dict(
+        radius_m=torch.tensor([radius]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    proximity = meter.measure(
+        links, torch.zeros(1, 3), torch.tensor([[1.0, 0.0, 0.0, 0.0]]), **common
+    )
+    # Only one link is actually touching.
+    touching = torch.zeros(1, 8, dtype=torch.bool)
+    touching[0, 3] = True
+    contact = meter.measure(
+        links,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        contact_mask=touching,
+        **common,
+    )
+    assert proximity.phi_rad.item() > 2.0        # ~180 deg from proximity alone
+    assert contact.phi_rad.item() == 0.0         # a single contact spans nothing
+
+
+def test_contact_coverage_rewards_a_spread_of_contacts(cfg, device):
+    """Several contacts around the circumference do score an arc."""
+    radius = cfg.object.radius_m
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, math.pi, 8)
+    links = torch.stack(
+        (radius * torch.cos(angles), radius * torch.sin(angles), torch.zeros(8)),
+        dim=-1,
+    ).unsqueeze(0)
+    touching = torch.ones(1, 8, dtype=torch.bool)
+    result = meter.measure(
+        links,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        contact_mask=touching,
+        radius_m=torch.tensor([radius]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    assert math.degrees(result.phi_rad.item()) >= 175.0
