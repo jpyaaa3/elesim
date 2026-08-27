@@ -269,6 +269,7 @@ class ContactAggregate:
     object_force_peak: torch.Tensor
     object_link_hits: torch.Tensor
     non_target_collision: torch.Tensor
+    terminating_collision: torch.Tensor
     floor_touch: torch.Tensor
     support_touch: torch.Tensor
     self_touch: torch.Tensor
@@ -287,10 +288,12 @@ class ContactAggregator:
         *,
         n_envs: int,
         self_contact_all_is_failure: bool = False,
+        self_contact_terminates: bool = False,
     ) -> None:
         self.classifier = classifier
         self.n_envs = int(n_envs)
         self.all_self_contact_is_failure = bool(self_contact_all_is_failure)
+        self.self_contact_terminates = bool(self_contact_terminates)
         self.device = classifier.device
         self._acc: dict[str, torch.Tensor] = {}
         self.reset()
@@ -350,15 +353,22 @@ class ContactAggregator:
         # links count is `reward.self_contact.structural_prefixes`.
         #
         # Both stay logged, as `contact/self` and `contact/self_structural`.
-        non_target = acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"]
-        non_target = non_target | acc["self_structural_touch"]
+        world = acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"]
+        own = acc["self_structural_touch"]
         if self.all_self_contact_is_failure:
-            non_target = non_target | acc["self_touch"]
+            own = own | acc["self_touch"]
+        non_target = world | own
+        # Both end the episode by default: driving the backbone into its own
+        # base is a fault, not a pose to recover from.  The split exists so
+        # that can be switched off by config, which keeps the rest of the
+        # rollout at the cost of treating a crash as survivable.
+        terminating = world | own if self.self_contact_terminates else world
         return ContactAggregate(
             object_touch=acc["object_touch"].clone(),
             object_force_peak=acc["object_force_peak"].clone(),
             object_link_hits=acc["object_link_hits"].clone(),
             non_target_collision=non_target,
+            terminating_collision=terminating,
             floor_touch=acc["floor_touch"].clone(),
             support_touch=acc["support_touch"].clone(),
             self_touch=acc["self_touch"].clone(),

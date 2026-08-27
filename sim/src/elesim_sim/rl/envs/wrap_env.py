@@ -111,6 +111,7 @@ class WrapGraspEnv:
             self.classifier,
             n_envs=self.num_envs,
             self_contact_all_is_failure=self_contact.all_is_failure,
+            self_contact_terminates=self_contact.terminates,
         )
 
         from .rewards import RewardBook  # local import keeps the module graph flat
@@ -273,6 +274,7 @@ class WrapGraspEnv:
                 surface_dist=self._shaping_distance(state),
                 object_touch=contact.object_touch,
                 non_target_collision=contact.non_target_collision,
+                terminating_collision=contact.terminating_collision,
                 object_displacement=state["displacement"],
                 object_tilt=state["tilt"],
                 success=success,
@@ -512,7 +514,13 @@ class WrapGraspEnv:
             "gap_rad": cov.gap_rad,
             "gap_width_m": cov.gap_width_m,
             "gap_bearing": cov.gap_bearing_rad,
-            "enclosure": cov.enclosure_rad,
+            "enclosure_raw": cov.enclosure_rad,
+            "plane_alignment": cov.plane_alignment,
+            # What the reward sees.  Bearing enclosure on its own credits a
+            # coil curled beside the object in a vertical plane, since
+            # projecting to the horizontal throws away the difference; the
+            # alignment factor is what distinguishes them.
+            "enclosure": cov.enclosure_rad * cov.plane_alignment,
             "coverage_near": cov.n_near_links.to(torch.float32),
             "surface_dist": anchor_surface,
             "min_surface_dist": cov.min_surface_dist,
@@ -863,7 +871,9 @@ class WrapGraspEnv:
         )
         log["wrap/surface_dist_m"] = state["surface_dist"].mean()
         log["wrap/min_surface_dist_m"] = state["min_surface_dist"].mean()
-        log["wrap/enclosure_rad"] = state["enclosure"].mean()
+        log["wrap/enclosure_rad"] = state["enclosure_raw"].mean()
+        log["wrap/plane_alignment"] = state["plane_alignment"].mean()
+        log["wrap/enclosure_effective_rad"] = state["enclosure"].mean()
         # Waypoint usage per DoF.  The wrap needs roll near +/-90 deg to put the
         # bend plane horizontal, so a policy whose roll stays near its Home zero
         # cannot be wrapping whatever else the other terms say.

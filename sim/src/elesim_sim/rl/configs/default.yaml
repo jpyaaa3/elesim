@@ -358,6 +358,14 @@ reward:
     #
     # Logged separately as `contact/self_structural` against `contact/self`.
     structural_prefixes: ["housing"]
+    # Whether that contact ends the episode as well as costing the penalty.
+    #
+    # It does.  Driving the backbone into its own base is a fault, not a pose to
+    # recover from, and the episode should not continue past it.  Setting this
+    # false lets the arm back out and keeps the rest of the rollout, at the cost
+    # of treating a crash as survivable; the penalty then applies on every macro
+    # step the contact lasts rather than once.
+    terminates: true
   # Coverage is measured about the object's *current* centre.
   coverage:
     # Arc-length bin count for the azimuth occupancy histogram.  Coverage is

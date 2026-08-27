@@ -240,6 +240,8 @@ class SelfContactConfig:
     #: Link-name prefixes whose self contact counts even when `all_is_failure`
     #: is off: the rigid base the backbone is mounted on.
     structural_prefixes: tuple[str, ...] = ("housing",)
+    #: Whether that contact ends the episode as well as costing the penalty.
+    terminates: bool = True
 
 
 @dataclass(frozen=True)

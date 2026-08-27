@@ -114,6 +114,7 @@ class CoverageResult:
     gap_width_m: torch.Tensor    # (n_envs,) free opening across that gap
     gap_bearing_rad: torch.Tensor   # (n_envs,) bearing the object would leave by
     enclosure_rad: torch.Tensor  # (n_envs,) bearing span the arm surrounds
+    plane_alignment: torch.Tensor  # (n_envs,) |bend-plane normal . object axis|
     caged: torch.Tensor          # (n_envs,) bool: opening narrower than object
 
 
@@ -343,6 +344,30 @@ class CoverageMeter:
             finite[:, 0] >= 2, enclosure, torch.zeros_like(enclosure)
         )
 
+        # How closely the arm's bend plane matches the object's cross-section.
+        #
+        # Bearing enclosure alone cannot tell a coil that surrounds the object
+        # from one curled beside it in a vertical plane, because projecting to
+        # the horizontal throws away exactly that difference: measured, a
+        # vertical curl over the robot's own back scores 98 deg of enclosure
+        # without going near the object, more than the 34-80 deg a real
+        # approach passes through.  Multiplying by this kills that: the wrap
+        # reaches 0.90, the vertical curl 0.07 and an arm reaching past the
+        # object 0.17.
+        #
+        # The normal is the summed cross product of consecutive segment
+        # vectors, which is the bend-plane normal for a planar chain.  No
+        # eigendecomposition -- besides being cheaper, torch.linalg.eigh is not
+        # implemented on MPS.  Links must arrive in chain order, which
+        # `_occupancy` already requires.
+        if pos.shape[1] >= 3:
+            seg = pos[:, 1:, :] - pos[:, :-1, :]
+            turn = torch.cross(seg[:, :-1, :], seg[:, 1:, :], dim=-1).sum(dim=1)
+            normal = turn / turn.norm(dim=-1, keepdim=True).clamp_min(1e-9)
+            alignment = (normal * axis).sum(dim=-1).abs().clamp(0.0, 1.0)
+        else:
+            alignment = torch.zeros_like(enclosure)
+
         # Circular mean of the unoccupied bearings: the direction the object is
         # least held in, and so the direction a retention test should pull.  A
         # plain mean of bin indices would put the opening at due east whenever
@@ -373,5 +398,6 @@ class CoverageMeter:
             gap_width_m=gap_width,
             gap_bearing_rad=gap_bearing,
             enclosure_rad=enclosure,
+            plane_alignment=alignment,
             caged=caged,
         )

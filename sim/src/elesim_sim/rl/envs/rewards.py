@@ -22,8 +22,11 @@ approach_shaping        delta(-dist(nearest arm link, surface))       +0.5
 step_cost               constant                                     -0.05
 non_target_collision    arm vs floor / support / quadruped, plus the     -1.0
                         backbone folding into its own housing, judged
-                        over the whole substep window -> terminate.
-                        Node-against-node is not a collision: see
+                        over the whole substep window.  Hitting the
+                        world terminates; folding into the housing is
+                        charged every step it lasts but does not, so
+                        the arm can back out of it.  Node-against-node
+                        is not a collision at all: see
                         reward.self_contact
 object_disturbance      pre-wrap object displacement, continuous      -0.5
 object_topple           displacement or tilt over threshold ->       -2.0
@@ -128,6 +131,7 @@ class RewardInputs:
     surface_dist: torch.Tensor         # (n,) segment-2 mid link to surface
     object_touch: torch.Tensor         # (n,) bool, contact during this step
     non_target_collision: torch.Tensor  # (n,) bool, over the substep window
+    terminating_collision: torch.Tensor  # (n,) bool, the subset that ends it
     object_displacement: torch.Tensor  # (n,) metres since reset
     object_tilt: torch.Tensor          # (n,) radians from the reset axis
     success: torch.Tensor              # (n,) bool, lift/geometric gate passed
@@ -270,7 +274,7 @@ class RewardBook:
         st.wrapped = st.wrapped | (inputs.phi >= self.wrap_threshold_rad)
 
         reasons = {
-            "collision": inputs.non_target_collision.clone(),
+            "collision": inputs.terminating_collision.clone(),
             "topple": toppled,
             "success": inputs.success.clone(),
         }

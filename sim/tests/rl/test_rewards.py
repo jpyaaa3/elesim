@@ -58,6 +58,7 @@ def _inputs(n=1, **kw):
         surface_dist=torch.zeros(n),
         object_touch=torch.zeros(n, dtype=torch.bool),
         non_target_collision=torch.zeros(n, dtype=torch.bool),
+        terminating_collision=torch.zeros(n, dtype=torch.bool),
         object_displacement=torch.zeros(n),
         object_tilt=torch.zeros(n),
         success=torch.zeros(n, dtype=torch.bool),
@@ -112,12 +113,33 @@ def test_non_target_collision_penalises_and_terminates(cfg, device):
     book = _book(cfg, device)
     book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
            enclosure0=torch.zeros(1))
-    out = book.step(_inputs(non_target_collision=torch.ones(1, dtype=torch.bool)))
+    out = book.step(
+        _inputs(
+            non_target_collision=torch.ones(1, dtype=torch.bool),
+            terminating_collision=torch.ones(1, dtype=torch.bool),
+        )
+    )
     assert out.terms["non_target_collision"].item() == pytest.approx(
         cfg.reward.weights.non_target_collision
     )
     assert bool(out.terminate.item())
     assert bool(out.termination_reason["collision"].item())
+
+
+def test_a_charged_collision_can_be_configured_not_to_terminate(cfg, device):
+    """The penalty and the termination are separate inputs.
+
+    Which contacts end the episode is `reward.self_contact.terminates`' call;
+    the reward book only sees the two flags.
+    """
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
+    out = book.step(_inputs(non_target_collision=torch.ones(1, dtype=torch.bool)))
+    assert out.terms["non_target_collision"].item() == pytest.approx(
+        cfg.reward.weights.non_target_collision
+    )
+    assert not bool(out.terminate.item())
 
 
 def test_topple_terminates_and_costs_more_than_disturbance(cfg, device):
@@ -413,3 +435,62 @@ def test_an_arm_all_on_one_side_encloses_little(cfg, device):
         height_m=torch.tensor([cfg.object.height_m]),
     )
     assert math.degrees(result.enclosure_rad.item()) < 25.0
+
+
+def test_plane_alignment_separates_a_wrap_from_a_curl_beside_it(cfg, device):
+    """Bearing enclosure alone cannot tell those apart.
+
+    Projecting to the object's cross-section throws away exactly the
+    difference: measured in the scene, a coil curled beside the object in a
+    vertical plane scores 98 deg of enclosure without going near it, more than
+    the 34-80 deg a real approach passes through.  The alignment factor is what
+    distinguishes them, so what is pinned here is that it does.
+    """
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, 1.8 * math.pi, 8)
+    ring = 0.09
+    common = dict(
+        object_pos=torch.zeros(1, 3),
+        object_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),  # axis = +z
+        radius_m=torch.tensor([cfg.object.radius_m]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    # A coil in the object's cross-section: normal parallel to the axis.
+    flat = torch.stack(
+        (ring * torch.cos(angles), ring * torch.sin(angles), torch.zeros(8)), dim=-1
+    ).unsqueeze(0)
+    # The same coil stood on edge: normal perpendicular to the axis.
+    upright = torch.stack(
+        (ring * torch.cos(angles), torch.zeros(8), ring * torch.sin(angles)), dim=-1
+    ).unsqueeze(0)
+    assert meter.measure(flat, **common).plane_alignment.item() > 0.95
+    assert meter.measure(upright, **common).plane_alignment.item() < 0.05
+
+
+def test_a_straight_arm_has_no_bend_plane_to_align(cfg, device):
+    """Collinear links give no turning direction, so alignment stays low.
+
+    It must not read as aligned by accident: the normal is a summed cross
+    product, which vanishes for a straight chain, and the clamp keeps the
+    normalisation from amplifying numerical noise into a full score.
+    """
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    line = torch.stack(
+        (torch.linspace(0.06, 0.30, 8), torch.zeros(8), torch.zeros(8)), dim=-1
+    ).unsqueeze(0)
+    result = meter.measure(
+        line,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([cfg.object.radius_m]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    assert result.plane_alignment.item() < 0.05
