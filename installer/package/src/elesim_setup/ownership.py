@@ -25,6 +25,7 @@ from typing import Iterable, Mapping, Sequence
 OWNERSHIP_SCHEMA_VERSION = 1
 OWNERSHIP_MANIFEST_NAME = "install-ownership.json"
 DOCKER_INSTALL_UUID_LABEL = "io.elesim.install_uuid"
+DOCKER_BUILD_FINGERPRINT_LABEL = "io.elesim.build_fingerprint"
 _INSTALL_EDITIONS = frozenset({"general", "developer"})
 _PATH_KINDS = frozenset({"file", "directory", "symlink"})
 _DOCKER_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
@@ -1010,6 +1011,7 @@ def _lexists(path: Path) -> bool:
 __all__ = [
     "DockerOwnership",
     "DOCKER_INSTALL_UUID_LABEL",
+    "DOCKER_BUILD_FINGERPRINT_LABEL",
     "HostUninstallerBundle",
     "OWNERSHIP_MANIFEST_NAME",
     "OWNERSHIP_SCHEMA_VERSION",
