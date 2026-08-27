@@ -244,9 +244,16 @@ class ContactAggregate:
 class ContactAggregator:
     """Accumulates contact state over the substeps of a macro step."""
 
-    def __init__(self, classifier: ContactClassifier, *, n_envs: int) -> None:
+    def __init__(
+        self,
+        classifier: ContactClassifier,
+        *,
+        n_envs: int,
+        self_contact_is_failure: bool = False,
+    ) -> None:
         self.classifier = classifier
         self.n_envs = int(n_envs)
+        self.self_contact_is_failure = bool(self_contact_is_failure)
         self.device = classifier.device
         self._acc: dict[str, torch.Tensor] = {}
         self.reset()
@@ -288,10 +295,20 @@ class ContactAggregator:
     def result(self) -> ContactAggregate:
         acc = self._acc
         # "Non-target" is arm contact with anything that is not the object:
-        # the floor, the quadruped body, or the arm itself.
-        non_target = (
-            acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"] | acc["self_touch"]
-        )
+        # the floor, the support, or the quadruped body.
+        #
+        # Arm-against-arm contact is excluded by default.  Closing a continuum
+        # coil tightly enough to wrap is exactly what makes the coil touch
+        # itself: measured at this arm, wrapping a 45-55 mm cylinder raises
+        # self contact in the same macro step that the wrap reaches 174-188
+        # deg.  Counting it as a collision terminates the episode at the
+        # moment of success.  The dangerous fold -- neighbouring nodes closing
+        # on each other -- is already prevented by the 36 deg per-node joint
+        # limit, and Genesis drops the pairs that touch at the neutral pose.
+        # It stays logged as `contact/self` either way.
+        non_target = acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"]
+        if self.self_contact_is_failure:
+            non_target = non_target | acc["self_touch"]
         return ContactAggregate(
             object_touch=acc["object_touch"].clone(),
             object_force_peak=acc["object_force_peak"].clone(),

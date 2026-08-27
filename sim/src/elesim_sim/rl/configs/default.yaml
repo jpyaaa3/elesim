@@ -118,7 +118,18 @@ arm:
 # lifted: the floor is what stops the arm closing underneath the object.  A
 # raised support is also the realistic case for a quadruped-mounted arm.
 support:
-  enable: true
+  # Off: the object now stands on the floor.
+  #
+  # A post under the object is unavoidably inside the wrap.  The coil forms in
+  # a horizontal plane at z = 0.559 and the post has to reach up to meet the
+  # object from below, so it occupies the volume the arm swings through: driven
+  # at the wrap pose, the gripper brushes the column at z = 0.36-0.42 on the
+  # way in and the episode ends in `collision` before the arm ever reaches the
+  # object.  Narrowing the post trades that for toppling, which is what the
+  # it300 evaluation measured.  A cylinder tall enough to stand on the ground
+  # removes the obstacle instead of shrinking it, and anything the arm meets
+  # down there is then the target.
+  enable: false
   # Top surface height; the object centre sits half its height above this.
   # 0.459 puts the cylinder's mid-height at z = 0.559, the plane the coil forms
   # in.  The post top stays 0.10 m below the arm, so it is not in the way.
@@ -138,23 +149,40 @@ support:
   # inverted, where the arm was passing through the quadruped and the support
   # attribution was meaningless.
   half_extents_xy: [0.065, 0.065]
-  # Column position from the placement search with every mechanism value
-  # corrected (sim/benchmarks/placement2.md): 258 deg of reachable wrap here,
-  # 3 of 1764 swept poses clearing the 172 deg gate and 2 caging.  Both y signs
-  # work by mirror symmetry.
+  # The coil's own centre, not a position picked for the object.
   #
-  # Earlier values were measured with bend_axis_sign inverted, which mirrors
-  # the coil in y, so they pointed at the wrong side of the robot.
-  center_xy: [0.500, -0.075]
+  # The earlier (0.500, -0.075) came from a placement search scored on
+  # proximity, which credits an arm that merely encircles the object with
+  # clearance.  Driven in physics that column produced two contacts at best:
+  # the coil closed around a point 250 mm from where the object was standing,
+  # so the arm could only reach it with its tip, and a hook is the only thing
+  # a policy can learn there.
+  #
+  # This is the centre of the largest circle that fits inside the closed coil
+  # while staying enclosed by it, for the pose linear = -0.077 m, roll = +90
+  # deg, theta1 = 18 deg/node, theta2 = 36 deg/node -- mid-range on the linear
+  # axis, so the policy has 77 mm of travel either way.  Driven in physics from
+  # an open pose the arm closes on a 45 mm cylinder here with 3 contacts and a
+  # 174 deg contact-anchored wrap, displacing the object 6 mm.  Both y signs
+  # work by mirror symmetry.
+  center_xy: [0.368, 0.160]
 
 object:
   kind: cylinder
-  radius_m: 0.045
-  height_m: 0.20
-  mass_kg: 0.30
-  # Cylinder centre at reset.  Leave null to seat it on the support
-  # automatically (support.height_m + height_m / 2).
-  pos_xyz: null
+  # Sized to the coil, not to the stand.  The inner clearance of the closed
+  # coil is what decides whether the links reach the surface at all: measured
+  # at the column position below, a 35 mm cylinder draws a single contact and a
+  # zero wrap, while 45/50/55/60 mm draw 3/5/5/4 contacts for 174/196/188/206
+  # deg.  50 mm sits in the middle of what closes.
+  radius_m: 0.050
+  # Tall enough to stand on the floor with its mid-height in the plane the coil
+  # forms in (z = 0.559), so no support is needed under it.  A pipe or post is
+  # the canonical whole-arm wrap target anyway.
+  height_m: 1.118
+  mass_kg: 2.0
+  # Cylinder centre at reset.  With no support this has to be explicit; x and y
+  # are the coil's own centre for the wrap pose (see the old support block).
+  pos_xyz: [0.368, 0.160, 0.559]
   collision: true
   # A graspable object must be a free body: disturbance and topple checks are
   # meaningless for a fixed entity.
@@ -226,6 +254,17 @@ reward:
     success: 5.0
   # Approach shaping normaliser d0 (metres).
   approach_d0: 0.20
+  # Whether arm-against-arm contact counts towards non_target_collision, which
+  # both penalises and terminates.
+  #
+  # It does not by default.  Closing a continuum coil tightly enough to wrap is
+  # what makes the coil touch itself: measured on this arm, wrapping a 45-55 mm
+  # cylinder raises self contact in the same macro step the wrap reaches
+  # 174-188 deg, so counting it ends the episode at the moment of success.  The
+  # damaging fold -- neighbouring nodes closing on each other -- is already
+  # ruled out by the 36 deg per-node joint limit.  Logged as `contact/self`
+  # regardless.
+  self_contact_is_failure: false
   # Coverage is measured about the object's *current* centre.
   coverage:
     # Arc-length bin count for the azimuth occupancy histogram.  Coverage is
@@ -260,17 +299,24 @@ reward:
     interpenetration_tol_m: 0.002
     # What counts as occupying an azimuth bin.
     #
-    # `contact`  -- only links actually touching the object.  This is what the
-    #               task is about, and the simulator reports it exactly.
-    # `proximity`-- any link within radial_band_m of the surface.  Kept for
-    #               comparison; it credits a vertical hook with 56 deg against
-    #               a true coil's 86 deg, a margin too small to pay for the six
-    #               macro steps of roll the coil costs, so a policy trained on
-    #               it learns to hook instead of to wrap.
+    # `contact_span` -- the near links lying between the first and last link
+    #                   that touches the object, and zero below two contacts.
+    #                   The arm is anchored on the object at both ends of that
+    #                   run and hugs it in between, which is what wrapping is.
+    # `contact`      -- only the touching links themselves.  Measured against
+    #                   the simulator this is too sharp: a rigid cylinder in a
+    #                   continuum coil touches at 2-3 points, because the coil
+    #                   is a spiral rather than a circle, so a real 254 deg
+    #                   wrap scores 0 whenever those points are not neighbours.
+    # `proximity`    -- any link within radial_band_m of the surface.  Credits
+    #                   a vertical hook 58 deg against a real coil's 66 deg, a
+    #                   margin too small to pay for the six macro steps of roll
+    #                   the coil costs, so a policy trained on it learns to
+    #                   hook instead of to wrap.
     #
-    # With `contact`, Phi stays at zero until the arm actually touches; the
-    # dense signal during approach is reward.weights.approach_shaping's job.
-    source: contact
+    # Under either contact rule Phi stays at zero until the arm actually
+    # touches; the dense signal during approach is approach_shaping's job.
+    source: contact_span
     # Caging is always measured and logged; this switch decides whether it also
     # gates the geometric success criterion.
     #
@@ -295,19 +341,20 @@ reward:
     max_tilt_rad: 0.60
 
 success:
-  # The success criterion is the lift test: whether the object is actually
-  # retained.  Wrap angle is a *shaping* signal, not an objective.
+  # Success is the wrap itself.  The lift test is available but is NOT the
+  # default: rolling the arm to lift sweeps it through the space directly
+  # under the object, which is exactly where the support post has to be, so
+  # the bonus is unreachable while the object rests on anything.  Training to
+  # iteration 2800 under it left `retention: 0` across all 3112 episodes.
   #
-  # A geometric gate is still available, and the spec allows it as an
-  # early-curriculum stand-in, but it makes a poor objective and it is not the
-  # default.  It rewards a pose rather than a behaviour -- a measured pose
-  # reached Phi = 250 deg with zero object contacts, the arm merely encircling
-  # the object with clearance -- and at any threshold at or below 180 deg it is
-  # provably not a grasp, because the escape opening is then at least the
-  # object's own diameter.  The dense early signal comes from
-  # reward.weights.approach_shaping, which is continuous at any distance;
-  # a success bonus does not need to be dense.
-  criterion: lift             # lift | geometric
+  # `geometric` scores the wrap angle against coverage_target_rad.  Its old
+  # weakness was that proximity credited an arm merely encircling the object
+  # with clearance -- a measured pose reached Phi = 254 deg with two contacts.
+  # reward.coverage.source now anchors the arc on actual contacts, so the gate
+  # means the arm is touching the object at both ends of the wrapped run.
+  # The dense early signal still comes from reward.weights.approach_shaping,
+  # which is continuous at any distance.
+  criterion: geometric        # lift | geometric
   # Wrap angle past which the object counts as wrapped.  Two uses, neither of
   # them "success": it stops the pre-wrap disturbance penalty (moving a wrapped
   # object is the goal), and with criterion=geometric it is the gate.
@@ -358,29 +405,37 @@ domain_randomisation:
   enable: true
   friction: [0.6, 1.2]
   object_mass_kg: [0.15, 0.60]
-  object_radius_m: [0.035, 0.060]
+  # Lower bound raised from 35 mm: at that size the coil closes past the
+  # cylinder without reaching it -- one contact, zero wrap -- so those episodes
+  # were unwinnable rather than hard.
+  object_radius_m: [0.045, 0.060]
   object_pos_jitter_m: [0.03, 0.03, 0.01]
   object_yaw_jitter_rad: 0.35
 
 curriculum:
   # Rule: switchable by config, not by code edits.
+  #
+  # Every stage now scores the wrap itself.  See `success.criterion` for why
+  # the lift test is not the objective: the roll that lifts sweeps the arm
+  # through the support post.  `lift` remains selectable per stage for when
+  # the object no longer needs a post under it.
   stage: 1
   stages:
     1:
       randomise_object_pose: false
       randomise_object_radius: false
       approach_shaping: true
-      success_criterion: lift
+      success_criterion: geometric
     2:
       randomise_object_pose: true
       randomise_object_radius: false
       approach_shaping: false
-      success_criterion: lift
+      success_criterion: geometric
     3:
       randomise_object_pose: true
       randomise_object_radius: true
       approach_shaping: false
-      success_criterion: lift
+      success_criterion: geometric
 
 train:
   max_iterations: 1500
@@ -453,14 +508,16 @@ eval:
   # first step and all 13824 episodes scored as `topple` -- a result about
   # gravity, not about the policy.
   #
-  # The support moves with the object, so an offset is a genuinely different
-  # placement rather than the object being pushed off its stand.  Ranges are
-  # kept near the training jitter (+/-0.03 m); far outside it the policy is
-  # being asked about states it never saw.
+  # The object now stands on the floor, so an offset just moves where it
+  # stands.  Ranges are kept near the training jitter (+/-0.03 m); far outside
+  # it the policy is being asked about states it never saw.
   pose_offset_grid:
     x_m: [-0.03, 0.0, 0.03]
     y_m: [0.0]
     yaw_rad: [-0.3, 0.0, 0.3]
-  radius_grid_m: [0.035, 0.045, 0.06]
+  # Matches the trainable range.  35 mm is excluded: the closed coil passes
+  # that cylinder without reaching it -- one contact, zero wrap -- so scoring
+  # it measures the arm's geometry, not the policy.
+  radius_grid_m: [0.045, 0.050, 0.060]
   render_episodes: 1
   out_dir: sim/rl_runs/eval

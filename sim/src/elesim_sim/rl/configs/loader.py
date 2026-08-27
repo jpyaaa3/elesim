@@ -203,7 +203,7 @@ class RewardWeights:
 
 @dataclass(frozen=True)
 class CoverageConfig:
-    source: str = "contact"
+    source: str = "contact_span"
     n_bins: int = 180
     radial_band_m: float = 0.04
     link_radius_m: float = 0.035
@@ -211,7 +211,7 @@ class CoverageConfig:
     require_caging: bool = False
 
     def __post_init__(self) -> None:
-        if self.source not in ("contact", "proximity"):
+        if self.source not in ("contact_span", "contact", "proximity"):
             raise ConfigError(
                 f"unknown reward.coverage.source: {self.source!r}"
             )
@@ -228,6 +228,7 @@ class DisturbanceConfig:
 class RewardConfig:
     weights: RewardWeights = field(default_factory=RewardWeights)
     approach_d0: float = 0.20
+    self_contact_is_failure: bool = False
     coverage: CoverageConfig = field(default_factory=CoverageConfig)
     disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
 

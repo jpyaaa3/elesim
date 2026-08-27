@@ -104,7 +104,11 @@ class WrapGraspEnv:
             device=self.device,
         )
         self.classifier = ContactClassifier(self.scene)
-        self.contacts = ContactAggregator(self.classifier, n_envs=self.num_envs)
+        self.contacts = ContactAggregator(
+            self.classifier,
+            n_envs=self.num_envs,
+            self_contact_is_failure=self.cfg.reward.self_contact_is_failure,
+        )
 
         from .rewards import RewardBook  # local import keeps the module graph flat
 
@@ -394,9 +398,12 @@ class WrapGraspEnv:
         # across the substep window, and a coverage computed from the settled
         # instant alone would miss links that touched during the motion.
         mask = None
-        if self.cfg.reward.coverage.source == "contact":
+        rule = "span"
+        source = self.cfg.reward.coverage.source
+        if source != "proximity":
             aggregate = contact if contact is not None else self.contacts.result()
             mask = aggregate.object_link_hits
+            rule = "span" if source == "contact_span" else "strict"
         cov = self.coverage.measure(
             link_pos,
             obj_pos,
@@ -405,6 +412,7 @@ class WrapGraspEnv:
             height_m=self._object_height,
             link_radius_m=self.cfg.reward.coverage.link_radius_m,
             contact_mask=mask,
+            contact_rule=rule,
         )
         anchor = self.scene.robot.get_links_pos()[:, self._anchor_link, :]
         radial = (anchor - obj_pos)

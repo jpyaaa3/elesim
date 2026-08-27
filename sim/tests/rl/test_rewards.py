@@ -222,6 +222,42 @@ def test_coverage_never_exceeds_the_true_arc(cfg, device):
 # -- contact-based coverage ------------------------------------------------
 
 
+def test_contact_span_bridges_two_distant_contacts(cfg, device):
+    """Two contacts far apart along the chain span the links between them.
+
+    A rigid cylinder inside a continuum coil touches at 2-3 points, because the
+    coil is a spiral rather than a circle.  The strict rule scores that at zero
+    whenever the touching links are not neighbours, which is most of the time;
+    the span rule credits the run the arm is anchored on at both ends.
+    """
+    radius = cfg.object.radius_m
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, math.pi, 8)
+    links = torch.stack(
+        (radius * torch.cos(angles), radius * torch.sin(angles), torch.zeros(8)),
+        dim=-1,
+    ).unsqueeze(0)
+    touching = torch.zeros(1, 8, dtype=torch.bool)
+    touching[0, 1] = True
+    touching[0, 6] = True
+    common = dict(
+        object_pos=torch.zeros(1, 3),
+        object_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([radius]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    strict = meter.measure(links, contact_mask=touching, contact_rule="strict",
+                           **{k: v for k, v in common.items()})
+    span = meter.measure(links, contact_mask=touching, contact_rule="span",
+                         **{k: v for k, v in common.items()})
+    assert strict.phi_rad.item() == 0.0
+    assert math.degrees(span.phi_rad.item()) >= 120.0
+
+
 def test_contact_coverage_ignores_links_that_are_merely_close(cfg, device):
     """Proximity credits a hook; contact does not.
 
@@ -256,6 +292,7 @@ def test_contact_coverage_ignores_links_that_are_merely_close(cfg, device):
         torch.zeros(1, 3),
         torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
         contact_mask=touching,
+        contact_rule="strict",
         **common,
     )
     assert proximity.phi_rad.item() > 2.0        # ~180 deg from proximity alone

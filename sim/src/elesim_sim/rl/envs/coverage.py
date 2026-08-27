@@ -184,6 +184,20 @@ class CoverageMeter:
         inside = inside & pair_ok.unsqueeze(-1)
         return occupied | inside.any(dim=1)
 
+    def _contact_span(self, hits: torch.Tensor) -> torch.Tensor:
+        """Chain positions between the first and last touching link.
+
+        Requires two contacts: one is a poke, not a wrap, and the run it
+        would span is a single link wide.
+        """
+        n_envs, n_links = hits.shape
+        idx = torch.arange(n_links, device=self.device).unsqueeze(0)
+        first = torch.where(hits, idx, torch.full_like(idx, n_links)).amin(dim=-1)
+        last = torch.where(hits, idx, torch.full_like(idx, -1)).amax(dim=-1)
+        inside = (idx >= first.unsqueeze(-1)) & (idx <= last.unsqueeze(-1))
+        enough = (hits.sum(dim=-1) >= 2).unsqueeze(-1)
+        return inside & enough
+
     def measure(
         self,
         link_pos: torch.Tensor,
@@ -194,6 +208,7 @@ class CoverageMeter:
         height_m: torch.Tensor,
         link_radius_m: float = 0.0,
         contact_mask: Optional[torch.Tensor] = None,
+        contact_rule: str = "span",
     ) -> CoverageResult:
         """Measure coverage.
 
@@ -210,18 +225,30 @@ class CoverageMeter:
             Effective link thickness, subtracted from the surface distance so a
             capsule touching the object reports ~0 rather than its own radius.
         contact_mask
-            ``(n_envs, n_links)`` of links actually touching the object.  When
-            given, only those links occupy azimuth.
+            ``(n_envs, n_links)`` of links actually touching the object, in the
+            same chain order as ``link_pos``.
 
-            Proximity is a poor stand-in for wrapping.  A hook lying in a
-            vertical plane beside an upright cylinder scores 56 deg of azimuth
-            under the proximity rule -- three links a little apart in bearing,
-            bridged by the chain fill -- while a horizontal coil that genuinely
-            surrounds the object scores 86 deg.  A 30 deg edge does not pay for
-            the six macro steps of roll rotation the coil costs, so a policy
-            optimising it correctly learns to hook.  Contact does distinguish
-            them: a coil touches around the circumference, a hook touches at a
-            couple of points.
+            Proximity alone is a poor stand-in for wrapping.  A hook lying in a
+            vertical plane beside an upright cylinder scores 58 deg of azimuth
+            under the proximity rule -- links a little apart in bearing,
+            bridged by the chain fill -- while a coil that genuinely encircles
+            the object scores 66 deg.  An 8 deg edge does not pay for the six
+            macro steps of roll the coil costs, so a policy optimising it
+            correctly learns to hook.
+        contact_rule
+            How ``contact_mask`` restricts occupancy.
+
+            ``"strict"`` keeps only the touching links.  Measured against the
+            simulator this is too sharp to train on: a rigid cylinder inside a
+            continuum coil touches at 2-3 points because the coil is a spiral,
+            not a circle, so a real 254 deg wrap scores 0 whenever those points
+            are not chain-neighbours.
+
+            ``"span"`` keeps the near links lying between the first and last
+            touching link along the chain, and scores zero below two contacts.
+            The arm is anchored on the object at both ends of that run and the
+            links in between hug it, which is what wrapping means; a hook
+            touching at one point spans nothing.
         """
         pos = link_pos.to(self.device, torch.float32)
         centre = object_pos.to(self.device, torch.float32).unsqueeze(1)
@@ -244,9 +271,15 @@ class CoverageMeter:
         within_band = surface_dist <= self.radial_band_m
         near = within_height & within_band & (radial > 1e-6)
         if contact_mask is not None:
-            # Contact already implies proximity; the height and radial tests
-            # stay as a guard against a stale mask.
-            near = near & contact_mask.to(self.device, torch.bool)
+            hits = contact_mask.to(self.device, torch.bool)
+            if contact_rule == "strict":
+                # Contact already implies proximity; the height and radial
+                # tests stay as a guard against a stale mask.
+                near = near & hits
+            elif contact_rule == "span":
+                near = near & self._contact_span(hits)
+            else:
+                raise ValueError(f"unknown contact_rule: {contact_rule!r}")
 
         angle = torch.atan2(planar_v, planar_u) % _TWO_PI
         occupied = self._occupancy(angle, near)
