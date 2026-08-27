@@ -119,13 +119,25 @@ class ArmWaypointMapper:
         # base.  Opposite signs, the S shape, never fold; their curls cancel and
         # the signed form handles that on its own.
         #
-        # Swept finely, the fold starts at 62 deg and everything at or below 61
-        # is clean, so the cap is 61: housing contact is unreachable by any
-        # commanded pose, not merely unlikely.  Capping below the wrap pose
-        # costs nothing, because a command past the cap is truncated onto it and
-        # the truncated pose still wraps.
+        # Cap on how far the two segments may curl the same way at once, which
+        # keeps the deep self-folds out of the action space.  That is all it
+        # does, and all it can do.
         #
-        # None on the limit disables the cap.
+        # Measured statically -- joints written directly, so the pose is the
+        # only variable -- the backbone reaches its own housing at curl 52 for
+        # roll 0, 54 for +/-45 deg and 61 for +/-90.  Curl is the variable and
+        # roll shifts the threshold by about 10 deg.  But wrapping needs curl
+        # 58.5, which folds in free space at every roll bar +/-90 and is
+        # marginal even there, so no cap on the commanded pose can both admit
+        # the wrap and forbid the fold: what makes the wrap pose safe is the
+        # object holding the coil open, and that is a contact condition.
+        #
+        # So the cap is set just above what the wrap needs.  Keeping the fold
+        # out of the *reachable* set is reward.self_contact's job, and getting
+        # the policy to surround the object before closing on it is
+        # enclosure_progress's.
+        #
+        # None disables the cap.
         self.theta1_curl_weight = float(cfg.limits.theta1_curl_weight)
         self.curl_limit = (
             None
@@ -185,6 +197,12 @@ class ArmWaypointMapper:
         """Weighted curl the cap is expressed in."""
         return self.theta1_curl_weight * waypoint[:, 2] + waypoint[:, 3]
 
+    def _curl_cap(self, waypoint: torch.Tensor) -> torch.Tensor:
+        return torch.full_like(waypoint[:, 1], self.curl_limit)
+
+    def _within_curl(self, waypoint: torch.Tensor) -> torch.Tensor:
+        return self._curl(waypoint).abs() <= self._curl_cap(waypoint) + 1e-9
+
     def _project_curl(self, waypoint: torch.Tensor) -> torch.Tensor:
         """Scale theta1/theta2 down until their signed sum is within limit.
 
@@ -195,10 +213,11 @@ class ArmWaypointMapper:
             return waypoint
         out = waypoint.clone()
         total = self._curl(out)
-        excess = total.abs() > self.curl_limit
+        cap = self._curl_cap(out)
+        excess = total.abs() > cap
         if not bool(excess.any()):
             return out
-        scale = (self.curl_limit / total.abs().clamp_min(1e-9)).clamp(max=1.0)
+        scale = (cap / total.abs().clamp_min(1e-9)).clamp(max=1.0)
         out[:, 2] = torch.where(excess, out[:, 2] * scale, out[:, 2])
         out[:, 3] = torch.where(excess, out[:, 3] * scale, out[:, 3])
         return out
@@ -215,21 +234,39 @@ class ArmWaypointMapper:
         """
         if self.curl_limit is None:
             return candidate
-        limit = self.curl_limit
+        # Roll and the linear stage always pass; only the two bend columns are
+        # held back.  Shortening the whole step instead would block the roll
+        # whenever the curl was at its cap, and the wrap cannot be reached
+        # without rolling.
+        cap = self._curl_cap(candidate)
         s_now = self._curl(current)
         s_new = self._curl(candidate)
-        over = s_new.abs() > limit
-        if not bool(over.any()):
-            return candidate
-        # Fraction of the step that lands exactly on the limit.  The denominator
-        # cannot vanish where `over` holds: `s_now` is within the limit and
-        # `s_new` is not, so they differ.
-        bound = torch.where(s_new >= 0, limit, -limit)
-        alpha = ((bound - s_now) / (s_new - s_now)).clamp(0.0, 1.0)
         out = candidate.clone()
+
+        # Curl is linear in the bend columns, so the largest feasible fraction
+        # of the bend step has a closed form.
+        bound = torch.where(s_new >= 0, cap, -cap)
+        denom = s_new - s_now
+        alpha = torch.where(
+            denom.abs() > 1e-12,
+            (bound - s_now) / torch.where(denom.abs() > 1e-12, denom, torch.ones_like(denom)),
+            torch.ones_like(denom),
+        ).clamp(0.0, 1.0)
+        over = s_new.abs() > cap
         for col in (2, 3):
             walked = current[:, col] + alpha * (candidate[:, col] - current[:, col])
             out[:, col] = torch.where(over, walked, candidate[:, col])
+
+        # If the *current* bend is already outside the cap the roll has just
+        # moved, so there is no fraction of the step to walk and the bend has to
+        # come down.  Scaling both columns keeps the shape of the coil.
+        stranded = s_now.abs() > cap
+        if bool(stranded.any()):
+            scale = (cap / s_now.abs().clamp_min(1e-9)).clamp(max=1.0)
+            for col in (2, 3):
+                out[:, col] = torch.where(
+                    stranded, current[:, col] * scale, out[:, col]
+                )
         return out
 
     # -- expansion ---------------------------------------------------------
