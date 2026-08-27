@@ -226,10 +226,19 @@ class DisturbanceConfig:
 
 
 @dataclass(frozen=True)
+class SelfContactConfig:
+    #: Any arm-against-arm contact counts as a collision.
+    all_is_failure: bool = False
+    #: Link-name prefixes whose self contact counts even when `all_is_failure`
+    #: is off: the rigid base the backbone is mounted on.
+    structural_prefixes: tuple[str, ...] = ("housing",)
+
+
+@dataclass(frozen=True)
 class RewardConfig:
     weights: RewardWeights = field(default_factory=RewardWeights)
     approach_d0: float = 0.20
-    self_contact_is_failure: bool = False
+    self_contact: SelfContactConfig = field(default_factory=SelfContactConfig)
     coverage: CoverageConfig = field(default_factory=CoverageConfig)
     disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
 

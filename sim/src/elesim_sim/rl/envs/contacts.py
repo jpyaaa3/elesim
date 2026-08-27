@@ -19,9 +19,14 @@ Two facts drive the design:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 import torch
+
+
+def _leaf_name(name: str) -> str:
+    """Link name without the `entity/` prefix the index map adds."""
+    return name.rsplit("/", 1)[-1]
 
 
 def _isin(values: torch.Tensor, allowed: torch.Tensor) -> torch.Tensor:
@@ -45,7 +50,8 @@ class ContactSnapshot:
     object_link_hits: torch.Tensor      # bool (n_envs, n_arm_links)
     floor_touch: torch.Tensor           # bool: arm hit the ground plane
     support_touch: torch.Tensor         # bool: arm hit the object's support
-    self_touch: torch.Tensor            # bool: robot self-collision
+    self_touch: torch.Tensor            # bool: any arm-against-arm contact
+    self_structural_touch: torch.Tensor  # bool: that contact involved the base
     go2_touch: torch.Tensor             # bool: arm hit the quadruped body
     max_penetration: torch.Tensor       # float
     overflow: torch.Tensor              # bool: buffer was completely full
@@ -54,7 +60,12 @@ class ContactSnapshot:
 class ContactClassifier:
     """Turns raw Genesis contact dicts into :class:`ContactSnapshot`."""
 
-    def __init__(self, scene: Any) -> None:
+    def __init__(
+        self,
+        scene: Any,
+        *,
+        structural_prefixes: Sequence[str] = (),
+    ) -> None:
         if scene.links is None:
             raise RuntimeError("scene must be built before classifying contacts")
         self.scene = scene
@@ -84,6 +95,24 @@ class ContactClassifier:
         )
         for idx, pos in self._arm_order.items():
             self._arm_lookup[idx] = pos
+
+        #: Arm links whose *own* self contact is a fault rather than the coil
+        #: closing.  Node-against-node is what wrapping is; the housing is the
+        #: rigid base the backbone is mounted on, so the backbone folding back
+        #: into it is a real crash.
+        prefixes = tuple(structural_prefixes or ())
+        names = scene.links.name_by_index
+        structural = [
+            idx
+            for idx in arm_sorted
+            if _leaf_name(names.get(idx, "")).startswith(prefixes)
+        ] if prefixes else []
+        self.structural_link_names = tuple(
+            sorted(_leaf_name(names.get(idx, str(idx))) for idx in structural)
+        )
+        self._structural_idx = torch.tensor(
+            sorted(structural), device=self.device, dtype=torch.int64
+        )
 
     # -- helpers -----------------------------------------------------------
 
@@ -135,6 +164,7 @@ class ContactClassifier:
             floor_touch=false_.clone(),
             support_touch=false_.clone(),
             self_touch=false_.clone(),
+            self_structural_touch=false_.clone(),
             go2_touch=false_.clone(),
             max_penetration=zero.clone(),
             overflow=false_.clone(),
@@ -194,6 +224,11 @@ class ContactClassifier:
         # Arm-against-arm self collision.  Genesis already drops the pairs that
         # touch in the neutral configuration, so what remains is real.
         self_rows = valid & a_arm & b_arm
+        # Split off the contacts that are faults rather than the coil closing.
+        a_str, b_str = _isin(link_a, self._structural_idx), _isin(
+            link_b, self._structural_idx
+        )
+        self_structural_rows = self_rows & (a_str | b_str)
 
         force_mag = force.norm(dim=-1)
         object_force = (force_mag * obj_rows.to(force_mag.dtype)).sum(dim=-1)
@@ -217,6 +252,7 @@ class ContactClassifier:
             floor_touch=floor_rows.any(dim=-1),
             support_touch=support_rows.any(dim=-1),
             self_touch=self_rows.any(dim=-1),
+            self_structural_touch=self_structural_rows.any(dim=-1),
             go2_touch=go2_rows.any(dim=-1),
             max_penetration=pen.abs().amax(dim=-1),
             # A completely full buffer means contacts may have been dropped;
@@ -236,6 +272,7 @@ class ContactAggregate:
     floor_touch: torch.Tensor
     support_touch: torch.Tensor
     self_touch: torch.Tensor
+    self_structural_touch: torch.Tensor
     go2_touch: torch.Tensor
     max_penetration: torch.Tensor
     overflow: torch.Tensor
@@ -249,11 +286,11 @@ class ContactAggregator:
         classifier: ContactClassifier,
         *,
         n_envs: int,
-        self_contact_is_failure: bool = False,
+        self_contact_all_is_failure: bool = False,
     ) -> None:
         self.classifier = classifier
         self.n_envs = int(n_envs)
-        self.self_contact_is_failure = bool(self_contact_is_failure)
+        self.all_self_contact_is_failure = bool(self_contact_all_is_failure)
         self.device = classifier.device
         self._acc: dict[str, torch.Tensor] = {}
         self.reset()
@@ -269,6 +306,7 @@ class ContactAggregator:
             "floor_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "support_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "self_touch": torch.zeros(n, device=dev, dtype=torch.bool),
+            "self_structural_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "go2_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "max_penetration": torch.zeros(n, device=dev, dtype=torch.float32),
             "overflow": torch.zeros(n, device=dev, dtype=torch.bool),
@@ -285,6 +323,7 @@ class ContactAggregator:
         acc["floor_touch"] |= snap.floor_touch
         acc["support_touch"] |= snap.support_touch
         acc["self_touch"] |= snap.self_touch
+        acc["self_structural_touch"] |= snap.self_structural_touch
         acc["go2_touch"] |= snap.go2_touch
         acc["max_penetration"] = torch.maximum(
             acc["max_penetration"], snap.max_penetration
@@ -297,17 +336,23 @@ class ContactAggregator:
         # "Non-target" is arm contact with anything that is not the object:
         # the floor, the support, or the quadruped body.
         #
-        # Arm-against-arm contact is excluded by default.  Closing a continuum
-        # coil tightly enough to wrap is exactly what makes the coil touch
-        # itself: measured at this arm, wrapping a 45-55 mm cylinder raises
-        # self contact in the same macro step that the wrap reaches 174-188
-        # deg.  Counting it as a collision terminates the episode at the
-        # moment of success.  The dangerous fold -- neighbouring nodes closing
-        # on each other -- is already prevented by the 36 deg per-node joint
-        # limit, and Genesis drops the pairs that touch at the neutral pose.
-        # It stays logged as `contact/self` either way.
+        # Arm-against-arm contact is split rather than judged as one thing.
+        #
+        # Node against node is what wrapping *is*: closing a continuum coil
+        # tightly enough to grasp is exactly what makes the coil touch itself,
+        # and measured on this arm, wrapping a 45-55 mm cylinder raises self
+        # contact in the same macro step the wrap reaches 174-188 deg.  Judging
+        # that a collision ends the episode at the moment of success.
+        #
+        # Contact with the housing is different.  That is the rigid base the
+        # backbone is mounted on, not part of the coil, so the backbone folding
+        # back into it is a genuine crash however the wrap is going.  Which
+        # links count is `reward.self_contact.structural_prefixes`.
+        #
+        # Both stay logged, as `contact/self` and `contact/self_structural`.
         non_target = acc["floor_touch"] | acc["support_touch"] | acc["go2_touch"]
-        if self.self_contact_is_failure:
+        non_target = non_target | acc["self_structural_touch"]
+        if self.all_self_contact_is_failure:
             non_target = non_target | acc["self_touch"]
         return ContactAggregate(
             object_touch=acc["object_touch"].clone(),
@@ -317,6 +362,7 @@ class ContactAggregator:
             floor_touch=acc["floor_touch"].clone(),
             support_touch=acc["support_touch"].clone(),
             self_touch=acc["self_touch"].clone(),
+            self_structural_touch=acc["self_structural_touch"].clone(),
             go2_touch=acc["go2_touch"].clone(),
             max_penetration=acc["max_penetration"].clone(),
             overflow=acc["overflow"].clone(),

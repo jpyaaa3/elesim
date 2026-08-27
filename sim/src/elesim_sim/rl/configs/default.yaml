@@ -273,17 +273,23 @@ reward:
     success: 5.0
   # Approach shaping normaliser d0 (metres).
   approach_d0: 0.20
-  # Whether arm-against-arm contact counts towards non_target_collision, which
+  # Which arm-against-arm contacts count towards non_target_collision, which
   # both penalises and terminates.
-  #
-  # It does not by default.  Closing a continuum coil tightly enough to wrap is
-  # what makes the coil touch itself: measured on this arm, wrapping a 45-55 mm
-  # cylinder raises self contact in the same macro step the wrap reaches
-  # 174-188 deg, so counting it ends the episode at the moment of success.  The
-  # damaging fold -- neighbouring nodes closing on each other -- is already
-  # ruled out by the 36 deg per-node joint limit.  Logged as `contact/self`
-  # regardless.
-  self_contact_is_failure: false
+  self_contact:
+    # Every self contact.  Off, because closing a continuum coil tightly enough
+    # to wrap is what makes the coil touch itself: measured on this arm,
+    # wrapping a 45-55 mm cylinder raises self contact in the same macro step
+    # the wrap reaches 174-188 deg, so counting all of it ends the episode at
+    # the moment of success.  Node-against-node folds are already bounded by
+    # the 36 deg per-node joint limit.
+    all_is_failure: false
+    # Self contact involving a link whose name starts with one of these counts
+    # even so.  The housing is the rigid base the backbone is mounted on, not
+    # part of the coil, so the backbone folding back into it is a genuine crash
+    # whatever the wrap angle says.  Matched against the leaf link name.
+    #
+    # Logged separately as `contact/self_structural` against `contact/self`.
+    structural_prefixes: ["housing"]
   # Coverage is measured about the object's *current* centre.
   coverage:
     # Arc-length bin count for the azimuth occupancy histogram.  Coverage is

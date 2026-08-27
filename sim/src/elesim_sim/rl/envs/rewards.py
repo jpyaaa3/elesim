@@ -16,10 +16,11 @@ approach_shaping        delta(-dist(segment-2 mid link, surface))     +0.5
                         / d0, and identically zero once that env
                         has made its first contact
 step_cost               constant                                     -0.05
-non_target_collision    arm vs floor / support / quadruped, judged   -1.0
+non_target_collision    arm vs floor / support / quadruped, plus the     -1.0
+                        backbone folding into its own housing, judged
                         over the whole substep window -> terminate.
-                        Arm-against-arm is excluded by default: see
-                        reward.self_contact_is_failure
+                        Node-against-node is not a collision: see
+                        reward.self_contact
 object_disturbance      pre-wrap object displacement, continuous      -0.5
 object_topple           displacement or tilt over threshold ->       -2.0
                         terminate

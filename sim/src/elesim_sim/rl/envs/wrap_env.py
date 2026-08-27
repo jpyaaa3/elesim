@@ -103,11 +103,14 @@ class WrapGraspEnv:
             radial_band_m=self.cfg.reward.coverage.radial_band_m,
             device=self.device,
         )
-        self.classifier = ContactClassifier(self.scene)
+        self_contact = self.cfg.reward.self_contact
+        self.classifier = ContactClassifier(
+            self.scene, structural_prefixes=self_contact.structural_prefixes
+        )
         self.contacts = ContactAggregator(
             self.classifier,
             n_envs=self.num_envs,
-            self_contact_is_failure=self.cfg.reward.self_contact_is_failure,
+            self_contact_all_is_failure=self_contact.all_is_failure,
         )
 
         from .rewards import RewardBook  # local import keeps the module graph flat
@@ -854,6 +857,9 @@ class WrapGraspEnv:
         log["contact/support"] = contact.support_touch.to(torch.float32).mean()
         log["contact/go2"] = contact.go2_touch.to(torch.float32).mean()
         log["contact/self"] = contact.self_touch.to(torch.float32).mean()
+        log["contact/self_structural"] = (
+            contact.self_structural_touch.to(torch.float32).mean()
+        )
         # A saturated contact buffer means readings may be incomplete; surface
         # it rather than trusting a silently truncated collision check.
         log["contact/buffer_overflow"] = contact.overflow.to(torch.float32).mean()
