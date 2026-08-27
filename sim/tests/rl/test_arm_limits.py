@@ -181,3 +181,16 @@ def test_disabling_the_cap_restores_the_old_reach(cfg):
         m.apply_action(torch.tensor([[0.0, 0.0, 1.0, 1.0]]))
     assert m.waypoint[0, 2].item() == pytest.approx(lim, abs=1e-4)
     assert m.waypoint[0, 3].item() == pytest.approx(lim, abs=1e-4)
+
+
+def test_reset_projects_the_near_goal_start_pose(cfg):
+    """The reverse curriculum's start pose has to satisfy the curl cap too.
+
+    It is written straight into the waypoint rather than driven to, so nothing
+    else would hold it inside the envelope.
+    """
+    m = _mapper(cfg)
+    near = torch.tensor(list(cfg.start_pose.near_waypoint))
+    m.reset(home=near)
+    cap = float(cfg.arm.limits.curl_limit_per_node_rad)
+    assert abs(_curl(cfg, m)) <= cap + 1e-4

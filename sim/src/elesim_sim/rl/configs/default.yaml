@@ -588,6 +588,33 @@ curriculum:
       approach_shaping: false
       success_criterion: tug
 
+# Reverse curriculum on where the arm starts.
+#
+# The success bonus had never once been paid.  Over roughly 50,000 episodes to
+# iteration 100 it never fired and the wrap angle stayed at zero, so the
+# objective contributed nothing to the gradient and the policy was shaped
+# entirely by the dense proxies -- each of which has a degenerate optimum two or
+# three macro steps from Home, which is why four successive runs each converged
+# on a different worthless behaviour.  No further shaping repair fixes that; the
+# bonus has to come inside reach of exploration.
+start_pose:
+  enable: true
+  # The open coil already positioned around the object: where a scripted wrap is
+  # at macro step 7, with the nearest link 78 mm off the surface and nothing
+  # touching.  From here success is three or four steps away.
+  near_waypoint: [-0.077, 1.5708, 0.0, 0.1047]
+  # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
+  # rollout spans a spread of difficulties rather than a single point.
+  t_range: [0.85, 1.0]
+  # Once the success rate over `window` finished episodes clears advance_at, the
+  # range moves `step` towards Home.  Keyed on evidence rather than on an
+  # iteration count, so a policy that stops finishing stops advancing.  null
+  # holds the range where it is, which is what to use to test whether the
+  # near-goal task is learnable at all.
+  advance_at: 0.5
+  step: 0.1
+  window: 512
+
 train:
   max_iterations: 1500
   save_interval: 50

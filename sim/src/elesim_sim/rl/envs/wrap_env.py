@@ -170,6 +170,16 @@ class WrapGraspEnv:
         self._object_pos0 = z(self.num_envs, 3)
         self._object_axis0 = z(self.num_envs, 3)
         self._object_base0 = z(self.num_envs, 3)
+        start = self.cfg.start_pose
+        self._start_near = torch.tensor(
+            [float(v) for v in start.near_waypoint],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self._start_t_lo = float(start.t_range[0])
+        self._start_t_hi = float(start.t_range[1])
+        self._start_window_n = 0
+        self._start_window_ok = 0
         self._load_proxy = z(self.num_envs, self.num_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
         self._waypoint_from = z(self.num_envs, self.num_actions)
@@ -219,6 +229,48 @@ class WrapGraspEnv:
             dtype=torch.float32,
         ).expand(self.num_envs, 3)
         self.scene.support.set_pos(target)
+
+    def _apply_start_pose(self, env_ids: Optional[torch.Tensor], n: int) -> None:
+        """Interpolate the reset waypoint from Home towards the near-goal pose.
+
+        Per env rather than per batch, so a single rollout spans a spread of
+        difficulties instead of all envs sitting at one point of the curriculum.
+        """
+        t = torch.rand(n, 1, device=self.device, generator=self._generator)
+        t = self._start_t_lo + t * (self._start_t_hi - self._start_t_lo)
+        home = self._home_waypoint.to(self.device, torch.float32).reshape(1, 4)
+        target = home + t * (self._start_near.reshape(1, 4) - home)
+        if env_ids is None:
+            self.mapper.waypoint[:] = target
+        else:
+            self.mapper.waypoint[env_ids] = target
+        # The cap is roll-independent but still has to hold at reset.
+        self.mapper.waypoint = self.mapper._project_curl(self.mapper.waypoint)
+
+    def _note_start_pose_outcome(self, dones: torch.Tensor, success: torch.Tensor) -> None:
+        """Walk the start range back towards Home once the policy can finish.
+
+        Keyed on the success rate over a window of finished episodes, so the
+        curriculum only advances on evidence rather than on a step count.
+        """
+        cfg = self.cfg.start_pose
+        if not cfg.enable or cfg.advance_at is None:
+            return
+        finished = int(dones.sum())
+        if finished == 0:
+            return
+        self._start_window_n += finished
+        self._start_window_ok += int((dones & success).sum())
+        if self._start_window_n < int(cfg.window):
+            return
+        rate = self._start_window_ok / max(self._start_window_n, 1)
+        self._start_window_n = 0
+        self._start_window_ok = 0
+        if rate < float(cfg.advance_at) or self._start_t_hi <= 0.0:
+            return
+        step = float(cfg.step)
+        self._start_t_hi = max(0.0, self._start_t_hi - step)
+        self._start_t_lo = max(0.0, self._start_t_lo - step)
 
     def _settle_at_home_and_baseline_contacts(self) -> None:
         """Let the arm settle at Home, then baseline the contacts it rests on.
@@ -294,6 +346,7 @@ class WrapGraspEnv:
             "termination_reason": reward_out.termination_reason,
         }
         self._tally(reward_out, timeout, dones)
+        self._note_start_pose_outcome(dones, reward_out.termination_reason["success"])
 
         done_ids = dones.nonzero(as_tuple=False).flatten()
         if done_ids.numel():
@@ -813,7 +866,18 @@ class WrapGraspEnv:
         # Reset to the configured Home pose, not to an implicit all-zeros that
         # happens to mean "arm straight out" -- a configuration the real arm
         # never starts from.
+        #
+        # Or, under the reverse curriculum, part-way towards a pose from which
+        # the wrap is a few steps away.  Success had never once been paid: over
+        # roughly 50,000 episodes to iteration 100 the bonus never fired and the
+        # wrap angle stayed at zero, so the objective contributed nothing to the
+        # gradient and the policy was shaped entirely by the dense proxies, each
+        # of which has a degenerate optimum two or three steps from Home.
+        # Starting near the goal puts the bonus inside reach of exploration; the
+        # range then walks back towards Home as the success rate allows.
         self.mapper.reset(env_ids, home=self._home_waypoint)
+        if self.cfg.start_pose.enable:
+            self._apply_start_pose(env_ids, n)
         if env_ids is None:
             self._waypoint_from[:] = self.mapper.waypoint
         else:
@@ -873,6 +937,8 @@ class WrapGraspEnv:
         log["wrap/min_surface_dist_m"] = state["min_surface_dist"].mean()
         log["wrap/enclosure_rad"] = state["enclosure_raw"].mean()
         log["wrap/plane_alignment"] = state["plane_alignment"].mean()
+        log["curriculum/start_t_lo"] = torch.tensor(self._start_t_lo, device=self.device)
+        log["curriculum/start_t_hi"] = torch.tensor(self._start_t_hi, device=self.device)
         log["wrap/enclosure_effective_rad"] = state["enclosure"].mean()
         # Waypoint usage per DoF.  The wrap needs roll near +/-90 deg to put the
         # bend plane horizontal, so a policy whose roll stays near its Home zero

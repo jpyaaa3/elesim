@@ -282,6 +282,24 @@ class LiftConfig:
 
 
 @dataclass(frozen=True)
+class StartPoseConfig:
+    """Reverse curriculum on the arm's reset pose."""
+
+    enable: bool = True
+    #: Waypoint the episode can start from instead of Home: the open coil
+    #: already positioned around the object, which is where a scripted wrap is
+    #: at macro step 7.  From here success is three or four steps away.
+    near_waypoint: tuple[float, float, float, float] = (-0.077, 1.5708, 0.0, 0.1047)
+    #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.
+    t_range: tuple[float, float] = (0.85, 1.0)
+    #: Once the success rate over `window` episodes clears `advance_at`, the
+    #: range moves `step` towards Home.  None never advances.
+    advance_at: Optional[float] = 0.5
+    step: float = 0.1
+    window: int = 512
+
+
+@dataclass(frozen=True)
 class SuccessConfig:
     criterion: str = "tug"
     coverage_target_rad: float = 3.0019
@@ -418,6 +436,7 @@ class WrapGraspConfig:
         default_factory=DomainRandomisationConfig
     )
     curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
+    start_pose: StartPoseConfig = field(default_factory=StartPoseConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
