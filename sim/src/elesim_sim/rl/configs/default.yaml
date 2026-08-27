@@ -341,24 +341,52 @@ reward:
     max_tilt_rad: 0.60
 
 success:
-  # Success is the wrap itself.  The lift test is available but is NOT the
-  # default: rolling the arm to lift sweeps it through the space directly
-  # under the object, which is exactly where the support post has to be, so
-  # the bonus is unreachable while the object rests on anything.  Training to
+  # Success is retention: the wrap has to survive a pull.
+  #
+  # `tug` holds the wrap still and applies a lateral force through the opening
+  # the wrap left, sized as a multiple of the object's own weight, then checks
+  # the object's pose relative to segment 2.  It is the default because the
+  # cheaper criteria do not answer the question.
+  #
+  # `geometric` scores the wrap angle against coverage_target_rad, which is a
+  # pose, not a grasp -- and the obvious repair, requiring caging, is out of
+  # reach on this arm: the coil is a spiral, so it surrounds 184-198 deg of
+  # bearing while the widest gap stays 10-20 mm wider than the object at every
+  # size in the randomisation range.
+  #
+  # `lift` is the strictest test but is unreachable here: rolling the arm to
+  # lift sweeps it through the space directly under the object.  Training to
   # iteration 2800 under it left `retention: 0` across all 3112 episodes.
   #
-  # `geometric` scores the wrap angle against coverage_target_rad.  Its old
-  # weakness was that proximity credited an arm merely encircling the object
-  # with clearance -- a measured pose reached Phi = 254 deg with two contacts.
-  # reward.coverage.source now anchors the arc on actual contacts, so the gate
-  # means the arm is touching the object at both ends of the wrapped run.
-  # The dense early signal still comes from reward.weights.approach_shaping,
-  # which is continuous at any distance.
-  criterion: geometric        # lift | geometric
+  # The dense early signal comes from reward.weights.approach_shaping, which is
+  # continuous at any distance; a success bonus does not need to be dense.
+  criterion: tug              # tug | geometric | lift
   # Wrap angle past which the object counts as wrapped.  Two uses, neither of
   # them "success": it stops the pre-wrap disturbance penalty (moving a wrapped
   # object is the goal), and with criterion=geometric it is the gate.
   coverage_target_rad: 3.0019 # 172 deg
+  tug:
+    # Wrap angle at which the pull is attempted.  Deliberately permissive, for
+    # the same reason as the lift's: gating it on the coverage target would
+    # make the wrap angle the objective again by the back door, since nothing
+    # would ever be pulled until the geometry gate was met and retention could
+    # never fail informatively.
+    trigger_rad: 2.0944       # 120 deg
+    # Lateral force as a multiple of the object's weight (m*g).  1.0 asks the
+    # grasp to resist sideways exactly what holding the object up would take,
+    # so the number follows the randomised mass instead of being picked.
+    #
+    # Measured on a scripted wrap of the 100 mm cylinder (Phi = 194 deg, 7
+    # contacts), object weight 19.6 N: the object holds to within 8 mm of the
+    # arm at 1x, 6.5 mm at 2x and 3 mm at 4x, while the same pull with the coil
+    # open slides it 710 mm.  The absolute motion is larger -- 122 mm at 4x --
+    # but that is the object dragging the arm along, not leaving it, which is
+    # why retention is measured relative to segment 2.
+    force_scale: 1.0
+    # 3 macro steps at the default 40 substeps.
+    hold_substeps: 120
+    max_rel_translation_m: 0.03
+    max_rel_rotation_rad: 0.5
   lift:
     # Wrap angle at which the scripted lift is attempted.  Deliberately
     # permissive: an attempt costs a few substeps, and letting the policy try
@@ -415,27 +443,26 @@ domain_randomisation:
 curriculum:
   # Rule: switchable by config, not by code edits.
   #
-  # Every stage now scores the wrap itself.  See `success.criterion` for why
-  # the lift test is not the objective: the roll that lifts sweeps the arm
-  # through the support post.  `lift` remains selectable per stage for when
-  # the object no longer needs a post under it.
+  # Every stage scores retention under a pull.  See `success.criterion` for
+  # why neither the wrap angle nor the lift test is the objective.  Both remain
+  # selectable per stage.
   stage: 1
   stages:
     1:
       randomise_object_pose: false
       randomise_object_radius: false
       approach_shaping: true
-      success_criterion: geometric
+      success_criterion: tug
     2:
       randomise_object_pose: true
       randomise_object_radius: false
       approach_shaping: false
-      success_criterion: geometric
+      success_criterion: tug
     3:
       randomise_object_pose: true
       randomise_object_radius: true
       approach_shaping: false
-      success_criterion: geometric
+      success_criterion: tug
 
 train:
   max_iterations: 1500

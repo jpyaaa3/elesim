@@ -234,6 +234,15 @@ class RewardConfig:
 
 
 @dataclass(frozen=True)
+class TugConfig:
+    trigger_rad: float = 2.0944
+    force_scale: float = 1.0
+    hold_substeps: int = 120
+    max_rel_translation_m: float = 0.03
+    max_rel_rotation_rad: float = 0.5
+
+
+@dataclass(frozen=True)
 class LiftConfig:
     trigger_rad: float = 2.0944
     roll_target_rad: float = 0.0
@@ -246,12 +255,13 @@ class LiftConfig:
 
 @dataclass(frozen=True)
 class SuccessConfig:
-    criterion: str = "lift"
+    criterion: str = "tug"
     coverage_target_rad: float = 3.0019
     lift: LiftConfig = field(default_factory=LiftConfig)
+    tug: TugConfig = field(default_factory=TugConfig)
 
     def __post_init__(self) -> None:
-        if self.criterion not in ("geometric", "lift"):
+        if self.criterion not in ("geometric", "lift", "tug"):
             raise ConfigError(f"unknown success.criterion: {self.criterion!r}")
 
 
@@ -302,7 +312,7 @@ class CurriculumStage:
     randomise_object_pose: bool = False
     randomise_object_radius: bool = False
     approach_shaping: bool = True
-    success_criterion: str = "lift"
+    success_criterion: str = "tug"
 
 
 @dataclass(frozen=True)

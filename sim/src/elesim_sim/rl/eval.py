@@ -6,11 +6,11 @@ wrapped and then dropped the object" -- and those call for different fixes.
 
 Failure taxonomy:
 
-``collision``  hit the floor, the support, the quadruped, or itself
+``collision``  hit the floor, the support, or the quadruped
 ``topple``     shoved or tipped the object before wrapping it
-``retention``  wrapped and lifted, but did not hold on
+``retention``  wrapped, but lost the object under the retention test
 ``no_reach``   ran out of macro steps without ever touching the object
-``no_wrap``    touched it, but never wrapped enough to attempt a lift
+``no_wrap``    touched it, but never wrapped enough to be tested
 
 Run::
 
@@ -96,8 +96,8 @@ class EpisodeTracker:
         self.hit["go2"] |= contact.go2_touch
         self.hit["self"] |= contact.self_touch
         self.hit["floor"] |= contact.floor_touch
-        if env.lift is not None:
-            self.wrap_attempted |= ~env.lift.follows_policy
+        if env.script is not None:
+            self.wrap_attempted |= ~env.script.follows_policy
         self.phi_max = torch.maximum(self.phi_max, phi)
         self.phi_sum += phi
         self.steps += 1.0
@@ -132,8 +132,9 @@ def classify(
     counts["collision"] = int(collision.sum())
     counts["topple"] = int(topple.sum())
     other = timeout[done_ids] & ~reasons["success"][done_ids] & ~collision & ~topple
-    if env.lift is not None:
-        # An attempted lift that ended without success failed to retain.
+    if env.script is not None:
+        # A retention test that started and ended without success lost the
+        # object -- whether the test was the lift or the tug.
         retention = other & tracker.wrap_attempted[done_ids]
         counts["retention"] = int(retention.sum())
         other = other & ~retention
@@ -278,10 +279,10 @@ def render_report(
     lines.append("")
     lines.append("| bucket | meaning |")
     lines.append("|---|---|")
-    lines.append("| `collision` | hit the floor, support, quadruped, or itself |")
+    lines.append("| `collision` | hit the floor, support, or quadruped |")
     lines.append("| `topple` | shoved or tipped the object before wrapping |")
-    lines.append("| `retention` | lifted, then failed to hold on |")
-    lines.append("| `no_wrap` | touched the object but never wrapped enough to lift |")
+    lines.append("| `retention` | wrapped, then lost it under the retention test |")
+    lines.append("| `no_wrap` | touched the object but never wrapped enough to be tested |")
     lines.append("| `no_reach` | never touched the object |")
     lines.append("")
     if total_ok == 0:

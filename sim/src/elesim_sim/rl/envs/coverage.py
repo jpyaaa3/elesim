@@ -112,6 +112,7 @@ class CoverageResult:
     min_surface_dist: torch.Tensor  # (n_envs,) closest link-to-surface distance
     gap_rad: torch.Tensor        # (n_envs,) widest uncovered arc
     gap_width_m: torch.Tensor    # (n_envs,) free opening across that gap
+    gap_bearing_rad: torch.Tensor   # (n_envs,) bearing the object would leave by
     caged: torch.Tensor          # (n_envs,) bool: opening narrower than object
 
 
@@ -302,6 +303,20 @@ class CoverageMeter:
         gap_width = (chord - 2.0 * float(link_radius_m)).clamp_min(0.0)
         caged = near.any(dim=-1) & (gap_width < 2.0 * r.squeeze(-1))
 
+        # Circular mean of the unoccupied bearings: the direction the object is
+        # least held in, and so the direction a retention test should pull.  A
+        # plain mean of bin indices would put the opening at due east whenever
+        # it straddles the wrap-around.
+        bins = (
+            torch.arange(self.n_bins, device=self.device, dtype=torch.float32) + 0.5
+        ) * self.bin_width
+        free = (~occupied).to(torch.float32)
+        weight = free.sum(dim=-1, keepdim=True).clamp_min(1.0)
+        gap_bearing = torch.atan2(
+            (free * torch.sin(bins).unsqueeze(0)).sum(dim=-1, keepdim=True) / weight,
+            (free * torch.cos(bins).unsqueeze(0)).sum(dim=-1, keepdim=True) / weight,
+        ).squeeze(-1)
+
         masked = torch.where(near, surface_dist, torch.full_like(surface_dist, 1e6))
         min_dist = masked.amin(dim=-1)
         # No qualifying link: fall back to the raw closest surface distance so
@@ -316,5 +331,6 @@ class CoverageMeter:
             min_surface_dist=min_dist,
             gap_rad=gap,
             gap_width_m=gap_width,
+            gap_bearing_rad=gap_bearing,
             caged=caged,
         )

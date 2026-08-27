@@ -1,4 +1,4 @@
-"""Success criteria: geometric gate and the scripted lift test.
+"""Success criteria: geometric gate, scripted lift, and scripted tug.
 
 Lifting *this* arm means rotating roll so the bend plane goes from horizontal
 to vertical.  A cylinder held that way ends up lying on its side, roughly 90
@@ -7,11 +7,22 @@ deliberately **not** part of the test.  What is tested is *retention*: the
 object must not fall, and its pose relative to segment 2 must stay put for the
 whole lift plus a hold afterwards.
 
-Batching note: ``scene.step()`` advances every environment, so a lift test
-cannot be run for one env in isolation.  It is therefore a **per-env state
-machine**: an env that reaches the wrap threshold switches from following the
-policy to following a scripted roll ramp, while its neighbours carry on. Only
-the joint targets differ per env, which is already per-env data.
+The tug test asks the same retention question without lifting anything: hold
+the wrap still and pull the object sideways, through the opening the wrap left,
+with a force equal to a multiple of the object's own weight.  It exists because
+the two cheaper criteria do not answer it.  A wrap-angle gate scores a pose,
+and caging is out of reach on this arm -- the coil is a spiral, so it surrounds
+184-198 deg of bearing while the widest gap stays 10-20 mm wider than the
+object at every size in the randomisation range.  Measured, the tug separates
+cleanly: wrapped, the object holds to within 8 mm of the arm under its own
+weight and 3 mm under four times it; unwrapped, it slides 710 mm.
+
+Batching note: ``scene.step()`` advances every environment, so neither
+scripted test can be run for one env in isolation.  Both are therefore
+**per-env state machines**: an env that reaches the wrap threshold switches
+from following the policy to following the script, while its neighbours carry
+on.  Only per-env data differs -- joint targets for the lift, an applied force
+for the tug.
 """
 
 from __future__ import annotations
@@ -259,6 +270,165 @@ class LiftTest:
         }
 
 
+class TugPhase(IntEnum):
+    """Per-env phase.  Only ``WRAPPING`` follows the policy."""
+
+    WRAPPING = 0
+    TUGGING = 1
+    PASSED = 2
+    FAILED = 3
+
+
+class TugTest:
+    """Batched scripted-tug retention test.
+
+    The arm holds whatever wrap the policy reached and an external force pulls
+    the object through the opening.  Retention is the object's pose relative to
+    segment 2: the test passes when that pose survives the whole pull.
+    """
+
+    def __init__(
+        self,
+        cfg: SuccessConfig,
+        *,
+        n_envs: int,
+        device: torch.device,
+    ) -> None:
+        self.cfg = cfg
+        self.tug = cfg.tug
+        self.n_envs = int(n_envs)
+        self.device = device
+        # Same reasoning as the lift: the tug is attempted at its own
+        # permissive threshold, so retention can fail informatively instead of
+        # never being tried until a wrap-angle gate is met.
+        self.threshold = float(cfg.tug.trigger_rad)
+        z = lambda dtype: torch.zeros(self.n_envs, device=device, dtype=dtype)  # noqa: E731
+        self.phase = z(torch.long)
+        self.substep = z(torch.long)
+        self._force = torch.zeros((self.n_envs, 3), device=device)
+        self._ref_rel_pos = torch.zeros((self.n_envs, 3), device=device)
+        self._ref_rel_quat = torch.zeros((self.n_envs, 4), device=device)
+        self._violated = z(torch.bool)
+
+    @property
+    def name(self) -> str:
+        return "tug"
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def reset(self, env_ids: Optional[torch.Tensor] = None) -> None:
+        if env_ids is None:
+            self.phase[:] = int(TugPhase.WRAPPING)
+            self.substep[:] = 0
+            self._force[:] = 0.0
+            self._violated[:] = False
+            return
+        if env_ids.numel() == 0:
+            return
+        self.phase[env_ids] = int(TugPhase.WRAPPING)
+        self.substep[env_ids] = 0
+        self._force[env_ids] = 0.0
+        self._violated[env_ids] = False
+
+    # -- state machine -----------------------------------------------------
+
+    @property
+    def follows_policy(self) -> torch.Tensor:
+        return self.phase == int(TugPhase.WRAPPING)
+
+    @property
+    def finished(self) -> torch.Tensor:
+        return (self.phase == int(TugPhase.PASSED)) | (
+            self.phase == int(TugPhase.FAILED)
+        )
+
+    @property
+    def passed(self) -> torch.Tensor:
+        return self.phase == int(TugPhase.PASSED)
+
+    def arm(
+        self,
+        phi: torch.Tensor,
+        obs: LiftObservation,
+        *,
+        gap_bearing_rad: torch.Tensor,
+        weight_n: torch.Tensor,
+    ) -> torch.Tensor:
+        """Start the tug for envs whose wrap angle just cleared the gate.
+
+        The pull direction is the bearing of the opening the wrap left, so the
+        test pushes the object out the way it can actually leave rather than
+        into the arm.  Its magnitude is a multiple of the object's own weight,
+        which keeps the force following the randomised mass.
+        """
+        newly = self.follows_policy & (phi >= self.threshold)
+        if not bool(newly.any()):
+            return newly
+        ids = newly.nonzero(as_tuple=False).flatten()
+        self.phase[ids] = int(TugPhase.TUGGING)
+        self.substep[ids] = 0
+        magnitude = weight_n * float(self.tug.force_scale)
+        self._force[ids, 0] = (magnitude * torch.cos(gap_bearing_rad))[ids]
+        self._force[ids, 1] = (magnitude * torch.sin(gap_bearing_rad))[ids]
+        self._force[ids, 2] = 0.0
+        rel_pos, rel_quat = self._relative(obs)
+        self._ref_rel_pos[ids] = rel_pos[ids]
+        self._ref_rel_quat[ids] = rel_quat[ids]
+        self._violated[ids] = False
+        return newly
+
+    def external_force(self) -> torch.Tensor:
+        """Force to apply to the object this substep; zero where inactive."""
+        active = (self.phase == int(TugPhase.TUGGING)).unsqueeze(-1)
+        return torch.where(active, self._force, torch.zeros_like(self._force))
+
+    def _relative(self, obs: LiftObservation) -> tuple[torch.Tensor, torch.Tensor]:
+        return obs.object_pos - obs.anchor_pos, obs.object_quat
+
+    def advance(self, obs: LiftObservation) -> None:
+        """Run one substep of the pull.
+
+        Retention is checked every substep: an object that squeezes out and is
+        caught again has still left the grasp.
+        """
+        active = self.phase == int(TugPhase.TUGGING)
+        if not bool(active.any()):
+            return
+        self._check_retention(obs, active)
+        self.substep = torch.where(active, self.substep + 1, self.substep)
+        done = (self.phase == int(TugPhase.TUGGING)) & (
+            self.substep >= int(self.tug.hold_substeps)
+        )
+        if bool(done.any()):
+            ids = done.nonzero(as_tuple=False).flatten()
+            self.phase[ids] = torch.where(
+                self._violated[ids],
+                torch.full_like(ids, int(TugPhase.FAILED)),
+                torch.full_like(ids, int(TugPhase.PASSED)),
+            )
+
+    def _check_retention(self, obs: LiftObservation, active: torch.Tensor) -> None:
+        rel_pos, rel_quat = self._relative(obs)
+        slipped = (rel_pos - self._ref_rel_pos).norm(dim=-1) > float(
+            self.tug.max_rel_translation_m
+        )
+        rotated = _quat_relative_angle(rel_quat, self._ref_rel_quat) > float(
+            self.tug.max_rel_rotation_rad
+        )
+        self._violated = self._violated | (active & (slipped | rotated))
+        failed_now = active & self._violated
+        if bool(failed_now.any()):
+            ids = failed_now.nonzero(as_tuple=False).flatten()
+            self.phase[ids] = int(TugPhase.FAILED)
+
+    def diagnostics(self) -> dict[str, torch.Tensor]:
+        return {
+            "phase": self.phase.clone(),
+            "force": self._force.norm(dim=-1).clone(),
+            "violated": self._violated.clone(),
+        }
+
+
 def build_criterion(
     cfg: SuccessConfig, *, n_envs: int, device: torch.device
 ):
@@ -267,4 +437,6 @@ def build_criterion(
         return GeometricCriterion(cfg, device=device)
     if cfg.criterion == "lift":
         return LiftTest(cfg, n_envs=n_envs, device=device)
+    if cfg.criterion == "tug":
+        return TugTest(cfg, n_envs=n_envs, device=device)
     raise ValueError(f"unknown success.criterion: {cfg.criterion!r}")

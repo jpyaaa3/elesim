@@ -41,7 +41,7 @@ from ..configs.loader import WrapGraspConfig, to_dict
 from ..scene import WrapGraspScene
 from .contacts import ContactAggregator, ContactClassifier
 from .coverage import CoverageMeter, quat_to_axis
-from .lift_test import GeometricCriterion, LiftObservation, LiftTest
+from .lift_test import GeometricCriterion, LiftObservation, LiftTest, TugTest
 
 _TWO_PI = 2.0 * math.pi
 
@@ -124,6 +124,28 @@ class WrapGraspEnv:
             if self.cfg.success.criterion == "lift"
             else None
         )
+        self.tug: Optional[TugTest] = (
+            TugTest(self.cfg.success, n_envs=self.num_envs, device=self.device)
+            if self.cfg.success.criterion == "tug"
+            else None
+        )
+        # Whichever scripted test is active, or None for the geometric gate.
+        # Both freeze the policy for the envs they have taken over and both
+        # report retention, so the shared paths go through this.
+        self.script = self.lift if self.lift is not None else self.tug
+        if self.tug is not None:
+            # External forces go through the solver, not the entity: the
+            # entity API exposes joint forces only, and the object is a free
+            # body with no joints.  Gravity is read rather than assumed so the
+            # tug force stays a multiple of the object's weight *in this
+            # scene*.
+            self._rigid_solver = self.scene.scene.sim.rigid_solver
+            self._object_link_ids = [
+                int(link.idx) for link in self.scene.object.links
+            ]
+            self._gravity_mag = float(
+                torch.tensor(self.scene.scene.sim.gravity).norm()
+            )
 
         self._arm_dofs = list(self.scene.arm_dofs.all_indices)
         self._bend_slice = slice(2, 2 + len(self.cfg.arm.bend_joints))
@@ -277,8 +299,8 @@ class WrapGraspEnv:
     def _apply_action(self, actions: torch.Tensor) -> None:
         """Advance the waypoint, then override roll for envs under lift script."""
         follows_policy = (
-            self.lift.follows_policy
-            if self.lift is not None
+            self.script.follows_policy
+            if self.script is not None
             else torch.ones(self.num_envs, device=self.device, dtype=torch.bool)
         )
         masked = torch.where(
@@ -327,13 +349,15 @@ class WrapGraspEnv:
             self.scene.robot.control_dofs_position(
                 targets, dofs_idx_local=self._arm_dofs
             )
+            if self.tug is not None:
+                self._apply_tug_force()
             self.scene.step()
             self.contacts.accumulate()
             if self.substep_monitor is not None:
                 self.substep_monitor(self, i)
 
-            if self.lift is not None:
-                self.lift.advance(self._lift_observation())
+            if self.script is not None:
+                self.script.advance(self._lift_observation())
 
             if settle.mode == "velocity" and (i + 1) >= int(settle.min_substeps):
                 if bool(self._is_settled().all()):
@@ -355,6 +379,21 @@ class WrapGraspEnv:
         roll = self.lift.roll_command * float(self.cfg.arm.roll_axis_sign)
         out[:, 1] = torch.where(scripted, roll, out[:, 1])
         return out
+
+    def _apply_tug_force(self) -> None:
+        """Push the object for the envs under test; zero force for the rest.
+
+        Applied every substep because Genesis clears external forces as it
+        steps, and to all envs at once rather than to a subset, so the call
+        count does not depend on how many envs happen to be under test.
+        """
+        assert self.tug is not None
+        force = self.tug.external_force()
+        if not bool((force != 0).any()):
+            return
+        self._rigid_solver.apply_links_external_force(
+            force.unsqueeze(1), self._object_link_ids
+        )
 
     def _is_settled(self) -> torch.Tensor:
         vel = self.scene.robot.get_dofs_velocity(dofs_idx_local=self._arm_dofs)
@@ -432,6 +471,7 @@ class WrapGraspEnv:
             "caged": cov.caged,
             "gap_rad": cov.gap_rad,
             "gap_width_m": cov.gap_width_m,
+            "gap_bearing": cov.gap_bearing_rad,
             "coverage_near": cov.n_near_links.to(torch.float32),
             "surface_dist": anchor_surface,
             "min_surface_dist": cov.min_surface_dist,
@@ -446,6 +486,14 @@ class WrapGraspEnv:
     def _evaluate_success(
         self, state: dict[str, torch.Tensor], contact: Any
     ) -> torch.Tensor:
+        if self.tug is not None:
+            self.tug.arm(
+                state["phi"],
+                self._lift_observation(),
+                gap_bearing_rad=state["gap_bearing"],
+                weight_n=self._object_mass * self._gravity_mag,
+            )
+            return self.tug.passed
         if self.lift is None:
             reached = self.geometric.evaluate(state["phi"])
             if self.cfg.reward.coverage.require_caging:
@@ -716,8 +764,8 @@ class WrapGraspEnv:
         else:
             self._waypoint_from[env_ids] = self.mapper.waypoint[env_ids]
         self.beta.reset(env_ids)
-        if self.lift is not None:
-            self.lift.reset(env_ids)
+        if self.script is not None:
+            self.script.reset(env_ids)
 
         home = self.mapper.joint_targets()
         if env_ids is None:
@@ -800,8 +848,8 @@ class WrapGraspEnv:
         self._success_count += int(reasons["success"].sum())
         self._failure_counts["collision"] += int(reasons["collision"].sum())
         self._failure_counts["topple"] += int(reasons["topple"].sum())
-        if self.lift is not None:
-            retention = self.lift.finished & (~self.lift.passed)
+        if self.script is not None:
+            retention = self.script.finished & (~self.script.passed)
             self._failure_counts["retention"] += int((retention & dones).sum())
         self._failure_counts["timeout"] += int(
             (timeout & ~reward_out.terminate).sum()
