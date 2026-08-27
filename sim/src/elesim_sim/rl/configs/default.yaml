@@ -129,20 +129,23 @@ arm:
     # one that swings back towards the base.  Opposite signs -- the S shape --
     # never fold, and the signed form handles that without a special case.
     theta1_curl_weight: 1.5
-    # 63 deg, not the 60 the free-space sweep gives, because the boundary is
-    # not purely kinematic.  With the object inside the coil the poses that wrap
-    # it are (15, 36), (18, 36) and (21, 30) -- 58.5, 63 and 61.5 in this
-    # coordinate -- so a cap at 60 would forbid two of the three.  What makes
-    # them legal is the object holding the coil open, which is a contact
-    # condition, not a joint limit.
+    # 61 deg.  Swept finely with the object parked away, the fold starts at 62
+    # and everything at or below 61 is clean, so this makes housing contact
+    # unreachable by any commanded pose rather than merely unlikely.
     #
-    # At 63 the action space keeps all three working poses and loses 14 of the
-    # 16 folding cells.  The two that remain sit exactly on the cap and are
-    # left to reward.self_contact, which is also what has to catch closing on
-    # empty air -- no kinematic cap can, since it is the same commanded pose.
+    # An earlier 63 sat inside the folding region and cost a whole run: it
+    # admitted the wrap pose (18, 36) at curl 63, but it also let the arm
+    # curl from Home -- an S at curl -17 -- straight down to -63, and at
+    # iteration 100 all 10036 eval episodes ended in a housing collision with
+    # the wrap angle stalled at 22-28 deg.
+    #
+    # Nothing is lost by capping below the wrap pose, because a command past
+    # the cap is truncated onto it and the truncated pose still wraps.  Mapped
+    # with the cap live, (15, 36), (16, 36), (18, 33), (18, 36), (20, 30),
+    # (20, 33) and (20, 36) all reach success and no cell folds.
     #
     # null disables the cap.
-    curl_limit_per_node_rad: 1.0996
+    curl_limit_per_node_rad: 1.0647
   gains:
     kp: 200.0
     kv: 20.0

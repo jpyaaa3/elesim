@@ -66,24 +66,6 @@ def test_same_sign_curl_stops_at_the_limit(cfg):
     assert _curl(cfg, m) == pytest.approx(-cap, abs=1e-4)
 
 
-def test_the_three_wrapping_poses_are_reachable(cfg):
-    """(15, 36), (18, 36) and (21, 30) deg per node all wrap the object.
-
-    A cap that excluded any of them would make the task harder than the arm
-    is, which is the whole reason the limit is 63 rather than the 60 the
-    free-space sweep gives.
-    """
-    for t1, t2 in ((15, 36), (18, 36), (21, 30)):
-        m = _mapper(cfg)
-        m.reset(home=torch.tensor([0.0, 0.0, 0.0, 0.0]))
-        target = torch.tensor([[0.0, 0.0, math.radians(t1), math.radians(t2)]])
-        rate = m.rate_limit.unsqueeze(0)
-        for _ in range(20):
-            m.apply_action(((target - m.waypoint) / rate).clamp(-1.0, 1.0))
-        assert m.waypoint[0, 2].item() == pytest.approx(math.radians(t1), abs=1e-4), (t1, t2)
-        assert m.waypoint[0, 3].item() == pytest.approx(math.radians(t2), abs=1e-4), (t1, t2)
-
-
 def test_the_deep_folds_are_unreachable(cfg):
     """Cells the free-space sweep found folding, beyond the cap."""
     cap = float(cfg.arm.limits.curl_limit_per_node_rad)
@@ -101,20 +83,47 @@ def test_the_deep_folds_are_unreachable(cfg):
         ) > 1e-3, (t1, t2)
 
 
-def test_the_wrap_pose_is_still_reachable(cfg):
-    """18 + 36 deg per node sits exactly on the cap.
+def test_the_wrapping_pose_is_reachable(cfg):
+    """(15, 36) deg per node wraps the object and sits under the cap.
 
-    The scripted wrap uses it, so a cap that excluded it would make the task
-    unsolvable rather than safer.
+    A cap that excluded every wrapping pose would make the task unsolvable, so
+    at least one has to survive exactly.
     """
     m = _mapper(cfg)
     m.reset(home=torch.tensor([0.0, 0.0, 0.0, 0.0]))
-    target = torch.tensor([[0.0, 0.0, math.radians(18), math.radians(36)]])
+    target = torch.tensor([[0.0, 0.0, math.radians(15), math.radians(36)]])
     rate = m.rate_limit.unsqueeze(0)
     for _ in range(20):
         m.apply_action(((target - m.waypoint) / rate).clamp(-1.0, 1.0))
-    assert m.waypoint[0, 2].item() == pytest.approx(math.radians(18), abs=1e-4)
+    assert m.waypoint[0, 2].item() == pytest.approx(math.radians(15), abs=1e-4)
     assert m.waypoint[0, 3].item() == pytest.approx(math.radians(36), abs=1e-4)
+
+
+def test_a_command_past_the_cap_lands_on_it(cfg):
+    """Asking for more curl than allowed gives the most the cap permits.
+
+    Measured with the cap live, the truncated pose still wraps -- which is why
+    capping below the (18, 36) wrap pose costs nothing.
+    """
+    cap = float(cfg.arm.limits.curl_limit_per_node_rad)
+    for t1, t2 in ((18, 36), (20, 36), (24, 36)):
+        m = _mapper(cfg)
+        m.reset(home=torch.tensor([0.0, 0.0, 0.0, 0.0]))
+        target = torch.tensor([[0.0, 0.0, math.radians(t1), math.radians(t2)]])
+        rate = m.rate_limit.unsqueeze(0)
+        for _ in range(20):
+            m.apply_action(((target - m.waypoint) / rate).clamp(-1.0, 1.0))
+        assert _curl(cfg, m) == pytest.approx(cap, abs=1e-4), (t1, t2)
+
+
+def test_the_cap_sits_below_the_measured_fold(cfg):
+    """61 deg, where the free-space sweep puts the first fold at 62.
+
+    The point of the cap is that housing contact is unreachable rather than
+    unlikely, and an earlier 63 -- inside the folding region -- cost a whole
+    training run.
+    """
+    assert math.degrees(cfg.arm.limits.curl_limit_per_node_rad) < 62.0
 
 
 def test_the_step_is_truncated_not_rescaled(cfg):

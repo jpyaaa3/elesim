@@ -82,7 +82,7 @@ class ArmLimits:
     #: measured in the built scene, not a mechanism parameter.  None on the
     #: limit disables the cap.
     theta1_curl_weight: float = 1.5
-    curl_limit_per_node_rad: Optional[float] = 1.0996
+    curl_limit_per_node_rad: Optional[float] = 1.0647
 
 
 @dataclass(frozen=True)

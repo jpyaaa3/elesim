@@ -44,7 +44,7 @@ FAILURE_ORDER = ("collision", "topple", "retention", "no_wrap", "no_reach")
 #: Which body a colliding episode hit.  `collision` on its own cannot say
 #: whether the arm is running into the object's stand, the quadruped it is
 #: mounted on, or itself, and those need different fixes.
-COLLISION_BODIES = ("support", "go2", "self", "floor")
+COLLISION_BODIES = ("support", "go2", "housing", "floor")
 
 
 @dataclass
@@ -94,7 +94,11 @@ class EpisodeTracker:
         contact = env.contacts.result()
         self.hit["support"] |= contact.support_touch
         self.hit["go2"] |= contact.go2_touch
-        self.hit["self"] |= contact.self_touch
+        # The structural flag, not `self_touch`: node-against-node is what
+        # wrapping is and never terminates, so attributing a collision to it
+        # points at the wrong cause.  An earlier report read "self 10036" for a
+        # run whose every collision was the backbone folding into its housing.
+        self.hit["housing"] |= contact.self_structural_touch
         self.hit["floor"] |= contact.floor_touch
         if env.script is not None:
             self.wrap_attempted |= ~env.script.follows_policy
@@ -279,7 +283,9 @@ def render_report(
     lines.append("")
     lines.append("| bucket | meaning |")
     lines.append("|---|---|")
-    lines.append("| `collision` | hit the floor, support, or quadruped |")
+    lines.append(
+        "| `collision` | hit the floor, support, quadruped, or its own housing |"
+    )
     lines.append("| `topple` | shoved or tipped the object before wrapping |")
     lines.append("| `retention` | wrapped, then lost it under the retention test |")
     lines.append("| `no_wrap` | touched the object but never wrapped enough to be tested |")

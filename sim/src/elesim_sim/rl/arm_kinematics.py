@@ -119,15 +119,11 @@ class ArmWaypointMapper:
         # base.  Opposite signs, the S shape, never fold; their curls cancel and
         # the signed form handles that on its own.
         #
-        # The cap is 63 deg rather than 60 because the boundary is not purely
-        # kinematic.  With the object inside the coil, the poses that wrap it
-        # are (15, 36), (18, 36) and (21, 30) -- 58.5, 63 and 61.5 in this
-        # coordinate -- so a cap at the free-space boundary would forbid two of
-        # the three.  What makes those poses legal is the object holding the
-        # coil open, which is a contact condition, not a joint limit.  At 63 the
-        # action space keeps all three and loses 14 of the 16 folding cells;
-        # the two that remain sit exactly on the cap and are left to
-        # reward.self_contact, which is also what catches closing on empty air.
+        # Swept finely, the fold starts at 62 deg and everything at or below 61
+        # is clean, so the cap is 61: housing contact is unreachable by any
+        # commanded pose, not merely unlikely.  Capping below the wrap pose
+        # costs nothing, because a command past the cap is truncated onto it and
+        # the truncated pose still wraps.
         #
         # None on the limit disables the cap.
         self.theta1_curl_weight = float(cfg.limits.theta1_curl_weight)
