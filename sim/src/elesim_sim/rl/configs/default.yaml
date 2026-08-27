@@ -298,6 +298,16 @@ beta:
 reward:
   weights:
     coverage_progress: 2.0
+    # Bearing span the arm gets around the object, distance-free.  Pays for
+    # putting the open coil round the object before closing it, which is the
+    # step a graze never becomes a wrap without: with coverage and approach
+    # alone the wrap angle plateaus at 27 deg, two adjacent links grazing,
+    # because every other signal is a distance and a distance is minimised by
+    # poking with the nearest link.  Measured along a scripted wrap the
+    # enclosure runs 27 -> 118 deg through the roll and 222 -> 300 as the coil
+    # comes round, while an arm extending past the object peaks at 118 and
+    # falls back to 92, so the two separate before either touches anything.
+    enclosure_progress: 1.0
     approach_shaping: 0.5
     step_cost: -0.05
     non_target_collision: -1.0

@@ -12,7 +12,11 @@ term                    definition                                   weight
 ======================  ===========================================  ======
 coverage_progress       delta(wrap angle about the object's           +2.0
                         *current* centre) / 2*pi
-approach_shaping        delta(-dist(segment-2 mid link, surface))     +0.5
+enclosure_progress      delta(bearing span the arm gets around        +1.0
+                        the object) / 2*pi -- distance-free, so it
+                        pays for putting the open coil round the
+                        object before closing it
+approach_shaping        delta(-dist(nearest arm link, surface))       +0.5
                         / d0, and identically zero once that env
                         has made its first contact
 step_cost               constant                                     -0.05
@@ -45,6 +49,7 @@ _TWO_PI = 2.0 * math.pi
 #: Term names, fixed so the logger's keys never drift from the weights.
 TERM_NAMES: tuple[str, ...] = (
     "coverage_progress",
+    "enclosure_progress",
     "approach_shaping",
     "step_cost",
     "non_target_collision",
@@ -61,6 +66,24 @@ def coverage_progress(phi: torch.Tensor, phi_prev: torch.Tensor) -> torch.Tensor
     policy cannot farm reward by wrapping and unwrapping repeatedly.
     """
     return (phi - phi_prev) / _TWO_PI
+
+
+def enclosure_progress(
+    enclosure: torch.Tensor, enclosure_prev: torch.Tensor
+) -> torch.Tensor:
+    """Fraction of a full turn of bearing enclosure gained since the last step.
+
+    The other shaping term is a distance, and a distance is minimised by poking
+    the object with the nearest link: a policy trained on coverage plus approach
+    alone plateaus at a wrap angle of 27 deg, two adjacent links grazing.
+    Getting the open coil *around* the object is the step that graze never
+    becomes a wrap without, and bearing is the part of it that does not need
+    contact.
+
+    Signed, for the same reason coverage_progress is: giving the enclosure back
+    costs what gaining it paid.
+    """
+    return (enclosure - enclosure_prev) / _TWO_PI
 
 
 def approach_shaping(
@@ -101,6 +124,7 @@ class RewardInputs:
     """Everything a reward step needs, already aggregated over substeps."""
 
     phi: torch.Tensor                  # (n,) wrap angle now
+    enclosure: torch.Tensor            # (n,) bearing span the arm surrounds
     surface_dist: torch.Tensor         # (n,) segment-2 mid link to surface
     object_touch: torch.Tensor         # (n,) bool, contact during this step
     non_target_collision: torch.Tensor  # (n,) bool, over the substep window
@@ -120,6 +144,7 @@ class RewardOutputs:
 @dataclass
 class _EpisodeState:
     phi_prev: torch.Tensor
+    enclosure_prev: torch.Tensor
     dist_prev: torch.Tensor
     touched: torch.Tensor
     wrapped: torch.Tensor
@@ -144,6 +169,7 @@ class RewardBook:
         self.weights = {name: float(getattr(cfg.weights, name)) for name in TERM_NAMES}
         self._state = _EpisodeState(
             phi_prev=torch.zeros(n_envs, device=device, dtype=torch.float32),
+            enclosure_prev=torch.zeros(n_envs, device=device, dtype=torch.float32),
             dist_prev=torch.zeros(n_envs, device=device, dtype=torch.float32),
             touched=torch.zeros(n_envs, device=device, dtype=torch.bool),
             wrapped=torch.zeros(n_envs, device=device, dtype=torch.bool),
@@ -161,10 +187,12 @@ class RewardBook:
         *,
         phi0: torch.Tensor,
         dist0: torch.Tensor,
+        enclosure0: torch.Tensor,
     ) -> None:
         st = self._state
         if env_ids is None:
             st.phi_prev[:] = phi0
+            st.enclosure_prev[:] = enclosure0
             st.dist_prev[:] = dist0
             st.touched[:] = False
             st.wrapped[:] = False
@@ -174,6 +202,9 @@ class RewardBook:
         if env_ids.numel() == 0:
             return
         st.phi_prev[env_ids] = phi0[env_ids] if phi0.numel() == self.n_envs else phi0
+        st.enclosure_prev[env_ids] = (
+            enclosure0[env_ids] if enclosure0.numel() == self.n_envs else enclosure0
+        )
         st.dist_prev[env_ids] = dist0[env_ids] if dist0.numel() == self.n_envs else dist0
         st.touched[env_ids] = False
         st.wrapped[env_ids] = False
@@ -196,6 +227,9 @@ class RewardBook:
 
         raw: dict[str, torch.Tensor] = {}
         raw["coverage_progress"] = coverage_progress(inputs.phi, st.phi_prev)
+        raw["enclosure_progress"] = enclosure_progress(
+            inputs.enclosure, st.enclosure_prev
+        )
         raw["approach_shaping"] = approach_shaping(
             inputs.surface_dist,
             st.dist_prev,
@@ -230,6 +264,7 @@ class RewardBook:
 
         # State carried to the next macro step.
         st.phi_prev = inputs.phi.clone()
+        st.enclosure_prev = inputs.enclosure.clone()
         st.dist_prev = inputs.surface_dist.clone()
         st.touched = st.touched | inputs.object_touch
         st.wrapped = st.wrapped | (inputs.phi >= self.wrap_threshold_rad)

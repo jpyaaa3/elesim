@@ -201,6 +201,7 @@ class BetaConfig:
 @dataclass(frozen=True)
 class RewardWeights:
     coverage_progress: float = 2.0
+    enclosure_progress: float = 1.0
     approach_shaping: float = 0.5
     step_cost: float = -0.05
     non_target_collision: float = -1.0

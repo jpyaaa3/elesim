@@ -21,6 +21,7 @@ from elesim_sim.rl.envs.rewards import (
     RewardInputs,
     approach_shaping,
     coverage_progress,
+    enclosure_progress,
     object_disturbance,
 )
 
@@ -53,6 +54,7 @@ def _book(cfg, device, n_envs=1):
 def _inputs(n=1, **kw):
     base = dict(
         phi=torch.zeros(n),
+        enclosure=torch.zeros(n),
         surface_dist=torch.zeros(n),
         object_touch=torch.zeros(n, dtype=torch.bool),
         non_target_collision=torch.zeros(n, dtype=torch.bool),
@@ -99,7 +101,8 @@ def test_object_disturbance_has_a_deadband():
 
 def test_step_cost_is_the_only_term_on_an_idle_step(cfg, device):
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     out = book.step(_inputs())
     assert out.total.item() == pytest.approx(cfg.reward.weights.step_cost)
     assert not bool(out.terminate.item())
@@ -107,7 +110,8 @@ def test_step_cost_is_the_only_term_on_an_idle_step(cfg, device):
 
 def test_non_target_collision_penalises_and_terminates(cfg, device):
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     out = book.step(_inputs(non_target_collision=torch.ones(1, dtype=torch.bool)))
     assert out.terms["non_target_collision"].item() == pytest.approx(
         cfg.reward.weights.non_target_collision
@@ -118,7 +122,8 @@ def test_non_target_collision_penalises_and_terminates(cfg, device):
 
 def test_topple_terminates_and_costs_more_than_disturbance(cfg, device):
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     beyond = cfg.reward.disturbance.max_displacement_m + 0.01
     out = book.step(_inputs(object_displacement=torch.tensor([beyond])))
     assert bool(out.termination_reason["topple"].item())
@@ -132,7 +137,8 @@ def test_topple_terminates_and_costs_more_than_disturbance(cfg, device):
 
 def test_success_pays_the_bonus_and_terminates(cfg, device):
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     out = book.step(_inputs(success=torch.ones(1, dtype=torch.bool)))
     assert out.terms["success"].item() == pytest.approx(cfg.reward.weights.success)
     assert bool(out.termination_reason["success"].item())
@@ -141,7 +147,8 @@ def test_success_pays_the_bonus_and_terminates(cfg, device):
 def test_disturbance_stops_being_charged_once_wrapped(cfg, device):
     """Moving a wrapped object is the goal, not a fault."""
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     wrapped = torch.tensor([cfg.success.coverage_target_rad])
     book.step(_inputs(phi=wrapped))
     out = book.step(_inputs(phi=wrapped, object_displacement=torch.tensor([0.03])))
@@ -151,7 +158,8 @@ def test_disturbance_stops_being_charged_once_wrapped(cfg, device):
 
 def test_episode_sums_accumulate_every_term(cfg, device):
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     for _ in range(3):
         book.step(_inputs())
     sums = book.episode_sums()
@@ -188,7 +196,8 @@ def test_half_wrapped_arm_scores_a_half_turn_of_coverage(cfg, device):
     assert 175.0 <= phi_deg <= 180.0 + _FLOAT_TOL_DEG
 
     book = _book(cfg, device)
-    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1))
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+           enclosure0=torch.zeros(1))
     out = book.step(_inputs(phi=res.phi_rad, object_touch=torch.ones(1, dtype=torch.bool)))
     expected = cfg.reward.weights.coverage_progress * (float(res.phi_rad[0]) / _TWO_PI)
     assert out.terms["coverage_progress"].item() == pytest.approx(expected)
@@ -322,3 +331,85 @@ def test_contact_coverage_rewards_a_spread_of_contacts(cfg, device):
         height_m=torch.tensor([cfg.object.height_m]),
     )
     assert math.degrees(result.phi_rad.item()) >= 175.0
+
+
+# -- enclosure -------------------------------------------------------------
+
+
+def test_enclosure_progress_is_signed_fraction_of_a_turn(cfg, device):
+    """Gaining bearing enclosure pays; giving it back costs the same.
+
+    Unsigned, a policy could farm it by curling round the object and
+    straightening out repeatedly.
+    """
+    gained = enclosure_progress(torch.tensor([math.pi]), torch.tensor([0.0]))
+    given_back = enclosure_progress(torch.tensor([0.0]), torch.tensor([math.pi]))
+    assert gained.item() == pytest.approx(0.5)
+    assert given_back.item() == pytest.approx(-0.5)
+
+
+def test_enclosure_needs_two_links_around_the_object(cfg, device):
+    """One link has no bearing span, so it encloses nothing."""
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    single = torch.tensor([[[0.2, 0.0, 0.0]]])
+    result = meter.measure(
+        single,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([cfg.object.radius_m]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    assert result.enclosure_rad.item() == 0.0
+
+
+def test_enclosure_ignores_distance(cfg, device):
+    """A ring far outside the scoring band still encloses.
+
+    This is the point of the term: it has to pay for getting the open coil
+    around the object *before* anything is close enough to touch.  Every other
+    signal is a distance, and a distance is minimised by poking.
+    """
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, 2 * math.pi, 9)[:-1]
+    common = dict(
+        object_pos=torch.zeros(1, 3),
+        object_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([cfg.object.radius_m]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    for ring in (0.08, 0.40):
+        links = torch.stack(
+            (ring * torch.cos(angles), ring * torch.sin(angles), torch.zeros(8)),
+            dim=-1,
+        ).unsqueeze(0)
+        result = meter.measure(links, **common)
+        assert math.degrees(result.enclosure_rad.item()) >= 300.0, ring
+
+
+def test_an_arm_all_on_one_side_encloses_little(cfg, device):
+    meter = CoverageMeter(
+        n_bins=cfg.reward.coverage.n_bins,
+        radial_band_m=cfg.reward.coverage.radial_band_m,
+        device=device,
+    )
+    angles = torch.linspace(0.0, 0.3, 8)
+    links = torch.stack(
+        (0.2 * torch.cos(angles), 0.2 * torch.sin(angles), torch.zeros(8)),
+        dim=-1,
+    ).unsqueeze(0)
+    result = meter.measure(
+        links,
+        torch.zeros(1, 3),
+        torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+        radius_m=torch.tensor([cfg.object.radius_m]),
+        height_m=torch.tensor([cfg.object.height_m]),
+    )
+    assert math.degrees(result.enclosure_rad.item()) < 25.0

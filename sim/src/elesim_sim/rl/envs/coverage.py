@@ -113,6 +113,7 @@ class CoverageResult:
     gap_rad: torch.Tensor        # (n_envs,) widest uncovered arc
     gap_width_m: torch.Tensor    # (n_envs,) free opening across that gap
     gap_bearing_rad: torch.Tensor   # (n_envs,) bearing the object would leave by
+    enclosure_rad: torch.Tensor  # (n_envs,) bearing span the arm surrounds
     caged: torch.Tensor          # (n_envs,) bool: opening narrower than object
 
 
@@ -303,6 +304,45 @@ class CoverageMeter:
         gap_width = (chord - 2.0 * float(link_radius_m)).clamp_min(0.0)
         caged = near.any(dim=-1) & (gap_width < 2.0 * r.squeeze(-1))
 
+        # Bearing enclosure: how much of the object's circumference the arm gets
+        # *around*, ignoring how far away it is.
+        #
+        # Distance is left out deliberately.  Every other signal here is a
+        # distance, and a distance is minimised by poking the object with the
+        # nearest link, which is what a policy plateauing at Phi = 27 deg is
+        # doing.  Getting the open coil around the object before closing it has
+        # to be worth something on its own, and bearing is the part of that
+        # which does not require contact: measured along a scripted wrap the
+        # enclosure runs 27 -> 118 deg through the roll and 222 -> 300 as the
+        # coil comes round, while an arm that extends past the object without
+        # enclosing it peaks at 118 and falls back to 92.
+        #
+        # Computed from the raw bearings rather than the occupancy grid, since
+        # the grid only holds links inside the scoring band.
+        in_height = within_height & (radial > 1e-6)
+        bearing = torch.where(in_height, angle, torch.full_like(angle, float("nan")))
+        srt, _ = torch.sort(torch.nan_to_num(bearing, nan=_TWO_PI * 2.0), dim=-1)
+        finite = in_height.sum(dim=-1, keepdim=True)
+        # Gaps between neighbours, plus the wrap-around gap, over the links that
+        # qualify.  Padding sorts to the end, so a row's live entries are its
+        # first `finite` columns.
+        idx = torch.arange(srt.shape[1], device=self.device).unsqueeze(0)
+        live = idx < finite
+        first = srt.gather(1, torch.zeros_like(idx[:, :1]))
+        last = srt.gather(1, (finite - 1).clamp_min(0))
+        gaps = torch.diff(srt, dim=-1)
+        gap_live = live[:, 1:] & (idx[:, 1:] < finite)
+        gaps = torch.where(gap_live, gaps, torch.zeros_like(gaps))
+        wrap_gap = (first + _TWO_PI) - last
+        widest = torch.maximum(
+            gaps.amax(dim=-1) if gaps.shape[1] else torch.zeros_like(wrap_gap[:, 0]),
+            wrap_gap[:, 0],
+        )
+        enclosure = (_TWO_PI - widest).clamp(min=0.0)
+        enclosure = torch.where(
+            finite[:, 0] >= 2, enclosure, torch.zeros_like(enclosure)
+        )
+
         # Circular mean of the unoccupied bearings: the direction the object is
         # least held in, and so the direction a retention test should pull.  A
         # plain mean of bin indices would put the opening at due east whenever
@@ -332,5 +372,6 @@ class CoverageMeter:
             gap_rad=gap,
             gap_width_m=gap_width,
             gap_bearing_rad=gap_bearing,
+            enclosure_rad=enclosure,
             caged=caged,
         )
