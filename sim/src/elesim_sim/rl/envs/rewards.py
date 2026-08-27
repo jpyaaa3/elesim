@@ -16,12 +16,16 @@ approach_shaping        delta(-dist(segment-2 mid link, surface))     +0.5
                         / d0, and identically zero once that env
                         has made its first contact
 step_cost               constant                                     -0.05
-non_target_collision    arm vs floor / quadruped / itself, judged     -1.0
-                        over the whole substep window -> terminate
+non_target_collision    arm vs floor / support / quadruped, judged   -1.0
+                        over the whole substep window -> terminate.
+                        Arm-against-arm is excluded by default: see
+                        reward.self_contact_is_failure
 object_disturbance      pre-wrap object displacement, continuous      -0.5
 object_topple           displacement or tilt over threshold ->       -2.0
                         terminate
-success                 lift test passed -> terminate                 +5.0
+success                 success.criterion met -> terminate            +5.0
+                        (`geometric`: contact-anchored wrap angle at
+                        or past success.coverage_target_rad)
 ======================  ===========================================  ======
 """
 
