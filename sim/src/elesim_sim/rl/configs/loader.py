@@ -63,6 +63,7 @@ class SceneConfig:
     urdf_relpath: str = "robot.urdf"
     floor: bool = True
     friction: Optional[float] = None
+    env_spacing_m: tuple[float, float] = (3.0, 3.0)
     go2: Go2Config = field(default_factory=Go2Config)
 
 

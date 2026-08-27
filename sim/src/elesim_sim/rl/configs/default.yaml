@@ -46,6 +46,16 @@ scene:
   model_bundle: ""
   urdf_relpath: robot.urdf
   floor: true
+  # Spacing between adjacent parallel environments, metres.  Visualisation
+  # only: Genesis keeps entity positions in each env's own frame and applies
+  # this as a drawing offset, so nothing the policy or the reward sees changes.
+  #
+  # It has to be non-zero or every env is drawn at the same place and a
+  # recorded video shows all of them stacked on top of each other.  At 3 m the
+  # next env still appears in the corner of the eval camera's frame; 6 m puts
+  # it outside, so the recording shows env 0 alone.  The floor is an infinite
+  # plane, so spacing costs nothing.
+  env_spacing_m: [6.0, 6.0]
   # null keeps whatever the URDF/Genesis default is.  Set to override.
   friction: null
   go2:

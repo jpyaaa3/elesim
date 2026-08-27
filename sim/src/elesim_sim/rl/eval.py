@@ -450,7 +450,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         out_video = Path(args.video_out) if args.video_out else None
         if out_video is None:
-            out_video = Path(cfg.eval.out_dir) / "eval_episode.mp4"
+            # Alongside the report, as --video-out's help says.  A fixed name
+            # under eval.out_dir meant every run overwrote the last one's video
+            # while its report was kept.
+            report_path = Path(args.out) if args.out else (
+                Path(cfg.eval.out_dir) / "eval.md"
+            )
+            out_video = report_path.with_suffix(".mp4")
         if not out_video.is_absolute():
             out_video = _REPO_ROOT / out_video
         out_video.parent.mkdir(parents=True, exist_ok=True)

@@ -218,7 +218,20 @@ class WrapGraspScene:
             kwargs = {k: v for k, v in spec.items() if k != "name"}
             self.cameras[name] = self.scene.add_camera(**kwargs)
 
-        self.scene.build(n_envs=self.n_envs)
+        # env_spacing is visualisation only -- entity positions stay in each
+        # env's own frame, `scene.envs_offset` carries the drawing offset -- so
+        # this changes nothing the policy or the reward sees.  Without it every
+        # env is drawn at the same place and a recorded video shows all of them
+        # stacked on top of each other, which is unreadable.
+        #
+        # center_envs_at_origin=False keeps env 0 at the origin, so a camera
+        # aimed at the configured object centre frames env 0 rather than the
+        # middle of the grid, where no env is.
+        self.scene.build(
+            n_envs=self.n_envs,
+            env_spacing=tuple(float(v) for v in self.cfg.scene.env_spacing_m),
+            center_envs_at_origin=False,
+        )
         self._built = True
         self._post_build()
         return self
