@@ -107,6 +107,35 @@ class ArmWaypointMapper:
             device=device,
             dtype=torch.float32,
         )
+        # Coupled cap on how far the two segments may curl the same way at
+        # once, keeping the grossest self-folds out of the action space.
+        #
+        # The backbone reaches its own housing when both segments curl the same
+        # way far enough.  Swept over a 9x9 (theta1, theta2) grid with the
+        # object parked away, every folding cell and every clean one is
+        # separated exactly by |1.5*theta1 + theta2| > 60 deg per node -- not by
+        # the plain sum: (24, 24) is clean at 48 while (30, 18) folds at the
+        # same 48, because segment 1 is the one that swings back towards the
+        # base.  Opposite signs, the S shape, never fold; their curls cancel and
+        # the signed form handles that on its own.
+        #
+        # The cap is 63 deg rather than 60 because the boundary is not purely
+        # kinematic.  With the object inside the coil, the poses that wrap it
+        # are (15, 36), (18, 36) and (21, 30) -- 58.5, 63 and 61.5 in this
+        # coordinate -- so a cap at the free-space boundary would forbid two of
+        # the three.  What makes those poses legal is the object holding the
+        # coil open, which is a contact condition, not a joint limit.  At 63 the
+        # action space keeps all three and loses 14 of the 16 folding cells;
+        # the two that remain sit exactly on the cap and are left to
+        # reward.self_contact, which is also what catches closing on empty air.
+        #
+        # None on the limit disables the cap.
+        self.theta1_curl_weight = float(cfg.limits.theta1_curl_weight)
+        self.curl_limit = (
+            None
+            if cfg.limits.curl_limit_per_node_rad is None
+            else float(cfg.limits.curl_limit_per_node_rad)
+        )
         self.rate_limit = torch.tensor(
             [float(v) for v in rate_limit], device=device, dtype=torch.float32
         )
@@ -135,6 +164,7 @@ class ArmWaypointMapper:
             else home.to(self.device, torch.float32).reshape(4)
         )
         target = target.clamp(self.lower, self.upper)
+        target = self._project_curl(target.reshape(1, 4)).reshape(4)
         if env_ids is None:
             self.waypoint[:] = target
         elif env_ids.numel():
@@ -149,8 +179,62 @@ class ArmWaypointMapper:
         """
         act = action.to(self.device, torch.float32).reshape(self.n_envs, 4)
         increment = act.clamp(-1.0, 1.0) * self.rate_limit
-        self.waypoint = (self.waypoint + increment).clamp(self.lower, self.upper)
+        candidate = (self.waypoint + increment).clamp(self.lower, self.upper)
+        self.waypoint = self._truncate_to_curl_limit(self.waypoint, candidate)
         return self.waypoint
+
+    # -- coupled bend limit ------------------------------------------------
+
+    def _curl(self, waypoint: torch.Tensor) -> torch.Tensor:
+        """Weighted curl the cap is expressed in."""
+        return self.theta1_curl_weight * waypoint[:, 2] + waypoint[:, 3]
+
+    def _project_curl(self, waypoint: torch.Tensor) -> torch.Tensor:
+        """Scale theta1/theta2 down until their signed sum is within limit.
+
+        Used for a waypoint with no feasible predecessor to walk back towards,
+        which is only the reset pose.  Scaling both keeps the shape of the coil.
+        """
+        if self.curl_limit is None:
+            return waypoint
+        out = waypoint.clone()
+        total = self._curl(out)
+        excess = total.abs() > self.curl_limit
+        if not bool(excess.any()):
+            return out
+        scale = (self.curl_limit / total.abs().clamp_min(1e-9)).clamp(max=1.0)
+        out[:, 2] = torch.where(excess, out[:, 2] * scale, out[:, 2])
+        out[:, 3] = torch.where(excess, out[:, 3] * scale, out[:, 3])
+        return out
+
+    def _truncate_to_curl_limit(
+        self, current: torch.Tensor, candidate: torch.Tensor
+    ) -> torch.Tensor:
+        """Shorten the step so it stops at the curl limit instead of crossing it.
+
+        The step is truncated rather than the pair rescaled: `current` is
+        already feasible, so walking part-way along the increment leaves the
+        DoFs the policy did not ask to move where they were.  This is what a
+        rate-limited axis meeting its own limit does.
+        """
+        if self.curl_limit is None:
+            return candidate
+        limit = self.curl_limit
+        s_now = self._curl(current)
+        s_new = self._curl(candidate)
+        over = s_new.abs() > limit
+        if not bool(over.any()):
+            return candidate
+        # Fraction of the step that lands exactly on the limit.  The denominator
+        # cannot vanish where `over` holds: `s_now` is within the limit and
+        # `s_new` is not, so they differ.
+        bound = torch.where(s_new >= 0, limit, -limit)
+        alpha = ((bound - s_now) / (s_new - s_now)).clamp(0.0, 1.0)
+        out = candidate.clone()
+        for col in (2, 3):
+            walked = current[:, col] + alpha * (candidate[:, col] - current[:, col])
+            out[:, col] = torch.where(over, walked, candidate[:, col])
+        return out
 
     # -- expansion ---------------------------------------------------------
 

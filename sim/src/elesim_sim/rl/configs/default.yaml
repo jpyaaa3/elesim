@@ -113,6 +113,36 @@ arm:
     linear_m: null
     roll_rad: null
     bend_per_node_rad: null
+    # Coupled cap keeping the grossest self-folds out of the action space:
+    #
+    #     |theta1_curl_weight * theta1 + theta2| <= curl_limit_per_node_rad
+    #
+    # Unlike the three above these are not mechanism parameters, so they are
+    # numbers here rather than null -- they are a self-collision boundary
+    # measured in the built scene.
+    #
+    # The backbone reaches its own housing when both segments curl the same way
+    # far enough.  Swept over a 9x9 (theta1, theta2) grid with the object parked
+    # away, every folding cell and every clean one is separated exactly by
+    # 1.5*theta1 + theta2 > 60 deg per node.  Not by the plain sum: (24, 24) is
+    # clean at 48 while (30, 18) folds at the same 48, because segment 1 is the
+    # one that swings back towards the base.  Opposite signs -- the S shape --
+    # never fold, and the signed form handles that without a special case.
+    theta1_curl_weight: 1.5
+    # 63 deg, not the 60 the free-space sweep gives, because the boundary is
+    # not purely kinematic.  With the object inside the coil the poses that wrap
+    # it are (15, 36), (18, 36) and (21, 30) -- 58.5, 63 and 61.5 in this
+    # coordinate -- so a cap at 60 would forbid two of the three.  What makes
+    # them legal is the object holding the coil open, which is a contact
+    # condition, not a joint limit.
+    #
+    # At 63 the action space keeps all three working poses and loses 14 of the
+    # 16 folding cells.  The two that remain sit exactly on the cap and are
+    # left to reward.self_contact, which is also what has to catch closing on
+    # empty air -- no kinematic cap can, since it is the same commanded pose.
+    #
+    # null disables the cap.
+    curl_limit_per_node_rad: 1.0996
   gains:
     kp: 200.0
     kv: 20.0

@@ -76,6 +76,13 @@ class ArmLimits:
     linear_m: Optional[tuple[float, float]] = None
     roll_rad: Optional[tuple[float, float]] = None
     bend_per_node_rad: Optional[float] = None
+    #: Coupled cap on the two segment curls:
+    #: |theta1_curl_weight * theta1 + theta2| <= curl_limit_per_node_rad.
+    #: Not from the application config -- it is a self-collision boundary
+    #: measured in the built scene, not a mechanism parameter.  None on the
+    #: limit disables the cap.
+    theta1_curl_weight: float = 1.5
+    curl_limit_per_node_rad: Optional[float] = 1.0996
 
 
 @dataclass(frozen=True)
