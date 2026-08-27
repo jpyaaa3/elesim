@@ -165,6 +165,7 @@ class WrapGraspEnv:
         self._object_mass = z(self.num_envs)
         self._object_pos0 = z(self.num_envs, 3)
         self._object_axis0 = z(self.num_envs, 3)
+        self._object_base0 = z(self.num_envs, 3)
         self._load_proxy = z(self.num_envs, self.num_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
         self._waypoint_from = z(self.num_envs, self.num_actions)
@@ -460,7 +461,21 @@ class WrapGraspEnv:
         planar = radial - along * axis
         anchor_surface = planar.norm(dim=-1) - self._object_radius
 
-        displacement = (obj_pos - self._object_pos0).norm(dim=-1)
+        # Displacement is measured at the end the object stands on, not at its
+        # centre.  For a 1.1 m cylinder the centre sits 0.55 m up, so tipping it
+        # by an angle theta moves the centre by 0.55*sin(theta): the 60 mm
+        # displacement gate then fires at 6.3 deg of tilt, 5.5x stricter than
+        # the 34 deg tilt gate that was meant to catch tipping.  Any contact
+        # firm enough to wrap tips the object past that -- a scripted wrap that
+        # succeeds passes through 3 deg -- so `topple` fired on every episode
+        # that touched the object, and the policy learned not to touch it: at
+        # iteration 350 the eval reported 13817 of 13824 episodes as `no_reach`
+        # with zero collisions and zero topples.
+        #
+        # Measured at the base, the two failures stay separate: sliding moves
+        # the base, tipping does not.
+        base = obj_pos - axis * (self._object_height * 0.5).unsqueeze(-1)
+        displacement = (base - self._object_base0).norm(dim=-1)
         tilt = torch.acos(
             (axis * self._object_axis0).sum(dim=-1).abs().clamp(max=1.0)
         )
@@ -717,12 +732,12 @@ class WrapGraspEnv:
             jitter = torch.zeros((n, 3), device=self.device)
             yaw = torch.zeros((n,), device=self.device)
 
-        base = torch.tensor(
+        centre = torch.tensor(
             [float(v) for v in self.cfg.object_center()],
             device=self.device,
             dtype=torch.float32,
         )
-        pos = base.unsqueeze(0) + jitter
+        pos = centre.unsqueeze(0) + jitter
         half = torch.cos(yaw * 0.5)
         quat = torch.stack(
             (half, torch.zeros_like(half), torch.zeros_like(half), torch.sin(yaw * 0.5)),
@@ -735,6 +750,9 @@ class WrapGraspEnv:
             self._object_height[:] = float(obj.height_m)
             self._object_mass[:] = mass
             self._object_pos0[:] = pos
+            self._object_base0[:] = pos - quat_to_axis(quat) * (
+                float(obj.height_m) * 0.5
+            )
             self.scene.object.set_pos(pos)
             self.scene.object.set_quat(quat)
             self._zero_object_velocity(None)
@@ -747,6 +765,9 @@ class WrapGraspEnv:
             self._object_height[env_ids] = float(obj.height_m)
             self._object_mass[env_ids] = mass
             self._object_pos0[env_ids] = pos
+            self._object_base0[env_ids] = pos - quat_to_axis(quat) * (
+                float(obj.height_m) * 0.5
+            )
             self.scene.object.set_pos(pos, envs_idx=env_ids)
             self.scene.object.set_quat(quat, envs_idx=env_ids)
             self._zero_object_velocity(env_ids)
