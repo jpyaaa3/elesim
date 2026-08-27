@@ -92,7 +92,7 @@ def _fake_docker(path: Path) -> Path:
         "  printf 'build progress that must not reach stdout\\n'\n"
         "  exit 0\n"
         "fi\n"
-        "if [[ $arguments == *' run --rm -T tools elesim-net '* || $arguments == *' run --rm -T --no-build tools elesim-net '* || $arguments == *' run --rm -T runtime-tools elesim-net '* || $arguments == *' run --rm -T --no-build runtime-tools elesim-net '* ]]; then\n"
+        "if [[ $arguments == *' run --rm -T tools elesim-net '* || $arguments == *' run --rm -T runtime-tools elesim-net '* ]]; then\n"
         "  printf '{\"schema_version\":1}\\n'\n"
         "  exit 0\n"
         "fi\n"
@@ -516,7 +516,7 @@ def test_container_install_generates_ros_overlay_contexts_and_dds_environment(
     )
     assert 'xhost +si:localuser:"$viewer_xhost_user"' in up_wrapper
     assert "run --rm -T --build --no-deps sim --elesim-viewer-preflight" in up_wrapper
-    assert "run --rm -T --no-build --no-deps sim --elesim-viewer-preflight" in up_wrapper
+    assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in up_wrapper
     assert "viewer-xhost" in up_wrapper
     assert "viewer_xhost_select_state" in up_wrapper
     assert "viewer_display_is_owned" in up_wrapper
@@ -841,7 +841,7 @@ def test_sidecar_down_then_up_starts_persisted_identity_before_namespace_check(
         login_start,
     )
     namespace_check = rendered.index(
-        "run --rm -T --no-build runtime-tools elesim-net", login_status
+        "run --rm -T runtime-tools elesim-net", login_status
     )
     runtime_start = rendered.index(
         "up -d --build --remove-orphans ui", namespace_check
@@ -1402,7 +1402,7 @@ def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     assert "up -d --no-build --remove-orphans" in Path(
         environment["DOCKER_ARGS_MARKER"]
     ).read_text(encoding="utf-8")
-    assert "run --rm -T --no-build --no-deps sim --elesim-viewer-preflight" in Path(
+    assert "run --rm -T --no-deps sim --elesim-viewer-preflight" in Path(
         environment["DOCKER_CALLS_MARKER"]
     ).read_text(encoding="utf-8")
     assert (tmp_path / "viewer-xhost").read_text(encoding="utf-8") == (
@@ -2405,7 +2405,7 @@ def test_container_net_wrapper_keeps_json_stdout_clean(local_state, tmp_path: Pa
     wrapper = (state.bin_path / "elesim-net").read_text(encoding="utf-8")
     assert "build --quiet tools >/dev/null" in wrapper
     assert "net_service=tools" in wrapper
-    assert 'run --rm -T --no-build "$net_service" elesim-net' in wrapper
+    assert 'run --rm -T "$net_service" elesim-net' in wrapper
     assert "run --rm --build tools elesim-net" not in wrapper
 
 

@@ -1378,7 +1378,7 @@ class ContainerInstaller:
             + "    fi\n"
             + "  fi\n"
             + "fi\n"
-            + f"exec {command} run --rm -T --no-build \"$net_service\" elesim-net "
+            + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
             + ' "$@"\n',
         )
@@ -3022,7 +3022,7 @@ def _runtime_up_wrapper(
         "  if (( runtime_build_required == 0 )); then\n"
         "    "
         + command
-        + " run --rm -T --no-build --no-deps sim --elesim-viewer-preflight\n"
+        + " run --rm -T --no-deps sim --elesim-viewer-preflight\n"
         "  else\n"
         "    "
         + command
