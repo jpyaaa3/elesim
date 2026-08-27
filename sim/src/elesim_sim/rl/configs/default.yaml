@@ -175,14 +175,23 @@ object:
   # zero wrap, while 45/50/55/60 mm draw 3/5/5/4 contacts for 174/196/188/206
   # deg.  50 mm sits in the middle of what closes.
   radius_m: 0.050
-  # Tall enough to stand on the floor with its mid-height in the plane the coil
-  # forms in (z = 0.559), so no support is needed under it.  A pipe or post is
-  # the canonical whole-arm wrap target anyway.
-  height_m: 1.118
-  mass_kg: 2.0
+  # Tall enough to stand on the floor and still cross the plane the coil forms
+  # in, so no support is needed under it.  A pipe or post is the canonical
+  # whole-arm wrap target anyway.
+  #
+  # The arm's links occupy z = 0.541-0.590 at the wrap pose, so the object has
+  # to reach 0.59 m.  At 1.1 m it is grasped near its mid-height, which keeps a
+  # lateral pull translating the object rather than levering it about its base.
+  height_m: 1.1
+  # Bounded by what the arm can carry, not by what a 1.1 m x 100 mm cylinder
+  # would weigh if it were solid.  Mass matters twice here: a heavier object
+  # resists being shoved during the approach, and the tug force is a multiple
+  # of its weight, so heavier is also a harder retention test.
+  mass_kg: 0.30
   # Cylinder centre at reset.  With no support this has to be explicit; x and y
-  # are the coil's own centre for the wrap pose (see the old support block).
-  pos_xyz: [0.368, 0.160, 0.559]
+  # are the coil's own centre for the wrap pose (see the support block), and z
+  # is half the height, seating it on the floor.
+  pos_xyz: [0.368, 0.160, 0.550]
   collision: true
   # A graspable object must be a free body: disturbance and topple checks are
   # meaningless for a fixed entity.
@@ -372,17 +381,18 @@ success:
     # would ever be pulled until the geometry gate was met and retention could
     # never fail informatively.
     trigger_rad: 2.0944       # 120 deg
-    # Lateral force as a multiple of the object's weight (m*g).  1.0 asks the
-    # grasp to resist sideways exactly what holding the object up would take,
-    # so the number follows the randomised mass instead of being picked.
+    # Lateral force as a multiple of the object's weight (m*g), so the pull
+    # follows the randomised mass instead of being a picked number.
     #
-    # Measured on a scripted wrap of the 100 mm cylinder (Phi = 194 deg, 7
-    # contacts), object weight 19.6 N: the object holds to within 8 mm of the
-    # arm at 1x, 6.5 mm at 2x and 3 mm at 4x, while the same pull with the coil
-    # open slides it 710 mm.  The absolute motion is larger -- 122 mm at 4x --
-    # but that is the object dragging the arm along, not leaving it, which is
-    # why retention is measured relative to segment 2.
-    force_scale: 1.0
+    # It has to clear the floor.  The object stands on the ground, so a lateral
+    # pull fights friction before it fights the grasp, and friction alone holds
+    # up to mu times the weight -- 1.2x at the top of the configured range.
+    # At 1x the test is void: measured on a 0.30 kg cylinder, an *unwrapped*
+    # object moves 1.2 mm under 1x and would pass retention outright.  At 2x it
+    # slides 662 mm and at 3x, 727 mm, while the wrap holds it to 9 mm of the
+    # arm at every multiple up to 4x.  3x leaves the friction bound a factor of
+    # 2.5 behind without asking more of the grasp than it can give.
+    force_scale: 3.0
     # 3 macro steps at the default 40 substeps.
     hold_substeps: 120
     max_rel_translation_m: 0.03
@@ -432,7 +442,16 @@ observation:
 domain_randomisation:
   enable: true
   friction: [0.6, 1.2]
-  object_mass_kg: [0.15, 0.60]
+  # Capped at the arm's payload.  This is a continuum backbone, not a rigid
+  # manipulator: kilogram loads are outside what it can hold, and the beta
+  # residual model is identified over the same light range.
+  #
+  # It also has to stay light for the wrap to close at all.  The coil's inner
+  # clearance exceeds a 90 mm cylinder by about 5 mm, so closing on the small
+  # end of the size range means nudging the object into contact, and a heavy
+  # object will not be nudged: at 45 mm radius the wrap reaches 174 deg at
+  # 1.0 kg and stalls at 70 deg at 2.0 kg.
+  object_mass_kg: [0.15, 0.50]
   # Lower bound raised from 35 mm: at that size the coil closes past the
   # cylinder without reaching it -- one contact, zero wrap -- so those episodes
   # were unwinnable rather than hard.
