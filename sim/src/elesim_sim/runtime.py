@@ -3608,6 +3608,25 @@ class SimRuntime:
 
                 t_sec = time.perf_counter()
                 sim_time_s = a.sim_scene.sim_time_s(float(a.params.dt))
+                did_step = self.operator.should_step()
+                observer_dirty = self.operator.take_observer_dirty()
+                observer_pre_submitted = False
+                observer_needs_frame = (
+                    float(a.sim_scene._last_observer_camera_publish_t) <= 0.0
+                )
+                if did_step or observer_dirty or observer_needs_frame:
+                    # Feed the asynchronous observer renderer before a
+                    # potentially expensive physics/MPC step.  The snapshot
+                    # is immutable and the worker remains latest-only, so
+                    # this never runs Genesis concurrently with physics.
+                    observer_pre_submitted = a.sim_scene.maybe_publish_observer_camera(
+                        max_hz=float(a.cfg.sim_observer_camera_max_hz),
+                        sim_time_s=sim_time_s,
+                        force=observer_dirty,
+                    )
+                # Do not charge the pre-step, non-blocking submission to the
+                # feedback section below.
+                t_sec = time.perf_counter()
                 feedback_due = a.feedback_pub is not None and self._feedback_due(sim_time_s)
                 self._refresh_tip_feedback_cache(feedback_due)
                 sim_tip = self._sim_tip_cache
@@ -3710,7 +3729,6 @@ class SimRuntime:
                 a.markers.clear_dynamic_missing(a.sim_scene.scene, active_dynamic_keys)
                 perf.section("markers", t_sec)
                 t_sec = time.perf_counter()
-                did_step = self.operator.should_step()
                 if did_step:
                     a.sim_scene.step()
                 perf.section("physics", t_sec)
@@ -3760,16 +3778,16 @@ class SimRuntime:
                             )
                     if hand_eye_submitted:
                         self._force_hand_eye_capture = False
-                observer_dirty = self.operator.take_observer_dirty()
-                observer_needs_frame = (
-                    float(a.sim_scene._last_observer_camera_publish_t) <= 0.0
-                )
-                if did_step or observer_dirty or observer_needs_frame:
-                    a.sim_scene.maybe_publish_observer_camera(
-                        max_hz=float(a.cfg.sim_observer_camera_max_hz),
-                        sim_time_s=a.sim_scene.sim_time_s(float(a.params.dt)),
-                        force=observer_dirty,
+                if not observer_pre_submitted:
+                    observer_needs_frame = (
+                        float(a.sim_scene._last_observer_camera_publish_t) <= 0.0
                     )
+                    if did_step or observer_dirty or observer_needs_frame:
+                        a.sim_scene.maybe_publish_observer_camera(
+                            max_hz=float(a.cfg.sim_observer_camera_max_hz),
+                            sim_time_s=a.sim_scene.sim_time_s(float(a.params.dt)),
+                            force=observer_dirty,
+                        )
                 perf.section("camera", t_sec)
                 t_sec = time.perf_counter()
                 if did_step and bool(getattr(a.params, "realtime", True)):

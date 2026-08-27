@@ -319,6 +319,36 @@ def test_stream_becomes_connected_only_after_its_answer_is_accepted() -> None:
     assert observer.answers == [("observer-answer", "answer")]
 
 
+def test_missing_stream_answer_is_retried_without_disturbing_connected_stream() -> None:
+    Receiver.created.clear()
+    clock = Clock()
+    endpoint = Endpoint()
+    session = new_session(clock)
+    session.run_cycle(endpoint)
+    request_id = str(endpoint.sent[0][1]["payload"]["request_id"])
+    endpoint.inbox.append(opened(request_id))
+    session.run_cycle(endpoint)
+    endpoint.inbox.append(answer("observer"))
+    session.run_cycle(endpoint)
+
+    clock.now = 8.1
+    session.run_cycle(endpoint)
+    assert session.connected_streams == ("observer",)
+    assert "hand_eye_preview WebRTC answer timed out" in session.last_error
+
+    clock.now = 8.6
+    session.run_cycle(endpoint)
+    offers = [
+        entry
+        for entry in endpoint.sent
+        if entry[0] == "webrtc_signal"
+        and entry[1]["payload"]["stream"] == "hand_eye_preview"
+    ]
+    assert len(offers) == 2
+    assert Receiver.created[1].closed is True
+    assert Receiver.created[0].closed is False
+
+
 def test_media_stream_error_retries_only_the_failed_stream() -> None:
     Receiver.created.clear()
     clock = Clock()
