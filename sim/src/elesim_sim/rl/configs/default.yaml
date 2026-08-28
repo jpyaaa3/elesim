@@ -610,7 +610,12 @@ domain_randomisation:
   # surface distance came out wrong in proportion.
   object_radius_m: [0.045, 0.060]
   object_pos_jitter_m: [0.03, 0.03, 0.01]
-  object_yaw_jitter_rad: 0.35
+  # Rotation about the object's own axis, which for a cylinder is nothing at
+  # all: measured, 0, 20, 90 and 180 deg leave both the geometry and every
+  # observation identical.  Held at zero so a run does not report variety it
+  # does not have.  It is kept rather than deleted because a non-symmetric
+  # object.kind would make it meaningful again.
+  object_yaw_jitter_rad: 0.0
 
 curriculum:
   # Rule: switchable by config, not by code edits.
@@ -749,8 +754,11 @@ eval:
   # it the policy is being asked about states it never saw.
   pose_offset_grid:
     x_m: [-0.03, 0.0, 0.03]
-    y_m: [0.0]
-    yaw_rad: [-0.3, 0.0, 0.3]
+    y_m: [-0.03, 0.0, 0.03]
+    # One entry.  A cylinder is symmetric about its own axis, so the three that
+    # used to be here scored the same condition three times and reported it as
+    # a yaw sweep.
+    yaw_rad: [0.0]
   # Every entry has to be a size the scene actually built -- `object.radius_m`
   # plus `object.radius_choices_m` -- because the request snaps to the nearest
   # one and that entity is what the env gets.  Asking for a size that was not

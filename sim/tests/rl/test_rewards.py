@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from elesim_sim.rl.configs.loader import load_config
-from elesim_sim.rl.envs.coverage import CoverageMeter
+from elesim_sim.rl.envs.coverage import CoverageMeter, quat_to_axis
 from elesim_sim.rl.envs.rewards import (
     TERM_NAMES,
     RewardBook,
@@ -494,3 +494,27 @@ def test_a_straight_arm_has_no_bend_plane_to_align(cfg, device):
         height_m=torch.tensor([cfg.object.height_m]),
     )
     assert result.plane_alignment.item() < 0.05
+
+
+def test_object_axis_carries_both_lean_direction_and_size(cfg, device):
+    """The two object-orientation channels are the axis tilted into the plane.
+
+    They used to be sin/cos of `atan2(axis.y, axis.x)`, which named itself yaw
+    and was not: a cylinder is symmetric about its own axis, so rotating it
+    changed nothing, while a lean of 1 deg and of 20 deg both read the same
+    bearing and upright was `atan2(0, 0)`.  What is pinned here is that the
+    replacement grows with the lean and stays put under a spin.
+    """
+    def axis(w, x, y, z):
+        return quat_to_axis(torch.tensor([[w, x, y, z]]))[0, :2]
+
+    # Spinning about the object's own axis moves nothing.
+    for deg in (0.0, 90.0, 180.0):
+        h = math.radians(deg) / 2
+        assert axis(math.cos(h), 0.0, 0.0, math.sin(h)).abs().max().item() < 1e-6
+
+    # Leaning grows as sin of the tilt, so magnitude is recoverable.
+    for deg in (1.0, 5.0, 20.0, 40.0):
+        h = math.radians(deg) / 2
+        lean = axis(math.cos(h), math.sin(h), 0.0, 0.0)
+        assert lean.norm().item() == pytest.approx(math.sin(math.radians(deg)), abs=1e-4)

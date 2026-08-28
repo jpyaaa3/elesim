@@ -639,7 +639,7 @@ class WrapGraspEnv:
         if actor_cfg.include_joint_estimate:
             policy += 4
         if actor_cfg.include_object_geometry:
-            policy += 7  # radius, height, pos(3), yaw sin/cos
+            policy += 7  # radius, height, pos(3), lean x/y
         if actor_cfg.include_load_proxy:
             policy += 4
         if actor_cfg.include_step_index:
@@ -689,17 +689,25 @@ class WrapGraspEnv:
         if cfg.include_object_geometry:
             pos = self.scene.object.get_pos() + self._noise((self.num_envs, 3), noise.object_pos_m)
             axis = quat_to_axis(self.scene.object.get_quat())
-            yaw = torch.atan2(axis[:, 1], axis[:, 0]) + self._noise(
-                (self.num_envs,), noise.object_rot_rad
-            )
+            # The object's axis tilted into the horizontal plane: which way it
+            # is leaning *and* how far, in two channels.
+            #
+            # This used to be sin/cos of `atan2(axis.y, axis.x)`, which named
+            # itself yaw and was not.  A cylinder is symmetric about its own
+            # axis, so rotating it changes neither the geometry nor that
+            # quantity -- measured, 0, 20, 90 and 180 deg of yaw all read 0.00.
+            # What the atan2 actually returned was the *bearing* of a lean,
+            # carrying no magnitude: 1 deg and 20 deg of tilt both read -90.
+            # And upright, the axis is (0, 0, 1), so it was atan2(0, 0) -- an
+            # undefined direction that the observation noise then dithered.
+            lean = axis[:, :2] + self._noise((self.num_envs, 2), noise.object_rot_rad)
             parts.append(
                 torch.cat(
                     (
                         self._object_radius.unsqueeze(-1),
                         self._object_height.unsqueeze(-1),
                         pos,
-                        torch.sin(yaw).unsqueeze(-1),
-                        torch.cos(yaw).unsqueeze(-1),
+                        lean,
                     ),
                     dim=-1,
                 )
