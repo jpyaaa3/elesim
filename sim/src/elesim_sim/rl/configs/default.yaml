@@ -29,11 +29,17 @@ scene:
   #
   # Halving the timestep is what the error itself asks for, and it costs 22%
   # rather than double: measured at 32 envs, 13.2 s per iteration against 16.1.
+  #
+  # 2 was not enough either: a 2048-env run died the same way at iteration 207,
+  # 49 minutes in, with the curriculum already walked back from 1.0 to 0.6.  4
+  # costs another 40% at 64 envs, 9.8 s per iteration against 13.5.  It still
+  # cannot promise a clean 4000-iteration run, which is what
+  # `elesim_sim.rl.supervise` is for.
   # The physics is unchanged where it matters -- a scripted wrap reaches 188 deg
   # at 1 and 180 at 2.
   #
   # If a run still dies, raise this again before reaching for anything else.
-  solver_substeps: 2
+  solver_substeps: 4
   # Contact-constraint buffer.  Genesis halts the sim if the real pair count
   # exceeds this, and get_contacts() returns at most this many rows per env.
   #
