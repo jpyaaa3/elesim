@@ -144,6 +144,25 @@ class ObjectConfig:
     pos_xyz: Optional[tuple[float, float, float]] = None
     collision: bool = True
     fixed: bool = False
+    #: Extra radii to build alongside `radius_m`, one entity each, so different
+    #: environments can hold different sizes.  Empty means a single size.
+    radius_choices_m: tuple[float, ...] = ()
+    #: Where the sizes an environment is not using wait, and how far apart.
+    park_xy_m: tuple[float, float] = (6.0, 6.0)
+    park_step_m: float = 0.6
+
+    def radius_choices(self) -> tuple[float, ...]:
+        """Every radius the scene builds, `radius_m` first.
+
+        First because that is the one the rest of the config is written against
+        -- `object.pos_xyz`, the support column, the curl cap -- and the one a
+        single-size run gets.
+        """
+        rest = tuple(
+            float(r) for r in self.radius_choices_m
+            if abs(float(r) - float(self.radius_m)) > 1e-9
+        )
+        return (float(self.radius_m),) + rest
 
 
 @dataclass(frozen=True)

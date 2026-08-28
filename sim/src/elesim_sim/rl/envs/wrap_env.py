@@ -858,20 +858,20 @@ class WrapGraspEnv:
         )
         zeros3 = torch.zeros((n, 3), device=self.device)
 
-        # Genesis fixes the cylinder's geometry when the scene is built, so a
-        # per-env or per-condition radius changes only what the coverage meter
-        # and the observations are *told*.  Believing a radius the object does
-        # not have corrupts every surface distance derived from it -- at 60 mm
-        # against a built 50 mm the distances come out 10 mm short and coverage
-        # is over-credited.  Sweeping size means rebuilding the scene.
-        built = float(self.cfg.object.radius_m)
-        if not torch.allclose(radius, torch.full_like(radius, built), atol=1e-6):
-            raise ValueError(
-                "object radius was randomised or overridden to "
-                f"{sorted(set(round(float(v), 4) for v in radius))} but the scene "
-                f"was built with {built}. Genesis bakes the morph at build time, "
-                "so rebuild the scene per radius instead."
-            )
+        # Genesis fixes each morph's geometry at build time, so the radius an
+        # env gets is decided by *which cylinder it is handed*, not by a number
+        # written at reset.  Snap the sampled radius to the nearest one the
+        # scene actually built and use that entity; believing a size the object
+        # does not have would corrupt every surface distance derived from it.
+        built = torch.tensor(
+            self.scene.object.radii, device=self.device, dtype=torch.float32
+        )
+        choice = (radius.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
+        radius = built[choice]
+        if env_ids is None:
+            self.scene.object.assignment[:] = choice
+        else:
+            self.scene.object.assignment[env_ids] = choice
         if env_ids is None:
             self._object_radius[:] = radius
             self._object_height[:] = float(obj.height_m)
@@ -884,6 +884,7 @@ class WrapGraspEnv:
             self.scene.object.set_quat(quat)
             self._zero_object_velocity(None)
             self._object_axis0[:] = quat_to_axis(quat)
+            self.scene.object.park_unassigned(None)
             self.episode_length_buf[:] = 0
             self._load_proxy[:] = 0.0
             self._last_joint_cmd[:] = 0.0
@@ -899,6 +900,7 @@ class WrapGraspEnv:
             self.scene.object.set_quat(quat, envs_idx=env_ids)
             self._zero_object_velocity(env_ids)
             self._object_axis0[env_ids] = quat_to_axis(quat)
+            self.scene.object.park_unassigned(env_ids)
             self.episode_length_buf[env_ids] = 0
             self._load_proxy[env_ids] = 0.0
             self._last_joint_cmd[env_ids] = 0.0

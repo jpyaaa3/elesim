@@ -107,6 +107,139 @@ class LinkIndex:
         }
 
 
+class ObjectSet:
+    """Several cylinders, one live per environment.
+
+    Genesis bakes a morph's geometry when the scene is built, so a radius set at
+    reset changes only what the code is *told*.  Varying object size across
+    environments therefore means building one entity per size and giving each
+    env exactly one of them: the assigned cylinder stands at the target and the
+    rest are parked out of reach.
+
+    The wrapper carries the handful of methods the environment uses on the
+    object, each gathering from or scattering to the assigned entity, so
+    everything downstream keeps treating it as one object.
+    """
+
+    def __init__(self, entities: Sequence[Any], radii: Sequence[float],
+                 *, park_xy: tuple[float, float], park_step_m: float) -> None:
+        if not entities:
+            raise ValueError("ObjectSet needs at least one entity")
+        self.entities = list(entities)
+        self.radii = tuple(float(r) for r in radii)
+        self._park_xy = (float(park_xy[0]), float(park_xy[1]))
+        self._park_step = float(park_step_m)
+        self._assignment: Optional[torch.Tensor] = None
+        self._device: Optional[torch.device] = None
+
+    # -- assignment --------------------------------------------------------
+
+    def bind(self, n_envs: int, device: torch.device) -> None:
+        self._device = device
+        self._assignment = torch.zeros(n_envs, dtype=torch.long, device=device)
+
+    @property
+    def assignment(self) -> torch.Tensor:
+        if self._assignment is None:
+            raise RuntimeError("ObjectSet.bind must be called after the build")
+        return self._assignment
+
+    def radius_of(self, assignment: torch.Tensor) -> torch.Tensor:
+        table = torch.tensor(self.radii, device=assignment.device, dtype=torch.float32)
+        return table[assignment]
+
+    def park_pose(self, entity_index: int) -> tuple[float, float, float]:
+        """Where entity `k` waits while some other size is in play."""
+        x, y = self._park_xy
+        return (x + entity_index * self._park_step, y, 1.0)
+
+    # -- the object interface the environment uses -------------------------
+
+    @property
+    def links(self):
+        return [link for e in self.entities for link in e.links]
+
+    def _gather(self, name: str) -> torch.Tensor:
+        parts = [getattr(e, name)() for e in self.entities]
+        stacked = torch.stack(parts, dim=0)                     # (K, n, ...)
+        idx = self.assignment.view(1, -1, *([1] * (stacked.dim() - 2)))
+        idx = idx.expand(1, *stacked.shape[1:])
+        return stacked.gather(0, idx).squeeze(0)
+
+    def get_pos(self) -> torch.Tensor:
+        return self._gather("get_pos")
+
+    def get_quat(self) -> torch.Tensor:
+        return self._gather("get_quat")
+
+    def get_vel(self) -> torch.Tensor:
+        return self._gather("get_vel")
+
+    def get_ang(self) -> torch.Tensor:
+        return self._gather("get_ang")
+
+    def _scatter(self, name: str, value: torch.Tensor,
+                 envs_idx: Optional[torch.Tensor]) -> None:
+        """Write `value` to whichever entity each env is using.
+
+        `value` is addressed by position within `envs_idx`, so it is expanded
+        to a full-width buffer first rather than assuming `envs_idx` is sorted.
+        """
+        dev = self.assignment.device
+        n = self.assignment.numel()
+        if envs_idx is None:
+            rows = torch.arange(n, device=dev)
+            full = value.to(dev)
+        else:
+            rows = envs_idx.to(dev)
+            full = torch.zeros((n, *value.shape[1:]), device=dev, dtype=value.dtype)
+            full[rows] = value.to(dev)
+        for k, entity in enumerate(self.entities):
+            live = rows[self.assignment[rows] == k]
+            if live.numel() == 0:
+                continue
+            getattr(entity, name)(full[live], envs_idx=live)
+
+    def set_pos(self, pos: torch.Tensor, envs_idx: Optional[torch.Tensor] = None) -> None:
+        self._scatter("set_pos", pos, envs_idx)
+
+    def set_quat(self, quat: torch.Tensor, envs_idx: Optional[torch.Tensor] = None) -> None:
+        self._scatter("set_quat", quat, envs_idx)
+
+    def park_unassigned(self, envs_idx: Optional[torch.Tensor] = None) -> None:
+        """Move every entity an env is not using out of the way.
+
+        Parked cylinders stand on the floor far from the robot rather than
+        being deleted, because Genesis has no way to remove a body from a built
+        scene.  They are free bodies, so they cost integration -- which is why
+        `object.radius_choices_m` should hold only the sizes a run needs.
+        """
+        rows = (
+            torch.arange(self.assignment.numel(), device=self.assignment.device)
+            if envs_idx is None
+            else envs_idx.to(self.assignment.device)
+        )
+        for k, entity in enumerate(self.entities):
+            idle = rows[self.assignment[rows] != k]
+            if idle.numel() == 0:
+                continue
+            park = torch.tensor(
+                [self.park_pose(k)], device=self.assignment.device, dtype=torch.float32
+            ).expand(idle.numel(), 3)
+            entity.set_pos(park, envs_idx=idle)
+            entity.set_quat(
+                torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=self.assignment.device)
+                .expand(idle.numel(), 4),
+                envs_idx=idle,
+            )
+
+    def set_friction(self, value: float) -> None:
+        for e in self.entities:
+            setter = getattr(e, "set_friction", None)
+            if callable(setter):
+                setter(value)
+
+
 class WrapGraspScene:
     """Owns the Genesis scene, its entities and the resolved index maps."""
 
@@ -202,15 +335,38 @@ class WrapGraspScene:
         if str(obj.kind).lower() != "cylinder":
             raise ValueError(f"unsupported object.kind: {obj.kind!r}")
         self.object_center = self.cfg.object_center()
-        self.object = self.scene.add_entity(
-            gs.morphs.Cylinder(
-                radius=float(obj.radius_m),
-                height=float(obj.height_m),
-                pos=tuple(float(v) for v in self.object_center),
-                fixed=bool(obj.fixed),
-                collision=bool(obj.collision),
-            ),
-            surface=gs.surfaces.Rough(color=(0.85, 0.55, 0.20, 1.0)),
+        # One entity per size the run wants.  Genesis bakes a morph's geometry
+        # at build time, so this is the only way to vary object size across
+        # environments; the unassigned ones are parked out of reach at reset.
+        radii = tuple(float(r) for r in obj.radius_choices())
+        entities = []
+        for k, radius in enumerate(radii):
+            shade = 0.55 + 0.10 * (k / max(len(radii) - 1, 1))
+            entities.append(
+                self.scene.add_entity(
+                    gs.morphs.Cylinder(
+                        radius=radius,
+                        height=float(obj.height_m),
+                        pos=(
+                            self.object_center
+                            if k == 0
+                            else (
+                                float(obj.park_xy_m[0]) + k * float(obj.park_step_m),
+                                float(obj.park_xy_m[1]),
+                                1.0,
+                            )
+                        ),
+                        fixed=bool(obj.fixed),
+                        collision=bool(obj.collision),
+                    ),
+                    surface=gs.surfaces.Rough(color=(0.85, shade, 0.20, 1.0)),
+                )
+            )
+        self.object = ObjectSet(
+            entities,
+            radii,
+            park_xy=tuple(float(v) for v in obj.park_xy_m),
+            park_step_m=float(obj.park_step_m),
         )
 
         for spec in self.camera_specs:
@@ -233,6 +389,7 @@ class WrapGraspScene:
             center_envs_at_origin=False,
         )
         self._built = True
+        self.object.bind(self.n_envs, self.device)
         self._post_build()
         return self
 

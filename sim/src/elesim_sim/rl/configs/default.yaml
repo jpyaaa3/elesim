@@ -241,6 +241,24 @@ object:
   # are the coil's own centre for the wrap pose (see the support block), and z
   # is half the height, seating it on the floor.
   pos_xyz: [0.368, 0.160, 0.550]
+  # Extra sizes to build alongside radius_m, one entity each.
+  #
+  # Genesis bakes a morph's geometry at build time, so a radius written at reset
+  # changes only what the code is *told* -- the object stays whatever was built.
+  # Varying size across environments therefore means building one cylinder per
+  # size and handing each env exactly one; the rest are parked out of reach.
+  #
+  # Empty keeps a single size, which is what a run that does not need the
+  # variety should use: every extra entity is a free body in every environment,
+  # integrated whether it is in play or not.
+  #
+  # The sampled radius snaps to the nearest one built, so
+  # domain_randomisation.object_radius_m becomes a range over these.
+  radius_choices_m: []
+  # Where the unused sizes wait, and how far apart.  Far enough from the robot
+  # and the object that nothing can reach them.
+  park_xy_m: [6.0, 6.0]
+  park_step_m: 0.6
   collision: true
   # A graspable object must be a free body: disturbance and topple checks are
   # meaningless for a fixed entity.
@@ -566,17 +584,15 @@ domain_randomisation:
   # object will not be nudged: at 45 mm radius the wrap reaches 174 deg at
   # 1.0 kg and stalls at 70 deg at 2.0 kg.
   object_mass_kg: [0.15, 0.50]
-  # Held at the built radius, not a range.
+  # A range over the sizes `object.radius_choices_m` builds: the sample snaps to
+  # the nearest one, and that entity is the one the env gets.
   #
-  # Genesis fixes the cylinder's geometry when the scene is built, so a
-  # randomised radius changed only what the coverage meter and the observations
-  # were *told*: the object stayed 50 mm while the meter was handed 45 to 60,
-  # and every surface distance derived from it came out wrong -- 10 mm short at
-  # the top of the range, which over-credits coverage.  Sweeping size means
-  # building a scene per radius, which is what eval.radius_grid_m now drives.
-  #
-  # `object.radius_m` is the one that matters; set it and rebuild.
-  object_radius_m: [0.050, 0.050]
+  # With no choices configured there is only one size to snap to, so this is
+  # inert -- which is the honest behaviour.  It used to be a range against a
+  # single built cylinder, which changed only what the coverage meter was told:
+  # the object stayed 50 mm while the meter was handed 45 to 60, and every
+  # surface distance came out wrong in proportion.
+  object_radius_m: [0.045, 0.060]
   object_pos_jitter_m: [0.03, 0.03, 0.01]
   object_yaw_jitter_rad: 0.35
 
@@ -719,14 +735,17 @@ eval:
     x_m: [-0.03, 0.0, 0.03]
     y_m: [0.0]
     yaw_rad: [-0.3, 0.0, 0.3]
-  # One entry per *scene build*, not per condition inside one run: the morph is
-  # baked at build time, so a grid inside a single process would score one
-  # object while telling the meter it was several.  `eval.py` runs the grid it
-  # is given; sweeping size means one invocation per radius with
-  # `--set object.radius_m=...`.
+  # Every entry has to be a size the scene actually built -- `object.radius_m`
+  # plus `object.radius_choices_m` -- because the request snaps to the nearest
+  # one and that entity is what the env gets.  Asking for a size that was not
+  # built silently scores the closest one that was.
   #
-  # 35 mm is excluded: the closed coil passes that cylinder without reaching it
-  # -- one contact, zero wrap -- so scoring it measures the arm, not the policy.
+  # With no choices configured that leaves a single size, and sweeping means one
+  # invocation per radius with `--set object.radius_m=...`.
+  #
+  # 35 mm is worth excluding whatever is built: the closed coil passes that
+  # cylinder without reaching it -- one contact, zero wrap -- so scoring it
+  # measures the arm, not the policy.
   radius_grid_m: [0.050]
   render_episodes: 1
   out_dir: sim/rl_runs/eval
