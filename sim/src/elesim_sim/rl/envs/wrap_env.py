@@ -858,6 +858,20 @@ class WrapGraspEnv:
         )
         zeros3 = torch.zeros((n, 3), device=self.device)
 
+        # Genesis fixes the cylinder's geometry when the scene is built, so a
+        # per-env or per-condition radius changes only what the coverage meter
+        # and the observations are *told*.  Believing a radius the object does
+        # not have corrupts every surface distance derived from it -- at 60 mm
+        # against a built 50 mm the distances come out 10 mm short and coverage
+        # is over-credited.  Sweeping size means rebuilding the scene.
+        built = float(self.cfg.object.radius_m)
+        if not torch.allclose(radius, torch.full_like(radius, built), atol=1e-6):
+            raise ValueError(
+                "object radius was randomised or overridden to "
+                f"{sorted(set(round(float(v), 4) for v in radius))} but the scene "
+                f"was built with {built}. Genesis bakes the morph at build time, "
+                "so rebuild the scene per radius instead."
+            )
         if env_ids is None:
             self._object_radius[:] = radius
             self._object_height[:] = float(obj.height_m)

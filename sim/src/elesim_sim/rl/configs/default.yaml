@@ -566,10 +566,17 @@ domain_randomisation:
   # object will not be nudged: at 45 mm radius the wrap reaches 174 deg at
   # 1.0 kg and stalls at 70 deg at 2.0 kg.
   object_mass_kg: [0.15, 0.50]
-  # Lower bound raised from 35 mm: at that size the coil closes past the
-  # cylinder without reaching it -- one contact, zero wrap -- so those episodes
-  # were unwinnable rather than hard.
-  object_radius_m: [0.045, 0.060]
+  # Held at the built radius, not a range.
+  #
+  # Genesis fixes the cylinder's geometry when the scene is built, so a
+  # randomised radius changed only what the coverage meter and the observations
+  # were *told*: the object stayed 50 mm while the meter was handed 45 to 60,
+  # and every surface distance derived from it came out wrong -- 10 mm short at
+  # the top of the range, which over-credits coverage.  Sweeping size means
+  # building a scene per radius, which is what eval.radius_grid_m now drives.
+  #
+  # `object.radius_m` is the one that matters; set it and rebuild.
+  object_radius_m: [0.050, 0.050]
   object_pos_jitter_m: [0.03, 0.03, 0.01]
   object_yaw_jitter_rad: 0.35
 
@@ -712,9 +719,14 @@ eval:
     x_m: [-0.03, 0.0, 0.03]
     y_m: [0.0]
     yaw_rad: [-0.3, 0.0, 0.3]
-  # Matches the trainable range.  35 mm is excluded: the closed coil passes
-  # that cylinder without reaching it -- one contact, zero wrap -- so scoring
-  # it measures the arm's geometry, not the policy.
-  radius_grid_m: [0.045, 0.050, 0.060]
+  # One entry per *scene build*, not per condition inside one run: the morph is
+  # baked at build time, so a grid inside a single process would score one
+  # object while telling the meter it was several.  `eval.py` runs the grid it
+  # is given; sweeping size means one invocation per radius with
+  # `--set object.radius_m=...`.
+  #
+  # 35 mm is excluded: the closed coil passes that cylinder without reaching it
+  # -- one contact, zero wrap -- so scoring it measures the arm, not the policy.
+  radius_grid_m: [0.050]
   render_episodes: 1
   out_dir: sim/rl_runs/eval
