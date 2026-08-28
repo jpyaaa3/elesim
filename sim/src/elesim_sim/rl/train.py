@@ -63,6 +63,28 @@ def build_runner(env: WrapGraspEnv, cfg: WrapGraspConfig, log_dir: Path):
     return OnPolicyRunner(env, train_cfg, log_dir=str(log_dir), device=str(env.device))
 
 
+def _git_state() -> dict:
+    """The repository revision, and whether it had uncommitted changes."""
+    import subprocess
+
+    def run(*args: str) -> Optional[str]:
+        try:
+            out = subprocess.run(
+                args, cwd=_REPO_ROOT, capture_output=True, text=True, timeout=10
+            )
+        except Exception:
+            return None
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    commit = run("git", "rev-parse", "HEAD")
+    status = run("git", "status", "--porcelain")
+    return {
+        "commit": commit,
+        "dirty": bool(status) if status is not None else None,
+        "branch": run("git", "rev-parse", "--abbrev-ref", "HEAD"),
+    }
+
+
 def _install_curriculum_sidecar(runner, env: WrapGraspEnv) -> None:
     """Write the curriculum position beside every checkpoint rsl_rl saves.
 
@@ -103,6 +125,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     log_dir = resolve_run_dir(cfg, stamp=args.stamp)
     log_dir.mkdir(parents=True, exist_ok=True)
     meta = env.metadata()
+    # The commit the run was trained at.
+    #
+    # Evaluating a checkpoint with code that differs from the code that trained
+    # it silently scores the wrong thing: the observation vector keeps its width
+    # while its channels change meaning.  That happened here -- an eval was
+    # reading an object "yaw" the training had stopped producing -- so the
+    # commit travels with the run and `watch_eval` refuses a mismatch.
+    meta["git"] = _git_state()
     # rsl_rl's logger reads env.cfg for its run record.  The environment itself
     # uses that attribute as its typed config throughout, so it is left alone
     # and the readable copy goes to metadata.json instead.
