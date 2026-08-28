@@ -11,6 +11,7 @@ from __future__ import annotations
 import collections.abc
 import copy
 import dataclasses
+import re
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Optional, Sequence
@@ -593,6 +594,13 @@ def _coerce(value: Any, annotation: Any, path: str) -> Any:
             raise ConfigError(f"{path}: expected a boolean, got {value!r}")
         return value
     if annotation is int:
+        # A digit string counts.  YAML gives mapping keys as integers, but a
+        # `--set curriculum.stages.3.approach_shaping=true` reaches here with
+        # "3": the override path is split on dots, so every segment arrives as
+        # text.  Rejecting it made a whole branch of the config unreachable from
+        # the command line.
+        if isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
+            return int(value.strip())
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError(f"{path}: expected an integer, got {value!r}")
         return int(value)
@@ -618,6 +626,26 @@ def _build(cls: type, data: Mapping[str, Any], path: str = "") -> Any:
         child = f"{path}.{name}" if path else name
         kwargs[name] = _coerce(value, known[name].type, child)
     return cls(**kwargs)
+
+
+def _existing_key(mapping: Mapping[str, Any], key: str) -> Any:
+    """The key already in `mapping` that this path segment names.
+
+    An override path is split on dots, so every segment arrives as text, while
+    YAML reads `curriculum.stages`' keys as integers.  Looking up "3" then found
+    nothing, so the walk created a *second* entry under the string and the
+    original was shadowed -- and the coercion, mapping both to the integer 3,
+    kept whichever came last.  A `--set curriculum.stages.3.approach_shaping`
+    therefore silently reset that stage's other fields to their defaults, which
+    is how a run meant to randomise object size ended up randomising nothing.
+    """
+    if key in mapping:
+        return key
+    try:
+        numeric = int(key)
+    except (TypeError, ValueError):
+        return key
+    return numeric if numeric in mapping else key
 
 
 def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> None:
@@ -683,12 +711,13 @@ def load_config(
         keys, value = parse_override(override)
         cursor: MutableMapping[str, Any] = raw
         for key in keys[:-1]:
+            key = _existing_key(cursor, key)
             nxt = cursor.get(key)
             if not isinstance(nxt, MutableMapping):
                 nxt = {}
                 cursor[key] = nxt
             cursor = nxt
-        cursor[keys[-1]] = value
+        cursor[_existing_key(cursor, keys[-1])] = value
 
     version = raw.get("schema_version", SCHEMA_VERSION)
     if version != SCHEMA_VERSION:
