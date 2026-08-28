@@ -462,7 +462,13 @@ class WrapGraspEnv:
         if not bool(scripted.any()):
             return targets
         out = targets.clone()
-        roll = self.lift.roll_command * float(self.cfg.arm.roll_axis_sign)
+        # Clamped to the joint's own range.  This path writes the roll column of
+        # the joint target directly, so it bypasses the waypoint clamp that
+        # holds every policy action inside the limits -- a `roll_target_rad`
+        # outside them would be commanded as given.
+        lo, hi = self.cfg.arm.limits.roll_rad
+        roll = self.lift.roll_command.clamp(float(lo), float(hi))
+        roll = roll * float(self.cfg.arm.roll_axis_sign)
         out[:, 1] = torch.where(scripted, roll, out[:, 1])
         return out
 

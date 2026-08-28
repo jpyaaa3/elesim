@@ -538,7 +538,20 @@ class WrapGraspConfig:
                 reward,
                 weights=dataclasses.replace(reward.weights, approach_shaping=0.0),
             )
-        success = dataclasses.replace(self.success, criterion=stage.success_criterion)
+        # The stage supplies the criterion, but not over an explicit choice.
+        #
+        # `--set success.criterion=lift` used to be swallowed here: the stage's
+        # value replaced it and the run went on with `tug`, reporting a success
+        # rate for a test nobody asked for.  It cost three measurements before
+        # the pattern was spotted.  A criterion that differs from the schema
+        # default is taken as deliberate and kept.
+        default_criterion = type(self.success)().criterion
+        chosen = (
+            self.success.criterion
+            if self.success.criterion != default_criterion
+            else stage.success_criterion
+        )
+        success = dataclasses.replace(self.success, criterion=chosen)
         return dataclasses.replace(
             self, domain_randomisation=dr, reward=reward, success=success
         )

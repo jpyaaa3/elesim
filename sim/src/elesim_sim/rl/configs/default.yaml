@@ -73,7 +73,14 @@ scene:
   # plane, so spacing costs nothing.
   env_spacing_m: [6.0, 6.0]
   # null keeps whatever the URDF/Genesis default is.  Set to override.
-  friction: null
+  # Surface friction, applied to the arm, the object, the floor and the support.
+  # Genesis defaults every geom to 1.0, and `null` left it there.
+  #
+  # 2.0.  Measured on the trained policy at 1, 2 and 4: the tug retention test
+  # reads 92.2%, 95.3% and 78.1%, so 2 is the best of the three and 4 is worse
+  # than doing nothing -- a very sticky surface catches the arm on the object
+  # during the approach.
+  friction: 2.0
   go2:
     enable: true
     # null -> the application config's go2_spawn_height.  Taking it from the
@@ -546,6 +553,30 @@ success:
     max_rel_translation_m: 0.03
     max_rel_rotation_rad: 0.5
   lift:
+    # Measured: this arm cannot lift a floor-standing vertical pole, whatever
+    # this section says.  The two things a lift needs are mutually exclusive on
+    # this mechanism.
+    #
+    # At roll = +/-90 deg the bend plane is horizontal, which is the only way a
+    # coil can encircle a vertical object -- and bending within a horizontal
+    # plane moves the coil sideways, not up: from the wrap pose, theta1 or
+    # theta2 by 6 deg and the linear stage by 40 mm each shift the coil's height
+    # by 0.3 mm or less.  At roll near 0 the plane is vertical and the backbone
+    # does have 870 mm of height range, but then it cannot get around an upright
+    # object at all.
+    #
+    # The wrap also forms at roll = +90, which is the joint limit, so the only
+    # direction left is back towards 0 -- the direction that opens the
+    # encirclement.  Measured over 63 attempts: 0 held, at roll rates from 1.57
+    # down to 0.31 seconds, and at surface friction 1, 2 and 4.  The object
+    # barely moves -- 7.5 deg of tilt, 6 mm of base rise -- because the coil
+    # slides off rather than levering it over.
+    #
+    # A lift would need the object horizontal, so that roll near 0 both wraps it
+    # and raises it, or held off the ground, which needs a support inside the
+    # wrap.  `success.criterion: tug` is the retention test that this geometry
+    # does support.
+    #
     # Wrap angle at which the scripted lift is attempted.  Deliberately
     # permissive: an attempt costs a few substeps, and letting the policy try
     # early and fail retention is more informative than never trying.
@@ -589,7 +620,11 @@ observation:
 
 domain_randomisation:
   enable: true
-  friction: [0.6, 1.2]
+  # A single value, not a range.  Genesis takes friction per entity and not per
+  # environment -- `set_friction` has no `envs_idx` -- so a range here was never
+  # applied to anything; nothing read it at all.  Kept as one number so it
+  # cannot look like variety that is not there.
+  friction: [2.0, 2.0]
   # Capped at the arm's payload.  This is a continuum backbone, not a rigid
   # manipulator: kilogram loads are outside what it can hold, and the beta
   # residual model is identified over the same light range.

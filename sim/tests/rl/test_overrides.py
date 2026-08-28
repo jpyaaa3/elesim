@@ -63,3 +63,20 @@ def test_an_unknown_key_is_refused():
 def test_a_scalar_override_still_works_at_the_top_level():
     cfg = load_config(overrides=["curriculum.stage=1"])
     assert cfg.curriculum.stage == 1
+
+
+def test_an_explicit_success_criterion_beats_the_stage_default():
+    """`--set success.criterion=...` must not be swallowed by the stage.
+
+    It was: the stage's value replaced it, the run continued with `tug`, and the
+    report gave a success rate for a test nobody had asked for.  Three
+    measurements were taken before the pattern showed.
+    """
+    assert load_config().resolved_for_curriculum().success.criterion == "tug"
+    forced = load_config(overrides=["success.criterion=lift"])
+    assert forced.resolved_for_curriculum().success.criterion == "lift"
+
+
+def test_the_stage_still_supplies_the_criterion_when_nothing_is_forced():
+    cfg = load_config(overrides=["curriculum.stages.2.success_criterion=geometric"])
+    assert cfg.resolved_for_curriculum().success.criterion == "geometric"
