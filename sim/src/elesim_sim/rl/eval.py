@@ -179,7 +179,18 @@ def evaluate_condition(
     phi_max = 0.0
     phi_total = 0.0
     phi_count = 0
-    while result.episodes < episodes:
+    # A quota per env, not a total.
+    #
+    # Stopping at a total biases the sample towards whatever finishes first,
+    # and failures finish first: a collision ends around macro step 5 while a
+    # success runs to 12 or 13.  Measured, that turned every condition into one
+    # of two artefacts -- either the loop harvested only the early collisions
+    # and reported 0% success, or nothing finished early and the successes
+    # arrived together, filling the count with one batch and reporting 93%.
+    # The trained centre condition read 0% while its neighbour read 93%.
+    per_env = max(1, -(-int(episodes) // int(env.num_envs)))
+    done_count = torch.zeros(env.num_envs, dtype=torch.long, device=device)
+    while bool((done_count < per_env).any()):
         with torch.inference_mode():
             actions = policy(obs)
         obs, rewards, dones, extras = env.step(actions)
@@ -191,16 +202,21 @@ def evaluate_condition(
 
         done_ids = dones.nonzero(as_tuple=False).flatten()
         if done_ids.numel():
-            reasons = extras.get("termination_reason") or env._last_reasons
-            success, counts, bodies = classify(
-                env, tracker, reasons, extras["time_outs"], done_ids
-            )
-            result.episodes += int(done_ids.numel())
-            result.successes += success
-            for key, value in counts.items():
-                result.failures[key] += value
-            for key, value in bodies.items():
-                result.collision_bodies[key] += value
+            # Only the envs still under quota count, so an env that races ahead
+            # cannot contribute more episodes than the rest.
+            keep = done_ids[done_count[done_ids] < per_env]
+            done_count[done_ids] += 1
+            if keep.numel():
+                reasons = extras.get("termination_reason") or env._last_reasons
+                success, counts, bodies = classify(
+                    env, tracker, reasons, extras["time_outs"], keep
+                )
+                result.episodes += int(keep.numel())
+                result.successes += success
+                for key, value in counts.items():
+                    result.failures[key] += value
+                for key, value in bodies.items():
+                    result.collision_bodies[key] += value
             tracker.reset(done_ids)
 
     result.phi_max_rad = phi_max
