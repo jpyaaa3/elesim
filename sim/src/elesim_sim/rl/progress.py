@@ -12,11 +12,26 @@ not reaching a 80 mm cylinder, or the position jitter not covering +/-60 mm, do
 not yield to a longer run.
 
 The comparison is between two adjacent windows rather than against a peak, so a
-noisy plateau reads as flat instead of as decline.  Windows are in iterations,
-and an iteration means the same amount of policy movement regardless of how many
-environments produced it -- PPO takes the same number of gradient steps either
-way, and the adaptive KL schedule caps how far the policy can move per step.
-So the thresholds do not need rescaling for env count.
+noisy plateau reads as flat instead of as decline.
+
+The window is sized from the data, not picked.  What it has to do is separate a
+real change of SUCCESS_EPS from the metric's own noise, and the standard error
+of the difference between two windows of W iterations is
+`sd * sqrt(2 * tau / W)`, where `tau` is the integrated autocorrelation time --
+successive iterations are not independent, since the policy moves slowly.
+Measured on a converged run, sd is 0.0023 and tau about 15 iterations, so W of
+26 already puts that error at half the threshold.  The default of 100 leaves a
+factor of four.
+
+An earlier default of 500 came from "the run converged around iteration 2000",
+which is when a plateau *arrives* and says nothing about how many samples it
+takes to recognise one.  Those are different questions.
+
+Windows are in iterations and need no rescaling for environment count.  More
+environments cut the sampling noise per iteration, which would allow a smaller
+window; they do not change how far the policy moves per iteration, since PPO
+takes the same twenty gradient steps either way and the adaptive KL schedule
+caps the step.  The second is what binds, so the window stays put.
 
 Run::
 
@@ -37,6 +52,12 @@ from typing import Optional, Sequence
 #: Change over the comparison window counted as flat.
 SUCCESS_EPS = 0.005          # fraction, so half a point
 PHI_EPS = 0.05               # radians, about 3 degrees
+
+#: Iterations per comparison window, sized from the measured noise: see the
+#: module docstring.  Four times what separating SUCCESS_EPS requires.
+DEFAULT_LOG_WINDOW = 100
+#: Checkpoints per window for a `watch_eval` curve, which is far coarser.
+DEFAULT_CURVE_WINDOW = 3
 
 
 def series_from_log(text: str, key: str) -> list[float]:
@@ -131,7 +152,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("path", help="train log, or a watch_eval curve.csv")
     parser.add_argument(
         "--window", type=int, default=None,
-        help="iterations per comparison window (default: 500 for a log, 3 for a curve)",
+        help=(
+            f"iterations per comparison window (default: {DEFAULT_LOG_WINDOW} for a "
+            f"log, {DEFAULT_CURVE_WINDOW} for a curve)"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -139,7 +163,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not path.is_file():
         raise SystemExit(f"파일이 없습니다: {path}")
     data = read(path)
-    window = args.window or (3 if path.suffix.lower() == ".csv" else 500)
+    window = args.window or (
+        DEFAULT_CURVE_WINDOW if path.suffix.lower() == ".csv" else DEFAULT_LOG_WINDOW
+    )
     call, lines = verdict(data, window)
     for line in lines:
         print(line)
