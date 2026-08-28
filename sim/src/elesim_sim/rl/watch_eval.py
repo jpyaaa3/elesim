@@ -180,6 +180,12 @@ def local_commit() -> Optional[str]:
     return out.stdout.strip() if out.returncode == 0 else None
 
 
+#: Mismatches already reported, so a warning appears once per run rather than
+#: once per poll.  Repeating it every few minutes buries the lines that carry
+#: new information.
+_WARNED: set[str] = set()
+
+
 def check_commit(local_run: Path, *, allow_mismatch: bool) -> None:
     """Refuse to evaluate a run trained at a different revision.
 
@@ -207,7 +213,9 @@ def check_commit(local_run: Path, *, allow_mismatch: bool) -> None:
             "관측 채널의 의미가 다르면 평가가 조용히 틀린 값을 냅니다."
         )
     if allow_mismatch:
-        print(f"[watch] 경고: {message}")
+        if message not in _WARNED:
+            _WARNED.add(message)
+            print(f"[watch] 경고: {message}")
         return
     raise SystemExit(
         f"[watch] 중단: {message}\n"
@@ -245,9 +253,10 @@ def evaluate(
     episodes: int,
     render: int,
     extra: Sequence[str],
+    name: Optional[str] = None,
 ) -> Optional[dict]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    report = out_dir / f"{ckpt.stem}.md"
+    report = out_dir / f"{name or ckpt.stem}.md"
     cmd = [
         sys.executable, "-m", "elesim_sim.rl.eval",
         "--checkpoint", str(ckpt),
@@ -258,7 +267,7 @@ def evaluate(
     if render > 0:
         cmd += ["--render", str(render), "--render-episodes", "2"]
     cmd += list(extra)
-    print(f"[watch] 평가 {ckpt.name} ...", flush=True)
+    print(f"[watch] 평가 {name or ckpt.name} ...", flush=True)
     result = subprocess.run(cmd, cwd=_REPO_ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-3:]
@@ -324,6 +333,61 @@ def done_iterations(csv_path: Path) -> set[int]:
 # --------------------------------------------------------------------------
 
 
+def sweep_sizes(
+    ckpt: Path,
+    out_dir: Path,
+    radii: Sequence[float],
+    *,
+    n_envs: int,
+    episodes: int,
+    render: int,
+    extra: Sequence[str],
+) -> None:
+    """Evaluate one checkpoint at several object sizes, one build each.
+
+    Genesis fixes a morph's geometry when the scene is built, so a size sweep
+    cannot happen inside one process: asking for another radius at reset changes
+    only what the coverage meter is told while the object stays what it was.
+    Each size therefore gets its own eval invocation.
+
+    This exists because a multi-size training run was being scored at one size.
+    The variety was the point of the run and the report did not cover it.
+    """
+    csv_path = out_dir / "sizes.csv"
+    rows = []
+    for radius in radii:
+        tag = f"{ckpt.stem}_r{int(round(radius * 1000))}"
+        data = evaluate(
+            ckpt, out_dir,
+            n_envs=n_envs, episodes=episodes, render=render,
+            extra=[*extra, "--set", f"object.radius_m={radius}",
+                   "--set", f"eval.radius_grid_m=[{radius}]"],
+            name=tag,
+        )
+        if data is None:
+            continue
+        row = summarise(0, ckpt, data)
+        row["diameter_mm"] = int(round(radius * 2000))
+        rows.append(row)
+        print(
+            f"[watch] 지름 {row['diameter_mm']:4d}mm  성공 {100*row['success_rate']:5.1f}%"
+            f"  토플 {100*row['topple']:5.1f}%  housing {100*row['collision']:5.1f}%"
+            f"  못감음 {100*row['no_wrap']:5.1f}%"
+        )
+    if not rows:
+        return
+    fresh = not csv_path.is_file()
+    columns = ["diameter_mm", "checkpoint", *[c for c in _CSV_COLUMNS
+                                             if c not in ("iteration", "checkpoint")]]
+    with csv_path.open("a", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=columns)
+        if fresh:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in columns})
+    print(f"[watch] 크기별 결과 {csv_path}")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True,
@@ -349,6 +413,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                              "the newest -- for when evaluation cannot keep up")
     parser.add_argument("--allow-commit-mismatch", action="store_true")
     parser.add_argument("--once", action="store_true", help="one pass, then exit")
+    parser.add_argument(
+        "--sizes", default=None,
+        help=(
+            "comma-separated object radii in metres.  Each is a separate scene "
+            "build, because Genesis bakes the morph -- one eval per size, and "
+            "one row per size in sizes.csv"
+        ),
+    )
     parser.add_argument("--set", action="append", default=[], dest="overrides",
                         help="passed through to eval, e.g. --set object.radius_m=0.06")
     args = parser.parse_args(argv)
@@ -382,9 +454,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     extra = []
     for item in args.overrides:
         extra += ["--set", item]
+    last_reported = -1
 
     try:
         open_master(args.host, args.port)
+        if args.sizes:
+            radii = [float(v) for v in args.sizes.split(",") if v.strip()]
+            if not pull(args.host, args.remote_run, local_run, args.port):
+                return 1
+            check_commit(local_run, allow_mismatch=args.allow_commit_mismatch)
+            pending = checkpoints(local_run, args.interval)
+            if not pending:
+                raise SystemExit("[watch] 평가할 체크포인트가 없습니다.")
+            iteration, ckpt = pending[-1]
+            print(f"[watch] 크기 스윕: {ckpt.name} (iteration {iteration})")
+            sweep_sizes(
+                ckpt, out_dir, radii,
+                n_envs=args.n_envs, episodes=args.episodes,
+                render=args.render, extra=extra,
+            )
+            return 0
         while True:
             if not pull(args.host, args.remote_run, local_run, args.port):
                 if args.once:
@@ -411,7 +500,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     print(f"[watch] 대기 중 {skipped}개는 건너뜁니다 (--latest-only)")
 
             if not pending:
-                print(f"[watch] 새 체크포인트 없음 ({len(already)}개 평가 완료)")
+                # Only when the count changes: on a quiet poll the line says
+                # exactly what the last one did.
+                if len(already) != last_reported:
+                    print(f"[watch] 새 체크포인트 없음 ({len(already)}개 평가 완료)")
+                    last_reported = len(already)
             for iteration, ckpt in pending:
                 data = evaluate(
                     ckpt, out_dir,
