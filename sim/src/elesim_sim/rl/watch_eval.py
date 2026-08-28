@@ -63,38 +63,46 @@ _CSV_COLUMNS = (
 # --------------------------------------------------------------------------
 
 
-def control_path(host: str) -> Path:
-    return Path.home() / ".ssh" / f"elesim-watch-{re.sub(r'[^A-Za-z0-9]', '_', host)}"
+def control_path(host: str, port: Optional[int]) -> Path:
+    """One socket per host *and* port: the same host on two ports is two hosts."""
+    tag = re.sub(r"[^A-Za-z0-9]", "_", host)
+    if port:
+        tag = f"{tag}_{port}"
+    return Path.home() / ".ssh" / f"elesim-watch-{tag}"
 
 
-def ssh_options(host: str) -> list[str]:
+def ssh_options(host: str, port: Optional[int] = None) -> list[str]:
     """Options that make every call reuse one authenticated connection."""
-    return [
+    opts = [
         "-o", "ControlMaster=auto",
-        "-o", f"ControlPath={control_path(host)}",
+        "-o", f"ControlPath={control_path(host, port)}",
         "-o", "ControlPersist=8h",
         "-o", "ServerAliveInterval=30",
     ]
+    if port:
+        opts += ["-p", str(port)]
+    return opts
 
 
-def open_master(host: str) -> None:
+def open_master(host: str, port: Optional[int] = None) -> None:
     """Authenticate once, then leave a socket behind for rsync to reuse.
 
     With password authentication this is the only prompt; it is interactive on
     purpose, so no password is ever written down.
     """
-    sock = control_path(host)
+    sock = control_path(host, port)
     check = subprocess.run(
-        ["ssh", "-O", "check", *ssh_options(host), host],
+        ["ssh", "-O", "check", *ssh_options(host, port), host],
         capture_output=True, text=True,
     )
     if check.returncode == 0:
         print(f"[watch] 기존 SSH 연결 재사용: {sock}")
         return
-    print(f"[watch] {host} 에 연결합니다. 비밀번호 인증이면 여기서 한 번 물어봅니다.")
-    made = subprocess.run(["ssh", "-MNf", *ssh_options(host), host])
+    where = f"{host}:{port}" if port else host
+    print(f"[watch] {where} 에 연결합니다. 비밀번호 인증이면 여기서 한 번 물어봅니다.")
+    made = subprocess.run(["ssh", "-MNf", *ssh_options(host, port), host])
     if made.returncode != 0:
-        raise SystemExit(f"[watch] SSH 연결 실패: {host}")
+        raise SystemExit(f"[watch] SSH 연결 실패: {where}")
     print("[watch] 연결됨. 이후 rsync는 이 소켓을 재사용합니다.")
 
 
@@ -120,7 +128,8 @@ def check_remote_path(remote_run: str) -> None:
         )
 
 
-def pull(host: str, remote_run: str, local_run: Path) -> bool:
+def pull(host: str, remote_run: str, local_run: Path,
+         port: Optional[int] = None) -> bool:
     """Mirror the checkpoints and the run metadata, nothing else.
 
     Tensorboard event files are excluded: they are large, they grow every
@@ -131,7 +140,9 @@ def pull(host: str, remote_run: str, local_run: Path) -> bool:
     """
     local_run.mkdir(parents=True, exist_ok=True)
     remote = f"{host}:{remote_run.rstrip('/')}/"
-    ssh = "ssh " + " ".join(ssh_options(host))
+    # rsync takes the remote shell as one string, so the port rides along in it
+    # rather than as an rsync flag.
+    ssh = "ssh " + " ".join(ssh_options(host, port))
     cmd = [
         "rsync", "-az", "--partial",
         "-e", ssh,
@@ -315,7 +326,10 @@ def done_iterations(csv_path: Path) -> set[int]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", required=True, help="ssh host or alias")
+    parser.add_argument("--host", required=True,
+                        help="ssh host or alias, optionally user@host")
+    parser.add_argument("--port", type=int, default=None,
+                        help="ssh port, when it is not 22")
     parser.add_argument("--remote-run", required=True,
                         help="run directory on the server")
     parser.add_argument("--interval", type=int, default=100,
@@ -359,7 +373,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"         아니라면 지우고 다시 실행하세요."
         )
     lock.write_text(str(os.getpid()))
-    print(f"[watch] 서버   {args.host}:{args.remote_run}")
+    where = f"{args.host}:{args.port}" if args.port else args.host
+    print(f"[watch] 서버   {where}  {args.remote_run}")
     print(f"[watch] 로컬   {local_run}")
     print(f"[watch] 출력   {out_dir}")
     print(f"[watch] 간격   {args.interval} iteration 마다, {args.period:.0f}초 주기")
@@ -369,9 +384,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         extra += ["--set", item]
 
     try:
-        open_master(args.host)
+        open_master(args.host, args.port)
         while True:
-            if not pull(args.host, args.remote_run, local_run):
+            if not pull(args.host, args.remote_run, local_run, args.port):
                 if args.once:
                     return 1
                 time.sleep(args.period)
