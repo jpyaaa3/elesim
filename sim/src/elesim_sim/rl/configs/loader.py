@@ -55,7 +55,7 @@ class SceneConfig:
     #: Application config the mechanism's parameters are read from.
     app_config: str = "sim/config/config.yaml"
     dt: float = 0.01
-    solver_substeps: int = 1
+    solver_substeps: int = 2
     max_collision_pairs: int = 1024
     show_viewer: bool = False
     decompose_robot_error_threshold: Optional[float] = 0.15

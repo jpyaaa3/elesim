@@ -16,8 +16,24 @@ runtime:
 
 scene:
   dt: 0.01
-  # Genesis rigid-solver substeps per scene.step().
-  solver_substeps: 1
+  # Genesis rigid-solver substeps per scene.step(), so the effective timestep is
+  # dt / this.
+  #
+  # 2, not 1.  At 1 the constraint solver produces NaN forces often enough to
+  # kill a run: "Invalid constraint forces causing 'nan'" ended a 2048-env CUDA
+  # run at iteration 4 with every metric healthy beforehand -- contact buffer
+  # not overflowing, 52% of envs touching, 8% succeeding -- so it is a rare
+  # blow-up that a large env count surfaces quickly rather than anything the
+  # policy did.  A 128-env Mac run survived 3654 iterations, which is the same
+  # instability at 1/16 the exposure.
+  #
+  # Halving the timestep is what the error itself asks for, and it costs 22%
+  # rather than double: measured at 32 envs, 13.2 s per iteration against 16.1.
+  # The physics is unchanged where it matters -- a scripted wrap reaches 188 deg
+  # at 1 and 180 at 2.
+  #
+  # If a run still dies, raise this again before reaching for anything else.
+  solver_substeps: 2
   # Contact-constraint buffer.  Genesis halts the sim if the real pair count
   # exceeds this, and get_contacts() returns at most this many rows per env.
   #
