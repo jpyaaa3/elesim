@@ -184,7 +184,7 @@ class RateLimitConfig:
 
 @dataclass(frozen=True)
 class MacroStepConfig:
-    max_steps: int = 15
+    max_steps: int = 20
     substeps: int = 40
     move_fraction: float = 0.6
     settle: SettleConfig = field(default_factory=SettleConfig)

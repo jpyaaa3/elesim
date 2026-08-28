@@ -289,7 +289,15 @@ object:
 
 macro_step:
   # Rule 1: this is a macro-step MDP, not a 50 Hz reactive controller.
-  max_steps: 15
+  #
+  # The budget has to cover the wrap *and* the success test.  The scripted lift
+  # costs 8 macro steps on its own -- 105 substeps of rotation, 80 of settle and
+  # 100 of hold, measured from an already-wrapped pose, where success lands on
+  # step 9 -- and the wrap took 7 from Home.  At 15 the two fit exactly, so a
+  # policy needing one step more than the best one so far can never finish, and
+  # the reverse curriculum would stall on the last leg for a reason that has
+  # nothing to do with the grasp.  20 leaves 12 steps for the wrap.
+  max_steps: 20
   # Substeps simulated per macro step.
   substeps: 40
   # Fraction of those substeps spent *moving* to the new waypoint, with the
