@@ -125,7 +125,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not path.is_absolute():
             path = _REPO_ROOT / path
         print(f"[train] resuming from : {path}")
-        runner.load(str(path))
+        # Map to this machine's device.  rsl_rl defaults map_location to None,
+        # which restores every tensor to the device recorded in the file, so a
+        # checkpoint trained on an Apple GPU fails to load on a CUDA box with
+        # "Storage device not recognized: mps" -- and the reverse for a CUDA
+        # checkpoint on a machine without one.
+        runner.load(str(path), map_location=str(env.device))
         # The reverse curriculum's position lives on the env, not in the
         # checkpoint rsl_rl writes, so a resume would otherwise restart it at
         # the configured `t_range` and hand the policy back the easy start it

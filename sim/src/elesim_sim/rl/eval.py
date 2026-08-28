@@ -416,7 +416,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     log_dir = ckpt.parent / "eval"
     log_dir.mkdir(parents=True, exist_ok=True)
     runner: OnPolicyRunner = build_runner(env, cfg, log_dir)
-    runner.load(str(ckpt))
+    # Same reason as in train.py: a checkpoint carries the device it was saved
+    # on, so evaluating a Mac-trained policy on a CUDA box needs the mapping.
+    runner.load(str(ckpt), map_location=str(env.device))
     policy = runner.get_inference_policy(device=env.device)
 
     ev = cfg.eval
