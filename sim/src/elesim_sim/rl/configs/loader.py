@@ -294,11 +294,21 @@ class TugConfig:
 class LiftConfig:
     trigger_rad: float = 2.0944
     roll_target_rad: float = 0.0
-    roll_rate_rad_per_substep: float = 0.01
+    roll_rate_rad_per_substep: float = 0.015
+    #: Substeps between the end of the rotation and the start of the measured
+    #: hold.  The lift lays the object down into the coil, so it moves a long
+    #: way relative to the arm on purpose; the tolerances below are about
+    #: whether it then stays put, and they are anchored after this window.
+    settle_substeps: int = 80
     hold_substeps: int = 100
     max_rel_translation_m: float = 0.03
     max_rel_rotation_rad: float = 0.5
-    min_height_m: float = 0.02
+    #: The object's lowest point must clear the floor by this much for the
+    #: whole measured hold: an object resting on the ground is not being held,
+    #: whatever its pose relative to the arm.
+    min_clearance_m: float = 0.05
+    #: ...and the arm must still be touching it.
+    min_object_contacts: int = 2
 
 
 @dataclass(frozen=True)
@@ -309,7 +319,7 @@ class StartPoseConfig:
     #: Waypoint the episode can start from instead of Home: the open coil
     #: already positioned around the object, which is where a scripted wrap is
     #: at macro step 7.  From here success is three or four steps away.
-    near_waypoint: tuple[float, float, float, float] = (-0.077, 1.5708, 0.0, 0.1047)
+    near_waypoint: tuple[float, float, float, float] = (-0.077, -1.5708, 0.0, -0.1047)
     #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.
     t_range: tuple[float, float] = (0.85, 1.0)
     #: Once the success rate over `window` episodes clears `advance_at`, the
@@ -321,7 +331,12 @@ class StartPoseConfig:
 
 @dataclass(frozen=True)
 class SuccessConfig:
-    criterion: str = "tug"
+    #: Keep in step with `success.criterion` in default.yaml.
+    #: `resolved_for_curriculum` treats "differs from this default" as "the
+    #: caller asked for it explicitly" and lets it win over the stage; if this
+    #: drifts from the file, every run looks like an explicit choice and the
+    #: stages stop being able to set the criterion at all.
+    criterion: str = "lift"
     coverage_target_rad: float = 3.0019
     lift: LiftConfig = field(default_factory=LiftConfig)
     tug: TugConfig = field(default_factory=TugConfig)

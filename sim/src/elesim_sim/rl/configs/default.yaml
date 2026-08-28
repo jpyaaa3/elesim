@@ -518,13 +518,16 @@ success:
   # bearing while the widest gap stays 10-20 mm wider than the object at every
   # size in the randomisation range.
   #
-  # `lift` is the strictest test but is unreachable here: rolling the arm to
-  # lift sweeps it through the space directly under the object.  Training to
-  # iteration 2800 under it left `retention: 0` across all 3112 episodes.
+  # `lift` is the strictest test: wrap, then roll back to zero, which lays the
+  # object into the coil, and hold it there off the ground.  It reads zero for a
+  # policy that wraps in the mirror image of the right direction, which is what
+  # the run to iteration 2800 was doing -- `retention: 0` across all 3112
+  # episodes -- so a zero here means "check the wrap direction" before it means
+  # "the grasp is weak".
   #
   # The dense early signal comes from reward.weights.approach_shaping, which is
   # continuous at any distance; a success bonus does not need to be dense.
-  criterion: tug              # tug | geometric | lift
+  criterion: lift             # tug | geometric | lift
   # Wrap angle past which the object counts as wrapped.  Two uses, neither of
   # them "success": it stops the pre-wrap disturbance penalty (moving a wrapped
   # object is the goal), and with criterion=geometric it is the gate.
@@ -553,29 +556,23 @@ success:
     max_rel_translation_m: 0.03
     max_rel_rotation_rad: 0.5
   lift:
-    # Measured: this arm cannot lift a floor-standing vertical pole, whatever
-    # this section says.  The two things a lift needs are mutually exclusive on
-    # this mechanism.
+    # The lift does not raise the object: it lays it down.  Roll rotates the
+    # bend plane, and from a wrap the only rotation the joint has left is back
+    # towards zero, which levers a standing pole over into the coil and carries
+    # it there on its side.  Nothing here asks the object to stay upright.
     #
-    # At roll = +/-90 deg the bend plane is horizontal, which is the only way a
-    # coil can encircle a vertical object -- and bending within a horizontal
-    # plane moves the coil sideways, not up: from the wrap pose, theta1 or
-    # theta2 by 6 deg and the linear stage by 40 mm each shift the coil's height
-    # by 0.3 mm or less.  At roll near 0 the plane is vertical and the backbone
-    # does have 870 mm of height range, but then it cannot get around an upright
-    # object at all.
-    #
-    # The wrap also forms at roll = +90, which is the joint limit, so the only
-    # direction left is back towards 0 -- the direction that opens the
-    # encirclement.  Measured over 63 attempts: 0 held, at roll rates from 1.57
-    # down to 0.31 seconds, and at surface friction 1, 2 and 4.  The object
-    # barely moves -- 7.5 deg of tilt, 6 mm of base rise -- because the coil
-    # slides off rather than levering it over.
-    #
-    # A lift would need the object horizontal, so that roll near 0 both wraps it
-    # and raises it, or held off the ground, which needs a support inside the
-    # wrap.  `success.criterion: tug` is the retention test that this geometry
-    # does support.
+    # Which of the two wrap directions the policy learns decides whether that
+    # works, and for a long time this file said a lift was impossible on the
+    # arm.  That was measured in one direction only.  Wrapping at roll +90 with
+    # the curl positive, rolling back to 0 sweeps the coil through the
+    # quadruped's own body: 100% of envs hit a terminating self-collision and
+    # the object ends 274 mm lower, knocked over -- 0 held over 63 attempts, at
+    # roll rates from 1.57 s down to 0.31 s and at surface friction 1, 2 and 4.
+    # Mirrored to roll -90 with the curl negative, the same rotation sweeps the
+    # other way: 0% self-collision, the object 118 mm higher and its lowest
+    # point half a metre clear of the floor, held to 5.6 mm and 2.6 deg over the
+    # following second.  See start_pose.near_waypoint, which is what steers the
+    # policy into the mirrored basin.
     #
     # Wrap angle at which the scripted lift is attempted.  Deliberately
     # permissive: an attempt costs a few substeps, and letting the policy try
@@ -590,13 +587,33 @@ success:
     # one.  So the lift rotates *to* zero.  Targeting +90 deg from a wrap at
     # -90 deg would sweep 180 deg and unwrap the object on the way.
     roll_target_rad: 0.0
-    roll_rate_rad_per_substep: 0.01
+    # 90 deg in 1.05 s.  Not faster: the rotation lays a 1.1 m pole into the
+    # coil, and past about one second the pole arrives with enough momentum to
+    # keep rolling inside it and works its way out.  Measured on the same
+    # teleported wrap over 32 envs, retention reads 0% at 0.31 s and 0.52 s,
+    # 3% at 0.79 s, 72% at 1.05 s and 75% at 1.57 s -- a knee, not a slope.
+    roll_rate_rad_per_substep: 0.015
+    # Substeps of quiet between the end of the rotation and the start of the
+    # measured hold.  The lift lays a standing pole down into the coil, so it
+    # travels a long way relative to the arm on purpose, and the tolerances
+    # below only mean something once it has come to rest.  Measured on the
+    # scripted manoeuvre, the object's drift over one second reads 48 mm from
+    # the end of the rotation, 21 mm after 40 substeps of settle, and 5.6 mm
+    # after 80 -- so 80.
+    settle_substeps: 80
     hold_substeps: 100
-    # Retention: the object must not fall and must keep its pose relative to
-    # segment 2 within these tolerances for the whole lift plus hold.
+    # Retention over the measured hold: the object keeps its pose relative to
+    # segment 2 within these tolerances...
     max_rel_translation_m: 0.03
     max_rel_rotation_rad: 0.5
-    min_height_m: 0.02
+    # ...its lowest point stays this far off the floor, because an object
+    # standing on the ground is not being held whatever its relative pose
+    # says...
+    min_clearance_m: 0.05
+    # ...and the arm is still touching it.  Held horizontally in the coil, the
+    # scripted manoeuvre measures 519 mm of clearance and 6 links in contact,
+    # so neither bound is close.
+    min_object_contacts: 2
 
 observation:
   # Rule 2: the actor never sees simulator ground truth.
@@ -668,7 +685,7 @@ curriculum:
       randomise_object_pose: false
       randomise_object_radius: false
       approach_shaping: true
-      success_criterion: tug
+      success_criterion: lift
     2:
       randomise_object_pose: true
       randomise_object_radius: false
@@ -679,12 +696,12 @@ curriculum:
       # would change two things at once and leave a failure unattributable;
       # dropping it is worth testing, but on its own.
       approach_shaping: true
-      success_criterion: tug
+      success_criterion: lift
     3:
       randomise_object_pose: true
       randomise_object_radius: true
       approach_shaping: false
-      success_criterion: tug
+      success_criterion: lift
 
 # Reverse curriculum on where the arm starts.
 #
@@ -700,7 +717,17 @@ start_pose:
   # The open coil already positioned around the object: where a scripted wrap is
   # at macro step 7, with the nearest link 78 mm off the surface and nothing
   # touching.  From here success is three or four steps away.
-  near_waypoint: [-0.077, 1.5708, 0.0, 0.1047]
+  #
+  # Mirrored -- roll -90 and the curl negative, not roll +90 and the curl
+  # positive.  Both wrap: swept over a 259-pose grid the two directions reach
+  # 240 and 252 deg.  They differ in what the lift then does, because rolling
+  # back to zero is the only rotation the joint has left from either limit.
+  # From +90 it sweeps the coil through the quadruped's own body: measured, 100%
+  # of envs hit a terminating self-collision and the object ends 274 mm *lower*,
+  # knocked over.  From -90 it sweeps the other way, lays the pole into the coil
+  # and carries it: 0% self-collision, the object 118 mm higher and half a metre
+  # clear of the floor.  Same arm, same object, opposite sign.
+  near_waypoint: [-0.077, -1.5708, 0.0, -0.1047]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.
   t_range: [0.85, 1.0]

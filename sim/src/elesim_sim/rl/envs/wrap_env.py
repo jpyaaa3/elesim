@@ -356,6 +356,13 @@ class WrapGraspEnv:
                 object_displacement=state["displacement"],
                 object_tilt=state["tilt"],
                 success=success,
+                under_test=(
+                    None
+                    if self.script is None
+                    else ~self.script.follows_policy
+                    if hasattr(self.script, "follows_policy")
+                    else None
+                ),
             )
         )
 
@@ -425,6 +432,11 @@ class WrapGraspEnv:
         start = self._waypoint_from
         end = self.mapper.waypoint
         hold = 0
+        scripted_active = (
+            self.script is not None
+            and hasattr(self.script, "follows_policy")
+            and bool((~self.script.follows_policy).any())
+        )
 
         for i in range(substeps):
             alpha = min(1.0, float(i + 1) / move_steps)
@@ -444,8 +456,20 @@ class WrapGraspEnv:
 
             if self.script is not None:
                 self.script.advance(self._lift_observation())
+                if hasattr(self.script, "follows_policy"):
+                    scripted_active = bool((~self.script.follows_policy).any())
 
-            if settle.mode == "velocity" and (i + 1) >= int(settle.min_substeps):
+            # Not while a scripted success test is running.  The early break
+            # exists to skip substeps in which nothing moves, but the lift's
+            # rotation, settle and hold are counted in substeps, so breaking out
+            # of them stops the test's own clock: at 40 substeps a macro step
+            # the manoeuvre needs 211 of them, and a batch that keeps breaking
+            # at 12 never finishes one inside the episode.
+            if (
+                settle.mode == "velocity"
+                and (i + 1) >= int(settle.min_substeps)
+                and not scripted_active
+            ):
                 if bool(self._is_settled().all()):
                     hold += 1
                     if hold >= int(settle.hold_substeps):
@@ -513,12 +537,33 @@ class WrapGraspEnv:
     def _lift_observation(self) -> LiftObservation:
         pos = self.scene.robot.get_links_pos()
         quat = self.scene.robot.get_links_quat()
+        obj_pos = self.scene.object.get_pos()
+        obj_quat = self.scene.object.get_quat()
         return LiftObservation(
-            object_pos=self.scene.object.get_pos(),
-            object_quat=self.scene.object.get_quat(),
+            object_pos=obj_pos,
+            object_quat=obj_quat,
             anchor_pos=pos[:, self._anchor_link, :],
             anchor_quat=quat[:, self._anchor_link, :],
+            clearance=self._object_clearance(obj_pos, obj_quat),
+            object_contacts=self.contacts.last.object_link_hits.sum(dim=-1),
         )
+
+    def _object_clearance(
+        self, obj_pos: torch.Tensor, obj_quat: torch.Tensor
+    ) -> torch.Tensor:
+        """Height of the cylinder's lowest point above the floor.
+
+        Closed form rather than a contact query: the lowest point of a cylinder
+        of radius r and height h whose axis has world-z component `az` sits
+        `|az| * h/2 + r * sqrt(1 - az^2)` below the centre -- the end cap when
+        upright, the side when lying down, and the rim in between.  The floor is
+        at z = 0.
+        """
+        az = quat_to_axis(obj_quat)[:, 2]
+        drop = az.abs() * self._object_height * 0.5 + self._object_radius * (
+            1.0 - az * az
+        ).clamp_min(0.0).sqrt()
+        return obj_pos[:, 2] - drop
 
     def _shaping_distance(self, state: dict[str, torch.Tensor]) -> torch.Tensor:
         """Distance approach_shaping is measured against.

@@ -38,13 +38,20 @@ from ..configs.loader import SuccessConfig
 
 
 class LiftPhase(IntEnum):
-    """Per-env phase.  Only ``WRAPPING`` follows the policy."""
+    """Per-env phase.  Only ``WRAPPING`` follows the policy.
+
+    ``SETTLING`` sits between the rotation and the measured hold: the lift lays
+    a standing object down into the coil, so it travels a long way relative to
+    the arm *on purpose*, and the retention tolerances are meaningless until it
+    has come to rest there.
+    """
 
     WRAPPING = 0
     LIFTING = 1
-    HOLDING = 2
-    PASSED = 3
-    FAILED = 4
+    SETTLING = 2
+    HOLDING = 3
+    PASSED = 4
+    FAILED = 5
 
 
 class SuccessCriterion(Protocol):
@@ -64,6 +71,11 @@ class LiftObservation:
     object_quat: torch.Tensor      # (n, 4)
     anchor_pos: torch.Tensor       # (n, 3) segment-2 mid link
     anchor_quat: torch.Tensor      # (n, 4)
+    #: Lowest point of the object above the floor, in metres.  Zero while it
+    #: still rests on the ground.
+    clearance: torch.Tensor        # (n,)
+    #: How many arm links are touching the object.
+    object_contacts: torch.Tensor  # (n,)
 
 
 def _quat_relative_angle(q_a: torch.Tensor, q_b: torch.Tensor) -> torch.Tensor:
@@ -204,10 +216,17 @@ class LiftTest:
         that slips out mid-lift and is caught again has still failed.
         """
         lifting = self.phase == int(LiftPhase.LIFTING)
+        settling = self.phase == int(LiftPhase.SETTLING)
         holding = self.phase == int(LiftPhase.HOLDING)
-        active = lifting | holding
-        if bool(active.any()):
-            self._check_retention(obs, active)
+        # Retention is measured over the hold only.  During the rotation and
+        # the settle the object is *supposed* to move relative to the arm: it
+        # goes from standing to lying in the coil, which is 90 deg of
+        # reorientation.  Measured on the scripted manoeuvre, drift from the
+        # pre-lift grasp reads 166 mm and from the end of the rotation 48 mm,
+        # while from the end of the settle it is 5.6 mm -- one grasp, three
+        # anchor points, two of which measure the lift instead of the hold.
+        if bool(holding.any()):
+            self._check_retention(obs, holding)
 
         target = float(self.lift.roll_target_rad)
         rate = float(self.lift.roll_rate_rad_per_substep)
@@ -227,6 +246,19 @@ class LiftTest:
             )
             if bool(reached.any()):
                 ids = reached.nonzero(as_tuple=False).flatten()
+                self.phase[ids] = int(LiftPhase.SETTLING)
+                self.substep[ids] = 0
+
+        if bool(settling.any()):
+            self.substep = torch.where(settling, self.substep + 1, self.substep)
+            done = settling & (self.substep >= int(self.lift.settle_substeps))
+            if bool(done.any()):
+                ids = done.nonzero(as_tuple=False).flatten()
+                # Re-anchor: from here on the object must stay where the settle
+                # left it.
+                rel_pos, rel_quat = self._relative(obs)
+                self._ref_rel_pos[ids] = rel_pos[ids]
+                self._ref_rel_quat[ids] = rel_quat[ids]
                 self.phase[ids] = int(LiftPhase.HOLDING)
                 self.substep[ids] = 0
 
@@ -253,14 +285,22 @@ class LiftTest:
         rotated = _quat_relative_angle(rel_quat, self._ref_rel_quat) > float(
             self.lift.max_rel_rotation_rad
         )
-        dropped = obs.object_pos[:, 2] < float(self.lift.min_height_m)
+        # Two things the pose tolerances cannot see: an object resting on the
+        # floor is not being held however well its pose matches the reference,
+        # and neither is one the arm has let go of.
+        grounded = obs.clearance < float(self.lift.min_clearance_m)
+        released = obs.object_contacts < int(self.lift.min_object_contacts)
+        dropped = grounded | released
+        # Sticky, so a dropped object cannot be "recovered" by the remaining
+        # hold substeps: the verdict at the end of the hold reads this flag.
+        #
+        # The phase is deliberately *not* flipped to FAILED here.  Doing that
+        # stopped the ramp mid-rotation, and the roll-back the test exists to
+        # perform was never carried out -- a run that slipped 16 deg into a 90
+        # deg rotation left the arm parked at 74 deg, so neither the video nor
+        # the diagnostics showed what the manoeuvre does.  The commanded motion
+        # now always completes; only the verdict changes.
         self._violated = self._violated | (active & (slipped | rotated | dropped))
-        # A violation is terminal for the test: mark it failed immediately so a
-        # dropped object cannot be "recovered" by the remaining hold substeps.
-        failed_now = active & self._violated
-        if bool(failed_now.any()):
-            ids = failed_now.nonzero(as_tuple=False).flatten()
-            self.phase[ids] = int(LiftPhase.FAILED)
 
     def diagnostics(self) -> dict[str, torch.Tensor]:
         return {

@@ -72,9 +72,9 @@ def test_an_explicit_success_criterion_beats_the_stage_default():
     report gave a success rate for a test nobody had asked for.  Three
     measurements were taken before the pattern showed.
     """
-    assert load_config().resolved_for_curriculum().success.criterion == "tug"
-    forced = load_config(overrides=["success.criterion=lift"])
-    assert forced.resolved_for_curriculum().success.criterion == "lift"
+    assert load_config().resolved_for_curriculum().success.criterion == "lift"
+    forced = load_config(overrides=["success.criterion=tug"])
+    assert forced.resolved_for_curriculum().success.criterion == "tug"
 
 
 def test_the_stage_still_supplies_the_criterion_when_nothing_is_forced():

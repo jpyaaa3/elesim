@@ -33,6 +33,9 @@ def _obs(n: int, *, object_pos: torch.Tensor) -> LiftObservation:
         object_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]] * n),
         anchor_pos=torch.zeros(n, 3),
         anchor_quat=torch.tensor([[1.0, 0.0, 0.0, 0.0]] * n),
+        # The tug does not read these; the lift's retention check does.
+        clearance=torch.full((n,), 1.0),
+        object_contacts=torch.full((n,), 4),
     )
 
 

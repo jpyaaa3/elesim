@@ -135,6 +135,13 @@ class RewardInputs:
     object_displacement: torch.Tensor  # (n,) metres since reset
     object_tilt: torch.Tensor          # (n,) radians from the reset axis
     success: torch.Tensor              # (n,) bool, lift/geometric gate passed
+    #: Envs whose success test has armed and is now moving the object itself.
+    #: `None` means no test is running.  While it is, the object is *supposed*
+    #: to move -- the lift lays a standing pole down into the coil, which is
+    #: 90 deg of tilt and far more displacement than `object_topple` allows --
+    #: so the topple and disturbance terms would otherwise punish the test for
+    #: doing its job and terminate the episode mid-lift.
+    under_test: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -245,7 +252,12 @@ class RewardBook:
 
         # Disturbance is only charged before the object is wrapped: once the arm
         # is around it, moving it is the point of the task.
-        pre_wrap = ~st.wrapped
+        under_test = (
+            inputs.under_test
+            if inputs.under_test is not None
+            else torch.zeros_like(st.wrapped)
+        )
+        pre_wrap = ~(st.wrapped | under_test)
         disturb = object_disturbance(
             inputs.object_displacement, deadband_m=dist_cfg.deadband_m
         )

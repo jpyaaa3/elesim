@@ -178,6 +178,34 @@ def test_disturbance_stops_being_charged_once_wrapped(cfg, device):
     assert not bool(out.termination_reason["topple"].item())
 
 
+def test_a_running_success_test_is_not_charged_for_moving_the_object(cfg, device):
+    """The lift lays a standing pole down into the coil.
+
+    That is 90 deg of tilt and far more displacement than `object_topple`
+    allows, so without this the topple term terminates the episode in the middle
+    of the manoeuvre the success test exists to perform -- and it fires before
+    the wrap threshold has been reached, since the lift arms below it.
+    """
+    book = _book(cfg, device)
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+               enclosure0=torch.zeros(1))
+    laid_down = dict(
+        object_displacement=torch.tensor([0.40]),
+        object_tilt=torch.tensor([math.pi / 2]),
+    )
+    # Same state, once with the test running and once without.
+    out = book.step(_inputs(**laid_down,
+                            under_test=torch.ones(1, dtype=torch.bool)))
+    assert not bool(out.termination_reason["topple"].item())
+    assert out.terms["object_topple"].item() == 0.0
+    assert out.terms["object_disturbance"].item() == 0.0
+
+    book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),
+               enclosure0=torch.zeros(1))
+    out = book.step(_inputs(**laid_down))
+    assert bool(out.termination_reason["topple"].item())
+
+
 def test_episode_sums_accumulate_every_term(cfg, device):
     book = _book(cfg, device)
     book.reset(None, phi0=torch.zeros(1), dist0=torch.zeros(1),

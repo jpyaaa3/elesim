@@ -296,12 +296,20 @@ class ContactAggregator:
         self.self_contact_terminates = bool(self_contact_terminates)
         self.device = classifier.device
         self._acc: dict[str, torch.Tensor] = {}
+        #: The most recent per-substep snapshot, kept because the accumulator
+        #: answers a different question.  `result()` is "did this happen at any
+        #: point in the macro step", which is what a collision or a touch wants;
+        #: "is the arm holding the object *right now*" is not that, and reading
+        #: it off the accumulator makes every retention check fail on the first
+        #: substep after a reset, when nothing has been accumulated yet.
+        self._last: Optional[ContactSnapshot] = None
         self.reset()
 
     def reset(self) -> None:
         n = self.n_envs
         dev = self.device
         cols = max(self.classifier.n_arm_links, 1)
+        self._last = None
         self._acc = {
             "object_touch": torch.zeros(n, device=dev, dtype=torch.bool),
             "object_force_peak": torch.zeros(n, device=dev, dtype=torch.float32),
@@ -332,7 +340,15 @@ class ContactAggregator:
             acc["max_penetration"], snap.max_penetration
         )
         acc["overflow"] |= snap.overflow
+        self._last = snap
         return snap
+
+    @property
+    def last(self) -> ContactSnapshot:
+        """The most recent substep's contacts, or an empty snapshot."""
+        if self._last is None:
+            return self.classifier._empty_snapshot(self.n_envs)
+        return self._last
 
     def result(self) -> ContactAggregate:
         acc = self._acc
