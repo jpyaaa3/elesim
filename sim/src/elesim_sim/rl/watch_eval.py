@@ -98,11 +98,36 @@ def open_master(host: str) -> None:
     print("[watch] 연결됨. 이후 rsync는 이 소켓을 재사용합니다.")
 
 
-def pull(host: str, remote_run: str, local_run: Path) -> None:
+def check_remote_path(remote_run: str) -> None:
+    """Catch a `~` the local shell expanded before the script ever saw it.
+
+    `--remote-run ~/elesim/...` is the natural thing to type and the shell turns
+    it into *this* machine's home, which is then sent to a server that has no
+    such directory.  rsync's "change_dir failed" is easy to read past, and the
+    watcher then just reports no metadata and waits, so the mistake costs a poll
+    interval per attempt to notice.
+    """
+    home = str(Path.home())
+    if remote_run.startswith(home):
+        tail = remote_run[len(home):].lstrip("/")
+        raise SystemExit(
+            f"[watch] --remote-run 이 이 컴퓨터의 홈으로 확장되었습니다:\n"
+            f"         {remote_run}\n"
+            f"         셸이 ~ 를 먼저 펼쳤습니다. 서버 쪽 경로를 주세요:\n"
+            f"           --remote-run '~/{tail}'      (따옴표로 감싸 원격에서 펼치게)\n"
+            f"         또는 절대경로로:\n"
+            f"           --remote-run /home/<user>/{tail}"
+        )
+
+
+def pull(host: str, remote_run: str, local_run: Path) -> bool:
     """Mirror the checkpoints and the run metadata, nothing else.
 
     Tensorboard event files are excluded: they are large, they grow every
     iteration, and nothing here reads them.
+
+    Returns whether the remote directory was there at all, so a wrong path is
+    reported as a wrong path rather than as a run that has not started.
     """
     local_run.mkdir(parents=True, exist_ok=True)
     remote = f"{host}:{remote_run.rstrip('/')}/"
@@ -117,8 +142,19 @@ def pull(host: str, remote_run: str, local_run: Path) -> None:
         remote, str(local_run) + "/",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"[watch] rsync 실패 (재시도합니다): {result.stderr.strip()[:200]}")
+    if result.returncode == 0:
+        return True
+    err = result.stderr.strip()
+    if "change_dir" in err or "No such file or directory" in err:
+        print(
+            f"[watch] 서버에 그 디렉터리가 없습니다:\n"
+            f"         {remote_run}\n"
+            f"         학습이 아직 시작되지 않았거나 경로가 틀렸습니다. 서버에서 확인:\n"
+            f"           ls -d {remote_run}"
+        )
+        return False
+    print(f"[watch] rsync 실패 (재시도합니다): {err[:200]}")
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -305,6 +341,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if shutil.which("rsync") is None:
         raise SystemExit("[watch] rsync 를 찾을 수 없습니다.")
+    check_remote_path(args.remote_run)
 
     run_name = Path(args.remote_run.rstrip("/")).name
     local_run = _REPO_ROOT / "sim" / "rl_runs" / "wrap_grasp" / f"remote_{run_name}"
@@ -334,7 +371,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         open_master(args.host)
         while True:
-            pull(args.host, args.remote_run, local_run)
+            if not pull(args.host, args.remote_run, local_run):
+                if args.once:
+                    return 1
+                time.sleep(args.period)
+                continue
             try:
                 check_commit(local_run, allow_mismatch=args.allow_commit_mismatch)
             except _NotReady:
