@@ -399,6 +399,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ]
     scene = WrapGraspScene(cfg, camera_specs=camera_specs).build()
     env = WrapGraspEnv(cfg, scene=scene)
+    # Evaluation measures the deployed task, which starts at Home.  The reverse
+    # curriculum's position lives on the env and not in the checkpoint, so a
+    # freshly built env starts at the configured `t_range` -- near the goal --
+    # and the run would score "finish from three steps out" while reporting it
+    # as the whole task.
+    env.freeze_start_pose_at_home()
 
     from rsl_rl.runners import OnPolicyRunner
 

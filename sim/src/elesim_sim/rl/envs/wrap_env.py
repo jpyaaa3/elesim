@@ -230,6 +230,32 @@ class WrapGraspEnv:
         ).expand(self.num_envs, 3)
         self.scene.support.set_pos(target)
 
+    @property
+    def start_pose_range(self) -> tuple[float, float]:
+        """Where the reverse curriculum has got to, as (t_lo, t_hi)."""
+        return (self._start_t_lo, self._start_t_hi)
+
+    @start_pose_range.setter
+    def start_pose_range(self, value: tuple[float, float]) -> None:
+        lo, hi = (float(v) for v in value)
+        self._start_t_lo = max(0.0, min(1.0, lo))
+        self._start_t_hi = max(self._start_t_lo, min(1.0, hi))
+        self._start_window_n = 0
+        self._start_window_ok = 0
+
+    def freeze_start_pose_at_home(self) -> None:
+        """Pin every episode to Home and stop the curriculum advancing.
+
+        Evaluation measures the deployed task, which starts at Home.  The
+        curriculum position lives on the env rather than in the checkpoint, so
+        a freshly built env would otherwise reset to the configured `t_range`
+        and evaluate the policy three steps from the goal.
+        """
+        self._start_t_lo = 0.0
+        self._start_t_hi = 0.0
+        self._start_window_n = 0
+        self._start_window_ok = 0
+
     def _apply_start_pose(self, env_ids: Optional[torch.Tensor], n: int) -> None:
         """Interpolate the reset waypoint from Home towards the near-goal pose.
 

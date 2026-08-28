@@ -63,6 +63,29 @@ def build_runner(env: WrapGraspEnv, cfg: WrapGraspConfig, log_dir: Path):
     return OnPolicyRunner(env, train_cfg, log_dir=str(log_dir), device=str(env.device))
 
 
+def _install_curriculum_sidecar(runner, env: WrapGraspEnv) -> None:
+    """Write the curriculum position beside every checkpoint rsl_rl saves.
+
+    rsl_rl owns the checkpoint format, so this goes in a sidecar rather than
+    into its dict: a file it does not know about cannot break its loader across
+    versions.
+    """
+    save = runner.save
+
+    def save_with_curriculum(path, *args, **kwargs):
+        result = save(path, *args, **kwargs)
+        try:
+            lo, hi = env.start_pose_range
+            Path(path).with_suffix(".curriculum.json").write_text(
+                json.dumps({"t_lo": lo, "t_hi": hi}), encoding="utf-8"
+            )
+        except Exception as exc:  # bookkeeping must never kill a training run
+            print(f"[train] could not write the curriculum sidecar: {exc}")
+        return result
+
+    runner.save = save_with_curriculum
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None)
@@ -103,8 +126,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             path = _REPO_ROOT / path
         print(f"[train] resuming from : {path}")
         runner.load(str(path))
+        # The reverse curriculum's position lives on the env, not in the
+        # checkpoint rsl_rl writes, so a resume would otherwise restart it at
+        # the configured `t_range` and hand the policy back the easy start it
+        # had already earned its way out of.
+        side = path.with_suffix(".curriculum.json")
+        if side.is_file() and cfg.start_pose.enable:
+            saved = json.loads(side.read_text())
+            env.start_pose_range = (saved["t_lo"], saved["t_hi"])
+            print(f"[train] curriculum at : t = {saved['t_lo']:.2f}-{saved['t_hi']:.2f}")
+        elif cfg.start_pose.enable:
+            print(f"[train] curriculum at : t = {cfg.start_pose.t_range[0]:.2f}-"
+                  f"{cfg.start_pose.t_range[1]:.2f} (nothing saved beside the "
+                  f"checkpoint; starting the curriculum over)")
 
     iterations = int(args.iterations or cfg.train.max_iterations)
+    _install_curriculum_sidecar(runner, env)
     runner.learn(num_learning_iterations=iterations, init_at_random_ep_len=False)
 
     stats = env.statistics()
