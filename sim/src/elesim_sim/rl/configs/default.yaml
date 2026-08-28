@@ -448,11 +448,20 @@ reward:
     deadband_m: 0.005
     # Terminating thresholds.
     max_displacement_m: 0.06
-    # 20 deg.  This is now the only gate on tipping, where it used to be
-    # shadowed by the displacement one, so it is set where a free-standing
-    # cylinder is genuinely going over rather than at the old 34 deg.  A
-    # scripted wrap that succeeds peaks at 3.4 deg.
-    max_tilt_rad: 0.35
+    # 60 deg: where a free-standing cylinder is unambiguously going over.
+    #
+    # It was 20 deg, and that was cutting episodes off early.  Measured on the
+    # stage-1 policy over 1962 episodes, the ones that ended in `topple` did so
+    # at macro step 5 of 15 with the wrap only 58 deg along, and 95% of them
+    # had never passed 90 deg.  Whether they would have recovered cannot be
+    # read off that number -- the gate terminates them, so the observation is
+    # censored -- and raising it is the only way to find out.
+    #
+    # A scripted wrap that succeeds peaks at 3.4 deg, so this leaves the
+    # successful trajectory a wide margin.  Shoving is still caught by
+    # max_displacement_m, which measures the base and is unaffected by tipping,
+    # and a grasp on a leaning object still has to survive the tug test.
+    max_tilt_rad: 1.05
 
 success:
   # Success is retention: the wrap has to survive a pull.
@@ -570,7 +579,11 @@ curriculum:
   # Every stage scores retention under a pull.  See `success.criterion` for
   # why neither the wrap angle nor the lift test is the objective.  Both remain
   # selectable per stage.
-  stage: 1
+  #
+  # Stage 2: a policy trained through stage 1 reached 18.5% success at the one
+  # placement it had seen and 9.6% at +/-30 mm offsets, which stage 1 holds
+  # fixed.  Stage 2 randomises the placement.
+  stage: 2
   stages:
     1:
       randomise_object_pose: false
@@ -580,7 +593,13 @@ curriculum:
     2:
       randomise_object_pose: true
       randomise_object_radius: false
-      approach_shaping: false
+      # Kept on, against the original design.  Approach shaping is the only
+      # dense signal that gets the arm to the object at all, and every run
+      # without an effective one ended with the policy never touching it.
+      # Turning it off at the same time as switching on pose randomisation
+      # would change two things at once and leave a failure unattributable;
+      # dropping it is worth testing, but on its own.
+      approach_shaping: true
       success_criterion: tug
     3:
       randomise_object_pose: true
