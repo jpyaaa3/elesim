@@ -17,5 +17,5 @@
     "ixz": 3.909629757e-19,
     "iyz": -3.054398247e-20
   },
-  "inertia_note": "Recomputed from the collision mesh at the declared mass. The generated values were 6.7x to 165x the geometry, which diverged the constraint solver under contact."
+  "inertia_note": "Recomputed from the collision mesh at the declared mass. The previous values were based on an obsolete oversized plate estimate and diverged the contact solver."
 }

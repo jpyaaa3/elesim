@@ -1,10 +1,10 @@
 {
   "build": {
     "format_version": 1,
-    "source_assets_sha256": "1efca9312683c737a590939b343730ea39750eaa0bba1c75388155ca377fea2a",
+    "source_assets_sha256": "63e02dbf58a807acc26dd35747518882c13989997916f0b58f35555d37d2565e",
     "use_go2": true
   },
-  "bundle_id": "16a28a59a68e6da4fd08db240351b78636717fc366b8740c4ca7ebdcef738484",
+  "bundle_id": "cb8fe62ad6e63f03940f3a2909b0806a467d8acc0303e7fd5ca7e0c6b130d6e8",
   "bundle_type": "elesim.sim-model",
   "entrypoints": {
     "arm_urdf": "arm.urdf",
@@ -13,8 +13,8 @@
   },
   "files": {
     "arm.urdf": {
-      "sha256": "c50e797d872085c5abe3b42191ea362d6f6580dbe83700a91ee91162b99f33c9",
-      "size": 14292
+      "sha256": "670108dd18787795fda208763fc5c40639c74b3c6c9cde2d88fd16d535425b6c",
+      "size": 14815
     },
     "assets/camera/camera_frame.json": {
       "sha256": "3d96fba34d35c7284c6f846bb4de6b6cee98787aa2062894cd3d73117fdfd9f2",
@@ -69,8 +69,8 @@
       "size": 7990
     },
     "assets/gripper_base/gripper_base_physics.json": {
-      "sha256": "f3fb94aeee983b56e26067606d008dad662412bd9f9bede5930c9b2db8ffab5f",
-      "size": 267
+      "sha256": "04588a250889abf7062a266051728948048bd7b06a372e09d7e94e3a5f63d18c",
+      "size": 503
     },
     "assets/gripper_claw_left/gripper_claw_left_frame.json": {
       "sha256": "3c5967d22afce7c00dcb5699bb5158bfe6ebf672ada94938a4b948cd1f3221bf",
@@ -81,8 +81,8 @@
       "size": 11626
     },
     "assets/gripper_claw_left/gripper_claw_left_physics.json": {
-      "sha256": "7a5e142cb9e2adfa64f96195aa9188e7bd946bbef550bc56594b9f280582bd0a",
-      "size": 274
+      "sha256": "4ce5810ca3aaf6e523f2064c3fad143f1146d10fdb85178ef202b4a8ca9a34b1",
+      "size": 496
     },
     "assets/gripper_claw_right/gripper_claw_right_frame.json": {
       "sha256": "71266e47ab9a5a155a69afe0988813588868584cceaffd4b9382ffcf4dd96519",
@@ -93,8 +93,8 @@
       "size": 11650
     },
     "assets/gripper_claw_right/gripper_claw_right_physics.json": {
-      "sha256": "18e8c1f916e25d986f10071bd750b9750f1c2bc07644af52730e718dbde38fcd",
-      "size": 274
+      "sha256": "11a1296bd11ea97ee1072bab77da9171aedf0ac741973de30cd9ae264da2d045",
+      "size": 486
     },
     "assets/housing/housing_frame.json": {
       "sha256": "acabfd40bcb586c697aa53caeebc5a04c7fbbcb8a95000d3d5bac62edd67c07d",
@@ -105,8 +105,8 @@
       "size": 32046
     },
     "assets/housing/housing_physics.json": {
-      "sha256": "75c3d470da65ea78e1ca5a35f2eb311ca12584dbb7cd57fc29b089dd9cc8eaac",
-      "size": 269
+      "sha256": "b8ba0d8bc6d40bd25afe2262bbe0b086bb5951b21b088c34cf13ed13dbcc93d5",
+      "size": 497
     },
     "assets/node/node_frame.json": {
       "sha256": "4fd395de8107fee83075bcc413d86a738150694374674c2286aed7587ce4955d",
@@ -117,8 +117,8 @@
       "size": 1686
     },
     "assets/node/node_physics.json": {
-      "sha256": "b2edb07e5d0a699a87350a82975f2921744fba5de525553bbcf0c13e36d486a0",
-      "size": 264
+      "sha256": "dffe9548be756928bbbc50ef06953eb85b677f1c3dc9d1267c367ff86a3e63e8",
+      "size": 475
     },
     "assets/node_end/node_end_frame.json": {
       "sha256": "4fd395de8107fee83075bcc413d86a738150694374674c2286aed7587ce4955d",
@@ -129,8 +129,8 @@
       "size": 1363
     },
     "assets/node_end/node_end_physics.json": {
-      "sha256": "19ee8c33bf23158e50a1dbb5de67c5888d4456f9374a9e591de5527155814c56",
-      "size": 299
+      "sha256": "f1d9f234554b991761588401ceea9c841a735ee87c8edba3069f74212f63a121",
+      "size": 470
     },
     "assets/plate/plate_frame.json": {
       "sha256": "c26beeb3e9087ab032fd16462813e35d861dc170c829c3a42461c82713584671",
@@ -141,8 +141,8 @@
       "size": 167125
     },
     "assets/plate/plate_physics.json": {
-      "sha256": "ee407ae9cf619aa55c34283d182f6d5a4f958761cdd9e1d29f0b245c9d94e8cf",
-      "size": 262
+      "sha256": "f0d41c108420062130c5c0706de98916597b05c802d213e71e7fa61081471a4a",
+      "size": 507
     },
     "assets/wedge/wedge_frame.json": {
       "sha256": "777e212c7d3dda3a5371c71e022b40ccb0c6aa635e074b9f39f7d8bf718e70c3",
@@ -153,16 +153,16 @@
       "size": 552
     },
     "assets/wedge/wedge_physics.json": {
-      "sha256": "955c9ffeef39d7b499a09eedcde687465ab82e4bce3b2e23cd5d769c40641d57",
-      "size": 272
+      "sha256": "c16c4103961c608109a29036dbebb67cd235f9890bbc9f8c52b548fd4e2e7b96",
+      "size": 457
     },
     "blueprint.json": {
       "sha256": "24990e2d9bce0d1fd4f7a7b53eb649c7a8af271e4afa9110dcff21235bf9b7f3",
       "size": 14435
     },
     "robot.urdf": {
-      "sha256": "6dd6c61b8737beca7f961a8a465d96cd9656a20c6540e7341993a5bc2c2aea42",
-      "size": 34657
+      "sha256": "c2d5b561e966246134f40c222653b97080bb467ef84c8a1c5948c13f952f1bd8",
+      "size": 35180
     }
   },
   "schema_version": 1

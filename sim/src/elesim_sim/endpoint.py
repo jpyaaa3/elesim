@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
 from elesim_protocol import (
@@ -41,8 +42,21 @@ from .simulation.operator_control import (
 
 
 _MAX_WEBRTC_INFLIGHT = 8
+_MAX_WEBRTC_ANSWER_RETRIES = 8
 _MAX_SIMULATION_RESULTS_PER_CYCLE = 32
 _CAMERA_COMMANDS = frozenset({"orbit", "pan", "zoom"})
+
+
+@dataclass(frozen=True)
+class _PendingWebRtcAnswer:
+    """One latest-only answer waiting for its DDS destination to return."""
+
+    source_id: str
+    session_id: str
+    stream: str
+    generation: int
+    payload: Mapping[str, object]
+    trace_context: Optional[Mapping[str, str]]
 
 
 def _simulation_command_diagnostic_key(
@@ -130,8 +144,14 @@ class SimEndpoint:
                 str,
                 str,
                 Optional[Mapping[str, str]],
+                int,
             ]
         ] = []
+        self._webrtc_answer_retries: dict[
+            tuple[str, str, str], _PendingWebRtcAnswer
+        ] = {}
+        self._webrtc_generations: dict[tuple[str, str, str], int] = {}
+        self._next_webrtc_generation = 0
 
     def start(self) -> None:
         self.stop_event.clear()
@@ -145,6 +165,9 @@ class SimEndpoint:
         self.stop_event.set()
         if self.thread is not None:
             self.thread.join(timeout=3.0)
+        self._webrtc_futures.clear()
+        self._webrtc_answer_retries.clear()
+        self._webrtc_generations.clear()
         if self._webrtc_executor is not None:
             self._webrtc_executor.shutdown(wait=False, cancel_futures=True)
 
@@ -168,6 +191,8 @@ class SimEndpoint:
         self.turn_credentials = granted.turn
         if changed:
             self.last_simulation_seq = -1
+            self._webrtc_answer_retries.clear()
+            self._webrtc_generations.clear()
 
     def revoke_simulation_session(self) -> None:
         session_id = self.simulation_session_id
@@ -176,6 +201,8 @@ class SimEndpoint:
         self.simulation_streams = ()
         self.turn_credentials = None
         self.last_simulation_seq = -1
+        self._webrtc_answer_retries.clear()
+        self._webrtc_generations.clear()
         if session_id and self.webrtc_session_close_handler is not None:
             self._close_webrtc_session_async(session_id)
 
@@ -508,6 +535,13 @@ class SimEndpoint:
                 reason="bounded signaling work limit reached",
             )
             return
+        retry_key = (message.source_id, signal.session_id, signal.stream)
+        self._next_webrtc_generation += 1
+        generation = int(self._next_webrtc_generation)
+        self._webrtc_generations[retry_key] = generation
+        # A renegotiation supersedes an answer which has not reached the UI.
+        # Keep only the newest answer for this exact source/session/stream.
+        self._webrtc_answer_retries.pop(retry_key, None)
         try:
             future = executor.submit(
                 self.webrtc_offer_handler,
@@ -518,6 +552,8 @@ class SimEndpoint:
                 signal.session_id,
             )
         except RuntimeError:
+            if self._webrtc_generations.get(retry_key) == generation:
+                self._webrtc_generations.pop(retry_key, None)
             return
         self._webrtc_futures.append(
             (
@@ -526,12 +562,14 @@ class SimEndpoint:
                 signal.session_id,
                 signal.stream,
                 message.trace_context,
+                generation,
             )
         )
 
     def _flush_webrtc_answers(self, client: Any) -> None:
-        if not self._webrtc_futures:
+        if not self._webrtc_futures and not self._webrtc_answer_retries:
             return
+        retry_items = tuple(self._webrtc_answer_retries.items())
         pending: list[
             tuple[
                 concurrent.futures.Future[Any],
@@ -539,11 +577,31 @@ class SimEndpoint:
                 str,
                 str,
                 Optional[Mapping[str, str]],
+                int,
             ]
         ] = []
-        for future, source_id, session_id, stream, trace_context in self._webrtc_futures:
+        for (
+            future,
+            source_id,
+            session_id,
+            stream,
+            trace_context,
+            generation,
+        ) in self._webrtc_futures:
             if not future.done():
-                pending.append((future, source_id, session_id, stream, trace_context))
+                pending.append(
+                    (
+                        future,
+                        source_id,
+                        session_id,
+                        stream,
+                        trace_context,
+                        generation,
+                    )
+                )
+                continue
+            retry_key = (source_id, session_id, stream)
+            if self._webrtc_generations.get(retry_key) != generation:
                 continue
             try:
                 answer = future.result()
@@ -560,7 +618,10 @@ class SimEndpoint:
                     reason=str(exc),
                 )
                 continue
-            if session_id != self.simulation_session_id:
+            if (
+                session_id != self.simulation_session_id
+                or self._webrtc_generations.get(retry_key) != generation
+            ):
                 continue
             payload = WebRtcSignalPayload(
                 session_id=session_id,
@@ -569,23 +630,94 @@ class SimEndpoint:
                 sdp=str(answer.get("sdp", "")),
                 type=str(answer.get("type", "")),
             )
+            pending_answer = _PendingWebRtcAnswer(
+                source_id=source_id,
+                session_id=session_id,
+                stream=stream,
+                generation=generation,
+                payload=dict(payload.to_payload()),
+                trace_context=trace_context,
+            )
             sent = self._send_best_effort(
                 client,
                 "webrtc_signal",
                 target_id=source_id,
-                payload=payload.to_payload(),
+                payload=pending_answer.payload,
                 lease_id=self.simulation_session_id,
                 trace_context=trace_context,
             )
+            if not sent:
+                self._queue_webrtc_answer_retry(retry_key, pending_answer)
             self._diagnostic(
                 "webrtc",
-                dedupe=f"answer:{session_id}:{stream}",
+                dedupe=(
+                    f"answer:{session_id}:{stream}:{generation}:"
+                    f"{'sent' if sent else 'retry'}"
+                ),
                 source=self.endpoint_id,
                 target=source_id,
                 stream=stream,
                 state="answer-sent" if sent else "answer-retry",
             )
         self._webrtc_futures = pending
+
+        # DDS discovery can briefly report the UI as inactive while the media
+        # worker has already completed the expensive SDP answer. Retry that
+        # completed answer on the next endpoint cycle instead of throwing it
+        # away. The queue is one entry per source/session/stream and bounded,
+        # so a disconnected UI cannot accumulate signaling backlog.
+        for retry_key, answer in retry_items:
+            if self._webrtc_answer_retries.get(retry_key) is not answer:
+                continue
+            if (
+                answer.session_id != self.simulation_session_id
+                or self._webrtc_generations.get(retry_key) != answer.generation
+            ):
+                self._webrtc_answer_retries.pop(retry_key, None)
+                continue
+            sent = self._send_best_effort(
+                client,
+                "webrtc_signal",
+                target_id=answer.source_id,
+                payload=answer.payload,
+                lease_id=self.simulation_session_id,
+                trace_context=answer.trace_context,
+            )
+            if sent:
+                self._webrtc_answer_retries.pop(retry_key, None)
+            self._diagnostic(
+                "webrtc",
+                dedupe=(
+                    f"answer:{answer.session_id}:{answer.stream}:"
+                    f"{answer.generation}:{'sent' if sent else 'retry'}"
+                ),
+                source=self.endpoint_id,
+                target=answer.source_id,
+                stream=answer.stream,
+                state="answer-sent" if sent else "answer-retry",
+            )
+
+    def _queue_webrtc_answer_retry(
+        self,
+        key: tuple[str, str, str],
+        answer: _PendingWebRtcAnswer,
+    ) -> None:
+        if key not in self._webrtc_answer_retries and len(
+            self._webrtc_answer_retries
+        ) >= _MAX_WEBRTC_ANSWER_RETRIES:
+            oldest_key = next(iter(self._webrtc_answer_retries), None)
+            if oldest_key is not None:
+                self._webrtc_answer_retries.pop(oldest_key, None)
+                self._diagnostic(
+                    "webrtc",
+                    dedupe="answer-retry-queue-full",
+                    source=self.endpoint_id,
+                    target=oldest_key[0],
+                    stream=oldest_key[2],
+                    state="evicted",
+                    reason="bounded answer retry queue reached its limit",
+                )
+        self._webrtc_answer_retries[key] = answer
 
     def _send_best_effort(
         self,

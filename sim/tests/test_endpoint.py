@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import threading
 import time
 from dataclasses import replace
@@ -454,3 +455,41 @@ def test_pending_webrtc_answer_keeps_trace_context() -> None:
         release.set()
         if value._webrtc_executor is not None:
             value._webrtc_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_completed_webrtc_answer_is_retried_after_the_ui_peer_returns() -> None:
+    value, _state, _client = endpoint()
+    client = FlakyClient("webrtc_signal")
+    grant_simulation_session(value, client)
+
+    retry_key = ("ui-a", "session-a", "hand_eye_preview")
+    value._webrtc_generations[retry_key] = 1
+    future: concurrent.futures.Future[dict[str, str]] = concurrent.futures.Future()
+    future.set_result({"sdp": "answer-sdp", "type": "answer"})
+    value._webrtc_futures.append(
+        (
+            future,
+            "ui-a",
+            "session-a",
+            "hand_eye_preview",
+            {"traceparent": "retry-context"},
+            1,
+        )
+    )
+
+    value._flush_webrtc_answers(client)
+    assert client.sent == []
+    assert retry_key in value._webrtc_answer_retries
+
+    client.fail = False
+    value._flush_webrtc_answers(client)
+
+    assert len(client.sent) == 1
+    assert client.sent[0][0] == "webrtc_signal"
+    assert client.sent[0][1]["target_id"] == "ui-a"
+    assert client.sent[0][1]["payload"]["stream"] == "hand_eye_preview"
+    assert client.sent[0][1]["payload"]["signal"] == "answer"
+    assert client.sent[0][1]["trace_context"] == {
+        "traceparent": "retry-context"
+    }
+    assert retry_key not in value._webrtc_answer_retries

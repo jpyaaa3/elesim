@@ -13,7 +13,7 @@ from making the Sim control process un-importable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import multiprocessing as mp
 from multiprocessing.queues import Queue
 import queue
@@ -59,6 +59,14 @@ class CameraRenderSpec:
     target_color_rgba: tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
     target_gravity: bool = False
     robot_joint_names: tuple[str, ...] = ()
+    # The hand-eye camera only needs the arm visual tree.  When a GO2+arm
+    # runtime is active, using the combined URDF for both cameras makes a
+    # cold visual scene unnecessarily large and couples hand-eye startup to
+    # the observer's full robot scene.
+    hand_eye_urdf_path: str = ""
+    hand_eye_robot_pos: Optional[tuple[float, float, float]] = None
+    hand_eye_robot_euler_deg: Optional[tuple[float, float, float]] = None
+    hand_eye_robot_joint_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not str(self.urdf_path).strip():
@@ -80,6 +88,9 @@ class CameraStateSnapshot:
     robot_joint_positions: Optional[tuple[float, ...]] = None
     root_pos: Optional[tuple[float, float, float]] = None
     root_quat_wxyz: Optional[tuple[float, float, float, float]] = None
+    hand_eye_robot_joint_positions: Optional[tuple[float, ...]] = None
+    hand_eye_root_pos: Optional[tuple[float, float, float]] = None
+    hand_eye_root_quat_wxyz: Optional[tuple[float, float, float, float]] = None
     mock_asset_id: str = ""
     mock_position: Optional[tuple[float, float, float]] = None
     mock_euler_deg: Optional[tuple[float, float, float]] = None
@@ -195,6 +206,12 @@ def _make_urdf_morph(
         pos=tuple(float(v) for v in pos),
         euler=tuple(float(v) for v in euler_deg),
         fixed=bool(fixed),
+        # The camera replica is never stepped and is never a collision
+        # authority.  Loading the URDF collision meshes here needlessly
+        # duplicates the largest part of the physical scene and, on Genesis
+        # versions that still build collision metadata when the rigid solver
+        # is disabled, makes the first camera frame take tens of seconds.
+        collision=False,
         prioritize_urdf_material=True,
         merge_fixed_links=not bool(requires_jac_and_ik),
         requires_jac_and_IK=bool(requires_jac_and_ik),
@@ -256,12 +273,19 @@ def _apply_snapshot(
     target_entity: Any,
     observer: Any,
     snapshot: CameraStateSnapshot,
+    *,
+    joint_positions: Optional[tuple[float, ...]] = None,
 ) -> bool:
     """Apply one latest state and report whether the observer pose changed."""
 
     observer_pose_changed = False
-    if snapshot.robot_joint_positions is not None:
-        q = np.asarray(snapshot.robot_joint_positions, dtype=float).reshape(-1)
+    positions = (
+        snapshot.robot_joint_positions
+        if joint_positions is None
+        else joint_positions
+    )
+    if positions is not None:
+        q = np.asarray(positions, dtype=float).reshape(-1)
         if q.size != len(robot_dof_indices):
             raise RuntimeError(
                 "camera render joint snapshot size mismatch: "
@@ -277,50 +301,41 @@ def _apply_snapshot(
     position = snapshot.mock_position
     euler = snapshot.mock_euler_deg
     for name, mock in mock_entities.items():
-        try:
-            mock.set_pos(
-                position
-                if name == active and position is not None
-                else (0.0, 0.0, -100.0)
-            )
-            if name == active and euler is not None:
-                from scipy.spatial.transform import Rotation as Rot
+        mock.set_pos(
+            position
+            if name == active and position is not None
+            else (0.0, 0.0, -100.0)
+        )
+        if name == active and euler is not None:
+            from scipy.spatial.transform import Rotation as Rot
 
-                quat_xyzw = Rot.from_euler("xyz", euler, degrees=True).as_quat()
-                mock.set_quat(
-                    np.asarray(
-                        [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
-                        dtype=float,
-                    )
+            quat_xyzw = Rot.from_euler("xyz", euler, degrees=True).as_quat()
+            mock.set_quat(
+                np.asarray(
+                    [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
+                    dtype=float,
                 )
-        except Exception:
-            pass
+            )
 
     if target_entity is not None and snapshot.target_position is not None:
-        try:
-            target_entity.set_pos(np.asarray(snapshot.target_position, dtype=float).reshape(3))
-            zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
-            if callable(zero_velocity):
-                zero_velocity()
-        except Exception:
-            pass
+        target_entity.set_pos(np.asarray(snapshot.target_position, dtype=float).reshape(3))
+        zero_velocity = getattr(target_entity, "zero_all_dofs_velocity", None)
+        if callable(zero_velocity):
+            zero_velocity()
 
     if observer is not None and (
         snapshot.observer_pos is not None or snapshot.observer_lookat is not None
     ):
-        try:
-            previous_pos = tuple(float(v) for v in observer.pos)
-            previous_lookat = tuple(float(v) for v in observer.lookat)
-            pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
-            lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
-            observer.pos = tuple(float(v) for v in pos)
-            observer.lookat = tuple(float(v) for v in lookat)
-            observer_pose_changed = (
-                observer.pos != previous_pos or observer.lookat != previous_lookat
-            )
-            observer._set_camera_pose()
-        except Exception:
-            pass
+        previous_pos = tuple(float(v) for v in observer.pos)
+        previous_lookat = tuple(float(v) for v in observer.lookat)
+        pos = snapshot.observer_pos or tuple(float(v) for v in observer.pos)
+        lookat = snapshot.observer_lookat or tuple(float(v) for v in observer.lookat)
+        observer.pos = tuple(float(v) for v in pos)
+        observer.lookat = tuple(float(v) for v in lookat)
+        observer_pose_changed = (
+            observer.pos != previous_pos or observer.lookat != previous_lookat
+        )
+        observer._set_camera_pose()
     return observer_pose_changed
 
 
@@ -336,6 +351,7 @@ def _camera_render_process_main(
 ) -> None:
     """Spawn target; all Genesis imports and device work stay here."""
 
+    startup_complete = False
     try:
         import genesis as gs
         from elesim_sim.vision.sim_camera.mount import Node9EyeInHandCamera, ObserverCamera
@@ -444,11 +460,11 @@ def _camera_render_process_main(
         robot_dof_indices = resolve_single_dof_indices(entity, spec.robot_joint_names)
         if eye is not None:
             eye.bind(entity, hand_eye_path=str(spec.hand_eye_config))
-        results.put({"type": "ready", "ok": True})
+        results.put_nowait({"type": "ready", "ok": True})
         ready.set()
+        startup_complete = True
 
         capture_logged: set[str] = set()
-        error_logged: set[str] = set()
 
         while not stop.is_set():
             try:
@@ -459,7 +475,9 @@ def _camera_render_process_main(
                 break
             snapshot, requested = command
             if not isinstance(snapshot, CameraStateSnapshot):
-                continue
+                raise RuntimeError("camera render command has an invalid snapshot")
+            if not isinstance(requested, (tuple, list)):
+                raise RuntimeError("camera render command has invalid stream names")
             # Drain older snapshots.  A render worker never catches up on a
             # stale queue; it always applies the newest state available.
             requested_names = list(str(name) for name in requested)
@@ -471,18 +489,42 @@ def _camera_render_process_main(
                 if newer is None:
                     stop.set()
                     break
-                if isinstance(newer, tuple) and len(newer) == 2:
-                    snapshot, requested = newer
-                    requested_names.extend(str(name) for name in requested)
+                if not isinstance(newer, tuple) or len(newer) != 2:
+                    raise RuntimeError("camera render queue contains an invalid command")
+                snapshot, requested = newer
+                if not isinstance(snapshot, CameraStateSnapshot) or not isinstance(
+                    requested, (tuple, list)
+                ):
+                    raise RuntimeError("camera render queue contains an invalid command")
+                requested_names.extend(str(name) for name in requested)
             if stop.is_set():
                 break
+            hand_eye_only = (
+                "hand_eye_preview" in streams and "observer" not in streams
+            )
+            applied_snapshot = snapshot
+            joint_positions = snapshot.robot_joint_positions
+            if hand_eye_only:
+                if snapshot.hand_eye_robot_joint_positions is not None:
+                    joint_positions = snapshot.hand_eye_robot_joint_positions
+                if snapshot.hand_eye_root_pos is not None:
+                    applied_snapshot = replace(
+                        applied_snapshot,
+                        root_pos=snapshot.hand_eye_root_pos,
+                    )
+                if snapshot.hand_eye_root_quat_wxyz is not None:
+                    applied_snapshot = replace(
+                        applied_snapshot,
+                        root_quat_wxyz=snapshot.hand_eye_root_quat_wxyz,
+                    )
             _apply_snapshot(
                 entity,
                 robot_dof_indices,
                 mock_entities,
                 target_entity,
                 observer,
-                snapshot,
+                applied_snapshot,
+                joint_positions=joint_positions,
             )
             for stream in tuple(dict.fromkeys(requested_names)):
                 try:
@@ -509,7 +551,7 @@ def _camera_render_process_main(
                             force_render=True,
                         )
                     else:
-                        continue
+                        raise RuntimeError(f"unknown camera stream requested: {stream}")
                     mailbox = mailboxes[stream]
                     render_ms = 1000.0 * max(0.0, time.perf_counter() - started)
                     sequence = mailbox.publish(
@@ -544,12 +586,10 @@ def _camera_render_process_main(
                         },
                     )
                 except Exception as exc:
-                    if stream not in error_logged:
-                        error_logged.add(stream)
-                        print(
-                            f"[sim-camera-worker] capture failed stream={stream}: {exc}",
-                            flush=True,
-                        )
+                    print(
+                        f"[sim-camera-worker] capture failed stream={stream}: {exc}",
+                        flush=True,
+                    )
                     try:
                         results.put_nowait(
                             {
@@ -560,10 +600,16 @@ def _camera_render_process_main(
                         )
                     except queue.Full:
                         pass
-    except BaseException as exc:
+                    return
+    except Exception as exc:
+        message = {
+            "type": "error" if startup_complete else "ready",
+            "ok": False,
+            "error": str(exc)[:512] or type(exc).__name__,
+        }
         try:
-            results.put_nowait({"type": "ready", "ok": False, "error": str(exc)[:512]})
-        except Exception:
+            results.put_nowait(message)
+        except queue.Full:
             pass
     finally:
         ready.set()
@@ -600,8 +646,27 @@ def _put_latest_frame_result(channel: Queue, message: Mapping[str, Any]) -> bool
         return False
 
 
+@dataclass
+class _CameraProcessState:
+    """IPC state for one independent camera renderer."""
+
+    stream: str
+    commands: Queue
+    results: Queue
+    frame_results: Queue
+    ready: Any
+    stop: Any
+    process: Any
+
+
 class CameraRenderWorker:
-    """Parent-side non-blocking proxy for the visual-only render process."""
+    """Parent-side proxy for independent latest-only camera processes.
+
+    Genesis does not provide a safe way to render two cameras concurrently
+    from one scene/context.  Keeping one process per stream prevents a slow
+    hand-eye RGB-D pass from starving the observer pass (and vice versa).
+    Each process still has its own two-item latest-only command queue.
+    """
 
     def __init__(
         self,
@@ -626,33 +691,44 @@ class CameraRenderWorker:
             )
             for name, size in streams.items()
         }
-        self._commands = self._context.Queue(maxsize=2)
-        self._results = self._context.Queue(maxsize=32)
-        self._frame_results = {
-            name: self._context.Queue(maxsize=1) for name in self.streams
-        }
-        self._ready = self._context.Event()
-        self._stop = self._context.Event()
-        self._process = self._context.Process(
-            target=_camera_render_process_main,
-            args=(
-                self.spec,
-                self.streams,
-                self.mailboxes,
-                self._commands,
-                self._results,
-                self._frame_results,
-                self._ready,
-                self._stop,
-            ),
-            name="elesim-sim-camera-render",
-            daemon=True,
-        )
+        self._processes: dict[str, _CameraProcessState] = {}
+        for name in self.streams:
+            stream_spec = self._spec_for_stream(name)
+            commands = self._context.Queue(maxsize=2)
+            results = self._context.Queue(maxsize=32)
+            frame_results = self._context.Queue(maxsize=1)
+            ready = self._context.Event()
+            stop = self._context.Event()
+            process = self._context.Process(
+                target=_camera_render_process_main,
+                args=(
+                    stream_spec,
+                    (name,),
+                    {name: self.mailboxes[name]},
+                    commands,
+                    results,
+                    {name: frame_results},
+                    ready,
+                    stop,
+                ),
+                name=f"elesim-sim-camera-{name}",
+                daemon=True,
+            )
+            self._processes[name] = _CameraProcessState(
+                stream=name,
+                commands=commands,
+                results=results,
+                frame_results=frame_results,
+                ready=ready,
+                stop=stop,
+                process=process,
+            )
         self._on_frame = on_frame
         self._receiver: Optional[threading.Thread] = None
         self._started = False
         self._closed = False
         self._ready_ok = threading.Event()
+        self._ready_streams: set[str] = set()
         self._failure = ""
         self._epoch = 0
         self._submitted = 0
@@ -664,26 +740,112 @@ class CameraRenderWorker:
         self._render_max_ms = {name: 0.0 for name in self.streams}
         self._lock = threading.Lock()
 
+    def _spec_for_stream(self, stream: str) -> CameraRenderSpec:
+        """Return the smallest visual scene needed by ``stream``."""
+
+        name = str(stream)
+        if name != "hand_eye_preview" or not str(self.spec.hand_eye_urdf_path).strip():
+            return self.spec
+        path = str(self.spec.hand_eye_urdf_path)
+        names = tuple(self.spec.hand_eye_robot_joint_names)
+        if not names:
+            names = movable_urdf_joint_names(path)
+        return replace(
+            self.spec,
+            urdf_path=path,
+            robot_pos=(
+                tuple(float(v) for v in self.spec.hand_eye_robot_pos)
+                if self.spec.hand_eye_robot_pos is not None
+                else self.spec.robot_pos
+            ),
+            robot_euler_deg=(
+                tuple(float(v) for v in self.spec.hand_eye_robot_euler_deg)
+                if self.spec.hand_eye_robot_euler_deg is not None
+                else self.spec.robot_euler_deg
+            ),
+            robot_joint_names=names,
+            # The hand-eye view is attached to the arm, but it must retain the
+            # same visual world as the authoritative scene.  In particular,
+            # removing the floor/target here produces a perfectly valid
+            # constant clear-colour frame, which looks like a dead camera and
+            # makes perception impossible.  The arm-only optimization is
+            # still useful because it omits the GO2 body and legs; shared
+            # floor, target and mock meshes remain part of the view.
+        )
+
     @property
     def process(self) -> mp.Process:
-        return self._process
+        # Backwards-compatible representative process.  New callers that
+        # need lifecycle detail should use ``processes``/diagnostics; there
+        # can now be one process per stream.
+        return next(iter(self._processes.values())).process
+
+    @property
+    def processes(self) -> Mapping[str, mp.Process]:
+        return {name: state.process for name, state in self._processes.items()}
 
     @property
     def ready(self) -> bool:
-        return bool(self._ready_ok.is_set() and self._process.is_alive())
+        return bool(
+            self._ready_ok.is_set()
+            and all(state.process.is_alive() for state in self._processes.values())
+        )
 
     @property
     def failure(self) -> str:
         with self._lock:
             return str(self._failure)
 
+    def _set_failure(self, detail: object) -> None:
+        text = str(detail).replace("\n", " ").replace("\r", " ").strip()[:512]
+        if not text:
+            text = type(detail).__name__
+        report = False
+        with self._lock:
+            if not self._failure:
+                self._failure = text
+                report = True
+        if report:
+            print(f"[sim-camera] worker failure: {text}", flush=True)
+
+    def _check_process_health(self) -> None:
+        if not self._started or self._closed:
+            return
+        ready_streams: list[str] = []
+        dead_streams: list[str] = []
+        all_ready = True
+        for name, state in self._processes.items():
+            alive = bool(state.process.is_alive())
+            if state.ready.is_set() and alive:
+                ready_streams.append(name)
+            else:
+                all_ready = False
+            if not alive and not state.stop.is_set():
+                dead_streams.append(f"{name} (exitcode={state.process.exitcode})")
+        if ready_streams:
+            with self._lock:
+                self._ready_streams.update(ready_streams)
+        if all_ready:
+            self._ready_ok.set()
+        if dead_streams:
+            self._set_failure("camera render worker exited: " + ", ".join(dead_streams))
+            self._ready_ok.set()
+
     def start(self, *, timeout_s: float = 180.0, wait: bool = True) -> None:
+        if self._closed:
+            raise RuntimeError("camera render worker is closed")
         if self._started:
-            if not self.ready:
+            if bool(wait) and not self.ready:
                 raise RuntimeError(self.failure or "camera render worker is not ready")
             return
-        self._process.start()
         self._started = True
+        try:
+            for state in self._processes.values():
+                state.process.start()
+        except Exception as exc:
+            self._set_failure(f"camera render worker failed to start: {exc}")
+            self.close()
+            raise RuntimeError(self.failure) from exc
         self._receiver = threading.Thread(
             target=self._receive_loop,
             name="sim-camera-render-receiver",
@@ -693,9 +855,9 @@ class CameraRenderWorker:
         if not bool(wait):
             return
         if not self.wait_ready(timeout_s=float(timeout_s)):
-            self._failure = "camera render worker startup timed out"
+            self._set_failure("camera render worker startup timed out")
             self.close()
-            raise RuntimeError(self._failure)
+            raise RuntimeError(self.failure)
         if not self.ready:
             failure = self.failure or "camera render worker failed during startup"
             self.close()
@@ -707,36 +869,52 @@ class CameraRenderWorker:
         if not self._started:
             return False
         if not self._ready_ok.wait(max(0.1, float(timeout_s))):
-            with self._lock:
-                self._failure = "camera render worker startup timed out"
+            self._set_failure("camera render worker startup timed out")
             return False
         return bool(self.ready)
 
     def submit(self, snapshot: CameraStateSnapshot, requested: tuple[str, ...]) -> bool:
-        if not self.ready or self._closed:
+        if self._closed:
             return False
         names = tuple(name for name in requested if name in self.mailboxes)
         if not names:
             return False
-        try:
-            self._commands.put_nowait((snapshot, names))
-        except queue.Full:
+        accepted = False
+        dropped_any = False
+        for name in names:
+            state = self._processes[name]
+            if not self._stream_ready(name):
+                continue
             try:
-                self._commands.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self._commands.put_nowait((snapshot, names))
+                state.commands.put_nowait((snapshot, (name,)))
+                accepted = True
             except queue.Full:
-                with self._lock:
-                    self._dropped += 1
-                return False
-            with self._lock:
-                self._dropped += 1
+                try:
+                    state.commands.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    state.commands.put_nowait((snapshot, (name,)))
+                    accepted = True
+                    dropped_any = True
+                except queue.Full:
+                    dropped_any = True
         with self._lock:
-            self._submitted += 1
+            if accepted:
+                self._submitted += 1
+            if dropped_any:
+                self._dropped += 1
             self._epoch = max(self._epoch, int(snapshot.epoch))
-        return True
+        return accepted
+
+    def _stream_ready(self, stream: str) -> bool:
+        state = self._processes.get(str(stream))
+        return bool(
+            state is not None
+            and state.ready.is_set()
+            and state.process.is_alive()
+            and not state.stop.is_set()
+        )
 
     def bump_epoch(self) -> int:
         with self._lock:
@@ -750,17 +928,31 @@ class CameraRenderWorker:
             with self._lock:
                 if int(self._completed.get(name, 0)) > 0:
                     return True
-            if not self._process.is_alive():
+                if self._failure:
+                    return False
+            if not self._stream_ready(name):
                 return False
             time.sleep(0.005)
         with self._lock:
-            return int(self._completed.get(name, 0)) > 0
+            return int(self._completed.get(name, 0)) > 0 and not self._failure
 
     def diagnostics(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "ready": self.ready,
-                "alive": bool(self._process.is_alive()) if self._started else False,
+                # Keep the historical aggregate boolean for callers that use
+                # this diagnostics field as a health check.  Per-stream
+                # lifecycle is exposed separately now that each camera has
+                # its own process.
+                "alive": bool(
+                    self._started
+                    and all(state.process.is_alive() for state in self._processes.values())
+                ),
+                "alive_streams": {
+                    name: bool(state.process.is_alive()) if self._started else False
+                    for name, state in self._processes.items()
+                },
+                "ready_streams": tuple(sorted(self._ready_streams)),
                 "failure": self._failure,
                 "submitted": int(self._submitted),
                 "dropped": int(self._dropped),
@@ -780,19 +972,24 @@ class CameraRenderWorker:
         if self._closed:
             return
         self._closed = True
-        self._stop.set()
-        try:
-            self._commands.put_nowait(None)
-        except Exception:
-            pass
-        if self._started and self._process.is_alive():
-            self._process.join(max(0.1, float(timeout_s)))
-        if self._process.is_alive():
-            self._process.terminate()
-            self._process.join(1.0)
+        for state in self._processes.values():
+            state.stop.set()
+            try:
+                state.commands.put_nowait(None)
+            except Exception:
+                pass
+        for state in self._processes.values():
+            if self._started and state.process.is_alive():
+                state.process.join(max(0.1, float(timeout_s)))
+            if state.process.is_alive():
+                state.process.terminate()
+                state.process.join(1.0)
         if self._receiver is not None:
             self._receiver.join(1.0)
-        for channel in (self._commands, self._results, *self._frame_results.values()):
+        channels = []
+        for state in self._processes.values():
+            channels.extend((state.commands, state.results, state.frame_results))
+        for channel in channels:
             try:
                 channel.close()
                 channel.join_thread()
@@ -802,55 +999,69 @@ class CameraRenderWorker:
 
     def _receive_loop(self) -> None:
         while not self._closed:
-            messages: list[Any] = []
-            try:
-                messages.append(self._results.get_nowait())
-            except queue.Empty:
-                pass
-            for channel in self._frame_results.values():
+            messages: list[tuple[str, Any]] = []
+            for stream, state in self._processes.items():
                 try:
-                    messages.append(channel.get_nowait())
+                    messages.append((stream, state.results.get_nowait()))
                 except queue.Empty:
                     pass
+                try:
+                    messages.append((stream, state.frame_results.get_nowait()))
+                except queue.Empty:
+                    pass
+            for stream, message in messages:
+                self._receive_message(message, stream_hint=stream)
+            self._check_process_health()
             if not messages:
-                if self._started and not self._process.is_alive() and not self._ready_ok.is_set():
-                    with self._lock:
-                        self._failure = "camera render worker exited during startup"
-                    self._ready_ok.set()
                 time.sleep(0.005)
-                continue
-            for message in messages:
-                self._receive_message(message)
 
-    def _receive_message(self, message: Any) -> None:
+    def _receive_message(self, message: Any, *, stream_hint: str = "") -> None:
         if not isinstance(message, dict):
+            self._set_failure("camera render worker sent an invalid message")
             return
         kind = str(message.get("type", ""))
         if kind == "ready":
             if not bool(message.get("ok", False)):
+                self._set_failure(
+                    message.get("error") or "camera render worker startup failed"
+                )
+                self._ready_ok.set()
+                return
+            if stream_hint:
                 with self._lock:
-                    self._failure = str(
-                        message.get("error") or "camera render worker startup failed"
-                    )
-            self._ready_ok.set()
+                    self._ready_streams.add(str(stream_hint))
+                    all_ready = self._ready_streams == set(self.streams)
+                if all_ready:
+                    self._ready_ok.set()
+            else:
+                self._ready_ok.set()
             return
         if kind == "error":
-            with self._lock:
-                self._failure = str(message.get("error") or "camera render failed")[:512]
+            stream = str(message.get("stream") or stream_hint).strip()
+            prefix = f"{stream}: " if stream else ""
+            self._set_failure(
+                prefix + str(message.get("error") or "camera render failed")
+            )
             return
         if kind != "frame":
+            self._set_failure(f"camera render worker sent unknown message type: {kind}")
             return
         stream = str(message.get("stream", ""))
         mailbox = self.mailboxes.get(stream)
         if mailbox is None:
+            self._set_failure(f"camera render worker sent an unknown stream: {stream}")
             return
-        message_epoch = int(message.get("epoch", 0))
+        try:
+            message_epoch = int(message["epoch"])
+            expected = int(message["sequence"])
+        except (KeyError, TypeError, ValueError) as exc:
+            self._set_failure(f"invalid camera frame metadata: {exc}")
+            return
         with self._lock:
             current_epoch = int(self._epoch)
         if message_epoch < current_epoch:
             return
         color, depth, sequence, captured_at = mailbox.latest()
-        expected = int(message.get("sequence", 0))
         if color is None or depth is None or sequence != expected:
             # A newer frame overwrote this metadata before the receiver
             # copied it.  The next notification represents the latest slot;
@@ -858,30 +1069,37 @@ class CameraRenderWorker:
             return
         intr = message.get("intrinsics")
         if not isinstance(intr, (tuple, list)) or len(intr) != 6:
+            self._set_failure("invalid camera frame intrinsics")
             return
-        frame = SimCameraFrame(
-            color_bgr=color,
-            depth_raw=depth,
-            depth_scale=float(message.get("depth_scale", 0.001)),
-            intrinsics=SimCameraIntrinsics(
-                fx=float(intr[0]),
-                fy=float(intr[1]),
-                cx=float(intr[2]),
-                cy=float(intr[3]),
-                width=int(intr[4]),
-                height=int(intr[5]),
-            ),
-            seq=sequence,
-            ts=float(message.get("ts", captured_at)),
-            arm_q=message.get("arm_q"),
-            camera_world_origin=message.get("camera_world_origin"),
-            camera_world_look=message.get("camera_world_look"),
-            camera_world_right=message.get("camera_world_right"),
-        )
-        with self._lock:
-            self._completed[stream] = int(self._completed.get(stream, 0)) + 1
-            self._last_sequence[stream] = sequence
+        try:
+            frame = SimCameraFrame(
+                color_bgr=color,
+                depth_raw=depth,
+                depth_scale=float(message.get("depth_scale", 0.001)),
+                intrinsics=SimCameraIntrinsics(
+                    fx=float(intr[0]),
+                    fy=float(intr[1]),
+                    cx=float(intr[2]),
+                    cy=float(intr[3]),
+                    width=int(intr[4]),
+                    height=int(intr[5]),
+                ),
+                seq=sequence,
+                ts=float(message.get("ts", captured_at)),
+                arm_q=message.get("arm_q"),
+                camera_world_origin=message.get("camera_world_origin"),
+                camera_world_look=message.get("camera_world_look"),
+                camera_world_right=message.get("camera_world_right"),
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._set_failure(f"invalid camera frame metadata: {exc}")
+            return
+        try:
             render_ms = max(0.0, float(message.get("render_ms", 0.0)))
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._set_failure(f"invalid camera render timing: {exc}")
+            return
+        with self._lock:
             self._render_count[stream] = int(self._render_count.get(stream, 0)) + 1
             self._render_sum_ms[stream] = (
                 float(self._render_sum_ms.get(stream, 0.0)) + render_ms
@@ -892,8 +1110,11 @@ class CameraRenderWorker:
         try:
             self._on_frame(stream, frame)
         except Exception as exc:
-            with self._lock:
-                self._failure = f"frame callback: {str(exc)[:480]}"
+            self._set_failure(f"frame callback: {str(exc)[:480]}")
+            return
+        with self._lock:
+            self._completed[stream] = int(self._completed.get(stream, 0)) + 1
+            self._last_sequence[stream] = sequence
 
 
 __all__ = [

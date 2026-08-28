@@ -475,6 +475,7 @@ def test_download_source_caches_only_install_source_boundary(
             "misc/tools/setup_preview.py": b"raise AssertionError\n",
             "docs/README.md": b"repository-only docs\n",
             "environment/coturn/README.md": b"standalone helper\n",
+            "sim/src/elesim_sim/rl/train.py": b"raise AssertionError\n",
         },
     )
     monkeypatch.setattr(
@@ -509,6 +510,7 @@ def test_download_source_caches_only_install_source_boundary(
     assert not (root / "misc/tools/setup_preview.py").exists()
     assert not (root / "docs").exists()
     assert not (root / "environment/coturn").exists()
+    assert not (root / "sim/src/elesim_sim/rl").exists()
 
 
 def test_download_source_validates_completed_snapshot_with_conditional_get(

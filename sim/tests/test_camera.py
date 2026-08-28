@@ -105,6 +105,23 @@ def test_genesis_camera_object_matches_link_attachment() -> None:
     np.testing.assert_allclose(right, world_optical[:3, :3] @ [0.1, 0.0, 0.0], atol=1e-6)
 
 
+def test_hand_eye_pose_warning_is_reported_once(capsys) -> None:
+    class _BrokenCamera:
+        def move_to_attach(self) -> None:
+            raise RuntimeError("camera pose unavailable")
+
+    eye = Node9EyeInHandCamera(
+        camera=_BrokenCamera(),
+        intrinsics=SimCameraIntrinsics(100.0, 100.0, 1.0, 1.0, 2, 2),
+    )
+
+    assert eye.camera_axes_world() is None
+    assert eye.camera_axes_world() is None
+
+    output = capsys.readouterr().out
+    assert output.count("camera_axes_world failed") == 1
+
+
 def test_sim_camera_pub_sub_roundtrip() -> None:
     channel: dict[str, object] = {}
 

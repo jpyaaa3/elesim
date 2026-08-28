@@ -78,6 +78,27 @@ def _emit_timing(sink: Optional[TimingSink], name: str, started: float) -> None:
         pass
 
 
+def _render_camera(
+    camera: Any,
+    *,
+    rgb: bool,
+    depth: bool,
+    force_render: bool,
+) -> tuple[Any, Any, Any, Any]:
+    """Render with the pinned API and support only the known old signature."""
+
+    try:
+        return camera.render(
+            rgb=bool(rgb),
+            depth=bool(depth),
+            force_render=bool(force_render),
+        )
+    except TypeError as exc:
+        if "force_render" not in str(exc):
+            raise
+        return camera.render(rgb=bool(rgb), depth=bool(depth))
+
+
 def genesis_scroll_zoom_delta(clicks: float) -> float:
     """Return the protocol zoom delta for Genesis' 0.90-per-click wheel."""
 
@@ -128,9 +149,7 @@ class Node9EyeInHandCamera:
     intrinsics: SimCameraIntrinsics
     depth_scale: float = 0.001
     _seq: int = 0
-    _arm_entity: Any = None
-    _hand_eye_path: str = ""
-    _parent_link: str = "node9"
+    _camera_axes_error_reported: bool = False
 
     @classmethod
     def create(
@@ -162,9 +181,6 @@ class Node9EyeInHandCamera:
         link = arm_entity.get_link(str(parent_link))
         offset_T = hand_eye_to_genesis_attach_T(hand_eye_path)
         self.camera.attach(link, offset_T)
-        self._arm_entity = arm_entity
-        self._hand_eye_path = str(hand_eye_path)
-        self._parent_link = str(parent_link)
         print(
             f"[sim_camera] attached to {parent_link} | res={self.intrinsics.width}x{self.intrinsics.height} "
             f"from {hand_eye_path}"
@@ -179,7 +195,9 @@ class Node9EyeInHandCamera:
                 self.camera.move_to_attach()
             return camera_axes_from_genesis_camera_object(self.camera, axis_len_m=float(axis_len_m))
         except Exception as exc:
-            print(f"[sim_camera] camera_axes_world failed: {exc}")
+            if not self._camera_axes_error_reported:
+                self._camera_axes_error_reported = True
+                print(f"[sim_camera] camera_axes_world failed: {exc}", flush=True)
             return None
 
     def _camera_pose_world(self) -> Optional[tuple[tuple[float, float, float], ...]]:
@@ -225,16 +243,12 @@ class Node9EyeInHandCamera:
             # render.  This is harmless for the legacy in-process path.
             if hasattr(self.camera, "move_to_attach"):
                 self.camera.move_to_attach()
-            try:
-                rgb, depth, _, _ = self.camera.render(
-                    rgb=bool(rgb_enabled),
-                    depth=bool(depth_enabled),
-                    force_render=bool(force_render),
-                )
-            except TypeError:
-                rgb, depth, _, _ = self.camera.render(
-                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
-                )
+            rgb, depth, _, _ = _render_camera(
+                self.camera,
+                rgb=bool(rgb_enabled),
+                depth=bool(depth_enabled),
+                force_render=bool(force_render),
+            )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:
@@ -299,7 +313,6 @@ class ObserverViewState:
     up: tuple[float, float, float] = (0.0, 0.0, 1.0)
     depth_scale: float = 0.001
     _seq: int = 0
-    _pose_warned: bool = False
     _reset_pos: Optional[tuple[float, float, float]] = None
     _reset_lookat: Optional[tuple[float, float, float]] = None
 
@@ -455,23 +468,20 @@ class ObserverCamera(ObserverViewState):
         )
 
     def _apply_pose(self) -> None:
-        if not hasattr(self.camera, "set_pose"):
-            return
+        setter = getattr(self.camera, "set_pose", None)
+        if not callable(setter):
+            raise RuntimeError("Genesis observer camera does not support set_pose")
         try:
-            self.camera.set_pose(pos=self.pos, lookat=self.lookat, up=self.up)
+            setter(pos=self.pos, lookat=self.lookat, up=self.up)
             return
         except TypeError:
             try:
-                self.camera.set_pose(self.pos, self.lookat)
+                setter(self.pos, self.lookat)
                 return
-            except Exception as exc:
-                if not self._pose_warned:
-                    self._pose_warned = True
-                    print(f"[sim_camera] observer pose update failed: {exc}")
-        except Exception as exc:
-            if not self._pose_warned:
-                self._pose_warned = True
-                print(f"[sim_camera] observer pose update failed: {exc}")
+            except TypeError as fallback_exc:
+                raise RuntimeError(
+                    "Genesis observer camera has no compatible set_pose signature"
+                ) from fallback_exc
 
     def _camera_pose_world(self) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
         origin = np.asarray(self.pos, dtype=float).reshape(3)
@@ -512,17 +522,12 @@ class ObserverCamera(ObserverViewState):
         rgb = depth = None
         if bool(rgb_enabled) or bool(depth_enabled):
             render_started = time.perf_counter()
-            try:
-                rgb, depth, _, _ = self.camera.render(
-                    rgb=bool(rgb_enabled),
-                    depth=bool(depth_enabled),
-                    force_render=bool(force_render),
-                )
-            except TypeError:
-                # Genesis 1.1 and older do not expose ``force_render``.
-                rgb, depth, _, _ = self.camera.render(
-                    rgb=bool(rgb_enabled), depth=bool(depth_enabled)
-                )
+            rgb, depth, _, _ = _render_camera(
+                self.camera,
+                rgb=bool(rgb_enabled),
+                depth=bool(depth_enabled),
+                force_render=bool(force_render),
+            )
             _emit_timing(timing_sink, "render", render_started)
 
         if bool(rgb_enabled) and rgb is not None:

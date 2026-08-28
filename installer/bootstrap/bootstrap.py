@@ -218,10 +218,21 @@ _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
         "coturn",
     )
 )
+# The RL training stack is tracked research code, not part of the runtime
+# source needed by the curl installer.  Keep this path-specific so an
+# unrelated future package containing an ``rl`` directory is not discarded.
+_BOOTSTRAP_SOURCE_ONLY_PATHS = (PurePosixPath("sim/src/elesim_sim/rl"),)
 
 
 class BootstrapError(RuntimeError):
     pass
+
+
+def _bootstrap_source_only(relative: PurePosixPath) -> bool:
+    return bool(_BOOTSTRAP_SOURCE_ONLY_COMPONENTS.intersection(relative.parts)) or any(
+        excluded == relative or excluded in relative.parents
+        for excluded in _BOOTSTRAP_SOURCE_ONLY_PATHS
+    )
 
 
 _ROSIDL_SOURCE_RE = re.compile(
@@ -235,7 +246,7 @@ def _bootstrap_source_path_allowed(relative: PurePosixPath) -> bool:
     if (
         relative in _BOOTSTRAP_EXCLUDED_CONFIG_FILES
         or relative.name.endswith(".pyc")
-        or _BOOTSTRAP_SOURCE_ONLY_COMPONENTS.intersection(relative.parts)
+        or _bootstrap_source_only(relative)
         or any(part.endswith(".egg-info") for part in relative.parts)
     ):
         return False
@@ -249,7 +260,7 @@ def _bootstrap_source_path_allowed(relative: PurePosixPath) -> bool:
 
 def _bootstrap_source_directory_allowed(relative: PurePosixPath) -> bool:
     if (
-        _BOOTSTRAP_SOURCE_ONLY_COMPONENTS.intersection(relative.parts)
+        _bootstrap_source_only(relative)
         or any(part.endswith(".egg-info") for part in relative.parts)
     ):
         return False

@@ -27,6 +27,7 @@ from elesim_setup.container_installer import (
     refresh_compose_dds_environment,
 )
 from elesim_setup.ownership import (
+    DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
     OwnershipError,
     OwnershipManifest,
@@ -83,6 +84,10 @@ def _fake_docker(path: Path) -> Path:
         "  exit \"${ELESIM_MANAGER_PURGE_STATUS:-0}\"\n"
         "fi\n"
         "arguments=\" $* \"\n"
+        "if [[ $arguments == *' image inspect elesim/tools:local '* && $arguments == *'build_fingerprint'* ]]; then\n"
+        "  printf '%s\\n' \"${ELESIM_FAKE_TOOLS_FINGERPRINT:-}\"\n"
+        "  exit 0\n"
+        "fi\n"
         "if [[ $arguments == *' build --quiet tools '* ]]; then\n"
         "  printf 'build progress that must not reach stdout\\n'\n"
         "  exit 0\n"
@@ -652,7 +657,7 @@ def test_docker_desktop_install_generates_stable_kernel_tailscale_sidecar(
     assert "export ELESIM_SIM_VIEWER=$runtime_sim_viewer" in compose_wrapper
     assert "exec docker compose" in compose_wrapper
     assert str(state.bin_path / "elesim-compose") in up_wrapper
-    assert "actual_docker_engine_id" not in up_wrapper
+    assert "actual_docker_engine_id" in up_wrapper
     assert "sidecar_login_status == 78" in up_wrapper
     assert "${sidecar_backend_state,,}" not in up_wrapper
     assert "sidecar_backend_state_lower=" in up_wrapper
@@ -1806,6 +1811,74 @@ def test_runtime_up_selects_sim_owned_coturn_from_security_profile(
     assert not (tmp_path / "docker.args").read_text(encoding="utf-8").strip()
 
 
+@pytest.mark.parametrize(
+    ("actual_fingerprint", "expected_up_flag"),
+    (("a" * 64, "--no-build"), ("stale", "--build")),
+)
+def test_runtime_up_builds_only_when_runtime_image_fingerprint_is_stale(
+    tmp_path: Path,
+    actual_fingerprint: str,
+    expected_up_flag: str,
+) -> None:
+    expected_fingerprint = "a" * 64
+    wrapper = tmp_path / "elesim-up"
+    wrapper.write_text(
+        _runtime_up_wrapper(
+            compose=tmp_path / "compose.yaml",
+            guard="",
+            launch_guard="",
+            has_sim=False,
+            runtime_roles=("pilot",),
+            state_path=tmp_path / "install-state.json",
+            runtime_install_uuid="01234567-89ab-cdef-0123-456789abcdef",
+            runtime_image_fingerprints=(("elesim/pilot:local", expected_fingerprint),),
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >>\"${DOCKER_CALLS:?}\"\n"
+        "if [[ $* == *build_fingerprint* ]]; then\n"
+        "  printf '%s\\n' \"${FAKE_FINGERPRINT:?}\"\n"
+        "elif [[ $1 == image && $2 == inspect ]]; then\n"
+        "  printf 'old-image-id\\n'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "DOCKER_CALLS": str(tmp_path / "docker.calls"),
+            "FAKE_FINGERPRINT": actual_fingerprint,
+        }
+    )
+
+    result = subprocess.run(
+        (wrapper,),
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "docker.calls").read_text(encoding="utf-8").splitlines()
+    up_call = next(call for call in calls if " up -d " in call)
+    assert up_call.endswith(
+        f"up -d {expected_up_flag} --remove-orphans pilot"
+    )
+    if expected_up_flag == "--no-build":
+        assert not any(" image inspect" in call for call in calls[1:])
+    else:
+        assert any("image inspect elesim/pilot:local" in call for call in calls)
+
+
 def test_runtime_up_rejects_missing_or_unknown_security_state(tmp_path: Path) -> None:
     compose = tmp_path / "compose.yaml"
     compose.write_text("name: elesim-runtime\nservices: {}\n", encoding="utf-8")
@@ -2346,11 +2419,15 @@ def test_container_net_doctor_reuses_tools_image_after_runtime_build(
     fake_bin.mkdir()
     _fake_docker(fake_bin)
     calls = tmp_path / "docker.calls"
+    tools_fingerprint = _compose(state)["services"]["tools"]["build"]["labels"][
+        DOCKER_BUILD_FINGERPRINT_LABEL
+    ]
     environment = os.environ.copy()
     environment.update(
         {
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "ELESIM_FAKE_DOCKER_CALLS": str(calls),
+            "ELESIM_FAKE_TOOLS_FINGERPRINT": tools_fingerprint,
         }
     )
 
@@ -2412,6 +2489,9 @@ def test_container_install_records_host_uninstaller_and_docker_uuid(
                 service["build"]["labels"][DOCKER_INSTALL_UUID_LABEL]
                 == manifest.install_uuid
             )
+            fingerprint = service["build"]["labels"][DOCKER_BUILD_FINGERPRINT_LABEL]
+            assert len(fingerprint) == 64
+            assert all(character in "0123456789abcdef" for character in fingerprint)
 
     wrapper = (state.bin_path / "elesim-uninstall").read_text(encoding="utf-8")
     assert "exec python3 -B -S -m elesim_setup.uninstall" in wrapper

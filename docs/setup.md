@@ -202,13 +202,14 @@ container는 교체하지 않는다. 업데이트 후 새 image를 적용하려�
 `elesim-up`이 필요하다.
 
 `elesim-update`는 source/Dockerfile 결함을 고치는 재빌드 경계이지 자동
-restart가 아니다. `--purge`나 down은 image layer를 지우거나 foreign resource를
-prune하지 않는다.
+restart가 아니다. 성공한 update는 현재 설치의 fingerprint가 붙은 이전
+dangling image만 ownership 조건 아래 정리한다. `--purge`나 down은 image layer를
+지우거나 foreign resource를 prune하지 않는다.
 
 ### Up
 
 ```bash
-elesim-up                 # 일반 시작, 필요 시 build 포함
+elesim-up                 # fingerprint가 다를 때만 build
 elesim-up pilot           # Pilot만 시작
 elesim-up sim             # Sim만 시작
 elesim-up ui              # UI만 시작
@@ -217,8 +218,11 @@ elesim-up --jaeger        # Developer tracing profile 포함
 elesim-up --view          # 명시적 Sim native Viewer
 ```
 
-첫 `up`은 선택 host의 image를 build한 뒤 Compose를 시작한다. multi-host 전체
-build/launch와 security rollout은 `elesim-connections`가 host별로 조정한다.
+`elesim-up`은 선택한 role image의 generated build fingerprint를 local image
+label과 비교한다. 이미지가 없거나 fingerprint가 다를 때만 build하고, 일치하면
+`--no-build`로 Compose를 시작한다. tools image도 같은 검사를 거쳐 readiness
+검사에서 변경 없이 다시 build하지 않는다. multi-host 전체 build/launch와
+security rollout은 `elesim-connections`가 host별로 조정한다.
 동일한 active generation과 역할을 임의로 덮어쓰지 않는다.
 
 General 설치는 role별 host wrapper를 만들지 않는다. `elesim-pilot`,
@@ -324,6 +328,10 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | `managed SROS2 pending` | manager에서 generation `provision`/`rotate`/`recover` | generation transaction을 끝내기 전 role을 임의로 up하지 않는다. |
 | `elesim-update` 후 옛 동작 | update는 container를 교체하지 않음 | 정확한 prefix에서 `elesim-down` 후 `elesim-up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |
+
+curl bootstrap은 runtime에 필요하지 않은 `sim/src/elesim_sim/rl` 연구/학습
+스택을 source snapshot에서 제외한다. 이 디렉터리는 저장소에는 남아 있으므로
+연구 코드를 별도로 실행할 때는 checkout을 사용한다.
 
 ## 12. 자동 검증과 수동 gate
 

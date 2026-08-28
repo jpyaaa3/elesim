@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import pwd
+import re
 import secrets
 import shlex
 import shutil
@@ -12,7 +13,7 @@ import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping, Sequence
 
 import yaml
 
@@ -30,6 +31,7 @@ from .manager_lifecycle import (
     manager_lifecycle_fragment,
 )
 from .ownership import (
+    DOCKER_BUILD_FINGERPRINT_LABEL,
     DOCKER_INSTALL_UUID_LABEL,
     DockerOwnership,
     HostUninstallerBundle,
@@ -88,6 +90,63 @@ RUNTIME_LOG_RETENTION = 5
 # update advances to the current stable client.
 TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 TAILSCALE_CONTAINER_NAME = "elesim-tailscale"
+
+
+def _build_context_fingerprint(
+    context: Path,
+    *,
+    build_args: Mapping[str, str] | None = None,
+) -> str:
+    """Hash the generated Docker inputs and the arguments that affect them.
+
+    Docker's normal build cache is deliberately left to BuildKit.  This
+    digest is only a cheap, explicit ownership/version marker for the host
+    launcher, so it must ignore mtimes and absolute paths while retaining
+    file contents, executable bits, relative names and build arguments.
+    Generated contexts must not contain symlinks; rejecting one here keeps the
+    marker from silently describing a different target than Docker receives.
+    """
+
+    if context.is_symlink() or not context.is_dir():
+        raise ValueError(f"image context는 일반 directory여야 합니다: {context}")
+    digest = hashlib.sha256()
+    entries = sorted(
+        context.rglob("*"),
+        key=lambda path: path.relative_to(context).as_posix(),
+    )
+    for entry in entries:
+        relative = entry.relative_to(context).as_posix()
+        metadata = entry.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"image context 아래 symlink은 허용되지 않습니다: {entry}")
+        if stat.S_ISDIR(metadata.st_mode):
+            kind = "directory"
+        elif stat.S_ISREG(metadata.st_mode):
+            kind = "file"
+        else:
+            raise ValueError(f"image context에 지원하지 않는 항목이 있습니다: {entry}")
+        digest.update(kind.encode("ascii"))
+        digest.update(b"\0")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(f"{stat.S_IMODE(metadata.st_mode):o}".encode("ascii"))
+        digest.update(b"\0")
+        if kind == "file":
+            digest.update(str(metadata.st_size).encode("ascii"))
+            digest.update(b"\0")
+            with entry.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
+            digest.update(b"\0")
+    for key, value in sorted(
+        (str(key), str(value)) for key, value in (build_args or {}).items()
+    ):
+        digest.update(b"build-arg\0")
+        digest.update(key.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _resolve_viewer_user() -> str:
@@ -232,6 +291,7 @@ class ContainerInstaller:
         self.dry_run = bool(dry_run)
         self.log = log
         self._install_uuid = ""
+        self._image_fingerprints: dict[str, str] = {}
         self.shell_bashrc = (
             None
             if shell_bashrc is None
@@ -274,6 +334,7 @@ class ContainerInstaller:
             return
 
         self.log("[1/6] 설치 디렉터리와 runtime data 준비")
+        self._image_fingerprints.clear()
         self.state.prefix_path.mkdir(parents=True, exist_ok=True)
         self.state.bin_path.mkdir(parents=True, exist_ok=True)
         self._prepare_manager_roots()
@@ -623,6 +684,14 @@ class ContainerInstaller:
                     target / "model/bundles/d435",
                 )
 
+    def _role_build_args(self, role: str) -> dict[str, str]:
+        return {
+            "ROLE": role,
+            "BASE_IMAGE": self._ROS_BASE_IMAGE,
+            "COMPUTE_MODE": self.state.compute.gpu_mode,
+            "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
+        }
+
     def _write_role_context(self, role: str) -> None:
         root = self.state.source_path
         context = self._build_root / role
@@ -640,6 +709,11 @@ class ContainerInstaller:
         _copy_source_tree(source, context / "application", ignore_config=True)
         (context / "entrypoint").write_text(_entrypoint(role), encoding="utf-8")
         (context / "entrypoint").chmod(0o755)
+        image = f"elesim/{role}:local"
+        self._image_fingerprints[image] = _build_context_fingerprint(
+            context,
+            build_args=self._role_build_args(role),
+        )
 
     def _write_tools_context(self) -> None:
         root = self.state.source_path
@@ -661,6 +735,9 @@ class ContainerInstaller:
             context / "interfaces/elesim_interfaces",
         )
         _copy_source_tree(setup, context / "setup")
+        self._image_fingerprints["elesim/tools:local"] = _build_context_fingerprint(
+            context
+        )
 
     def _write_compose(self) -> None:
         services: dict[str, object] = {}
@@ -697,18 +774,14 @@ class ContainerInstaller:
     def _role_service(self, role: str) -> dict[str, object]:
         context = self._build_root / role
         role_root = role_directory(self.state, role)
+        image = f"elesim/{role}:local"
         service: dict[str, object] = {
-            "image": f"elesim/{role}:local",
+            "image": image,
             "container_name": ROLE_CONTAINER_NAMES[role],
             "build": {
                 "context": str(context),
-                "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
-                "args": {
-                    "ROLE": role,
-                    "BASE_IMAGE": self._ROS_BASE_IMAGE,
-                    "COMPUTE_MODE": self.state.compute.gpu_mode,
-                    "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
-                },
+                "labels": self._image_build_labels(image),
+                "args": self._role_build_args(role),
             },
             "network_mode": self._runtime_network_mode(),
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
@@ -793,6 +866,18 @@ class ContainerInstaller:
         if role in {"pilot", "sim"}:
             self._apply_compute(service)
         return service
+
+    def _image_build_labels(self, image: str) -> dict[str, str]:
+        try:
+            fingerprint = self._image_fingerprints[image]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"image context fingerprint가 준비되지 않았습니다: {image}"
+            ) from exc
+        return {
+            DOCKER_INSTALL_UUID_LABEL: self._install_uuid,
+            DOCKER_BUILD_FINGERPRINT_LABEL: fingerprint,
+        }
 
     @staticmethod
     def _apply_x11_display(
@@ -976,7 +1061,7 @@ class ContainerInstaller:
             "image": "elesim/tools:local",
             "build": {
                 "context": str(context),
-                "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+                "labels": self._image_build_labels("elesim/tools:local"),
             },
             "network_mode": "host",
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
@@ -1027,7 +1112,7 @@ class ContainerInstaller:
             "image": "elesim/tools:local",
             "build": {
                 "context": str(context),
-                "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+                "labels": self._image_build_labels("elesim/tools:local"),
             },
             "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
             "profiles": ("manager",),
@@ -1224,9 +1309,8 @@ class ContainerInstaller:
             _runtime_up_wrapper(
                 compose=compose,
                 compose_wrapper=compose_wrapper,
-                # Every Docker operation below goes through elesim-compose,
-                # which owns the Docker daemon identity and Compose guard.
-                guard="",
+                # Compose operations use elesim-compose; direct fingerprint
+                # inspection/removal also needs the pinned daemon guard.
                 launch_guard=application_guard + runtime_network_guard,
                 has_sim="sim" in self.state.roles,
                 runtime_roles=self.state.roles,
@@ -1235,6 +1319,14 @@ class ContainerInstaller:
                 viewer_user=viewer_user,
                 runtime_uid=os.getuid(),
                 runtime_gpu_mode=self.state.compute.gpu_mode,
+                runtime_install_uuid=self._install_uuid,
+                runtime_image_fingerprints=tuple(
+                    (f"elesim/{role}:local", self._image_fingerprints[f"elesim/{role}:local"])
+                    for role in self.state.roles
+                ),
+                # Fingerprint inspection/removal uses the Docker CLI directly;
+                # keep those reads on the same pinned daemon as Compose.
+                guard=backend_guard,
             ),
         )
         if viewer_state is not None:
@@ -1266,12 +1358,25 @@ class ContainerInstaller:
                 if self.state.container_network.uses_tailscale_sidecar
                 else ""
             )
+            + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['elesim/tools:local'])}\n"
+            + f"expected_tools_install_uuid={shlex.quote(self._install_uuid)}\n"
+            + "tools_image_fingerprint=\"$(docker image inspect elesim/tools:local --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.build_fingerprint\"}}{{end}}' 2>/dev/null || true)\"\n"
             + "needs_tools_build=1\n"
-            + "if [[ ${1:-} == doctor ]] && docker image inspect elesim/tools:local >/dev/null 2>&1; then\n"
+            + "if [[ ${ELESIM_UP_NO_BUILD:-0} == 1 || $tools_image_fingerprint == \"$expected_tools_build_fingerprint\" ]]; then\n"
             + "  needs_tools_build=0\n"
             + "fi\n"
+            + "tools_previous_image_id=\"\"\n"
             + "if [[ $needs_tools_build == 1 ]]; then\n"
+            + "  tools_previous_image_id=\"$(docker image inspect elesim/tools:local --format '{{.Id}}' 2>/dev/null || true)\"\n"
             + f"  {command} build --quiet tools >/dev/null\n"
+            + "  if [[ -n $tools_previous_image_id ]]; then\n"
+            + "    tools_image_tags=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true)\"\n"
+            + "    tools_real_image_tags=\"${tools_image_tags//<none>:<none>/}\"\n"
+            + "    tools_image_install_uuid=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.install_uuid\"}}{{end}}' 2>/dev/null || true)\"\n"
+            + "    if [[ ! $tools_real_image_tags =~ [^[:space:]] && $tools_image_install_uuid == \"$expected_tools_install_uuid\" ]] && [[ -z \"$(docker ps -aq --filter \"ancestor=$tools_previous_image_id\" 2>/dev/null || true)\" ]]; then\n"
+            + "      docker image rm \"$tools_previous_image_id\" >/dev/null || printf '[elesim-net] 이전 tools image 정리 실패: %s\\n' \"$tools_previous_image_id\" >&2\n"
+            + "    fi\n"
+            + "  fi\n"
             + "fi\n"
             + f"exec {command} run --rm -T \"$net_service\" elesim-net "
             + f"--state {shlex.quote(str(self.state_path))}"
@@ -2532,6 +2637,8 @@ def _runtime_up_wrapper(
     viewer_x11_socket_dir: Path = Path("/tmp/.X11-unix"),
     runtime_uid: int | None = None,
     runtime_gpu_mode: str | None = None,
+    runtime_install_uuid: str | None = None,
+    runtime_image_fingerprints: Sequence[tuple[str, str]] = (),
 ) -> str:
     """Render the general runtime launcher with an optional Sim Viewer.
 
@@ -2547,6 +2654,23 @@ def _runtime_up_wrapper(
         "cpu",
     }:
         raise ValueError(f"unsupported runtime GPU mode: {runtime_gpu_mode!r}")
+    normalized_fingerprints = tuple(
+        (str(image).strip(), str(fingerprint).strip())
+        for image, fingerprint in runtime_image_fingerprints
+    )
+    if len({image for image, _ in normalized_fingerprints}) != len(
+        normalized_fingerprints
+    ):
+        raise ValueError("runtime image fingerprints must not contain duplicates")
+    for image, fingerprint in normalized_fingerprints:
+        if not re.fullmatch(
+            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:local", image
+        ):
+            raise ValueError(f"invalid runtime image name: {image!r}")
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError(f"invalid runtime image fingerprint: {fingerprint!r}")
+    if normalized_fingerprints and not str(runtime_install_uuid or "").strip():
+        raise ValueError("runtime image fingerprints require runtime_install_uuid")
 
     command = (
         shlex.quote(str(compose_wrapper))
@@ -2675,6 +2799,11 @@ def _runtime_up_wrapper(
         "else\n"
         "  export ELESIM_SIM_VIEWER=\n"
         "fi\n"
+        "if (( no_build_requested )); then\n"
+        "  export ELESIM_UP_NO_BUILD=1\n"
+        "else\n"
+        "  unset ELESIM_UP_NO_BUILD\n"
+        "fi\n"
     )
     rendered_roles = " ".join(shlex.quote(str(role)) for role in runtime_roles)
     if not rendered_roles:
@@ -2798,11 +2927,99 @@ def _runtime_up_wrapper(
         if has_sim
         else ""
     )
+    rendered_fingerprint_specs = " ".join(
+        shlex.quote(f"{image}|{fingerprint}")
+        for image, fingerprint in normalized_fingerprints
+    )
+    docker_fingerprint_format = shlex.quote(
+        '{{if .Config.Labels}}{{index .Config.Labels "io.elesim.build_fingerprint"}}{{end}}'
+    )
+    docker_image_id_format = shlex.quote("{{.Id}}")
+    docker_repo_tags_format = shlex.quote("{{range .RepoTags}}{{println .}}{{end}}")
+    docker_install_uuid_format = shlex.quote(
+        '{{if .Config.Labels}}{{index .Config.Labels "io.elesim.install_uuid"}}{{end}}'
+    )
+    runtime_image_check = (
+        (
+            f"runtime_expected_image_fingerprints=({rendered_fingerprint_specs})\n"
+            f"runtime_expected_install_uuid={shlex.quote(str(runtime_install_uuid))}\n"
+            "  runtime_build_required=0\n"
+            "  for runtime_image_spec in \"${runtime_expected_image_fingerprints[@]}\"; do\n"
+            "    runtime_image_name=\"${runtime_image_spec%%|*}\"\n"
+            "    runtime_expected_fingerprint=\"${runtime_image_spec#*|}\"\n"
+            "    runtime_service_name=\"${runtime_image_name#elesim/}\"\n"
+            "    runtime_service_name=\"${runtime_service_name%:local}\"\n"
+            "    runtime_service_selected=0\n"
+            "    for runtime_argument in \"${compose_args[@]}\"; do\n"
+            "      if [[ $runtime_argument == \"$runtime_service_name\" ]]; then\n"
+            "        runtime_service_selected=1\n"
+            "        break\n"
+            "      fi\n"
+            "    done\n"
+            "    if (( ! runtime_service_selected )); then continue; fi\n"
+            f"    runtime_actual_fingerprint=\"$(docker image inspect \"$runtime_image_name\" --format {docker_fingerprint_format} 2>/dev/null || true)\"\n"
+            "    if [[ $runtime_actual_fingerprint != \"$runtime_expected_fingerprint\" ]]; then\n"
+            "      runtime_build_required=1\n"
+            f"      runtime_previous_image_id=\"$(docker image inspect \"$runtime_image_name\" --format {docker_image_id_format} 2>/dev/null || true)\"\n"
+            "      if [[ -n $runtime_previous_image_id ]]; then\n"
+            "        runtime_previous_image_specs+=(\"$runtime_image_name|$runtime_previous_image_id\")\n"
+            "      fi\n"
+            "    fi\n"
+            "  done\n"
+            "  if (( runtime_build_required )); then\n"
+            "    printf '%s\\n' '[elesim-up] runtime image 변경을 감지하여 build를 수행합니다.' >&2\n"
+            "  fi\n"
+        )
+        if normalized_fingerprints
+        else "  runtime_build_required=1\n"
+    )
+    runtime_image_preflight = (
+        "runtime_build_required=1\n"
+        "runtime_previous_image_specs=()\n"
+        "if (( no_build_requested )); then\n"
+        "  runtime_build_required=0\n"
+        "else\n"
+        + runtime_image_check
+        + "fi\n"
+    )
+    runtime_image_cleanup = (
+        (
+            "if (( compose_status == 0 && runtime_build_required )); then\n"
+            "  runtime_cleanup_owned_image() {\n"
+            "    local runtime_image_id=\"$1\"\n"
+            "    local runtime_image_tags runtime_real_image_tags runtime_image_install_uuid\n"
+            "    [[ -n $runtime_image_id ]] || return 0\n"
+            f"    runtime_image_tags=\"$(docker image inspect \"$runtime_image_id\" --format {docker_repo_tags_format} 2>/dev/null || true)\"\n"
+            "    runtime_real_image_tags=\"${runtime_image_tags//<none>:<none>/}\"\n"
+            "    [[ $runtime_real_image_tags =~ [^[:space:]] ]] && return 0\n"
+            f"    runtime_image_install_uuid=\"$(docker image inspect \"$runtime_image_id\" --format {docker_install_uuid_format} 2>/dev/null || true)\"\n"
+            "    [[ $runtime_image_install_uuid == \"$runtime_expected_install_uuid\" ]] || return 0\n"
+            "    if [[ -n \"$(docker ps -aq --filter \"ancestor=$runtime_image_id\" 2>/dev/null || true)\" ]]; then\n"
+            "      printf '[elesim-up] 이전 image 보존: %s (기존 컨테이너가 참조 중)\\n' \"$runtime_image_id\" >&2\n"
+            "      return 0\n"
+            "    fi\n"
+            "    if ! docker image rm \"$runtime_image_id\" >/dev/null; then\n"
+            "      printf '[elesim-up] 이전 image 정리 실패: %s\\n' \"$runtime_image_id\" >&2\n"
+            "    fi\n"
+            "  }\n"
+            "  for runtime_previous_image_spec in \"${runtime_previous_image_specs[@]}\"; do\n"
+            "    runtime_previous_image_name=\"${runtime_previous_image_spec%%|*}\"\n"
+            "    runtime_previous_image_id=\"${runtime_previous_image_spec#*|}\"\n"
+            f"    runtime_new_image_id=\"$(docker image inspect \"$runtime_previous_image_name\" --format {docker_image_id_format} 2>/dev/null || true)\"\n"
+            "    if [[ -n $runtime_new_image_id && $runtime_new_image_id != \"$runtime_previous_image_id\" ]]; then\n"
+            "      runtime_cleanup_owned_image \"$runtime_previous_image_id\"\n"
+            "    fi\n"
+            "  done\n"
+            "fi\n"
+        )
+        if normalized_fingerprints and runtime_install_uuid
+        else ""
+    )
     viewer_preflight = (
         "if (( view_requested )); then\n"
         "  viewer_preflight_status=0\n"
         "  set +e\n"
-        "  if (( no_build_requested )); then\n"
+        "  if (( runtime_build_required == 0 )); then\n"
         "    "
         + command
         + " run --rm -T --no-deps sim --elesim-viewer-preflight\n"
@@ -2849,7 +3066,7 @@ def _runtime_up_wrapper(
     compose_run = (
         "compose_status=0\n"
         "set +e\n"
-        "if (( no_build_requested )); then\n"
+        "if (( runtime_build_required == 0 )); then\n"
         "  "
         + command
         + ' up -d --no-build --remove-orphans "${compose_args[@]}"\n'
@@ -2860,6 +3077,7 @@ def _runtime_up_wrapper(
         "fi\n"
         "compose_status=$?\n"
         "set -e\n"
+        + runtime_image_cleanup
         + viewer_post_cleanup
         + "exit \"$compose_status\"\n"
     )
@@ -2873,6 +3091,7 @@ def _runtime_up_wrapper(
         + compose_argument_validation
         + viewer_action
         + coturn_selection
+        + runtime_image_preflight
         + viewer_preflight
         + compose_run
     )

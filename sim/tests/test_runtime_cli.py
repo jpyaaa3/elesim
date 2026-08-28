@@ -138,16 +138,18 @@ def test_async_runtime_builds_physics_before_starting_visual_worker(monkeypatch)
             captured["order"].append("physics")
 
     class Scene:
+        camera_render_worker = None
+
         def configure_camera_render_worker(self, *_args, **_kwargs) -> None:
             captured["worker_started"] = True
             captured["order"].append("visual")
-
-        def wait_camera_render_worker(self, **_kwargs) -> None:
-            captured["order"].append("wait")
             raise StopAfterInit
 
         def close_frame_dispatchers(self) -> None:
             captured["closed"] = True
+
+        def close_camera_publishers(self) -> None:
+            captured["publishers_closed"] = True
 
     app = SimpleNamespace(
         cfg=SimpleNamespace(
@@ -173,8 +175,9 @@ def test_async_runtime_builds_physics_before_starting_visual_worker(monkeypatch)
         "worker_started": True,
         "urdf_path": "/model/robot.urdf",
         "attach_scene_cameras": False,
-        "order": ["physics", "visual", "wait"],
+        "order": ["physics", "visual"],
         "closed": True,
+        "publishers_closed": True,
     }
 
 

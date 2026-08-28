@@ -138,6 +138,7 @@ class UiSimSession:
         self._stream_retry_at: dict[str, float] = {}
         self._stream_retry_count: dict[str, int] = {}
         self._stream_connected_at: dict[str, float] = {}
+        self._stream_offer_sent_at: dict[str, float] = {}
         self._turn: Optional[TurnCredentials] = None
         self._connected_streams: set[str] = set()
         self._status: Optional[SimulationStatusPayload] = None
@@ -571,6 +572,10 @@ class UiSimSession:
                 self._stream_retry_at.clear()
                 self._stream_retry_count.clear()
                 self._stream_connected_at.clear()
+                now = self.clock()
+                self._stream_offer_sent_at = {
+                    stream: now for stream in receivers
+                }
                 if not missing_streams:
                     self._last_error = ""
             else:
@@ -678,6 +683,7 @@ class UiSimSession:
                 return
             self._connected_streams.discard(name)
             self._stream_connected_at.pop(name, None)
+            self._stream_offer_sent_at.pop(name, None)
         self._schedule_stream_retry(name)
         self._set_error(f"{name} WebRTC {detail}; retrying")
 
@@ -723,6 +729,7 @@ class UiSimSession:
         with self._lock:
             self._connected_streams.add(signal.stream)
             self._stream_connected_at[signal.stream] = self.clock()
+            self._stream_offer_sent_at.pop(signal.stream, None)
             self._stream_retry_at.pop(signal.stream, None)
             self._stream_retry_count.pop(signal.stream, None)
 
@@ -758,6 +765,18 @@ class UiSimSession:
             active = tuple(self._connected_streams)
             connected_at = dict(self._stream_connected_at)
             receivers = dict(self._receivers)
+            connected = set(self._connected_streams)
+            offer_sent_at = dict(self._stream_offer_sent_at)
+            retry_at = dict(self._stream_retry_at)
+        pending_answers: list[str] = []
+        for stream, sent_at in offer_sent_at.items():
+            if (
+                stream in receivers
+                and stream not in connected
+                and stream not in retry_at
+                and now - float(sent_at) >= _STREAM_STARTUP_TIMEOUT_S
+            ):
+                pending_answers.append(stream)
         for stream in active:
             receiver = receivers.get(stream)
             age_getter = getattr(receiver, "frame_age_s", None)
@@ -782,12 +801,26 @@ class UiSimSession:
             if age_value >= threshold:
                 stalled.append((stream, age_value))
 
+        for stream in pending_answers:
+            with self._lock:
+                if (
+                    stream not in self._receivers
+                    or stream in self._connected_streams
+                    or stream in self._stream_retry_at
+                ):
+                    continue
+            self._schedule_stream_retry(stream)
+            self._set_error(
+                f"{stream} WebRTC answer timed out; retrying"
+            )
+
         for stream, age in stalled:
             with self._lock:
                 if stream not in self._connected_streams:
                     continue
                 self._connected_streams.discard(stream)
                 self._stream_connected_at.pop(stream, None)
+                self._stream_offer_sent_at.pop(stream, None)
             self._schedule_stream_retry(stream)
             receiver = receivers.get(stream)
             stats_getter = getattr(receiver, "stats_snapshot", None)
@@ -859,6 +892,7 @@ class UiSimSession:
                         _STREAM_RETRY_COUNT_CAP,
                     )
                     self._stream_retry_count[stream] = retry_count
+                    self._stream_offer_sent_at[stream] = now
                     # Keep trying while the DDS session is alive.  The delay
                     # is capped and the counter itself is bounded, so a dead
                     # media path cannot create an unbounded queue or timer.
@@ -961,6 +995,7 @@ class UiSimSession:
         self._stream_retry_at.clear()
         self._stream_retry_count.clear()
         self._stream_connected_at.clear()
+        self._stream_offer_sent_at.clear()
         self._status = None
         self._commands.clear()
         self._pending_command_ids.clear()

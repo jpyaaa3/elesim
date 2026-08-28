@@ -37,7 +37,11 @@ from .connection_manager import (
     SshEndpoint,
     resolve_ssh_identity_path,
 )
-from .credentials import proxy_failure_detail, tailscale_proxy_command
+from .credentials import (
+    _ParamikoProxySocket,
+    proxy_failure_detail,
+    tailscale_proxy_command,
+)
 
 
 MAX_BUNDLE_FILES = 256
@@ -714,6 +718,7 @@ class ParamikoConnector:
         """
 
         connection: object | None = None
+        proxy_connection: _ParamikoProxySocket | None = None
         transport: object | None = None
         try:
             proxy_command = tailscale_proxy_command(
@@ -728,7 +733,8 @@ class ParamikoConnector:
             else:
                 from paramiko.proxy import ProxyCommand
 
-                connection = ProxyCommand(proxy_command)
+                proxy_connection = _ParamikoProxySocket(ProxyCommand(proxy_command))
+                connection = proxy_connection
             transport = paramiko.Transport(connection)  # type: ignore[attr-defined]
             # Paramiko's Transport defaults auth_timeout to None.  Tailscale
             # ``action=check`` can otherwise leave a headless rollout waiting
@@ -776,6 +782,8 @@ class ParamikoConnector:
                     "If the ACL uses action=check, approve one interactive "
                     "Tailscale SSH re-authentication first and verify the ACL user."
                 )
+            if proxy_connection is not None:
+                proxy_connection.mark_established()
             client = paramiko.SSHClient()  # type: ignore[attr-defined]
             # SSHClient owns and closes this transport through its normal close
             # path.  This is the only private Paramiko attribute we rely on;

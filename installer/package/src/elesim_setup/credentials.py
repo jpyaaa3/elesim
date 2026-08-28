@@ -26,6 +26,46 @@ class SshProbeError(RuntimeError):
     """A host key probe failed before a fingerprint could be read."""
 
 
+class _ParamikoProxySocket:
+    """Keep Paramiko's post-handshake proxy close race out of diagnostics.
+
+    ``ProxyCommand`` reports an ``EPIPE`` as ``ProxyCommandFailure`` when the
+    remote SSH endpoint has already closed the stream.  That is ordinary
+    teardown only after the SSH handshake has completed; startup and handshake
+    failures must still propagate to the caller.
+    """
+
+    def __init__(self, connection: object) -> None:
+        self._connection = connection
+        self._established = False
+
+    def mark_established(self) -> None:
+        self._established = True
+
+    def send(self, content: bytes) -> int:
+        try:
+            return int(self._connection.send(content))  # type: ignore[attr-defined]
+        except Exception as exc:
+            if self._established and _is_proxy_broken_pipe(exc):
+                return len(content)
+            raise
+
+    def close(self) -> None:
+        self._connection.close()  # type: ignore[attr-defined]
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._connection, name)
+
+
+def _is_proxy_broken_pipe(exc: BaseException) -> bool:
+    if isinstance(exc, BrokenPipeError):
+        return True
+    return (
+        type(exc).__name__ == "ProxyCommandFailure"
+        and "broken pipe" in str(exc).lower()
+    )
+
+
 def probe_ssh_fingerprint(
     host: str,
     port: int,
@@ -47,6 +87,8 @@ def probe_ssh_fingerprint(
         try:
             transport.start_client(timeout=timeout_s)
             key = transport.get_remote_server_key()
+            if isinstance(connection, _ParamikoProxySocket):
+                connection.mark_established()
             return _fingerprint(key.asbytes())
         finally:
             transport.close()
@@ -140,7 +182,7 @@ def _open_probe_connection(
     try:
         from paramiko.proxy import ProxyCommand
 
-        return ProxyCommand(proxy_command)
+        return _ParamikoProxySocket(ProxyCommand(proxy_command))
     except Exception as exc:
         detail = str(exc).strip() or exc.__class__.__name__
         raise SshProbeError(

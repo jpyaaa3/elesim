@@ -74,7 +74,7 @@ simulation:
     use_hardware: false
     use_go2: true
   assembly:
-    build_dir: ../../../model/bundles/default
+    build_dir: ../../model/bundles/default
     assy_build_json: blueprint.json
     urdf_name: robot.urdf
     arm_urdf_name: arm.urdf
@@ -149,7 +149,10 @@ robot:
   go2:
     spawn:
       spawn_height: 0.32
-      mount_offset_m: [0.1, 0.0, 0.07]
+      # Body-frame transform from the GO2 base to the arm plate.  Keep this
+      # equal to the builder/Pilot mount so the runtime URDF and world spawn
+      # share one physical attachment point.
+      mount_offset_m: [0.35, 0.0, 0.08]
       spawn_euler_deg: [0.0, 0.0, 0.0]
     teleop:
       vx_mps: 0.45
