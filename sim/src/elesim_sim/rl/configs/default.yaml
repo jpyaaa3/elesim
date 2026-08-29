@@ -302,8 +302,16 @@ macro_step:
   # step 9 -- and the wrap took 7 from Home.  At 15 the two fit exactly, so a
   # policy needing one step more than the best one so far can never finish, and
   # the reverse curriculum would stall on the last leg for a reason that has
-  # nothing to do with the grasp.  20 leaves 12 steps for the wrap.
-  max_steps: 20
+  # nothing to do with the grasp.
+  #
+  # 20 was that same mistake again.  Driving the curriculum's own via points
+  # from Home through the ordinary action interface, at the rate limit a policy
+  # is held to, reaches a held object in 20 steps exactly -- 12 of approach and
+  # 8 of scripted lift -- and that is a waypoint-chaser that knows the route.
+  # Cutting its corners harder does not help: at the loosest tolerance tried it
+  # arrives in 5 and topples the pole.  28 leaves a policy 20 steps to find an
+  # approach the script needs 12 for.
+  max_steps: 28
   # Substeps simulated per macro step.
   substeps: 40
   # Fraction of those substeps spent *moving* to the new waypoint, with the
@@ -774,12 +782,18 @@ start_pose:
   #   one via point                    17.4 deg   35 mm
   #   these three                       4.8 deg    7 mm
   #
-  # The third pose is the cleanest of a 75-point sweep at roll -90: the coil
-  # open beside the pole, 1.9 mm off its surface and touching nothing.
+  # The third pose has to do more than leave the pole alone: the wrap has to be
+  # reachable *from* it.  Picking it as "closest without touching" gave a coil
+  # parked against the pole's outside, and closing the curl from there pushed
+  # the object over at every speed from 1.0x down to 0.15x -- a clean reset that
+  # leads nowhere.  It is chosen instead for enclosed bearing with no contact,
+  # so the pole sits in the coil's mouth: 218 deg surrounded, 8 mm off the
+  # surface, nothing touching.  Its linear stage already matches the wrap's, so
+  # the last leg only closes the curl and does not advance into the object.
   path:
     - [-0.166,  0.0000,  0.0000,  0.0000]
     - [-0.230, -1.5673,  0.0000,  0.0000]
-    - [-0.150, -1.5673, -0.2094, -0.2094]
+    - [-0.092, -1.5673, -0.2094, -0.3142]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.
   t_range: [0.85, 1.0]

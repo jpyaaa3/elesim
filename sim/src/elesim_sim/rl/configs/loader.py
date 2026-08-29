@@ -184,7 +184,7 @@ class RateLimitConfig:
 
 @dataclass(frozen=True)
 class MacroStepConfig:
-    max_steps: int = 20
+    max_steps: int = 28
     substeps: int = 40
     move_fraction: float = 0.6
     settle: SettleConfig = field(default_factory=SettleConfig)
@@ -339,7 +339,7 @@ class StartPoseConfig:
     path: tuple[tuple[float, float, float, float], ...] = (
         (-0.166, 0.0, 0.0, 0.0),
         (-0.230, -1.5673, 0.0, 0.0),
-        (-0.150, -1.5673, -0.2094, -0.2094),
+        (-0.092, -1.5673, -0.2094, -0.3142),
     )
     #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.
     t_range: tuple[float, float] = (0.85, 1.0)
