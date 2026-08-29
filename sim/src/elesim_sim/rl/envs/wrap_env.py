@@ -180,6 +180,8 @@ class WrapGraspEnv:
         self._start_t_hi = float(start.t_range[1])
         self._start_window_n = 0
         self._start_window_ok = 0
+        #: Macro steps since the curriculum last moved, for `cooldown_updates`.
+        self._start_steps_since_move = 0
         self._load_proxy = z(self.num_envs, self.num_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
         self._waypoint_from = z(self.num_envs, self.num_actions)
@@ -242,6 +244,7 @@ class WrapGraspEnv:
         self._start_t_hi = max(self._start_t_lo, min(1.0, hi))
         self._start_window_n = 0
         self._start_window_ok = 0
+        self._start_steps_since_move = 0
 
     def freeze_start_pose_at_home(self) -> None:
         """Pin every episode to Home and stop the curriculum advancing.
@@ -255,6 +258,7 @@ class WrapGraspEnv:
         self._start_t_hi = 0.0
         self._start_window_n = 0
         self._start_window_ok = 0
+        self._start_steps_since_move = 0
 
     def _apply_start_pose(self, env_ids: Optional[torch.Tensor], n: int) -> None:
         """Interpolate the reset waypoint from Home towards the near-goal pose.
@@ -274,14 +278,27 @@ class WrapGraspEnv:
         self.mapper.waypoint = self.mapper._project_curl(self.mapper.waypoint)
 
     def _note_start_pose_outcome(self, dones: torch.Tensor, success: torch.Tensor) -> None:
-        """Walk the start range back towards Home once the policy can finish.
+        """Move the start range on the evidence, in either direction.
 
-        Keyed on the success rate over a window of finished episodes, so the
-        curriculum only advances on evidence rather than on a step count.
+        Towards Home when the policy can finish from where it starts, and back
+        away from it when it cannot.  The second half is not symmetry for its
+        own sake: without it the curriculum is a ratchet, and a run that outran
+        its policy sat at `success 0.0000, phi 4 deg, topple 0.42` for 130
+        iterations with no way back.
+
+        `cooldown_updates` bounds how fast it can move, which is a guard rather
+        than what that run needed -- it moved four steps in fifty iterations and
+        would have passed the bound.  The hazard it covers is real all the same:
+        at 2048 envs a 512-episode window fills in about two macro steps, so
+        nothing else stops the range walking several steps inside one iteration
+        whenever the success rate holds up.
         """
         cfg = self.cfg.start_pose
-        if not cfg.enable or cfg.advance_at is None:
+        if not cfg.enable:
             return
+        if cfg.advance_at is None and cfg.retreat_at is None:
+            return
+        self._start_steps_since_move += 1
         finished = int(dones.sum())
         if finished == 0:
             return
@@ -292,11 +309,26 @@ class WrapGraspEnv:
         rate = self._start_window_ok / max(self._start_window_n, 1)
         self._start_window_n = 0
         self._start_window_ok = 0
-        if rate < float(cfg.advance_at) or self._start_t_hi <= 0.0:
+
+        # One "update" is a rollout of num_steps_per_env macro steps.
+        per_update = max(1, int(self.cfg.train.num_steps_per_env))
+        if self._start_steps_since_move < int(cfg.cooldown_updates) * per_update:
             return
+
         step = float(cfg.step)
-        self._start_t_hi = max(0.0, self._start_t_hi - step)
-        self._start_t_lo = max(0.0, self._start_t_lo - step)
+        if cfg.advance_at is not None and rate >= float(cfg.advance_at):
+            if self._start_t_hi <= 0.0:
+                return
+            self._start_t_hi = max(0.0, self._start_t_hi - step)
+            self._start_t_lo = max(0.0, self._start_t_lo - step)
+        elif cfg.retreat_at is not None and rate <= float(cfg.retreat_at):
+            if self._start_t_hi >= 1.0:
+                return
+            self._start_t_hi = min(1.0, self._start_t_hi + step)
+            self._start_t_lo = min(self._start_t_hi, self._start_t_lo + step)
+        else:
+            return
+        self._start_steps_since_move = 0
 
     def _settle_at_home_and_baseline_contacts(self) -> None:
         """Let the arm settle at Home, then baseline the contacts it rests on.

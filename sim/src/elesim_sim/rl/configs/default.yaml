@@ -751,8 +751,21 @@ start_pose:
   # holds the range where it is, which is what to use to test whether the
   # near-goal task is learnable at all.
   advance_at: 0.5
+  # ...and back away from Home if it falls to this.  Without it the curriculum
+  # is a ratchet.  A 2048-env run walked to t = 0.60 inside 50 iterations, past
+  # what the policy could do, and then sat at exactly `success 0.0000, phi 4
+  # deg, topple 0.42` for 130 iterations -- every checkpoint from 200 on scores
+  # the same, so it was not learning slowly, it was stuck.  null never retreats.
+  retreat_at: 0.05
   step: 0.1
   window: 512
+  # Policy updates between two moves.  A guard, not the fix for the run above:
+  # that one moved four steps in fifty iterations and would have passed this
+  # bound comfortably.  It covers a different hazard -- at 2048 envs a
+  # 512-episode window fills in about two macro steps, so without it nothing
+  # stops the range walking several steps inside one iteration whenever the
+  # success rate holds up.
+  cooldown_updates: 5
 
 train:
   max_iterations: 1500

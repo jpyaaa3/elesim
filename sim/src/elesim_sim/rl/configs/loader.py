@@ -325,8 +325,20 @@ class StartPoseConfig:
     #: Once the success rate over `window` episodes clears `advance_at`, the
     #: range moves `step` towards Home.  None never advances.
     advance_at: Optional[float] = 0.5
+    #: ...and if it falls to `retreat_at` the range moves back the same step.
+    #: Without this the curriculum is a ratchet: it outran the policy, success
+    #: went to zero, and there was no way back -- 130 iterations at exactly
+    #: `success 0.0000, phi 4 deg, topple 0.42`.  None never retreats.
+    retreat_at: Optional[float] = 0.05
     step: float = 0.1
     window: int = 512
+    #: Policy updates that must pass between two moves.  A guard rather than
+    #: the fix for the run above, which moved four steps in fifty iterations and
+    #: would have passed this: `retreat_at` is what that needed.  It bounds a
+    #: real hazard all the same -- at 2048 envs a 512-episode window fills in
+    #: about two macro steps, so nothing else stops the range walking several
+    #: steps within one iteration if the success rate happens to hold up.
+    cooldown_updates: int = 5
 
 
 @dataclass(frozen=True)
