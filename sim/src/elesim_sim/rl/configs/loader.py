@@ -323,11 +323,32 @@ class StartPoseConfig:
     near_waypoint: tuple[float, float, float, float] = (
         -0.092, -1.5673, -0.2094, -0.6283
     )
+    #: Via points between Home and `near_waypoint`, in order.  The reset pose is
+    #: interpolated along the polyline Home -> path[0] -> ... -> near_waypoint,
+    #: each segment taking an equal share of t.
+    #:
+    #: A straight line in waypoint space is not a path: measured on the direct
+    #: Home-to-wrap line, the reset alone left the pole 11 deg tilted at t = 0.8,
+    #: 17 deg at 0.7 and 23 deg at 0.6, against a 60 deg limit -- the arm
+    #: materialises inside the pole and the solver pushes them apart.  Episodes
+    #: began a third of the way to a topple, and 62% of them ended in one with
+    #: the pole flat at 90 deg and the wrap angle still 0.
+    #: Straighten, retract and roll clear, come back in alongside the pole,
+    #: then close the wrap.  Worst tilt the reset leaves over t = 0.1 to 0.9:
+    #: 23.0 deg for the straight line, 17.4 for one via point, 4.8 for these.
+    path: tuple[tuple[float, float, float, float], ...] = (
+        (-0.166, 0.0, 0.0, 0.0),
+        (-0.230, -1.5673, 0.0, 0.0),
+        (-0.150, -1.5673, -0.2094, -0.2094),
+    )
     #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.
     t_range: tuple[float, float] = (0.85, 1.0)
     #: Once the success rate over `window` episodes clears `advance_at`, the
     #: range moves `step` towards Home.  None never advances.
-    advance_at: Optional[float] = 0.5
+    #: 0.35, not 0.5: the gate has to sit below where the policy converges at a
+    #: rung or the curriculum deadlocks.  One run held 33% at t = 0.70 for a
+    #: hundred iterations against a 50% gate.  `retreat_at` makes it safe.
+    advance_at: Optional[float] = 0.35
     #: ...and if it falls to `retreat_at` the range moves back the same step.
     #: Without this the curriculum is a ratchet: it outran the policy, success
     #: went to zero, and there was no way back -- 130 iterations at exactly
@@ -342,6 +363,12 @@ class StartPoseConfig:
     #: about two macro steps, so nothing else stops the range walking several
     #: steps within one iteration if the success rate happens to hold up.
     cooldown_updates: int = 5
+
+    def waypoints(self) -> tuple[tuple[float, float, float, float], ...]:
+        """Via points and the near pose, in the order the reset walks them."""
+        return tuple(tuple(float(v) for v in p) for p in self.path) + (
+            tuple(float(v) for v in self.near_waypoint),
+        )
 
 
 @dataclass(frozen=True)

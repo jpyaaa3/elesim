@@ -171,8 +171,10 @@ class WrapGraspEnv:
         self._object_axis0 = z(self.num_envs, 3)
         self._object_base0 = z(self.num_envs, 3)
         start = self.cfg.start_pose
-        self._start_near = torch.tensor(
-            [float(v) for v in start.near_waypoint],
+        #: Home, then every via point, then the near pose: the polyline the
+        #: reset interpolates along.
+        self._start_path = torch.tensor(
+            [list(w) for w in start.waypoints()],
             device=self.device,
             dtype=torch.float32,
         )
@@ -269,7 +271,18 @@ class WrapGraspEnv:
         t = torch.rand(n, 1, device=self.device, generator=self._generator)
         t = self._start_t_lo + t * (self._start_t_hi - self._start_t_lo)
         home = self._home_waypoint.to(self.device, torch.float32).reshape(1, 4)
-        target = home + t * (self._start_near.reshape(1, 4) - home)
+        # Walk the polyline Home -> via... -> near, each leg an equal share of
+        # t.  A straight line to the near pose is not a path: it runs through
+        # the object, and the reset alone left the pole 17 deg tilted at t = 0.7
+        # before the policy had acted.
+        pts = torch.cat((home, self._start_path), dim=0)   # (K+1, 4)
+        legs = pts.shape[0] - 1
+        u = (t * legs).clamp(0.0, float(legs))
+        i = u.floor().clamp(max=float(legs - 1)).long()    # (n, 1)
+        frac = u - i.to(u.dtype)
+        a = pts[i.squeeze(-1)]
+        b = pts[(i + 1).squeeze(-1)]
+        target = a + frac * (b - a)
         if env_ids is None:
             self.mapper.waypoint[:] = target
         else:

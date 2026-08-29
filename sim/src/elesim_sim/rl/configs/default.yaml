@@ -751,6 +751,35 @@ start_pose:
   # and carries it: 0% self-collision, the object 118 mm higher and half a metre
   # clear of the floor.  Same arm, same object, opposite sign.
   near_waypoint: [-0.092, -1.5673, -0.2094, -0.6283]
+  # Via points between Home and near_waypoint, walked in order, each leg taking
+  # an equal share of t.
+  #
+  # A straight line between two waypoints is not a path, and this one runs
+  # through the pole.  Measured on the direct line with no policy acting at all,
+  # the reset by itself left the object 11 deg tilted at t = 0.8, 17 deg at 0.7
+  # and 23 deg at 0.6, against a 60 deg topple limit, with 4-5 arm links already
+  # touching it: the arm materialises inside the pole and the solver pushes them
+  # apart.  Episodes started a third of the way to a topple and 62% of them
+  # finished as one, the pole flat at 90 deg with the wrap angle still 0, and
+  # the curriculum sat at t = 0.70 for 210 iterations because of it.
+  #
+  # Straighten the coil, retract and roll clear of the pole, then come back in
+  # alongside it with the coil open before closing the wrap.  Each leg changes
+  # as little as it can: the S-shaped Home coil unfolding *while* the arm rolls
+  # is what swept it through the pole.
+  #
+  # Worst tilt the reset leaves behind, over t = 0.1 to 0.9, no policy acting:
+  #
+  #   straight line to the wrap        23.0 deg   27 mm
+  #   one via point                    17.4 deg   35 mm
+  #   these three                       4.8 deg    7 mm
+  #
+  # The third pose is the cleanest of a 75-point sweep at roll -90: the coil
+  # open beside the pole, 1.9 mm off its surface and touching nothing.
+  path:
+    - [-0.166,  0.0000,  0.0000,  0.0000]
+    - [-0.230, -1.5673,  0.0000,  0.0000]
+    - [-0.150, -1.5673, -0.2094, -0.2094]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.
   t_range: [0.85, 1.0]
@@ -759,7 +788,14 @@ start_pose:
   # iteration count, so a policy that stops finishing stops advancing.  null
   # holds the range where it is, which is what to use to test whether the
   # near-goal task is learnable at all.
-  advance_at: 0.5
+  # 0.35, not 0.5.  A rung is not a place to master the task, it is a place to
+  # get good enough at to be worth leaving, and the gate has to sit below where
+  # the policy converges or the curriculum deadlocks: at t = 0.70 one run rose
+  # to 33% per episode by iteration 147 and then held there -- 33.5, 33.5, 32.6,
+  # 33.0, 34.1, 33.4 -- for another hundred iterations against a 50% gate it was
+  # never going to clear.  `retreat_at` is what makes a lower gate safe: setting
+  # off too early now costs a step back rather than the run.
+  advance_at: 0.35
   # ...and back away from Home if it falls to this.  Without it the curriculum
   # is a ratchet.  A 2048-env run walked to t = 0.60 inside 50 iterations, past
   # what the policy could do, and then sat at exactly `success 0.0000, phi 4
