@@ -316,10 +316,13 @@ class StartPoseConfig:
     """Reverse curriculum on the arm's reset pose."""
 
     enable: bool = True
-    #: Waypoint the episode can start from instead of Home: the open coil
-    #: already positioned around the object, which is where a scripted wrap is
-    #: at macro step 7.  From here success is three or four steps away.
-    near_waypoint: tuple[float, float, float, float] = (-0.077, -1.5708, 0.0, -0.1047)
+    #: Waypoint the episode can start from instead of Home: the wrap itself.
+    #: A reverse curriculum's first rung has to be winnable before any learning
+    #: happens -- doing nothing from here succeeds 86.5% of the time, because
+    #: the scripted lift fires on its own, against 0% from an open coil.
+    near_waypoint: tuple[float, float, float, float] = (
+        -0.092, -1.5673, -0.2094, -0.6283
+    )
     #: Interpolation from Home (0) to `near_waypoint` (1), sampled per env.
     t_range: tuple[float, float] = (0.85, 1.0)
     #: Once the success rate over `window` episodes clears `advance_at`, the

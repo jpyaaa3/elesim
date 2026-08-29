@@ -728,9 +728,18 @@ curriculum:
 # bonus has to come inside reach of exploration.
 start_pose:
   enable: true
-  # The open coil already positioned around the object: where a scripted wrap is
-  # at macro step 7, with the nearest link 78 mm off the surface and nothing
-  # touching.  From here success is three or four steps away.
+  # The wrap itself, not an open coil a few steps short of it.
+  #
+  # A reverse curriculum's first rung has to be winnable before any learning
+  # happens, or the range never moves and the success bonus never enters the
+  # gradient.  Measured with a policy that does nothing: from this pose 86.5% of
+  # episodes succeed, because the scripted lift fires on its own; from the open
+  # coil, 0%.  One step back at t = 0.9 it is 0% again, which is the point --
+  # that is the first rung the policy has to earn.
+  #
+  # The open coil worked for the +90 direction under `criterion: tug`, where a
+  # wrap alone is success.  Under `lift` the success state is the wrap plus a
+  # rotation that has to hold, so the curriculum is anchored on the wrap.
   #
   # Mirrored -- roll -90 and the curl negative, not roll +90 and the curl
   # positive.  Both wrap: swept over a 259-pose grid the two directions reach
@@ -741,7 +750,7 @@ start_pose:
   # knocked over.  From -90 it sweeps the other way, lays the pole into the coil
   # and carries it: 0% self-collision, the object 118 mm higher and half a metre
   # clear of the floor.  Same arm, same object, opposite sign.
-  near_waypoint: [-0.077, -1.5708, 0.0, -0.1047]
+  near_waypoint: [-0.092, -1.5673, -0.2094, -0.6283]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.
   t_range: [0.85, 1.0]

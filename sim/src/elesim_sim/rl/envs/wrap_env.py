@@ -338,8 +338,21 @@ class WrapGraspEnv:
         settled is the contact set a fair description of "resting at Home"
         rather than of the reset transient.  Done once at construction: the
         excluded set is a property of the pose, not of an individual episode.
+
+        Home is forced here rather than taken from wherever the constructor's
+        reset left the arm.  Under the reverse curriculum that reset lands on
+        the *start* pose, and with a start pose close enough to the goal the arm
+        is already touching the object -- so every arm-object pair got baselined
+        as something the arm "rests on at Home" and excluded for the rest of the
+        run.  The wrap angle then reads 0 no matter how well the arm wraps:
+        measured on the same pose, 7 links in contact and 262 deg by hand
+        against 0 links and 0 deg through the constructor.
         """
+        saved = self.mapper.waypoint.clone()
+        home = self._home_waypoint.to(self.device, torch.float32).reshape(1, 4)
+        self.mapper.waypoint[:] = home
         targets = self.mapper.joint_targets()
+        self.scene.robot.set_dofs_position(targets, dofs_idx_local=self._arm_dofs)
         for _ in range(int(self.cfg.macro_step.substeps)):
             self.scene.robot.control_dofs_position(
                 targets, dofs_idx_local=self._arm_dofs
@@ -351,6 +364,11 @@ class WrapGraspEnv:
                 f"[wrap-env] excluding {excluded} link pair(s) already in "
                 f"contact at the Home pose"
             )
+        # Put the arm and the object back where the episode is meant to start:
+        # settling at Home moved the arm across the scene, and anything it
+        # brushed on the way stays brushed.
+        self.mapper.waypoint[:] = saved
+        self._reset_idx(None)
         self.contacts.reset()
 
     # -- rsl_rl contract ---------------------------------------------------
