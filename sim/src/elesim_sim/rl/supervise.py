@@ -128,6 +128,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"[supervise] --resume 가 가리키는 파일이 없습니다: {seed}")
         return 2
 
+    # An explicit --resume must not be silently overridden by whatever happens
+    # to be sitting in a reused run directory.  It was: a stamp that collided
+    # with an old run picked up its model_300.pt -- a policy from before the
+    # action gained its fifth column -- and reported "resuming from
+    # model_300.pt" as if that were what had been asked for.
+    existing, at = latest_checkpoint(run_dir)
+    if seed is not None and existing is not None:
+        print(f"[supervise] {run_dir} already holds checkpoints up to "
+              f"iteration {at} ({existing.name}), so --resume {seed.name} would "
+              f"be ignored.")
+        print("[supervise] use a --stamp that is not already in use, or drop "
+              "--resume to continue that run.")
+        return 2
+
     total = int(args.iterations)
     restarts = 0
     while True:

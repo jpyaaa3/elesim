@@ -105,3 +105,21 @@ def test_the_seeds_own_iteration_counts_against_the_total():
 
     assert _iteration_of(Path("model_100.pt")) == 100
     assert _iteration_of(Path("whatever.pt")) == 0
+
+
+def test_an_explicit_resume_refuses_to_be_overridden_by_a_reused_stamp(tmp_path):
+    """A stamp that collides with an old run silently ignored --resume.
+
+    It picked up that run's model_300.pt -- a policy from before the action
+    gained its fifth column -- and printed "resuming from model_300.pt" as
+    though that were what had been asked for.
+    """
+    from elesim_sim.rl.supervise import latest_checkpoint
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "model_300.pt").write_text("x")
+    existing, at = latest_checkpoint(run)
+    # The precondition the guard tests: a seed was given and the directory is
+    # not empty, so the seed would never be reached.
+    assert (existing.name, at) == ("model_300.pt", 300)
