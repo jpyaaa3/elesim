@@ -216,6 +216,11 @@ class WrapGraspEnv:
         }
         self._success_count = torch.zeros(1, device=self.device, dtype=torch.long)
         self._episode_count = torch.zeros(1, device=self.device, dtype=torch.long)
+        #: Episodes since the rate was last read, for "best so far" tracking.
+        #: `statistics()` is cumulative over the whole run, which cannot see a
+        #: policy peak and then decline.
+        self._recent_ok = 0
+        self._recent_n = 0
 
         self.obs_spec = self._compute_obs_spec()
         delay_lo, delay_hi = self.cfg.observation.actor.delay_steps
@@ -1191,6 +1196,8 @@ class WrapGraspEnv:
         reasons = reward_out.termination_reason
         self._episode_count += int(dones.sum())
         self._success_count += int(reasons["success"].sum())
+        self._recent_n += int(dones.sum())
+        self._recent_ok += int((reasons["success"] & dones).sum())
         self._failure_counts["collision"] += int(reasons["collision"].sum())
         self._failure_counts["topple"] += int(reasons["topple"].sum())
         if self.script is not None:
@@ -1199,6 +1206,24 @@ class WrapGraspEnv:
         self._failure_counts["timeout"] += int(
             (timeout & ~reward_out.terminate).sum()
         )
+
+    def take_recent_success_rate(self, min_episodes: int = 1) -> tuple[float, int]:
+        """Success rate over the episodes finished since the last reading.
+
+        The counters are cleared only once `min_episodes` have accumulated, so
+        a caller polling faster than episodes finish keeps building the sample
+        instead of discarding it: at 128 envs an iteration finishes about 80
+        episodes, and read-and-reset meant a 200-episode threshold was never
+        reached at all.  Returns (rate, episodes); below the threshold the rate
+        is 0.0 and the count says why.
+        """
+        n = self._recent_n
+        if n < int(min_episodes):
+            return 0.0, n
+        rate = self._recent_ok / n
+        self._recent_ok = 0
+        self._recent_n = 0
+        return rate, n
 
     def statistics(self) -> dict[str, float]:
         episodes = max(int(self._episode_count.item()), 1)

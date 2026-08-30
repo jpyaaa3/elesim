@@ -172,3 +172,27 @@ def test_restoring_a_mid_curriculum_position_keeps_it():
     env = _Env()
     WrapGraspEnv.start_pose_range.fset(env, (0.35, 0.5))
     assert (round(env._start_t_lo, 3), round(env._start_t_hi, 3)) == (0.35, 0.5)
+
+
+def test_a_thin_reading_accumulates_instead_of_being_thrown_away():
+    """At 128 envs an iteration finishes about 80 episodes.
+
+    Read-and-reset meant a 200-episode threshold was never reached: each poll
+    took the 80 and cleared them.  The counters now hold until the caller's
+    threshold is met.
+    """
+    from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+
+    class _Env:
+        _recent_ok = 40
+        _recent_n = 80
+
+    env = _Env()
+    rate, n = WrapGraspEnv.take_recent_success_rate(env, min_episodes=200)
+    assert (rate, n) == (0.0, 80)
+    assert (env._recent_ok, env._recent_n) == (40, 80)   # kept
+
+    env._recent_ok, env._recent_n = 120, 240
+    rate, n = WrapGraspEnv.take_recent_success_rate(env, min_episodes=200)
+    assert (rate, n) == (0.5, 240)
+    assert (env._recent_ok, env._recent_n) == (0, 0)     # consumed

@@ -108,6 +108,41 @@ def _install_curriculum_sidecar(runner, env: WrapGraspEnv) -> None:
     runner.save = save_with_curriculum
 
 
+def _install_best_checkpoint(runner, env: WrapGraspEnv, log_dir: Path) -> None:
+    """Keep a copy of the best policy seen at the deployed difficulty.
+
+    Two runs have now peaked and then declined -- one reaching 78.3% success
+    from Home at iteration 100 and 0.0% by 700, with every reward term falling
+    together -- and periodic checkpoints only preserve a peak by luck.
+
+    "Best" is judged only once the reverse curriculum has reached Home, because
+    a rate measured at the top of it is not the task's: with the arm resetting
+    already wrapped, a policy scores ~80% for pressing the lift, which would
+    beat any honest reading taken later.
+    """
+    best = {"rate": -1.0}
+    # `runner.logger.log`, not `runner.log`: rsl_rl 5.4 logs through a Logger
+    # object, and wrapping the runner attribute hooked a method nothing calls.
+    logger = runner.logger
+    log = logger.log
+
+    def log_and_track(*args, **kwargs):
+        result = log(*args, **kwargs)
+        try:
+            rate, n = env.take_recent_success_rate(min_episodes=200)
+            t_lo, _ = env.start_pose_range
+            if n >= 200 and t_lo <= 1e-6 and rate > best["rate"]:
+                best["rate"] = rate
+                runner.save(str(log_dir / "model_best.pt"))
+                print(f"[train] best so far: {rate:.1%} over {n} episodes",
+                      flush=True)
+        except Exception as exc:  # bookkeeping must never kill a training run
+            print(f"[train] could not track the best checkpoint: {exc}")
+        return result
+
+    logger.log = log_and_track
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=None)
@@ -187,6 +222,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     iterations = int(args.iterations or cfg.train.max_iterations)
     _install_curriculum_sidecar(runner, env)
+    _install_best_checkpoint(runner, env, log_dir)
     runner.learn(num_learning_iterations=iterations, init_at_random_ep_len=False)
 
     stats = env.statistics()
