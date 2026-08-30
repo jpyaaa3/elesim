@@ -26,6 +26,9 @@ Run::
 
     python -m elesim_sim.rl.supervise --iterations 4000 --stamp srv_mirror \\
         --set runtime.n_envs=2048 --set curriculum.stage=2
+
+    python -m elesim_sim.rl.supervise --iterations 4000 --stamp srv_next \\
+        --resume rl_runs/wrap_grasp/stage2_srv_mirror/model_100.pt
 """
 
 from __future__ import annotations
@@ -52,6 +55,12 @@ def latest_checkpoint(run_dir: Path) -> tuple[Optional[Path], int]:
         if m and int(m.group(1)) > best_n:
             best, best_n = path, int(m.group(1))
     return best, max(best_n, 0)
+
+
+def _iteration_of(path: Path) -> int:
+    """The iteration a `model_<n>.pt` was written at, or 0."""
+    m = _CKPT.match(path.name)
+    return int(m.group(1)) if m else 0
 
 
 def build_command(
@@ -85,6 +94,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="total iterations, across restarts")
     parser.add_argument("--stamp", default="run", help="run-directory suffix")
     parser.add_argument("--max-restarts", type=int, default=20)
+    parser.add_argument(
+        "--resume", default=None,
+        help=(
+            "checkpoint to start from when the run directory is empty, e.g. "
+            "another run's model_100.pt.  Once this run has written a "
+            "checkpoint of its own, restarts use that instead."
+        ),
+    )
     parser.add_argument("--config", default=None)
     parser.add_argument("--overlay", action="append", default=[])
     parser.add_argument("--set", dest="overrides", action="append", default=[])
@@ -104,16 +121,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for override in args.overrides:
         passthrough += ["--set", override]
 
+    seed = Path(args.resume).expanduser() if args.resume else None
+    if seed is not None and not seed.is_absolute():
+        seed = (Path.cwd() / seed).resolve()
+    if seed is not None and not seed.is_file():
+        print(f"[supervise] --resume 가 가리키는 파일이 없습니다: {seed}")
+        return 2
+
     total = int(args.iterations)
     restarts = 0
     while True:
         resume, done = latest_checkpoint(run_dir)
+        if resume is None and seed is not None:
+            # rsl_rl carries on numbering from the checkpoint it loads, so the
+            # seed's own iteration counts against the total.
+            resume, done = seed, _iteration_of(seed)
         remaining = total - done
         if remaining <= 0:
             print(f"[supervise] {done}/{total} iterations already done")
             return 0
         cmd = build_command(passthrough, resume=resume, iterations=remaining)
-        where = f"resuming from {resume.name}" if resume else "from scratch"
+        where = (
+            f"resuming from {resume}" if resume is not None and resume == seed
+            else f"resuming from {resume.name}" if resume else "from scratch"
+        )
         print(f"[supervise] {where}, {remaining} iterations to go", flush=True)
         code = subprocess.call(cmd)
         if code == 0:

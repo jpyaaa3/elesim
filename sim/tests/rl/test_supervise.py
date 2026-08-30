@@ -10,7 +10,8 @@ what these tests pin down.
 
 from __future__ import annotations
 
-import elesim_sim.rl  # noqa: F401  # numpy-before-torch ordering
+import elesim_sim.rl  # noqa: F401
+from pathlib import Path  # numpy-before-torch ordering
 
 from elesim_sim.rl.supervise import build_command, latest_checkpoint
 
@@ -75,3 +76,32 @@ def test_equals_form_flags_are_replaced_too():
     assert cmd.count("--iterations") == 1
     assert not any(a.startswith("--resume") for a in cmd)
     assert "old.pt" not in cmd
+
+
+def test_a_seed_checkpoint_is_used_only_until_the_run_has_its_own(tmp_path):
+    """`--resume` starts a fresh run directory from another run's checkpoint.
+
+    Once this run writes one, restarts must pick that up instead -- otherwise a
+    blow-up would throw away everything since the seed.
+    """
+    from elesim_sim.rl.supervise import _iteration_of, latest_checkpoint
+
+    seed = tmp_path / "old" / "model_100.pt"
+    seed.parent.mkdir()
+    seed.write_text("x")
+    run = tmp_path / "new"
+    run.mkdir()
+    assert latest_checkpoint(run) == (None, 0)
+    assert _iteration_of(seed) == 100
+
+    (run / "model_150.pt").write_text("x")
+    path, n = latest_checkpoint(run)
+    assert (path.name, n) == ("model_150.pt", 150)
+
+
+def test_the_seeds_own_iteration_counts_against_the_total():
+    """rsl_rl carries on numbering from the checkpoint it loads."""
+    from elesim_sim.rl.supervise import _iteration_of
+
+    assert _iteration_of(Path("model_100.pt")) == 100
+    assert _iteration_of(Path("whatever.pt")) == 0
