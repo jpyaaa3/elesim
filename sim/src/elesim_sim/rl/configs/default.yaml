@@ -578,6 +578,23 @@ success:
     max_rel_translation_m: 0.03
     max_rel_rotation_rad: 0.5
   lift:
+    # The policy decides when to lift, through a fifth action column.
+    #
+    # It has to.  With the test arming itself the moment the wrap angle crosses
+    # `trigger_rad`, the episode ends at whatever grasp happened to be there.
+    # Measured over 406 armings: the ones that held had wrapped to 204-224 deg,
+    # the ones that failed armed at 122 deg -- on the threshold itself.  Going
+    # from 122 to 218 deg pays 0.53 of coverage reward the policy can never
+    # collect, because crossing 120 ends the episode first, so no gradient
+    # reaches past the cut and success falls as the policy gets quicker at
+    # reaching the threshold.  Raising the threshold only moves the wall: at
+    # 170 deg the same policy holds 85.7% of its armings against 68.8%, but arms
+    # so much less often that success drops from 40.4% to 31.0%.
+    #
+    # The actor is not given the wrap angle to decide on -- that is simulator
+    # truth and stays with the critic.  It has its own joint estimate, the
+    # object's pose and the load proxy, which is what a real arm would have.
+    policy_triggered: true
     # The lift does not raise the object: it lays it down.  Roll rotates the
     # bend plane, and from a wrap the only rotation the joint has left is back
     # towards zero, which levers a standing pole over into the coil and carries
@@ -596,9 +613,9 @@ success:
     # following second.  See start_pose.near_waypoint, which is what steers the
     # policy into the mirrored basin.
     #
-    # Wrap angle at which the scripted lift is attempted.  Deliberately
-    # permissive: an attempt costs a few substeps, and letting the policy try
-    # early and fail retention is more informative than never trying.
+    # Floor on a lift request, not a trigger any more: below this the request
+    # is refused.  Kept permissive so the floor is not the thing deciding --
+    # that is what the fifth action is for.
     trigger_rad: 2.0944       # 120 deg
     # Lifting this arm means rotating roll so the bend plane goes from
     # horizontal to vertical.  The object lying down ~90 deg is expected;

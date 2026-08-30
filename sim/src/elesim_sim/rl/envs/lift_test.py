@@ -183,15 +183,29 @@ class LiftTest:
         return self.phase == int(LiftPhase.PASSED)
 
     def arm(
-        self, phi: torch.Tensor, roll_now: torch.Tensor, obs: LiftObservation
+        self,
+        phi: torch.Tensor,
+        roll_now: torch.Tensor,
+        obs: LiftObservation,
+        request: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Start the lift for envs whose wrap angle just cleared the gate.
+        """Start the lift for envs that ask for it and are wrapped enough.
+
+        `request` is the policy's decision, and `threshold` is only a floor on
+        it.  Without the request the test armed itself the moment the wrap angle
+        crossed, which ended the episode at whatever grasp was there: of 406
+        armings, the ones that held had reached 204-224 deg and the ones that
+        failed armed at 122 deg, on the threshold itself.  A policy on its way
+        to a grasp that would hold was cut off at one that would not, and no
+        gradient could reach past the cut.
 
         The relative object pose is captured *here*, at the moment the wrap is
         declared, so retention is measured against the grasp the policy
         actually achieved rather than against the reset pose.
         """
         newly = self.follows_policy & (phi >= self.threshold)
+        if request is not None:
+            newly = newly & request.to(newly.device, torch.bool)
         if not bool(newly.any()):
             return newly
         ids = newly.nonzero(as_tuple=False).flatten()

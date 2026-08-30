@@ -73,7 +73,16 @@ class WrapGraspEnv:
             self.scene.build()
         self.device = self.scene.device
         self.num_envs = self.scene.n_envs
-        self.num_actions = 4
+        #: Waypoint DoFs the policy steers: linear, roll, theta1, theta2.
+        self.num_waypoint_actions = 4
+        #: ...plus, under `success.lift.policy_triggered`, one more column the
+        #: policy uses to say "lift now".  The waypoint columns are the first
+        #: four either way, so everything that indexes them is unaffected.
+        self._lift_action = bool(
+            self.cfg.success.criterion == "lift"
+            and self.cfg.success.lift.policy_triggered
+        )
+        self.num_actions = self.num_waypoint_actions + int(self._lift_action)
         self.max_episode_length = int(self.cfg.macro_step.max_steps)
 
         rate = self.cfg.macro_step.rate_limit
@@ -184,9 +193,13 @@ class WrapGraspEnv:
         self._start_window_ok = 0
         #: Macro steps since the curriculum last moved, for `cooldown_updates`.
         self._start_steps_since_move = 0
-        self._load_proxy = z(self.num_envs, self.num_actions)
+        self._load_proxy = z(self.num_envs, self.num_waypoint_actions)
         self._last_joint_cmd = z(self.num_envs, len(self._arm_dofs))
-        self._waypoint_from = z(self.num_envs, self.num_actions)
+        self._waypoint_from = z(self.num_envs, self.num_waypoint_actions)
+        #: Whether the policy asked for a lift on the current step.
+        self._lift_request = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
         #: Set by eval to pin one object condition across every env, so a batch
         #: is just a faster way to collect episodes of the *same* condition
         #: rather than a mixture the per-condition table could not separate.
@@ -482,8 +495,15 @@ class WrapGraspEnv:
             if self.script is not None
             else torch.ones(self.num_envs, device=self.device, dtype=torch.bool)
         )
+        waypoint = actions[:, : self.num_waypoint_actions]
+        if self._lift_action:
+            # Positive means "lift now".  Zero-centred so an untrained policy
+            # asks about half the time, which is what puts the bonus inside
+            # reach of exploration at the top of the curriculum, where the arm
+            # resets already wrapped.
+            self._lift_request = actions[:, self.num_waypoint_actions] > 0.0
         masked = torch.where(
-            follows_policy.unsqueeze(-1), actions, torch.zeros_like(actions)
+            follows_policy.unsqueeze(-1), waypoint, torch.zeros_like(waypoint)
         )
         self._waypoint_from = self.mapper.waypoint.clone()
         self.mapper.apply_action(masked)
@@ -765,7 +785,12 @@ class WrapGraspEnv:
                 reached = reached & state["caged"]
             return reached
         roll_now = state["joints"][:, 1] * float(self.cfg.arm.roll_axis_sign)
-        self.lift.arm(state["phi"], roll_now, self._lift_observation())
+        self.lift.arm(
+            state["phi"],
+            roll_now,
+            self._lift_observation(),
+            request=self._lift_request if self._lift_action else None,
+        )
         return self.lift.passed
 
     # -- observations ------------------------------------------------------

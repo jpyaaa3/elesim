@@ -158,3 +158,28 @@ def test_only_wrapping_envs_follow_the_policy():
     lift = LiftTest(cfg, n_envs=3, device=DEVICE)
     lift.arm(torch.tensor([0.0, 2.0, 2.0]), torch.zeros(3), _obs(3))
     assert lift.follows_policy.tolist() == [True, False, False]
+
+
+def test_a_lift_request_below_the_floor_is_refused():
+    """The floor stops a request that has nothing to hold onto."""
+    lift = LiftTest(_cfg(), n_envs=2, device=DEVICE)
+    below = torch.tensor([lift.threshold - 0.01, lift.threshold + 0.01])
+    newly = lift.arm(below, torch.zeros(2), _obs(2),
+                     request=torch.tensor([True, True]))
+    assert newly.tolist() == [False, True]
+
+
+def test_without_a_request_nothing_arms():
+    """The policy's column is what decides; the wrap angle only permits."""
+    lift = LiftTest(_cfg(), n_envs=2, device=DEVICE)
+    deep = torch.full((2,), lift.threshold + 1.0)
+    newly = lift.arm(deep, torch.zeros(2), _obs(2),
+                     request=torch.tensor([False, True]))
+    assert newly.tolist() == [False, True]
+
+
+def test_no_request_at_all_keeps_the_old_self_arming_behaviour():
+    lift = LiftTest(_cfg(), n_envs=2, device=DEVICE)
+    deep = torch.full((2,), lift.threshold + 1.0)
+    newly = lift.arm(deep, torch.zeros(2), _obs(2))
+    assert newly.tolist() == [True, True]

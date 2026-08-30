@@ -292,6 +292,19 @@ class TugConfig:
 
 @dataclass(frozen=True)
 class LiftConfig:
+    #: Whether the policy decides when to lift, via a fifth action.
+    #:
+    #: It has to.  With the test arming by itself the moment the wrap angle
+    #: crosses `trigger_rad`, an episode ends at whatever grasp happened to be
+    #: there -- and measured on 406 armings, the ones that held had wrapped to
+    #: 204-224 deg while the ones that failed armed at 122 deg, right on the
+    #: threshold.  Wrapping from 122 to 218 pays 0.53 of coverage reward that
+    #: the policy can never collect, because crossing 120 ends the episode
+    #: first.  Raising the threshold only moves that wall: at 170 deg the same
+    #: policy holds 85.7% of its armings instead of 68.8% but arms so much less
+    #: often that overall success drops from 40.4% to 31.0%.
+    policy_triggered: bool = True
+    #: Wrap angle below which a lift request is refused, whoever makes it.
     trigger_rad: float = 2.0944
     roll_target_rad: float = 0.0
     roll_rate_rad_per_substep: float = 0.015
