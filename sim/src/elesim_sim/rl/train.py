@@ -169,7 +169,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if side.is_file() and cfg.start_pose.enable:
             saved = json.loads(side.read_text())
             env.start_pose_range = (saved["t_lo"], saved["t_hi"])
-            print(f"[train] curriculum at : t = {saved['t_lo']:.2f}-{saved['t_hi']:.2f}")
+            # Report what the environment is actually set to, not what the file
+            # said.  The setter normalises the range into a window of the
+            # configured width -- a checkpoint written before the window kept
+            # one records (0, 0) at the bottom -- and printing the file's values
+            # made a normalised range look like it had been ignored.
+            lo, hi = env.start_pose_range
+            note = "" if (lo, hi) == (saved["t_lo"], saved["t_hi"]) else (
+                f"  (saved {saved['t_lo']:.2f}-{saved['t_hi']:.2f}, "
+                f"widened to the configured window)"
+            )
+            print(f"[train] curriculum at : t = {lo:.2f}-{hi:.2f}{note}")
         elif cfg.start_pose.enable:
             print(f"[train] curriculum at : t = {cfg.start_pose.t_range[0]:.2f}-"
                   f"{cfg.start_pose.t_range[1]:.2f} (nothing saved beside the "
