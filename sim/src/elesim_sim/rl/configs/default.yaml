@@ -796,6 +796,11 @@ start_pose:
     - [-0.092, -1.5673, -0.2094, -0.3142]
   # Interpolation from Home (0) to near_waypoint (1), sampled per env so one
   # rollout spans a spread of difficulties rather than a single point.
+  # A window that slides towards Home, keeping its width.  The width is not
+  # decoration: it is what makes one rollout span a spread of difficulties, and
+  # a run that lost it -- every episode starting at exactly Home -- went from
+  # 13.2% success there to 1.9% in a hundred iterations.  The window bottoms out
+  # at [0, width], so Home is always in the mix and never all of it.
   t_range: [0.85, 1.0]
   # Once the success rate over `window` finished episodes clears advance_at, the
   # range moves `step` towards Home.  Keyed on evidence rather than on an

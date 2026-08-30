@@ -111,3 +111,64 @@ def test_the_window_must_fill_before_anything_moves():
     c = _Curriculum(_cfg(cooldown_updates=0))
     c.feed(episodes=99, successes=99)
     assert c.t == (0.85, 1.0)
+
+
+def test_the_window_keeps_its_width_all_the_way_to_home():
+    """It used to collapse to a point at Home and never reopen.
+
+    Advancing floored `t_lo` at 0 while `t_hi` kept coming down; both reached 0,
+    every episode then started at exactly Home, and retreat could not widen it
+    again because `t_lo` was clamped to `t_hi`.  A run walked to Home by
+    iteration 100 with 13.2% success there and fell to 1.9% by 200.
+    """
+    c = _Curriculum(_cfg(cooldown_updates=0))
+    width = 1.0 - 0.85
+    for _ in range(40):
+        c.feed(episodes=100, successes=100)
+        assert c._start_t_hi - c._start_t_lo == pytest.approx(width, abs=1e-6)
+    # Bottomed out with Home in the range rather than as the whole of it.
+    assert c.t == (0.0, round(width, 3))
+
+
+def test_retreating_from_the_bottom_reopens_upwards():
+    c = _Curriculum(_cfg(cooldown_updates=0), t_range=(0.0, 0.15))
+    c.feed(episodes=100, successes=0)
+    assert c.t == (0.1, 0.25)
+    assert c._start_t_hi - c._start_t_lo == pytest.approx(0.15, abs=1e-6)
+
+
+def test_home_stays_in_the_range_at_the_bottom():
+    c = _Curriculum(_cfg(cooldown_updates=0), t_range=(0.0, 0.15))
+    c.feed(episodes=100, successes=100)      # already at the floor
+    assert c.t[0] == 0.0
+
+
+def test_restoring_a_collapsed_window_reopens_it():
+    """Checkpoints from before the width was kept record (0, 0) at the bottom.
+
+    Restored literally that starts every episode at exactly Home, and a policy
+    between the two gates never moves, so it could never recover.
+    """
+    from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+
+    class _Env:
+        cfg = _cfg()
+        _start_t_lo = _start_t_hi = 0.0
+        _start_window_n = _start_window_ok = _start_steps_since_move = 0
+
+    env = _Env()
+    WrapGraspEnv.start_pose_range.fset(env, (0.0, 0.0))
+    assert (env._start_t_lo, round(env._start_t_hi, 3)) == (0.0, 0.15)
+
+
+def test_restoring_a_mid_curriculum_position_keeps_it():
+    from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+
+    class _Env:
+        cfg = _cfg()
+        _start_t_lo = _start_t_hi = 0.0
+        _start_window_n = _start_window_ok = _start_steps_since_move = 0
+
+    env = _Env()
+    WrapGraspEnv.start_pose_range.fset(env, (0.35, 0.5))
+    assert (round(env._start_t_lo, 3), round(env._start_t_hi, 3)) == (0.35, 0.5)

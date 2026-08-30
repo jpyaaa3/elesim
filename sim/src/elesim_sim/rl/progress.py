@@ -97,7 +97,9 @@ def read(path: Path) -> dict[str, list[float]]:
         ],
         "success": series_from_log(text, "term/success"),
         "phi": series_from_log(text, "wrap/phi_rad"),
-        "curriculum": series_from_log(text, "curriculum/start_t_hi"),
+        # The low end, not the high one: the window keeps its width, so `t_hi`
+        # stops at that width while `t_lo` is what reaches Home.
+        "curriculum": series_from_log(text, "curriculum/start_t_lo"),
     }
 
 

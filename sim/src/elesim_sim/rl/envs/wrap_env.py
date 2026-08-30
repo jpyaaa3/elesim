@@ -241,9 +241,22 @@ class WrapGraspEnv:
 
     @start_pose_range.setter
     def start_pose_range(self, value: tuple[float, float]) -> None:
-        lo, hi = (float(v) for v in value)
-        self._start_t_lo = max(0.0, min(1.0, lo))
-        self._start_t_hi = max(self._start_t_lo, min(1.0, hi))
+        """Restore a curriculum position, as a window of the configured width.
+
+        The window is defined by its top, so the low end is derived rather than
+        taken from `value`: a checkpoint written before the window kept its
+        width records (0, 0) at the bottom, and restoring that literally would
+        start every episode at exactly Home -- the state that took one run from
+        13.2% success to 1.9%.  It cannot recover on its own either, since a
+        policy sitting between the retreat and advance gates never moves.
+        """
+        width = abs(
+            float(self.cfg.start_pose.t_range[1])
+            - float(self.cfg.start_pose.t_range[0])
+        )
+        hi = min(1.0, max(float(value[1]), width))
+        self._start_t_hi = hi
+        self._start_t_lo = max(0.0, hi - width)
         self._start_window_n = 0
         self._start_window_ok = 0
         self._start_steps_since_move = 0
@@ -328,19 +341,29 @@ class WrapGraspEnv:
         if self._start_steps_since_move < int(cfg.cooldown_updates) * per_update:
             return
 
+        # The range is a window of fixed width that slides, and the width is
+        # what makes a rollout span a spread of difficulties instead of one
+        # point.  It used to collapse: advancing floored `t_lo` at 0 while
+        # `t_hi` kept coming down, both reached 0, and from then on every
+        # episode started at exactly Home -- and retreating could not reopen it,
+        # since `t_lo` was clamped to `t_hi`.  A run walked to Home by iteration
+        # 100 with 13.2% success there, lost the easier starts the moment it
+        # arrived, and fell to 1.9% by iteration 200.  The window bottoms out at
+        # [0, width] instead, so Home is always in the support and never all of
+        # it.
         step = float(cfg.step)
+        width = abs(float(cfg.t_range[1]) - float(cfg.t_range[0]))
         if cfg.advance_at is not None and rate >= float(cfg.advance_at):
-            if self._start_t_hi <= 0.0:
+            if self._start_t_hi <= width + 1e-9:
                 return
-            self._start_t_hi = max(0.0, self._start_t_hi - step)
-            self._start_t_lo = max(0.0, self._start_t_lo - step)
+            self._start_t_hi = max(width, self._start_t_hi - step)
         elif cfg.retreat_at is not None and rate <= float(cfg.retreat_at):
             if self._start_t_hi >= 1.0:
                 return
             self._start_t_hi = min(1.0, self._start_t_hi + step)
-            self._start_t_lo = min(self._start_t_hi, self._start_t_lo + step)
         else:
             return
+        self._start_t_lo = max(0.0, self._start_t_hi - width)
         self._start_steps_since_move = 0
 
     def _settle_at_home_and_baseline_contacts(self) -> None:
