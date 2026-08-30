@@ -283,7 +283,19 @@ object:
   #
   # The sampled radius snaps to the nearest one built, so
   # domain_randomisation.object_radius_m becomes a range over these.
-  radius_choices_m: []
+  # Sizes the scene builds, one Genesis entity each: a morph's geometry is
+  # fixed at build time, so a radius that is not built cannot be used, and a
+  # randomisation range without these snaps every sample to the single size
+  # that exists.  That is what happened to the first stage 3 run -- the range
+  # said 45-60 mm and every episode got 50 mm.
+  #
+  # 35 to 100 mm, which is the whole range the arm can hold.  Measured by
+  # teleporting into a wrap at each size and running the lift: with the curl at
+  # theta1 -12, theta2 -36 and the linear stage placed for the size, 35, 45, 50,
+  # 60, 75 and 100 mm all wrap to 238-266 deg and hold 100%.  Only the linear
+  # stage has to change with size -- a bigger cylinder needs the coil further
+  # back, and 100 mm fails at -70 mm where 35 mm needs it.
+  radius_choices_m: [0.035, 0.048, 0.061, 0.074, 0.087, 0.100]
   # Where the unused sizes wait, and how far apart.  Far enough from the robot
   # and the object that nothing can reach them.
   park_xy_m: [6.0, 6.0]
@@ -699,7 +711,7 @@ domain_randomisation:
   # single built cylinder, which changed only what the coverage meter was told:
   # the object stayed 50 mm while the meter was handed 45 to 60, and every
   # surface distance came out wrong in proportion.
-  object_radius_m: [0.045, 0.060]
+  object_radius_m: [0.035, 0.100]
   object_pos_jitter_m: [0.03, 0.03, 0.01]
   # Rotation about the object's own axis, which for a cylinder is nothing at
   # all: measured, 0, 20, 90 and 180 deg leave both the geometry and every
@@ -940,6 +952,6 @@ eval:
   # 35 mm is worth excluding whatever is built: the closed coil passes that
   # cylinder without reaching it -- one contact, zero wrap -- so scoring it
   # measures the arm, not the policy.
-  radius_grid_m: [0.050]
+  radius_grid_m: [0.035, 0.061, 0.100]
   render_episodes: 1
   out_dir: sim/rl_runs/eval

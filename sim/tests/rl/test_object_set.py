@@ -125,3 +125,33 @@ def test_bind_is_required_before_use():
     s = ObjectSet(ents, (0.05,), park_xy=(6.0, 6.0), park_step_m=0.6)
     with pytest.raises(RuntimeError):
         _ = s.assignment
+
+
+def test_the_shipped_radii_span_what_the_arm_can_hold():
+    """A range without built sizes to snap to is not randomisation.
+
+    The first stage 3 run asked for 45-60 mm with only one 50 mm entity built,
+    so every episode got 50 mm: a morph's geometry is fixed at build time, and
+    `_reset_idx` snaps a sampled radius to the nearest one that exists.
+    """
+    import elesim_sim.rl  # noqa: F401
+    from elesim_sim.rl.configs.loader import load_config
+
+    cfg = load_config(overrides=["curriculum.stage=3"]).resolved_for_curriculum()
+    built = sorted(cfg.object.radius_choices())
+    lo, hi = cfg.domain_randomisation.object_radius_m
+    assert len(built) > 1, "one entity means one size, whatever the range says"
+    # The range has to be covered at both ends, or samples pile up on the edge.
+    assert built[0] <= lo + 1e-9 and built[-1] >= hi - 1e-9
+    # ...and measured: 35 to 100 mm all wrap to 238-266 deg and hold.
+    assert built[0] >= 0.035 - 1e-9 and built[-1] <= 0.100 + 1e-9
+
+
+def test_stage_2_still_pins_the_radius():
+    """Sizes are stage 3's business; stage 2 randomises the pose only."""
+    import elesim_sim.rl  # noqa: F401
+    from elesim_sim.rl.configs.loader import load_config
+
+    cfg = load_config(overrides=["curriculum.stage=2"]).resolved_for_curriculum()
+    lo, hi = cfg.domain_randomisation.object_radius_m
+    assert lo == hi == cfg.object.radius_m
