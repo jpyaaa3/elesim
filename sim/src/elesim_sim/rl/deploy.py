@@ -229,12 +229,19 @@ class DeployedPolicy:
             )
         return torch.tensor([vec], dtype=torch.float32)
 
+    #: What to feed the load channels when the robot's units do not match the
+    #: sim's.  The sim reports joint torque and the arm reports motor current in
+    #: mA -- orders of magnitude apart -- and the observation normaliser is
+    #: frozen at the training statistics, so it will not absorb the difference.
+    #: Zero sits near the middle of the distribution the policy was trained on.
+    ZERO_LOAD = (0.0, 0.0, 0.0, 0.0)
+
     def act(
         self,
         *,
         joint_estimate: Sequence[float],
         object_geometry: Sequence[float],
-        load_proxy: Sequence[float],
+        load_proxy: Sequence[float] = ZERO_LOAD,
         progress: Optional[float] = None,
     ) -> tuple[tuple[float, float, float, float], bool]:
         """One macro step: the waypoint to drive to, and whether to lift."""
