@@ -1280,6 +1280,42 @@ def test_compose_dds_environment_refresh_tracks_configured_state(local_state) ->
         assert environment["ELESIM_DDS_STATIC_PEERS"] == "100.74.222.24"
 
 
+def test_compose_refresh_clears_sros2_values_after_switch_to_trusted_network(
+    local_state,
+) -> None:
+    """Switching sros2 -> trusted-network has to clear the SROS2 variables.
+
+    The refresh merges into the generated manifest, so a variable the new
+    profile never writes keeps whatever the old one left behind, and
+    ``network.require_generated_dds_configuration`` then refuses to start the
+    runtime over a stale ROS_SECURITY_STRATEGY.
+    """
+
+    state = local_state(roles=("pilot", "ui"), install_mode="container")
+    ContainerInstaller(state).run()
+    compose_path = state.prefix_path / "containers/compose.yaml"
+    compose = _compose(state)
+    stale = {
+        "ROS_SECURITY_ENABLE": "true",
+        "ROS_SECURITY_STRATEGY": "Enforce",
+        "ROS_SECURITY_KEYSTORE": "/leftover/keystore",
+        "ELESIM_DDS_ENCLAVE": "/leftover",
+    }
+    for role in (*state.roles, "tools"):
+        compose["services"][role]["environment"].update(stale)
+    compose_path.write_text(yaml.safe_dump(compose, sort_keys=False), encoding="utf-8")
+
+    refresh_compose_dds_environment(state)
+
+    refreshed = _compose(state)
+    for role in (*state.roles, "tools"):
+        environment = refreshed["services"][role]["environment"]
+        assert environment["ROS_SECURITY_ENABLE"] == "false"
+        assert environment["ROS_SECURITY_STRATEGY"] == ""
+        assert environment["ROS_SECURITY_KEYSTORE"] == ""
+        assert environment["ELESIM_DDS_ENCLAVE"] == ""
+
+
 def test_runtime_up_view_switch_discovers_remote_x11_session_and_is_one_shot(
     tmp_path: Path,
 ) -> None:

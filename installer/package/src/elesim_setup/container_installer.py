@@ -1544,7 +1544,20 @@ class ContainerInstaller:
                     role,
                 )
         else:
-            environment["ROS_SECURITY_ENABLE"] = "false"
+            # ``refresh_compose_dds_environment`` merges this dict into the
+            # generated manifest, so a key omitted here keeps whatever the
+            # previous profile wrote.  Switching sros2 -> trusted-network has
+            # to clear the SROS2 values explicitly or the runtime check in
+            # ``network.require_generated_dds_configuration`` rejects the start
+            # with a stale ROS_SECURITY_STRATEGY.
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "false",
+                    "ROS_SECURITY_STRATEGY": "",
+                    "ROS_SECURITY_KEYSTORE": "",
+                    "ELESIM_DDS_ENCLAVE": "",
+                }
+            )
         return environment
 
     def _prepare_turn_secret(self) -> None:
