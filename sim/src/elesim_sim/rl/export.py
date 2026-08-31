@@ -135,6 +135,12 @@ def build_manifest(cfg: Any, checkpoint: Path, obs_dim: int, action_dim: int) ->
                        "on a 9x9 grid, every folding cell is separated exactly "
                        "by this bound",
             },
+            "arm": {
+                "n_seg": arm.n_seg,
+                "bend_joints": list(arm.bend_joints),
+                "linear_joint": arm.linear_joint,
+                "roll_joint": arm.roll_joint,
+            },
             "sign_conventions": {
                 "linear_axis_sign": arm.linear_axis_sign,
                 "roll_axis_sign": arm.roll_axis_sign,

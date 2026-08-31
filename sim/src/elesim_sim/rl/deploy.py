@@ -136,12 +136,47 @@ class LiftScript:
         return self._cmd
 
 
+def arm_config_from_manifest(path: Path):
+    """Rebuild the arm config the waypoint mapper needs, from the manifest.
+
+    So the robot needs the exported files and this module, not a copy of the
+    training config: a config file that has to travel alongside is a config file
+    that can be the wrong one.
+    """
+    from .configs.loader import ArmConfig, ArmLimits
+
+    m = json.loads(Path(path).read_text(encoding="utf-8"))
+    w, arm, sign = m["waypoint"], m["waypoint"]["arm"], m["waypoint"]["sign_conventions"]
+    lim = w["limits"]
+    cap = w["coupled_curl_cap"]
+    return ArmConfig(
+        linear_joint=arm["linear_joint"],
+        roll_joint=arm["roll_joint"],
+        bend_joints=tuple(arm["bend_joints"]),
+        n_seg=int(arm["n_seg"]),
+        linear_axis_sign=float(sign["linear_axis_sign"]),
+        roll_axis_sign=float(sign["roll_axis_sign"]),
+        bend_axis_sign=float(sign["bend_axis_sign"]),
+        limits=ArmLimits(
+            linear_m=tuple(lim["linear_m"]),
+            roll_rad=tuple(lim["roll_rad"]),
+            bend_per_node_rad=float(lim["theta_rad"][1]),
+            curl_limit_per_node_rad=float(cap["cap_rad"]),
+            theta1_curl_weight=float(cap["theta1_weight"]),
+        ),
+    )
+
+
 class DeployedPolicy:
     """An exported policy plus the waypoint bookkeeping around it."""
 
-    def __init__(self, policy_path: Path, manifest_path: Path, arm_cfg) -> None:
+    def __init__(
+        self, policy_path: Path, manifest_path: Path, arm_cfg=None
+    ) -> None:
         from .arm_kinematics import ArmWaypointMapper
 
+        if arm_cfg is None:
+            arm_cfg = arm_config_from_manifest(Path(manifest_path))
         self.iface = Interface.from_manifest(Path(manifest_path))
         self.policy = torch.jit.load(str(policy_path), map_location="cpu").eval()
         self.mapper = ArmWaypointMapper(

@@ -183,3 +183,32 @@ def test_a_wrong_observation_width_is_refused(tmp_path):
     with pytest.raises(ValueError, match="16"):
         stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 6,
                          load_proxy=[0] * 4)
+
+
+def test_the_arm_config_comes_out_of_the_manifest(tmp_path):
+    """The robot should need the exported files, not a copy of the config.
+
+    A config file that has to travel alongside is one that can be the wrong one.
+    """
+    from elesim_sim.rl.deploy import arm_config_from_manifest
+
+    m = json.loads(_manifest(tmp_path).read_text(encoding="utf-8"))
+    m["waypoint"].update({
+        "limits": {"linear_m": [-0.23, 0.0], "roll_rad": [-1.5708, 1.5708],
+                   "theta_rad": [-0.6283, 0.6283]},
+        "coupled_curl_cap": {"theta1_weight": 1.5, "cap_rad": 1.0647},
+        "arm": {"n_seg": 5, "bend_joints": [f"j{i}" for i in range(10)],
+                "linear_joint": "j_plate_housing", "roll_joint": "j_housing_wedge"},
+        "sign_conventions": {"linear_axis_sign": 1.0, "roll_axis_sign": 1.0,
+                             "bend_axis_sign": 1.0},
+    })
+    p = tmp_path / "m2.json"
+    p.write_text(json.dumps(m), encoding="utf-8")
+
+    arm = arm_config_from_manifest(p)
+    assert arm.n_seg == 5 and len(arm.bend_joints) == 10
+    assert arm.limits.roll_rad == (-1.5708, 1.5708)
+    assert arm.limits.curl_limit_per_node_rad == pytest.approx(1.0647)
+    assert arm.limits.theta1_curl_weight == pytest.approx(1.5)
+    # The sign the RL side uses, not runtime.JointLayout's -1.
+    assert arm.bend_axis_sign == 1.0
