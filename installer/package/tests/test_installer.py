@@ -149,13 +149,18 @@ def test_robot_wrapper_and_unit_use_only_generated_install_paths(
     assert "User=robot-operator" in rendered
     assert "SupplementaryGroups=elesim-unitree" in rendered
     assert f'Environment="HOME={robot_home}"' in rendered
-    assert f'WorkingDirectory="{role_root}"' in rendered
+    # systemd does not strip quotes from path-valued settings: a quoted value
+    # is read as a relative path starting with '"' and the unit is rejected
+    # with LoadState=bad-setting.
+    assert f"WorkingDirectory={role_root}\n" in rendered
+    assert 'WorkingDirectory="' not in rendered
+    assert 'WorkingDirectory="' not in bridge_rendered
     assert f'ExecStart="{state.bin_path / "elesim-robot"}"' in rendered
     assert "BindsTo=elesim-unitree-bridge.service" in rendered
-    assert (
-        f'ConditionPathExists=!"{state.prefix_path / "security/provisioning-required"}"'
-        in rendered
-    )
+    marker = state.prefix_path / "security/provisioning-required"
+    assert f"ConditionPathExists=!{marker}\n" in rendered
+    assert 'ConditionPathExists=!"' not in rendered
+    assert 'ConditionPathExists=!"' not in bridge_rendered
     assert "RestartPreventExitStatus=78" in rendered
     assert "/etc/elesim/robot.yaml" not in rendered
     assert "/opt/elesim-robot" not in rendered

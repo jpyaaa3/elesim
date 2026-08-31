@@ -626,14 +626,14 @@ class Installer:
             f"After=network-online.target {UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
             "Wants=network-online.target\n"
             f"BindsTo={UNITREE_BRIDGE_SYSTEMD_UNIT}\n"
-            f"ConditionPathExists=!{_systemd_quote(marker)}\n"
+            f"ConditionPathExists=!{_systemd_path(marker)}\n"
             "\n"
             "[Service]\n"
             "Type=simple\n"
             f"User={self.robot_host.robot_user}\n"
             f"SupplementaryGroups={self.robot_host.bridge_user}\n"
             f"Environment={_systemd_quote(f'HOME={self.robot_host.robot_home}')}\n"
-            f"WorkingDirectory={_systemd_quote(role_root)}\n"
+            f"WorkingDirectory={_systemd_path(role_root)}\n"
             f"ExecStart={_systemd_quote(robot_wrapper)}\n"
             "Restart=on-failure\n"
             "RestartPreventExitStatus=78\n"
@@ -649,7 +649,7 @@ class Installer:
             "After=network-online.target\n"
             "Wants=network-online.target\n"
             f"PartOf={ROBOT_SYSTEMD_UNIT}\n"
-            f"ConditionPathExists=!{_systemd_quote(marker)}\n"
+            f"ConditionPathExists=!{_systemd_path(marker)}\n"
             "\n"
             "[Service]\n"
             "Type=simple\n"
@@ -658,7 +658,7 @@ class Installer:
             "UMask=0007\n"
             "RuntimeDirectory=elesim-unitree\n"
             "RuntimeDirectoryMode=0750\n"
-            f"WorkingDirectory={_systemd_quote(role_root)}\n"
+            f"WorkingDirectory={_systemd_path(role_root)}\n"
             'Environment="ROS_LOG_DIR=/run/elesim-unitree/ros-log"\n'
             f"ExecStart={_systemd_quote(bridge_wrapper)}\n"
             "Restart=on-failure\n"
@@ -1027,6 +1027,26 @@ def _systemd_quote(value: object) -> str:
         raise ValueError("systemd unit values must be single-line text")
     escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
     return f'"{escaped}"'
+
+
+def _systemd_path(value: object) -> str:
+    """Render a path-valued unit setting without quotes.
+
+    ``WorkingDirectory=`` and ``ConditionPathExists=`` take the remainder of
+    the line as a literal path; systemd does not strip quotes from them.  A
+    quoted value is therefore read as a relative path beginning with ``"`` and
+    the whole unit is rejected with ``LoadState=bad-setting``.  Only ``%``
+    still has to be escaped.
+    """
+
+    text = str(value)
+    if "\x00" in text or "\n" in text or "\r" in text:
+        raise ValueError("systemd unit values must be single-line text")
+    if '"' in text:
+        raise ValueError(f"systemd path settings cannot contain quotes: {text!r}")
+    if not text.startswith("/"):
+        raise ValueError(f"systemd path settings must be absolute: {text!r}")
+    return text.replace("%", "%%")
 
 
 def _native_systemctl_wrapper(action: str) -> str:
