@@ -51,7 +51,21 @@ class _ParamikoProxySocket:
             raise
 
     def close(self) -> None:
-        self._connection.close()  # type: ignore[attr-defined]
+        try:
+            self._connection.close()  # type: ignore[attr-defined]
+        except ProcessLookupError:
+            # Paramiko's ProxyCommand.close() sends SIGTERM to a process that
+            # has often already exited -- which is exactly what happens when
+            # the proxy command itself failed.  Raising here buries the real
+            # failure under an unhandled exception in a transport thread: a
+            # banner-read error came back as
+            # "ProcessLookupError: [Errno 3] No such process" and said nothing
+            # about the SSH connection that never opened.
+            pass
+        except Exception as exc:
+            if _is_proxy_broken_pipe(exc):
+                return
+            raise
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._connection, name)
