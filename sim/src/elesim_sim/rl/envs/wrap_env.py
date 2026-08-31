@@ -1048,19 +1048,26 @@ class WrapGraspEnv:
         built = torch.tensor(
             self.scene.object.radii, device=self.device, dtype=torch.float32
         )
-        lo, hi = (float(v) for v in dr.object_radius_m)
-        inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
-        if not bool(inside.any()):
-            # Nothing built inside the range: fall back to the nearest single
-            # size, which is what a pinned radius outside the built set means.
-            mid = torch.full((1,), 0.5 * (lo + hi), device=self.device)
-            inside = torch.zeros_like(built, dtype=torch.bool)
-            inside[(built - mid).abs().argmin()] = True
-        eligible = inside.nonzero(as_tuple=False).flatten()
-        draw = torch.randint(
-            len(eligible), (n,), device=self.device, generator=self._generator
-        )
-        choice = eligible[draw]
+        if override is not None or not dr.enable:
+            # A pinned size is a request for one entity, so snap to the nearest
+            # built radius and keep it.  Drawing here instead would discard it:
+            # that is what happened to a 1728-episode evaluation, which
+            # reported a column of three radii while every condition sampled
+            # the whole range, and to the clips beside it, where a row labelled
+            # 45 mm showed three visibly different cylinders.
+            choice = (radius.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
+        else:
+            lo, hi = (float(v) for v in dr.object_radius_m)
+            inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
+            if not bool(inside.any()):
+                mid = torch.full((1,), 0.5 * (lo + hi), device=self.device)
+                inside = torch.zeros_like(built, dtype=torch.bool)
+                inside[(built - mid).abs().argmin()] = True
+            eligible = inside.nonzero(as_tuple=False).flatten()
+            draw = torch.randint(
+                len(eligible), (n,), device=self.device, generator=self._generator
+            )
+            choice = eligible[draw]
         radius = built[choice]
         if env_ids is None:
             self.scene.object.assignment[:] = choice

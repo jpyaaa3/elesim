@@ -170,3 +170,35 @@ def test_stage_2_still_pins_the_radius():
     cfg = load_config(overrides=["curriculum.stage=2"]).resolved_for_curriculum()
     lo, hi = cfg.domain_randomisation.object_radius_m
     assert lo == hi == cfg.object.radius_m
+
+
+def test_a_pinned_radius_survives_the_uniform_draw():
+    """`_eval_override` asks for one size; drawing over the range discards it.
+
+    It did: a 1728-episode evaluation reported a column of three radii while
+    every condition sampled the whole 45-100 mm range, so the three "sizes"
+    were the same mixture and looked identical -- and a clip row labelled 45 mm
+    showed three visibly different cylinders.
+    """
+    import elesim_sim.rl  # noqa: F401
+    import collections
+    import torch
+    from elesim_sim.rl.configs.loader import load_config
+    from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+
+    cfg = load_config(overrides=["runtime.n_envs=32", "curriculum.stage=3"])
+    env = WrapGraspEnv(cfg, n_envs=32)
+    for asked in (0.045, 0.067, 0.100):
+        env._eval_override = {"radius_m": asked, "dx_m": 0.0, "dy_m": 0.0,
+                              "yaw_rad": 0.0}
+        env.reset()
+        got = collections.Counter(
+            (env._object_radius * 1000).round().to(torch.int32).tolist()
+        )
+        assert len(got) == 1, f"asked {asked}, got {dict(got)}"
+        assert abs(next(iter(got)) / 1000 - asked) < 0.006
+    # Unpinned, the sizes vary again.
+    env._eval_override = None
+    env.reset()
+    varied = set((env._object_radius * 1000).round().to(torch.int32).tolist())
+    assert len(varied) > 1
