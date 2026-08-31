@@ -15,6 +15,7 @@ SERVICE_CALLS = frozenset(
         "stop_gaze_stabilizer", "stop_perception_capture", "stop_pick_e2e",
         "toggle_perception_recording", "torque_off", "torque_on",
         "update_gaze_stabilizer_config", "update_perception_config",
+        "start_wrap_grasp",
         "compute_mock_hug", "execute_mock_hug",
         "select_endpoint", "current_host_state",
         "has_client", "current_control_u", "control_mapping", "pick_e2e_running",

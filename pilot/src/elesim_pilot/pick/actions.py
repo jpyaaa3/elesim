@@ -98,6 +98,7 @@ from .gaze_actions import GazeActions
 from .grasp import GraspActions
 from .perception import PerceptionActions
 from .ready import ReadyActions
+from .wrap import WrapActions
 from .workflow import PickWorkflowPhase, run_pick_workflow
 
 
@@ -136,7 +137,10 @@ def resolve_initial_sag_model() -> dict[str, Any]:
         return {}
 
 
-class _ControlServiceCore(ReadyActions, GraspActions, AimActions, PerceptionActions, GazeActions):
+class _ControlServiceCore(
+    ReadyActions, GraspActions, AimActions, PerceptionActions, GazeActions,
+    WrapActions,
+):
     """Construction, shared worker state, settling, and final gripper close."""
 
     def __init__(
