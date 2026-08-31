@@ -61,3 +61,4 @@ elesim_wip_save.txt
 # Generated environment credentials.
 environment/generated/
 environment/coturn/.env
+deploy/
