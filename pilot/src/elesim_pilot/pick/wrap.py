@@ -41,8 +41,18 @@ _LOG = logging.getLogger(__name__)
 class WrapGraspConfig:
     """Everything the action needs that is not already in the pick state."""
 
-    policy_path: str = "deploy/policy.pt"
-    manifest_path: str = "deploy/interface.json"
+    #: Where the exported policy lives.  The pilot container mounts
+    #: `roles/pilot/config` read-only at `/opt/elesim/config` and runs from
+    #: `/opt/elesim`, so the policy travels the same way the rest of the role's
+    #: configuration does -- no new mount, and nothing for `elesim-update` to
+    #: overwrite.  Each is tried in order, so a checkout outside the container
+    #: still finds `deploy/`.
+    policy_path: str = "config/policy/policy.pt"
+    manifest_path: str = "config/policy/interface.json"
+    #: Fallbacks tried when the paths above are missing, in order.
+    search_roots: tuple[str, ...] = (
+        "/opt/elesim", ".", "deploy", "/opt/elesim/config/policy",
+    )
     #: radius, height, x, y, z, lean_x, lean_y -- in the robot's base frame.
     #: The defaults are the nominal condition the policy was evaluated at; the
     #: pole has to actually be there, within about 30 mm, or the numbers are a
@@ -89,7 +99,8 @@ class WrapGraspRunner:
         from elesim_sim.rl.deploy import DeployedPolicy, LiftScript
 
         self.cfg = cfg
-        self.policy = DeployedPolicy(Path(cfg.policy_path), Path(cfg.manifest_path))
+        policy, manifest = self._locate(cfg)
+        self.policy = DeployedPolicy(policy, manifest)
         self._LiftScript = LiftScript
         self._read_joints = read_joints
         self._command_waypoint = command_waypoint
@@ -97,6 +108,31 @@ class WrapGraspRunner:
         self._command_roll = command_roll
         self._sleep = sleep
         self._cancelled = cancelled or (lambda: False)
+
+    @staticmethod
+    def _locate(cfg: WrapGraspConfig) -> tuple[Path, Path]:
+        """Find the two exported files, and say where it looked if they are not there.
+
+        `torch.jit.load` on a missing path raises without naming the search, and
+        the pilot's working directory is not obvious from inside a container.
+        """
+        for root in ("",) + tuple(cfg.search_roots):
+            base = Path(root) if root else Path()
+            policy, manifest = base / cfg.policy_path, base / cfg.manifest_path
+            if policy.is_file() and manifest.is_file():
+                return policy, manifest
+            # ...also accept the bare filenames under a search root, which is
+            # what `cp deploy/* <root>/` produces.
+            policy, manifest = base / "policy.pt", base / "interface.json"
+            if policy.is_file() and manifest.is_file():
+                return policy, manifest
+        looked = ", ".join(str(Path(r) / cfg.policy_path)
+                           for r in ("",) + tuple(cfg.search_roots))
+        raise FileNotFoundError(
+            f"내보낸 정책을 찾지 못했습니다. 찾은 곳: {looked}. "
+            f"elesim_sim.rl.export 로 만든 policy.pt 와 interface.json 을 "
+            f"pilot 역할의 config 아래(예: roles/pilot/config/policy/)에 두세요."
+        )
 
     # -- observations ------------------------------------------------------
 

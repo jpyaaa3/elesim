@@ -32,6 +32,39 @@ def _cfg(**kw) -> WrapGraspConfig:
     )
 
 
+def test_missing_files_say_where_they_were_looked_for(tmp_path):
+    """`torch.jit.load` on a missing path raises without naming the search, and
+    the pilot's working directory is not obvious from inside a container.
+    """
+    import pytest as _pytest
+    from elesim_pilot.pick.wrap import WrapGraspRunner
+
+    cfg = WrapGraspConfig(
+        policy_path="nope/policy.pt", manifest_path="nope/interface.json",
+        search_roots=(str(tmp_path),),
+    )
+    with _pytest.raises(FileNotFoundError, match="찾은 곳"):
+        WrapGraspRunner(cfg, read_joints=lambda: (0, 0, 0, 0),
+                        command_waypoint=lambda w, t: True)
+
+
+def test_bare_filenames_under_a_search_root_are_found(tmp_path):
+    """`cp deploy/* roles/pilot/config/policy/` is the documented move."""
+    import shutil
+    from elesim_pilot.pick.wrap import WrapGraspRunner
+
+    for name in ("policy.pt", "interface.json"):
+        shutil.copy2(DEPLOY / name, tmp_path / name)
+    cfg = WrapGraspConfig(
+        policy_path="config/policy/policy.pt",
+        manifest_path="config/policy/interface.json",
+        search_roots=(str(tmp_path),),
+    )
+    runner = WrapGraspRunner(cfg, read_joints=lambda: (0, 0, 0, 0),
+                            command_waypoint=lambda w, t: True)
+    assert runner.policy.iface.obs_dim == 16
+
+
 class _Arm:
     """An arm that reaches whatever it is told, and remembers the order."""
 
