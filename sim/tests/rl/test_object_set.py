@@ -127,6 +127,20 @@ def test_bind_is_required_before_use():
         _ = s.assignment
 
 
+def test_the_shipped_radii_are_evenly_spaced():
+    """Sizes are drawn uniformly over what is built, so the spacing is the
+    distribution.  Uneven spacing used to weight a size by how wide its snap
+    basin happened to be: over 256 envs, 35 mm drew 16 and 87 mm drew 58 -- the
+    hardest size getting the fewest episodes.
+    """
+    import elesim_sim.rl  # noqa: F401
+    from elesim_sim.rl.configs.loader import load_config
+
+    choices = sorted(load_config().object.radius_choices_m)
+    gaps = [b - a for a, b in zip(choices, choices[1:])]
+    assert max(gaps) - min(gaps) < 1e-6
+
+
 def test_the_shipped_radii_span_what_the_arm_can_hold():
     """A range without built sizes to snap to is not randomisation.
 
@@ -143,7 +157,8 @@ def test_the_shipped_radii_span_what_the_arm_can_hold():
     assert len(built) > 1, "one entity means one size, whatever the range says"
     # The range has to be covered at both ends, or samples pile up on the edge.
     assert built[0] <= lo + 1e-9 and built[-1] >= hi - 1e-9
-    # ...and measured: 35 to 100 mm all wrap to 238-266 deg and hold.
+    # ...and measured: every size from 35 to 100 mm wraps and holds when
+    # teleported into a wrap, so nothing outside that is worth building.
     assert built[0] >= 0.035 - 1e-9 and built[-1] <= 0.100 + 1e-9
 
 

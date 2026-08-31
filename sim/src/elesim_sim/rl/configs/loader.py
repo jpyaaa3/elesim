@@ -504,7 +504,7 @@ class PoseOffsetGrid:
 class EvalConfig:
     episodes_per_condition: int = 20
     pose_offset_grid: PoseOffsetGrid = field(default_factory=PoseOffsetGrid)
-    radius_grid_m: tuple[float, ...] = (0.035, 0.061, 0.100)
+    radius_grid_m: tuple[float, ...] = (0.045, 0.067, 0.100)
     render_episodes: int = 1
     out_dir: str = "sim/rl_runs/eval"
 

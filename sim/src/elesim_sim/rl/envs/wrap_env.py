@@ -1035,13 +1035,32 @@ class WrapGraspEnv:
 
         # Genesis fixes each morph's geometry at build time, so the radius an
         # env gets is decided by *which cylinder it is handed*, not by a number
-        # written at reset.  Snap the sampled radius to the nearest one the
-        # scene actually built and use that entity; believing a size the object
-        # does not have would corrupt every surface distance derived from it.
+        # written at reset.  Believing a size the object does not have would
+        # corrupt every surface distance derived from it.
+        #
+        # Which one it is handed is drawn uniformly over the built sizes inside
+        # the configured range, rather than by sampling a radius and snapping it
+        # to the nearest.  Snapping weights a size by how wide its basin
+        # happens to be, and the basins are set by where the neighbouring sizes
+        # fall: measured over 256 envs on a seven-size scene, 35 mm drew 16 and
+        # 87 mm drew 58.  The hardest size got the fewest episodes, which is
+        # backwards.
         built = torch.tensor(
             self.scene.object.radii, device=self.device, dtype=torch.float32
         )
-        choice = (radius.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
+        lo, hi = (float(v) for v in dr.object_radius_m)
+        inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
+        if not bool(inside.any()):
+            # Nothing built inside the range: fall back to the nearest single
+            # size, which is what a pinned radius outside the built set means.
+            mid = torch.full((1,), 0.5 * (lo + hi), device=self.device)
+            inside = torch.zeros_like(built, dtype=torch.bool)
+            inside[(built - mid).abs().argmin()] = True
+        eligible = inside.nonzero(as_tuple=False).flatten()
+        draw = torch.randint(
+            len(eligible), (n,), device=self.device, generator=self._generator
+        )
+        choice = eligible[draw]
         radius = built[choice]
         if env_ids is None:
             self.scene.object.assignment[:] = choice
