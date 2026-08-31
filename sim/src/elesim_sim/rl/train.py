@@ -186,9 +186,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     runner = build_runner(env, cfg, log_dir)
     resume = args.resume or cfg.train.resume
     if resume:
-        path = Path(resume)
+        path = Path(resume).expanduser()
         if not path.is_absolute():
-            path = _REPO_ROOT / path
+            # Try the working directory before the repo root.  `supervise`
+            # resolves its --resume against the cwd and `train` resolved it
+            # against the repo root, so the same string meant two different
+            # files depending on which one you called: run from sim/,
+            # `rl_runs/...` looked for `<repo>/rl_runs/...` and died on a path
+            # that reads as though it should exist.
+            here = Path.cwd() / path
+            path = here if here.is_file() else _REPO_ROOT / path
         print(f"[train] resuming from : {path}")
         # Map to this machine's device.  rsl_rl defaults map_location to None,
         # which restores every tensor to the device recorded in the file, so a
