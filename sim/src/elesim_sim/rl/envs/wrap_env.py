@@ -57,6 +57,49 @@ class ObsSpec:
     privileged: int
 
 
+def choose_object_entity(
+    built: torch.Tensor,
+    *,
+    requested: torch.Tensor,
+    radius_range: tuple[float, float],
+    randomise: bool,
+    generator: Optional[torch.Generator] = None,
+) -> torch.Tensor:
+    """Which built cylinder each env is handed.
+
+    Genesis fixes a morph's geometry at build time, so the radius an env gets is
+    decided by *which* entity it is handed and not by a number written at reset.
+
+    A pinned size -- `_eval_override`, or a radius that is not being randomised
+    -- snaps to the nearest built one and is kept.  Drawing over the range there
+    instead discards it: a 1728-episode evaluation reported a column of three
+    radii while every condition sampled the whole span, which is why 45, 67 and
+    100 mm all came back at about 71%, and a clip row labelled 45 mm showed
+    three visibly different cylinders.
+
+    Otherwise the entity is drawn uniformly over the built sizes inside the
+    range, rather than by sampling a radius and snapping.  Snapping weights a
+    size by how wide its basin happens to be, and the basins are set by where
+    the neighbouring sizes fall: over 256 envs on a seven-size scene, 35 mm drew
+    16 and 87 mm drew 58 -- the hardest size getting the fewest episodes.
+    """
+    if not randomise:
+        return (requested.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
+    lo, hi = (float(v) for v in radius_range)
+    inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
+    if not bool(inside.any()):
+        # Nothing built inside the range: the nearest single size is what a
+        # range no entity satisfies can mean.
+        mid = torch.full((1,), 0.5 * (lo + hi), device=built.device)
+        inside = torch.zeros_like(built, dtype=torch.bool)
+        inside[(built - mid).abs().argmin()] = True
+    eligible = inside.nonzero(as_tuple=False).flatten()
+    draw = torch.randint(
+        len(eligible), (requested.shape[0],), device=built.device, generator=generator
+    )
+    return eligible[draw]
+
+
 class WrapGraspEnv:
     """Parallel macro-step environment satisfying rsl_rl's VecEnv contract."""
 
@@ -1048,26 +1091,13 @@ class WrapGraspEnv:
         built = torch.tensor(
             self.scene.object.radii, device=self.device, dtype=torch.float32
         )
-        if override is not None or not dr.enable:
-            # A pinned size is a request for one entity, so snap to the nearest
-            # built radius and keep it.  Drawing here instead would discard it:
-            # that is what happened to a 1728-episode evaluation, which
-            # reported a column of three radii while every condition sampled
-            # the whole range, and to the clips beside it, where a row labelled
-            # 45 mm showed three visibly different cylinders.
-            choice = (radius.unsqueeze(-1) - built.unsqueeze(0)).abs().argmin(dim=-1)
-        else:
-            lo, hi = (float(v) for v in dr.object_radius_m)
-            inside = (built >= lo - 1e-9) & (built <= hi + 1e-9)
-            if not bool(inside.any()):
-                mid = torch.full((1,), 0.5 * (lo + hi), device=self.device)
-                inside = torch.zeros_like(built, dtype=torch.bool)
-                inside[(built - mid).abs().argmin()] = True
-            eligible = inside.nonzero(as_tuple=False).flatten()
-            draw = torch.randint(
-                len(eligible), (n,), device=self.device, generator=self._generator
-            )
-            choice = eligible[draw]
+        choice = choose_object_entity(
+            built,
+            requested=radius,
+            radius_range=dr.object_radius_m,
+            randomise=(override is None and dr.enable),
+            generator=self._generator,
+        )
         radius = built[choice]
         if env_ids is None:
             self.scene.object.assignment[:] = choice

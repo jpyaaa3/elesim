@@ -176,29 +176,65 @@ def test_a_pinned_radius_survives_the_uniform_draw():
     """`_eval_override` asks for one size; drawing over the range discards it.
 
     It did: a 1728-episode evaluation reported a column of three radii while
-    every condition sampled the whole 45-100 mm range, so the three "sizes"
-    were the same mixture and looked identical -- and a clip row labelled 45 mm
-    showed three visibly different cylinders.
+    every condition sampled the whole 45-100 mm range, so the three "sizes" were
+    the same mixture and came back at about 71% each -- and a clip row labelled
+    45 mm showed three visibly different cylinders.
     """
     import elesim_sim.rl  # noqa: F401
-    import collections
     import torch
-    from elesim_sim.rl.configs.loader import load_config
-    from elesim_sim.rl.envs.wrap_env import WrapGraspEnv
+    from elesim_sim.rl.envs.wrap_env import choose_object_entity
 
-    cfg = load_config(overrides=["runtime.n_envs=32", "curriculum.stage=3"])
-    env = WrapGraspEnv(cfg, n_envs=32)
+    built = torch.tensor([0.050, 0.045, 0.056, 0.067, 0.078, 0.089, 0.100])
     for asked in (0.045, 0.067, 0.100):
-        env._eval_override = {"radius_m": asked, "dx_m": 0.0, "dy_m": 0.0,
-                              "yaw_rad": 0.0}
-        env.reset()
-        got = collections.Counter(
-            (env._object_radius * 1000).round().to(torch.int32).tolist()
+        pinned = choose_object_entity(
+            built, requested=torch.full((32,), asked),
+            radius_range=(0.045, 0.100), randomise=False,
         )
-        assert len(got) == 1, f"asked {asked}, got {dict(got)}"
-        assert abs(next(iter(got)) / 1000 - asked) < 0.006
-    # Unpinned, the sizes vary again.
-    env._eval_override = None
-    env.reset()
-    varied = set((env._object_radius * 1000).round().to(torch.int32).tolist())
-    assert len(varied) > 1
+        got = built[pinned]
+        assert torch.allclose(got, torch.full((32,), asked)), f"asked {asked}"
+
+
+def test_an_unpinned_size_is_drawn_over_the_built_sizes_in_range():
+    import elesim_sim.rl  # noqa: F401
+    import torch
+    from elesim_sim.rl.envs.wrap_env import choose_object_entity
+
+    built = torch.tensor([0.050, 0.045, 0.056, 0.067, 0.078, 0.089, 0.100])
+    g = torch.Generator().manual_seed(0)
+    idx = choose_object_entity(
+        built, requested=torch.zeros(4000), radius_range=(0.045, 0.100),
+        randomise=True, generator=g,
+    )
+    counts = torch.bincount(idx, minlength=len(built)).float()
+    # Every built size in range is used, and none dominates: uniform over seven
+    # is 571 of 4000, and snapping used to give one size 3.6x another.
+    assert (counts > 0).all()
+    assert counts.max() / counts.min() < 1.3
+
+
+def test_a_range_narrower_than_the_built_sizes_selects_only_those_inside():
+    import elesim_sim.rl  # noqa: F401
+    import torch
+    from elesim_sim.rl.envs.wrap_env import choose_object_entity
+
+    built = torch.tensor([0.045, 0.067, 0.100])
+    g = torch.Generator().manual_seed(0)
+    idx = choose_object_entity(
+        built, requested=torch.zeros(200), radius_range=(0.060, 0.105),
+        randomise=True, generator=g,
+    )
+    assert {round(v * 1000) for v in built[idx].tolist()} == {67, 100}
+
+
+def test_a_range_no_entity_satisfies_falls_back_to_the_nearest():
+    import elesim_sim.rl  # noqa: F401
+    import torch
+    from elesim_sim.rl.envs.wrap_env import choose_object_entity
+
+    built = torch.tensor([0.045, 0.067, 0.100])
+    g = torch.Generator().manual_seed(0)
+    idx = choose_object_entity(
+        built, requested=torch.zeros(50), radius_range=(0.070, 0.075),
+        randomise=True, generator=g,
+    )
+    assert {round(v * 1000) for v in built[idx].tolist()} == {67}
