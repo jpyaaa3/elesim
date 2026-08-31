@@ -16,6 +16,7 @@ _SWITCH_W = 58.0
 _WARN_W = 28.0
 _EXTEND_ARM_W = 104.0
 _RESPAWN_W = 84.0
+_WRAP_W = 104.0
 
 
 def _push_locked_slider_style() -> int:
@@ -236,6 +237,48 @@ def _draw_preset_row(panel) -> None:
         panel.service.extend_arm_controls()
 
 
+def _draw_wrap_row(panel) -> None:
+    """The trained wrap-grasp policy, next to the presets it replaces by hand.
+
+    It belongs here rather than beside the perception actions: the policy plans
+    in this panel's space -- linear, roll, theta1, theta2 -- and takes the
+    object's geometry from configuration, not from perception.  Reaching Home
+    with the button above and then handing over is the loop a bench test spends
+    most of its time in.
+    """
+    _control_label(panel, "Policy")
+    running = bool(getattr(panel, "_wrap_running", False))
+    disable_token = begin_disabled_ui(running)
+    if imgui.button("Wrap Grasp", scaled(panel, _WRAP_W), 0.0):
+        panel._wrap_running = True
+        try:
+            outcome = panel.service.start_wrap_grasp()
+        except Exception as exc:                # a failed attempt is not a crash
+            panel._wrap_result = f"오류: {exc}"
+        else:
+            panel._wrap_result = _wrap_summary(outcome)
+        finally:
+            panel._wrap_running = False
+    end_disabled_ui(disable_token)
+    result = str(getattr(panel, "_wrap_result", "") or "")
+    if result:
+        imgui.same_line()
+        imgui.text_disabled(result)
+
+
+def _wrap_summary(outcome) -> str:
+    """What the operator needs off one attempt: how far it got, and why it stopped."""
+    if outcome is None:
+        return "결과 없음"
+    steps = getattr(outcome, "steps", 0)
+    reason = str(getattr(outcome, "reason", "") or "")
+    if getattr(outcome, "lift_completed", False):
+        return f"성공 · {steps} 스텝"
+    if getattr(outcome, "lift_requested", False):
+        return f"들기 실패 · {steps} 스텝 ({reason})"
+    return f"미완 · {steps} 스텝 ({reason})"
+
+
 def _draw_respawn_row(panel) -> None:
     _control_label(panel, "Respawn")
     if imgui.button("Respawn", scaled(panel, _RESPAWN_W), 0.0):
@@ -352,4 +395,5 @@ def draw_control_4dof_panel(panel) -> None:
     panel.flush_control_u_draft(force=not bool(panel._control_u_dragging))
     _draw_gripper_row(panel)
     _draw_preset_row(panel)
+    _draw_wrap_row(panel)
     _draw_respawn_row(panel)
