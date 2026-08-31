@@ -299,6 +299,12 @@ object:
   # linear stage opposite ways; 35 mm is left out until the rest is solid.
   #
   # Evenly spaced, because the sizes are drawn uniformly over what is built.
+  #
+  # Each size is a free body, so seven of them add 42 DoFs per env and Genesis
+  # refuses to build the constraint solver past a point: at 2048 envs it stops
+  # with "Jacobian shape (n_constraints=20622, n_dofs=68, n_envs=2048) is too
+  # large".  1024 is what this list runs at.  Set it to [] for a single-size
+  # scene -- 26 DoFs -- when a run needs the larger batch.
   radius_choices_m: [0.045, 0.056, 0.067, 0.078, 0.089, 0.100]
   # Where the unused sizes wait, and how far apart.  Far enough from the robot
   # and the object that nothing can reach them.
