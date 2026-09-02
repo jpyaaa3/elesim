@@ -228,10 +228,14 @@ class RewardWeights:
     object_disturbance: float = -0.5
     object_topple: float = -2.0
     success: float = 5.0
+    lift_too_shallow: float = -3.0
 
 
 @dataclass(frozen=True)
 class CoverageConfig:
+    #: Wrap angle the shallow-lift penalty measures against.  A training
+    #: signal only -- nothing computes phi at run time.
+    shallow_lift_reference_rad: float = 2.0944
     source: str = "contact_span"
     n_bins: int = 180
     radial_band_m: float = 0.04

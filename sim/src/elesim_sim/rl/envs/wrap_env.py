@@ -173,6 +173,9 @@ class WrapGraspEnv:
             n_envs=self.num_envs,
             device=self.device,
             wrap_threshold_rad=self.cfg.success.coverage_target_rad,
+            shallow_lift_reference_rad=(
+                self.cfg.reward.coverage.shallow_lift_reference_rad
+            ),
         )
         self.geometric = GeometricCriterion(self.cfg.success, device=self.device)
         self.lift: Optional[LiftTest] = (
@@ -241,6 +244,10 @@ class WrapGraspEnv:
         self._waypoint_from = z(self.num_envs, self.num_waypoint_actions)
         #: Whether the policy asked for a lift on the current step.
         self._lift_request = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
+        #: Which envs armed the lift on this step, for the shallow-lift penalty.
+        self._lift_armed = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.bool
         )
         #: Set by eval to pin one object condition across every env, so a batch
@@ -503,6 +510,7 @@ class WrapGraspEnv:
                 object_displacement=state["displacement"],
                 object_tilt=state["tilt"],
                 success=success,
+                lift_armed=self._lift_armed,
                 under_test=(
                     None
                     if self.script is None
@@ -833,7 +841,7 @@ class WrapGraspEnv:
                 reached = reached & state["caged"]
             return reached
         roll_now = state["joints"][:, 1] * float(self.cfg.arm.roll_axis_sign)
-        self.lift.arm(
+        self._lift_armed = self.lift.arm(
             state["phi"],
             roll_now,
             self._lift_observation(),

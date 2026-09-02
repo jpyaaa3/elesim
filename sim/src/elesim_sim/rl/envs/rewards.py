@@ -59,6 +59,7 @@ TERM_NAMES: tuple[str, ...] = (
     "object_disturbance",
     "object_topple",
     "success",
+    "lift_too_shallow",
 )
 
 
@@ -135,6 +136,7 @@ class RewardInputs:
     object_displacement: torch.Tensor  # (n,) metres since reset
     object_tilt: torch.Tensor          # (n,) radians from the reset axis
     success: torch.Tensor              # (n,) bool, lift/geometric gate passed
+    lift_armed: Optional[torch.Tensor] = None  # (n,) bool, lift started here
     #: Envs whose success test has armed and is now moving the object itself.
     #: `None` means no test is running.  While it is, the object is *supposed*
     #: to move -- the lift lays a standing pole down into the coil, which is
@@ -172,11 +174,13 @@ class RewardBook:
         n_envs: int,
         device: torch.device,
         wrap_threshold_rad: float,
+        shallow_lift_reference_rad: float = 0.0,
     ) -> None:
         self.cfg = cfg
         self.n_envs = int(n_envs)
         self.device = device
         self.wrap_threshold_rad = float(wrap_threshold_rad)
+        self.shallow_lift_reference_rad = float(shallow_lift_reference_rad)
         self.weights = {name: float(getattr(cfg.weights, name)) for name in TERM_NAMES}
         self._state = _EpisodeState(
             phi_prev=torch.zeros(n_envs, device=device, dtype=torch.float32),
@@ -271,6 +275,31 @@ class RewardBook:
         toppled = toppled & pre_wrap
         raw["object_topple"] = toppled.to(torch.float32)
         raw["success"] = inputs.success.to(torch.float32)
+
+        # Asking for a lift while barely wrapped.
+        #
+        # The lift used to be gated on the wrap angle, and that gate was doing
+        # two jobs: keeping a shallow grasp out of the retention test, and
+        # pressing the policy to keep closing.  Removing it -- the robot cannot
+        # compute a wrap angle -- left the second job undone, and a shallow
+        # early lift became the cheaper option: it ends the episode, which
+        # stops paying step cost and dodges the chance of a collision.
+        #
+        # Charged here instead, graded by how far short of the reference the
+        # wrap was, so there is a gradient toward closing further rather than a
+        # cliff.  This is a training signal only: nothing has to measure phi at
+        # run time, because by then the policy has learnt when to ask.
+        armed = (
+            inputs.lift_armed
+            if inputs.lift_armed is not None
+            else torch.zeros_like(st.wrapped)
+        )
+        reference = float(self.shallow_lift_reference_rad)
+        if reference > 0.0:
+            short = ((reference - inputs.phi) / reference).clamp(min=0.0, max=1.0)
+        else:
+            short = torch.zeros_like(inputs.phi)
+        raw["lift_too_shallow"] = armed.to(torch.float32) * short
 
         terms = {name: raw[name] * self.weights[name] for name in TERM_NAMES}
         total = torch.stack([terms[name] for name in TERM_NAMES], dim=0).sum(dim=0)

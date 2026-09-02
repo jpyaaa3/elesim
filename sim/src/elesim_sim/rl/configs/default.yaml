@@ -405,6 +405,20 @@ reward:
     object_disturbance: -0.5
     object_topple: -2.0
     success: 5.0
+    # Asking for a lift while barely wrapped.
+    #
+    # The wrap-angle gate under the lift was doing two jobs: keeping a shallow
+    # grasp out of the retention test, and pressing the policy to keep closing.
+    # With the gate gone -- the robot cannot compute a wrap angle -- a shallow
+    # early lift became the cheaper option, since ending the episode stops
+    # paying step cost and dodges the chance of a collision.  Measured over 200
+    # iterations without this term: the curriculum reached Home by iteration 76
+    # and then success sat at 4% with the wrap angle settling at 76-91 deg,
+    # against the 204-224 deg the grasps that actually held used to reach.
+    #
+    # Graded by how far short of the reference the wrap was, so it pulls toward
+    # closing further instead of forming a cliff.
+    lift_too_shallow: -3.0
   # Approach shaping normaliser d0 (metres).
   approach_d0: 0.20
   # Which distance approach_shaping is measured against.
