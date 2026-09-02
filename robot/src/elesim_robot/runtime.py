@@ -170,11 +170,18 @@ class RobotRuntime:
         if self.safety_fault:
             return
         self.safety_fault = str(reason)
+        # Say why, on the way down.  This latch disables arm torque, and until
+        # now it did so silently: the operator saw the arm go limp mid-motion
+        # with the reason readable only by querying host state, and nothing in
+        # any log.  Print before stopping, so a shutdown that itself hangs
+        # still leaves the cause behind.
+        print(f"[robot] safety fault latched: {self.safety_fault}", flush=True)
         failures = self._stop_safety_components()
         if failures:
             self.safety_fault += "; safety shutdown incomplete: " + self._format_failures(
                 failures
             )
+            print(f"[robot] {self.safety_fault}", flush=True)
 
     @staticmethod
     def _format_failures(failures: Sequence[tuple[str, Exception]]) -> str:
