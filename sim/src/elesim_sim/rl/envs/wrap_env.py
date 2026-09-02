@@ -897,8 +897,27 @@ class WrapGraspEnv:
             parts.append(estimate + self._noise(estimate.shape, noise.joint_rad))
 
         if cfg.include_object_geometry:
-            pos = self.scene.object.get_pos() + self._noise((self.num_envs, 3), noise.object_pos_m)
-            axis = quat_to_axis(self.scene.object.get_quat())
+            told = str(getattr(cfg, "object_pose_source", "measured")).strip().lower()
+            if told not in {"measured", "told"}:
+                raise ValueError(
+                    f"observation.actor.object_pose_source: {told!r} is not "
+                    "'measured' or 'told'"
+                )
+            if told == "told":
+                # What the robot is handed: the pose written into its config,
+                # every step, however far the object has actually drifted from
+                # it.  The scene still randomises the real one, so the policy
+                # has to work from a number that is only approximately true.
+                pos = torch.tensor(
+                    [float(v) for v in self.cfg.object_center()],
+                    device=self.device, dtype=torch.float32,
+                ).unsqueeze(0).expand(self.num_envs, 3)
+                lean = torch.zeros((self.num_envs, 2), device=self.device)
+            else:
+                pos = self.scene.object.get_pos() + self._noise(
+                    (self.num_envs, 3), noise.object_pos_m
+                )
+                axis = quat_to_axis(self.scene.object.get_quat())
             # The object's axis tilted into the horizontal plane: which way it
             # is leaning *and* how far, in two channels.
             #
@@ -910,7 +929,9 @@ class WrapGraspEnv:
             # carrying no magnitude: 1 deg and 20 deg of tilt both read -90.
             # And upright, the axis is (0, 0, 1), so it was atan2(0, 0) -- an
             # undefined direction that the observation noise then dithered.
-            lean = axis[:, :2] + self._noise((self.num_envs, 2), noise.object_rot_rad)
+                lean = axis[:, :2] + self._noise(
+                    (self.num_envs, 2), noise.object_rot_rad
+                )
             parts.append(
                 torch.cat(
                     (

@@ -638,7 +638,14 @@ success:
     # Floor on a lift request, not a trigger any more: below this the request
     # is refused.  Kept permissive so the floor is not the thing deciding --
     # that is what the fifth action is for.
-    trigger_rad: 2.0944       # 120 deg
+    # Zero: the policy's request is the whole trigger.
+    #
+    # The floor was a simulator quantity -- wrap angle from per-link
+    # contacts -- and the robot has no sensor for it.  Trained under the
+    # floor the policy asks on 67.7% of steps and lets the gate sort it
+    # out; on the robot that meant a lift two steps in with nothing
+    # wrapped.  Asking has to mean something on its own.
+    trigger_rad: 0.0
     # Lifting this arm means rotating roll so the bend plane goes from
     # horizontal to vertical.  The object lying down ~90 deg is expected;
     # uprightness is NOT part of the success test.
@@ -681,7 +688,17 @@ observation:
   actor:
     include_joint_estimate: true
     include_object_geometry: true   # (r, height, base-frame pose)
-    include_load_proxy: true        # previous-step joint torque proxy
+    # The robot is handed a pose from its config, not a measurement: perception
+    # does not fit cylinders and the camera sits on the gripper.  Training on
+    # the measured pose teaches trust in a number that does not exist there.
+    object_pose_source: told
+    # Off: the sim reports per-node joint torque (~0.1 Nm) and the arm reports
+    # motor current (~1000 mA) through a tendon.  Four orders of magnitude apart
+    # and not the same physical quantity, so deployment fed zeros -- nine of the
+    # sixteen channels carried nothing.  Better to not train on a channel than
+    # to train on one that arrives as a constant.  Contact still gets used, in
+    # the safety layer outside the policy where the current is read directly.
+    include_load_proxy: false
     include_step_index: true
     noise:
       joint_rad: 0.005

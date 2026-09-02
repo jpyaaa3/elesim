@@ -415,6 +415,15 @@ class ActorObsConfig:
     include_object_geometry: bool = True
     include_load_proxy: bool = True
     include_step_index: bool = True
+    #: Where the object channels come from: "measured" reads the scene, as
+    #: training always did; "told" feeds the configured nominal pose instead,
+    #: which is what the robot gets.  Perception does not fit cylinders there,
+    #: so the operator writes the pose into a file and the object is wherever
+    #: it was actually placed -- within a few centimetres of it.  Training on
+    #: the measured pose teaches a policy to trust a number the robot cannot
+    #: supply.  The radius stays measured: the operator does write that one
+    #: correctly.
+    object_pose_source: str = "measured"
     noise: ObsNoiseConfig = field(default_factory=ObsNoiseConfig)
     delay_steps: tuple[int, int] = (0, 2)
 
