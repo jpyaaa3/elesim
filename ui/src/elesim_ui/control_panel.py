@@ -218,8 +218,13 @@ class ControlPanel:
             except Exception:
                 pass
         # The operator endpoint list also contains this UI and Pilot.  They
-        # are discovery/control peers, not camera targets; exposing them here
-        # lets a click switch the control plane to the wrong participant.
+        # are discovery/control peers, not targets; exposing them here lets a
+        # click switch the control plane to the wrong participant.
+        #
+        # A Robot belongs here beside the Sim.  Listing only Sim endpoints left
+        # the hardware operator with nothing to click, so `active_endpoint`
+        # stayed empty and the panel read as never connected -- while only the
+        # Sim's selection also moves the camera session (see elesim_ui.main).
         endpoints = []
         for endpoint in self._endpoint_cache:
             role = (
@@ -227,13 +232,13 @@ class ControlPanel:
                 if isinstance(endpoint, dict)
                 else str(getattr(endpoint, "role", ""))
             )
-            if role.strip().lower() == "sim":
+            if role.strip().lower() in {"sim", "robot"}:
                 endpoints.append(endpoint)
         active = self._active_endpoint_cache
         if not endpoints:
-            imgui.text_disabled("SIM TARGET: waiting for endpoint")
+            imgui.text_disabled("TARGET: waiting for endpoint")
             return
-        imgui.text("SIM TARGET")
+        imgui.text("TARGET")
         for index, endpoint in enumerate(endpoints):
             if isinstance(endpoint, dict):
                 endpoint_id = str(endpoint.get("endpoint_id", ""))

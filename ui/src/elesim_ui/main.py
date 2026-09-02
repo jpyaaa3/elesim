@@ -80,10 +80,16 @@ def _run(args: argparse.Namespace) -> None:
     def select_endpoint(endpoint_id: str, endpoint_role: str) -> None:
         # Only a Sim endpoint owns the simulation session and WebRTC camera
         # offers.  UI/Pilot discovery peers must never become camera targets.
-        if str(endpoint_role).strip().lower() != "sim":
+        #
+        # A Robot endpoint is selectable too, and has to be: the pilot serves
+        # whichever endpoint the operator picked, and with the robot excluded
+        # here the pick silently did nothing.  `active_endpoint` stayed empty
+        # against real hardware and the panel read as never connected.
+        role = str(endpoint_role).strip().lower()
+        if role not in {"sim", "robot"}:
             return
         service.select_endpoint(endpoint_id)
-        if sim_session is not None:
+        if role == "sim" and sim_session is not None:
             sim_session.switch_target(endpoint_id)
 
     panel = ControlPanel(
