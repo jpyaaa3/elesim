@@ -65,6 +65,8 @@ class OperatorDispatcher:
             "gaze_config": self.service.gaze_config,
             "pick_config": self.service._pick_config_effective(),
             "pick_e2e_running": self.service.pick_e2e_running(),
+            "wrap_grasp_running": self.service.wrap_grasp_running(),
+            "wrap_grasp_result": self.service.wrap_grasp_result(),
             "available_endpoints": self.service.available_endpoints,
             "active_endpoint": self.service.active_endpoint,
         }

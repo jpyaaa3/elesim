@@ -49,6 +49,12 @@ class ViewService:
     def pick_e2e_running(self) -> bool:
         return True
 
+    def wrap_grasp_running(self) -> bool:
+        return False
+
+    def wrap_grasp_result(self) -> str:
+        return ""
+
     def _pick_config_effective(self):
         return {"mobile_handoff_distance_m": 0.3}
 

@@ -8,7 +8,7 @@ crash.
 
 from __future__ import annotations
 
-from elesim_ui.panels.control_4dof import _wrap_summary
+from elesim_pilot.pick.wrap import wrap_summary as _wrap_summary
 
 
 class _Outcome:
@@ -17,19 +17,30 @@ class _Outcome:
 
 
 def _o(**kw):
-    base = dict(steps=0, reason="", lift_requested=False, lift_completed=False)
+    base = dict(steps=0, reason="", lift_requested=False, lift_completed=False,
+                lift_roll_rad=0.0)
     base.update(kw)
     return _Outcome(**base)
 
 
-def test_a_completed_lift_reads_as_success():
-    assert _wrap_summary(_o(steps=9, reason="lift", lift_requested=True,
-                            lift_completed=True)) == "성공 · 9 스텝"
+def test_a_completed_lift_never_claims_the_object_is_held():
+    """Nothing off the robot can check retention, so nothing may imply it."""
+    got = _wrap_summary(_o(steps=9, reason="lift", lift_requested=True,
+                           lift_completed=True, lift_roll_rad=1.5708))
+    assert "성공" not in got
+    assert "유지 미확인" in got
+    assert "90°" in got                      # the roll it actually unwound
+
+
+def test_a_lift_that_unwound_nothing_says_so_in_the_angle():
+    got = _wrap_summary(_o(steps=2, reason="lift", lift_requested=True,
+                           lift_completed=True, lift_roll_rad=0.0))
+    assert "roll 0°" in got
 
 
 def test_a_requested_lift_that_did_not_hold_says_so():
     got = _wrap_summary(_o(steps=12, reason="lift 중단", lift_requested=True))
-    assert "들기 실패" in got and "12" in got and "lift 중단" in got
+    assert "들기 중단" in got and "12" in got and "lift 중단" in got
 
 
 def test_never_reaching_a_lift_is_reported_with_the_reason():
