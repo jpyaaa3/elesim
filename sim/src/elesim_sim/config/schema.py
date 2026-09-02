@@ -128,6 +128,17 @@ class SpawnConfig:
     sim_target_enable: bool = True
     sim_target_xyz: tuple[float, float, float] = (0.8, 0.0, 0.2)
     sim_target_radius: float = 0.025
+    #: "sphere" or "cylinder".  A sphere is the perception target this started
+    #: as; a standing cylinder is what a whole-arm wrap actually closes around,
+    #: and what the wrap-grasp policy was trained against.
+    sim_target_shape: str = "sphere"
+    #: Cylinder length along z.  Ignored by the sphere.
+    sim_target_height: float = 1.1
+    #: Override the mass Genesis derives from the geometry.  Left unset
+    #: the object weighs what the wrap-grasp training scene built with the
+    #: same morph weighed, which is the point of comparison; set it only
+    #: to deliberately move away from that.
+    sim_target_mass_kg: Optional[float] = None
     sim_target_color_rgba: tuple[float, float, float, float] = (0.85, 0.15, 0.15, 1.0)
     sim_target_collision: bool = True
     sim_target_gravity: bool = False

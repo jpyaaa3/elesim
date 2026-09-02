@@ -3232,29 +3232,48 @@ class RuntimePrep:
         collision = bool(a.spawn.sim_target_collision)
         gravity = bool(a.spawn.sim_target_gravity)
         fixed = not gravity
+        shape = str(getattr(a.spawn, "sim_target_shape", "sphere")).strip().lower()
+        if shape not in {"sphere", "cylinder"}:
+            print(f"[runtime] unknown sim target shape {shape!r}; using a sphere")
+            shape = "sphere"
+        morph = gs.morphs.Cylinder if shape == "cylinder" else gs.morphs.Sphere
         sphere_kwargs: dict[str, Any] = {
             "radius": max(0.01, radius),
             "pos": pos,
             "fixed": bool(fixed),
             "collision": bool(collision),
         }
+        if shape == "cylinder":
+            # A standing column is what a whole-arm wrap closes around: the coil
+            # has to pass the object on both sides, which a sphere lets it slide
+            # off vertically.
+            sphere_kwargs["height"] = max(0.01, float(
+                getattr(a.spawn, "sim_target_height", 1.1)
+            ))
         try:
             try:
-                sphere = gs.morphs.Sphere(**sphere_kwargs)
+                sphere = morph(**sphere_kwargs)
             except TypeError as exc:
                 if not collision:
                     print(f"[runtime] sim target collision flag ignored by this Genesis build: {exc}")
                 sphere_kwargs.pop("collision", None)
-                sphere = gs.morphs.Sphere(**sphere_kwargs)
+                sphere = morph(**sphere_kwargs)
             ent = scene.add_entity(
                 sphere,
                 surface=gs.surfaces.Rough(color=color),
             )
+            mass_kg = getattr(a.spawn, "sim_target_mass_kg", None)
+            if mass_kg is not None:
+                try:
+                    ent.set_mass(float(mass_kg))
+                except Exception as exc:      # a mass override is not worth a crash
+                    print(f"[runtime] sim target mass override ignored: {exc}")
             a.sim_scene.sim_target_entity = ent
             a.sim_scene.sim_target_xyz = np.asarray(pos, dtype=float).reshape(3)
             print(
-                "[runtime] sim target ball at %s r=%.3f color=%s collision=%s gravity=%s"
+                "[runtime] sim target %s at %s r=%.3f color=%s collision=%s gravity=%s"
                 % (
+                    shape,
                     str(pos),
                     float(radius),
                     str(tuple(round(float(v), 3) for v in color)),
