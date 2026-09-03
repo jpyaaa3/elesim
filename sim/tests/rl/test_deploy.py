@@ -20,9 +20,23 @@ import pytest
 from elesim_sim.rl.deploy import Interface, LiftScript, numpy_policy
 
 
+#: The 16-channel observation, by name.  `expects_load` is decided by these
+#: names, so a fixture of c0..c15 would quietly describe a load-free policy.
+_JOINTS = ["joint/linear", "joint/roll", "joint/theta1", "joint/theta2"]
+_OBJECT = ["object/radius", "object/height", "object/pos_x", "object/pos_y",
+           "object/pos_z", "object/lean_x", "object/lean_y"]
+_LOAD = ["load/linear", "load/roll", "load/bend", "load/bend_repeat"]
+_PROGRESS = ["episode/progress"]
+
+
+def _channels(load: bool = True) -> list[dict]:
+    names = _JOINTS + _OBJECT + (_LOAD if load else []) + _PROGRESS
+    return [{"name": n} for n in names]
+
+
 def _manifest(tmp_path: Path, **over) -> Path:
     m = {
-        "observation": {"dim": 16, "channels": [{"name": f"c{i}"} for i in range(16)]},
+        "observation": {"dim": 16, "channels": _channels(load=True)},
         "action": {
             "dim": 5,
             "channels": [
@@ -212,3 +226,82 @@ def test_the_arm_config_comes_out_of_the_manifest(tmp_path):
     assert arm.limits.theta1_curl_weight == pytest.approx(1.5)
     # The sign the RL side uses, not runtime.JointLayout's -1.
     assert arm.bend_axis_sign == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Whether the policy reads load is the manifest's to say
+#
+# The stage-3 observation dropped the four load channels.  A runner that keeps
+# appending them assembles a 16-wide vector for a 12-wide network, and the
+# width alone does not explain why: the first eleven channels still mean what
+# they always did, and only the names say the load ones are gone.
+# ---------------------------------------------------------------------------
+
+def _load_free_manifest(tmp_path: Path) -> Path:
+    from elesim_sim.rl.deploy import Interface  # noqa: F401
+    p = _manifest(tmp_path)
+    m = json.loads(p.read_text(encoding="utf-8"))
+    m["observation"] = {"dim": 12, "channels": _channels(load=False)}
+    p.write_text(json.dumps(m), encoding="utf-8")
+    return p
+
+
+def _stub(iface, step_index=0):
+    from elesim_sim.rl.deploy import DeployedPolicy
+
+    class _S(DeployedPolicy):
+        def __init__(self, i):
+            self.iface = i
+            self.step_index = step_index
+
+    return _S(iface)
+
+
+def test_a_manifest_with_load_channels_expects_load(tmp_path):
+    assert Interface.from_manifest(_manifest(tmp_path)).expects_load
+
+
+def test_a_manifest_without_load_channels_does_not(tmp_path):
+    assert not Interface.from_manifest(_load_free_manifest(tmp_path)).expects_load
+
+
+def test_the_channel_names_survive_the_manifest(tmp_path):
+    iface = Interface.from_manifest(_load_free_manifest(tmp_path))
+    assert iface.channel_names[0] == "joint/linear"
+    assert iface.channel_names[-1] == "episode/progress"
+    assert len(iface.channel_names) == iface.obs_dim
+
+
+def test_a_load_free_policy_assembles_twelve_channels(tmp_path):
+    stub = _stub(Interface.from_manifest(_load_free_manifest(tmp_path)))
+    obs = stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 7)
+    assert obs.shape == (1, 12)
+
+
+def test_progress_still_lands_in_the_last_channel_without_load(tmp_path):
+    stub = _stub(Interface.from_manifest(_load_free_manifest(tmp_path)), step_index=3)
+    obs = stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 7)
+    assert float(obs[0, 11]) == pytest.approx(3 / 28)
+
+
+def test_handing_load_to_a_load_free_policy_is_refused(tmp_path):
+    # Refusing beats padding: the caller believes something untrue about this
+    # policy, and a width count alone would not say what.
+    stub = _stub(Interface.from_manifest(_load_free_manifest(tmp_path)))
+    with pytest.raises(ValueError, match="부하 채널"):
+        stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 7,
+                         load_proxy=[0.0] * 4)
+
+
+def test_an_omitted_load_proxy_defaults_to_zero_when_the_policy_reads_load(tmp_path):
+    from elesim_sim.rl.deploy import DeployedPolicy
+    stub = _stub(Interface.from_manifest(_manifest(tmp_path)))
+    obs = stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 7)
+    assert obs.shape == (1, 16)
+    assert [float(v) for v in obs[0, 11:15]] == list(DeployedPolicy.ZERO_LOAD)
+
+
+def test_the_width_error_names_the_channels_it_wanted(tmp_path):
+    stub = _stub(Interface.from_manifest(_load_free_manifest(tmp_path)))
+    with pytest.raises(ValueError, match="object/lean_y"):
+        stub.observation(joint_estimate=[0] * 4, object_geometry=[0] * 6)

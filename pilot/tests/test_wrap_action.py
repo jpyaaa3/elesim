@@ -62,7 +62,31 @@ def test_bare_filenames_under_a_search_root_are_found(tmp_path):
     )
     runner = WrapGraspRunner(cfg, read_joints=lambda: (0, 0, 0, 0),
                             command_waypoint=lambda w, t: True)
-    assert runner.policy.iface.obs_dim == 16
+    # The shipped observation, pinned deliberately: the stage-3 redesign
+    # dropped the four load channels, and a runner still assembling them would
+    # hand a 16-wide vector to a 12-wide network.
+    assert runner.policy.iface.obs_dim == 12
+    assert not runner.policy.expects_load
+
+
+def _force_lift(runner):
+    """Make the policy ask to lift on every step, and return the runner.
+
+    The gate tests below used to rely on the shipped checkpoint asking by
+    itself -- the stage-2 policy asked on 67.7% of steps, so it always did
+    within the budget.  That made them tests of the checkpoint rather than of
+    the gate: the stage-3 policy asks on different steps, reached the step
+    limit without asking, and the gate under test never ran.  Forcing the
+    request leaves the gate, the roll-back and the summary real.
+    """
+    inner = runner.policy.act
+
+    def act(**kw):
+        waypoint, _ = inner(**kw)
+        return waypoint, True
+
+    runner.policy.act = act
+    return runner
 
 
 class _Arm:
@@ -143,14 +167,35 @@ def test_a_lift_request_without_a_roll_path_is_reported_not_crashed():
     assert runner._run_lift((0.0, -1.5673, 0.0, 0.0), WrapGraspOutcome()) is False
 
 
-def test_the_load_proxy_is_zero_by_default():
-    """Motor current in mA is not joint torque, and the normaliser is frozen."""
+def test_no_load_proxy_is_sent_to_a_policy_that_has_no_load_channels():
+    """The manifest decides, not the config flag.
+
+    `zero_load_proxy` chose *what* to send when the channels existed.  The
+    stage-3 observation has none, so the question is no longer what to send but
+    whether to send anything -- and a reader wired up is not a reason to.
+    """
     arm = _Arm()
     runner = WrapGraspRunner(
         _cfg(), read_joints=arm.read, command_waypoint=arm.command,
         read_load=lambda: (999.0, 999.0, 999.0, 999.0),
     )
-    assert tuple(runner._load_proxy()) == (0.0, 0.0, 0.0, 0.0)
+    assert not runner.policy.expects_load
+    assert runner._load_proxy() is None
+
+
+def test_the_shipped_policy_steps_without_load_channels():
+    """End to end on the real export: no load in, a waypoint out."""
+    arm = _Arm()
+    runner = WrapGraspRunner(
+        _cfg(), read_joints=arm.read, command_waypoint=arm.command,
+    )
+    waypoint, lift = runner.policy.act(
+        joint_estimate=arm.read(),
+        object_geometry=_cfg().object_geometry,
+        load_proxy=runner._load_proxy(),
+    )
+    assert len(waypoint) == 4
+    assert isinstance(lift, bool)
 
 
 def test_currents_map_onto_the_four_channels():
@@ -260,9 +305,10 @@ def test_a_step_that_never_settles_stops_the_attempt():
 def test_a_lift_asked_for_before_the_arm_is_curled_is_held_back():
     """Training gated the lift on a wrap angle the robot cannot measure.
 
-    The policy asks on 67.7% of steps because `phi >= 120 deg` was there to
-    hold it back; honouring the bare request unwinds a roll that never wrapped
-    and ends the attempt after two steps.
+    Honouring a bare request unwinds a roll that never wrapped and ends the
+    attempt after two steps, so the request has to be held until the arm is
+    actually curled.  The request is forced here rather than waited for: which
+    steps a given checkpoint asks on is not what this test is about.
     """
 
     from elesim_pilot.pick.wrap import WrapGraspRunner
@@ -276,7 +322,7 @@ def test_a_lift_asked_for_before_the_arm_is_curled_is_held_back():
         command_waypoint=lambda waypoint, timeout_s: True,
         command_roll=lambda roll: lifted.append(roll),
     )
-    outcome = runner.run()
+    outcome = _force_lift(runner).run()
 
     assert lifted == []                     # the roll-back never ran
     assert outcome.lift_requested is False
@@ -487,7 +533,7 @@ def test_motor_load_opens_the_lift_gate_on_its_own():
         sleep=lambda seconds: None,
         loaded=lambda: True,
     )
-    outcome = runner.run()
+    outcome = _force_lift(runner).run()
 
     assert outcome.lift_requested is True
     assert outcome.lift_requests_held == 0

@@ -62,12 +62,27 @@ def observation_layout(cfg: Any) -> list[dict[str, Any]]:
              "source": "mean of segment 2's node angles, beta-compensated"},
         ]
     if a.include_object_geometry:
+        # Where these five come from on the robot is not a style choice: it is
+        # whichever source the policy was trained to read.  A `told` policy
+        # learned to work from the pose written into the config while the scene
+        # moved the object away from it, so feeding it a perception estimate
+        # instead hands it a signal it never saw.  Saying "perception" on a
+        # `told` manifest is how a deployment gets wired up wrong.
+        told = str(getattr(a, "object_pose_source", "measured")).strip().lower()
+        src = (
+            "configuration -- the nominal object pose as entered, NOT a "
+            "perception estimate; trained with the object drifting away from "
+            "this value while the policy kept being handed the nominal one"
+            if told == "told"
+            else "perception, robot frame"
+        )
+        geom = ("configuration -- as entered" if told == "told" else "perception")
         out += [
-            {"name": "object/radius", "unit": "m", "source": "perception"},
-            {"name": "object/height", "unit": "m", "source": "perception"},
-            {"name": "object/pos_x", "unit": "m", "source": "perception, robot frame"},
-            {"name": "object/pos_y", "unit": "m", "source": "perception, robot frame"},
-            {"name": "object/pos_z", "unit": "m", "source": "perception, robot frame"},
+            {"name": "object/radius", "unit": "m", "source": geom},
+            {"name": "object/height", "unit": "m", "source": geom},
+            {"name": "object/pos_x", "unit": "m", "source": src},
+            {"name": "object/pos_y", "unit": "m", "source": src},
+            {"name": "object/pos_z", "unit": "m", "source": src},
             {"name": "object/lean_x", "unit": "-",
              "source": "object axis unit vector, x component"},
             {"name": "object/lean_y", "unit": "-",
@@ -193,6 +208,7 @@ def build_manifest(cfg: Any, checkpoint: Path, obs_dim: int, action_dim: int) ->
                 "joint_rad": cfg.observation.actor.noise.joint_rad,
                 "object_pos_m": cfg.observation.actor.noise.object_pos_m,
             },
+            "object_pose_source": cfg.observation.actor.object_pose_source,
         },
     }
 

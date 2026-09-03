@@ -38,6 +38,11 @@ class Interface:
 
     obs_dim: int
     action_dim: int
+    #: The observation's channel names, in order.  The runner needs these and
+    #: not just the width: an observation redesign that drops the four load
+    #: channels leaves a 12-wide vector whose first eleven mean what they did
+    #: before, and only the names say the load ones are gone.
+    channel_names: tuple[str, ...]
     rate_limit: tuple[float, float, float, float]
     home: tuple[float, float, float, float]
     macro_step_s: float
@@ -48,6 +53,15 @@ class Interface:
     lift_settle_substeps: int
     lift_hold_substeps: int
     max_steps: int
+
+    @property
+    def expects_load(self) -> bool:
+        """Whether the policy reads the load channels.
+
+        Asymmetric-actor redesigns move channels in and out of the actor's view,
+        and the runner must follow the manifest rather than a fixed layout.
+        """
+        return any(n.startswith("load/") for n in self.channel_names)
 
     @staticmethod
     def from_manifest(path: Path) -> "Interface":
@@ -67,6 +81,9 @@ class Interface:
         return Interface(
             obs_dim=int(m["observation"]["dim"]),
             action_dim=int(m["action"]["dim"]),
+            channel_names=tuple(
+                str(c["name"]) for c in m["observation"]["channels"]
+            ),
             rate_limit=rate,
             home=tuple(float(v) for v in home),  # type: ignore[arg-type]
             macro_step_s=float(t["macro_step_s"]),
@@ -194,6 +211,11 @@ class DeployedPolicy:
         self.lift = LiftScript(self.iface)
 
     @property
+    def expects_load(self) -> bool:
+        """Whether this policy's observation includes the load channels."""
+        return self.iface.expects_load
+
+    @property
     def waypoint(self) -> tuple[float, float, float, float]:
         w = self.mapper.waypoint[0]
         return (float(w[0]), float(w[1]), float(w[2]), float(w[3]))
@@ -203,7 +225,7 @@ class DeployedPolicy:
         *,
         joint_estimate: Sequence[float],
         object_geometry: Sequence[float],
-        load_proxy: Sequence[float],
+        load_proxy: Optional[Sequence[float]] = None,
         progress: Optional[float] = None,
     ) -> torch.Tensor:
         """Assemble the observation in the order the network was trained on.
@@ -221,16 +243,30 @@ class DeployedPolicy:
         """
         if progress is None:
             progress = self.step_index / max(self.iface.max_steps, 1)
-        vec = list(joint_estimate) + list(object_geometry) + list(load_proxy) + [progress]
+        if self.iface.expects_load:
+            load = list(self.ZERO_LOAD if load_proxy is None else load_proxy)
+        elif load_proxy:
+            # Refusing beats padding.  A caller still assembling load channels
+            # believes something about this policy that is not true, and the
+            # width check alone would report a count without saying why.
+            raise ValueError(
+                "이 정책은 부하 채널을 읽지 않습니다 (매니페스트에 load/ 채널이 "
+                "없음). load_proxy 를 넘기지 마세요"
+            )
+        else:
+            load = []
+        vec = list(joint_estimate) + list(object_geometry) + load + [progress]
         if len(vec) != self.iface.obs_dim:
             raise ValueError(
                 f"관측이 {len(vec)} 개인데 정책은 {self.iface.obs_dim} 개를 "
-                f"기대합니다 (관절 4 + 물체 7 + 부하 4 + 진행률 1)"
+                f"기대합니다: {', '.join(self.iface.channel_names)}"
             )
         return torch.tensor([vec], dtype=torch.float32)
 
-    #: What to feed the load channels when the robot's units do not match the
-    #: sim's.  The sim reports joint torque and the arm reports motor current in
+    #: What to feed the load channels, when the manifest has any -- a policy
+    #: trained without them takes no load argument at all.
+    #:
+    #: Used when the robot's units do not match the sim's.  The sim reports joint torque and the arm reports motor current in
     #: mA -- orders of magnitude apart -- and the observation normaliser is
     #: frozen at the training statistics, so it will not absorb the difference.
     #: Zero sits near the middle of the distribution the policy was trained on.
@@ -241,7 +277,7 @@ class DeployedPolicy:
         *,
         joint_estimate: Sequence[float],
         object_geometry: Sequence[float],
-        load_proxy: Sequence[float] = ZERO_LOAD,
+        load_proxy: Optional[Sequence[float]] = None,
         progress: Optional[float] = None,
     ) -> tuple[tuple[float, float, float, float], bool]:
         """One macro step: the waypoint to drive to, and whether to lift."""
