@@ -944,7 +944,21 @@ train:
       num_mini_batches: 4
       learning_rate: 0.0003
       schedule: adaptive
-      gamma: 0.99
+      # 0.97, not 0.99: an episode here is about 20 macro steps, and 0.99 is a
+      # 100-step effective horizon -- five times longer than anything that
+      # happens.  The critic was being asked to predict a future that does not
+      # exist, could not carry the variance, and diverged: measured over four
+      # runs, the value loss climbed from 0.9 to 85 across roughly 50
+      # iterations while the wrap angle fell from 99 to 56 degrees, every
+      # reward term sliding together.
+      #
+      # Raising the entropy coefficient first, on the theory that the policy
+      # was hardening, brought the divergence 60 iterations *earlier* -- more
+      # exploration means more variance, which is what ruled hardening out and
+      # pointed here.  At 0.97 the horizon is 33 steps, the value loss stayed
+      # under 1.0 for 250 iterations and fell as training went on, and the wrap
+      # angle rose monotonically to 132 degrees.
+      gamma: 0.97
       lam: 0.95
       desired_kl: 0.01
       max_grad_norm: 1.0
