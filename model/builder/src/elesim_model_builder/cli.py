@@ -9,8 +9,8 @@ from elesim_model_builder.bundle import build_sim_bundle
 
 def sim_bundle_main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--assets", default="model/bundles/default/assets")
-    parser.add_argument("--output", default="model/bundles/default")
+    parser.add_argument("--assets", default="payload/data/models/assemblies/zed-mini/assets")
+    parser.add_argument("--output", default="payload/data/models/assemblies/zed-mini")
     parser.add_argument("--use-go2", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use-hardware", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--mount", nargs=3, type=float, default=(0.35, 0.0, 0.08))
@@ -27,9 +27,9 @@ def sim_bundle_main() -> None:
 
 def arm_model_main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="pilot/config/config.yaml")
-    parser.add_argument("--assets", default="model/bundles/default/assets")
-    parser.add_argument("--output", default="pilot/config/arm_model.json")
+    parser.add_argument("--config", default="payload/config/pilot/config.yaml")
+    parser.add_argument("--assets", default="payload/data/models/assemblies/zed-mini/assets")
+    parser.add_argument("--output", default="payload/data/models/arm/default.json")
     args = parser.parse_args()
     output = build_arm_model(
         config=Path(args.config),

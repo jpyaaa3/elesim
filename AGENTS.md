@@ -2,9 +2,9 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-08-05
-- Branch: `refactoring`; all Router-free ROS 2/DDS changes below are currently
-  uncommitted.
+- Updated: 2026-09-03
+- Branch: `main`; the canonical `payload/` source-layout migration and the
+  Router-free ROS 2/DDS changes below are currently uncommitted.
 - Goal: Maintain the Router-free ROS 2/DDS architecture while keeping the
   bounded M1 operator-readiness layer and the explicit contract/connection/UI
   follow-up implemented below. Real network, security, GPU and hardware gates
@@ -22,17 +22,21 @@
   update the DDS contract registry and tests; typed ROS service/action runtime
   wiring remains a separate follow-up.
 - Locked decisions:
-  - The deployable source trees and runtime role keys are canonically named
-    `pilot/`, `sim/`, `ui/`, and `robot/`. Python packages, console commands,
-    SROS2 enclaves, Compose service keys, endpoint identifiers and image tags
-    use `pilot`/`sim` directly. There is no source-layout alias layer.
+  - Deployable source is prepacked under `payload/runtime`: container roles live
+    in `docker/{pilot,sim,ui}`, Robot lives in `native/robot`, and
+    shared runtime contracts live in `common`. Each role's `app/` is
+    its Python project root, with no intermediate `src/` layer. Runtime role
+    keys, Python packages, console commands, SROS2 enclaves, Compose service
+    keys, endpoint identifiers and image tags still use `pilot`/`sim` directly.
+    There is no source-layout alias layer.
   - General mode uses Docker for Pilot, Sim, and UI. Robot is
     native-only and selectable only on detected Jetson/JetPack hosts. There is
     no Router role.
-  - Developer mode creates one privileged Ubuntu/WSL amd64 development
-    container named `elesim-dev` with the complete coding toolchain; Jaeger is
-    the optional separate `elesim-jaeger` service. Do not depend on an external
-    development Compose project.
+  - Development is an optional attachment to the normal container install,
+    not a separate edition. It adds one profile-scoped privileged Ubuntu/WSL
+    amd64 container named `elesim-dev` to `elesim-runtime`. It receives no
+    runtime DDS/SROS2 identity. Do not create a second Compose project or a
+    separate tracing service.
   - General Compose uses the fixed project name `elesim-runtime`, images
     `elesim/<role>:local`, and containers `elesim-pilot`, `elesim-ui`, and
     `elesim-sim` for the selected roles. Pilot and Sim are the actual role
@@ -42,9 +46,9 @@
     start images.
   - PATH registration uses an idempotent `.bashrc` block; the current parent
     shell still requires `source ~/.bashrc`.
-  - General installs default to optional local runtime text archives. Docker
+  - Installs default to optional local runtime text archives. Docker
     logs are bounded at 10 MiB x4; `elesim-logs --save` and `elesim-down`
-    retain five private snapshots. Developer logging is unchanged.
+    retain five private snapshots.
   - Clean uninstall is host-only and ownership-manifest based. It validates an
     install UUID, exact wrapper/systemd hashes and Docker metadata/labels before
     mutation. It executes directly after validation and removes owned logs and
@@ -79,11 +83,11 @@
     Sim-owned reliable DDS request/reply exchange; pixels remain
     DTLS/SRTP WebRTC.
 - Implemented:
-  - ROS contracts live in `packages/elesim_interfaces`; protocol major 6 uses a
+  - ROS contracts live in `payload/runtime/common/elesim_interfaces`; protocol major 6 uses a
     bounded `PeerEnvelope` DDS carrier for current control/signaling and a typed
     `RgbdFrame` for RGBD. The additional typed services/actions are generated
     but are not runtime-wired.
-  - `packages/protocol/src/elesim_protocol/contracts.py` and
+  - `payload/runtime/common/protocol/elesim_protocol/contracts.py` and
     `docs/dds_contracts.md` enumerate every PeerEnvelope message, sender /
     receiver role, QoS, authority and payload policy. Empty lease renewals and
     acknowledgement/error surfaces are structurally validated against the v6
@@ -108,12 +112,10 @@
     uses a 64 KiB-bounded JSON Unix packet protocol with `SO_PEERCRED`, boot
     IDs, monotonic sequences, command/parameter allowlists and deadman stop.
     GO2 IPC failure cannot skip arm safe-hold, torque-off or hardware cleanup.
-  - Installer state schema v9 retains the v8 distinction between externally
-    supplied SROS2 keystores and connection-manager-owned generation/bundle
-    state, while retaining managed/external TURN inputs and optional runtime
-    text logging. It additionally records the fixed Docker context/Engine
-    identity and the resolved `direct-host` or `tailscale-sidecar` network
-    mode.
+  - Installer state schema v10 retains the v9 SROS2, TURN, logging, fixed
+    Docker context/Engine identity, and `direct-host`/`tailscale-sidecar`
+    network contracts. It adds the optional external-workspace development
+    attachment to the same installation state.
     Migrations from v1-v7 disable new log retention. SSH remains setup-only and
     respects non-default ports; the connection manager also supports explicit
     keyless Tailscale SSH on port 22.
@@ -187,10 +189,9 @@
     camera window; closing it hides it and the main panel can reopen it.
     Canonical Roll display direction is positive while raw Robot motor polarity
     remains independently configured.
-  - Every completed install emits a stdlib-only host uninstaller and an exact
-    ownership manifest. General/native use `<prefix>/install-ownership.json`;
-    Developer keeps it inside `.elesim/development/` and never owns the source
-    checkout.
+  - Every completed install emits one stdlib-only host uninstaller and an exact
+    `<prefix>/install-ownership.json`. An optional development attachment never
+    owns its external source checkout.
 - Existing installer invariants that remain:
   - `request.py`, `capabilities.py`, `service.py`, and `shell.py` keep one
     validated request boundary, outer-host detection, and atomic PATH
@@ -208,13 +209,13 @@
     script. Do not collapse it to a scalar.
   - Specific GPU mode uses one Compose `device_ids` reservation and does not
     reapply the host index through in-container `CUDA_VISIBLE_DEVICES`.
-  - The development environment remains one persistent privileged all-project
-    `elesim-dev` container with persistent home/venv, WSLg forwarding and
-    optional separate Jaeger. `elesim-dev` uses Compose `exec`; it must not
-    create random `run --rm` development containers.
+  - The optional development attachment remains one persistent privileged
+    all-project `elesim-dev` container with persistent home/venv, WSLg
+    forwarding and no separate observability container. `elesim-dev` uses
+    Compose `exec`; it must not create random `run --rm` containers.
   - Ownership refresh must fail closed when legacy generated paths exist
     without a manifest. Never auto-adopt them. Managed roots are exact
-    EleSim-only subtrees, never the whole Developer checkout, home, or bin
+    EleSim-only subtrees, never the whole external checkout, home, or bin
     parent. Do not add prune, wildcard deletion, or upstream-image removal.
   - Runtime log archivers reject direct and ancestor symlinks. Archive failure
     must not prevent `elesim-down` from attempting shutdown, and must still
@@ -254,17 +255,17 @@
   discovery interval until `target_selected`. Do not weaken source validation,
   turn the control QoS transient-local, or replace this with an unbounded queue.
 - Current source-of-truth implementation points:
-  - `packages/protocol/src/elesim_protocol/dds_transport.py`: DDS peer node,
+  - `payload/runtime/common/protocol/elesim_protocol/dds_transport.py`: DDS peer node,
     direct addressed carrier, discovery, source-boot startup queue, motion and
     simulation authority.
-  - `packages/protocol/src/elesim_protocol/rgbd.py`: typed latest-only RGBD
-    DDS publisher/subscriber; `packages/elesim_interfaces` owns ROSIDL types.
-  - `sim/src/elesim_sim/turn.py`: managed/external TURN credential
+  - `payload/runtime/common/protocol/elesim_protocol/rgbd.py`: typed latest-only RGBD
+    DDS publisher/subscriber; `payload/runtime/common/elesim_interfaces` owns ROSIDL types.
+  - `payload/runtime/docker/sim/app/elesim_sim/turn.py`: managed/external TURN credential
     handling; WebRTC pixels remain outside DDS.
-  - `robot/src/elesim_robot/go2/unitree_ipc*.py` and
+  - `payload/runtime/native/robot/app/elesim_robot/go2/unitree_ipc*.py` and
     `unitree_bridge_daemon.py`: local bounded UDS boundary, peer credentials,
     replay fencing and bridge-side GO2 deadman stop.
-  - `installer/package/src/elesim_setup/`: state schema v9, role-specific DDS
+  - `payload/runtime/docker/tools/app/elesim_setup/`: state schema v10, role-specific DDS
     generation, connection topology/GUI, SROS2 Authority generation and
     transactional deployment, network doctor, TURN credential validation, and
     the ephemeral schema-v2 `TwoHostPreflight` contract/API.
@@ -283,6 +284,17 @@
 - Canonical test environment and commands:
   - The host shell deliberately lacks much of the scientific/ROS test stack;
     do not install it into host Python merely to make a test pass.
+  - Before running tests, always check whether the persistent `elesim-dev`
+    container is available. If it is available, do not substitute host-Python
+    tests for the canonical container test run.
+  - If `elesim-dev` is stopped, start it with the repository's `elesim-up`
+    workflow when verification is part of the requested work, then run tests
+    through `elesim-dev python3 ...`. Do not merely assume that the container
+    is unavailable.
+  - Host-only checks are permitted only when the development container was
+    actually unavailable or failed to start. In that case, report the exact
+    container failure and clearly identify every verification gate that was
+    not run; host checks are partial evidence, not a successful substitute.
   - Use the setup-generated persistent `elesim-dev` container. Its entrypoint
     builds a persistent ROSIDL overlay, creates the system-site-packages venv,
     and installs every project editable. Do not add dependencies to host Python
@@ -313,9 +325,9 @@
     validates its ownership manifest, regenerates owned artifacts, and
     incrementally builds selected images. It preserves topology, security and
     logs and does not restart containers; `elesim-up` is the activation step.
-    Developer updates require a clean tracked checkout and fast-forward only.
-  - General installations expose fixed role container names; Developer
-    installations expose only `elesim-dev` and optional `elesim-jaeger`.
+    It does not pull or mutate an attached external Git checkout.
+  - Container installations expose fixed role container names and optionally
+    expose profile-scoped `elesim-dev` for the coding environment.
     Managed TURN adds `elesim-coturn` on the Sim host. Docker Desktop container
     installs add the `tailscale` service/fixed `elesim-tailscale` infrastructure
     container; enroll it once with `elesim-tailscale login`, inspect its DDS IP
@@ -381,7 +393,7 @@
     accounts/group/ACLs, two-unit BindsTo/PartOf lifecycle, private Unitree
     NIC/domain confinement, UDS peer credentials, bridge loss/malformed packet
     stop deadlines, arm cleanup despite IPC failure, and physical safety.
-- Next commands in the generated Developer environment:
+- Next commands in the optional development attachment:
   - `elesim-dev python3 misc/tools/quality/check.py --group required`
   - `elesim-dev python3 misc/tools/quality/check.py --group extended`
   - `elesim-dev python3 misc/tools/release/build.py`
@@ -402,7 +414,7 @@ EleSim has four independently deployable applications:
 - `robot`: physical I/O, device feedback, deadman, limits, and local safety
 
 Applications communicate through ROS 2/DDS contracts in
-`packages/elesim_interfaces`; observer and hand-eye pixels use WebRTC. The
+`payload/runtime/common/elesim_interfaces`; observer and hand-eye pixels use WebRTC. The
 current control/signaling contract is the bounded `PeerEnvelope` message.
 Additional typed service/action definitions are not runtime-wired yet. There
 is no ZMQ or central application Router. Source sharing in this monorepo is a
@@ -416,10 +428,10 @@ fifth application and not part of inter-host DDS.
 - UI uses operator and simulation ROS interfaces, never pilot workflow code.
 - Robot must not know about IK, Pick, Genesis, builders, model source, or UI.
 - Pilot must not import Robot or Sim implementations.
-- Sim consumes `model/bundles/default`; it rebuilds models only when
+- Sim consumes `payload/data/models/assemblies/zed-mini`; it rebuilds models only when
   `ELESIM_SIM_DEV_REBUILD=1` is explicitly set for development.
-- Share ROS wire contracts through `packages/elesim_interfaces`; payload
-  validation and transport primitives may live in `packages/protocol`.
+- Share ROS wire contracts through `payload/runtime/common/elesim_interfaces`; payload
+  validation and transport primitives may live in `payload/runtime/common/protocol`.
 - Protocol changes require an explicit schema/version decision and corresponding
   contract and multi-process integration tests.
 - Do not add root compatibility launchers, sibling re-export modules, or hidden
@@ -431,7 +443,7 @@ fifth application and not part of inter-host DDS.
 - Installed configuration is generated under the selected installation prefix;
   do not mutate source defaults during installation.
 - A top-level deployment `config/` directory is runtime data, but a directory such
-  as `src/elesim_sim/config/` is Python application code. Never filter files
+  as `payload/runtime/docker/sim/app/elesim_sim/config/` is Python application code. Never filter files
   recursively by basename when preparing build contexts.
 - The Pilot arm model and Sim model bundle are immutable runtime inputs.
   Regenerate them with `model/builder`, not inside a runtime process.
@@ -445,9 +457,9 @@ fifth application and not part of inter-host DDS.
 
 - The setup wizard must preserve existing host Python, CUDA, ROS, and APT state
   when container mode is selected.
-- General and Developer Compose projects use the fixed names `elesim-runtime`
-  and `elesim-runtime-dev` with predictable container/image names and host
-  networking. Do not assume `127.0.0.1` refers to another computer.
+- Container runtime roles and the optional development attachment share the
+  fixed `elesim-runtime` project with predictable container/image names and
+  host networking. Do not assume `127.0.0.1` refers to another computer.
 - DDS participants must be mutually routable over UDP. Static discovery peers
   seed discovery but do not cross NAT or relay application traffic. Support
   LAN, routed VPN and global IPv6; do not claim ordinary NAT/CGNAT works.

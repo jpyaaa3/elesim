@@ -79,15 +79,15 @@ residual of another controller rather than the raw periodic disturbance.
 
 Suggested ownership under the current hierarchy:
 
-- `pilot/src/elesim_pilot/gaze/gait_phase_preview.py`: load, validate, interpolate, and compute
+- `payload/runtime/docker/pilot/app/elesim_pilot/gaze/gait_phase_preview.py`: load, validate, interpolate, and compute
   preview deltas.
 - `misc/research/analysis/build_gait_phase_template.py`: merge runs and build template
   artifacts.
-- `pilot/src/elesim_pilot/gaze/gaze_service.py`: an explicit gait-preview runtime branch with
+- `payload/runtime/docker/pilot/app/elesim_pilot/gaze/gaze_service.py`: an explicit gait-preview runtime branch with
   per-tick UV fallback and provenance.
-- `pilot/src/elesim_pilot/config`: gait period, horizon, template path, bins, phase offset, and
+- `payload/config/pilot`: gait period, horizon, template path, bins, phase offset, and
   scale configuration.
-- `pilot/src/elesim_pilot/observability`: phase source, current/future template values, preview
+- `payload/runtime/docker/pilot/app/elesim_pilot/observability`: phase source, current/future template values, preview
   delta, and fallback diagnostics.
 
 Do not overload the existing `pitch_preview` label. A gait-phase controller

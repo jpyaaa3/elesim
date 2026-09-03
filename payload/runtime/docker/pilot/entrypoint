@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +u
+source /opt/ros/humble/setup.bash
+source /opt/elesim/ros/install/setup.bash
+set -u
+exec elesim-pilot --config /opt/elesim/config/config.yaml --runtime-config /opt/elesim/config/runtime.installed.yaml "$@"

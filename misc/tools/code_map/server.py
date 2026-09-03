@@ -10,9 +10,7 @@ import mimetypes
 import secrets
 import subprocess
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -92,128 +90,6 @@ def _diff(root: Path, path: str) -> str:
     if result.returncode:
         raise ValueError(result.stderr.strip() or "git diff failed")
     return result.stdout[:MAX_SOURCE_BYTES]
-
-
-def _loopback_url(base_url: str) -> urllib.parse.ParseResult:
-    parsed = urllib.parse.urlparse(base_url)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("Jaeger URL must be loopback HTTP(S)")
-
-    return parsed
-
-
-def _attribute_map(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        if "attributes" in value and isinstance(value["attributes"], (dict, list)):
-            return _attribute_map(value["attributes"])
-        return dict(value)
-    result: dict[str, Any] = {}
-    if not isinstance(value, list):
-        return result
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        key = item.get("key")
-        raw = item.get("value", item)
-        if isinstance(raw, dict):
-            raw = next((raw[name] for name in ("stringValue", "intValue", "doubleValue", "boolValue") if name in raw), raw)
-        if key:
-            result[str(key)] = raw
-    return result
-
-
-def _span_value(value: Any, *names: str) -> Any:
-    if not isinstance(value, dict):
-        return None
-    for name in names:
-        if name in value:
-            return value[name]
-    return None
-
-
-def _normalise_span(value: dict[str, Any], resource: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    name = _span_value(value, "name", "operationName")
-    span_id = _span_value(value, "spanId", "spanID", "span_id")
-    if not name or not span_id:
-        return None
-    attrs = _attribute_map(_span_value(value, "attributes", "tags") or {})
-    trace_id = _span_value(value, "traceId", "traceID", "trace_id")
-    parent_id = _span_value(value, "parentSpanId", "parentSpanID", "parent_span_id")
-    start = _span_value(value, "startTimeUnixNano", "startTime", "start_time")
-    end = _span_value(value, "endTimeUnixNano", "durationEnd", "end_time")
-    status = _span_value(value, "status") or {}
-    status_code = _span_value(status, "code", "statusCode") if isinstance(status, dict) else status
-    result: dict[str, Any] = {
-        "name": str(name),
-        "span_id": str(span_id),
-        "attributes": attrs,
-    }
-    if trace_id:
-        result.update(
-            {
-                "trace_id": str(trace_id),
-                "parent_span_id": str(parent_id or ""),
-                "start_ns": _safe_int(start),
-                "end_ns": _safe_int(end),
-                "status": str(status_code or "UNSET"),
-                "error": str(status_code).upper() in {"ERROR", "2"},
-                "resource": _attribute_map(resource or {}),
-                "events": value.get("events", []),
-                "links": value.get("links", []),
-            }
-        )
-    return result
-
-
-def _safe_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _jaeger_spans(base_url: str, params: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    parsed = _loopback_url(base_url)
-    query: dict[str, str] = {"query.lookback": "1h", "query.search_depth": "100"}
-    if params:
-        mapping = {
-            "service": "query.service_name",
-            "operation": "query.operation_name",
-            "start": "query.start_time_min",
-            "end": "query.start_time_max",
-            "lookback": "query.lookback",
-            "limit": "query.search_depth",
-            "trace_id": "trace_id",
-        }
-        for key, value in params.items():
-            if value and key in mapping:
-                query[mapping[key]] = str(value)
-    path = "/api/v3/traces"
-    if query.get("trace_id"):
-        path += "/" + urllib.parse.quote(query.pop("trace_id"), safe="")
-    url = urllib.parse.urlunparse(parsed._replace(path=parsed.path.rstrip("/") + path, query=urllib.parse.urlencode(query)))
-    try:
-        with urllib.request.urlopen(url, timeout=2.0) as response:
-            payload = json.load(response)
-    except (OSError, urllib.error.URLError, ValueError) as exc:
-        return [{"error": str(exc), "source": url}]
-    spans: list[dict[str, Any]] = []
-
-    def walk(value: Any, resource: dict[str, Any] | None = None) -> None:
-        if isinstance(value, dict):
-            current_resource = _attribute_map(value.get("resource", {})) or resource
-            span = _normalise_span(value, current_resource)
-            if span is not None:
-                spans.append(span)
-                return
-            for child in value.values():
-                walk(child, current_resource)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child, resource)
-
-    walk(payload)
-    return spans[:2000]
 
 
 def _flow_layers(
@@ -681,12 +557,11 @@ def _flow_graph(
 class CodeMapServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], root: Path, token: str, jaeger_url: str) -> None:
+    def __init__(self, address: tuple[str, int], root: Path, token: str) -> None:
         if address[0] not in {"127.0.0.1", "::1", "localhost"}:
             raise ValueError("code map must bind to loopback")
         self.root = root.resolve()
         self.token = token
-        self.jaeger_url = jaeger_url
         self.web_root = Path(__file__).with_name("web")
         super().__init__(address, CodeMapHandler)
 
@@ -788,35 +663,6 @@ class CodeMapHandler(BaseHTTPRequestHandler):
             elif split.path == "/api/diff":
                 path = self._query().get("path", [""])[0]
                 self._json({"path": path, "text": _diff(self.server.root, path)})
-            elif split.path == "/api/traces":
-                params = {key: values[0] for key, values in self._query().items() if values}
-                self._json({"spans": _jaeger_spans(self.server.jaeger_url, params)})
-            elif split.path == "/api/jaeger/status":
-                spans = _jaeger_spans(self.server.jaeger_url, {"limit": "1"})
-                error = spans[0].get("error") if spans and isinstance(spans[0], dict) else None
-                self._json({"available": not error, "error": error, "url": self.server.jaeger_url})
-            elif split.path == "/api/jaeger/services":
-                spans = _jaeger_spans(self.server.jaeger_url)
-                services = sorted({
-                    str(span.get("resource", {}).get("service.name"))
-                    for span in spans
-                    if isinstance(span.get("resource"), dict) and span.get("resource", {}).get("service.name")
-                })
-                self._json({"services": services})
-            elif split.path == "/api/jaeger/operations":
-                query = self._query()
-                params = {key: values[0] for key, values in query.items() if values}
-                spans = _jaeger_spans(self.server.jaeger_url, params)
-                self._json({"operations": sorted({str(span.get("name")) for span in spans if span.get("name")})})
-            elif split.path == "/api/jaeger/traces":
-                query = self._query()
-                params = {key: values[0] for key, values in query.items() if values}
-                self._json({"spans": _jaeger_spans(self.server.jaeger_url, params)})
-            elif split.path == "/api/jaeger/trace":
-                trace_id = self._query().get("id", [""])[0]
-                if not trace_id:
-                    raise ValueError("trace id is required")
-                self._json({"spans": _jaeger_spans(self.server.jaeger_url, {"trace_id": trace_id})})
             elif split.path == "/api/events":
                 self._events()
             else:
@@ -849,10 +695,9 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 0,
     token: str = "",
-    jaeger_url: str = "http://127.0.0.1:16686",
 ) -> None:
     actual_token = token or secrets.token_urlsafe(24)
-    with CodeMapServer((host, port), root, actual_token, jaeger_url) as server:
+    with CodeMapServer((host, port), root, actual_token) as server:
         actual_port = server.server_address[1]
         print(f"[code-map] http://{host}:{actual_port}/?token={actual_token}", flush=True)
         server.serve_forever()

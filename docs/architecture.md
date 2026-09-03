@@ -69,22 +69,23 @@ safe-hold·torque-off·hardware cleanup을 계속 수행한다.
        ├── elesim_interfaces (ROSIDL wire types)
        └── protocol (PeerEnvelope, discovery, authority, RGB-D helpers)
 
-model/builder ── model/bundles/default/assets → model/bundles/default
-installer/package ── state/config/Compose/security/lifecycle artifacts
+model/builder ── payload/data/models/assemblies/zed-mini/assets → payload/data/models/assemblies/zed-mini
+payload/runtime/docker/tools/app ── state/config/Compose/security/lifecycle artifacts
 misc/tools/release ── isolated release contexts
 misc/system_tests ── cross-process acceptance probes
 ```
 
 각 배포 tree는 sibling 구현을 import하지 않는다. 공유 가능한 것은
-`packages/elesim_interfaces`의 ROSIDL type과 `packages/protocol`의 transport
+`payload/runtime/common/elesim_interfaces`의 ROSIDL type과 `payload/runtime/common/protocol`의 transport
 primitive뿐이다. typed ROS service/action 정의는 생성되지만 현재 runtime에
 연결되어 있지 않다. 현재 control/signaling carrier는 protocol major 6의
 bounded `PeerEnvelope`다.
 
-General 설치는 고정 `elesim-runtime` Compose project와 선택된
+컨테이너 설치는 고정 `elesim-runtime` Compose project와 선택된
 `elesim-pilot`, `elesim-ui`, `elesim-sim` container를 사용한다. Robot은
-native-only다. Developer 설치는 고정 `elesim-runtime-dev` project의 영속
-`elesim-dev` 한 개와 선택적 `elesim-jaeger`만 만든다.
+native-only다. 개발 도구를 선택하면 같은 project에 profile-scoped 영속
+`elesim-dev`가 attachment로 추가된다. 이 도구 컨테이너는 런타임 역할이나
+DDS/SROS2 identity가 아니며 별도 observability 컨테이너도 두지 않는다.
 
 ## 4. 통신 경계
 
@@ -218,7 +219,7 @@ QP/MPC solve, torque assembly, metrics는 각각 별도 timing field로 본다.
 
 ### Mock object hug vertical slice
 
-Sim의 `config/mock_objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis
+Sim의 `data/models/objects/`는 시작 시 검증되는 bounded OBJ catalog다. Genesis
 scene build 뒤 동적 mesh 추가를 가정하지 않기 위해 catalog entity는 scene
 build 전에 숨김 위치에 준비하고, UI session 명령은 기존 entity의 pose만
 바꾼다. OBJ 파일이나 host path는 DDS에 싣지 않는다.
@@ -232,35 +233,39 @@ Pilot은 Sim status의 content hash, lifecycle revision, world-oriented XZ conve
 descriptor를 만들고, environment-aware planner와 motor-load verifier는 Pilot의
 local planner 및 Sim mock verifier 경계에서 교체한다.
 
-이 기능은 protocol major 6의 capability-gated additive extension이다. Sim은
+Mock hug 기능은 protocol major 6의 capability-gated additive extension이다. Sim은
 `simulation.mock_hug.v1` capability가 없는 v6 peer에는 기존 status shape만
 보내며, Pilot은 capability를 광고한 정확한 Sim boot와 motion lease를 실행
 전체에서 고정한다. 따라서 target/boot/lease 변경은 다음 waypoint 전에 실행을
 취소한다.
 
+강화학습 감싸안기에서는 Sim이 `policy.pt`와 bounded `interface.json` artifact를
+생성해 `data/policies/wrap-grasp/`에 배치하고 Pilot이 그 manifest만 계약으로 소비한다. Policy 실행기와 waypoint/lift
+상태는 Pilot이 소유하며, Pilot 배포는 Sim의 RL·Genesis 구현을 import하지 않는다.
+
 ## 6. 모델과 설정 lifecycle
 
-`model/bundles/default/assets`가 ZED Mini의 canonical builder input이며,
-`model/bundles/default`는 ZED Mini 기본 프로파일의 assets와 생성된
+`payload/data/models/assemblies/zed-mini/assets`가 ZED Mini의 canonical builder input이며,
+`payload/data/models/assemblies/zed-mini`는 ZED Mini 기본 프로파일의 assets와 생성된
 blueprint/URDF를 함께 담는 self-contained runtime bundle이다.
-`model/bundles/d435`는 기존 D435 프로파일의 독립적인 전체 bundle이다.
+`payload/data/models/assemblies/d435`는 기존 D435 프로파일의 독립적인 전체 bundle이다.
 빌더는 임시 디렉터리에서 각 bundle을 만든 뒤 같은 경로에 원자적으로
 publish하므로 별도의 중복 source tree나 runtime의 builder import가 필요하지
 않다. Pilot/Sim의 `camera_profile`이 driver, hand-eye calibration, model
 bundle을 함께 선택하며, SDK/device가 없는 경우 다른 프로파일로 자동 전환하지
 않고 시작을 거부한다. Sim은 선택된 bundle을 읽고,
 `ELESIM_SIM_DEV_REBUILD=1`일 때만 개발 중 rebuild한다. Pilot은
-`config/arm_model.json`을 읽으며 runtime에 assembly를 만들지 않는다.
+`data/models/arm/default.json`을 읽으며 runtime에 assembly를 만들지 않는다.
 
 ```bash
-elesim-build-sim-bundle --assets model/bundles/default/assets --output model/bundles/default
-elesim-build-sim-bundle --assets model/bundles/d435/assets --output model/bundles/d435
-elesim-build-arm-model --config pilot/config/config.yaml \
-  --assets model/bundles/default/assets --output pilot/config/arm_model.json
+elesim-build-sim-bundle --assets payload/data/models/assemblies/zed-mini/assets --output payload/data/models/assemblies/zed-mini
+elesim-build-sim-bundle --assets payload/data/models/assemblies/d435/assets --output payload/data/models/assemblies/d435
+elesim-build-arm-model --config payload/config/pilot/config.yaml \
+  --assets payload/data/models/assemblies/zed-mini/assets --output payload/data/models/arm/default.json
 ```
 
 설치된 설정은 source default와 분리된 prefix 아래 생성된다. 역할 컨테이너는
-role-specific YAML, read-only config/model mount, role-scoped security view만
+role-specific YAML, read-only config/data mount, role-scoped security view만
 받는다. Pilot과 Sim의 application 설정은 각각 `config/config.yaml` 한 파일에
 공통값과 `profiles.pc`, `profiles.remote`, `profiles.jetson` 구획을 함께 둔다.
 파일의 `mode` 또는 CLI의 `--mode`가 선택한 구획만 공통값에 깊이 병합되며,

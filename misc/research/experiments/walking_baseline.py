@@ -57,7 +57,7 @@ def _connect_service(config_path: str) -> Any:
     try:
         return start_tool_pilot(
             config_path,
-            runtime_config_path=ROOT / "pilot/config/runtime.yaml",
+            runtime_config_path=ROOT / "payload/config/pilot/runtime.yaml",
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
@@ -121,7 +121,7 @@ def _run_trial(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="GO2 walking baseline (ControlService only)")
-    ap.add_argument("--config", default="pilot/config/config.yaml")
+    ap.add_argument("--config", default="payload/config/pilot/config.yaml")
     ap.add_argument("--run-id", default="", help="must match ELESIM_RUN_ID on sim process")
     ap.add_argument("--run-prefix", default="exp_baseline")
     ap.add_argument("--preset", default="neutral")

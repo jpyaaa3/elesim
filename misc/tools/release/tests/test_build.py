@@ -9,6 +9,7 @@ import pytest
 from misc.tools.release.build import (
     copy_interfaces,
     copy_robot_runtime,
+    copy_role_data,
     copy_role_config,
     copy_sim_bundle,
 )
@@ -53,32 +54,24 @@ def test_release_config_excludes_only_public_template(
     assert (release / "config/perception/detector.yolo.example.json").is_file()
 
 
-def test_sim_release_config_keeps_the_validated_mock_object_catalog(tmp_path: Path) -> None:
-    project = tmp_path / "sim"
-    config = project / "config"
-    catalog = config / "mock_objects"
-    catalog.mkdir(parents=True)
-    (config / "config.yaml").write_text("runtime: true\n", encoding="utf-8")
-    (config / "runtime.yaml").write_text("runtime: true\n", encoding="utf-8")
-    (config / "runtime.public.example.yaml").write_text("public: true\n", encoding="utf-8")
-    fixture = catalog / "demo_box.obj"
-    fixture.write_text("v 0 0 0\nv 1 0 0\nv 0 0 1\nf 1 2 3\n", encoding="utf-8")
+def test_sim_release_keeps_the_validated_mock_object_catalog(tmp_path: Path) -> None:
     release = tmp_path / "release"
 
-    copy_role_config(project, release, "sim")
+    copy_role_data("sim", release)
 
-    assert (release / "config/mock_objects/demo_box.obj").read_bytes() == fixture.read_bytes()
-    assert not (release / "config/runtime.public.example.yaml").exists()
+    assert (release / "data/models/objects/demo_box.obj").read_bytes() == (
+        ROOT / "payload/data/models/objects/demo_box.obj"
+    ).read_bytes()
 
 
 def test_sim_release_contains_only_the_immutable_bundle() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         source = root / "model"
-        bundle = source / "bundles/default"
+        bundle = source / "zed-mini"
         bundle.mkdir(parents=True)
         (bundle / "bundle.json").write_text("{}", encoding="utf-8")
-        d435 = source / "bundles/d435"
+        d435 = source / "d435"
         d435.mkdir(parents=True)
         (d435 / "bundle.json").write_text("{}", encoding="utf-8")
         extra_assets = source / "extras/assets"
@@ -88,8 +81,8 @@ def test_sim_release_contains_only_the_immutable_bundle() -> None:
 
         copy_sim_bundle(source, release)
 
-        assert (release / "model/bundles/default/bundle.json").is_file()
-        assert (release / "model/bundles/d435/bundle.json").is_file()
+        assert (release / "data/models/assemblies/zed-mini/bundle.json").is_file()
+        assert (release / "data/models/assemblies/d435/bundle.json").is_file()
         assert not (release / "model/extras").exists()
 
 
@@ -184,7 +177,7 @@ def test_robot_release_refuses_an_incomplete_service_set(tmp_path: Path) -> None
 
 
 def test_robot_install_script_only_reports_privileged_follow_up() -> None:
-    script = ROOT / "robot/install.sh"
+    script = ROOT / "payload/runtime/native/robot/install.sh"
     text = script.read_text(encoding="utf-8")
 
     completed = subprocess.run(

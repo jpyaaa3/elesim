@@ -37,7 +37,14 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REPOSITORY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 DEFAULT_BUILD_DIR = os.path.join(PROJECT_ROOT, "crafts")
 DEFAULT_ASSET_ROOT_DIR = os.path.join(
-    REPOSITORY_ROOT, "model", "bundles", "default", "assets"
+    REPOSITORY_ROOT,
+    "payload",
+    "roles",
+    "sim",
+    "model",
+    "bundles",
+    "default",
+    "assets",
 )
 
 

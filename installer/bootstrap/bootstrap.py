@@ -40,41 +40,72 @@ _REVISION_RE = re.compile(r"(?:git-[0-9a-f]{40}|sha256-[0-9a-f]{64})")
 # still clones the complete repository into its requested workspace; it only
 # consumes the four development-context files retained here before that clone.
 _BOOTSTRAP_ROLES = ("pilot", "sim", "ui", "robot")
+_BOOTSTRAP_ROLE_RUNTIMES = {
+    "pilot": PurePosixPath("payload/runtime/docker/pilot"),
+    "sim": PurePosixPath("payload/runtime/docker/sim"),
+    "ui": PurePosixPath("payload/runtime/docker/ui"),
+    "robot": PurePosixPath("payload/runtime/native/robot"),
+}
+_BOOTSTRAP_ROLE_APPLICATIONS = {
+    role: runtime / "app"
+    for role, runtime in _BOOTSTRAP_ROLE_RUNTIMES.items()
+}
 _BOOTSTRAP_SOURCE_FILES = frozenset(
     {
         PurePosixPath("installer/bootstrap/bootstrap.py"),
         PurePosixPath("installer/bootstrap/install.sh"),
         PurePosixPath("installer/bootstrap/bootstrap-contract.json"),
-        PurePosixPath("installer/package/pyproject.toml"),
-        PurePosixPath("installer/package/requirements.lock"),
-        PurePosixPath("packages/protocol/pyproject.toml"),
-        PurePosixPath("packages/elesim_interfaces/CMakeLists.txt"),
-        PurePosixPath("packages/elesim_interfaces/package.xml"),
-        PurePosixPath("environment/containers/Dockerfile.app"),
-        PurePosixPath("environment/containers/Dockerfile.tools"),
-        PurePosixPath("environment/containers/tools-entrypoint"),
-        PurePosixPath("environment/containers/robotpkg.asc"),
-        PurePosixPath("environment/development/Dockerfile"),
-        PurePosixPath("environment/development/requirements.lock"),
-        PurePosixPath("environment/development/entrypoint.sh"),
-        PurePosixPath("environment/development/dev-env.sh"),
-        *(PurePosixPath(role) / "pyproject.toml" for role in _BOOTSTRAP_ROLES),
-        *(PurePosixPath(role) / "requirements.lock" for role in _BOOTSTRAP_ROLES),
+        PurePosixPath("payload/runtime/docker/tools/app/pyproject.toml"),
+        PurePosixPath("payload/runtime/docker/tools/app/requirements.lock"),
+        PurePosixPath("payload/runtime/common/protocol/pyproject.toml"),
+        PurePosixPath("payload/runtime/common/elesim_interfaces/CMakeLists.txt"),
+        PurePosixPath("payload/runtime/common/elesim_interfaces/package.xml"),
+        PurePosixPath("payload/runtime/docker/shared/Dockerfile.app"),
+        PurePosixPath("payload/runtime/docker/tools/Dockerfile"),
+        PurePosixPath("payload/runtime/docker/tools/tools-entrypoint"),
+        PurePosixPath("payload/runtime/docker/shared/robotpkg.asc"),
+        PurePosixPath("payload/runtime/docker/development/Dockerfile"),
+        PurePosixPath("payload/runtime/docker/development/requirements.lock"),
+        PurePosixPath("payload/runtime/docker/development/entrypoint.sh"),
+        PurePosixPath("payload/runtime/docker/development/dev-env.sh"),
+        *(
+            _BOOTSTRAP_ROLE_APPLICATIONS[role] / "pyproject.toml"
+            for role in _BOOTSTRAP_ROLES
+        ),
+        *(
+            _BOOTSTRAP_ROLE_RUNTIMES[role] / "requirements.lock"
+            for role in _BOOTSTRAP_ROLES
+        ),
+        *(
+            PurePosixPath("payload/runtime/docker") / role / "entrypoint"
+            for role in ("pilot", "sim", "ui")
+        ),
     }
 )
 _BOOTSTRAP_SOURCE_TREES = (
-    PurePosixPath("installer/package/src"),
-    PurePosixPath("packages/protocol/src"),
-    PurePosixPath("packages/elesim_interfaces/msg"),
-    PurePosixPath("packages/elesim_interfaces/srv"),
-    PurePosixPath("packages/elesim_interfaces/action"),
-    *(PurePosixPath(role) / "src" for role in _BOOTSTRAP_ROLES),
-    *(PurePosixPath(role) / "config" for role in _BOOTSTRAP_ROLES),
-    PurePosixPath("model/bundles/default"),
-    PurePosixPath("model/bundles/d435"),
+    PurePosixPath("payload/runtime/docker/tools/app"),
+    PurePosixPath("payload/runtime/common/protocol"),
+    PurePosixPath("payload/runtime/common/elesim_interfaces/msg"),
+    PurePosixPath("payload/runtime/common/elesim_interfaces/srv"),
+    PurePosixPath("payload/runtime/common/elesim_interfaces/action"),
+    *(
+        _BOOTSTRAP_ROLE_APPLICATIONS[role] / f"elesim_{role}"
+        for role in _BOOTSTRAP_ROLES
+    ),
+    *(
+        PurePosixPath("payload/config") / role
+        for role in _BOOTSTRAP_ROLES
+    ),
+    PurePosixPath("payload/data/models/assemblies/zed-mini"),
+    PurePosixPath("payload/data/models/assemblies/d435"),
+    PurePosixPath("payload/data/models/perception"),
+    PurePosixPath("payload/data/models/arm"),
+    PurePosixPath("payload/data/models/objects"),
+    PurePosixPath("payload/data/policies"),
+    PurePosixPath("payload/data/calibration"),
 )
 _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
-    PurePosixPath("installer/package/src/elesim_setup") / f"{name}.py"
+    PurePosixPath("payload/runtime/docker/tools/app/elesim_setup") / f"{name}.py"
     for name in (
         "__init__",
         "_security_storage",
@@ -111,7 +142,7 @@ _BOOTSTRAP_SETUP_PYTHON_FILES = frozenset(
     )
 )
 _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
-    PurePosixPath("packages/protocol/src/elesim_protocol") / f"{name}.py"
+    PurePosixPath("payload/runtime/common/protocol/elesim_protocol") / f"{name}.py"
     for name in (
         "__init__",
         "authority",
@@ -130,36 +161,27 @@ _BOOTSTRAP_PROTOCOL_PYTHON_FILES = frozenset(
 )
 _BOOTSTRAP_ROLE_ENTRYPOINT_FILES = frozenset(
     {
-        PurePosixPath("pilot/src/elesim_pilot/main.py"),
-        PurePosixPath("sim/src/elesim_sim/main.py"),
-        PurePosixPath("ui/src/elesim_ui/main.py"),
-        PurePosixPath("robot/src/elesim_robot/main.py"),
+        PurePosixPath("payload/runtime/docker/pilot/app/elesim_pilot/main.py"),
+        PurePosixPath("payload/runtime/docker/sim/app/elesim_sim/main.py"),
+        PurePosixPath("payload/runtime/docker/ui/app/elesim_ui/main.py"),
+        PurePosixPath("payload/runtime/native/robot/app/elesim_robot/main.py"),
         PurePosixPath(
-            "robot/src/elesim_robot/go2/unitree_bridge_daemon.py"
+            "payload/runtime/native/robot/app/elesim_robot/go2/unitree_bridge_daemon.py"
         ),
     }
 )
 _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
-    PurePosixPath(role) / "config" / relative
+    PurePosixPath("payload/config") / role / relative
     for role, relatives in {
         "pilot": (
-            "arm_model.json",
-            "calibration/zed_mini.hand_eye.json",
-            "calibration/d435.hand_eye.json",
             "config.yaml",
             "perception/detector.real_green_hsv.json",
             "perception/detector.sim_hsv.json",
             "perception/detector.yolo.example.json",
-            "perception/models/yolov8n-seg.pt",
             "runtime.yaml",
-            "sag/no_sag.json",
-            "sag/sag_model.json",
         ),
         "sim": (
-            "calibration/zed_mini.hand_eye.json",
-            "calibration/d435.hand_eye.json",
             "config.yaml",
-            "mock_objects/demo_box.obj",
             "runtime.yaml",
         ),
         "ui": (
@@ -167,8 +189,6 @@ _BOOTSTRAP_ROLE_CONFIG_FILES = frozenset(
             "perception/detector.real_green_hsv.json",
             "perception/detector.sim_hsv.json",
             "perception/detector.yolo.example.json",
-            "sag/no_sag.json",
-            "sag/sag_model.json",
         ),
         "robot": ("default.yaml",),
     }.items()
@@ -180,27 +200,34 @@ _BOOTSTRAP_REQUIRED_TREE_FILES = frozenset(
         *_BOOTSTRAP_PROTOCOL_PYTHON_FILES,
         *_BOOTSTRAP_ROLE_ENTRYPOINT_FILES,
         *_BOOTSTRAP_ROLE_CONFIG_FILES,
-        PurePosixPath("packages/elesim_interfaces/msg/RgbdFrame.msg"),
+        PurePosixPath("payload/runtime/common/elesim_interfaces/msg/RgbdFrame.msg"),
         PurePosixPath(
-            "packages/elesim_interfaces/srv/OpenSimulationSession.srv"
+            "payload/runtime/common/elesim_interfaces/srv/OpenSimulationSession.srv"
         ),
         PurePosixPath(
-            "packages/elesim_interfaces/action/RunOperatorWorkflow.action"
+            "payload/runtime/common/elesim_interfaces/action/RunOperatorWorkflow.action"
         ),
-        PurePosixPath("model/bundles/default/bundle.json"),
-        PurePosixPath("model/bundles/d435/bundle.json"),
+        PurePosixPath("payload/data/models/assemblies/zed-mini/bundle.json"),
+        PurePosixPath("payload/data/models/assemblies/d435/bundle.json"),
+        PurePosixPath("payload/data/models/perception/yolov8n-seg.pt"),
+        PurePosixPath("payload/data/models/arm/default.json"),
+        PurePosixPath("payload/data/models/objects/demo_box.obj"),
+        PurePosixPath("payload/data/calibration/cameras/zed_mini.hand_eye.json"),
+        PurePosixPath("payload/data/calibration/cameras/d435.hand_eye.json"),
+        PurePosixPath("payload/data/calibration/arm/no_sag.json"),
+        PurePosixPath("payload/data/calibration/arm/sag_model.json"),
         *(
-            PurePosixPath(role) / "src" / f"elesim_{role}" / "__init__.py"
+            _BOOTSTRAP_ROLE_APPLICATIONS[role] / f"elesim_{role}" / "__init__.py"
             for role in _BOOTSTRAP_ROLES
         ),
     }
 )
 _BOOTSTRAP_EXCLUDED_CONFIG_FILES = frozenset(
     {
-        PurePosixPath("pilot/config/runtime.public.example.yaml"),
-        PurePosixPath("sim/config/runtime.public.example.yaml"),
-        PurePosixPath("ui/config/public.example.yaml"),
-        PurePosixPath("robot/config/public.example.yaml"),
+        PurePosixPath("payload/config/pilot/runtime.public.example.yaml"),
+        PurePosixPath("payload/config/sim/runtime.public.example.yaml"),
+        PurePosixPath("payload/config/ui/public.example.yaml"),
+        PurePosixPath("payload/config/robot/public.example.yaml"),
     }
 )
 # Repository-only material is intentionally tracked for development and
@@ -221,7 +248,7 @@ _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
 # The RL training stack is tracked research code, not part of the runtime
 # source needed by the curl installer.  Keep this path-specific so an
 # unrelated future package containing an ``rl`` directory is not discarded.
-_BOOTSTRAP_SOURCE_ONLY_PATHS = (PurePosixPath("sim/src/elesim_sim/rl"),)
+_BOOTSTRAP_SOURCE_ONLY_PATHS = (PurePosixPath("payload/runtime/docker/sim/app/elesim_sim/rl"),)
 
 
 class BootstrapError(RuntimeError):
@@ -248,6 +275,7 @@ def _bootstrap_source_path_allowed(relative: PurePosixPath) -> bool:
         or relative.name.endswith(".pyc")
         or _bootstrap_source_only(relative)
         or any(part.endswith(".egg-info") for part in relative.parts)
+        or any(part in {".pytest_cache", "__pycache__", "build"} for part in relative.parts)
     ):
         return False
     if relative in _BOOTSTRAP_SOURCE_FILES:
@@ -262,6 +290,7 @@ def _bootstrap_source_directory_allowed(relative: PurePosixPath) -> bool:
     if (
         _bootstrap_source_only(relative)
         or any(part.endswith(".egg-info") for part in relative.parts)
+        or any(part in {".pytest_cache", "__pycache__", "build"} for part in relative.parts)
     ):
         return False
     return any(relative in path.parents for path in _BOOTSTRAP_SOURCE_FILES) or any(
@@ -336,7 +365,7 @@ def safe_extract_archive(archive: Path, destination: Path) -> Path:
             resolved.chmod(member.mode & 0o777)
 
     root = destination / next(iter(roots))
-    if not (root / "installer/package/pyproject.toml").is_file():
+    if not (root / "payload/runtime/docker/tools/app/pyproject.toml").is_file():
         raise BootstrapError("downloaded archive does not contain the EleSim setup package")
     return root
 
@@ -413,7 +442,7 @@ def _validate_source_snapshot(root: Path) -> None:
             "downloaded archive is missing required setup files: "
             + ", ".join(missing)
         )
-    setup_root = root / "installer/package/src/elesim_setup"
+    setup_root = root / "payload/runtime/docker/tools/app/elesim_setup"
     actual_setup_python = frozenset(
         PurePosixPath(path.relative_to(root).as_posix())
         for path in setup_root.rglob("*.py")
@@ -424,7 +453,7 @@ def _validate_source_snapshot(root: Path) -> None:
             f"missing={sorted(_BOOTSTRAP_SETUP_PYTHON_FILES - actual_setup_python)!r}; "
             f"unexpected={sorted(actual_setup_python - _BOOTSTRAP_SETUP_PYTHON_FILES)!r}"
         )
-    protocol_root = root / "packages/protocol/src/elesim_protocol"
+    protocol_root = root / "payload/runtime/common/protocol/elesim_protocol"
     actual_protocol_python = frozenset(
         PurePosixPath(path.relative_to(root).as_posix())
         for path in protocol_root.rglob("*.py")
@@ -438,7 +467,7 @@ def _validate_source_snapshot(root: Path) -> None:
     actual_role_configs = frozenset(
         PurePosixPath(path.relative_to(root).as_posix())
         for role in _BOOTSTRAP_ROLES
-        for path in (root / role / "config").rglob("*")
+        for path in (root / "payload/config" / role).rglob("*")
         if path.is_file()
         and PurePosixPath(path.relative_to(root).as_posix())
         not in _BOOTSTRAP_EXCLUDED_CONFIG_FILES
@@ -449,7 +478,7 @@ def _validate_source_snapshot(root: Path) -> None:
             f"missing={sorted(_BOOTSTRAP_ROLE_CONFIG_FILES - actual_role_configs)!r}; "
             f"unexpected={sorted(actual_role_configs - _BOOTSTRAP_ROLE_CONFIG_FILES)!r}"
         )
-    _validate_rosidl_source_manifest(root / "packages/elesim_interfaces")
+    _validate_rosidl_source_manifest(root / "payload/runtime/common/elesim_interfaces")
     unexpected: list[str] = []
     for path in root.rglob("*"):
         relative = PurePosixPath(path.relative_to(root).as_posix())
@@ -913,7 +942,7 @@ def preflight_setup(executable: Path) -> None:
 
 def _setup_project_version(source_root: Path) -> str:
     try:
-        project = (source_root / "installer/package/pyproject.toml").read_text(
+        project = (source_root / "payload/runtime/docker/tools/app/pyproject.toml").read_text(
             encoding="utf-8"
         )
     except (OSError, UnicodeError):
@@ -1001,9 +1030,9 @@ def prepare_bootstrap_venv(source_root: Path, cache_root: Path) -> Path:
             "packaging>=24.2,<26",
             "wheel",
         ),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "installer/package/requirements.lock")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "packages/protocol")),
-        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "installer/package")),
+        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "-r", str(source_root / "payload/runtime/docker/tools/app/requirements.lock")),
+        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/common/protocol")),
+        (str(python), "-m", "pip", "--disable-pip-version-check", "install", "--force-reinstall", "--no-deps", str(source_root / "payload/runtime/docker/tools/app")),
         (str(python), "-m", "pip", "--disable-pip-version-check", "check"),
     )
     for command in commands:

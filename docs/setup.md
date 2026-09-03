@@ -15,7 +15,7 @@
 - `elesim-up`, `elesim-down`, `elesim-update`, `elesim-logs`, `elesim-status`
   및 `elesim-setup`, `elesim-net`, `elesim-connections` wrapper
 - 선택한 security/TURN/config state와 bounded log archive
-- Developer mode의 persistent `elesim-runtime-dev` context
+- 선택 시 같은 Compose project에 붙는 persistent `elesim-dev` 개발 attachment
 
 설치 자체는 image build나 runtime start를 하지 않는다. 첫 build와 실행은
 설치 후의 `elesim-up` 또는 `elesim-update`가 담당한다.
@@ -64,17 +64,17 @@ ssh -L 8765:127.0.0.1:8765 -p <ssh-port> <user>@<server>
 parent traversal, link, device entry를 거부하며 stale cache를 자동 실행하지
 않는다.
 
-## 3. General과 Developer
+## 3. Runtime 설치와 개발 attachment
 
-### General
+### Runtime 설치
 
-General은 선택한 `pilot`, `sim`, `ui`를 Docker role image로 만든다. Robot은
+설치기는 선택한 `pilot`, `sim`, `ui`를 Docker role image로 만든다. Robot은
 감지된 Jetson에서만 native-only로 선택 가능하며, `elesim-robot.service`와
 `elesim-unitree-bridge.service` 두 systemd unit을 생성한다. Generic amd64
 container backend는 Robot을 받지 않는다.
 
 Jetson Robot 설치는 host의 ROS 2 Humble과 `colcon`을 사용해
-`packages/elesim_interfaces` overlay를 빌드해야 한다. Bootstrap은
+`payload/runtime/common/elesim_interfaces` overlay를 빌드해야 한다. Bootstrap은
 `/opt/ros/humble/setup.bash`와 `colcon`이 감지된 Jetson에서만 EleSim 전용
 host venv로 setup을 실행한다. 이 venv는 `~/.cache/elesim/setup` 아래에
 생성되며 host Python 패키지나 ROS/Apt 상태를 수정하지 않는다. ROS 2가 없는
@@ -89,27 +89,28 @@ containers:  elesim-pilot       elesim-sim       elesim-ui
 optional:    elesim-coturn (Sim host), elesim-tailscale (Docker Desktop)
 ```
 
-한 host의 같은 prefix에는 General installation을 두 개 만들지 않는다.
+한 host의 같은 prefix에는 EleSim installation을 두 개 만들지 않는다.
 필요하면 서로 다른 prefix와 독립 deployment unit을 사용한다.
 
-### Developer
+### 선택적 개발 attachment
 
-Developer는 source checkout을 소유하고 `elesim-runtime-dev` project의 영속
-privileged `elesim-dev` 하나를 만든다. ROS/scientific stack, 모든 role,
-model tooling과 tests가 들어간다. `--jaeger`를 사용할 때만 별도
-`elesim-jaeger`가 추가된다.
+개발 attachment는 기존의 완전한 Git checkout을 같은 `elesim-runtime`
+project에 profile-scoped 영속 privileged `elesim-dev`로 연결한다.
+ROS/scientific stack, 모든 role, model tooling과 tests가 들어가지만 설치기는
+checkout을 생성·갱신·소유하지 않는다. `pilot`/`sim`/`ui` 컨테이너와 역할은
+그대로 분리되며, 개발 셸에는 런타임 DDS/SROS2 identity를 자동 지급하지 않는다.
 
 ```bash
-elesim-up --jaeger   # 선택적 tracing 포함
-elesim-dev           # persistent container에 Compose exec
+elesim-up             # 선택한 runtime 역할 시작
+elesim-dev            # 필요할 때 developer profile 시작 후 Compose exec
 ```
 
-반복해서 `docker compose run --rm` 개발 컨테이너를 만들지 않는다. Developer
-설치는 source checkout을 ownership deletion boundary로 삼지 않는다.
+반복해서 `docker compose run --rm` 개발 컨테이너를 만들지 않는다. attachment는
+source checkout을 ownership deletion boundary로 삼지 않는다.
 
 ## 4. 생성된 prefix와 PATH
 
-General prefix의 대표 구조는 다음과 같다.
+설치 prefix의 대표 구조는 다음과 같다.
 
 ```text
 <prefix>/
@@ -117,7 +118,7 @@ General prefix의 대표 구조는 다음과 같다.
 ├── install-ownership.json
 ├── maintenance/                  # stdlib-only uninstaller
 ├── containers/compose.yaml
-├── roles/<role>/                  # config/model/security view
+├── apps/<role>/                  # config/model/security view
 ├── security/                      # managed generation/current
 ├── connections/                   # non-secret topology
 ├── secrets/                       # owned TURN/Tailscale state only
@@ -214,7 +215,6 @@ elesim-up pilot           # Pilot만 시작
 elesim-up sim             # Sim만 시작
 elesim-up ui              # UI만 시작
 elesim-up --no-build      # 이미 준비된 image로 적용
-elesim-up --jaeger        # Developer tracing profile 포함
 elesim-up --view          # 명시적 Sim native Viewer
 ```
 
@@ -239,7 +239,7 @@ elesim-logs --save          # bounded private snapshot 저장
 elesim-status               # host/IP/container/GPU/DDS/media 요약
 ```
 
-`elesim-down`은 managed Coturn과 Developer profile의 `elesim-jaeger`도 해당
+`elesim-down`은 managed Coturn 등 해당 Compose 프로젝트가 소유한 서비스도
 설치가 소유하면 함께 중지한다. Docker Desktop의 `elesim-tailscale` sidecar는
 일반 `elesim-down`에서 유지되며 `elesim-down --purge`에서만 내려간다. 로그
 archive 실패가 있어도 shutdown은 시도하며 최종 exit status에는 archive 실패를
@@ -329,7 +329,7 @@ legacy generated path가 manifest 없이 남아 있으면 자동 adopt하지 않
 | `elesim-update` 후 옛 동작 | update는 container를 교체하지 않음 | 정확한 prefix에서 `elesim-down` 후 `elesim-up`한다. |
 | `No module named pip` bootstrap | host venv/cache를 직접 고치지 않음 | `install.sh`를 새 source ref로 다시 실행해 setup cache snapshot을 재생성한다. |
 
-curl bootstrap은 runtime에 필요하지 않은 `sim/src/elesim_sim/rl` 연구/학습
+curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app/elesim_sim/rl` 연구/학습
 스택을 source snapshot에서 제외한다. 이 디렉터리는 저장소에는 남아 있으므로
 연구 코드를 별도로 실행할 때는 checkout을 사용한다.
 

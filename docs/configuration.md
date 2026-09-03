@@ -8,16 +8,19 @@
 
 ```text
 source defaults
-  ├─ role/config/*.yaml
-  ├─ model/bundles/default       # ZED Mini 기본 프로파일
-  ├─ model/bundles/d435          # 명시적 D435 fallback 프로파일
-  └─ packages/elesim_interfaces
+  ├─ payload/config/<role>/*.yaml
+  ├─ payload/data/models/assemblies/{zed-mini,d435}
+  ├─ payload/data/models/perception
+  ├─ payload/data/policies
+  ├─ payload/data/calibration
+  └─ payload/runtime/common/elesim_interfaces
         │ installer generates
         ▼
 installed prefix
   ├─ install-state.json / install-ownership.json
   ├─ containers/compose.yaml and build contexts
-  ├─ roles/<role>/config, model, security view
+  ├─ apps/<role>/config and security view
+  ├─ data/{models,policies,calibration}
   ├─ security/current or external keystore view
   ├─ connections/topology.json (operator laptop only)
   └─ secrets/ and logs/runs/
@@ -31,7 +34,7 @@ owned artifact가 다시 생성될 수 있다. 변경은 setup GUI, `elesim-net`
 Pilot과 Sim의 `config/config.yaml`은
 `simulation.cameras.hand_eye.profile`에서 `zed_mini` 또는 `d435`를
 선택한다. Pilot은 같은 값을 `vision.perception.camera.profile`에도 사용한다.
-프로파일은 각각의 `calibration/<profile>.hand_eye.json`, driver, model bundle을
+프로파일은 각각의 `data/calibration/cameras/<profile>.hand_eye.json`, driver, model bundle을
 함께 결정하며 서로 다른 calibration/bundle 조합은 시작 전에 거부된다.
 
 ### RGB-D edge broker
@@ -174,7 +177,9 @@ Tailscale/IPv6 경로에서 조각화가 관측되고 실제 MTU 측정 결과�
 
 ## 6. SROS2 ownership
 
-state schema v9는 `external`과 `managed`를 구분한다.
+state schema v9부터 `external`과 `managed`를 구분한다. v10은 같은 설치 상태에
+선택적 개발 attachment의 외부 workspace/WSLg 설정을 추가하며, 이 설정은
+runtime role이나 SROS2 identity를 만들지 않는다.
 
 - `external`: operator가 관리하는 keystore/enclave path. EleSim은 외부
   private material을 삭제하거나 rotate하지 않는다.
@@ -182,7 +187,7 @@ state schema v9는 `external`과 `managed`를 구분한다.
   pending state. operator laptop에 complete Authority가 있고 host에는
   common public material과 배정된 role enclave만 있다.
 
-역할 컨테이너는 `<prefix>/security/roles/<role>`처럼 안정적인 role view만
+역할 컨테이너는 `<prefix>/security/apps/<role>`처럼 안정적인 app view만
 mount한다. aggregate generation tree와 CA private key는 애플리케이션 mount가
 아니다. generation rotation은 모든 host의 staged digest/manifest와 rollback
 journal을 남긴다.

@@ -1,8 +1,8 @@
 # EleSim DDS 계약
 
 현재 wire major는 **protocol 6**이다. 이 문서는
-`packages/protocol/src/elesim_protocol/contracts.py`의 `DDS_CONTRACTS`와
-`packages/elesim_interfaces`의 typed messages를 사람이 검토하기 위한
+`payload/runtime/common/protocol/elesim_protocol/contracts.py`의 `DDS_CONTRACTS`와
+`payload/runtime/common/elesim_interfaces`의 typed messages를 사람이 검토하기 위한
 registry다. 새 메시지·field·QoS는 구현보다 먼저 protocol/schema 결정을
 기록하고 registry, validator, contract test, process smoke를 함께 바꾼다.
 

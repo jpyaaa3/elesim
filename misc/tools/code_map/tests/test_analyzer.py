@@ -35,7 +35,7 @@ class Child(Base):
     def on_done(self, task):
         return task
 '''
-    nodes, raw_edges = _parse("pilot/src/thing.py", source, "modified")
+    nodes, raw_edges = _parse("payload/runtime/docker/pilot/app/elesim_pilot/thing.py", source, "modified")
 
     assert {node.kind for node in nodes} >= {"module", "class", "method"}
     child = next(node for node in nodes if node.kind == "class" and node.name == "Child")
@@ -49,7 +49,7 @@ class Child(Base):
 
 
 def test_parse_syntax_error_is_explicit_unparsed_node():
-    nodes, edges = _parse("sim/broken.py", "def broken(:\n", "modified")
+    nodes, edges = _parse("payload/runtime/docker/sim/app/elesim_sim/broken.py", "def broken(:\n", "modified")
     assert not edges
     assert len(nodes) == 1
     assert nodes[0].kind == "unparsed"
@@ -71,7 +71,7 @@ def work(value: int = 3) -> str:
         return result
     raise RuntimeError(result)
 '''
-    nodes, edges = _parse("ui/src/panel.py", source, "modified")
+    nodes, edges = _parse("payload/runtime/docker/ui/app/elesim_ui/panel.py", source, "modified")
     work = next(node for node in nodes if node.name == "work")
     assert work.detail["parameter_ports"][0]["annotation"] == "int"
     assert work.detail["parameter_ports"][0]["default"] == 3

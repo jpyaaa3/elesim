@@ -15,7 +15,9 @@ def _oversized_definitions() -> list[str]:
     source_files = (
         path
         for project in RELEASE_PROJECTS
-        for path in (ROOT / project / "src").rglob("*.py")
+        for path in (
+            ROOT / "payload" / "apps" / project / f"elesim_{project}"
+        ).rglob("*.py")
     )
     for path in sorted(source_files):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

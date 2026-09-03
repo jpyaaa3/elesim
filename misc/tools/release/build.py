@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import argparse
 import email.parser
+import json
 import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -22,6 +25,12 @@ from misc.tools.release.verify import (
 
 
 RELEASE_PROJECTS = ("pilot", "ui", "robot", "sim")
+
+
+def role_runtime(role: str) -> Path:
+    if role == "robot":
+        return ROOT / "payload/runtime/native/robot"
+    return ROOT / "payload/runtime/docker" / role
 
 
 def build_wheel(project: Path, wheel_dir: Path) -> Path:
@@ -43,9 +52,8 @@ def build_wheel(project: Path, wheel_dir: Path) -> Path:
         )
     finally:
         shutil.rmtree(project / "build", ignore_errors=True)
-        for parent in (project, project / "src"):
-            for metadata in parent.glob("*.egg-info"):
-                shutil.rmtree(metadata, ignore_errors=True)
+        for metadata in project.glob("*.egg-info"):
+            shutil.rmtree(metadata, ignore_errors=True)
     created = set(wheel_dir.glob("*.whl")) - before
     if len(created) != 1:
         prefix = project.name.replace("-", "_")
@@ -91,19 +99,59 @@ def copy_tree(source: Path, destination: Path, *, ignore=None) -> None:
 
 
 def copy_sim_bundle(model_root: Path, release: Path) -> None:
-    for name in ("default", "d435"):
-        source = model_root / f"bundles/{name}"
+    for name in ("zed-mini", "d435"):
+        source = model_root / name
         if not (source / "bundle.json").is_file():
             raise FileNotFoundError(f"validated sim bundle is missing: {source}")
-        copy_tree(source, release / f"model/bundles/{name}")
+        copy_tree(source, release / f"data/models/assemblies/{name}")
 
 
-def copy_role_config(project: Path, release: Path, role: str) -> None:
+def copy_role_data(role: str, release: Path) -> None:
+    if role in {"pilot", "sim"}:
+        copy_tree(ROOT / "payload/data/calibration", release / "data/calibration")
+    elif role == "ui":
+        copy_tree(
+            ROOT / "payload/data/calibration/arm",
+            release / "data/calibration/arm",
+        )
+    if role == "pilot":
+        copy_tree(ROOT / "payload/data/models/arm", release / "data/models/arm")
+        copy_tree(
+            ROOT / "payload/data/models/perception",
+            release / "data/models/perception",
+        )
+        copy_tree(ROOT / "payload/data/policies", release / "data/policies")
+    elif role == "sim":
+        copy_sim_bundle(ROOT / "payload/data/models/assemblies", release)
+        copy_tree(ROOT / "payload/data/models/objects", release / "data/models/objects")
+
+
+def bind_release_data_paths(release: Path, role: str) -> None:
+    if role not in {"pilot", "sim"}:
+        return
+    config_path = release / "config/config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    hand_eye = raw["simulation"]["cameras"]["hand_eye"]
+    hand_eye["config"] = "../data/calibration/cameras/zed_mini.hand_eye.json"
+    if role == "sim":
+        raw["simulation"]["assembly"]["build_dir"] = "../data/models/assemblies/zed-mini"
+    config_path.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    detector = release / "config/perception/detector.yolo.example.json"
+    if role == "pilot" and detector.is_file():
+        payload = json.loads(detector.read_text(encoding="utf-8"))
+        payload["model"] = "../../data/models/perception/yolov8n-seg.pt"
+        detector.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def copy_role_config(source: Path, release: Path, role: str) -> None:
     try:
         excluded = PUBLIC_CONFIG_TEMPLATES[role]
     except KeyError as exc:
         raise ValueError(f"unsupported release role: {role}") from exc
-    source = project / "config"
+    if (source / "config").is_dir():
+        source = source / "config"
     source_root = source.resolve()
     destination = release / "config"
     excluded_destination = destination / excluded
@@ -169,9 +217,18 @@ def copy_robot_runtime(project: Path, release: Path) -> None:
 
 
 def copy_infrastructure(source: Path, release_root: Path) -> None:
+    repository = source.parent
     destination = release_root / "infra"
     destination.mkdir(parents=True, exist_ok=True)
-    copy_tree(source / "development", destination / "development")
+    docker_payload = repository / "payload/runtime/docker"
+    copy_tree(docker_payload / "development", destination / "development")
+    containers = destination / "containers"
+    containers.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(docker_payload / "shared/Dockerfile.app", containers / "Dockerfile.app")
+    shutil.copy2(docker_payload / "shared/robotpkg.asc", containers / "robotpkg.asc")
+    shutil.copy2(docker_payload / "tools/Dockerfile", containers / "Dockerfile.tools")
+    shutil.copy2(docker_payload / "tools/tools-entrypoint", containers / "tools-entrypoint")
+    shutil.copy2(docker_payload / "README.md", containers / "README.md")
     setup_destination = destination / "setup"
     setup_destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
@@ -186,21 +243,19 @@ def copy_infrastructure(source: Path, release_root: Path) -> None:
         source.parent / "installer/bootstrap/bootstrap-contract.json",
         setup_destination / "bootstrap-contract.json",
     )
-    copy_tree(source / "containers", destination / "containers")
-    setup_project = source.parent / "installer/package"
+    setup_project = source.parent / "payload/runtime/docker/tools/app"
     package_destination = setup_destination / "package"
     if package_destination.exists():
         shutil.rmtree(package_destination)
-    package_destination.mkdir(parents=True, exist_ok=True)
-    for name in ("pyproject.toml", "requirements.lock"):
-        shutil.copy2(setup_project / name, package_destination / name)
     copy_tree(
-        setup_project / "src",
-        package_destination / "src",
+        setup_project,
+        package_destination,
         ignore=shutil.ignore_patterns(
             "__pycache__",
             "*.pyc",
             "*.egg-info",
+            "build",
+            "dist",
         ),
     )
 
@@ -218,25 +273,26 @@ def main() -> None:
     output.mkdir(parents=True)
     wheel_dir.mkdir(parents=True)
 
-    protocol_wheel = build_wheel(ROOT / "packages/protocol", wheel_dir)
+    protocol_wheel = build_wheel(ROOT / "payload/runtime/common/protocol", wheel_dir)
     for role in RELEASE_PROJECTS:
-        project = ROOT / role
+        runtime = role_runtime(role)
+        project = runtime / "app"
         app_wheel = build_wheel(project, wheel_dir)
         release = output / role
         wheels = release / "wheels"
         wheels.mkdir(parents=True)
         shutil.copy2(protocol_wheel, wheels / protocol_wheel.name)
         shutil.copy2(app_wheel, wheels / app_wheel.name)
-        copy_role_config(project, release, role)
-        if (project / "requirements.lock").is_file():
-            shutil.copy2(project / "requirements.lock", release / "requirements.lock")
-        if (project / "Dockerfile").is_file():
-            shutil.copy2(project / "Dockerfile", release / "Dockerfile")
+        copy_role_config(ROOT / "payload/config" / role, release, role)
+        copy_role_data(role, release)
+        bind_release_data_paths(release, role)
+        if (runtime / "requirements.lock").is_file():
+            shutil.copy2(runtime / "requirements.lock", release / "requirements.lock")
+        if (runtime / "Dockerfile.release").is_file():
+            shutil.copy2(runtime / "Dockerfile.release", release / "Dockerfile")
         if role == "robot":
-            copy_robot_runtime(project, release)
-        if role == "sim":
-            copy_sim_bundle(ROOT / "model", release)
-        copy_interfaces(ROOT / "packages/elesim_interfaces", release)
+            copy_robot_runtime(runtime, release)
+        copy_interfaces(ROOT / "payload/runtime/common/elesim_interfaces", release)
         (release / "WHEELS.env").write_text(
             f"PROTOCOL_WHEEL={protocol_wheel.name}\nAPP_WHEEL={app_wheel.name}\n",
             encoding="utf-8",

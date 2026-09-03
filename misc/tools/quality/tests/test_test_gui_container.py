@@ -13,7 +13,10 @@ def test_test_gui_uses_the_generated_persistent_developer_container() -> None:
 
     assert external_compose_root not in source
     assert legacy_runner not in source
-    assert 'ROOT / ".elesim/development/compose.yaml"' in source
+    assert '~/.local/share/elesim/containers/compose.yaml' in source
+    assert 'DEVELOPER_PROJECT = "elesim-runtime"' in source
+    assert '"--profile",' in source
+    assert '"developer",' in source
     assert '"exec",' in source
     assert '"dev",' in source
     assert '"/usr/local/bin/elesim-dev-env",' in source
@@ -26,7 +29,7 @@ def test_test_gui_uses_the_generated_persistent_developer_container() -> None:
 
 
 def test_developer_environment_fingerprints_interfaces_and_project_metadata() -> None:
-    source = (ROOT / "environment/development/dev-env.sh").read_text(encoding="utf-8")
+    source = (ROOT / "payload/runtime/docker/development/dev-env.sh").read_text(encoding="utf-8")
 
     assert 'fingerprint_file="$state_root/dev-env.fingerprint"' in source
     assert '"$interfaces/msg" "$interfaces/srv" "$interfaces/action"' in source

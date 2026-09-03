@@ -32,8 +32,8 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
 | 영상 | Sim이 observer/hand-eye WebRTC track을 만든다. DDS는 offer/answer 신호만 운반하고, 픽셀은 DTLS/SRTP로 흐른다. |
 | RGB-D | Robot/Sim source의 raw frame을 Pilot이 edge broker에서 한 번 encode하고, inter-host에는 Pilot 소유의 latest-only `encoded_rgbd_v1` DDS stream만 보낸다. |
 | 보안 | 소유 LAN/VPN의 `trusted-network` 또는 공유/비신뢰 망의 enforce-mode `sros2` 중 하나다. |
-| 일반 설치 | `elesim-runtime` Compose, `elesim-pilot`, `elesim-ui`, `elesim-sim`; Robot은 Jetson native-only다. |
-| 개발자 설치 | `elesim-runtime-dev`의 영속 `elesim-dev`; Jaeger는 선택적 `elesim-jaeger`다. |
+| 설치 | `elesim-runtime` Compose, `elesim-pilot`, `elesim-ui`, `elesim-sim`; Robot은 Jetson native-only다. |
+| 개발 attachment | 선택 시 같은 project에 profile-scoped 영속 `elesim-dev`가 붙으며 runtime role은 그대로 분리된다. |
 | 설치와 실행 | 설치는 파일/컨텍스트만 생성한다. `elesim-update`는 재생성·증분 빌드, `elesim-up`은 적용·시작이다. |
 | 연결 관리자 | 비밀 없는 토폴로지·보안 generation·호스트 lifecycle을 초기화한다. 재시작 버튼은 없다. 런타임 재시작은 각 호스트의 `elesim-down` 후 `elesim-up`으로 한다. |
 
@@ -49,7 +49,7 @@ elesim-status → elesim-logs → setup.md의 문제 해결표
 
 ### 설치와 배포
 
-- [`setup.md`](setup.md): bootstrap, General/Developer, GPU, X11, update/up/down,
+- [`setup.md`](setup.md): bootstrap, runtime/developer attachment, GPU, X11, update/up/down,
   logs/status, uninstaller, 기본 문제 해결.
 - [`deployment.md`](deployment.md): release context, Compose/Robot, 다중 호스트,
   SROS2/TURN, Docker Desktop sidecar, 검증 명령.

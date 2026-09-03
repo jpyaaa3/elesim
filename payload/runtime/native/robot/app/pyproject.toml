@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elesim-robot"
+version = "0.3.0"
+requires-python = ">=3.10"
+dependencies = [
+  "elesim-protocol==0.3.0",
+  "numpy>=1.26,<3",
+  "scipy>=1.11,<2",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+jetson = [
+  "dynamixel-sdk>=3.7",
+  "opencv-python-headless>=4.8,<5",
+  "pyrealsense2>=2.55",
+]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+elesim-robot = "elesim_robot.main:main"
+elesim-unitree-bridge = "elesim_robot.go2.unitree_bridge_daemon:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["elesim_robot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

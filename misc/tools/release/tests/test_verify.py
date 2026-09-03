@@ -42,7 +42,7 @@ def _minimal_infrastructure(root: Path) -> Path:
     for name in ("bootstrap.py", "install.sh", "bootstrap-contract.json"):
         (setup / name).write_text("", encoding="utf-8")
     package = setup / "package"
-    (package / "src").mkdir(parents=True)
+    package.mkdir(parents=True)
     (package / "pyproject.toml").write_text("", encoding="utf-8")
     (package / "requirements.lock").write_text("", encoding="utf-8")
     for relative in REQUIRED_SETUP_PACKAGE_FILES:
@@ -211,7 +211,9 @@ def test_release_layout_rejects_public_config_template(
     config = release / "config"
     (config / "config.yaml").write_text("{}\n", encoding="utf-8")
     (config / "runtime.yaml").write_text("{}\n", encoding="utf-8")
-    (config / "arm_model.json").write_text("{}\n", encoding="utf-8")
+    arm_model = release / "data/models/arm/default.json"
+    arm_model.parent.mkdir(parents=True, exist_ok=True)
+    arm_model.write_text("{}\n", encoding="utf-8")
     (config / "runtime.public.example.yaml").write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(ReleaseVerificationError, match="public config template"):
@@ -222,7 +224,7 @@ def test_infrastructure_layout_rejects_source_only_package_material(
     tmp_path: Path,
 ) -> None:
     package = _minimal_infrastructure(tmp_path)
-    (package / "src/elesim_setup/tests").mkdir()
+    (package / "elesim_setup/tests").mkdir()
 
     with pytest.raises(ReleaseVerificationError, match="source-only members"):
         verify_infrastructure_layout(tmp_path)
@@ -232,7 +234,7 @@ def test_infrastructure_layout_rejects_symlinked_required_path_ancestor(
     tmp_path: Path,
 ) -> None:
     package = _minimal_infrastructure(tmp_path)
-    web = package / "src/elesim_setup/web"
+    web = package / "elesim_setup/web"
     outside = tmp_path / "outside-web"
     web.rename(outside)
     web.symlink_to(outside, target_is_directory=True)
@@ -245,13 +247,13 @@ def test_infrastructure_layout_rejects_symlinked_required_path_ancestor(
 @pytest.mark.parametrize(
     "relative",
     (
-        "src/elesim_setup/cli.py",
-        "src/elesim_setup/network.py",
-        "src/elesim_setup/connections.py",
-        "src/elesim_setup/uninstall.py",
-        "src/elesim_setup/host_proxy.py",
-        "src/elesim_setup/ownership.py",
-        "src/elesim_setup/shell.py",
+        "elesim_setup/cli.py",
+        "elesim_setup/network.py",
+        "elesim_setup/connections.py",
+        "elesim_setup/uninstall.py",
+        "elesim_setup/host_proxy.py",
+        "elesim_setup/ownership.py",
+        "elesim_setup/shell.py",
     ),
 )
 def test_infrastructure_requires_every_setup_console_target(
@@ -270,7 +272,7 @@ def test_infrastructure_rejects_arbitrary_symlink_member(tmp_path: Path) -> None
     package = _minimal_infrastructure(tmp_path)
     outside = tmp_path / "outside.py"
     outside.write_text("outside = True\n", encoding="utf-8")
-    (package / "src/elesim_setup/not_required.py").symlink_to(outside)
+    (package / "elesim_setup/not_required.py").symlink_to(outside)
 
     with pytest.raises(ReleaseVerificationError, match="symlink"):
         verify_infrastructure_layout(tmp_path)
@@ -278,7 +280,7 @@ def test_infrastructure_rejects_arbitrary_symlink_member(tmp_path: Path) -> None
 
 def test_infrastructure_rejects_unowned_setup_python_module(tmp_path: Path) -> None:
     package = _minimal_infrastructure(tmp_path)
-    (package / "src/elesim_setup/dummy.py").write_text("", encoding="utf-8")
+    (package / "elesim_setup/dummy.py").write_text("", encoding="utf-8")
 
     with pytest.raises(ReleaseVerificationError, match="unexpected setup Python"):
         verify_infrastructure_layout(tmp_path)
@@ -288,7 +290,7 @@ def test_infrastructure_rejects_nested_setup_python_package(
     tmp_path: Path,
 ) -> None:
     package = _minimal_infrastructure(tmp_path)
-    rogue = package / "src/elesim_setup/rogue"
+    rogue = package / "elesim_setup/rogue"
     rogue.mkdir()
     (rogue / "__init__.py").write_text("", encoding="utf-8")
     (rogue / "payload.py").write_text("", encoding="utf-8")
@@ -348,7 +350,7 @@ def test_infrastructure_layout_rejects_empty_or_wrongly_typed_material(
     for name in ("bootstrap.py", "install.sh", "bootstrap-contract.json"):
         (setup / name).write_text("", encoding="utf-8")
     package = setup / "package"
-    (package / "src").mkdir(parents=True)
+    package.mkdir(parents=True)
     (package / "pyproject.toml").write_text("", encoding="utf-8")
     (package / "requirements.lock").write_text("", encoding="utf-8")
 
@@ -360,7 +362,7 @@ def test_infrastructure_layout_rejects_empty_or_wrongly_typed_material(
     for name in EXPECTED_INFRA_FILES["development"]:
         (infra / "development" / name).write_text("", encoding="utf-8")
 
-    (package / "src/elesim_setup").mkdir()
+    (package / "elesim_setup").mkdir()
     with pytest.raises(ReleaseVerificationError, match="__init__.py"):
         verify_infrastructure_layout(tmp_path)
 
@@ -412,6 +414,7 @@ def test_pilot_release_requires_the_generated_arm_model(tmp_path: Path) -> None:
     (release / "config").mkdir(parents=True)
     (release / "wheels").mkdir()
     (release / "interfaces").mkdir()
+    (release / "data/models/arm").mkdir(parents=True)
     for relative in (
         "config/config.yaml",
         "config/runtime.yaml",
@@ -426,7 +429,7 @@ def test_pilot_release_requires_the_generated_arm_model(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ReleaseVerificationError, match="arm_model.json"):
+    with pytest.raises(ReleaseVerificationError, match="default.json"):
         verify_release_layout(release, "pilot")
 
 

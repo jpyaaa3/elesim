@@ -78,7 +78,7 @@ EXPECTED_INFRA_FILES = {
     ),
 }
 SETUP_PYTHON_MODULES = frozenset(
-    f"src/elesim_setup/{name}.py"
+    f"elesim_setup/{name}.py"
     for name in (
         "__init__",
         "_security_storage",
@@ -116,17 +116,17 @@ SETUP_PYTHON_MODULES = frozenset(
 )
 REQUIRED_SETUP_PACKAGE_FILES = (
     *sorted(SETUP_PYTHON_MODULES),
-    "src/elesim_setup/web/index.html",
-    "src/elesim_setup/web/app.js",
-    "src/elesim_setup/web/style.css",
-    "src/elesim_setup/web/i18n.json",
-    "src/elesim_setup/web/icon.svg",
-    "src/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf",
-    "src/elesim_setup/connection_web/index.html",
-    "src/elesim_setup/connection_web/app.js",
-    "src/elesim_setup/connection_web/style.css",
-    "src/elesim_setup/connection_web/i18n.json",
-    "src/elesim_setup/connection_web/icon.svg",
+    "elesim_setup/web/index.html",
+    "elesim_setup/web/app.js",
+    "elesim_setup/web/style.css",
+    "elesim_setup/web/i18n.json",
+    "elesim_setup/web/icon.svg",
+    "elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf",
+    "elesim_setup/connection_web/index.html",
+    "elesim_setup/connection_web/app.js",
+    "elesim_setup/connection_web/style.css",
+    "elesim_setup/connection_web/i18n.json",
+    "elesim_setup/connection_web/icon.svg",
 )
 PUBLIC_CONFIG_TEMPLATES = {
     "pilot": "runtime.public.example.yaml",
@@ -160,8 +160,8 @@ def expected_release_entries(role: str) -> frozenset[str]:
         entries.update(("install.sh", "systemd"))
     else:
         entries.add("Dockerfile")
-    if role == "sim":
-        entries.add("model")
+    if role in {"pilot", "sim", "ui"}:
+        entries.add("data")
     return frozenset(entries)
 
 
@@ -439,16 +439,17 @@ def verify_release_layout(release: Path, role: str) -> tuple[Path, Path]:
     if role in ("pilot", "sim"):
         _require_path(release / "config/runtime.yaml")
     if role == "pilot":
-        _require_path(release / "config/arm_model.json")
+        _require_path(release / "data/models/arm/default.json")
+        _require_path(release / "data/models/perception/yolov8n-seg.pt")
     if role == "robot":
         _require_path(release / "install.sh")
         assert_robot_systemd_units(release / "systemd")
     else:
         _require_path(release / "Dockerfile")
     if role == "sim":
-        _require_path(release / "model/bundles/default/bundle.json")
-        _require_path(release / "model/bundles/d435/bundle.json")
-        _require_path(release / "config/mock_objects/demo_box.obj")
+        _require_path(release / "data/models/assemblies/zed-mini/bundle.json")
+        _require_path(release / "data/models/assemblies/d435/bundle.json")
+        _require_path(release / "data/models/objects/demo_box.obj")
     interfaces = release / "interfaces/elesim_interfaces"
     _require_path(interfaces, kind="directory")
     _require_path(interfaces / "package.xml")
@@ -500,7 +501,7 @@ def verify_infrastructure_layout(release_root: Path) -> None:
         _require_path(setup / name)
     package = setup / "package"
     _require_path(package, kind="directory")
-    expected_package = {"pyproject.toml", "requirements.lock", "src"}
+    expected_package = {"pyproject.toml", "requirements.lock", "elesim_setup"}
     actual_package = {path.name for path in package.iterdir()}
     if actual_package != expected_package:
         raise ReleaseVerificationError(
@@ -510,11 +511,10 @@ def verify_infrastructure_layout(release_root: Path) -> None:
         )
     _require_path(package / "pyproject.toml")
     _require_path(package / "requirements.lock")
-    _require_path(package / "src", kind="directory")
-    _require_path(package / "src/elesim_setup", kind="directory")
+    _require_path(package / "elesim_setup", kind="directory")
     actual_python = frozenset(
         path.relative_to(package).as_posix()
-        for path in (package / "src/elesim_setup").rglob("*.py")
+        for path in (package / "elesim_setup").rglob("*.py")
     )
     if actual_python != SETUP_PYTHON_MODULES:
         raise ReleaseVerificationError(
@@ -626,9 +626,9 @@ elif role == "sim":
     from elesim_sim.simulation.mock_objects import MockObjectCatalog
     load_app_config(str(config))
     load_runtime_role_config(str(release / "config/runtime.yaml"))
-    validate_model_bundle(release / "model/bundles/default")
-    validate_model_bundle(release / "model/bundles/d435")
-    mock_catalog = MockObjectCatalog(release / "config/mock_objects")
+    validate_model_bundle(release / "data/models/assemblies/zed-mini")
+    validate_model_bundle(release / "data/models/assemblies/d435")
+    mock_catalog = MockObjectCatalog(release / "data/models/objects")
     mock_assets = mock_catalog.assets()
     if not mock_assets:
         raise AssertionError("sim mock object catalog is empty")

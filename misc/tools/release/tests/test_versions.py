@@ -7,29 +7,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 VERSION = "0.3.0"
 PROJECTS = {
-    "packages/protocol/pyproject.toml": "elesim-protocol",
-    "pilot/pyproject.toml": "elesim-pilot",
-    "ui/pyproject.toml": "elesim-ui",
-    "sim/pyproject.toml": "elesim-sim",
-    "robot/pyproject.toml": "elesim-robot",
-    "installer/package/pyproject.toml": "elesim-setup",
+    "payload/runtime/common/protocol/pyproject.toml": "elesim-protocol",
+    "payload/runtime/docker/pilot/app/pyproject.toml": "elesim-pilot",
+    "payload/runtime/docker/ui/app/pyproject.toml": "elesim-ui",
+    "payload/runtime/docker/sim/app/pyproject.toml": "elesim-sim",
+    "payload/runtime/native/robot/app/pyproject.toml": "elesim-robot",
+    "payload/runtime/docker/tools/app/pyproject.toml": "elesim-setup",
     "model/builder/pyproject.toml": "elesim-model-builder",
 }
 INTERNAL_DEPENDENCIES = {
-    "packages/protocol/pyproject.toml": (),
-    "pilot/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "ui/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "sim/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "robot/pyproject.toml": ("elesim-protocol==0.3.0",),
-    "installer/package/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "payload/runtime/common/protocol/pyproject.toml": (),
+    "payload/runtime/docker/pilot/app/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "payload/runtime/docker/ui/app/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "payload/runtime/docker/sim/app/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "payload/runtime/native/robot/app/pyproject.toml": ("elesim-protocol==0.3.0",),
+    "payload/runtime/docker/tools/app/pyproject.toml": ("elesim-protocol==0.3.0",),
     "model/builder/pyproject.toml": (
         "elesim-protocol==0.3.0",
         "elesim-pilot==0.3.0",
     ),
 }
 EXPORTED_VERSIONS = (
-    "packages/protocol/src/elesim_protocol/__init__.py",
-    "installer/package/src/elesim_setup/__init__.py",
+    "payload/runtime/common/protocol/elesim_protocol/__init__.py",
+    "payload/runtime/docker/tools/app/elesim_setup/__init__.py",
 )
 
 

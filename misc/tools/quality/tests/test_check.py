@@ -28,19 +28,19 @@ class QualityMatrixTests(unittest.TestCase):
     def test_each_deployment_gets_only_its_own_source_root(self) -> None:
         deployment_names = {"robot", "pilot", "sim", "ui"}
         source_directories = {
-            "pilot": "pilot",
-            "sim": "sim",
-            "robot": "robot",
-            "ui": "ui",
+            "pilot": "payload/runtime/docker/pilot/app",
+            "sim": "payload/runtime/docker/sim/app",
+            "ui": "payload/runtime/docker/ui/app",
+            "robot": "payload/runtime/native/robot/app",
         }
         for check in CHECKS:
             if check.name not in deployment_names:
                 continue
-            own_source = f"{source_directories[check.name]}/src"
+            own_source = source_directories[check.name]
             self.assertIn(PROTOCOL_SRC, check.python_paths)
             self.assertIn(own_source, check.python_paths)
             sibling_sources = {
-                f"{source_directories[name]}/src"
+                source_directories[name]
                 for name in deployment_names
                 if name != check.name
             }

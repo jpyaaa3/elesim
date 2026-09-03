@@ -13,7 +13,7 @@ system. Reusable behavior belongs in its owning deployment package.
 
 ```bash
 python3 misc/tools/quality/test_gui.py
-PYTHONPATH=packages/protocol/src:installer/package/src python3 -m elesim_setup.cli --help
+PYTHONPATH=payload/runtime/common/protocol:payload/runtime/docker/tools/app python3 -m elesim_setup.cli --help
 python3 misc/research/analysis/analyze_walking_metrics.py --help
 python3 misc/research/experiments/walking_baseline.py --help
 python3 misc/tools/setup_preview.py

@@ -112,7 +112,7 @@ DEMOS = {
 def main() -> None:
     ap = argparse.ArgumentParser(description="Gaze walking experiment demos (no grasp)")
     ap.add_argument("--demo", required=True, choices=sorted(DEMOS.keys()))
-    ap.add_argument("--config", default="pilot/config/config.yaml")
+    ap.add_argument("--config", default="payload/config/pilot/config.yaml")
     ap.add_argument("--run-id", default="")
     ap.add_argument("--run-prefix", default="exp_demo")
     ap.add_argument("--preset", default="bent_upward")

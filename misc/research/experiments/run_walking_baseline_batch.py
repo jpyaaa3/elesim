@@ -94,7 +94,7 @@ def _wait_perception(service, config_path: str, *, timeout_s: float) -> bool:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Batch walking baseline with headless sim + perception")
-    ap.add_argument("--config", default="pilot/config/config.yaml")
+    ap.add_argument("--config", default="payload/config/pilot/config.yaml")
     ap.add_argument("--run-prefix", default="exp_baseline")
     ap.add_argument("--preset", default="neutral")
     ap.add_argument("--motion", default="forward", choices=["forward", "backward", "turn"])

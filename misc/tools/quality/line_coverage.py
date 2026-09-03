@@ -24,22 +24,22 @@ class CoverageProfile:
 
 
 PROFILES: dict[str, CoverageProfile] = {
-    "protocol": CoverageProfile("packages/protocol/tests", ("packages/protocol/src",)),
+    "protocol": CoverageProfile("tests/protocol", ("payload/runtime/common/protocol",)),
     "robot": CoverageProfile(
-        "robot/tests",
-        ("packages/protocol/src", "robot/src"),
+        "tests/apps/robot",
+        ("payload/runtime/common/protocol", "payload/runtime/native/robot/app"),
     ),
     "pilot": CoverageProfile(
-        "pilot/tests",
-        ("packages/protocol/src", "pilot/src"),
+        "tests/apps/pilot",
+        ("payload/runtime/common/protocol", "payload/runtime/docker/pilot/app"),
     ),
     "sim": CoverageProfile(
-        "sim/tests",
-        ("packages/protocol/src", "sim/src"),
+        "tests/apps/sim",
+        ("payload/runtime/common/protocol", "payload/runtime/docker/sim/app"),
     ),
     "ui": CoverageProfile(
-        "ui/tests",
-        ("packages/protocol/src", "ui/src"),
+        "tests/apps/ui",
+        ("payload/runtime/common/protocol", "payload/runtime/docker/ui/app"),
     ),
 }
 SUMMARY_LINE = re.compile(r"^\s*(\d+)\s+(\d+)%\s+(elesim_[A-Za-z0-9_.]+)\s+")

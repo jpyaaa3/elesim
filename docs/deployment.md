@@ -1,6 +1,6 @@
 # 배포와 릴리스
 
-현재 배포는 General container 역할, Developer all-project container, native
+현재 배포는 container runtime 역할, 선택적 all-project 개발 attachment, native
 Jetson Robot의 세 경계를 갖는다. 설치·로컬 lifecycle은
 [`setup.md`](setup.md), 프로세스 계약은 [`architecture.md`](architecture.md)를
 참조한다.
@@ -32,7 +32,7 @@ dist/releases/
 
 Release builder는 각 context에 application wheel, transport-neutral support
 wheel, ROSIDL source, config, dependency pins와 deployment metadata를 넣고,
-Sim에는 ZED Mini `default`와 D435 `d435` immutable model bundle을 모두 넣는다.
+Sim에는 ZED Mini `zed-mini`와 D435 `d435` immutable model bundle을 모두 넣는다.
 기본 검증은 clean temporary target에
 각 wheel을 설치하고 sibling visibility, config/model, role entrypoint
 `--help`를 확인한다. Robot은 bridge/IPC module, 두 console script와 정확히
@@ -184,11 +184,11 @@ HTTP test server, SSH forwarding port, DDS address를 서로 바꾸어 입력하
 상세 GUI 흐름·failure state·recovery는
 [`design/connection_manager.md`](design/connection_manager.md)에 있다.
 
-## 6. Developer 배포
+## 6. 개발 attachment
 
-Developer는 `<workspace>/.elesim/development` 아래 하나의 persistent
-`elesim-dev` container를 만들고 `elesim-runtime-dev` project로 관리한다.
-개발 source와 venv/home는 persistent하다. `elesim-dev`는 Compose `exec`를
+개발 attachment는 일반 설치의 `elesim-runtime` project에 profile-scoped
+`elesim-dev` container 하나를 추가한다. 외부 Git checkout과 설치 prefix의
+전용 home/cache는 persistent하다. `elesim-dev`는 Compose `exec`를
 사용해야 하며 random `run --rm` container를 만들지 않는다.
 
 ```bash
@@ -197,8 +197,9 @@ elesim-dev python3 misc/system_tests/smoke_topology.py
 elesim-dev python3 misc/tools/quality/check.py --group required
 ```
 
-선택적 Jaeger는 `elesim-up --jaeger`로만 추가된다. General role image나
-다중 호스트 production artifact로 Developer image를 사용하지 않는다.
+별도 observability 컨테이너는 배포하지 않는다. runtime role image나
+다중 호스트 production artifact로 개발 image를 사용하지 않는다. 개발 셸은
+DDS participant가 아니므로 role keystore/enclave를 자동 mount하지 않는다.
 
 ## 7. Native Robot Jetson
 

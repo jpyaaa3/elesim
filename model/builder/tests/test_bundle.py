@@ -15,7 +15,7 @@ from elesim_model_builder.bundle import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
-ASSETS = ROOT / "model/bundles/default/assets"
+ASSETS = ROOT / "payload/data/models/assemblies/zed-mini/assets"
 
 
 def _referenced_paths(bundle: Path) -> list[Path]:
@@ -78,7 +78,7 @@ class SimBundleTests(unittest.TestCase):
     def test_bundle_can_rebuild_in_place_from_embedded_assets(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             bundle = Path(td) / "bundle"
-            shutil.copytree(ROOT / "model/bundles/default", bundle)
+            shutil.copytree(ROOT / "payload/data/models/assemblies/zed-mini", bundle)
 
             rebuilt = build_sim_bundle(
                 asset_root=bundle / "assets",

@@ -4,8 +4,7 @@ const $ = id => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const NODE_WIDTH = 230, NODE_HEIGHT = 62;
 const MIN_ZOOM = 0.06, MAX_ZOOM = 5, FLOW_BUDGET = 700;
-let snapshot = null, graph = {nodes: [], edges: []}, observed = [], selected = null, uiMap = null;
-let traceSpans = [], observedOrder = new Map(), observedErrors = new Set();
+let snapshot = null, graph = {nodes: [], edges: []}, selected = null, uiMap = null;
 let dragging = null, pan = null, layoutBounds = null, layoutToken = 0, suppressClick = false;
 let transform = {x: 0, y: 0, k: 1};
 const manualPositions = new Map();
@@ -176,7 +175,7 @@ function edgeClass(edge, directed = false) {
 }
 function renderEdges(nodes, edges, positions, directed = false) {
   const ids = new Set(nodes.map(node => node.id)), fragment = document.createDocumentFragment();
-  const all = [...edges, ...observed].filter(edge => ids.has(edge.source) && ids.has(edge.target) && ((edge.evidence === "observed" && $("observedEdges").checked) || (edge.evidence !== "observed" && $("staticEdges").checked)));
+  const all = edges.filter(edge => ids.has(edge.source) && ids.has(edge.target) && $("staticEdges").checked);
   all.slice(0, 5000).forEach((edge, index) => { const source = positions.get(edge.source), target = positions.get(edge.target); if (!source || !target) return; const path = svg("path", {d: edgePath(source, target, edge, index), class: edgeClass(edge, directed), "marker-end": directed && edge.flow_edge ? "url(#flow-arrow)" : "url(#arrow)"}); const title = document.createElementNS(NS, "title"); title.textContent = `${edge.kind || "edge"} · ${edge.confidence || "exact"} · ${edge.path || "runtime"}:${edge.line || ""}`; path.append(title); fragment.append(path); }); $("edges").replaceChildren(fragment); return all.length;
 }
 function renderNodes(nodes, positions, edges) {
@@ -184,9 +183,9 @@ function renderNodes(nodes, positions, edges) {
   nodes.forEach(node => {
     const position = positions.get(node.id);
     if (!position) return;
-    const flowNode = node.flow_depth !== undefined, traceOrder = observedOrder.get(node.id);
+    const flowNode = node.flow_depth !== undefined;
     const group = svg("g", {
-      class: `node ${node.kind} ${node.change} ${flowNode ? "flow-node" : ""} ${node.flow_entry ? "flow-entry" : ""} ${observedErrors.has(node.id) ? "observed-error" : ""} ${selected === node.id ? "selected" : ""}`,
+      class: `node ${node.kind} ${node.change} ${flowNode ? "flow-node" : ""} ${node.flow_entry ? "flow-entry" : ""} ${selected === node.id ? "selected" : ""}`,
       transform: `translate(${position.x} ${position.y})`,
     });
     group.dataset.id = node.id;
@@ -199,7 +198,7 @@ function renderNodes(nodes, positions, edges) {
     group.append(kind);
     if (flowNode) {
       const step = svg("text", {class: "flow-step", x: NODE_WIDTH / 2 - 10, y: -NODE_HEIGHT / 2 + 17, "text-anchor": "end"});
-      step.textContent = traceOrder !== undefined ? `T${traceOrder + 1}` : node.flow_entry ? "START" : `S${Number(node.flow_depth ?? 0)}`;
+      step.textContent = node.flow_entry ? "START" : `S${Number(node.flow_depth ?? 0)}`;
       group.append(step);
     }
     const detail = node.detail || {};
@@ -391,41 +390,14 @@ async function setMockUiVisible(visible) {
   $("mock-ui-toggle").setAttribute("aria-expanded", String(visible));
   $("mock-ui-toggle").textContent = visible ? "Mock UI 닫기" : "Mock UI 열기";
 }
-function replaceOptions(id, values, emptyLabel, sort = true) {
-  const select = $(id), old = select.value; select.replaceChildren(); option(select, "", emptyLabel);
-  (sort ? [...values].sort() : values).forEach(value => option(select, value));
-  if ([...select.options].some(item => item.value === old)) select.value = old;
-}
-function timestamp(value) { try { return BigInt(String(value || 0)); } catch (_error) { return 0n; } }
-function compareTimestamp(left, right) { const a = timestamp(left), b = timestamp(right); return a < b ? -1 : a > b ? 1 : 0; }
-function applyTrace() {
-  const traceId = $("jaeger-trace").value, spans = traceId ? traceSpans.filter(span => span.trace_id === traceId) : [];
-  const bySymbol = new Map(snapshot.nodes.map(node => [node.id, node.id])), byName = new Map(snapshot.nodes.map(node => [node.qualname, node.id])), spanNodes = new Map(); observed = []; observedOrder = new Map(); observedErrors = new Set();
-  spans.forEach(span => { const attrs = span.attributes || {}, symbol = attrs["elesim.code.symbol_id"] || attrs["elesim.code.symbol"] || attrs["code.symbol"] || attrs["code.function.name"], id = bySymbol.get(symbol) || byName.get(symbol); if (id) spanNodes.set(span.span_id, id); });
-  [...spans].sort((a, b) => compareTimestamp(a.start_ns, b.start_ns)).forEach(span => { const id = spanNodes.get(span.span_id); if (id && !observedOrder.has(id)) observedOrder.set(id, observedOrder.size); if (id && span.error) observedErrors.add(id); });
-  spans.forEach(span => { const source = spanNodes.get(span.parent_span_id), target = spanNodes.get(span.span_id); if (source && target) observed.push({source, target, kind: span.error ? "exception" : "trace", evidence: "observed", confidence: "exact", detail: span}); });
-}
-async function traces() {
-  const service = encodeURIComponent($("jaeger-service").value), operation = encodeURIComponent($("jaeger-operation").value);
-  const query = `limit=100${service ? `&service=${service}` : ""}${operation ? `&operation=${operation}` : ""}`;
-  try {
-    const [services, operations] = await Promise.all([api("/api/jaeger/services"), api(`/api/jaeger/operations?${query}`)]);
-    replaceOptions("jaeger-service", services.services || [], "전체 서비스");
-    replaceOptions("jaeger-operation", operations.operations || [], "전체 operation");
-  } catch (_error) { /* trace query below reports the useful connection error */ }
-  const data = await api(`/api/traces?${query}`); traceSpans = data.spans || []; const latest = traceId => traceSpans.filter(span => span.trace_id === traceId).reduce((value, span) => timestamp(span.start_ns) > value ? timestamp(span.start_ns) : value, 0n); const traces = [...new Set(traceSpans.map(span => span.trace_id).filter(Boolean))].sort((a, b) => compareTimestamp(latest(b), latest(a))); replaceOptions("jaeger-trace", traces, "관측 순서 없음", false); if (traces.length) $("jaeger-trace").value = traces[0]; applyTrace(); $("status").textContent = data.spans?.[0]?.error ? `Jaeger 연결 실패: ${data.spans[0].error}` : `Jaeger ${traceSpans.length} spans · ${traces.length} traces`; await render();
-}
 async function load() {
   snapshot = await api("/api/snapshot"); graph = structuralGraph(); $("status").textContent = `${snapshot.git_head.slice(0, 8)} · ${new Date(snapshot.generated_at).toLocaleTimeString()} · schema ${snapshot.schema_version}`; if (!$("role").dataset.ready) { initFilters(); $("role").dataset.ready = "1"; } else refreshFlows(); if (!$('mock-ui').hidden) { uiMap = await api("/api/ui-map"); renderMockUi(); } else { uiMap = null; } if ($("workflow").value) { expanded.clear(); await selectFlow(); } else await render(true);
 }
-["search", "role", "depth", "change", "hideTests", "staticEdges", "observedEdges"].forEach(id => $(id).addEventListener("input", () => render(true)));
+["search", "role", "depth", "change", "hideTests", "staticEdges"].forEach(id => $(id).addEventListener("input", () => render(true)));
 $("direction").addEventListener("change", () => { if ($("workflow").value) selectFlow().catch(error => $("status").textContent = String(error)); else render(true); });
 $("flow-view").addEventListener("change", () => { expanded.clear(); if ($("workflow").value) selectFlow().catch(error => $("status").textContent = String(error)); });
-$("flow-family").addEventListener("change", () => { expanded.clear(); refreshFlows(); selectFlow().catch(error => $("status").textContent = String(error)); }); $("workflow").addEventListener("change", () => { expanded.clear(); renderMockUi(); selectFlow().catch(error => $("status").textContent = String(error)); }); $("traces").addEventListener("click", () => traces().catch(error => $("status").textContent = String(error))); $("fit").addEventListener("click", fitGraph);
+$("flow-family").addEventListener("change", () => { expanded.clear(); refreshFlows(); selectFlow().catch(error => $("status").textContent = String(error)); }); $("workflow").addEventListener("change", () => { expanded.clear(); renderMockUi(); selectFlow().catch(error => $("status").textContent = String(error)); }); $("fit").addEventListener("click", fitGraph);
 $("graph").addEventListener("wheel", event => { event.preventDefault(); const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY; zoomAt(event.clientX, event.clientY, Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, transform.k * Math.exp(-delta * .0012)))); }, {passive: false});
-$("jaeger-service").addEventListener("change", () => traces().catch(error => $("status").textContent = String(error)));
-$("jaeger-operation").addEventListener("change", () => traces().catch(error => $("status").textContent = String(error)));
-$("jaeger-trace").addEventListener("change", () => { applyTrace(); render().catch(error => $("status").textContent = String(error)); });
 $("mock-ui-toggle").addEventListener("click", () => setMockUiVisible($("mock-ui").hidden).catch(error => $("status").textContent = String(error)));
 $("mock-ui-close").addEventListener("click", () => setMockUiVisible(false));
 $("collapse-all").addEventListener("click", () => { expanded.clear(); if ($("workflow").value) selectFlow().catch(error => $("status").textContent = String(error)); });

@@ -17,7 +17,7 @@ ANALYSIS_WINDOW_S="${ANALYSIS_WINDOW_S:-0}"
 mkdir -p "$BATCH_LOG"
 
 COMMON=(
-  --config pilot/config/config.yaml
+  --config payload/config/pilot/config.yaml
   --motion forward
   --preset neutral
   --max-duration 30

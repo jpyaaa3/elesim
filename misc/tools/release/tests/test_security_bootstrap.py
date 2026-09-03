@@ -29,13 +29,13 @@ def test_release_infrastructure_contains_dds_aware_installers(tmp_path: Path) ->
     assert (release_root / "infra/setup/package/pyproject.toml").is_file()
     assert (
         release_root
-        / "infra/setup/package/src/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf"
+        / "infra/setup/package/elesim_setup/web/fonts/NotoSansCJKkr-Regular.otf"
     ).is_file()
     package = release_root / "infra/setup/package"
     assert {path.name for path in package.iterdir()} == {
         "pyproject.toml",
         "requirements.lock",
-        "src",
+        "elesim_setup",
     }
     assert not (package / "tests").exists()
     assert not (package / "requirements-media.lock").exists()
@@ -76,7 +76,7 @@ def test_setup_wheel_contains_browser_assets_and_cjk_font(tmp_path: Path) -> Non
 
     environment = os.environ.copy()
     environment["PYTHONPATH"] = os.pathsep.join(
-        (str(wheel), str(root / "packages/protocol/src"))
+        (str(wheel), str(root / "payload/runtime/common/protocol"))
     )
     completed = subprocess.run(
         (sys.executable, "-m", "elesim_setup.cli", "gui", "--help"),

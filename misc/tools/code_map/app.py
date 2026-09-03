@@ -19,13 +19,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1", choices=("127.0.0.1", "::1", "localhost"))
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", default="")
-    parser.add_argument("--jaeger-url", default="http://127.0.0.1:16686")
     return parser
 
 
 def main() -> int:
     args = _parser().parse_args()
-    serve(args.root, args.host, args.port, args.token, args.jaeger_url)
+    serve(args.root, args.host, args.port, args.token)
     return 0
 
 

@@ -33,22 +33,22 @@ from elesim_ui.theme import CONTENT_FONT_CANDIDATES, FONT_SPEC, TITLE_FONT, add_
 
 
 TEST_ROOTS = (
-    ROOT / "packages/protocol/tests",
-    ROOT / "pilot/tests",
-    ROOT / "robot/tests",
-    ROOT / "sim/tests",
-    ROOT / "ui/tests",
+    ROOT / "tests/protocol",
+    ROOT / "tests/apps/pilot",
+    ROOT / "tests/apps/robot",
+    ROOT / "tests/apps/sim",
+    ROOT / "tests/apps/ui",
     ROOT / "model/builder/tests",
     ROOT / "misc/research/analysis/tests",
     ROOT / "misc/research/debug/tests",
     ROOT / "misc/research/experiments/tests",
 )
 SOURCE_ROOTS = (
-    ROOT / "packages/protocol/src",
-    ROOT / "pilot/src",
-    ROOT / "robot/src",
-    ROOT / "sim/src",
-    ROOT / "ui/src",
+    ROOT / "payload/runtime/common/protocol",
+    ROOT / "payload/runtime/docker/pilot/app",
+    ROOT / "payload/runtime/native/robot/app",
+    ROOT / "payload/runtime/docker/sim/app",
+    ROOT / "payload/runtime/docker/ui/app",
     ROOT / "model/builder/src",
 )
 WINDOW_W = 1280
@@ -58,9 +58,9 @@ DESCRIPTION_H = 320.0
 ERROR_SUMMARY_H = 220.0
 MAX_LOG_LINES = 4000
 PYTEST_LOCATION_RE = re.compile(
-    r"^(?:packages|pilot|robot|sim|ui|model|misc|installer)/.+\.py:\d+(?::|$)"
+    r"^(?:payload|model|misc|installer)/.+\.py:\d+(?::|$)"
 )
-DEVELOPER_PROJECT = "elesim-runtime-dev"
+DEVELOPER_PROJECT = "elesim-runtime"
 DEVELOPER_CONTAINER = "elesim-dev"
 
 
@@ -80,7 +80,7 @@ def _existing(paths: Sequence[str]) -> tuple[str, ...]:
     for raw in paths:
         path = raw
         if raw.startswith("tests/"):
-            path = "pilot/tests/regression/" + raw[len("tests/"):]
+            path = "tests/apps/pilot/regression/" + raw[len("tests/"):]
         if (ROOT / path).exists():
             resolved.append(path)
     return tuple(resolved)
@@ -100,7 +100,7 @@ _ALL_TESTS = _all_tests()
 
 def _under(prefix: str) -> tuple[str, ...]:
     if prefix.startswith("tests/"):
-        prefix = "pilot/tests/regression/" + prefix[len("tests/"):]
+        prefix = "tests/apps/pilot/regression/" + prefix[len("tests/"):]
     return tuple(p for p in _ALL_TESTS if p.startswith(prefix))
 
 
@@ -236,10 +236,10 @@ TEST_GROUPS = (
 )
 
 TEST_GROUPS += (
-    TestCaseGroup("프로토콜", _under("packages/protocol/tests/"), "v6 DDS 계약, peer discovery와 target-owned authority를 확인합니다."),
-    TestCaseGroup("로봇", _under("robot/tests/"), "Jetson I/O 경계, q 명령과 local safety를 확인합니다."),
-    TestCaseGroup("시뮬레이터", _under("sim/tests/"), "Genesis adapter, model bundle과 virtual endpoint 계약을 확인합니다."),
-    TestCaseGroup("UI", _under("ui/tests/"), "UI가 pilot 구현 없이 operator protocol만 사용하는지 확인합니다."),
+    TestCaseGroup("프로토콜", _under("tests/protocol/"), "v6 DDS 계약, peer discovery와 target-owned authority를 확인합니다."),
+    TestCaseGroup("로봇", _under("tests/apps/robot/"), "Jetson I/O 경계, q 명령과 local safety를 확인합니다."),
+    TestCaseGroup("시뮬레이터", _under("tests/apps/sim/"), "Genesis adapter, model bundle과 virtual endpoint 계약을 확인합니다."),
+    TestCaseGroup("UI", _under("tests/apps/ui/"), "UI가 pilot 구현 없이 operator protocol만 사용하는지 확인합니다."),
     TestCaseGroup("모델 빌더", _under("model/builder/tests/"), "blueprint와 URDF 생성 계약을 확인합니다."),
     TestCaseGroup("개발 도구", _under("misc/tools/"), "분석기, 로그뷰어와 실험 CLI의 순수 helper를 확인합니다."),
 )
@@ -448,6 +448,8 @@ class TestGui:
         return [
             "docker",
             "compose",
+            "--profile",
+            "developer",
             "-f",
             self.docker_compose,
             "up",
@@ -750,8 +752,8 @@ def main() -> int:
     )
     ap.add_argument(
         "--docker-compose",
-        default=str(ROOT / ".elesim/development/compose.yaml"),
-        help="--runner=docker일 때 사용할 EleSim Developer compose 파일",
+        default=str(Path("~/.local/share/elesim/containers/compose.yaml").expanduser()),
+        help="--runner=docker일 때 사용할 developer attachment 포함 Compose 파일",
     )
     args = ap.parse_args()
     TestGui(runner=args.runner, docker_compose=args.docker_compose).run()

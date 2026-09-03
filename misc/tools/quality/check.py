@@ -18,7 +18,7 @@ from typing import Iterable, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[3]
-PROTOCOL_SRC = "packages/protocol/src"
+PROTOCOL_SRC = "payload/runtime/common/protocol"
 
 
 @dataclass(frozen=True)
@@ -39,38 +39,38 @@ class Check:
 CHECKS: tuple[Check, ...] = (
     Check(
         "protocol",
-        ("packages/protocol/tests",),
+        ("tests/protocol",),
         (PROTOCOL_SRC,),
         description="Protocol v6 DDS contracts, peer authority and media sessions",
     ),
     Check(
         "robot",
-        ("robot/tests",),
-        (PROTOCOL_SRC, "robot/src"),
+        ("tests/apps/robot",),
+        (PROTOCOL_SRC, "payload/runtime/native/robot/app"),
         description="Physical I/O boundary and local safety behavior",
     ),
     Check(
         "pilot",
-        ("pilot/tests",),
-        (PROTOCOL_SRC, "pilot/src"),
+        ("tests/apps/pilot",),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app"),
         description="Vision, IK, gaze and Pick control behavior",
     ),
     Check(
         "sim",
-        ("sim/tests",),
-        (PROTOCOL_SRC, "sim/src"),
+        ("tests/apps/sim",),
+        (PROTOCOL_SRC, "payload/runtime/docker/sim/app"),
         description="Genesis endpoint and virtual-robot behavior",
     ),
     Check(
         "ui",
-        ("ui/tests",),
-        (PROTOCOL_SRC, "ui/src"),
+        ("tests/apps/ui",),
+        (PROTOCOL_SRC, "payload/runtime/docker/ui/app"),
         description="Operator API and presentation state behavior",
     ),
     Check(
         "model-builder",
         ("model/builder/tests", "misc/tools/release/tests"),
-        (PROTOCOL_SRC, "pilot/src", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
         description="Blueprint, bundle and URDF generation",
     ),
     Check(
@@ -83,13 +83,13 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "dds-rgbd",
         ("misc/system_tests/test_dds_rgbd.py",),
-        (PROTOCOL_SRC, "pilot/src", "sim/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/sim/app"),
         description="Typed latest-frame DDS RGBD contract and peer fencing",
     ),
     Check(
         "webrtc-media",
         ("misc/system_tests/test_webrtc_media.py",),
-        (PROTOCOL_SRC, "sim/src", "ui/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/sim/app", "payload/runtime/docker/ui/app"),
         description="Two independent encoded Sim WebRTC streams",
     ),
     Check(
@@ -108,8 +108,8 @@ CHECKS: tuple[Check, ...] = (
     ),
     Check(
         "setup-tools",
-        ("installer/package/tests",),
-        (PROTOCOL_SRC, "installer/package/src"),
+        ("tests/setup",),
+        (PROTOCOL_SRC, "payload/runtime/docker/tools/app"),
         description="Installer profiles, generated configs and network diagnostics",
     ),
     Check(
@@ -123,21 +123,21 @@ CHECKS: tuple[Check, ...] = (
     Check(
         "analysis-tools",
         ("misc/research/analysis/tests",),
-        (PROTOCOL_SRC, "pilot/src", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
         group="extended",
         description="Offline analysis helpers",
     ),
     Check(
         "debug-tools",
         ("misc/research/debug/tests",),
-        (PROTOCOL_SRC, "pilot/src", "ui/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "payload/runtime/docker/ui/app"),
         group="extended",
         description="Manual debugger support code",
     ),
     Check(
         "experiment-tools",
         ("misc/research/experiments/tests",),
-        (PROTOCOL_SRC, "pilot/src", "model/builder/src"),
+        (PROTOCOL_SRC, "payload/runtime/docker/pilot/app", "model/builder/src"),
         group="extended",
         description="Repeatable experiment orchestration",
     ),

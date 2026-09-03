@@ -11,8 +11,8 @@ from elesim_model_builder.arm_model import build_arm_model
 
 
 ROOT = Path(__file__).resolve().parents[3]
-BASE_CONFIG = ROOT / "pilot/config/config.yaml"
-ASSETS = ROOT / "model/bundles/default/assets"
+BASE_CONFIG = ROOT / "payload/config/pilot/config.yaml"
+ASSETS = ROOT / "payload/data/models/assemblies/zed-mini/assets"
 
 
 def test_arm_model_build_uses_an_isolated_workspace(tmp_path: Path) -> None:

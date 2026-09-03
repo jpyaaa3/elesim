@@ -15,7 +15,7 @@ from .model import Edge, Node, SCHEMA_VERSION, Snapshot
 from .semantics import build_flow_catalog, build_workflows, semantic_nodes_and_edges
 
 
-ROLE_ROOTS = {"pilot", "sim", "ui", "robot", "packages", "installer", "model", "misc"}
+ROLE_ROOTS = {"pilot", "sim", "ui", "robot", "packages", "installer", "model", "misc", "tests"}
 CALLBACK_CALLS = {"submit", "create_task", "add_done_callback", "call_soon", "call_later", "run_in_executor"}
 WIDGET_CALLS = {
     "button", "small_button", "arrow_button", "checkbox", "radio_button", "selectable",
@@ -34,13 +34,30 @@ def _git(root: Path, *args: str, check: bool = True) -> str:
 
 
 def _role(path: str) -> str:
-    first = path.split("/", 1)[0]
+    parts = Path(path).parts
+    if len(parts) >= 4 and parts[:3] == ("payload", "runtime", "docker"):
+        return parts[3] if parts[3] in {"pilot", "sim", "ui"} else "root"
+    if len(parts) >= 4 and parts[:3] == ("payload", "runtime", "native"):
+        return parts[3] if parts[3] == "robot" else "root"
+    if len(parts) >= 3 and parts[:3] == ("payload", "runtime", "common"):
+        return "packages"
+    if len(parts) >= 3 and parts[:2] == ("tests", "roles"):
+        return parts[2] if parts[2] in {"pilot", "sim", "ui", "robot"} else "root"
+    if len(parts) >= 2 and parts[:2] == ("tests", "protocol"):
+        return "packages"
+    first = parts[0] if parts else ""
     return first if first in ROLE_ROOTS else "root"
 
 
 def _module_name(path: str) -> str:
     parts = list(Path(path).with_suffix("").parts)
-    if "src" in parts:
+    if len(parts) >= 5 and parts[:3] == ["payload", "runtime", "docker"]:
+        parts = parts[5:] if parts[4] == "app" else parts[4:]
+    elif len(parts) >= 5 and parts[:3] == ["payload", "runtime", "native"]:
+        parts = parts[5:] if parts[4] == "app" else parts[4:]
+    elif len(parts) >= 4 and parts[:3] == ["payload", "runtime", "common"]:
+        parts = parts[4:] if parts[3] == "protocol" else parts[3:]
+    elif "src" in parts:
         parts = parts[parts.index("src") + 1 :]
     if parts and parts[-1] == "__init__":
         parts.pop()

@@ -67,7 +67,7 @@ def _run_group(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="pilot/config/config.yaml")
+    ap.add_argument("--config", default="payload/config/pilot/config.yaml")
     ap.add_argument("--log-dir", default="logs/walking_baseline")
     ap.add_argument("--batch-log-dir", default="logs/walking_baseline/_preview_validation")
     ap.add_argument("--trials", type=int, default=3)

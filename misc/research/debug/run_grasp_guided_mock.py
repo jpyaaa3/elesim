@@ -49,7 +49,7 @@ def _wait_pick_done(service: Any, *, timeout_s: float, label: str) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Look/Aim/Grasp with mock perception object.")
-    ap.add_argument("--config", default=str(ROOT / "pilot/config/config.yaml"))
+    ap.add_argument("--config", default=str(ROOT / "payload/config/pilot/config.yaml"))
     ap.add_argument(
         "--object",
         nargs=3,
@@ -72,7 +72,7 @@ def main() -> int:
 
     service = start_tool_pilot(
         str(args.config),
-        runtime_config_path=ROOT / "pilot/config/runtime.yaml",
+        runtime_config_path=ROOT / "payload/config/pilot/runtime.yaml",
     )
     bundle = service.bundle
     if str(bundle.perception_config.mode).strip().lower() != "mock":

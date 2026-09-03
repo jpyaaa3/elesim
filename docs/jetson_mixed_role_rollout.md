@@ -14,7 +14,7 @@ robot-native  → elesim-robot.service + elesim-unitree-bridge.service
 runtime       → validated container roles such as Pilot/UI
 ```
 
-The units have separate prefixes, ownership manifests, security role views and
+The units have separate prefixes, ownership manifests, security app views and
 lifecycle commands. Robot remains native-only and Unitree DDS remains private to
 the Jetson–GO2 NIC/domain. Robot and bridge exchange bounded credential-checked
 Unix packets; Unitree topics are not part of the inter-host EleSim graph.

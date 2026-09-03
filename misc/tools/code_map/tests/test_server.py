@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import gzip
-import io
 import subprocess
 import threading
 import urllib.error
@@ -17,7 +16,6 @@ from misc.tools.code_map.server import (
     CodeMapServer,
     _inside,
     _flow_graph,
-    _jaeger_spans,
     _source,
     _ui_map,
 )
@@ -64,7 +62,7 @@ def test_server_requires_token_and_is_read_only(tmp_path: Path):
         cwd=root,
         check=True,
     )
-    server = CodeMapServer(("127.0.0.1", 0), root, "secret-token", "http://127.0.0.1:9")
+    server = CodeMapServer(("127.0.0.1", 0), root, "secret-token")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -89,7 +87,7 @@ def test_server_requires_token_and_is_read_only(tmp_path: Path):
 
 def test_server_rejects_non_loopback_bind(tmp_path: Path):
     with pytest.raises(ValueError, match="loopback"):
-        CodeMapServer(("0.0.0.0", 0), tmp_path, "token", "http://127.0.0.1:16686")
+        CodeMapServer(("0.0.0.0", 0), tmp_path, "token")
 
 
 def test_json_api_uses_gzip_for_large_payload(tmp_path: Path):
@@ -103,7 +101,7 @@ def test_json_api_uses_gzip_for_large_payload(tmp_path: Path):
         cwd=root,
         check=True,
     )
-    server = CodeMapServer(("127.0.0.1", 0), root, "secret-token", "http://127.0.0.1:9")
+    server = CodeMapServer(("127.0.0.1", 0), root, "secret-token")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -117,52 +115,6 @@ def test_json_api_uses_gzip_for_large_payload(tmp_path: Path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-
-
-def test_jaeger_overlay_is_loopback_and_normalizes_spans(monkeypatch):
-    payload = {"traces": [{"spans": [{"spanId": "abc", "name": "publish_rgbd", "attributes": {"role": "sim"}}]}]}
-
-    class Response(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *unused):
-            self.close()
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: Response(json.dumps(payload).encode()))
-    assert _jaeger_spans("http://127.0.0.1:16686") == [
-        {"name": "publish_rgbd", "span_id": "abc", "attributes": {"role": "sim"}}
-    ]
-    with pytest.raises(ValueError, match="loopback"):
-        _jaeger_spans("https://jaeger.example.invalid")
-
-
-def test_jaeger_v3_parent_and_error_fields_are_preserved(monkeypatch):
-    payload = {
-        "resourceSpans": [{
-            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "elesim-ui"}}]},
-            "scopeSpans": [{"spans": [{
-                "traceId": "trace", "spanId": "child", "parentSpanId": "root", "name": "send",
-                "startTimeUnixNano": "10", "endTimeUnixNano": "20",
-                "status": {"code": "ERROR"},
-                "attributes": [{"key": "elesim.code.symbol", "value": {"stringValue": "ui:x"}}],
-            }]}],
-        }],
-    }
-
-    class Response(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *unused):
-            self.close()
-
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, **kwargs: Response(json.dumps(payload).encode()))
-    spans = _jaeger_spans("http://127.0.0.1:16686", {"service": "elesim-ui"})
-    assert spans[0]["trace_id"] == "trace"
-    assert spans[0]["parent_span_id"] == "root"
-    assert spans[0]["error"] is True
-    assert spans[0]["attributes"]["elesim.code.symbol"] == "ui:x"
 
 
 def test_flow_graph_exposes_directional_layers_and_control_edges():
@@ -293,7 +245,7 @@ def test_ui_map_links_mock_controls_to_action_workflows():
         "method",
         "draw",
         "elesim_ui.panels.control_4dof.draw",
-        "ui/src/elesim_ui/panels/control_4dof.py",
+        "payload/runtime/docker/ui/app/elesim_ui/panels/control_4dof.py",
         "ui",
         line=5,
         detail={"ui_widgets": [widget]},
@@ -319,13 +271,13 @@ def test_web_assets_are_local_and_expose_required_controls():
     html = (web / "index.html").read_text(encoding="utf-8")
     script = (web / "app.js").read_text(encoding="utf-8")
     assert "https://" not in html
-    assert {"workflow", "flow-view", "collapse-all", "jaeger-trace", "hideTests", "mock-ui-toggle", "mock-ui", "mock-ui-content", "depth", "traces", "source", "diff"} <= {
+    assert {"workflow", "flow-view", "collapse-all", "hideTests", "mock-ui-toggle", "mock-ui", "mock-ui-content", "depth", "source", "diff"} <= {
         marker.split('"', 1)[0] for marker in html.split('id="')[1:]
     }
     assert 'id="hideTests" type="checkbox" checked' in html
     assert "/api/snapshot" in script
     assert "/api/events" in script
-    assert "/api/traces" in script
+    assert "/api/traces" not in script
     assert "/api/ui-map" in script
     assert 'id="groups"' in html
     assert "function roleLayout" in script
@@ -347,7 +299,5 @@ def test_web_assets_are_local_and_expose_required_controls():
     assert "function activateMockWorkflow" in script
     assert "정적 탐색 전용 · 실제 명령은 실행되지 않음" in html
     assert "selectedFlow ? withoutTests(graph)" in script
-    assert "observedOrder" in script
-    assert 'attrs["elesim.code.symbol"]' in script
     assert "suppressClick = Boolean(dragging?.moved)" in script
     assert "`S${Number(node.flow_depth" in script

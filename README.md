@@ -6,6 +6,10 @@
 
 <br>
 
+배포 가능한 애플리케이션 소스는 [`payload/`](payload/README.md)에 있습니다.
+개발 editable install, 설치 context 생성, release build가 모두 같은 tree를
+사용하며 `dist/`는 생성된 release output 전용입니다.
+
 ## 1. 설치 방법
 
 ### 🧙 설치 마법사 실행

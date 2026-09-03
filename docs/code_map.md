@@ -4,7 +4,7 @@ EleSim 코드맵은 사람이 관리하는 메서드 목록이 아니라 **현�
 
 ## 실행
 
-Developer 설치의 영속 `elesim-dev` 환경에서 저장소 루트 기준으로 실행한다.
+선택적 개발 attachment의 영속 `elesim-dev` 환경에서 저장소 루트 기준으로 실행한다.
 
 ```bash
 elesim-dev python3 misc/tools/code_map/app.py
@@ -16,7 +16,7 @@ elesim-dev python3 misc/tools/code_map/app.py
 ssh -N -L 8767:127.0.0.1:8767 user@developer-host
 ```
 
-고정 포트는 `--port 8767`로 지정한다. Jaeger 기본 주소는 `http://127.0.0.1:16686`이며 `--jaeger-url`도 **loopback 주소만** 허용한다.
+고정 포트는 `--port 8767`로 지정한다.
 
 ## 분석 범위
 
@@ -53,7 +53,7 @@ role → package → module → class → function/method
 
 기본 보기에서 의미 경계가 없는 helper 연쇄와 같은 경계에서 갈라지는 세부 leaf는 `N개 세부 호출` 노드로 가역적으로 접힌다. 노드를 누르면 해당 묶음만 펼쳐지고 `세부 호출 다시 접기`로 초기화한다. 원본 symbol ID와 source/diff 근거는 버리지 않는다.
 
-루프·분기는 ELK의 cycle breaking/crossing minimization으로 같은 그래프 안에 남으며, 붉은 점선은 source로 되돌아가는 back-edge다. 연결선은 전기 회로도처럼 수직·수평 구간과 90도 코너만 사용한다. 정상 흐름은 레이어 사이 배선 채널을 공유하고, back-edge는 노드 오른쪽 외곽 채널로 우회한다. 호출, data/state write, contract, async/thread, 예외는 서로 다른 색과 선으로 표시한다. 정적 분석은 실제 총실행순서를 알 수 없으므로 노드는 가짜 `#step` 대신 같은 깊이에 같은 `S(stage)`를 표시한다. Jaeger trace를 명시적으로 고른 경우에만 timestamp 기반 `T1`, `T2` 순서와 오류 노드를 표시한다. `upstream` 보기에서도 실제 source→sink 방향은 상→하로 유지된다. 이는 basic-block 단위 실행 증명이나 실제 branch 선택 결과가 아니라, 현재 AST/DDS 계약에서 재구성한 방향성 flow view다.
+루프·분기는 ELK의 cycle breaking/crossing minimization으로 같은 그래프 안에 남으며, 붉은 점선은 source로 되돌아가는 back-edge다. 연결선은 전기 회로도처럼 수직·수평 구간과 90도 코너만 사용한다. 정상 흐름은 레이어 사이 배선 채널을 공유하고, back-edge는 노드 오른쪽 외곽 채널로 우회한다. 호출, data/state write, contract, async/thread, 예외는 서로 다른 색과 선으로 표시한다. 정적 분석은 실제 총실행순서를 알 수 없으므로 노드는 가짜 `#step` 대신 같은 깊이에 같은 `S(stage)`를 표시한다. `upstream` 보기에서도 실제 source→sink 방향은 상→하로 유지된다. 이는 basic-block 단위 실행 증명이나 실제 branch 선택 결과가 아니라, 현재 AST/DDS 계약에서 재구성한 방향성 flow view다.
 
 함수 노드를 선택하면 parameter port, return site, state write, branch/loop/raise 근거와 source/diff를 우측에 표시한다. 노드를 선택하면 파일/행, caller/callee 수, decorator/base/문자열 근거, source 문맥과 HEAD diff를 표시한다. source API는 repository containment와 symlink를 검사하고 UTF-8, 128 KiB, 500줄로 제한한다.
 
@@ -73,17 +73,9 @@ role → package → module → class → function/method
 
 컨트롤 ID는 원본 path, qualified method, source line과 widget metadata에서 유도된다. 동적 f-string/변수 라벨은 source expression과 `dynamic label` 표시를 남기며, branch/loop 내부 컨트롤은 `conditional`로 표시한다. `helpers.py`에서만 발견된 일반화된 위젯은 실제 패널이라고 가장하지 않고 helper surface로 분리한다. `/api/ui-map`은 이 구조를 현재 snapshot에서 매번 생성하므로 별도 수동 Mock UI 명세와의 drift가 생기지 않는다.
 
-## 정적 근거와 Jaeger
+## 정적 근거
 
-정적 edge는 점선이며 `exact`, `inferred`, `unresolved` confidence를 가진다. `Jaeger 불러오기`는 loopback Jaeger v3 query API에서 service/operation을 조회한다. 사용자가 trace를 고르면 span의 parent-child 관계와 명시적 `elesim.code.symbol` 또는 `code.function.name`을 읽어 현재 symbol에 관측 edge와 시간 순서를 겹친다. span 이름 토큰 추측은 하지 않는다. trace가 없다고 dead code라는 뜻은 아니며 정적 분석 결과를 관측 결과로 덮어쓰지 않는다.
-
-OpenTelemetry trace context는 기존 `PeerEnvelope.trace_context`에만 전달한다. span에는 payload·좌표·영상·센서값을 넣지 않는다. UI 클릭은 요청 span으로, slider/drag/teleop은 기존 latest-only/coalescing 경계를 따라 표본화한다. OpenTelemetry/Jaeger가 없어도 제어와 Robot safety는 no-op 계측으로 계속 동작한다.
-
-실제 export가 필요하면 각 역할이 사용하는 protocol wheel의 선택적 extra만
-설치한다(`pip install 'elesim-protocol[observability]'`). 기본 설치에는
-OpenTelemetry가 들어가지 않으며, `ELESIM_TRACE=1`과
-`ELESIM_OTEL_ENDPOINT=http://127.0.0.1:4318`일 때만 OTLP HTTP export를
-활성화한다.
+정적 edge는 점선이며 `exact`, `inferred`, `unresolved` confidence를 가진다. Code Map은 현재 source와 계약에서 얻은 정적 근거만 표시하며, 실행되지 않은 경로를 dead code라고 판단하지 않는다. `PeerEnvelope.trace_context` 필드는 wire compatibility를 위해 유지하지만 Code Map은 외부 trace backend를 조회하지 않는다.
 
 뷰어는 ELK.js 0.9.3을 `web/vendor/`에 고정해 CDN과 별도 프런트엔드 빌드 없이 layered/port layout을 사용한다. 라이선스와 bundle hash는 `web/vendor/NOTICE.md`에 기록한다.
 
@@ -102,4 +94,4 @@ elesim-dev python3 -m pytest misc/tools/code_map/tests
 elesim-dev python3 misc/tools/quality/check.py --check code-map-tools
 ```
 
-테스트는 AST 문법 요소, 함수 포트·분기·반복·예외, UI action drift, flow slice/cycle, cache roundtrip, semantic workflow, Jaeger v3 parent/error parser, token/read-only HTTP, path traversal, symlink와 크기 제한을 검증한다.
+테스트는 AST 문법 요소, 함수 포트·분기·반복·예외, UI action drift, flow slice/cycle, cache roundtrip, semantic workflow, token/read-only HTTP, path traversal, symlink와 크기 제한을 검증한다.

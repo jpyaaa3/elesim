@@ -1,0 +1,3603 @@
+"""Generate a host-preserving Docker Compose installation for EleSim roles."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import pwd
+import re
+import secrets
+import shlex
+import shutil
+import stat
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Mapping, Sequence
+
+import yaml
+
+from .configuration import (
+    bind_installed_data_paths,
+    copy_app_config_tree,
+    dds_enclave,
+    generate_role_configs,
+    app_keystore_path,
+    app_directory,
+)
+from .credentials import _resolve_non_symlink_path, validate_external_turn_credentials
+from .developer import (
+    developer_service,
+    resolve_developer_username,
+    validate_developer_workspace,
+    write_developer_context,
+)
+from .manager_lifecycle import (
+    compose_owner_guard,
+    host_helper_fragment,
+    manager_lifecycle_fragment,
+)
+from .ownership import (
+    DOCKER_BUILD_FINGERPRINT_LABEL,
+    DOCKER_INSTALL_UUID_LABEL,
+    DockerOwnership,
+    HostUninstallerBundle,
+    OwnershipManifest,
+    OwnershipRefresh,
+    install_host_uninstaller_bundle,
+    ownership_install_uuid,
+    prepare_ownership_refresh,
+    write_ownership_manifest,
+)
+from .security_provisioning import (
+    launch_guard,
+    provisioning_required_path,
+    sync_provisioning_required,
+)
+from .security_views import prepare_app_keystore_views
+from .runtime_status import render_compose_status_wrapper
+from .shell import operator_home, write_executable
+from .state import ContainerNetworkSettings, InstallState
+from .uninstall import UninstallSafetyError, validate_docker_ownership
+from .updater import render_update_wrapper
+
+
+@dataclass(frozen=True)
+class ContainerAction:
+    title: str
+    detail: str
+
+
+GENERAL_COMPOSE_PROJECT = "elesim-runtime"
+ROLE_CONTAINER_NAMES = {
+    "pilot": "elesim-pilot",
+    "ui": "elesim-ui",
+    "sim": "elesim-sim",
+}
+# These are Docker container names, not host-side operator commands.  Role
+# lifecycle is intentionally exposed through ``elesim-up <role>`` so the bin
+# directory does not accumulate one wrapper per application.
+CONTAINER_ROLE_WRAPPER_NAMES = tuple(
+    f"elesim-{role}" for role in ROLE_CONTAINER_NAMES
+)
+# Detect containers created by the immediately preceding naming scheme so a
+# second installation cannot leave an old role process running beside the new
+# fixed name.
+# Names emitted by the pre-pilot/sim installer.  They are only inspected during
+# cleanup so an upgrade cannot leave an old process running beside the new one.
+LEGACY_ROLE_CONTAINER_NAMES = ("elesim-controller", "elesim-simulator")
+DOCKER_LOGGING = {
+    "driver": "json-file",
+    "options": {"max-size": "10m", "max-file": "4"},
+}
+RUNTIME_LOG_RETENTION = 5
+# Tailscale recommends the rolling ``stable`` tag for immutable containers.
+# ``elesim-tailscale update`` explicitly pulls and recreates this sidecar, so
+# normal runtime restarts remain deterministic while an operator-requested
+# update advances to the current stable client.
+TAILSCALE_IMAGE = "tailscale/tailscale:stable"
+TAILSCALE_CONTAINER_NAME = "elesim-tailscale"
+
+
+def _build_context_fingerprint(
+    context: Path,
+    *,
+    build_args: Mapping[str, str] | None = None,
+) -> str:
+    """Hash the generated Docker inputs and the arguments that affect them.
+
+    Docker's normal build cache is deliberately left to BuildKit.  This
+    digest is only a cheap, explicit ownership/version marker for the host
+    launcher, so it must ignore mtimes and absolute paths while retaining
+    file contents, executable bits, relative names and build arguments.
+    Generated contexts must not contain symlinks; rejecting one here keeps the
+    marker from silently describing a different target than Docker receives.
+    """
+
+    if context.is_symlink() or not context.is_dir():
+        raise ValueError(f"image context는 일반 directory여야 합니다: {context}")
+    digest = hashlib.sha256()
+    entries = sorted(
+        context.rglob("*"),
+        key=lambda path: path.relative_to(context).as_posix(),
+    )
+    for entry in entries:
+        relative = entry.relative_to(context).as_posix()
+        metadata = entry.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"image context 아래 symlink은 허용되지 않습니다: {entry}")
+        if stat.S_ISDIR(metadata.st_mode):
+            kind = "directory"
+        elif stat.S_ISREG(metadata.st_mode):
+            kind = "file"
+        else:
+            raise ValueError(f"image context에 지원하지 않는 항목이 있습니다: {entry}")
+        digest.update(kind.encode("ascii"))
+        digest.update(b"\0")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(f"{stat.S_IMODE(metadata.st_mode):o}".encode("ascii"))
+        digest.update(b"\0")
+        if kind == "file":
+            digest.update(str(metadata.st_size).encode("ascii"))
+            digest.update(b"\0")
+            with entry.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
+            digest.update(b"\0")
+    for key, value in sorted(
+        (str(key), str(value)) for key, value in (build_args or {}).items()
+    ):
+        digest.update(b"build-arg\0")
+        digest.update(key.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _resolve_viewer_user() -> str:
+    """Return the host account used for opt-in X11 Viewer access.
+
+    The setup package normally runs in a disposable container as the calling
+    UID/GID.  That container intentionally does not mount the host
+    ``/etc/passwd``, so ``pwd.getpwuid`` is not a reliable primary lookup
+    there.  Bootstrap passes the host account explicitly; direct invocations
+    still have the usual shell variables available.  Keep the passwd lookup
+    only as a compatibility fallback and never let a missing passwd entry
+    abort an otherwise valid installation.
+    """
+
+    for variable in ("ELESIM_HOST_USER", "USER", "LOGNAME"):
+        value = os.environ.get(variable, "").strip()
+        if value:
+            return value
+    try:
+        return pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        # The supported bootstrap path always supplies ELESIM_HOST_USER.  A
+        # numeric fallback keeps direct/minimal environments installable; an
+        # explicit Viewer launch can then report an X11 ACL error if that
+        # environment cannot resolve the account name.
+        return str(os.getuid())
+
+
+def refresh_compose_dds_environment(state: InstallState) -> None:
+    """Refresh generated Compose DDS variables after ``elesim-net configure``.
+
+    The network configurator owns the installed state and role XML, while the
+    Compose file is generated during installation.  Updating only the former
+    leaves stale ``ELESIM_DDS_*`` values behind (notably after switching from
+    a direct ``tailscale*`` attempt to a routed ``eth0``/static-peer setup).
+    Keep the generated manifest self-consistent without rebuilding images or
+    touching running containers; the next lifecycle start will read it.
+    """
+
+    if state.install_mode != "container":
+        return
+    compose_path = state.prefix_path / "containers" / "compose.yaml"
+    # ``Path.exists`` is false for a broken symlink.  Treat that as a
+    # corrupted generated reference rather than silently skipping the
+    # refresh and leaving DDS values stale.
+    if not os.path.lexists(compose_path):
+        return
+    if compose_path.is_symlink() or not compose_path.is_file():
+        raise ValueError(f"Compose manifest is not a regular file: {compose_path}")
+    try:
+        payload = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"Compose manifest could not be read: {compose_path}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("services"), dict):
+        raise ValueError(f"Compose manifest has no services object: {compose_path}")
+
+    services = payload["services"]
+    installer = ContainerInstaller(state)
+    for role in state.roles:
+        service = services.get(role)
+        if not isinstance(service, dict) or not isinstance(service.get("environment"), dict):
+            raise ValueError(f"Compose service {role!r} has no environment object")
+        service["environment"].update(installer._dds_environment(role))
+    for service_name in ("tools", "runtime-tools"):
+        tools = services.get(service_name)
+        if isinstance(tools, dict) and isinstance(tools.get("environment"), dict):
+            tools["environment"].update(
+                installer._dds_environment(state.roles[0], enclave_override=True)
+            )
+
+    rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    mode = stat.S_IMODE(compose_path.stat().st_mode)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=compose_path.parent,
+        prefix=f".{compose_path.name}.",
+        delete=False,
+    ) as handle:
+        handle.write(rendered)
+        temporary = Path(handle.name)
+    try:
+        temporary.chmod(mode)
+        os.replace(temporary, compose_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def build_container_plan(state: InstallState) -> tuple[ContainerAction, ...]:
+    state.validate()
+    root = state.prefix_path / "containers"
+    actions = [
+        ContainerAction("호스트", "기존 Python/APT 환경은 변경하지 않음"),
+        ContainerAction(
+            "Compose",
+            f"{state.container_network.mode} project: {root / 'compose.yaml'}",
+        ),
+    ]
+    # ``containers/build`` is the historical location. A previous
+    # privileged run can leave it unreadable, in which case the installer
+    # deliberately switches to ``.runtime-build``. Describe both locations
+    # so the plan never claims that the legacy path is guaranteed to be used.
+    context_detail = (
+        f"격리 이미지 context: {root / 'build' / '{role}'} "
+        f"(쓰기 불가 시 {root / '.runtime-build' / '{role}'})"
+    )
+    actions.extend(
+        ContainerAction(role, context_detail.format(role=role))
+        for role in state.roles
+    )
+    if state.developer_attachment.enabled:
+        actions.append(
+            ContainerAction(
+                "개발 도구",
+                "동일 elesim-runtime project의 선택적 developer profile",
+            )
+        )
+    actions.extend(
+        (
+            ContainerAction("도구", "elesim-setup/elesim-net 전용 tools image"),
+            ContainerAction("명령", f"Compose 실행 래퍼: {state.bin_path}"),
+            ContainerAction("시작", f"{state.bin_path / 'elesim-up'}"),
+        )
+    )
+    return tuple(actions)
+
+
+class ContainerInstaller:
+    _ROS_BASE_IMAGE = "ros:humble-ros-base-jammy"
+
+    def __init__(
+        self,
+        state: InstallState,
+        *,
+        state_path: Path | None = None,
+        shell_bashrc: Path | None = None,
+        dry_run: bool = False,
+        log: Callable[[str], None] = print,
+    ) -> None:
+        self.state = state.validate()
+        if self.state.install_mode != "container":
+            raise ValueError("ContainerInstaller에는 install_mode=container가 필요합니다")
+        self.state_path = (
+            self.state.state_path
+            if state_path is None
+            else state_path.expanduser().resolve()
+        )
+        self.dry_run = bool(dry_run)
+        self.log = log
+        self._install_uuid = ""
+        self._image_fingerprints: dict[str, str] = {}
+        self.shell_bashrc = (
+            None
+            if shell_bashrc is None
+            else Path(os.path.abspath(os.fspath(shell_bashrc.expanduser())))
+        )
+        # Prefer the public install cache, but retain a private migration
+        # location for installations whose old root-owned cache cannot be
+        # chmod-ed by the current operator.
+        self._runtime_cache_root = self.state.prefix_path / "cache"
+        # Image contexts are generated data, not a source checkout.  Keep a
+        # private fallback alongside the legacy ``containers/build`` tree so
+        # an interrupted/root-owned previous install cannot make update fail
+        # before Compose is regenerated.
+        self._build_root = self.container_root / "build"
+
+    @property
+    def container_root(self) -> Path:
+        return self.state.prefix_path / "containers"
+
+    def run(self) -> None:
+        self._validate_source()
+        if self.state.developer_attachment.workspace_path is not None:
+            validate_developer_workspace(
+                self.state.developer_attachment.workspace_path
+            )
+        self.state.require_installable_dds()
+        self._validate_external_turn_credentials()
+        ownership_refresh = prepare_ownership_refresh(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+            edition="general",
+            claimed_paths=self._claimed_paths(),
+        )
+        self._validate_legacy_docker_adoption(ownership_refresh)
+        self._install_uuid = ownership_install_uuid(ownership_refresh)
+        prefix_created = not os.path.lexists(self.state.prefix_path)
+        bin_created = not os.path.lexists(self.state.bin_path)
+        self.log("\n컨테이너 설치 계획")
+        for action in build_container_plan(self.state):
+            self.log(f"  [{action.title}] {action.detail}")
+        self.log("")
+        if self.dry_run:
+            self.log("[DRY-RUN] 호스트나 Docker daemon을 변경하지 않았습니다.")
+            return
+
+        self.log("[1/6] 설치 디렉터리와 runtime data 준비")
+        self._image_fingerprints.clear()
+        self.state.prefix_path.mkdir(parents=True, exist_ok=True)
+        self.state.bin_path.mkdir(parents=True, exist_ok=True)
+        self._prepare_manager_roots()
+        self._runtime_cache_root = self._prepare_runtime_cache()
+        self._build_root = self._prepare_build_root()
+        prepare_app_keystore_views(self.state)
+        if self.state.dds.managed_security_pending:
+            sync_provisioning_required(self.state)
+        self._prepare_tailscale_state()
+        self._prepare_turn_secret()
+        self._copy_runtime_data()
+        generate_role_configs(self.state)
+        self.log("[2/6] 역할별 image context 생성")
+        for role in self.state.roles:
+            self._write_role_context(role)
+        if self.state.developer_attachment.enabled:
+            self._write_developer_context()
+        self.log("[3/6] 설치/진단 tools context 생성")
+        self._write_tools_context()
+        self.log("[4/6] Compose 구성 생성")
+        self._write_compose()
+        self.log("[5/6] 실행 명령 생성")
+        self._write_wrappers(ownership_refresh)
+        self.log("[6/6] 설치 상태와 제거 소유권 저장")
+        saved = self.state.save(self.state_path)
+        if not self.state.dds.managed_security_pending:
+            sync_provisioning_required(self.state)
+        bundle = install_host_uninstaller_bundle(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+        )
+        manifest = self._write_ownership_manifest(
+            bundle=bundle,
+            refresh=ownership_refresh,
+            prefix_created=prefix_created,
+            bin_created=bin_created,
+        )
+        self.log(f"[완료] 설치 상태: {saved}")
+        self.log(f"[완료] 제거 소유권: {manifest.path}")
+        self.log(f"[다음] 이미지 빌드 및 시작: {self.state.bin_path / 'elesim-up'}")
+
+    def _claimed_paths(self) -> tuple[Path, ...]:
+        claims = [
+            self.container_root,
+            self.state.prefix_path / "apps",
+            self.state.prefix_path / "data",
+            self.state.prefix_path / "cache",
+            self.state.prefix_path / ".runtime-cache",
+            self.state.prefix_path / "connections",
+            self.state.prefix_path / "security",
+            self.state.prefix_path / "secrets",
+            self.state.prefix_path / "maintenance",
+            # A prior General install may have emitted one wrapper per role.
+            # Keep those paths in the preflight claims so an orphaned wrapper
+            # without a manifest fails closed instead of being silently
+            # adopted by the consolidated ``elesim-up`` surface.
+            *(self.state.bin_path / name for name in CONTAINER_ROLE_WRAPPER_NAMES),
+            *self._wrapper_paths(include_uninstaller=True),
+        ]
+        if _is_within(self.state_path, self.state.prefix_path):
+            claims.append(self.state_path)
+        return tuple(claims)
+
+    def _write_ownership_manifest(
+        self,
+        *,
+        bundle: HostUninstallerBundle,
+        refresh: OwnershipRefresh | None,
+        prefix_created: bool,
+        bin_created: bool,
+    ) -> OwnershipManifest:
+        wrappers = self._wrapper_paths(include_uninstaller=True)
+        inventory_roots: list[Path] = [
+            self.container_root,
+            self.state.prefix_path / "apps",
+            self.state.prefix_path / "data",
+            bundle.root,
+        ]
+        external_paths: list[Path] = []
+        if _is_within(self.state_path, self.state.prefix_path):
+            inventory_roots.append(self.state_path)
+        else:
+            external_paths.append(self.state_path)
+            self.log(
+                "[ownership] prefix 밖의 custom state file은 보존합니다: "
+                f"{self.state_path}"
+            )
+        if (
+            self.state.dds.security_profile == "sros2"
+            and self.state.dds.security_provisioning == "external"
+            and self.state.dds.keystore_path is not None
+        ):
+            external_paths.append(self.state.dds.keystore_path)
+        if self.state.turn.mode == "external" and self.state.turn.credential_path is not None:
+            external_paths.append(self.state.turn.credential_path)
+        containers = tuple(ROLE_CONTAINER_NAMES[role] for role in self.state.roles)
+        if self.state.container_network.uses_tailscale_sidecar:
+            containers = (*containers, TAILSCALE_CONTAINER_NAME)
+        if self.state.turn.managed:
+            containers = (*containers, "elesim-coturn")
+        if self.state.developer_attachment.enabled:
+            containers = (*containers, "elesim-dev")
+        # A crashed one-shot manager is still an exact Compose-owned object.
+        containers = (*containers, "elesim-manager")
+        docker = DockerOwnership(
+            install_uuid=self._install_uuid,
+            compose_file=str(self.container_root / "compose.yaml"),
+            project=GENERAL_COMPOSE_PROJECT,
+            containers=containers,
+            local_images=(
+                *(f"elesim/{role}:local" for role in self.state.roles),
+                "elesim/tools:local",
+                *(("elesim/dev:local",) if self.state.developer_attachment.enabled else ()),
+            ),
+            context=self.state.container_network.docker_context,
+            engine_id=self.state.container_network.docker_engine_id,
+        )
+        created_roots = tuple(
+            path
+            for path, created in (
+                (self.state.prefix_path, prefix_created),
+                (self.state.bin_path, bin_created),
+            )
+            if created
+        )
+        return write_ownership_manifest(
+            prefix=self.state.prefix_path,
+            bin_dir=self.state.bin_path,
+            edition="general",
+            inventory_roots=inventory_roots,
+            managed_roots=(
+                self.container_root,
+                self.state.prefix_path / "apps",
+                self.state.prefix_path / "data",
+                self.state.prefix_path / "cache",
+                self.state.prefix_path / ".runtime-cache",
+                self.state.prefix_path / "connections",
+                self.state.prefix_path / "security",
+                self.state.prefix_path / "secrets",
+            ),
+            created_roots=created_roots,
+            wrapper_paths=wrappers,
+            log_roots=(self.state.prefix_path / "logs",),
+            authority_roots=(self.state.prefix_path / "authority",),
+            external_paths=external_paths,
+            shell_bashrc=self.shell_bashrc,
+            docker=docker,
+            install_uuid=self._install_uuid,
+            refresh=refresh,
+        )
+
+    def _validate_legacy_docker_adoption(
+        self,
+        refresh: OwnershipRefresh | None,
+    ) -> None:
+        """Fail closed before pinning an unpinned legacy install to a daemon."""
+
+        previous = None if refresh is None else refresh.docker
+        settings = self.state.container_network
+        if (
+            previous is None
+            or previous.context
+            or previous.engine_id
+            or not settings.docker_context
+            or not settings.docker_engine_id
+        ):
+            return
+        candidate = DockerOwnership(
+            install_uuid=previous.install_uuid,
+            compose_file=previous.compose_file,
+            project=previous.project,
+            containers=previous.containers,
+            local_images=previous.local_images,
+            context=settings.docker_context,
+            engine_id=settings.docker_engine_id,
+        )
+        try:
+            containers, images = validate_docker_ownership(candidate)
+        except UninstallSafetyError as exc:
+            raise ValueError(
+                "기존 unpinned EleSim 설치를 현재 Docker daemon에 안전하게 "
+                f"연결할 수 없습니다: {exc}"
+            ) from exc
+        if containers or images:
+            return
+        raise ValueError(
+            "기존 unpinned EleSim 설치가 현재 Docker daemon에 속한다는 증거가 "
+            "없습니다. manifest label/Compose 경계가 일치하는 기존 container 또는 "
+            "image가 하나 이상 필요합니다. 한 번도 build하지 않은 legacy 설치도 "
+            "자동 update할 수 없습니다. 기존 Docker context에서 다시 실행하거나 "
+            "소유권을 확인한 뒤 clean uninstall/reinstall 하십시오."
+        )
+
+    def _prepare_manager_roots(self) -> None:
+        """Create only the private roots mounted writable into the manager."""
+
+        for name in ("connections", "authority", "security", "secrets"):
+            path = self.state.prefix_path / name
+            if os.path.lexists(path):
+                metadata = os.lstat(path)
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                    metadata.st_mode
+                ):
+                    raise ValueError(
+                        f"manager data root는 실제 directory여야 합니다: {path}"
+                    )
+            else:
+                path.mkdir(mode=0o700)
+            try:
+                directory_fd = os.open(
+                    path,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                )
+            except OSError as exc:
+                raise ValueError(
+                    f"manager data root를 안전하게 열 수 없습니다: {path}"
+                ) from exc
+            try:
+                try:
+                    os.fchmod(directory_fd, 0o700)
+                except OSError as exc:
+                    raise PermissionError(
+                        f"manager data root 권한을 설정할 수 없습니다: {path}"
+                    ) from exc
+            finally:
+                os.close(directory_fd)
+
+    def _prepare_runtime_cache(self) -> Path:
+        """Prepare a user-owned cache, tolerating legacy root-owned state.
+
+        Older general installs ran Sim as root and could leave
+        ``cache/genesis`` inaccessible to the normal installer user. Never
+        delete or adopt that data: fall back to a fresh, exact EleSim-owned
+        cache subtree under the same prefix and keep the legacy cache intact.
+        """
+
+        legacy = self.state.prefix_path / "cache"
+        fallback = self.state.prefix_path / ".runtime-cache"
+        for candidate in (legacy, fallback):
+            if candidate.is_symlink():
+                raise ValueError(f"runtime cache는 symlink일 수 없습니다: {candidate}")
+        # Once migration selected the fallback, keep using it even if an
+        # administrator later repairs the legacy directory. This avoids
+        # silently switching away from a warm cache on the next update.
+        candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
+        for index, cache_root in enumerate(candidates):
+            try:
+                for cache_path in (cache_root, cache_root / "genesis"):
+                    if cache_path.is_symlink():
+                        raise ValueError(
+                            f"runtime cache는 symlink일 수 없습니다: {cache_path}"
+                        )
+                    cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    cache_path.chmod(0o700)
+                if index:
+                    self.log(
+                        "[cache] 기존 cache에 쓸 수 없어 새 runtime cache를 사용합니다: "
+                        f"{cache_root}"
+                    )
+                return cache_root
+            except (PermissionError, FileExistsError, NotADirectoryError) as exc:
+                if index == len(candidates) - 1:
+                    raise PermissionError(
+                        "EleSim runtime cache를 준비할 수 없습니다. "
+                        f"다음 경로의 권한/유형을 확인하십시오: {cache_root}"
+                    ) from exc
+                continue
+        raise RuntimeError("runtime cache 후보가 없습니다")
+
+    def _prepare_build_root(self) -> Path:
+        """Select a writable generated-context root without adopting links.
+
+        Older installers could leave ``containers/build`` owned by root after
+        a privileged Docker build.  Updating should preserve that evidence,
+        not recursively chmod or delete it.  A private sibling context is
+        sufficient because the generated Compose file records the selected
+        path explicitly.
+        """
+
+        legacy = self.container_root / "build"
+        fallback = self.container_root / ".runtime-build"
+        for candidate in (legacy, fallback):
+            if candidate.is_symlink():
+                raise ValueError(f"image context root는 symlink일 수 없습니다: {candidate}")
+        candidates = (fallback, legacy) if fallback.exists() else (legacy, fallback)
+        for index, candidate in enumerate(candidates):
+            try:
+                candidate.mkdir(mode=0o700, parents=True, exist_ok=True)
+                candidate.chmod(0o700)
+                # A context may contain role directories from a previous
+                # generation.  Directory write/execute access is the
+                # authority needed by the replacement operation; never use
+                # os.access on a symlink.
+                for child in candidate.iterdir():
+                    if child.is_symlink():
+                        raise ValueError(
+                            f"image context root 아래 symlink은 허용되지 않습니다: {child}"
+                        )
+                    if child.is_dir() and not os.access(
+                        child, os.W_OK | os.X_OK, effective_ids=True
+                    ):
+                        raise PermissionError(child)
+                if index:
+                    self.log(
+                        "[build] 기존 image context에 쓸 수 없어 새 context를 사용합니다: "
+                        f"{candidate}"
+                    )
+                return candidate
+            except (PermissionError, FileExistsError, NotADirectoryError) as exc:
+                if index == len(candidates) - 1:
+                    raise PermissionError(
+                        "EleSim image context를 준비할 수 없습니다. "
+                        f"다음 경로의 권한/유형을 확인하십시오: {candidate}"
+                    ) from exc
+        raise RuntimeError("image context 후보가 없습니다")
+
+    def _validate_source(self) -> None:
+        root = self.state.source_path
+        required = [
+            root / "payload/runtime/common/protocol/pyproject.toml",
+            root / "payload/runtime/common/elesim_interfaces/package.xml",
+            root / "payload/runtime/common/elesim_interfaces/CMakeLists.txt",
+            root / "payload/runtime/common/elesim_interfaces/msg/RgbdFrame.msg",
+            root / "payload/runtime/common/elesim_interfaces/msg/EncodedRgbdFrame.msg",
+            root / "payload/runtime/docker/tools/app/pyproject.toml",
+            root / "payload/runtime/docker/shared/Dockerfile.app",
+            root / "payload/runtime/docker/tools/Dockerfile",
+            root / "payload/runtime/docker/tools/tools-entrypoint",
+            root / "payload/runtime/docker/shared/robotpkg.asc",
+        ]
+        required.extend(
+            path
+            for role in self.state.roles
+            for path in (
+                root / "payload/runtime/docker" / role / "app/pyproject.toml",
+                root / "payload/runtime/docker" / role / "requirements.lock",
+                root / "payload/runtime/docker" / role / "entrypoint",
+            )
+        )
+        if "sim" in self.state.roles:
+            required.append(root / "payload/data/models/assemblies/zed-mini/bundle.json")
+            required.append(root / "payload/data/models/assemblies/d435/bundle.json")
+            required.append(root / "payload/data/models/objects/demo_box.obj")
+        if "pilot" in self.state.roles:
+            required.append(root / "payload/data/models/arm/default.json")
+            required.append(root / "payload/data/models/perception/yolov8n-seg.pt")
+            required.append(root / "payload/data/policies/wrap-grasp/README.md")
+        if {"pilot", "sim"}.intersection(self.state.roles):
+            required.append(
+                root / "payload/data/calibration/cameras/zed_mini.hand_eye.json"
+            )
+            required.append(root / "payload/data/calibration/cameras/d435.hand_eye.json")
+        if {"pilot", "ui"}.intersection(self.state.roles):
+            required.append(root / "payload/data/calibration/arm/sag_model.json")
+        missing = [path for path in required if not path.is_file()]
+        if missing:
+            rendered = "\n".join(f"  - {path}" for path in missing)
+            raise FileNotFoundError(f"컨테이너 설치 소스가 불완전합니다:\n{rendered}")
+
+    def _copy_runtime_data(self) -> None:
+        root = self.state.source_path
+        data_root = self.state.prefix_path / "data"
+        for role in self.state.roles:
+            target = app_directory(self.state, role)
+            copy_app_config_tree(
+                root / "payload/config" / role,
+                target / "config",
+                role,
+            )
+            bind_installed_data_paths(
+                target / "config",
+                role,
+                runtime_data_root=Path("/opt/elesim/data"),
+            )
+            if role in {"pilot", "sim"}:
+                _copy_tree(
+                    root / "payload/data/calibration",
+                    data_root / "calibration",
+                )
+            elif role == "ui":
+                _copy_tree(
+                    root / "payload/data/calibration/arm",
+                    data_root / "calibration/arm",
+                )
+            if role == "pilot":
+                _copy_tree(
+                    root / "payload/data/models/arm",
+                    data_root / "models/arm",
+                )
+                _copy_tree(root / "payload/data/models/perception", data_root / "models/perception")
+                _copy_tree(
+                    root / "payload/data/policies",
+                    data_root / "policies",
+                )
+            elif role == "sim":
+                _copy_tree(
+                    root / "payload/data/models/assemblies",
+                    data_root / "models/assemblies",
+                )
+                _copy_tree(
+                    root / "payload/data/models/objects",
+                    data_root / "models/objects",
+                )
+
+    def _role_build_args(self, role: str) -> dict[str, str]:
+        return {
+            "ROLE": role,
+            "BASE_IMAGE": self._ROS_BASE_IMAGE,
+            "COMPUTE_MODE": self.state.compute.gpu_mode,
+            "INSTALL_GO2_MPC": "1" if self.state.install_go2_mpc else "0",
+        }
+
+    def _write_role_context(self, role: str) -> None:
+        root = self.state.source_path
+        context = self._build_root / role
+        _reset_generated_context(context)
+        source = root / "payload/runtime/docker" / role
+        _copy_source_tree(source, context)
+        shutil.copy2(root / "payload/runtime/docker/shared/Dockerfile.app", context / "Dockerfile")
+        shutil.copy2(root / "payload/runtime/docker/shared/robotpkg.asc", context / "robotpkg.asc")
+        _copy_source_tree(root / "payload/runtime/common/protocol", context / "protocol")
+        _copy_source_tree(
+            root / "payload/runtime/common/elesim_interfaces",
+            context / "interfaces/elesim_interfaces",
+        )
+        expected_entrypoint = _entrypoint(role)
+        entrypoint = context / "entrypoint"
+        if entrypoint.read_text(encoding="utf-8") != expected_entrypoint:
+            raise ValueError(f"prepacked {role} entrypoint does not match runtime contract")
+        (context / "entrypoint").chmod(0o755)
+        image = f"elesim/{role}:local"
+        self._image_fingerprints[image] = _build_context_fingerprint(
+            context,
+            build_args=self._role_build_args(role),
+        )
+
+    def _write_tools_context(self) -> None:
+        root = self.state.source_path
+        context = self._build_root / "tools"
+        _reset_generated_context(context)
+        source = root / "payload/runtime/docker/tools"
+        _copy_source_tree(source, context)
+        (context / "tools-entrypoint").chmod(0o755)
+        _copy_source_tree(root / "payload/runtime/common/protocol", context / "protocol")
+        _copy_source_tree(
+            root / "payload/runtime/common/elesim_interfaces",
+            context / "interfaces/elesim_interfaces",
+        )
+        self._image_fingerprints["elesim/tools:local"] = _build_context_fingerprint(
+            context
+        )
+
+    def _write_developer_context(self) -> None:
+        context = self._build_root / "development"
+        write_developer_context(source_root=self.state.source_path, context=context)
+        self._image_fingerprints["elesim/dev:local"] = _build_context_fingerprint(
+            context,
+            build_args={
+                "USERNAME": resolve_developer_username(),
+                "UID": str(os.getuid()),
+                "GID": str(os.getgid()),
+                "COMPUTE_MODE": self.state.compute.gpu_mode,
+            },
+        )
+
+    def _write_compose(self) -> None:
+        services: dict[str, object] = {}
+        if self.state.container_network.uses_tailscale_sidecar:
+            services["tailscale"] = self._tailscale_service()
+        for role in self.state.roles:
+            services[role] = self._role_service(role)
+        if self.state.turn.managed:
+            services["coturn"] = self._coturn_service()
+        if self.state.developer_attachment.enabled:
+            services["dev"] = developer_service(
+                state=self.state,
+                context=self._build_root / "development",
+                data_root=self.state.prefix_path / "cache/developer",
+                install_uuid=self._install_uuid,
+                build_fingerprint=self._image_fingerprints["elesim/dev:local"],
+            )
+        services["tools"] = self._tools_service()
+        if self.state.container_network.uses_tailscale_sidecar:
+            services["runtime-tools"] = self._runtime_tools_service()
+        services["manager"] = self._manager_service()
+        payload = {"name": GENERAL_COMPOSE_PROJECT, "services": services}
+        destination = self.container_root / "compose.yaml"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if os.path.lexists(destination):
+            metadata = os.lstat(destination)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"Compose manifest는 일반 파일이어야 합니다: {destination}")
+        rendered = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=destination.parent,
+            prefix=f".{destination.name}.", delete=False,
+        ) as handle:
+            handle.write(rendered)
+            temporary = Path(handle.name)
+        try:
+            os.replace(temporary, destination)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    def _role_service(self, role: str) -> dict[str, object]:
+        context = self._build_root / role
+        role_root = app_directory(self.state, role)
+        image = f"elesim/{role}:local"
+        service: dict[str, object] = {
+            "image": image,
+            "container_name": ROLE_CONTAINER_NAMES[role],
+            "build": {
+                "context": str(context),
+                "labels": self._image_build_labels(image),
+                "args": self._role_build_args(role),
+            },
+            "network_mode": self._runtime_network_mode(),
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "restart": "unless-stopped" if role != "ui" else "no",
+            "logging": {
+                "driver": DOCKER_LOGGING["driver"],
+                "options": dict(DOCKER_LOGGING["options"]),
+            },
+            "environment": self._dds_environment(role),
+            "volumes": [
+                f"{role_root / 'config'}:/opt/elesim/config:ro",
+                (
+                    f"{app_keystore_path(self.state, role)}:"
+                    f"{app_keystore_path(self.state, role)}:ro"
+                ),
+            ],
+        }
+        if role in {"pilot", "sim", "ui"}:
+            service["volumes"].append(  # type: ignore[union-attr]
+                f"{self.state.prefix_path / 'data'}:/opt/elesim/data:ro"
+            )
+        self._apply_tailscale_dependency(service)
+        if role == "sim":
+            # Genesis writes its cache through ``Path.home()``/XDG.  General
+            # role containers used to run as root, which made the host bind
+            # mount root-owned and caused the next normal-user
+            # ``elesim-update`` to fail while chmod-ing ``cache/genesis``.
+            # Sim needs no privileged host access; keep its writable state
+            # owned by the installing operator instead.
+            service["user"] = f"{os.getuid()}:{os.getgid()}"
+            service["environment"].update(  # type: ignore[union-attr]
+                {
+                    "HOME": "/tmp",
+                    "XDG_CACHE_HOME": "/tmp/elesim-cache",
+                    "NUMBA_CACHE_DIR": "/tmp/elesim-cache/numba",
+                    "ELESIM_WEBRTC_ENCODER": "${ELESIM_WEBRTC_ENCODER:-}",
+                    # Keep H.264 RTP packets below the effective Tailscale /
+                    # TURN path MTU.  The host may override this only within
+                    # the bounded range enforced by the Sim media worker.
+                    "ELESIM_WEBRTC_RTP_PAYLOAD_MAX": (
+                        "${ELESIM_WEBRTC_RTP_PAYLOAD_MAX:-1000}"
+                    ),
+                }
+            )
+            service["environment"]["ELESIM_SIM_VIEWER"] = "${ELESIM_SIM_VIEWER:-}"  # type: ignore[index]
+            service["volumes"].extend(  # type: ignore[union-attr]
+                (
+                    f"{self._runtime_cache_root}:/tmp/elesim-cache:rw",
+                )
+            )
+            service["shm_size"] = "2gb"
+            service["ipc"] = "host"
+            if self.state.turn.managed:
+                secret = self.state.turn.secret_path
+                if secret is None:
+                    raise ValueError("managed Coturn requires a TURN secret file")
+                service["volumes"].append(  # type: ignore[union-attr]
+                    f"{secret}:/run/secrets/turn.secret:ro"
+                )
+            elif self.state.turn.mode == "external":
+                credentials = self.state.turn.credential_path
+                if credentials is None:
+                    raise ValueError(
+                        "external TURN on Sim requires a credential file"
+                    )
+                service["volumes"].append(  # type: ignore[union-attr]
+                    f"{credentials}:/run/secrets/turn.credentials.json:ro"
+                )
+        if role in {"sim", "ui"}:
+            self._apply_x11_display(
+                service,
+                # Sim authenticates through the narrowly scoped xhost
+                # local-user ACL established at launch.  Baking an authority
+                # path discovered during installation into Compose can become
+                # stale before a later non-interactive manager launch and make
+                # Xlib send the wrong cookie despite the valid ACL.  UI keeps
+                # its existing cookie mount because it is not governed by the
+                # opt-in Viewer wrapper.
+                include_xauthority=role == "ui",
+            )
+        if role == "ui":
+            service["environment"]["LIBGL_ALWAYS_SOFTWARE"] = (  # type: ignore[index]
+                "${ELESIM_UI_SOFTWARE_GL:-1}"
+            )
+        if role in {"pilot", "sim"}:
+            self._apply_compute(service)
+        return service
+
+    def _image_build_labels(self, image: str) -> dict[str, str]:
+        try:
+            fingerprint = self._image_fingerprints[image]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"image context fingerprint가 준비되지 않았습니다: {image}"
+            ) from exc
+        return {
+            DOCKER_INSTALL_UUID_LABEL: self._install_uuid,
+            DOCKER_BUILD_FINGERPRINT_LABEL: fingerprint,
+        }
+
+    @staticmethod
+    def _apply_x11_display(
+        service: dict[str, object], *, include_xauthority: bool = True
+    ) -> None:
+        """Expose the host X11 display to graphical role containers.
+
+        Sim remains headless unless ``ELESIM_SIM_VIEWER=1`` is injected by the
+        ``elesim-up --view`` wrapper.  Keeping the display transport in the
+        generated Compose file lets that one-shot choice work without
+        mutating generated configuration or requiring a second installation.
+        """
+
+        environment = service["environment"]
+        volumes = service["volumes"]
+        if not isinstance(environment, dict) or not isinstance(volumes, list):
+            raise TypeError("graphical service must have mapping environment and list volumes")
+        environment["DISPLAY"] = "${DISPLAY:-:0}"
+        volumes.append("/tmp/.X11-unix:/tmp/.X11-unix:rw")
+        xauthority = os.environ.get("XAUTHORITY", "").strip()
+        if (
+            include_xauthority
+            and xauthority
+            and Path(xauthority).expanduser().is_file()
+        ):
+            authority_path = Path(xauthority).expanduser().resolve()
+            environment["XAUTHORITY"] = str(authority_path)
+            volumes.append(f"{authority_path}:{authority_path}:ro")
+
+    def _coturn_service(self) -> dict[str, object]:
+        secret = self.state.turn.secret_path
+        if secret is None:
+            raise ValueError("managed Coturn requires a TURN secret file")
+        command = (
+            'secret="$$(cat /run/secrets/turn.secret)"; '
+            'test -n "$$secret"; '
+            'external_ip_arg=""; '
+            'if [ -n "$$TURN_PUBLIC_IP" ]; then '
+            'external_ip_arg="--external-ip=$$TURN_PUBLIC_IP"; '
+            'fi; '
+            "exec turnserver -n --log-file=stdout --fingerprint "
+            "--use-auth-secret --no-multicast-peers --no-tls --no-dtls "
+            "--min-port=49160 --max-port=49200 "
+            '--realm="$$TURN_REALM" $$external_ip_arg '
+            '--static-auth-secret="$$secret"'
+        )
+        service: dict[str, object] = {
+            "image": "coturn/coturn:4.14.0-r0-alpine",
+            "container_name": "elesim-coturn",
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "network_mode": self._runtime_network_mode(),
+            # The bind-mounted secret is owned by the installing host user and
+            # deliberately remains 0600.  Run Coturn under that exact UID/GID
+            # instead of the image's `nobody` account so the mount is readable.
+            "user": f"{os.getuid()}:{os.getgid()}",
+            "restart": "unless-stopped",
+            "logging": {
+                "driver": DOCKER_LOGGING["driver"],
+                "options": dict(DOCKER_LOGGING["options"]),
+            },
+            "entrypoint": ("/bin/sh", "-ec"),
+            # Compose's scalar command form is shell-split. Pass one explicit
+            # script argument so `sh -ec` receives the complete command.
+            "command": (command,),
+            "environment": {
+                "TURN_REALM": self.state.turn.realm,
+                "TURN_PUBLIC_IP": self.state.turn.public_host,
+            },
+            "volumes": (f"{secret}:/run/secrets/turn.secret:ro",),
+            "tmpfs": ("/var/lib/coturn",),
+            "depends_on": ("sim",),
+        }
+        if self.state.container_network.uses_tailscale_sidecar:
+            service["depends_on"] = {
+                "tailscale": {"condition": "service_healthy"},
+                "sim": {"condition": "service_started"},
+            }
+        return service
+
+    def _tailscale_service(self) -> dict[str, object]:
+        settings = self.state.container_network
+        state_path = settings.tailscale_state_path
+        if not settings.uses_tailscale_sidecar or state_path is None:
+            raise ValueError("Tailscale sidecar settings are incomplete")
+        return {
+            "image": TAILSCALE_IMAGE,
+            "container_name": TAILSCALE_CONTAINER_NAME,
+            "hostname": settings.tailscale_hostname,
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "restart": "unless-stopped",
+            # Bypass containerboot: the bounded wrapper below exclusively owns
+            # interactive login, while this service starts only the daemon.
+            "entrypoint": ("tailscaled",),
+            "command": (
+                "--statedir=/var/lib/tailscale",
+                "--socket=/tmp/tailscaled.sock",
+                "--tun=tailscale0",
+            ),
+            "devices": ("/dev/net/tun:/dev/net/tun",),
+            "cap_add": ("NET_ADMIN", "NET_RAW"),
+            "volumes": (f"{state_path}:/var/lib/tailscale:rw",),
+            "healthcheck": {
+                "test": (
+                    "CMD-SHELL",
+                    "tailscale --socket=/tmp/tailscaled.sock status --json "
+                    "| grep -Eq '\"BackendState\"[[:space:]]*:[[:space:]]*\"Running\"'",
+                ),
+                "interval": "2s",
+                "timeout": "2s",
+                "retries": 60,
+                "start_period": "2s",
+            },
+        }
+
+    def _runtime_network_mode(self) -> str:
+        if self.state.container_network.uses_tailscale_sidecar:
+            return "service:tailscale"
+        return "host"
+
+    def _apply_tailscale_dependency(self, service: dict[str, object]) -> None:
+        if self.state.container_network.uses_tailscale_sidecar:
+            service["depends_on"] = {
+                "tailscale": {"condition": "service_healthy"}
+            }
+
+    def _apply_compute(self, service: dict[str, object]) -> None:
+        environment = service["environment"]
+        assert isinstance(environment, dict)
+        if self.state.compute.gpu_mode == "cpu":
+            environment["CUDA_VISIBLE_DEVICES"] = ""
+            return
+        environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility,graphics"
+        if self.state.compute.gpu_mode == "specific":
+            service["deploy"] = {
+                "resources": {
+                    "reservations": {
+                        "devices": (
+                            {
+                                "driver": "nvidia",
+                                "device_ids": (self.state.compute.gpu_device,),
+                                "capabilities": ("gpu",),
+                            },
+                        )
+                    }
+                }
+            }
+        else:
+            service["gpus"] = "all"
+            # Compose null means "forward it when set, otherwise leave it unset".
+            environment["CUDA_VISIBLE_DEVICES"] = None
+
+    def _tools_service(self) -> dict[str, object]:
+        context = self._build_root / "tools"
+        dds_config = (
+            app_directory(self.state, self.state.roles[0]) / "config" / "cyclonedds.xml"
+        )
+        volumes = [
+            f"{self.state.prefix_path}:{self.state.prefix_path}:rw",
+            f"{dds_config}:/opt/elesim/config/cyclonedds.xml:ro",
+        ]
+        if not _is_within(self.state.source_path, self.state.prefix_path):
+            volumes.append(f"{self.state.source_path}:{self.state.source_path}:ro")
+        if not _is_within(self.state_path, self.state.prefix_path):
+            volumes.append(f"{self.state_path.parent}:{self.state_path.parent}:rw")
+        keystore = self.state.dds.keystore_path
+        if keystore is not None and not _is_within(keystore, self.state.prefix_path):
+            volumes.append(f"{keystore}:{keystore}:ro")
+        # The doctor reuses an installed role identity. Managed host bundles
+        # deliberately contain no shared doctor/super-user enclave.
+        environment = self._dds_environment(
+            self.state.roles[0],
+            enclave_override=True,
+        )
+        environment["HOME"] = "/tmp"
+        environment["ELESIM_OPERATOR_HOME"] = str(operator_home())
+        # Preserve the outer host account for setup/update runs launched from
+        # this service.  The tools image runs as the numeric host UID and
+        # deliberately has no host passwd database to resolve it.
+        environment["ELESIM_HOST_USER"] = _resolve_viewer_user()
+        service: dict[str, object] = {
+            "image": "elesim/tools:local",
+            "build": {
+                "context": str(context),
+                "labels": self._image_build_labels("elesim/tools:local"),
+            },
+            "network_mode": "host",
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "profiles": ("tools",),
+            "user": f"{os.getuid()}:{os.getgid()}",
+            "environment": environment,
+            "volumes": volumes,
+        }
+        return service
+
+    def _runtime_tools_service(self) -> dict[str, object]:
+        service = self._tools_service()
+        # Admin tools must remain usable before sidecar enrollment. Runtime
+        # namespace checks use this separate service only after login. Give it
+        # only immutable runtime inputs so the sidecar machine identity and
+        # TURN secret are outside its mount namespace.
+        service.pop("build", None)
+        service["network_mode"] = "service:tailscale"
+        service["depends_on"] = {
+            "tailscale": {"condition": "service_healthy"}
+        }
+        role = self.state.roles[0]
+        config_root = app_directory(self.state, role) / "config"
+        dds_config = config_root / "cyclonedds.xml"
+        role_keystore = app_keystore_path(self.state, role)
+        service["volumes"] = [
+            f"{self.state_path}:{self.state_path}:ro",
+            f"{config_root}:{config_root}:ro",
+            f"{dds_config}:/opt/elesim/config/cyclonedds.xml:ro",
+            f"{role_keystore}:{role_keystore}:ro",
+        ]
+        return service
+
+    def _manager_service(self) -> dict[str, object]:
+        context = self._build_root / "tools"
+        home = operator_home()
+        manager_roots = tuple(
+            self.state.prefix_path / name
+            for name in ("connections", "authority", "security")
+        )
+        volumes = [
+            f"{home}:{home}:ro",
+            *(f"{path}:{path}:rw" for path in manager_roots),
+        ]
+        if not _is_within(self.state.bin_path, home):
+            volumes.append(f"{self.state.bin_path}:{self.state.bin_path}:ro")
+        return {
+            "image": "elesim/tools:local",
+            "build": {
+                "context": str(context),
+                "labels": self._image_build_labels("elesim/tools:local"),
+            },
+            "labels": {DOCKER_INSTALL_UUID_LABEL: self._install_uuid},
+            "profiles": ("manager",),
+            "user": f"{os.getuid()}:{os.getgid()}",
+            "environment": {
+                "HOME": str(home),
+                "ELESIM_OPERATOR_HOME": str(home),
+                # The manager mounts the operator home read-only.  Keep
+                # Docker/Buildx metadata in the manager's disposable /tmp
+                # instead of trying to write ~/.docker on that mount.
+                "DOCKER_CONFIG": "/tmp/elesim-docker-config",
+                "PYTHONUNBUFFERED": "1",
+            },
+            "volumes": volumes,
+            # The normal home read-only mount supports SSH keys/known_hosts.
+            # Mask the exact install secrets subtree so it cannot expose the
+            # Tailscale node identity or TURN secret to the manager.
+            "tmpfs": (f"{self.state.prefix_path / 'secrets'}:mode=0700",),
+        }
+
+    def _remove_legacy_role_wrappers(
+        self,
+        refresh: OwnershipRefresh | None,
+    ) -> None:
+        """Remove only manifest-owned per-role wrappers from older installs."""
+
+        if refresh is None:
+            return
+        owned = {Path(wrapper.path) for wrapper in refresh.wrappers}
+        for name in CONTAINER_ROLE_WRAPPER_NAMES:
+            path = self.state.bin_path / name
+            if path not in owned or not os.path.lexists(path):
+                continue
+            # ``prepare_ownership_refresh`` has already checked the exact
+            # manifest hash and regular-file shape before this mutation.
+            path.unlink()
+            self.log(f"[정리] 이전 role wrapper 제거: {path}")
+
+    def _write_wrappers(self, refresh: OwnershipRefresh | None = None) -> None:
+        self._remove_legacy_role_wrappers(refresh)
+        compose = self.container_root / "compose.yaml"
+        compose_wrapper = self.state.bin_path / "elesim-compose"
+        command = (
+            f"{shlex.quote(str(compose_wrapper))} "
+            f"-f {shlex.quote(str(compose))}"
+        )
+        viewer_user = _resolve_viewer_user()
+        viewer_state = (
+            self.state.prefix_path / "cache/viewer-xhost"
+            if "sim" in self.state.roles
+            else None
+        )
+        backend_guard = _docker_backend_guard(self.state.container_network)
+        owner_guard = compose_owner_guard(
+            compose,
+            project=GENERAL_COMPOSE_PROJECT,
+            containers=(
+                *ROLE_CONTAINER_NAMES.values(),
+                *LEGACY_ROLE_CONTAINER_NAMES,
+                TAILSCALE_CONTAINER_NAME,
+                "elesim-coturn",
+                "elesim-manager",
+                "elesim-dev",
+                "elesim-jaeger",
+            ),
+        )
+        guard = backend_guard + owner_guard
+        write_executable(
+            compose_wrapper,
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            + guard
+            + "runtime_cuda_visible_set=0\n"
+            + "runtime_cuda_visible=\"\"\n"
+            + "runtime_sim_viewer=\"\"\n"
+            + "while (($#)); do\n"
+            + "  case $1 in\n"
+            + "    --elesim-cuda-visible-devices)\n"
+            + "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES 값이 없습니다.\\n' >&2; exit 64; }\n"
+            + "      runtime_cuda_visible=$2\n"
+            + "      if [[ -n $runtime_cuda_visible && ! $runtime_cuda_visible =~ ^([0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$ ]]; then\n"
+            + "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+            + "        exit 64\n"
+            + "      fi\n"
+            + "      if [[ $runtime_cuda_visible =~ ^[0-9]+$ ]] && (( 10#$runtime_cuda_visible > 65535 )); then\n"
+            + "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+            + "        exit 64\n"
+            + "      fi\n"
+            + "      runtime_cuda_visible_set=1\n"
+            + "      shift 2\n"
+            + "      ;;\n"
+            + "    --elesim-sim-viewer)\n"
+            + "      (( $# >= 2 )) || { printf 'Sim viewer 값이 없습니다.\\n' >&2; exit 64; }\n"
+            + "      [[ $2 == 0 || $2 == 1 ]] || { printf 'Sim viewer 값이 올바르지 않습니다.\\n' >&2; exit 64; }\n"
+            + "      runtime_sim_viewer=$2\n"
+            + "      shift 2\n"
+            + "      ;;\n"
+            + "    *) break ;;\n"
+            + "  esac\n"
+            + "done\n"
+            + (
+                "if (( runtime_cuda_visible_set )); then\n"
+                "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\n' >&2\n"
+                "  exit 64\n"
+                "fi\n"
+                if self.state.compute.gpu_mode == "specific"
+                else ""
+            )
+            + (
+                "if (( runtime_cuda_visible_set )); then\n"
+                "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\n' >&2\n"
+                "  exit 64\n"
+                "fi\n"
+                if self.state.compute.gpu_mode == "cpu"
+                else ""
+            )
+            + "if (( runtime_cuda_visible_set )); then export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible; fi\n"
+            + "if [[ -n $runtime_sim_viewer ]]; then export ELESIM_SIM_VIEWER=$runtime_sim_viewer; fi\n"
+            + 'exec docker compose "$@"\n',
+        )
+        application_guard = launch_guard(provisioning_required_path(self.state))
+        # Read the installed state at invocation time instead of embedding
+        # static peers in a long-lived wrapper.  ``elesim-net configure`` can
+        # change peers/interface without reinstalling the wrapper; its
+        # namespace-check command then validates the current state.
+        runtime_sidecar_guard = ""
+        if self.state.container_network.uses_tailscale_sidecar:
+            tailscale_wrapper = shlex.quote(
+                str(self.state.bin_path / "elesim-tailscale")
+            )
+            runtime_sidecar_guard = (
+                "sidecar_login_status=0\n"
+                # Runtime launch must not open a browser or force a new
+                # Tailscale authentication.  The explicit operator command
+                # ``elesim-tailscale login`` owns that interaction; the
+                # idempotent mode only starts the sidecar and accepts an
+                # already-running node.
+                f"{tailscale_wrapper} login --if-needed || sidecar_login_status=$?\n"
+                "if (( sidecar_login_status != 0 )); then\n"
+                # Exit 78 is emitted by the pinned Docker backend guard.  It
+                # is not an enrollment failure, so preserve its actionable
+                # diagnostic instead of obscuring it with a login hint.
+                "  if (( sidecar_login_status == 78 )); then\n"
+                "    exit \"$sidecar_login_status\"\n"
+                "  fi\n"
+                "  printf 'Tailscale runtime을 준비하지 못했습니다. 연결관리자의 보안 및 실행 준비를 다시 실행하거나 %s login을 실행하십시오.\\n' "
+                f"{tailscale_wrapper} >&2\n"
+                "  exit \"$sidecar_login_status\"\n"
+                "fi\n"
+                "sidecar_status_json=\n"
+                f"if ! sidecar_status_json=\"$({tailscale_wrapper} status --json "
+                "2>/dev/null)\"; then\n"
+                "  printf 'Tailscale runtime 상태를 확인할 수 없습니다. 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                f"{tailscale_wrapper} >&2\n"
+                "  exit 75\n"
+                "fi\n"
+                "sidecar_backend_state=\"$(printf '%s\\n' \"$sidecar_status_json\" | "
+                "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+                "sidecar_backend_state_lower=\"$(printf '%s\\n' \"$sidecar_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
+                "if [[ $sidecar_backend_state_lower != running ]]; then\n"
+                "  printf 'Tailscale runtime 로그인이 필요합니다 (상태: %s). 연결관리자의 보안 및 실행 준비를 실행하거나 %s login을 실행하십시오.\\n' "
+                '"${sidecar_backend_state:-unknown}" '
+                f"{tailscale_wrapper} >&2\n"
+                "  exit 75\n"
+                "fi\n"
+            )
+        runtime_network_guard = runtime_sidecar_guard + (
+            f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
+            "configuration-check >/dev/null\n"
+            f"{shlex.quote(str(self.state.bin_path / 'elesim-net'))} "
+            "namespace-check >/dev/null\n"
+        )
+        wrappers: dict[str, tuple[str, bool]] = {
+            "elesim-build": (f"{command} build", False),
+            "elesim-setup": (
+                f"{command} run --rm --build tools elesim-setup "
+                f"--state {shlex.quote(str(self.state_path))}",
+                False,
+            ),
+        }
+        for name, (body, requires_provisioning) in wrappers.items():
+            write_executable(
+                self.state.bin_path / name,
+                "#!/usr/bin/env bash\nset -euo pipefail\n"
+                + (
+                    application_guard + runtime_network_guard
+                    if requires_provisioning
+                    else ""
+                )
+                + guard
+                + "exec "
+                + body
+                + ' "$@"\n',
+            )
+        write_executable(
+            self.state.bin_path / "elesim-up",
+            _runtime_up_wrapper(
+                compose=compose,
+                compose_wrapper=compose_wrapper,
+                # Compose operations use elesim-compose; direct fingerprint
+                # inspection/removal also needs the pinned daemon guard.
+                launch_guard=application_guard + runtime_network_guard,
+                has_sim="sim" in self.state.roles,
+                runtime_roles=self.state.roles,
+                state_path=self.state_path,
+                viewer_state=viewer_state,
+                viewer_user=viewer_user,
+                runtime_uid=os.getuid(),
+                runtime_gpu_mode=self.state.compute.gpu_mode,
+                runtime_install_uuid=self._install_uuid,
+                runtime_image_fingerprints=tuple(
+                    (f"elesim/{role}:local", self._image_fingerprints[f"elesim/{role}:local"])
+                    for role in self.state.roles
+                ),
+                # Fingerprint inspection/removal uses the Docker CLI directly;
+                # keep those reads on the same pinned daemon as Compose.
+                guard=backend_guard,
+            ),
+        )
+        if self.state.developer_attachment.enabled:
+            write_executable(
+                self.state.bin_path / "elesim-dev",
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                + guard
+                + f"{command} --profile developer up -d --build dev\n"
+                + "if [[ $# -eq 0 ]]; then set -- bash; fi\n"
+                + f"exec {command} exec dev /usr/local/bin/elesim-dev-env \"$@\"\n",
+            )
+        if viewer_state is not None:
+            write_executable(
+                self.state.bin_path / "elesim-viewer-cleanup",
+                _viewer_cleanup_wrapper(
+                    viewer_state,
+                    xhost_user=viewer_user,
+                ),
+            )
+        # ``elesim-net show`` is consumed as a machine-readable JSON document
+        # by the connection manager.  Compose's ``run --build`` writes build
+        # progress to stdout before the tool starts, which corrupts that
+        # contract.  Build quietly as a separate command, then leave the
+        # one-off container's stdout exclusively to ``elesim-net``. Runtime
+        # readiness invokes ``doctor`` immediately after ``elesim-up`` has
+        # already built the tools image; avoid rebuilding it for every host
+        # probe while retaining the fallback for a manual first invocation.
+        write_executable(
+            self.state.bin_path / "elesim-net",
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            + guard
+            + _docker_backend_diagnostic()
+            + "net_service=tools\n"
+            + (
+                "case ${1:-} in\n"
+                "  namespace-check|doctor) net_service=runtime-tools ;;\n"
+                "esac\n"
+                if self.state.container_network.uses_tailscale_sidecar
+                else ""
+            )
+            + f"expected_tools_build_fingerprint={shlex.quote(self._image_fingerprints['elesim/tools:local'])}\n"
+            + f"expected_tools_install_uuid={shlex.quote(self._install_uuid)}\n"
+            + "tools_image_fingerprint=\"$(docker image inspect elesim/tools:local --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.build_fingerprint\"}}{{end}}' 2>/dev/null || true)\"\n"
+            + "needs_tools_build=1\n"
+            + "if [[ ${ELESIM_UP_NO_BUILD:-0} == 1 || $tools_image_fingerprint == \"$expected_tools_build_fingerprint\" ]]; then\n"
+            + "  needs_tools_build=0\n"
+            + "fi\n"
+            + "tools_previous_image_id=\"\"\n"
+            + "if [[ $needs_tools_build == 1 ]]; then\n"
+            + "  tools_previous_image_id=\"$(docker image inspect elesim/tools:local --format '{{.Id}}' 2>/dev/null || true)\"\n"
+            + f"  {command} build --quiet tools >/dev/null\n"
+            + "  if [[ -n $tools_previous_image_id ]]; then\n"
+            + "    tools_image_tags=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true)\"\n"
+            + "    tools_real_image_tags=\"${tools_image_tags//<none>:<none>/}\"\n"
+            + "    tools_image_install_uuid=\"$(docker image inspect \"$tools_previous_image_id\" --format '{{if .Config.Labels}}{{index .Config.Labels \"io.elesim.install_uuid\"}}{{end}}' 2>/dev/null || true)\"\n"
+            + "    if [[ ! $tools_real_image_tags =~ [^[:space:]] && $tools_image_install_uuid == \"$expected_tools_install_uuid\" ]] && [[ -z \"$(docker ps -aq --filter \"ancestor=$tools_previous_image_id\" 2>/dev/null || true)\" ]]; then\n"
+            + "      docker image rm \"$tools_previous_image_id\" >/dev/null || printf '[elesim-net] 이전 tools image 정리 실패: %s\\n' \"$tools_previous_image_id\" >&2\n"
+            + "    fi\n"
+            + "  fi\n"
+            + "fi\n"
+            + f"exec {command} run --rm -T \"$net_service\" elesim-net "
+            + f"--state {shlex.quote(str(self.state_path))}"
+            + ' "$@"\n',
+        )
+        managed_services = (*self.state.roles,)
+        if self.state.turn.managed:
+            managed_services = (*managed_services, "coturn")
+        tailscale_services = (*managed_services, "runtime-tools")
+        write_executable(
+            self.state.bin_path / "elesim-logs",
+            _runtime_logs_wrapper(
+                compose=compose,
+                logs_root=self.state.prefix_path / "logs",
+                services=managed_services,
+                archive_enabled=self.state.runtime_text_logs.enabled,
+                guard=guard,
+            ),
+        )
+        write_executable(
+            self.state.bin_path / "elesim-down",
+            _runtime_down_wrapper(
+                compose=compose,
+                logs_root=self.state.prefix_path / "logs",
+                services=managed_services,
+                archive_enabled=self.state.runtime_text_logs.enabled,
+                guard=guard,
+                viewer_state=viewer_state,
+                viewer_user=viewer_user,
+                infrastructure_services=(
+                    ("tailscale",)
+                    if self.state.container_network.uses_tailscale_sidecar
+                    else ()
+                ),
+            ),
+        )
+        status_services = [
+            (role, ROLE_CONTAINER_NAMES[role]) for role in self.state.roles
+        ]
+        if self.state.turn.managed:
+            status_services.append(("coturn", "elesim-coturn"))
+        if self.state.container_network.uses_tailscale_sidecar:
+            status_services.append(("tailscale", TAILSCALE_CONTAINER_NAME))
+        if self.state.developer_attachment.enabled:
+            status_services.append(("dev", "elesim-dev"))
+        write_executable(
+            self.state.bin_path / "elesim-status",
+            render_compose_status_wrapper(
+                compose=compose,
+                project=GENERAL_COMPOSE_PROJECT,
+                services=status_services,
+                guard=guard,
+                sim_container=(
+                    ROLE_CONTAINER_NAMES["sim"]
+                    if "sim" in self.state.roles
+                    else None
+                ),
+            ),
+        )
+        if self.state.container_network.uses_tailscale_sidecar:
+            write_executable(
+                self.state.bin_path / "elesim-tailscale",
+                _tailscale_wrapper(
+                    compose=compose,
+                    compose_wrapper=compose_wrapper,
+                    guard=guard,
+                    hostname=self.state.container_network.tailscale_hostname,
+                    services=tailscale_services,
+                ),
+            )
+        write_executable(
+            self.state.bin_path / "elesim-connections",
+            _manager_wrapper(
+                compose=compose,
+                compose_wrapper=compose_wrapper,
+                state_path=self.state.prefix_path / "connections/topology.json",
+                authority_root=self.state.prefix_path / "authority",
+                local_install_root=self.state.prefix_path,
+                local_bin_dir=self.state.bin_path,
+                maintenance_root=self.state.prefix_path / "maintenance",
+                install_uuid=self._install_uuid,
+                guard=guard,
+                container_network_mode=self.state.container_network.mode,
+                gpu_mode=self.state.compute.gpu_mode,
+                gpu_device=self.state.compute.gpu_device,
+            ),
+        )
+        write_executable(
+            self.state.bin_path / "elesim-update",
+            render_update_wrapper(
+                prefix=self.state.prefix_path,
+                state_path=self.state_path,
+                compose=compose,
+                compose_wrapper=compose_wrapper,
+                build_services=(
+                    *self.state.roles,
+                    "tools",
+                    *(("dev",) if self.state.developer_attachment.enabled else ()),
+                ),
+                preamble=guard,
+                repository=self.state.source_repository,
+                ref=self.state.source_ref,
+                runtime_uid=os.getuid(),
+                install_uuid=self._install_uuid,
+                owned_images=(
+                    *(f"elesim/{role}:local" for role in self.state.roles),
+                    "elesim/tools:local",
+                    *(("elesim/dev:local",) if self.state.developer_attachment.enabled else ()),
+                ),
+            ),
+        )
+
+    def _wrapper_paths(self, *, include_uninstaller: bool = False) -> tuple[Path, ...]:
+        names = [
+            "elesim-build",
+            "elesim-up",
+            "elesim-down",
+            "elesim-logs",
+            "elesim-status",
+            "elesim-setup",
+            "elesim-net",
+            "elesim-connections",
+            "elesim-update",
+            "elesim-compose",
+        ]
+        if self.state.container_network.uses_tailscale_sidecar:
+            names.append("elesim-tailscale")
+        if "sim" in self.state.roles:
+            names.append("elesim-viewer-cleanup")
+        if self.state.developer_attachment.enabled:
+            names.append("elesim-dev")
+        if include_uninstaller:
+            names.append("elesim-uninstall")
+        return tuple(self.state.bin_path / name for name in names)
+
+    def _dds_environment(
+        self,
+        role: str,
+        *,
+        enclave_override: bool = False,
+    ) -> dict[str, object]:
+        interface = str(self.state.dds.interface).strip()
+        if interface.casefold() in {"automatic", "auto", "-"}:
+            interface = ""
+        environment: dict[str, object] = {
+            "PYTHONUNBUFFERED": "1",
+            "ELESIM_SYSTEM_ID": self.state.dds.system_id,
+            "ELESIM_DDS_DISCOVERY_MODE": self.state.dds.discovery_mode,
+            "ELESIM_DDS_STATIC_PEERS": ",".join(self.state.dds.static_peers),
+            "ELESIM_DDS_NETWORK_INTERFACE": interface,
+            "ELESIM_DDS_SECURITY_PROFILE": self.state.dds.security_profile,
+            "ELESIM_DDS_VENDOR_CONFIG": "/opt/elesim/config/cyclonedds.xml",
+            "ROS_DOMAIN_ID": str(self.state.dds.domain_id),
+            "RMW_IMPLEMENTATION": self.state.dds.rmw_implementation,
+            "ROS_LOCALHOST_ONLY": "0",
+            "CYCLONEDDS_URI": "file:///opt/elesim/config/cyclonedds.xml",
+        }
+        if self.state.dds.security_profile == "sros2":
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "true",
+                    "ROS_SECURITY_STRATEGY": "Enforce",
+                    "ROS_SECURITY_KEYSTORE": str(
+                        app_keystore_path(self.state, role)
+                    ),
+                    "ELESIM_DDS_ENCLAVE": dds_enclave(self.state, role),
+                }
+            )
+            if enclave_override:
+                environment["ROS_SECURITY_ENCLAVE_OVERRIDE"] = dds_enclave(
+                    self.state,
+                    role,
+                )
+        else:
+            # ``refresh_compose_dds_environment`` merges this dict into the
+            # generated manifest, so a key omitted here keeps whatever the
+            # previous profile wrote.  Switching sros2 -> trusted-network has
+            # to clear the SROS2 values explicitly or the runtime check in
+            # ``network.require_generated_dds_configuration`` rejects the start
+            # with a stale ROS_SECURITY_STRATEGY.
+            environment.update(
+                {
+                    "ROS_SECURITY_ENABLE": "false",
+                    "ROS_SECURITY_STRATEGY": "",
+                    "ROS_SECURITY_KEYSTORE": "",
+                    "ELESIM_DDS_ENCLAVE": "",
+                }
+            )
+        return environment
+
+    def _prepare_turn_secret(self) -> None:
+        if self.state.turn.mode == "external":
+            if "sim" not in self.state.roles:
+                return
+            raw_credentials = self.state.turn.credential_file.strip()
+            if not raw_credentials:
+                raise ValueError(
+                    "external TURN on Sim requires a credential file"
+                )
+            credentials = _resolve_non_symlink_path(
+                Path(raw_credentials), name="TURN credential path"
+            )
+            _chmod_private_file(credentials, "external TURN credential")
+            return
+        if not self.state.turn.managed:
+            return
+        raw_secret = self.state.turn.secret_file.strip()
+        if not raw_secret:
+            raise ValueError("managed Coturn requires a TURN secret file")
+        secret = _resolve_non_symlink_path(
+            Path(raw_secret), name="TURN secret path"
+        )
+        if secret.exists():
+            if secret.is_symlink() or not secret.is_file():
+                raise ValueError(f"TURN secret path is not a regular file: {secret}")
+            _chmod_private_file(secret, "managed TURN secret")
+            payload = secret.read_bytes()
+            if not payload.strip() or len(payload) > 4096:
+                raise ValueError("TURN secret must contain 1..4096 non-whitespace bytes")
+            return
+        secret.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=secret.parent,
+            prefix=f".{secret.name}.",
+            delete=False,
+        ) as handle:
+            handle.write(secrets.token_urlsafe(48) + "\n")
+            temporary = Path(handle.name)
+        _chmod_private_file(temporary, "managed TURN secret")
+        os.replace(temporary, secret)
+
+    def _prepare_tailscale_state(self) -> None:
+        settings = self.state.container_network
+        if not settings.uses_tailscale_sidecar:
+            return
+        state_path = settings.tailscale_state_path
+        if state_path is None:
+            raise ValueError("Tailscale sidecar state directory is missing")
+        secrets_root = self.state.prefix_path / "secrets"
+        if os.path.lexists(secrets_root):
+            metadata = os.lstat(secrets_root)
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(
+                    "Tailscale state path는 실제 directory여야 합니다: "
+                    f"{secrets_root}"
+                )
+        else:
+            secrets_root.mkdir(mode=0o700)
+        try:
+            secrets_fd = os.open(
+                secrets_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"Tailscale state path를 안전하게 열 수 없습니다: {secrets_root}"
+            ) from exc
+        try:
+            try:
+                os.fchmod(secrets_fd, 0o700)
+            except OSError as exc:
+                raise PermissionError(
+                    f"Tailscale secrets root 권한을 설정할 수 없습니다: {secrets_root}"
+                ) from exc
+            try:
+                child_metadata = os.stat(
+                    "tailscale",
+                    dir_fd=secrets_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                os.mkdir("tailscale", mode=0o700, dir_fd=secrets_fd)
+                child_metadata = os.stat(
+                    "tailscale",
+                    dir_fd=secrets_fd,
+                    follow_symlinks=False,
+                )
+            if stat.S_ISLNK(child_metadata.st_mode) or not stat.S_ISDIR(
+                child_metadata.st_mode
+            ):
+                raise ValueError(
+                    f"Tailscale state path는 실제 directory여야 합니다: {state_path}"
+                )
+            try:
+                state_fd = os.open(
+                    "tailscale",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=secrets_fd,
+                )
+            except OSError as exc:
+                raise ValueError(
+                    f"Tailscale state path를 안전하게 열 수 없습니다: {state_path}"
+                ) from exc
+            try:
+                try:
+                    os.fchmod(state_fd, 0o700)
+                except OSError as exc:
+                    raise PermissionError(
+                        f"Tailscale state directory 권한을 설정할 수 없습니다: {state_path}"
+                    ) from exc
+            finally:
+                os.close(state_fd)
+        finally:
+            os.close(secrets_fd)
+
+    def _validate_external_turn_credentials(self) -> None:
+        if (
+            self.state.turn.mode != "external"
+            or "sim" not in self.state.roles
+        ):
+            return
+        credentials = self.state.turn.credential_path
+        if credentials is None:
+            raise ValueError(
+                "external TURN on Sim requires a credential file"
+            )
+        validate_external_turn_credentials(
+            credentials,
+            urls=self.state.network.turn_urls,
+        )
+
+
+def _entrypoint(role: str) -> str:
+    commands = {
+        "pilot": (
+            "elesim-pilot --config /opt/elesim/config/config.yaml "
+            "--runtime-config /opt/elesim/config/runtime.installed.yaml"
+        ),
+        "ui": "elesim-ui --config /opt/elesim/config/installed.yaml",
+        "sim": (
+            "elesim-sim --config /opt/elesim/config/app.installed.yaml "
+            "--runtime-config /opt/elesim/config/runtime.installed.yaml"
+        ),
+    }
+    try:
+        command = commands[role]
+    except KeyError as exc:
+        raise ValueError(f"unsupported container role: {role}") from exc
+    if role == "sim":
+        command = (
+            "viewer_preflight_only=0\n"
+            "if [[ ${1:-} == --elesim-viewer-preflight ]]; then\n"
+            "  (( $# == 1 )) || { printf 'Sim Viewer 사전 점검 인자가 올바르지 않습니다.\\n' >&2; exit 64; }\n"
+            "  viewer_preflight_only=1\n"
+            "  shift\n"
+            "fi\n"
+            "sim_args=()\n"
+            'if [[ ${ELESIM_SIM_VIEWER:-} == "1" ]]; then\n'
+            "  if ! python3 -c 'from pyglet.window import Window; "
+            "window = Window(width=1, height=1, visible=False); "
+            "window.switch_to(); window.close()'; then\n"
+            "    printf 'Sim 컨테이너가 DISPLAY의 X11/GL context를 열 수 없습니다: %s\\n' \"${DISPLAY:-unset}\" >&2\n"
+            "    exit 69\n"
+            "  fi\n"
+            "  if (( viewer_preflight_only )); then\n"
+            "    exit 0\n"
+            "  fi\n"
+            "  sim_args+=(--viewer)\n"
+            "elif (( viewer_preflight_only )); then\n"
+            "  printf 'Sim Viewer 사전 점검에는 ELESIM_SIM_VIEWER=1이 필요합니다.\\n' >&2\n"
+            "  exit 64\n"
+            "fi\n"
+            "exec "
+            + commands[role]
+            + ' "${sim_args[@]}" "$@"\n'
+        )
+    else:
+        command = "exec " + commands[role] + ' "$@"\n'
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "set +u\n"
+        "source /opt/ros/humble/setup.bash\n"
+        "source /opt/elesim/ros/install/setup.bash\n"
+        "set -u\n"
+        + command
+    )
+
+
+def _chmod_private_file(path: Path, label: str) -> None:
+    """Apply a secret-file mode with an actionable ownership error."""
+
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        raise PermissionError(
+            f"{label} 파일 권한을 설정할 수 없습니다. "
+            f"설치 소유 사용자가 파일을 쓸 수 있는지 확인하십시오: {path}"
+        ) from exc
+
+
+def _reset_generated_context(context: Path) -> None:
+    """Replace one generated Docker context without following a link."""
+
+    if not os.path.lexists(context):
+        return
+    metadata = os.lstat(context)
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError(f"generated image context는 symlink일 수 없습니다: {context}")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(f"generated image context는 directory여야 합니다: {context}")
+    try:
+        shutil.rmtree(context)
+    except PermissionError as exc:
+        raise PermissionError(
+            "기존 image context를 교체할 권한이 없습니다. "
+            f"root 소유의 이전 context를 보존하려면 다시 일반 사용자 설치 경로를 확인하십시오: {context}"
+        ) from exc
+
+
+def _reject_source_symlinks(source: Path) -> None:
+    """Reject source links before ``copytree`` can follow them externally."""
+
+    if source.is_symlink():
+        raise ValueError(f"설치 소스는 symlink일 수 없습니다: {source}")
+    for directory, names, files in os.walk(source, followlinks=False):
+        for name in (*names, *files):
+            path = Path(directory) / name
+            if path.is_symlink():
+                raise ValueError(
+                    "설치 소스 image context 안의 symlink는 허용되지 않습니다: "
+                    f"{path}"
+                )
+
+
+def _copy_source_tree(source: Path, destination: Path, *, ignore_config: bool = False) -> None:
+    ignored = {"__pycache__", ".pytest_cache", "build", "dist"}
+    source_root = source.resolve()
+    _reject_source_symlinks(source)
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        matches = {
+            name
+            for name in names
+            if name in ignored or name.endswith((".pyc", ".egg-info"))
+        }
+        # Deployment config is mounted separately at runtime.  Only omit that
+        # top-level directory; packages such as elesim_sim/config are
+        # application code and must remain in the install context.
+        if Path(directory).resolve() == source_root:
+            matches.add("tests")
+            if ignore_config:
+                matches.add("config")
+        return matches
+
+    shutil.copytree(source, destination, ignore=ignore)
+
+
+def _copy_tree(source: Path, destination: Path) -> None:
+    if not source.is_dir():
+        raise FileNotFoundError(source)
+    _reject_source_symlinks(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+
+
+def _docker_backend_guard(settings: ContainerNetworkSettings) -> str:
+    """Pin every generated lifecycle command to the installed Docker daemon."""
+
+    context = settings.docker_context.strip()
+    engine_id = settings.docker_engine_id.strip()
+    if not context and not engine_id:
+        # Pre-v9 installations are migrated without inventing a daemon pin.
+        return ""
+    if not context or not engine_id:
+        raise ValueError("Docker context and engine ID must be pinned together")
+    return (
+        f"expected_docker_context={shlex.quote(context)}\n"
+        f"expected_docker_engine_id={shlex.quote(engine_id)}\n"
+        "unset DOCKER_HOST\n"
+        "export DOCKER_CONTEXT=\"$expected_docker_context\"\n"
+        "actual_docker_engine_id=\n"
+        "for _docker_guard_attempt in {1..5}; do\n"
+        "  if candidate_docker_engine_id=\"$(docker info --format '{{.ID}}' 2>/dev/null)\" && [[ -n $candidate_docker_engine_id ]]; then\n"
+        "    actual_docker_engine_id=$candidate_docker_engine_id\n"
+        "    break\n"
+        "  fi\n"
+        "  sleep 0.2\n"
+        "done\n"
+        "if [[ -z $actual_docker_engine_id ]]; then\n"
+        "  printf '설치에 고정된 Docker daemon에 연결할 수 없습니다: context=%s\\n' \"$expected_docker_context\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+        "if [[ $actual_docker_engine_id != \"$expected_docker_engine_id\" ]]; then\n"
+        "  printf '설치에 고정된 Docker daemon과 현재 daemon이 다릅니다.\\n' >&2\n"
+        "  printf '  expected: context=%s engine=%s\\n' \"$expected_docker_context\" \"$expected_docker_engine_id\" >&2\n"
+        "  printf '  actual:   context=%s engine=%s\\n' \"$DOCKER_CONTEXT\" \"${actual_docker_engine_id:-unknown}\" >&2\n"
+        "  exit 78\n"
+        "fi\n"
+    )
+
+
+def _docker_backend_diagnostic() -> str:
+    """Render a read-only Docker backend report for namespace checks.
+
+    Docker Desktop and a native Engine expose the same CLI, so the actual
+    interface probe remains authoritative.  This diagnostic makes the
+    selected daemon/context visible when that probe fails, without changing a
+    user's global Docker context or attempting to install/stop Docker.
+    """
+
+    return (
+        "if [[ ${1:-} == namespace-check ]]; then\n"
+        "  docker_backend_name=\"$(docker info --format '{{.Name}}' 2>/dev/null || true)\"\n"
+        "  docker_context_name=\"$(docker context show 2>/dev/null || true)\"\n"
+        "  docker_backend_kind=native\n"
+        "  if [[ $docker_backend_name == docker-desktop || $docker_context_name == desktop-linux ]]; then\n"
+        "    docker_backend_kind=docker-desktop\n"
+        "  fi\n"
+        "  if [[ -n $docker_backend_name || -n $docker_context_name ]]; then\n"
+        "    printf '[elesim-net] Docker backend: %s (name=%s context=%s)\\n' \"$docker_backend_kind\" \"${docker_backend_name:-unknown}\" \"${docker_context_name:-unknown}\" >&2\n"
+        "  else\n"
+        "    printf '[elesim-net] Docker backend could not be inspected with the current Docker CLI.\\n' >&2\n"
+        "  fi\n"
+        "fi\n"
+    )
+
+
+def _manager_wrapper(
+    *,
+    compose: Path,
+    compose_wrapper: Path,
+    state_path: Path,
+    authority_root: Path,
+    local_install_root: Path,
+    local_bin_dir: Path,
+    maintenance_root: Path,
+    install_uuid: str,
+    guard: str,
+    container_network_mode: str,
+    gpu_mode: str,
+    gpu_device: str,
+) -> str:
+    if container_network_mode not in {"direct-host", "tailscale-sidecar"}:
+        raise ValueError(
+            f"unsupported container network mode: {container_network_mode!r}"
+        )
+    if gpu_mode not in {"inherit", "specific", "cpu"}:
+        raise ValueError(f"unsupported GPU mode: {gpu_mode!r}")
+    if gpu_mode == "specific" and not gpu_device:
+        raise ValueError("specific GPU mode requires a GPU device")
+    if gpu_mode != "specific" and gpu_device:
+        raise ValueError("GPU device is only valid for specific GPU mode")
+    tailscale_hint = (
+        "tailscale_interface=\"$(ip -o link show 2>/dev/null | awk -F': ' '$2 ~ /^tailscale[0-9]+$/ {print $2; exit}')\"\n"
+        "tailscale_address=\"\"\n"
+        "if [[ -n $tailscale_interface ]]; then\n"
+        "  tailscale_address=\"$(ip -4 -o addr show dev \"$tailscale_interface\" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)\"\n"
+        "fi\n"
+        if container_network_mode == "direct-host"
+        else "tailscale_interface=\n" "tailscale_address=\n"
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + manager_lifecycle_fragment(install_uuid)
+        + "manager_compose_args=(-f "
+        + shlex.quote(str(compose))
+        + ")\n"
+        + "manager_port=8766\n"
+        "manager_args=(\"$@\")\n"
+        "for ((manager_index=0; manager_index<${#manager_args[@]}; manager_index++)); do\n"
+        "  case \"${manager_args[$manager_index]}\" in\n"
+        "    --port=*) manager_port=\"${manager_args[$manager_index]#--port=}\" ;;\n"
+        "    --port)\n"
+        "      if (( manager_index + 1 >= ${#manager_args[@]} )); then\n"
+        "        printf '연결관리자 --port 값이 없습니다.\\n' >&2\n"
+        "        exit 2\n"
+        "      fi\n"
+        "      manager_index=$((manager_index + 1))\n"
+        "      manager_port=\"${manager_args[$manager_index]}\"\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        "if [[ ! $manager_port =~ ^[0-9]+$ || $manager_port -lt 1 || $manager_port -gt 65535 ]]; then\n"
+        "  printf '연결관리자 port가 유효하지 않습니다: %s\\n' \"$manager_port\" >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "manager_args+=(--host 0.0.0.0)\n"
+        + tailscale_hint
+        + "manager_options=()\n"
+        "manager_options+=( -e ELESIM_CONNECTION_PUBLISHED=1 )\n"
+        "manager_options+=( -e ELESIM_INSTALL_GPU_MODE="
+        + shlex.quote(gpu_mode)
+        + " )\n"
+        "manager_options+=( -e ELESIM_INSTALL_GPU_DEVICE="
+        + shlex.quote(gpu_device)
+        + " )\n"
+        "manager_options+=( -e ELESIM_CONTAINER_NETWORK_MODE="
+        + shlex.quote(container_network_mode)
+        + " )\n"
+        "manager_options+=( -e \"ELESIM_TAILSCALE_ADDRESS=$tailscale_address\" )\n"
+        "manager_options+=( -e \"ELESIM_TAILSCALE_INTERFACE=$tailscale_interface\" )\n"
+        + host_helper_fragment(
+            maintenance_root=maintenance_root,
+            compose_argument=shlex.quote(str(compose)),
+            bin_dir_argument=shlex.quote(str(local_bin_dir)),
+            project=GENERAL_COMPOSE_PROJECT,
+        )
+        + "if [[ -n ${SSH_AUTH_SOCK:-} && -S $SSH_AUTH_SOCK ]]; then\n"
+        "  manager_options+=(\n"
+        "    -e \"SSH_AUTH_SOCK=$SSH_AUTH_SOCK\"\n"
+        "    -v \"$SSH_AUTH_SOCK:$SSH_AUTH_SOCK\"\n"
+        "  )\n"
+        "fi\n"
+        "manager_started=1\n"
+        "set +e\n"
+        + shlex.quote(str(compose_wrapper))
+        + " \"${manager_compose_args[@]}\" run --rm --build --name elesim-manager --publish "
+        + '"127.0.0.1:${manager_port}:${manager_port}" '
+        + '"${manager_options[@]}" manager elesim-connections --state '
+        + shlex.quote(str(state_path))
+        + " --authority-root "
+        + shlex.quote(str(authority_root))
+        + " --local-install-root "
+        + shlex.quote(str(local_install_root))
+        + " --local-bin-dir "
+        + shlex.quote(str(local_bin_dir))
+        + ' "${manager_args[@]}"\n'
+        + "manager_status=$?\n"
+        + "exit \"$manager_status\"\n"
+    )
+
+
+def _tailscale_wrapper(
+    *,
+    compose: Path,
+    compose_wrapper: Path,
+    guard: str,
+    hostname: str,
+    services: tuple[str, ...] = (),
+) -> str:
+    """Render the bounded sidecar enrollment/status/update operator surface.
+
+    Services using ``network_mode: service:tailscale`` must be recreated after
+    their network namespace provider is replaced.  ``update`` therefore
+    snapshots only the selected services that are currently running, pulls the
+    official rolling ``stable`` image, recreates the sidecar while those
+    services are stopped, and starts that same set again.  The sidecar state
+    volume is never replaced and no unrelated Compose service is touched.  It
+    deliberately does not run ``tailscale update`` inside the container because
+    an in-container mutation is ephemeral and is lost on the next recreation.
+    """
+
+    compose_array = (
+        "tailscale_compose=("
+        + shlex.quote(str(compose_wrapper))
+        + " -f "
+        + shlex.quote(str(compose))
+        + ")\n"
+    )
+    services_array = (
+        "tailscale_runtime_services=("
+        + " ".join(shlex.quote(service) for service in services)
+        + ")\n"
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + compose_array
+        + services_array
+        + "case ${1:-} in\n"
+        + "  login)\n"
+        + "    login_if_needed=0\n"
+        + "    if (( $# == 2 )) && [[ $2 == --if-needed ]]; then\n"
+        + "      login_if_needed=1\n"
+        + "    elif (( $# != 1 )); then\n"
+        + "      printf '사용법: elesim-tailscale login [--if-needed]\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    \"${tailscale_compose[@]}\" up -d --no-deps tailscale\n"
+        + "    sidecar_ready=0\n"
+        + "    login_status_json=\n"
+        + "    login_backend_state=\n"
+        + "    for _attempt in {1..60}; do\n"
+        + "      if login_status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null)\"; then\n"
+        + "        login_backend_state=\"$(printf '%s\\n' \"$login_status_json\" | "
+        + "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "        login_backend_state_lower=\"$(printf '%s\\n' \"$login_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
+        + "        case $login_backend_state_lower in\n"
+        + "          running|needslogin|nostate) sidecar_ready=1; break ;;\n"
+        + "          starting|'') ;;\n"
+        + "          *) sidecar_ready=1; break ;;\n"
+        + "        esac\n"
+        + "      fi\n"
+        + "      sleep 0.25\n"
+        + "    done\n"
+        + "    if (( ! sidecar_ready )); then\n"
+        + "      printf 'Tailscale sidecar daemon이 준비되지 않았습니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    login_backend_state_lower=\"$(printf '%s\\n' \"$login_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
+        + "    case $login_backend_state_lower in\n"
+        + "      running)\n"
+        + "        if (( login_if_needed )); then\n"
+        + "          exit 0\n"
+        + "        fi\n"
+        + "        login_action=(up --force-reauth --hostname="
+        + shlex.quote(hostname)
+        + ")\n"
+        + "        ;;\n"
+        + "      needslogin|nostate)\n"
+        + "        if (( login_if_needed )); then\n"
+        + "          printf 'Tailscale sidecar 로그인이 필요합니다. 먼저 elesim-tailscale login을 실행하십시오.\\n' >&2\n"
+        + "          exit 75\n"
+        + "        fi\n"
+        + "        ;;\n"
+        + "      *)\n"
+        + "        printf 'Tailscale sidecar가 로그인 가능한 상태가 아닙니다: %s\\n' \"${login_backend_state:-unknown}\" >&2\n"
+        + "        exit 75\n"
+        + "        ;;\n"
+        + "    esac\n"
+        + "    login_child=\n"
+        + "    heartbeat_child=\n"
+        + "    login_cleanup() {\n"
+        + "      local status=$?\n"
+        + "      trap - EXIT TERM INT\n"
+        + "      if [[ -n ${heartbeat_child:-} ]]; then\n"
+        + "        kill \"$heartbeat_child\" >/dev/null 2>&1 || true\n"
+        + "        wait \"$heartbeat_child\" >/dev/null 2>&1 || true\n"
+        + "      fi\n"
+        + "      if [[ -n ${login_child:-} ]]; then\n"
+        + "        kill \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "        for _cleanup_attempt in {1..20}; do\n"
+        + "          kill -0 \"$login_child\" >/dev/null 2>&1 || break\n"
+        + "          sleep 0.1\n"
+        + "        done\n"
+        + "        kill -KILL \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "        wait \"$login_child\" >/dev/null 2>&1 || true\n"
+        + "      fi\n"
+        + "      exit \"$status\"\n"
+        + "    }\n"
+        + "    trap login_cleanup EXIT TERM INT\n"
+        + "    if [[ -z ${login_action+x} ]]; then\n"
+        + "      login_action=(login --hostname="
+        + shlex.quote(hostname)
+        + ")\n"
+        + "    fi\n"
+        + "    \"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock \"${login_action[@]}\" &\n"
+        + "    login_child=$!\n"
+        + "    last_login_message=\n"
+        + "    while kill -0 \"$login_child\" >/dev/null 2>&1; do\n"
+        + "      sleep 2 &\n"
+        + "      heartbeat_child=$!\n"
+        + "      wait \"$heartbeat_child\" || true\n"
+        + "      heartbeat_child=\n"
+        + "      if kill -0 \"$login_child\" >/dev/null 2>&1; then\n"
+        + "        login_wait_message='[elesim-tailscale] 브라우저 로그인을 기다리는 중...'\n"
+        + "        if [[ $last_login_message != \"$login_wait_message\" ]]; then\n"
+        + "          printf '%s\\n' \"$login_wait_message\" >&2\n"
+        + "          last_login_message=$login_wait_message\n"
+        + "        fi\n"
+        + "      fi\n"
+        + "    done\n"
+        + "    set +e\n"
+        + "    wait \"$login_child\"\n"
+        + "    login_status=$?\n"
+        + "    set -e\n"
+        + "    login_child=\n"
+        + "    trap - EXIT TERM INT\n"
+        + "    exit \"$login_status\"\n"
+        + "    ;;\n"
+        + "  status)\n"
+        + "    if (( $# > 2 )) || (( $# == 2 )) && [[ $2 != --json ]]; then\n"
+        + "      printf '사용법: elesim-tailscale status [--json]\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps -q tailscale 2>/dev/null)\" || [[ -z $sidecar_id ]]; then\n"
+        + "      printf '{\"BackendState\":\"Stopped\",\"IPv4\":\"\"}\\n'\n"
+        + "      exit 0\n"
+        + "    fi\n"
+        + "    status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null || true)\"\n"
+        + "    backend_state=\"$(printf '%s\\n' \"$status_json\" | "
+        + "sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "    ipv4=\"$(\"${tailscale_compose[@]}\" exec -T tailscale "
+        + "tailscale --socket=/tmp/tailscaled.sock ip -4 2>/dev/null | head -n1 || true)\"\n"
+        + "    [[ $backend_state =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]] || backend_state=Unavailable\n"
+        + "    [[ $ipv4 =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] || ipv4=\n"
+        + "    printf '{\"BackendState\":\"%s\",\"IPv4\":\"%s\"}\\n' \"$backend_state\" \"$ipv4\"\n"
+        + "    ;;\n"
+        + "  update)\n"
+        + "    if (( $# != 1 )); then\n"
+        + "      printf '사용법: elesim-tailscale update\\n' >&2\n"
+        + "      exit 64\n"
+        + "    fi\n"
+        + "    sidecar_id=\n"
+        + "    if ! sidecar_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q tailscale 2>/dev/null)\"; then\n"
+        + "      printf 'Tailscale sidecar 실행 상태를 확인하지 못했습니다. Docker backend와 설치 소유권을 확인하십시오.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    sidecar_running=0\n"
+        + "    [[ -n $sidecar_id ]] && sidecar_running=1\n"
+        + "    previous_version=\n"
+        + "    if (( sidecar_running )); then\n"
+        + "      previous_version=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version 2>/dev/null | head -n1 || true)\"\n"
+        + "    fi\n"
+        + "    running_services=()\n"
+        + "    for service in \"${tailscale_runtime_services[@]}\"; do\n"
+        + "      service_id=\n"
+        + "      if ! service_id=\"$(\"${tailscale_compose[@]}\" ps --status running -q \"$service\" 2>/dev/null)\"; then\n"
+        + "        printf 'Tailscale namespace 서비스 실행 상태를 확인하지 못했습니다: %s\\n' \"$service\" >&2\n"
+        + "        exit 75\n"
+        + "      fi\n"
+        + "      [[ -n $service_id ]] && running_services+=(\"$service\")\n"
+        + "    done\n"
+        + "    if (( ! sidecar_running && ${#running_services[@]} )); then\n"
+        + "      printf 'Tailscale sidecar 없이 실행 중인 namespace 서비스가 있어 업데이트를 거부합니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    printf '%s\\n' '[elesim-tailscale] 공식 stable Tailscale 이미지를 가져오는 중...'\n"
+        + "    \"${tailscale_compose[@]}\" pull tailscale\n"
+        + "    if (( sidecar_running )); then\n"
+        + "      if (( ${#running_services[@]} )); then\n"
+        + "        \"${tailscale_compose[@]}\" stop \"${running_services[@]}\"\n"
+        + "      fi\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps --force-recreate tailscale\n"
+        + "    else\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps tailscale\n"
+        + "    fi\n"
+        + "    sidecar_backend_state=\n"
+        + "    sidecar_status_json=\n"
+        + "    sidecar_ready=0\n"
+        + "    for _attempt in {1..60}; do\n"
+        + "      if sidecar_status_json=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock status --json 2>/dev/null)\"; then\n"
+        + "        sidecar_backend_state=\"$(printf '%s\\n' \"$sidecar_status_json\" | sed -n 's/.*\"BackendState\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\"\n"
+        + "        sidecar_backend_state_lower=\"$(printf '%s\\n' \"$sidecar_backend_state\" | tr '[:upper:]' '[:lower:]')\"\n"
+        + "        case $sidecar_backend_state_lower in\n"
+        + "          running|needslogin|nostate) sidecar_ready=1; break ;;\n"
+        + "        esac\n"
+        + "      fi\n"
+        + "      sleep 0.25\n"
+        + "    done\n"
+        + "    if (( ! sidecar_ready )); then\n"
+        + "      printf 'Tailscale sidecar daemon이 업데이트 후 준비되지 않았습니다.\\n' >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    if (( ${#running_services[@]} )) && [[ $sidecar_backend_state_lower != running ]]; then\n"
+        + "      printf 'Tailscale sidecar가 로그인되지 않아 기존 namespace 서비스를 다시 연결하지 않았습니다 (상태: %s). 먼저 elesim-tailscale login을 실행하십시오.\\n' \"${sidecar_backend_state:-unknown}\" >&2\n"
+        + "      exit 75\n"
+        + "    fi\n"
+        + "    if (( ${#running_services[@]} )); then\n"
+        + "      \"${tailscale_compose[@]}\" up -d --no-build --no-deps \"${running_services[@]}\"\n"
+        + "    fi\n"
+        + "    current_version=\"$(\"${tailscale_compose[@]}\" exec -T tailscale tailscale --socket=/tmp/tailscaled.sock version 2>/dev/null | head -n1 || true)\"\n"
+        + "    if [[ -n $previous_version && $previous_version == \"$current_version\" ]]; then\n"
+        + "      printf '[elesim-tailscale] 이미 최신 stable 버전입니다: %s\\n' \"$current_version\"\n"
+        + "    else\n"
+        + "      printf '[elesim-tailscale] sidecar 업데이트 완료: %s -> %s\\n' \"${previous_version:-not-running}\" \"${current_version:-unknown}\"\n"
+        + "    fi\n"
+        + "    printf '%s\\n' '[elesim-tailscale] 기존에 실행 중이던 namespace 서비스만 다시 연결했습니다.'\n"
+        + "    ;;\n"
+        + "  *)\n"
+        + "    printf '사용법: elesim-tailscale {login [--if-needed]|status [--json]|update}\\n' >&2\n"
+        + "    exit 64\n"
+        + "    ;;\n"
+        + "esac\n"
+    )
+
+
+def _viewer_xhost_function(
+    state_path: Path,
+    *,
+    xhost_user: str = "root",
+    x11_socket_dir: Path = Path("/tmp/.X11-unix"),
+) -> str:
+    """Render opt-in X11 ACL management for the Sim container user."""
+
+    state = shlex.quote(str(state_path))
+    user = shlex.quote(str(xhost_user))
+    socket_dir = shlex.quote(str(x11_socket_dir))
+    # Keep the recovery location independent of the launching shell.  Manager
+    # SSH, a later local down, and uninstall do not necessarily share
+    # XDG_RUNTIME_DIR; an environment-derived fallback would orphan the ACL.
+    fallback_path = state_path.parent.parent / ".runtime-cache/viewer-xhost"
+    fallback = shlex.quote(str(fallback_path))
+    legacy_name = (
+        "viewer-xhost-"
+        + hashlib.sha256(str(state_path).encode("utf-8")).hexdigest()[:16]
+    )
+    legacy_tmp = shlex.quote(f"/tmp/elesim/{legacy_name}")
+    return (
+        f"viewer_xhost_primary={state}\n"
+        f"viewer_xhost_state={state}\n"
+        f"viewer_xhost_user={user}\n"
+        f"viewer_x11_socket_dir={socket_dir}\n"
+        f"viewer_xhost_fallback={fallback}\n"
+        "viewer_xhost_runtime_uid=$(id -u)\n"
+        f"viewer_xhost_legacy_run=\"/run/user/$viewer_xhost_runtime_uid/elesim/{legacy_name}\"\n"
+        f"viewer_xhost_legacy_tmp={legacy_tmp}\n"
+        "viewer_xhost_candidates=(\"$viewer_xhost_primary\" \"$viewer_xhost_fallback\" \"$viewer_xhost_legacy_run\" \"$viewer_xhost_legacy_tmp\")\n"
+        "if [[ -n ${XDG_RUNTIME_DIR:-} && $XDG_RUNTIME_DIR == /* && -d $XDG_RUNTIME_DIR && ! -L $XDG_RUNTIME_DIR ]] && [[ $(stat -c %u -- \"$XDG_RUNTIME_DIR\" 2>/dev/null || true) == \"$viewer_xhost_runtime_uid\" ]]; then\n"
+        f"  viewer_xhost_candidates+=(\"$XDG_RUNTIME_DIR/elesim/{legacy_name}\")\n"
+        "fi\n"
+        "viewer_xhost_cleanup_on_failure=1\n"
+        "viewer_xhost_select_state() {\n"
+        "  viewer_xhost_state=$viewer_xhost_primary\n"
+        "  local candidate existing\n"
+        "  local -a checked=()\n"
+        "  for candidate in \"${viewer_xhost_candidates[@]}\"; do\n"
+        "    for existing in \"${checked[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && continue 2\n"
+        "    done\n"
+        "    checked+=(\"$candidate\")\n"
+        "    if [[ -e $candidate || -L $candidate ]]; then\n"
+        "      viewer_xhost_state=$candidate\n"
+        "      return 0\n"
+        "    fi\n"
+        "  done\n"
+        "  local state_parent=\"${viewer_xhost_state%/*}\"\n"
+        "  if [[ -d \"$state_parent\" && ! -w \"$state_parent\" ]]; then\n"
+        "    viewer_xhost_state=\"$viewer_xhost_fallback\"\n"
+        "    printf '기존 X11 상태 경로에 쓸 수 없어 임시 경로를 사용합니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_select_state\n"
+        "viewer_xhost_resolve_session() {\n"
+        "  local -a display_candidates=() authority_candidates=()\n"
+        "  local candidate existing socket_path socket_name display_number socket_uid\n"
+        "  local selected_display selected_authority selected_kind selected_rank\n"
+        "  local best_display=\"\" best_authority=\"\" best_rank=99\n"
+        "  local viewer_xhost_session_user=\"${ELESIM_VIEWER_USER:-${USER:-$viewer_xhost_user}}\"\n"
+        "  local viewer_xhost_session_explicit=0\n"
+        "  [[ -n ${ELESIM_VIEWER_USER:-} ]] && viewer_xhost_session_explicit=1\n"
+        "  if [[ ! $viewer_xhost_session_user =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,31}$ ]]; then\n"
+        "    if (( viewer_xhost_session_explicit )); then\n"
+        "      printf 'Viewer 대상 SSH 사용자 이름을 확인할 수 없습니다: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
+        "      return 64\n"
+        "    fi\n"
+        "    viewer_xhost_session_user=viewer\n"
+        "  fi\n"
+        "  local viewer_xhost_session_uid viewer_xhost_session_home=\"\"\n"
+        "  if (( viewer_xhost_session_explicit )); then\n"
+        "    viewer_xhost_session_uid=\"$(id -u \"$viewer_xhost_session_user\" 2>/dev/null || true)\"\n"
+        "    if [[ ! $viewer_xhost_session_uid =~ ^[0-9]+$ ]]; then\n"
+        "      printf 'Viewer 대상 SSH 사용자를 호스트에서 찾을 수 없습니다: %s\\n' \"$viewer_xhost_session_user\" >&2\n"
+        "      return 64\n"
+        "    fi\n"
+        "    if command -v getent >/dev/null 2>&1; then\n"
+        "      viewer_xhost_session_home=\"$(getent passwd \"$viewer_xhost_session_user\" 2>/dev/null | awk -F: 'NR == 1 { print $6 }')\"\n"
+        "    fi\n"
+        "  else\n"
+        "    # Direct local launches have no topology SSH account. Preserve the\n"
+        "    # historical behavior and bind display ownership to this process.\n"
+        "    viewer_xhost_session_uid=$viewer_xhost_runtime_uid\n"
+        "    viewer_xhost_session_home=\"${HOME:-}\"\n"
+        "  fi\n"
+        "  viewer_add_display_candidate() {\n"
+        "    candidate=$1\n"
+        "    [[ -n $candidate ]] || return 0\n"
+        "    # The container receives only the host's local Unix socket mount.\n"
+        "    # Reject SSH-forwarded/TCP DISPLAY values even if host xhost can\n"
+        "    # reach them; that route is not reachable from the runtime namespace.\n"
+        "    [[ $candidate =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]] || return 0\n"
+        "    display_number=${BASH_REMATCH[1]}\n"
+        "    candidate=\":$display_number\"\n"
+        "    [[ -S \"$viewer_x11_socket_dir/X$display_number\" ]] || return 0\n"
+        "    for existing in \"${display_candidates[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && return 0\n"
+        "    done\n"
+        "    display_candidates+=(\"$candidate\")\n"
+        "  }\n"
+        "  viewer_display_is_owned() {\n"
+        "    local display=$1\n"
+        "    local display_number=${display#:}\n"
+        "    display_number=${display_number%%.*}\n"
+        "    local socket_path=\"$viewer_x11_socket_dir/X$display_number\"\n"
+        "    [[ -S $socket_path ]] || return 1\n"
+        "    socket_uid=$(stat -c %u -- \"$socket_path\" 2>/dev/null || true)\n"
+        "    [[ $socket_uid == \"$viewer_xhost_session_uid\" ]] && return 0\n"
+        "    # A non-target user's socket must never be selected merely because\n"
+        "    # an authority file happens to make xhost answer successfully.\n"
+        "    # Only root-owned sockets use the authority-based fallback below;\n"
+        "    # this prevents a second local user's physical X server from\n"
+        "    # receiving the Viewer when multiple sessions share one host.\n"
+        "    [[ $socket_uid == 0 ]] || return 1\n"
+        "    # Some distributions keep the X socket root-owned even though\n"
+        "    # the rootless session's authority belongs to the logged-in user.\n"
+        "    # Permit that case only after an owned authority file proves the\n"
+        "    # same-user session; never use an empty xhost credential here.\n"
+        "    local authority authority_uid\n"
+        "    for authority in \"${authority_candidates[@]}\"; do\n"
+        "      [[ -n $authority && -f $authority && -r $authority ]] || continue\n"
+        "      authority_uid=$(stat -c %u -- \"$authority\" 2>/dev/null || true)\n"
+        "      [[ $authority_uid == \"$viewer_xhost_session_uid\" ]] || continue\n"
+        "      if XAUTHORITY=\"$authority\" DISPLAY=\"$display\" xhost >/dev/null 2>&1; then\n"
+        "        return 0\n"
+        "      fi\n"
+        "    done\n"
+        "    return 1\n"
+        "  }\n"
+        "  viewer_display_kind() {\n"
+        "    local display=$1 authority=${2:-} monitor_output=\"\"\n"
+        "    if ! command -v xrandr >/dev/null 2>&1; then\n"
+        "      printf 'unknown\\n'\n"
+        "      return 0\n"
+        "    fi\n"
+        "    if [[ -n $authority ]]; then\n"
+        "      monitor_output=\"$(XAUTHORITY=\"$authority\" DISPLAY=\"$display\" xrandr --listmonitors 2>/dev/null || true)\"\n"
+        "    else\n"
+        "      monitor_output=\"$(env -u XAUTHORITY DISPLAY=\"$display\" xrandr --listmonitors 2>/dev/null || true)\"\n"
+        "    fi\n"
+        "    if grep -Eiq '(^|[^[:alnum:]])(DP|HDMI|DVI|eDP|VGA|LVDS|DisplayPort)(-[[:alnum:]_.]+)?([^[:alnum:]]|$)' <<<\"$monitor_output\"; then\n"
+        "      printf 'physical\\n'\n"
+        "    elif grep -Eiq '(nxoutput|xrdp|vnc|virtual|dummy|wayland)' <<<\"$monitor_output\"; then\n"
+        "      printf 'virtual\\n'\n"
+        "    else\n"
+        "      printf 'unknown\\n'\n"
+        "    fi\n"
+        "  }\n"
+        "  viewer_display_rank() {\n"
+        "    case $1 in\n"
+        "      physical) printf '0\\n' ;;\n"
+        "      unknown) printf '1\\n' ;;\n"
+        "      virtual) printf '2\\n' ;;\n"
+        "      *) printf '99\\n' ;;\n"
+        "    esac\n"
+        "  }\n"
+        "  viewer_add_authority_candidate() {\n"
+        "    candidate=$1\n"
+        "    [[ -n $candidate && -f $candidate && -r $candidate ]] || return 0\n"
+        "    local authority_uid\n"
+        "    authority_uid=\"$(stat -c %u -- \"$candidate\" 2>/dev/null || true)\"\n"
+        "    [[ $authority_uid == \"$viewer_xhost_session_uid\" ]] || return 0\n"
+        "    for existing in \"${authority_candidates[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && return 0\n"
+        "    done\n"
+        "    authority_candidates+=(\"$candidate\")\n"
+        "  }\n"
+        "  viewer_add_display_candidate \"${DISPLAY:-}\"\n"
+        "  local discovered_displays=0\n"
+        "  for socket_path in \"$viewer_x11_socket_dir\"/X*; do\n"
+        "    [[ -S $socket_path ]] || continue\n"
+        "    socket_name=${socket_path##*/}\n"
+        "    [[ $socket_name =~ ^X([0-9]{1,4})$ ]] || continue\n"
+        "    viewer_add_display_candidate \":${BASH_REMATCH[1]}\"\n"
+        "    discovered_displays=$((discovered_displays + 1))\n"
+        "    (( discovered_displays >= 16 )) && break\n"
+        "  done\n"
+        "  viewer_add_authority_candidate \"${XAUTHORITY:-}\"\n"
+        "  if [[ -n $viewer_xhost_session_home ]]; then\n"
+        "    viewer_add_authority_candidate \"$viewer_xhost_session_home/.Xauthority\"\n"
+        "  fi\n"
+        "  viewer_add_authority_candidate \"/run/user/$viewer_xhost_session_uid/gdm/Xauthority\"\n"
+        # An empty final candidate asks xhost to use its normal per-user
+        # default. This also covers X servers configured for local peer
+        # credentials without a cookie file.
+        "  authority_candidates+=(\"\")\n"
+        "  for selected_display in \"${display_candidates[@]}\"; do\n"
+        "    viewer_display_is_owned \"$selected_display\" || continue\n"
+        "    local viewer_probe_ok=0\n"
+        "    for selected_authority in \"${authority_candidates[@]}\"; do\n"
+        "      if [[ -n $selected_authority ]]; then\n"
+        "        if XAUTHORITY=\"$selected_authority\" DISPLAY=\"$selected_display\" xhost >/dev/null 2>&1; then\n"
+        "          viewer_probe_ok=1\n"
+        "          break\n"
+        "        fi\n"
+        "      elif env -u XAUTHORITY DISPLAY=\"$selected_display\" xhost >/dev/null 2>&1; then\n"
+        "        viewer_probe_ok=1\n"
+        "        break\n"
+        "      fi\n"
+        "    done\n"
+        "    (( viewer_probe_ok )) || continue\n"
+        "    selected_kind=\"$(viewer_display_kind \"$selected_display\" \"$selected_authority\")\"\n"
+        "    selected_rank=\"$(viewer_display_rank \"$selected_kind\")\"\n"
+        "    if (( selected_rank < best_rank )); then\n"
+        "      best_display=$selected_display\n"
+        "      best_authority=$selected_authority\n"
+        "      best_rank=$selected_rank\n"
+        "    fi\n"
+        "  done\n"
+        "  if [[ -z $best_display ]]; then\n"
+        "    printf 'SSH 사용자 %s(uid=%s)가 소유한 접속 가능한 X11 세션을 찾지 못했습니다.\\n' \"$viewer_xhost_session_user\" \"$viewer_xhost_session_uid\" >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  # Keep the first candidate for an equal-ranked tie.  DISPLAY from\n"
+        "  # the SSH user's shell is added first, then local X sockets in\n"
+        "  # deterministic order, so multiple sessions never make launch\n"
+        "  # fail merely because another user's X server is also present.\n"
+        "  export DISPLAY=$best_display\n"
+        "  if [[ -n $best_authority ]]; then\n"
+        "    export XAUTHORITY=$best_authority\n"
+        "  else\n"
+        "    unset XAUTHORITY\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_validate_state() {\n"
+        "  local checked_state=$1\n"
+        "  if [[ ! -f $checked_state || -L $checked_state ]]; then\n"
+        "    printf 'EleSim xhost 상태 파일이 일반 파일이 아닙니다: %s\\n' \"$checked_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local state_mode state_uid state_links state_parent parent_mode parent_uid resolved_parent\n"
+        "  if ! state_mode=$(stat -c %a -- \"$checked_state\" 2>/dev/null) || ! state_uid=$(stat -c %u -- \"$checked_state\" 2>/dev/null) || ! state_links=$(stat -c %h -- \"$checked_state\" 2>/dev/null); then\n"
+        "    printf 'EleSim xhost 상태 소유권을 확인할 수 없습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  if [[ $state_uid != \"$viewer_xhost_runtime_uid\" || $state_mode != 600 || $state_links != 1 ]]; then\n"
+        "    printf 'EleSim xhost 상태의 소유자/권한이 안전하지 않습니다: %s\\n' \"$checked_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  state_parent=${checked_state%/*}\n"
+        "  if [[ ! -d $state_parent || -L $state_parent ]] || ! resolved_parent=$(realpath -e -- \"$state_parent\" 2>/dev/null) || [[ $resolved_parent != \"$state_parent\" ]] || ! parent_mode=$(stat -c %a -- \"$state_parent\" 2>/dev/null) || ! parent_uid=$(stat -c %u -- \"$state_parent\" 2>/dev/null) || [[ $parent_uid != \"$viewer_xhost_runtime_uid\" || $parent_mode != 700 ]]; then\n"
+        "    printf 'EleSim xhost 상태 디렉터리의 소유자/권한이 안전하지 않습니다: %s\\n' \"$state_parent\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_cleanup_one() {\n"
+        "  local cleanup_state=$1\n"
+        "  [[ -e $cleanup_state || -L $cleanup_state ]] || return 0\n"
+        "  viewer_xhost_validate_state \"$cleanup_state\" || return $?\n"
+        "  local saved_display=\"\" saved_xauthority=\"\"\n"
+        "  { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$cleanup_state\"\n"
+        "  if [[ -z $saved_display ]]; then\n"
+        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$cleanup_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  if ! command -v xhost >/dev/null 2>&1; then\n"
+        "    printf 'xhost 명령을 찾을 수 없어 X11 권한을 회수할 수 없습니다.\\n' >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local xhost_status=0\n"
+        "  if [[ -n $saved_xauthority ]]; then\n"
+        "    XAUTHORITY=\"$saved_xauthority\" DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
+        "  else\n"
+        "    env -u XAUTHORITY DISPLAY=\"$saved_display\" xhost -si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1 || xhost_status=$?\n"
+        "  fi\n"
+        "  if (( xhost_status != 0 )); then\n"
+        "    printf 'X11 Viewer 권한 회수 실패; 같은 DISPLAY에서 다시 elesim-down을 실행하십시오: %s\\n' \"$saved_display\" >&2\n"
+        "    return \"$xhost_status\"\n"
+        "  fi\n"
+        "  rm -f -- \"$cleanup_state\"\n"
+        "}\n"
+        "viewer_xhost_discard_duplicate() {\n"
+        "  local duplicate_state=$1 preserved_display=$2\n"
+        "  [[ -e $duplicate_state || -L $duplicate_state ]] || return 0\n"
+        "  viewer_xhost_validate_state \"$duplicate_state\" || return $?\n"
+        "  local duplicate_display=\"\" duplicate_authority=\"\"\n"
+        "  { IFS= read -r duplicate_display || true; IFS= read -r duplicate_authority || true; } <\"$duplicate_state\"\n"
+        "  if [[ -z $duplicate_display ]]; then\n"
+        "    printf 'EleSim xhost 상태에 DISPLAY가 없습니다: %s\\n' \"$duplicate_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  local duplicate_server=$duplicate_display preserved_server=$preserved_display\n"
+        "  if [[ $duplicate_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then\n"
+        "    duplicate_server=\":${BASH_REMATCH[1]}\"\n"
+        "  fi\n"
+        "  if [[ $preserved_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then\n"
+        "    preserved_server=\":${BASH_REMATCH[1]}\"\n"
+        "  fi\n"
+        "  if [[ $duplicate_server == \"$preserved_server\" ]]; then\n"
+        "    # The X server ACL is per display, not per recovery file.  Keep\n"
+        "    # the selected live grant and discard only this duplicate record.\n"
+        "    rm -f -- \"$duplicate_state\"\n"
+        "  else\n"
+        "    viewer_xhost_cleanup_one \"$duplicate_state\"\n"
+        "  fi\n"
+        "}\n"
+        "viewer_xhost_cleanup_except() {\n"
+        "  local preserved_state=${1:-} preserved_display=${2:-}\n"
+        "  local candidate existing\n"
+        "  local -a checked=()\n"
+        "  for candidate in \"${viewer_xhost_candidates[@]}\"; do\n"
+        "    [[ -n $preserved_state && $candidate == \"$preserved_state\" ]] && continue\n"
+        "    for existing in \"${checked[@]}\"; do\n"
+        "      [[ $existing == \"$candidate\" ]] && continue 2\n"
+        "    done\n"
+        "    checked+=(\"$candidate\")\n"
+        "    if [[ -n $preserved_state ]]; then\n"
+        "      viewer_xhost_discard_duplicate \"$candidate\" \"$preserved_display\" || return $?\n"
+        "    else\n"
+        "      viewer_xhost_cleanup_one \"$candidate\" || return $?\n"
+        "    fi\n"
+        "  done\n"
+        "}\n"
+        "viewer_xhost_cleanup() {\n"
+        "  viewer_xhost_cleanup_except || return $?\n"
+        "  viewer_xhost_select_state\n"
+        "}\n"
+        "viewer_xhost_enable() {\n"
+        "  if ! command -v xhost >/dev/null 2>&1; then\n"
+        "    printf 'xhost 명령을 찾을 수 없어 --view를 실행할 수 없습니다.\\n' >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  viewer_xhost_resolve_session || return $?\n"
+        "  local display=$DISPLAY\n"
+        "  viewer_xhost_cleanup_on_failure=1\n"
+        "  if [[ -e \"$viewer_xhost_state\" || -L \"$viewer_xhost_state\" ]]; then\n"
+        "    viewer_xhost_validate_state \"$viewer_xhost_state\" || return $?\n"
+        "    if [[ -f \"$viewer_xhost_state\" && ! -L \"$viewer_xhost_state\" ]]; then\n"
+        "      local saved_display=\"\" saved_xauthority=\"\" owned_xhost_list=\"\" saved_server current_server\n"
+        "      { IFS= read -r saved_display || true; IFS= read -r saved_xauthority || true; } <\"$viewer_xhost_state\"\n"
+        "      saved_server=$saved_display\n"
+        "      current_server=$display\n"
+        "      if [[ $saved_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then saved_server=\":${BASH_REMATCH[1]}\"; fi\n"
+        "      if [[ $current_server =~ ^:([0-9]{1,4})(\\.[0-9]{1,4})?$ ]]; then current_server=\":${BASH_REMATCH[1]}\"; fi\n"
+        "      if [[ $saved_server == \"$current_server\" ]] && owned_xhost_list=\"$(xhost 2>/dev/null)\" && grep -Fxq \"SI:localuser:$viewer_xhost_user\" <<<\"$owned_xhost_list\"; then\n"
+        "        viewer_xhost_cleanup_except \"$viewer_xhost_state\" \"$display\" || return $?\n"
+        "        # A currently running Viewer already owns this exact grant.\n"
+        "        # Preserve it if a restart attempt fails so the previous\n"
+        "        # container can be resumed by the manager's compensation.\n"
+        "        viewer_xhost_cleanup_on_failure=0\n"
+        "        return 0\n"
+        "      fi\n"
+        "    fi\n"
+        "    viewer_xhost_cleanup || return $?\n"
+        "  fi\n"
+        "  local xhost_list=\"\" had_viewer_user=0\n"
+        "  if ! xhost_list=\"$(xhost 2>/dev/null)\"; then\n"
+        "    printf 'DISPLAY에 연결할 수 없어 xhost ACL을 확인할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "  if grep -Fxq \"SI:localuser:$viewer_xhost_user\" <<<\"$xhost_list\"; then\n"
+        "    had_viewer_user=1\n"
+        "  fi\n"
+        "  if (( had_viewer_user )); then\n"
+        "    # The user already had this ACL before EleSim.  Do not claim or\n"
+        "    # later revoke externally owned access.\n"
+        "    return 0\n"
+        "  fi\n"
+        "  # Persist the recovery record before mutating the X server.  If the\n"
+        "  # process dies after the grant, elesim-down/manager Stop can still\n"
+        "  # revoke it.  A record without a successful grant is harmless: the\n"
+        "  # exact xhost removal is idempotent.\n"
+        "  local temporary=\"$viewer_xhost_state.tmp.$$\"\n"
+        "  if ! mkdir -p -- \"${viewer_xhost_state%/*}\" || ! chmod 0700 -- \"${viewer_xhost_state%/*}\" || ! (umask 077; printf '%s\\n%s\\n' \"$display\" \"${XAUTHORITY:-}\" >\"$temporary\") || ! chmod 0600 -- \"$temporary\" || ! mv -f -- \"$temporary\" \"$viewer_xhost_state\"; then\n"
+        "    rm -f -- \"$temporary\"\n"
+        "    printf 'X11 권한 상태를 기록할 수 없습니다: %s\\n' \"$viewer_xhost_state\" >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        "  if ! xhost +si:localuser:\"$viewer_xhost_user\" >/dev/null 2>&1; then\n"
+        "    # Keep the recovery record.  Although xhost reported failure, it\n"
+        "    # may have mutated the server before disconnecting; a later\n"
+        "    # explicit cleanup can safely retry the exact removal.\n"
+        "    printf 'X11 Viewer 사용자 권한을 추가할 수 없습니다: %s\\n' \"$display\" >&2\n"
+        "    return 64\n"
+        "  fi\n"
+        "}\n"
+    )
+
+
+def _viewer_cleanup_wrapper(
+    state_path: Path,
+    *,
+    xhost_user: str = "root",
+) -> str:
+    """Render the exact, Docker-independent cleanup used by manager stops."""
+
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + _viewer_xhost_function(state_path, xhost_user=xhost_user)
+        + "if (( $# != 0 )); then\n"
+        "  printf '사용법: elesim-viewer-cleanup\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        "viewer_xhost_cleanup\n"
+    )
+
+
+def _runtime_up_wrapper(
+    *,
+    compose: Path,
+    guard: str,
+    launch_guard: str,
+    has_sim: bool,
+    runtime_roles: Sequence[str],
+    state_path: Path,
+    compose_wrapper: Path | None = None,
+    viewer_state: Path | None = None,
+    viewer_user: str = "root",
+    viewer_x11_socket_dir: Path = Path("/tmp/.X11-unix"),
+    runtime_uid: int | None = None,
+    runtime_gpu_mode: str | None = None,
+    runtime_install_uuid: str | None = None,
+    runtime_image_fingerprints: Sequence[tuple[str, str]] = (),
+) -> str:
+    """Render the general runtime launcher with an optional Sim Viewer.
+
+    ``--view`` is intentionally a launcher-only switch.  It does not alter
+    the installed YAML or security material; it just passes a one-shot
+    environment value into the Sim container, whose entrypoint translates it
+    to the runtime's ``--viewer`` flag.
+    """
+
+    if runtime_gpu_mode is not None and runtime_gpu_mode not in {
+        "inherit",
+        "specific",
+        "cpu",
+    }:
+        raise ValueError(f"unsupported runtime GPU mode: {runtime_gpu_mode!r}")
+    normalized_fingerprints = tuple(
+        (str(image).strip(), str(fingerprint).strip())
+        for image, fingerprint in runtime_image_fingerprints
+    )
+    if len({image for image, _ in normalized_fingerprints}) != len(
+        normalized_fingerprints
+    ):
+        raise ValueError("runtime image fingerprints must not contain duplicates")
+    for image, fingerprint in normalized_fingerprints:
+        if not re.fullmatch(
+            r"elesim/[a-z0-9][a-z0-9_.-]{0,127}:local", image
+        ):
+            raise ValueError(f"invalid runtime image name: {image!r}")
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError(f"invalid runtime image fingerprint: {fingerprint!r}")
+    if normalized_fingerprints and not str(runtime_install_uuid or "").strip():
+        raise ValueError("runtime image fingerprints require runtime_install_uuid")
+
+    command = (
+        shlex.quote(str(compose_wrapper))
+        if compose_wrapper is not None
+        else "docker compose"
+    ) + " -f " + shlex.quote(str(compose))
+    unsupported = (
+        "    printf '이 설치에는 Sim 역할이 없어 --view를 사용할 수 없습니다.\\n' >&2\n"
+        "    exit 64\n"
+    )
+    view_parse = (
+        "view_requested=0\n"
+        "no_build_requested=0\n"
+        "runtime_cuda_visible_set=0\n"
+        "runtime_cuda_visible=\"\"\n"
+        "runtime_viewer_user_set=0\n"
+        "runtime_viewer_user=\"\"\n"
+        "compose_args=()\n"
+        "while (($#)); do\n"
+        "  case $1 in\n"
+        "    --view)\n"
+        + (
+            "      if (( view_requested )); then\n"
+            "        printf 'elesim-up --view는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+            "        exit 64\n"
+            "      fi\n"
+            "      view_requested=1\n"
+            if has_sim
+            else unsupported
+        )
+        + "      shift\n"
+        "      ;;\n"
+        "    --no-build)\n"
+        "      if (( no_build_requested )); then\n"
+        "        printf 'elesim-up --no-build는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+        "        exit 64\n"
+        "      fi\n"
+        "      no_build_requested=1\n"
+        "      shift\n"
+        "      ;;\n"
+        "    --cuda-visible-devices)\n"
+        "      (( $# >= 2 )) || { printf 'CUDA_VISIBLE_DEVICES 값이 없습니다.\\n' >&2; exit 64; }\n"
+        "      runtime_cuda_visible=$2\n"
+        "      if [[ -n $runtime_cuda_visible && ! $runtime_cuda_visible =~ ^([0-9]{1,6}|GPU-[A-Za-z0-9_-]{1,124}|MIG-GPU-[A-Za-z0-9_-]{1,116}/[0-9]+/[0-9]+)$ ]]; then\n"
+        "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+        "        exit 64\n"
+        "      fi\n"
+        "      if [[ $runtime_cuda_visible =~ ^[0-9]+$ ]] && (( 10#$runtime_cuda_visible > 65535 )); then\n"
+        "        printf 'CUDA_VISIBLE_DEVICES 값이 올바르지 않습니다.\\n' >&2\n"
+        "        exit 64\n"
+        "      fi\n"
+        "      runtime_cuda_visible_set=1\n"
+        "      shift 2\n"
+        "      ;;\n"
+        "    --viewer-user)\n"
+        "      (( $# >= 2 )) || { printf 'Viewer SSH 사용자 이름이 없습니다.\\n' >&2; exit 64; }\n"
+        "      if (( runtime_viewer_user_set )); then\n"
+        "        printf 'elesim-up --viewer-user는 한 번만 지정할 수 있습니다.\\n' >&2\n"
+        "        exit 64\n"
+        "      fi\n"
+        "      runtime_viewer_user=$2\n"
+        "      if [[ ! $runtime_viewer_user =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,31}$ ]]; then\n"
+        "        printf 'Viewer SSH 사용자 이름이 올바르지 않습니다.\\n' >&2\n"
+        "        exit 64\n"
+        "      fi\n"
+        "      runtime_viewer_user_set=1\n"
+        "      shift 2\n"
+        "      ;;\n"
+        "    *)\n"
+        "      compose_args+=(\"$1\")\n"
+        "      shift\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        + (
+            f"expected_runtime_uid={shlex.quote(str(runtime_uid))}\n"
+            "actual_runtime_uid=\"$(id -u)\"\n"
+            "if [[ $actual_runtime_uid != \"$expected_runtime_uid\" ]]; then\n"
+            "  printf '이 설치의 runtime 파일은 UID %s로 생성되었습니다. 현재 UID %s가 아니라 설치 소유 사용자로 실행하십시오.\\n' \"$expected_runtime_uid\" \"$actual_runtime_uid\" >&2\n"
+            "  exit 77\n"
+            "fi\n"
+            if runtime_uid is not None
+            else ""
+        )
+        + (
+            "if (( runtime_viewer_user_set )); then\n"
+            "  viewer_uid=\"$(id -u \"$runtime_viewer_user\" 2>/dev/null || true)\"\n"
+            "  if [[ -z $viewer_uid || $viewer_uid != \"$expected_runtime_uid\" ]]; then\n"
+            "    printf 'Viewer 사용자 %s의 UID가 runtime UID %s와 다릅니다. 설치 소유 사용자로 Viewer를 실행하십시오.\\n' \"$runtime_viewer_user\" \"$expected_runtime_uid\" >&2\n"
+            "    exit 77\n"
+            "  fi\n"
+            "fi\n"
+            if runtime_uid is not None
+            else ""
+        )
+        + (
+            "if (( runtime_cuda_visible_set )); then\n"
+            "  printf 'specific GPU 예약은 Compose device_ids가 소유하므로 CUDA_VISIBLE_DEVICES를 다시 지정할 수 없습니다.\\n' >&2\n"
+            "  exit 64\n"
+            "fi\n"
+            if runtime_gpu_mode == "specific"
+            else ""
+        )
+        + (
+            "if (( runtime_cuda_visible_set )) && [[ -n $runtime_cuda_visible ]]; then\n"
+            "  printf 'CPU-only 설치에는 CUDA_VISIBLE_DEVICES를 지정할 수 없습니다. GPU 모드를 다시 구성하십시오.\\n' >&2\n"
+            "  exit 64\n"
+            "fi\n"
+            if runtime_gpu_mode == "cpu"
+            else ""
+        )
+        + "if (( runtime_cuda_visible_set )); then\n"
+        "  export CUDA_VISIBLE_DEVICES=$runtime_cuda_visible\n"
+        "fi\n"
+        "if (( runtime_viewer_user_set )); then\n"
+        "  export ELESIM_VIEWER_USER=$runtime_viewer_user\n"
+        "else\n"
+        "  unset ELESIM_VIEWER_USER\n"
+        "fi\n"
+        "if (( runtime_viewer_user_set && ! view_requested )); then\n"
+        "  printf 'elesim-up --viewer-user에는 --view가 필요합니다.\\n' >&2\n"
+        "  exit 64\n"
+        "fi\n"
+        "if (( view_requested )); then\n"
+        "  export ELESIM_SIM_VIEWER=1\n"
+        "else\n"
+        "  export ELESIM_SIM_VIEWER=\n"
+        "fi\n"
+        "if (( no_build_requested )); then\n"
+        "  export ELESIM_UP_NO_BUILD=1\n"
+        "else\n"
+        "  unset ELESIM_UP_NO_BUILD\n"
+        "fi\n"
+    )
+    rendered_roles = " ".join(shlex.quote(str(role)) for role in runtime_roles)
+    if not rendered_roles:
+        raise ValueError("runtime launcher requires at least one role")
+    allowed_role_cases = "|".join(
+        shlex.quote(str(role)) for role in runtime_roles
+    )
+    compose_argument_validation = (
+        "runtime_roles=(" + rendered_roles + ")\n"
+        "if (( ${#compose_args[@]} == 0 )); then\n"
+        "  compose_args=(\"${runtime_roles[@]}\")\n"
+        "else\n"
+        "  for argument in \"${compose_args[@]}\"; do\n"
+        "    case $argument in\n"
+        f"      {allowed_role_cases}) ;;\n"
+        + (
+            "      coturn) ;;\n"
+            if has_sim
+            else "      coturn) printf '이 설치에는 Coturn 서비스가 없습니다.\\n' >&2; exit 64 ;;\n"
+        )
+        + "      *) printf '지원하지 않는 elesim-up 서비스 인자입니다: %s\\n' \"$argument\" >&2; exit 64 ;;\n"
+        "    esac\n"
+        "  done\n"
+        "fi\n"
+        + (
+            "if (( view_requested )); then\n"
+            "  viewer_sim_selected=0\n"
+            "  for argument in \"${compose_args[@]}\"; do\n"
+            "    [[ $argument == sim ]] && viewer_sim_selected=1\n"
+            "  done\n"
+            "  if (( ! viewer_sim_selected )); then\n"
+            "    printf 'elesim-up --view에는 Sim 서비스가 포함되어야 합니다.\\n' >&2\n"
+            "    exit 64\n"
+            "  fi\n"
+            "fi\n"
+            if has_sim
+            else ""
+        )
+    )
+    viewer_function = (
+        _viewer_xhost_function(
+            viewer_state,
+            xhost_user=viewer_user,
+            x11_socket_dir=viewer_x11_socket_dir,
+        )
+        if has_sim and viewer_state is not None
+        else ""
+    )
+    viewer_action = (
+        (
+            "if (( view_requested )); then\n"
+            "  viewer_xhost_enable || exit $?\n"
+            "fi\n"
+            if viewer_function
+            else ""
+        )
+        + launch_guard
+    )
+    security_profile = (
+        "runtime_security_profile() {\n"
+        "  local state_path="
+        + shlex.quote(str(state_path))
+        + "\n"
+        "  if [[ ! -f \"$state_path\" || -L \"$state_path\" ]]; then\n"
+        "    printf '설치 상태 파일이 없거나 일반 파일이 아닙니다: %s\\n' \"$state_path\" >&2\n"
+        "    return 78\n"
+        "  fi\n"
+        "  local profile\n"
+        "  if profile=\"$(python3 -c 'import json,sys; "
+        "print(json.load(open(sys.argv[1], encoding=\"utf-8\"))"
+        ".get(\"dds\", {}).get(\"security_profile\", \"\"))' "
+        "\"$state_path\" 2>/dev/null)\"; then\n"
+        "    :\n"
+        "  else\n"
+        "    local status=$?\n"
+        "    printf '설치 상태의 DDS 보안 프로필을 읽을 수 없습니다: %s\\n' \"$state_path\" >&2\n"
+        "    return \"$status\"\n"
+        "  fi\n"
+        "  case \"$profile\" in\n"
+        "    sros2|trusted-network) printf '%s' \"$profile\" ;;\n"
+        "    *) printf '알 수 없는 DDS 보안 프로필입니다: %s\\n' \"$profile\" >&2; return 78 ;;\n"
+        "  esac\n"
+        "}\n"
+        if has_sim
+        else ""
+    )
+    coturn_selection = (
+        "  if security_profile=\"$(runtime_security_profile)\"; then\n"
+        "    :\n"
+        "  else\n"
+        "    profile_status=$?\n"
+        "    exit \"$profile_status\"\n"
+        "  fi\n"
+        "  requested_sim=0\n"
+        "  requested_coturn=0\n"
+        "  for argument in \"${compose_args[@]}\"; do\n"
+        "    case $argument in\n"
+        "      sim) requested_sim=1 ;;\n"
+        "      coturn) requested_coturn=1 ;;\n"
+        "    esac\n"
+        "  done\n"
+        "  if (( requested_coturn && ! requested_sim )); then\n"
+        "    printf 'Coturn은 Sim과 함께만 시작할 수 있습니다.\\n' >&2\n"
+        "    exit 64\n"
+        "  fi\n"
+        "  if [[ $security_profile == sros2 && requested_sim -eq 1 ]]; then\n"
+        "    if (( ! requested_coturn )); then\n"
+        "      compose_args+=(coturn)\n"
+        "    fi\n"
+        "  else\n"
+        "    filtered_compose_args=()\n"
+        "    for argument in \"${compose_args[@]}\"; do\n"
+        "      [[ $argument == coturn ]] && continue\n"
+        "      filtered_compose_args+=(\"$argument\")\n"
+        "    done\n"
+        "    compose_args=(\"${filtered_compose_args[@]}\")\n"
+        "    # Coturn is Sim-owned.  Never leave it running when Sim is not\n"
+        "    # part of this explicit launch, including a partial SROS2 start.\n"
+        "    "+command+" stop coturn >/dev/null 2>&1 || true\n"
+        "  fi\n"
+        if has_sim
+        else ""
+    )
+    rendered_fingerprint_specs = " ".join(
+        shlex.quote(f"{image}|{fingerprint}")
+        for image, fingerprint in normalized_fingerprints
+    )
+    docker_fingerprint_format = shlex.quote(
+        '{{if .Config.Labels}}{{index .Config.Labels "io.elesim.build_fingerprint"}}{{end}}'
+    )
+    docker_image_id_format = shlex.quote("{{.Id}}")
+    docker_repo_tags_format = shlex.quote("{{range .RepoTags}}{{println .}}{{end}}")
+    docker_install_uuid_format = shlex.quote(
+        '{{if .Config.Labels}}{{index .Config.Labels "io.elesim.install_uuid"}}{{end}}'
+    )
+    runtime_image_check = (
+        (
+            f"runtime_expected_image_fingerprints=({rendered_fingerprint_specs})\n"
+            f"runtime_expected_install_uuid={shlex.quote(str(runtime_install_uuid))}\n"
+            "  runtime_build_required=0\n"
+            "  for runtime_image_spec in \"${runtime_expected_image_fingerprints[@]}\"; do\n"
+            "    runtime_image_name=\"${runtime_image_spec%%|*}\"\n"
+            "    runtime_expected_fingerprint=\"${runtime_image_spec#*|}\"\n"
+            "    runtime_service_name=\"${runtime_image_name#elesim/}\"\n"
+            "    runtime_service_name=\"${runtime_service_name%:local}\"\n"
+            "    runtime_service_selected=0\n"
+            "    for runtime_argument in \"${compose_args[@]}\"; do\n"
+            "      if [[ $runtime_argument == \"$runtime_service_name\" ]]; then\n"
+            "        runtime_service_selected=1\n"
+            "        break\n"
+            "      fi\n"
+            "    done\n"
+            "    if (( ! runtime_service_selected )); then continue; fi\n"
+            f"    runtime_actual_fingerprint=\"$(docker image inspect \"$runtime_image_name\" --format {docker_fingerprint_format} 2>/dev/null || true)\"\n"
+            "    if [[ $runtime_actual_fingerprint != \"$runtime_expected_fingerprint\" ]]; then\n"
+            "      runtime_build_required=1\n"
+            f"      runtime_previous_image_id=\"$(docker image inspect \"$runtime_image_name\" --format {docker_image_id_format} 2>/dev/null || true)\"\n"
+            "      if [[ -n $runtime_previous_image_id ]]; then\n"
+            "        runtime_previous_image_specs+=(\"$runtime_image_name|$runtime_previous_image_id\")\n"
+            "      fi\n"
+            "    fi\n"
+            "  done\n"
+            "  if (( runtime_build_required )); then\n"
+            "    printf '%s\\n' '[elesim-up] runtime image 변경을 감지하여 build를 수행합니다.' >&2\n"
+            "  fi\n"
+        )
+        if normalized_fingerprints
+        else "  runtime_build_required=1\n"
+    )
+    runtime_image_preflight = (
+        "runtime_build_required=1\n"
+        "runtime_previous_image_specs=()\n"
+        "if (( no_build_requested )); then\n"
+        "  runtime_build_required=0\n"
+        "else\n"
+        + runtime_image_check
+        + "fi\n"
+    )
+    runtime_image_cleanup = (
+        (
+            "if (( compose_status == 0 && runtime_build_required )); then\n"
+            "  runtime_cleanup_owned_image() {\n"
+            "    local runtime_image_id=\"$1\"\n"
+            "    local runtime_image_tags runtime_real_image_tags runtime_image_install_uuid\n"
+            "    [[ -n $runtime_image_id ]] || return 0\n"
+            f"    runtime_image_tags=\"$(docker image inspect \"$runtime_image_id\" --format {docker_repo_tags_format} 2>/dev/null || true)\"\n"
+            "    runtime_real_image_tags=\"${runtime_image_tags//<none>:<none>/}\"\n"
+            "    [[ $runtime_real_image_tags =~ [^[:space:]] ]] && return 0\n"
+            f"    runtime_image_install_uuid=\"$(docker image inspect \"$runtime_image_id\" --format {docker_install_uuid_format} 2>/dev/null || true)\"\n"
+            "    [[ $runtime_image_install_uuid == \"$runtime_expected_install_uuid\" ]] || return 0\n"
+            "    if [[ -n \"$(docker ps -aq --filter \"ancestor=$runtime_image_id\" 2>/dev/null || true)\" ]]; then\n"
+            "      printf '[elesim-up] 이전 image 보존: %s (기존 컨테이너가 참조 중)\\n' \"$runtime_image_id\" >&2\n"
+            "      return 0\n"
+            "    fi\n"
+            "    if ! docker image rm \"$runtime_image_id\" >/dev/null; then\n"
+            "      printf '[elesim-up] 이전 image 정리 실패: %s\\n' \"$runtime_image_id\" >&2\n"
+            "    fi\n"
+            "  }\n"
+            "  for runtime_previous_image_spec in \"${runtime_previous_image_specs[@]}\"; do\n"
+            "    runtime_previous_image_name=\"${runtime_previous_image_spec%%|*}\"\n"
+            "    runtime_previous_image_id=\"${runtime_previous_image_spec#*|}\"\n"
+            f"    runtime_new_image_id=\"$(docker image inspect \"$runtime_previous_image_name\" --format {docker_image_id_format} 2>/dev/null || true)\"\n"
+            "    if [[ -n $runtime_new_image_id && $runtime_new_image_id != \"$runtime_previous_image_id\" ]]; then\n"
+            "      runtime_cleanup_owned_image \"$runtime_previous_image_id\"\n"
+            "    fi\n"
+            "  done\n"
+            "fi\n"
+        )
+        if normalized_fingerprints and runtime_install_uuid
+        else ""
+    )
+    viewer_preflight = (
+        "if (( view_requested )); then\n"
+        "  viewer_preflight_status=0\n"
+        "  set +e\n"
+        "  if (( runtime_build_required == 0 )); then\n"
+        "    "
+        + command
+        + " run --rm -T --no-deps sim --elesim-viewer-preflight\n"
+        "  else\n"
+        "    "
+        + command
+        + " run --rm -T --build --no-deps sim --elesim-viewer-preflight\n"
+        "  fi\n"
+        "  viewer_preflight_status=$?\n"
+        "  set -e\n"
+        "  if (( viewer_preflight_status != 0 )); then\n"
+        "    printf 'Sim Viewer X11/GL 사전 점검에 실패했습니다. 컨테이너를 시작하지 않습니다.\\n' >&2\n"
+        "    if (( viewer_xhost_cleanup_on_failure )); then\n"
+        "      viewer_xhost_cleanup || viewer_preflight_status=$?\n"
+        "    fi\n"
+        "    exit \"$viewer_preflight_status\"\n"
+        "  fi\n"
+        "fi\n"
+        if viewer_function
+        else ""
+    )
+    viewer_post_cleanup = (
+        (
+            "if (( compose_status == 0 && ! view_requested )); then\n"
+            "  headless_sim_selected=0\n"
+            "  for argument in \"${compose_args[@]}\"; do\n"
+            "    [[ $argument == sim ]] && headless_sim_selected=1\n"
+            "  done\n"
+            "  if (( headless_sim_selected )); then\n"
+            "    # Only a successfully activated headless Sim supersedes an old\n"
+            "    # Viewer.  Partial launches and failed restarts must preserve its\n"
+            "    # ACL so manager compensation can resume the previous container.\n"
+            "    viewer_xhost_cleanup || compose_status=$?\n"
+            "  fi\n"
+            "elif (( compose_status != 0 && view_requested )); then\n"
+            "  if (( viewer_xhost_cleanup_on_failure )); then\n"
+            "    viewer_xhost_cleanup || compose_status=$?\n"
+            "  fi\n"
+            "fi\n"
+            if viewer_function
+            else ""
+        )
+    )
+    compose_run = (
+        "compose_status=0\n"
+        "set +e\n"
+        "if (( runtime_build_required == 0 )); then\n"
+        "  "
+        + command
+        + ' up -d --no-build --remove-orphans "${compose_args[@]}"\n'
+        "else\n"
+        "  "
+        + command
+        + ' up -d --build --remove-orphans "${compose_args[@]}"\n'
+        "fi\n"
+        "compose_status=$?\n"
+        "set -e\n"
+        + runtime_image_cleanup
+        + viewer_post_cleanup
+        + "exit \"$compose_status\"\n"
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        + guard
+        + security_profile
+        + viewer_function
+        + view_parse
+        + compose_argument_validation
+        + viewer_action
+        + coturn_selection
+        + runtime_image_preflight
+        + viewer_preflight
+        + compose_run
+    )
+
+
+def _runtime_archive_function(
+    *,
+    compose: Path,
+    logs_root: Path,
+    services: tuple[str, ...],
+) -> str:
+    rendered_services = " ".join(shlex.quote(service) for service in services)
+    return (
+        "archive_path_has_no_symlink_ancestor() {\n"
+        "  local target=$1\n"
+        "  local probe=$target\n"
+        "  local resolved\n"
+        "  while [[ ! -e \"$probe\" && ! -L \"$probe\" ]]; do\n"
+        "    [[ $probe == / ]] && break\n"
+        "    probe=${probe%/*}\n"
+        "    [[ -n $probe ]] || probe=/\n"
+        "  done\n"
+        "  [[ ! -L \"$probe\" ]] || return 1\n"
+        "  resolved=\"$(realpath -e -- \"$probe\")\" || return 1\n"
+        "  [[ $resolved == \"$probe\" ]]\n"
+        "}\n"
+        "archive_runtime_logs() {\n"
+        f"  local logs_root={shlex.quote(str(logs_root))}\n"
+        '  local runs_root="$logs_root/runs"\n'
+        '  if ! archive_path_has_no_symlink_ancestor "$logs_root"; then\n'
+        "    printf '로그 archive 경로에 symlink가 포함될 수 없습니다: %s\\n' "
+        '"$logs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! mkdir -p -- "$runs_root"; then\n'
+        "    printf '로그 archive 디렉터리를 만들 수 없습니다: %s\\n' "
+        '"$runs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! archive_path_has_no_symlink_ancestor "$logs_root" || '
+        '! archive_path_has_no_symlink_ancestor "$runs_root" || '
+        '[[ ! -d "$logs_root" || ! -d "$runs_root" ]]; then\n'
+        "    printf '로그 archive 경로가 안전한 디렉터리가 아닙니다: %s\\n' "
+        '"$runs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! chmod 0700 -- "$logs_root" "$runs_root"; then\n'
+        "    printf '로그 archive 디렉터리 권한을 설정할 수 없습니다: %s\\n' "
+        '"$runs_root" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        "  local timestamp\n"
+        "  if ! timestamp=\"$(date -u +%Y%m%dT%H%M%S.%NZ)\"; then\n"
+        "    printf 'UTC 로그 archive timestamp를 만들 수 없습니다.\\n' >&2\n"
+        "    return 74\n"
+        "  fi\n"
+        '  local run_dir="$runs_root/$timestamp"\n'
+        '  if [[ -e "$run_dir" || -L "$run_dir" ]] || '
+        '! mkdir -- "$run_dir"; then\n'
+        "    printf '고유한 로그 archive 디렉터리를 만들 수 없습니다: %s\\n' "
+        '"$run_dir" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        '  if ! chmod 0700 -- "$run_dir"; then\n'
+        "    printf '로그 archive 실행 디렉터리 권한을 설정할 수 없습니다: %s\\n' "
+        '"$run_dir" >&2\n'
+        "    return 74\n"
+        "  fi\n"
+        "  local archive_status=0\n"
+        "  local service destination\n"
+        f"  for service in {rendered_services}; do\n"
+        '    destination="$run_dir/$service.log"\n'
+        "    if ! docker compose -f "
+        + shlex.quote(str(compose))
+        + ' logs --no-color --timestamps "$service" '
+        + '>"$destination" 2>&1; then\n'
+        "      printf '서비스 로그 저장 실패: %s (상세: %s)\\n' "
+        '"$service" "$destination" >&2\n'
+        "      archive_status=74\n"
+        "    fi\n"
+        '    if ! chmod 0600 -- "$destination"; then\n'
+        "      printf '로그 파일 권한 설정 실패: %s\\n' \"$destination\" >&2\n"
+        "      archive_status=74\n"
+        "    fi\n"
+        "  done\n"
+        "  local -a generations=()\n"
+        "  local candidate name\n"
+        "  shopt -s nullglob\n"
+        '  for candidate in "$runs_root"/*; do\n'
+        '    [[ -d "$candidate" && ! -L "$candidate" ]] || continue\n'
+        '    name="${candidate##*/}"\n'
+        "    [[ $name =~ ^[0-9]{8}T[0-9]{6}\\.[0-9]{9}Z$ ]] || continue\n"
+        '    generations+=("$candidate")\n'
+        "  done\n"
+        f"  if (( ${{#generations[@]}} > {RUNTIME_LOG_RETENTION} )); then\n"
+        "    mapfile -t generations < <(printf '%s\\n' "
+        '"${generations[@]}" | LC_ALL=C sort)\n'
+        f"    local remove_count=$((${{#generations[@]}} - {RUNTIME_LOG_RETENTION}))\n"
+        "    local index\n"
+        "    for ((index = 0; index < remove_count; index++)); do\n"
+        '      candidate="${generations[index]}"\n'
+        '      if [[ -L "$candidate" || ! -d "$candidate" || '
+        '"$candidate" != "$runs_root/"* ]]; then\n'
+        "        printf '안전하지 않은 archive 삭제 대상을 건너뜁니다: %s\\n' "
+        '"$candidate" >&2\n'
+        "        archive_status=74\n"
+        "        continue\n"
+        "      fi\n"
+        '      if ! rm -rf -- "$candidate"; then\n'
+        "        printf '오래된 로그 archive 삭제 실패: %s\\n' \"$candidate\" >&2\n"
+        "        archive_status=74\n"
+        "      fi\n"
+        "    done\n"
+        "  fi\n"
+        "  printf '로그 archive: %s\\n' \"$run_dir\"\n"
+        '  return "$archive_status"\n'
+        "}\n"
+    )
+
+
+def _runtime_presence_function(
+    *,
+    compose: Path,
+    services: tuple[str, ...],
+    function_name: str = "runtime_has_role_containers",
+) -> str:
+    """Render a bounded role-container presence probe for operator wrappers."""
+
+    command = "docker compose -f " + shlex.quote(str(compose))
+    rendered_services = " ".join(shlex.quote(service) for service in services)
+    return (
+        function_name
+        + "() {\n"
+        "  [[ -n $("
+        + command
+        + " ps -aq "
+        + rendered_services
+        + " 2>/dev/null) ]]\n"
+        "}\n"
+    )
+
+
+def _runtime_logs_wrapper(
+    *,
+    compose: Path,
+    logs_root: Path,
+    services: tuple[str, ...],
+    archive_enabled: bool,
+    guard: str,
+) -> str:
+    command = "docker compose -f " + shlex.quote(str(compose))
+    archive = (
+        _runtime_archive_function(
+            compose=compose,
+            logs_root=logs_root,
+            services=services,
+        )
+        if archive_enabled
+        else ""
+    )
+    save_action = (
+        "  archive_runtime_logs\n"
+        if archive_enabled
+        else (
+            "  printf '이 설치에서는 runtime text log archive가 비활성화되어 "
+            "있습니다.\\n' >&2\n"
+            "  exit 64\n"
+        )
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "umask 077\n"
+        + guard
+        + archive
+        + _runtime_presence_function(compose=compose, services=services)
+        + "if (( $# == 0 )); then\n"
+        + "  if ! runtime_has_role_containers; then\n"
+        + "    printf '실행 중인 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    exit 3\n"
+        + "  fi\n"
+        + "  exec "
+        + command
+        + " logs -f\n"
+        + "fi\n"
+        + "if (( $# == 1 )) && [[ $1 == --save ]]; then\n"
+        + "  if ! runtime_has_role_containers; then\n"
+        + "    printf '저장할 EleSim 역할 컨테이너가 없습니다. 먼저 elesim-up을 실행하십시오.\\n' >&2\n"
+        + "    exit 3\n"
+        + "  fi\n"
+        + save_action
+        + "  exit $?\n"
+        + "fi\n"
+        + "printf '사용법: elesim-logs [--save]\\n' >&2\n"
+        + "exit 64\n"
+    )
+
+
+def _runtime_down_wrapper(
+    *,
+    compose: Path,
+    logs_root: Path,
+    services: tuple[str, ...],
+    archive_enabled: bool,
+    guard: str,
+    viewer_state: Path | None = None,
+    viewer_user: str = "root",
+    infrastructure_services: tuple[str, ...] = (),
+) -> str:
+    command = "docker compose -f " + shlex.quote(str(compose))
+    rendered_services = " ".join(shlex.quote(service) for service in services)
+    manager_purge = (
+        "purge_requested=0\n"
+        "if (( $# > 0 )) && [[ $1 == --purge ]]; then\n"
+        "  purge_requested=1\n"
+        "  shift\n"
+        "fi\n"
+        "purge_manager() {\n"
+        "  (( purge_requested )) || return 0\n"
+        "  if ! docker container inspect elesim-manager >/dev/null 2>&1; then\n"
+        "    return 0\n"
+        "  fi\n"
+        "  docker rm -f elesim-manager >/dev/null\n"
+        "}\n"
+    )
+    manager_purge_action = (
+        "manager_purge_status=0\n"
+        "purge_manager || manager_purge_status=$?\n"
+    )
+    shutdown_function = (
+        "shutdown_runtime() {\n"
+        "  if (( purge_requested )); then\n"
+        f"    {command} down --remove-orphans\n"
+        "  elif runtime_has_role_containers; then\n"
+        f"    {command} rm -f -s {rendered_services}\n"
+        "  else\n"
+        "    printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다. Tailscale sidecar는 유지합니다.\\n' >&2\n"
+        "  fi\n"
+        "}\n"
+        if infrastructure_services
+        else (
+            "shutdown_runtime() {\n"
+            f"  {command} down --remove-orphans\n"
+            "}\n"
+        )
+    )
+    presence = _runtime_presence_function(compose=compose, services=services)
+    project_presence = _runtime_presence_function(
+        compose=compose,
+        services=(*services, *infrastructure_services),
+        function_name="runtime_has_project_containers",
+    )
+    viewer_function = (
+        _viewer_xhost_function(viewer_state, xhost_user=viewer_user)
+        if viewer_state is not None
+        else ""
+    )
+    if not archive_enabled:
+        if viewer_function:
+            return (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                + guard
+                + viewer_function
+                + manager_purge
+                + presence
+                + project_presence
+                + shutdown_function
+                + "if (( $# != 0 )); then\n"
+                + "  printf '사용법: elesim-down [--purge]\n' >&2\n"
+                + "  exit 64\n"
+                + "fi\n"
+                + "down_status=0\n"
+                + "if runtime_has_project_containers; then\n"
+                + "  set +e\n"
+                + "shutdown_runtime\n"
+                + "  down_status=$?\n"
+                + "  set -e\n"
+                + "else\n"
+                + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+                + "fi\n"
+                + manager_purge_action
+                + "if (( manager_purge_status != 0 )); then\n"
+                + "  exit \"$manager_purge_status\"\n"
+                + "fi\n"
+                + "viewer_status=0\n"
+                + "viewer_xhost_cleanup || viewer_status=$?\n"
+                + "if (( down_status != 0 )); then\n"
+                + "  exit \"$down_status\"\n"
+                + "fi\n"
+                + "exit \"$viewer_status\"\n"
+            )
+        return (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            + guard
+            + manager_purge
+            + presence
+            + project_presence
+            + shutdown_function
+            + "if (( $# != 0 )); then\n"
+            + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
+            + "  exit 64\n"
+            + "fi\n"
+            + "if runtime_has_project_containers; then\n"
+            + "  set +e\n"
+            + "shutdown_runtime\n"
+            + "  down_status=$?\n"
+            + "  set -e\n"
+            + "else\n"
+            + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+            + "  down_status=0\n"
+            + "fi\n"
+            + manager_purge_action
+            + "if (( down_status != 0 )); then\n"
+            + "  exit \"$down_status\"\n"
+            + "fi\n"
+            + "if (( manager_purge_status != 0 )); then\n"
+            + "  exit \"$manager_purge_status\"\n"
+            + "fi\n"
+        )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "umask 077\n"
+        + guard
+        + viewer_function
+        + manager_purge
+        + presence
+        + project_presence
+        + shutdown_function
+        + "if (( $# != 0 )); then\n"
+        + "  printf '사용법: elesim-down [--purge]\\n' >&2\n"
+        + "  exit 64\n"
+        + "fi\n"
+        + _runtime_archive_function(
+            compose=compose,
+            logs_root=logs_root,
+            services=services,
+        )
+        + "archive_status=0\n"
+        + "runtime_present=0\n"
+        + "project_present=0\n"
+        + "if runtime_has_role_containers; then\n"
+        + "  runtime_present=1\n"
+        + "  archive_runtime_logs || archive_status=$?\n"
+        + "else\n"
+        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 로그 archive를 건너뜁니다.\\n' >&2\n"
+        + "fi\n"
+        + "if runtime_has_project_containers; then\n"
+        + "  project_present=1\n"
+        + "fi\n"
+        + "down_status=0\n"
+        + "if (( project_present )); then\n"
+        + "  shutdown_runtime || down_status=$?\n"
+        + "else\n"
+        + "  printf 'EleSim 역할 컨테이너가 이미 정지되어 있습니다.\\n' >&2\n"
+        + "fi\n"
+        + manager_purge_action
+        + "viewer_status=0\n"
+        + (
+            "viewer_xhost_cleanup || viewer_status=$?\n"
+            if viewer_function
+            else ""
+        )
+        + "if (( down_status != 0 )); then\n"
+        + "  exit \"$down_status\"\n"
+        + "fi\n"
+        + "if (( manager_purge_status != 0 )); then\n"
+        + "  exit \"$manager_purge_status\"\n"
+        + "fi\n"
+        + "if (( archive_status != 0 )); then\n"
+        + "  exit \"$archive_status\"\n"
+        + "fi\n"
+        + "exit \"$viewer_status\"\n"
+    )
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+__all__ = ["ContainerAction", "ContainerInstaller", "build_container_plan"]

@@ -87,8 +87,8 @@ p_world = T_world_base
   generation을 소유한다.
 - Sim은 Genesis visualization과 mock scan generation을 소유한다.
 - UI는 operator intent와 presentation을 소유한다.
-- `packages/elesim_interfaces`는 ROSIDL wire type을 소유한다.
-- `packages/protocol`은 bounded transport, validation, contract registry를
+- `payload/runtime/common/elesim_interfaces`는 ROSIDL wire type을 소유한다.
+- `payload/runtime/common/protocol`은 bounded transport, validation, contract registry를
   소유한다.
 - `model/builder`는 생성된 immutable robot/model artifact를 소유한다.
 
@@ -365,7 +365,7 @@ scan-session/
   "camera_profile": "zed_mini",
   "camera_serial": "vendor-serial",
   "camera_sdk": "version",
-  "model_bundle": "default",
+  "model_bundle": "zed-mini",
   "model_bundle_sha256": "hex",
   "hand_eye_sha256": "hex",
   "sag_artifact_sha256": null,
@@ -641,8 +641,8 @@ operator-controlled remote scan이 유용하다는 것을 offline experiment가
 증명한 뒤에만 protocol change를 정당화한다. 다음 순서로 갱신한다.
 
 1. protocol design decision과 major/additive compatibility decision;
-2. `packages/elesim_interfaces` ROSIDL;
-3. `packages/protocol/src/elesim_protocol/contracts.py`;
+2. `payload/runtime/common/elesim_interfaces` ROSIDL;
+3. `payload/runtime/common/protocol/elesim_protocol/contracts.py`;
 4. strict payload validator와 role/authority table;
 5. SROS2 topic policy;
 6. multi-process contract test;
@@ -722,10 +722,9 @@ optimizer를 실행하거나, raw point-cloud state를 보유하지 않는다.
 
 검사할 파일:
 
-- `pilot/src/elesim_pilot/robot/arm/sag_model.py`
-- `sim/src/elesim_sim/robot/arm/sag_model.py`
-- `pilot/config/sag/*.json`
-- `ui/config/sag/*.json`
+- `payload/runtime/docker/pilot/app/elesim_pilot/robot/arm/sag_model.py`
+- `payload/runtime/docker/sim/app/elesim_sim/robot/arm/sag_model.py`
+- `payload/data/calibration/arm/*.json`
 - `sag_model`을 주입하는 모든 IK/FK call site
 
 Deliverable:
@@ -1249,8 +1248,8 @@ observable한 unit, shape validation, Pilot/Sim equivalence를 고정하는 test
 # Allowed files
 
 - docs/design/robot_self_calibration_and_3d_reconstruction.md
-- pilot/tests/test_sag_model_inventory.py
-- sim/tests/test_sag_model_inventory.py
+- tests/apps/pilot/test_sag_model_inventory.py
+- tests/apps/sim/test_sag_model_inventory.py
 - 해당 package test directory 아래의 새 test fixture
 
 # Forbidden changes

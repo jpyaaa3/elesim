@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-SOURCE_CONFIG="${SOURCE_CONFIG:-pilot/config/config.yaml}"
+SOURCE_CONFIG="${SOURCE_CONFIG:-payload/config/pilot/config.yaml}"
 LOG_DIR="${LOG_DIR:-logs/walking_baseline}"
 DURATION="${DURATION:-60}"
 TRIALS="${TRIALS:-10}"
