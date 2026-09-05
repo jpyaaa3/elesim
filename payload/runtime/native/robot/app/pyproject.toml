@@ -28,6 +28,3 @@ elesim-unitree-bridge = "elesim_robot.go2.unitree_bridge_daemon:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["elesim_robot*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

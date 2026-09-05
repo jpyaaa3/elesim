@@ -241,7 +241,7 @@ _BOOTSTRAP_SOURCE_ONLY_COMPONENTS = frozenset(
         "__pycache__",
         ".pytest_cache",
         "docs",
-        "misc",
+        "workbench",
         "coturn",
     )
 )

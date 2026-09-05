@@ -191,7 +191,7 @@ arm:
   arm_link_prefixes: [node, wedge, housing, gripper]
 
 # The cylinder stands on a support, not on the ground.  The workspace probe
-# (misc/research/sim/benchmarks/workspace.md) measured a peak wrap of 86 deg for a
+# (workbench/evidence/curated/sim/workspace.md) measured a peak wrap of 86 deg for a
 # floor-standing cylinder against 272 deg once the height restriction was
 # lifted: the floor is what stops the arm closing underneath the object.  A
 # raised support is also the realistic case for a quadruped-mounted arm.
@@ -489,7 +489,7 @@ reward:
     # curls around it.
     #
     # The 56.22 mm quoted as the "node capsule radius" in
-    # misc/analysis/wrap_grasp is sqrt(44^2 + 35^2): the 3D corner distance,
+    # The historic analytic wrap sweep used sqrt(44^2 + 35^2): the 3D corner distance,
     # which folds in the width along the hinge axis, a dimension that has no
     # bearing on curling.  Using it overstated the link by 60% and, because the
     # caging test subtracts 2*link_radius from the escape chord, made caging
@@ -975,7 +975,7 @@ benchmark:
   # (linear, roll, theta1, theta2) of the pose used for that, taken from the
   # workspace probe's peak at the configured object placement.
   wrap_pose: [0.0, -1.5708, 0.4712, 0.4712]
-  out_path: misc/research/sim/benchmarks/step_rate.md
+  out_path: workbench/evidence/generated/sim/step_rate.md
 
 eval:
   episodes_per_condition: 20

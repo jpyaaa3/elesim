@@ -27,6 +27,3 @@ elesim-sim = "elesim_sim.main:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["elesim_sim*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

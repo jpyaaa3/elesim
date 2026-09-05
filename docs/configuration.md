@@ -207,7 +207,8 @@ TURN/Tailscale state와 bounded logs다. 다음은 소유하지 않는다.
 - host Python/CUDA/ROS/apt 설정
 
 외부 credential, SROS2 private key, generated keystore는 source Git에 커밋하지
-않는다. `environment/generated/`는 scratch area다.
+않는다. 생성된 runtime secret은 선택한 설치 prefix 아래에만 둔다. source
+repository에는 credential scratch directory를 만들지 않는다.
 
 ## 8. 런타임 점검
 

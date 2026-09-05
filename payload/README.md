@@ -47,4 +47,4 @@ active DDS endpoints, SROS2 private material, TURN credentials, installation
 state, caches, logs, and operator transactions never belong in `payload/`.
 
 `dist/` has a different meaning: it is disposable release output produced from
-this payload by `misc/tools/release/build.py`.
+this payload by `workbench/tools/release/build.py`.

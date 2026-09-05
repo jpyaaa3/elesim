@@ -146,7 +146,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--config", default=None)
     parser.add_argument("--set", action="append", default=[], dest="overrides")
     parser.add_argument("--max-macro-steps", type=int, default=4000)
-    parser.add_argument("--out", default="misc/research/sim/benchmarks/divergence.json")
+    parser.add_argument("--out", default="workbench/evidence/generated/sim/divergence.json")
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overrides=args.overrides)

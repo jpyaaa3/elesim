@@ -58,7 +58,7 @@ elesim_wip_save.txt
 /secrets/
 /install-state.json
 
-# Generated environment credentials.
-environment/generated/
-environment/coturn/.env
 deploy/
+
+# Regenerable workbench output. Curated evidence remains versioned separately.
+/workbench/evidence/generated/

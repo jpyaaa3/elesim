@@ -8,7 +8,7 @@ rather than inferred from a wrap angle.
 
 Run::
 
-    python -m elesim_sim.rl.render_scene --out misc/research/sim/benchmarks/render
+    python -m elesim_sim.rl.render_scene --out workbench/evidence/generated/sim/render
     python -m elesim_sim.rl.render_scene --pose 0.0 -1.5708 0.4712 0.4712
     python -m elesim_sim.rl.render_scene --top-contact   # best contacting pose
 """
@@ -95,8 +95,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--top-contact", action="store_true",
         help="use the highest-contact pose from a workspace probe JSON",
     )
-    parser.add_argument("--contact-json", default="misc/research/sim/benchmarks/workspace.json")
-    parser.add_argument("--out", default="misc/research/sim/benchmarks/render")
+    parser.add_argument(
+        "--contact-json", default="workbench/evidence/curated/sim/workspace.json"
+    )
+    parser.add_argument("--out", default="workbench/evidence/generated/sim/render")
     parser.add_argument("--res", type=int, nargs=2, default=(960, 720))
     parser.add_argument("--ramp", type=int, default=120)
     parser.add_argument("--tag", default=None)

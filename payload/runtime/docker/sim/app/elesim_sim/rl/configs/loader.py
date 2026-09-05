@@ -501,7 +501,7 @@ class BenchmarkConfig:
     measure_steps: int = 200
     with_contact: bool = True
     wrap_pose: tuple[float, float, float, float] = (0.0, -1.5708, 0.4712, 0.4712)
-    out_path: str = "misc/research/sim/benchmarks/step_rate.md"
+    out_path: str = "workbench/evidence/generated/sim/step_rate.md"
 
 
 @dataclass(frozen=True)

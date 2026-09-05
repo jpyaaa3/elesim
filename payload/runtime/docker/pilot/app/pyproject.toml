@@ -25,6 +25,3 @@ elesim-pilot = "elesim_pilot.main:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["elesim_pilot*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

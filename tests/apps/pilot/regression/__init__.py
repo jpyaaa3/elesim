@@ -1,1 +1,0 @@
-"""Migrated pilot regression contracts."""

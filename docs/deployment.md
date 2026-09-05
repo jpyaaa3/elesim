@@ -10,8 +10,8 @@ Jetson Robot의 세 경계를 갖는다. 설치·로컬 lifecycle은
 저장소 루트에서 release context를 만든다.
 
 ```bash
-python3 misc/tools/release/build.py
-python3 misc/tools/release/verify.py dist/releases
+elesim-dev python3 workbench/tools/release/build.py
+elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 `dist/releases/`에는 다음 네 애플리케이션 tree와 infrastructure tree가
@@ -26,9 +26,9 @@ dist/releases/
 └── infra/       # setup/bootstrap/connection-manager/container inputs
 ```
 
-`infra`는 Router도 다섯 번째 runtime application도 아니다. `environment/coturn`
-은 외부 TURN operator input이고 release tree가 아니다. Docker Desktop의
-`tailscale` service도 host network infrastructure다.
+`infra`는 Router도 다섯 번째 runtime application도 아니다. Managed Coturn은
+Sim 설치가 생성하고, external TURN 설정은 operator가 별도로 제공한다. Docker
+Desktop의 `tailscale` service도 host network infrastructure다.
 
 Release builder는 각 context에 application wheel, transport-neutral support
 wheel, ROSIDL source, config, dependency pins와 deployment metadata를 넣고,
@@ -144,25 +144,54 @@ host는 generation이 runnable해질 때까지 runtime start를 거부한다.
 
 ## 5. 연결 관리자와 토폴로지
 
-`elesim-connections`는 operator laptop에서 non-secret topology를 저장한다.
-schema v4는 DDS endpoint와 SSH endpoint를 별도로 보관한다.
+`elesim-connections`는 operator laptop에서 non-secret topology, host lifecycle,
+managed SROS2 rollout을 소유한다. runtime application이나 Router가 아니며 GUI
+container에 Docker socket, tailscaled local API 또는 Authority private key를
+주지 않는다.
 
 | mode | hosts/roles | Robot |
 | --- | --- | --- |
 | `full` | 2–4 host, Pilot/Sim/UI/Robot 각 1회 | native Jetson unit 필수 |
 | `simulation-only` | 1–3 host, Pilot/Sim/UI 각 1회 | 저장하지 않음 |
 
-`simulation-only`의 RGB-D 지연을 줄이려면 두 host 배치를 권장한다. 한
-deployment unit에 `[pilot, sim]`, 다른 unit/host에 `[ui]`를 배치한다. Sim은
-Genesis RGB-D source이고 source edge에서 encoded sample을 만든다. Pilot은
-source DDS topic을 받아 perception과 broker relay를 담당한다(legacy raw source만
-Pilot에서 encode). UI는 Pilot broker의 encoded stream만 구독한다.
-세 role을 한 host에 두는 기존 local-sim 배치도 유효하지만, source raw RGB-D를
-별도 host로 먼저 보내는 배치는 새 배포에서 사용하지 않는다.
-
 schema v1–v3 입력은 읽을 때 v4로 normalize한다(v1은 `full`). 한 host에 여러
 role 또는 독립 deployment unit이 있을 수 있다. Robot은 native `robot-native`
-unit, Pilot/UI 같은 container role은 별도 `runtime` unit으로 관리할 수 있다.
+unit, container role은 별도 `runtime` unit으로 관리할 수 있다. DDS
+address/interface와 SSH address/port/user/fingerprint는 독립 필드이며 어느
+한쪽에서 다른 쪽을 추론하지 않는다. static peer는 active DDS address에서만
+만든다.
+
+`simulation-only` 권장 배치는 `[pilot, sim]` Compose unit과 별도 `[ui]`
+unit이다. Sim source가 encoded sample을 Pilot에 넘기고 Pilot이 broker stream을
+UI로 relay한다. 세 role을 한 host에 두는 것도 유효하다. 새 배포에서 raw source
+RGB-D를 inter-host consumer가 직접 구독하지 않는다.
+
+### Check와 preflight
+
+`check`는 SSH 및 namespace interface/address/route를 읽기 전용으로 확인한다.
+two-host preflight는 Jetson 없이 정확히 두 COM endpoint를 검사하며 topology,
+key, generation 또는 role deployment를 저장하지 않는다. 성공해도 DDS
+descriptor/heartbeat, SROS2 permission, RGB-D, WebRTC와 NAT를 증명하지 않는다.
+HTTP/SSH forwarding/TURN port를 DDS address로 입력하지 않는다.
+
+### Managed security transaction
+
+```text
+validate topology/roles
+  → generate on operator laptop
+  → stage common public + assigned enclaves
+  → verify every digest/manifest
+  → stop affected roles
+  → atomic activate
+  → start --no-build and verify
+  → commit journal
+```
+
+첫 generation은 `provision`한다. active generation이 있으면 반복 provision이나
+deploy를 거부하고 `rotate`를 사용한다. 일부 host가 실패하면 이전 generation과
+pending marker를 복원한다. 중단된 transaction은 `recover`로 정리한다.
+
+### Lifecycle와 readiness
 
 manager 단계는 다음처럼 구분한다.
 
@@ -171,18 +200,24 @@ check/preflight → topology 저장 → security provision/deploy/rotate
                  → host별 build → start/stop/status
 ```
 
-`check`는 읽기 전용이고 `start`/`stop`은 Compose/systemd management state를
-조작한다. GUI에는 “restart”를 runtime 재구성처럼 제공하지 않는다. 정확한
-재시작은 host의 `elesim-down` 후 `elesim-up`이고, 보안/토폴로지 변경은
-transaction으로 수행한다.
+`start`는 모든 host build가 성공한 뒤 `--no-build`로 launch한다. host helper와
+pinned SSH channel은 allowlisted EleSim command만 실행한다. 실패 시 이번 job이
+시작한 role만 rollback한다. `start`/`stop`은 management state이며 runtime
+재구성용 restart action은 없다. 명시적 재시작은 정확한 host prefix에서
+`elesim-down` 후 `elesim-up --no-build`로 수행한다.
 
-two-host preflight는 Jetson 없이 정확히 두 COM endpoint를 검사하는 ephemeral
-contract다. topology 저장, key issuance, DDS/WebRTC/NAT 증명을 하지 않는다.
-HTTP test server, SSH forwarding port, DDS address를 서로 바꾸어 입력하지
-않는다.
+Readiness는 다음 상태를 합치지 않는다.
 
-상세 GUI 흐름·failure state·recovery는
-[`design/connection_manager.md`](design/connection_manager.md)에 있다.
+1. Compose/systemd started
+2. namespace interface/address/route valid
+3. exact endpoint descriptor + matching boot heartbeat
+4. Sim scene/media startup complete
+5. authority/session grant와 WebRTC response
+
+Manager의 DDS gate는 3까지만 bounded wait한다. Viewer는 topology SSH user가
+소유한 X11 socket/Xauthority만 사용하며 모호하거나 유효하지 않으면 start 전에
+실패한다. pending generation, missing heartbeat, remote command failure와 viewer
+failure는 서로 다른 recovery 원인을 유지한다.
 
 ## 6. 개발 attachment
 
@@ -193,8 +228,8 @@ HTTP test server, SSH forwarding port, DDS address를 서로 바꾸어 입력하
 
 ```bash
 elesim-up
-elesim-dev python3 misc/system_tests/smoke_topology.py
-elesim-dev python3 misc/tools/quality/check.py --group required
+elesim-dev python3 workbench/tests/system/smoke_topology.py
+elesim-dev python3 workbench/tools/quality/check.py --group required
 ```
 
 별도 observability 컨테이너는 배포하지 않는다. runtime role image나
@@ -267,10 +302,10 @@ foreign image 제거는 배포 절차가 아니다.
 필수 자동 gate:
 
 ```bash
-python3 misc/tools/quality/check.py --group required
-python3 misc/tools/quality/check.py --group extended
-python3 misc/tools/release/build.py
-python3 misc/tools/release/verify.py dist/releases
+elesim-dev python3 workbench/tools/quality/check.py --group required
+elesim-dev python3 workbench/tools/quality/check.py --group extended
+elesim-dev python3 workbench/tools/release/build.py
+elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 `elesim-dev` 환경에서 실행하는 것이 canonical이다. 다음은 여전히 실제 host

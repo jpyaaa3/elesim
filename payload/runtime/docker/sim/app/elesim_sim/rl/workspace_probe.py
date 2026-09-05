@@ -10,13 +10,13 @@ built scene rather than assumed:
 This sweeps the per-node bend angles (theta1, theta2) across their limits, one
 environment per pose, reads the resulting arm-link positions out of Genesis, and
 for each pose finds the cylinder centre that maximises wrap coverage.  It is the
-Genesis-side counterpart of the analytic sweep in ``misc/analysis/wrap_grasp``
-on the ``motion_planning`` branch, which reported a peak of Phi = 172 deg and
-never reached 180 deg.
+Genesis-side counterpart of the historic analytic sweep on the
+``motion_planning`` branch, which reported a peak of Phi = 172 deg and never
+reached 180 deg.
 
 Run::
 
-    python -m elesim_sim.rl.workspace_probe --grid 9 --out misc/research/sim/benchmarks/workspace.md
+    python -m elesim_sim.rl.workspace_probe --grid 9 --out workbench/evidence/generated/sim/workspace.md
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ def probe(
     # when one is configured, on the ground otherwise.  Snapping candidates to
     # any other height measures a placement the environment never produces.
     # `free_height` lifts the restriction entirely, which is what the analytic
-    # sweep in misc/analysis/wrap_grasp effectively did: best centre anywhere in
+    # historic analytic sweep effectively did: best centre anywhere in
     # the bend plane, nothing underneath.  Comparing the two isolates how much
     # of the wrap is blocked by whatever the object is standing on.
     floor_z = None if free_height else float(cfg.object_center()[2])
@@ -490,7 +490,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="let the object float; reproduces the analytic sweep's assumption",
     )
-    parser.add_argument("--out", default="misc/research/sim/benchmarks/workspace.md")
+    parser.add_argument("--out", default="workbench/evidence/generated/sim/workspace.md")
     parser.add_argument("--json-out", default=None)
     args = parser.parse_args(argv)
 

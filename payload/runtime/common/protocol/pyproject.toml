@@ -12,6 +12,3 @@ dependencies = ["numpy>=1.23,<2"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["elesim_protocol*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

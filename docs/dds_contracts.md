@@ -123,6 +123,20 @@ subscriber는 latest-only depth-1 semantics를 사용하며 오래된 sample을 
 RGB-D는 WebRTC를 대체하지 않는다. Pilot/Sim이 제어·perception에 쓰는 정합
 sample과 UI가 보는 observer/hand-eye 영상은 서로 다른 경로다.
 
+### RGB-D failure와 측정
+
+- handoff가 늦으면 Pilot은 오래된 frame을 버리고 perception age를 보고한다.
+- encode 실패 시 frame을 발행하지 않는다. sequence/boot identity를 유지해
+  stale frame을 새 frame으로 오인하지 않게 한다.
+- consumer decode 실패는 해당 consumer stream만 끊으며 Pilot perception이나
+  Robot safety를 중지시키지 않는다.
+- broker restart는 새 boot ID와 sequence를 사용한다.
+
+Acceptance evidence는 encoded bytes/frame, bitrate, source-to-Pilot age,
+encode p50/p95, DDS publish-to-receive p50/p95, decode p50/p95와
+overwrite/drop/gap count를 포함한다. 이 측정 없이 render, GPU transfer,
+encoder와 DDS를 원인으로 단정하지 않는다.
+
 ## 5. 검증과 fencing
 
 수신자는 다음 순서로 envelope을 검사한다.
@@ -163,6 +177,6 @@ test server는 DDS endpoint가 아니다. 일반 IPv4 NAT/CGNAT/symmetric NAT은
 정합성 검사:
 
 ```bash
-elesim-dev python3 misc/tools/quality/check.py --group required
-elesim-dev python3 misc/system_tests/smoke_topology.py
+elesim-dev python3 workbench/tools/quality/check.py --group required
+elesim-dev python3 workbench/tests/system/smoke_topology.py
 ```

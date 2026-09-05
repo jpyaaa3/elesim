@@ -68,20 +68,10 @@ elesim-uninstall           # EleSim을 삭제
 
 ## 3. 문서
 
-[처음부터 끝까지](docs/zero2omega.md) ·
 [설치](docs/setup.md) ·
 [배포와 운영](docs/deployment.md) ·
 [구성](docs/configuration.md) ·
 [아키텍처](docs/architecture.md) ·
-[코드 지도](docs/code_map.md) ·
-[분산 런타임](docs/distributed_runtime.md) ·
 [DDS 계약](docs/dds_contracts.md) ·
-[실험 프레임워크](docs/experiment_framework.md) ·
-[Jetson 혼합 역할](docs/jetson_mixed_role_rollout.md) ·
-[연결 관리자 설계](docs/design/connection_manager.md) ·
-[Preview/Gaze 설계](docs/design/preview_gaze.md) ·
-[Gait phase preview](docs/design/gait_phase_preview.md) ·
-[설치·네트워크·보안](docs/setup.md#dds-network-and-security) ·
-[마일스톤](docs/MILESTONES.md) ·
-[미해결 항목](docs/OPEN_ISSUES_KR.md) ·
-[Open issues](docs/OPEN_ISSUES.md)
+[구현 상태](docs/status.md) ·
+[연구와 진단](docs/research.md)

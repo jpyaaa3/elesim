@@ -29,6 +29,3 @@ include = ["elesim_ui*"]
 
 [tool.setuptools.package-data]
 elesim_ui = ["fonts/**/*.ttf", "fonts/**/*.otf"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

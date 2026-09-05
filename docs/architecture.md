@@ -29,7 +29,7 @@ simulation-only topology (1–3 hosts)
 `simulation-only`은 Pilot/Sim/UI만 갖고 Robot 또는 Jetson placeholder를
 저장하지 않는다. `full`은 Pilot/Sim/UI/Robot을 각각 정확히 한 번
 배치하고 Robot은 native Jetson unit이어야 한다. 두 모드와 schema migration은
-[`design/connection_manager.md`](design/connection_manager.md)에 정의되어 있다.
+[`deployment.md`](deployment.md)에 정의되어 있다.
 
 중앙 Router, ZMQ, CurveZMQ, CURVE, ZAP은 현재 구조에 없다. 각 DDS participant는
 필요한 peer와 직접 IP-routable해야 하며, DDS discovery는 애플리케이션
@@ -71,8 +71,8 @@ safe-hold·torque-off·hardware cleanup을 계속 수행한다.
 
 model/builder ── payload/data/models/assemblies/zed-mini/assets → payload/data/models/assemblies/zed-mini
 payload/runtime/docker/tools/app ── state/config/Compose/security/lifecycle artifacts
-misc/tools/release ── isolated release contexts
-misc/system_tests ── cross-process acceptance probes
+workbench/tools/release ── isolated release contexts
+workbench/tests/system ── cross-process acceptance probes
 ```
 
 각 배포 tree는 sibling 구현을 import하지 않는다. 공유 가능한 것은
@@ -126,8 +126,7 @@ source가 둘인 구성에서 source topic을 inter-host consumer가 직접 구�
 `stream.rgbd.broker.v1` capability를 명시해야 한다. codec, calibration ID,
 depth scale, sequence와 payload bound는 encoded frame metadata가 소유하며
 `StreamDescriptor` 구조나 protocol major를 불필요하게 확장하지 않는다.
-자세한 배치와 실패 경계는 [`design/rgbd_edge_broker.md`](design/rgbd_edge_broker.md)를
-따른다.
+wire, QoS와 실패 경계는 [`dds_contracts.md`](dds_contracts.md)를 따른다.
 
 ## 5. Sim 내부 구조와 영상
 
@@ -327,10 +326,10 @@ DDS sidecar 주소는 별도 기록한다.
 ## 9. 검증 경계
 
 ```bash
-python3 misc/tools/quality/check.py --group required
-python3 misc/tools/quality/check.py --group extended
-python3 misc/tools/release/build.py
-python3 misc/tools/release/verify.py dist/releases
+elesim-dev python3 workbench/tools/quality/check.py --group required
+elesim-dev python3 workbench/tools/quality/check.py --group extended
+elesim-dev python3 workbench/tools/release/build.py
+elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 자동 gate는 ROSIDL, 역할 경계, release isolation, 별도 프로세스 DDS/RGB-D,
@@ -340,4 +339,4 @@ encoded WebRTC track과 contract/lease/safety test를 검증한다. `elesim-dev`
 자동화가 증명하지 않는 것은 실제 multi-host route/discovery, SROS2 enforce
 authorization, NAT/TURN relay, GPU/X11/WSLg, Genesis viewer·observer 화면,
 Jetson/Unitree physical safety와 Look–Aim–Grasp convergence다. 이들은
-[`MILESTONES.md`](MILESTONES.md)의 수동 acceptance gate다.
+[`status.md`](status.md)의 수동 acceptance gate다.

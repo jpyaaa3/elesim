@@ -1,8 +1,7 @@
 # 설치와 로컬 운영
 
 이 문서는 설치 prefix 하나의 생성·업데이트·실행·제거를 설명한다. 다중
-호스트 토폴로지와 managed SROS2 generation은
-[`design/connection_manager.md`](design/connection_manager.md), 릴리스 산출물은
+호스트 토폴로지, managed SROS2 generation과 릴리스 산출물은
 [`deployment.md`](deployment.md)를 정본으로 삼는다.
 
 ## 1. 설치가 보장하는 것
@@ -295,7 +294,7 @@ stream만 수행한다. DDS endpoint/interface/address와 SSH management
 destination/port/user/fingerprint는 별도 필드다.
 
 자세한 topology mode, preflight, host lifecycle, security journal은
-[`design/connection_manager.md`](design/connection_manager.md)를 참조한다.
+[`deployment.md`](deployment.md)를 참조한다.
 
 ## 10. 제거
 
@@ -338,12 +337,12 @@ curl bootstrap은 runtime에 필요하지 않은 `payload/runtime/docker/sim/app
 Canonical 테스트는 setup-generated `elesim-dev`에서 실행한다.
 
 ```bash
-elesim-dev python3 misc/tools/quality/check.py --group required
-elesim-dev python3 misc/tools/quality/check.py --group extended
-elesim-dev python3 misc/tools/release/build.py
-elesim-dev python3 misc/tools/release/verify.py dist/releases
+elesim-dev python3 workbench/tools/quality/check.py --group required
+elesim-dev python3 workbench/tools/quality/check.py --group extended
+elesim-dev python3 workbench/tools/release/build.py
+elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 이는 실제 두 host의 NAT, SROS2 enforce, GPU/X11, TURN relay, Genesis viewer,
-Jetson safety를 증명하지 않는다. 그 항목은 [`MILESTONES.md`](MILESTONES.md)의
+Jetson safety를 증명하지 않는다. 그 항목은 [`status.md`](status.md)의
 수동 gate로 남긴다.

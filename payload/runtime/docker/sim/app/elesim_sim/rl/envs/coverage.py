@@ -10,7 +10,7 @@ Two links on opposite sides with a gap between them do not cage anything, and
 summing their bins would score that as if they did.
 
 Reference point for the numbers this produces: the geometry sweep in
-``misc/analysis/wrap_grasp`` (motion_planning branch) reached a peak of
+The historic analytic sweep on the ``motion_planning`` branch reached a peak of
 Phi = 172 deg over the reachable (theta1, theta2) grid and never attained
 180 deg.  ``success.coverage_target_rad`` defaults to 172 deg for that reason.
 """

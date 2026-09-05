@@ -2,7 +2,7 @@
 
 ## Current Work Handoff
 
-- Updated: 2026-09-03
+- Updated: 2026-09-05
 - Branch: `main`; the canonical `payload/` source-layout migration and the
   Router-free ROS 2/DDS changes below are currently uncommitted.
 - Goal: Maintain the Router-free ROS 2/DDS architecture while keeping the
@@ -127,7 +127,8 @@
     instead owns a kernel-mode `tailscale` sidecar; its explicit one-time
     browser/device login is exposed through `elesim-tailscale login`, with
     sanitized status from `elesim-tailscale status`. The manager exposes
-    bounded `check`, `start`, `stop` and `restart` host-lifecycle jobs. Full
+    bounded `check`, `start` and `stop` host-lifecycle jobs. Deliberate runtime
+    restart remains the host-owned `elesim-down` then `elesim-up` sequence. Full
     `start` builds every host before launching any role; these report
     Compose/systemd management state only and do not claim DDS discovery or
     WebRTC media.
@@ -279,7 +280,7 @@
   - `ownership.py` and `uninstall.py`: exact install manifests, host-only
     pre-mutation validation, delete-by-default owned cleanup and tombstones kept
     outside the removed prefix.
-  - `misc/system_tests/smoke_topology.py`: the canonical four-process real-RMW
+  - `workbench/tests/system/smoke_topology.py`: the canonical four-process real-RMW
     topology smoke; it is not an NAT, GPU, WebRTC-media, or hardware proof.
 - Canonical test environment and commands:
   - The host shell deliberately lacks much of the scientific/ROS test stack;
@@ -303,13 +304,13 @@
     is:
 
     ```bash
-    elesim-dev python3 misc/system_tests/smoke_topology.py
+    elesim-dev python3 workbench/tests/system/smoke_topology.py
     ```
 
   - The isolated-release verification invocation is:
 
     ```bash
-    elesim-dev python3 misc/tools/release/verify.py dist/releases
+    elesim-dev python3 workbench/tools/release/verify.py dist/releases
     ```
 
   - `dist/releases/` contains four application trees (`pilot`, `ui`,
@@ -394,10 +395,10 @@
     NIC/domain confinement, UDS peer credentials, bridge loss/malformed packet
     stop deadlines, arm cleanup despite IPC failure, and physical safety.
 - Next commands in the optional development attachment:
-  - `elesim-dev python3 misc/tools/quality/check.py --group required`
-  - `elesim-dev python3 misc/tools/quality/check.py --group extended`
-  - `elesim-dev python3 misc/tools/release/build.py`
-  - `elesim-dev python3 misc/tools/release/verify.py dist/releases`
+  - `elesim-dev python3 workbench/tools/quality/check.py --group required`
+  - `elesim-dev python3 workbench/tools/quality/check.py --group extended`
+  - `elesim-dev python3 workbench/tools/release/build.py`
+  - `elesim-dev python3 workbench/tools/release/verify.py dist/releases`
 
 Read `docs/architecture.md` before changing behavior that crosses a process,
 protocol, media, configuration, model, or deployment boundary. Read
@@ -502,8 +503,9 @@ fifth application and not part of inter-host DDS.
 - `ROS_DOMAIN_ID`, a namespace and an obscure multicast group are not
   authentication or tenant isolation.
 - Never commit SROS2 private keys, TURN secrets, generated keystores, or copied
-  remote host configuration. `environment/generated/` is the source-workspace
-  scratch area.
+  remote host configuration. Generated runtime secrets belong only under the
+  selected installation prefix; the source repository has no credential
+  scratch directory.
 - WebRTC uses DTLS/SRTP. In managed mode, only Coturn and the co-located
   Sim hold the static HMAC secret; Sim issues short-lived
   session-bound credentials and UI receives no static secret. External TURN
@@ -535,21 +537,22 @@ fifth application and not part of inter-host DDS.
 For normal changes, run the canonical gate:
 
 ```bash
-python3 misc/tools/quality/check.py --group required
+elesim-dev python3 workbench/tools/quality/check.py --group required
 ```
 
 For structural, installer, protocol, or release changes also run:
 
 ```bash
-python3 misc/tools/quality/check.py --group extended
-python3 misc/tools/release/build.py
-python3 misc/tools/release/verify.py dist/releases
+elesim-dev python3 workbench/tools/quality/check.py --group extended
+elesim-dev python3 workbench/tools/release/build.py
+elesim-dev python3 workbench/tools/release/verify.py dist/releases
 ```
 
 The detailed per-package matrix is in `docs/architecture.md`. At minimum,
 changes must test the owning package. Cross-process changes also require
-`misc/system_tests/smoke_topology.py`. Installer copy/filter changes must assert the
-contents of generated contexts and built wheels, including nested Python packages.
+`workbench/tests/system/smoke_topology.py`. Installer copy/filter changes must
+assert the contents of generated contexts and built wheels, including nested
+Python packages.
 
 Automated tests do not establish production-RMW discovery on a LAN/VPN,
 SROS2 enforcement, loaded-network RGBD latency, Wi-Fi/VPN reconnect, real
@@ -560,15 +563,17 @@ as hardware proof.
 
 ## Documentation
 
-- Repository auxiliary ownership is explicit: `environment/` contains execution
-  environment inputs, `installer/` contains bootstrap/setup sources,
-  `misc/system_tests/` contains cross-process validation, `model/` owns model source
-  and builders, `misc/research/` owns offline work, and `misc/tools/` owns developer/CI
-  helpers. No legacy compatibility source tree remains.
+- Repository auxiliary ownership is explicit: `installer/` contains
+  bootstrap/setup sources, `workbench/tests/` owns repository-wide automated
+  validation, `model/` owns model source and builders, `workbench/research/`
+  owns offline work, and `workbench/tools/` owns developer/CI helpers. No
+  legacy compatibility source tree remains.
 - `README.md` is the Korean operator guide and must match commands generated by the
   current installer.
 - `docs/architecture.md` owns system boundaries and ROS interface invariants.
 - `docs/setup.md` owns installer internals and network-doctor interpretation.
 - `docs/deployment.md` owns release and multi-host deployment detail.
-- Update both `docs/OPEN_ISSUES.md` and `docs/OPEN_ISSUES_KR.md` when a
-  newly discovered limitation remains unfixed.
+- `docs/status.md` alone owns completed scope, unresolved limitations and manual
+  acceptance gates.
+- `docs/configuration.md` owns generated field meaning; `docs/dds_contracts.md`
+  owns wire/QoS contracts; `docs/research.md` owns repository-only experiments.
