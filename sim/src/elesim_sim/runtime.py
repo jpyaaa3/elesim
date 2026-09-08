@@ -1708,6 +1708,38 @@ class SimScene(_SimSceneKinematicsMixin):
             return
         markers.draw_direction(self.scene, attr_name, pos, direction, color)
 
+    def reset_sim_target(self, xyz: np.ndarray) -> bool:
+        """Put the target back where it spawned, upright and at rest.
+
+        `set_sim_target_position` is a move, and it short-circuits when the
+        requested position matches the cached one -- exactly the case after a
+        reset, since the cache still holds the spawn pose while the object
+        itself has rolled away or fallen over.  A restore also has to undo the
+        orientation: a toppled cylinder put back at its spawn xy is still
+        lying down.
+        """
+        target = self.sim_target_entity
+        if target is None:
+            print("[runtime] sim target reset skipped: no target entity", flush=True)
+            return False
+        pos = np.asarray(xyz, dtype=float).reshape(3)
+        try:
+            target.set_pos(pos)
+            upright = getattr(target, "set_quat", None)
+            if callable(upright):
+                upright(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=float))
+            zero_vel = getattr(target, "zero_all_dofs_velocity", None)
+            if callable(zero_vel):
+                zero_vel()
+        except Exception as exc:
+            print(f"[runtime] sim target reset failed: {exc}")
+            return False
+        print("[runtime] sim target reset to (%.3f, %.3f, %.3f) upright"
+              % (float(pos[0]), float(pos[1]), float(pos[2])), flush=True)
+        self.sim_target_xyz = pos
+        return True
+
+
     def set_sim_target_position(self, xyz: np.ndarray) -> bool:
         target = self.sim_target_entity
         if target is None:
@@ -3513,6 +3545,12 @@ class SimRuntime:
             if reset_seq > int(self._applied_sim_reset_seq):
                 self._applied_sim_reset_seq = reset_seq
                 self.operator.reset()
+                # Resetting the arm and leaving the object where it fell makes the
+                # next attempt start from a state neither the operator nor the
+                # policy ever sees.
+                a.sim_scene.reset_sim_target(
+                    np.asarray(a.spawn.sim_target_xyz, dtype=float)
+                )
                 start_q = proto.default_start_sim_q(a._proto_cfg)
                 a.sim_scene.maybe_publish_camera(
                     arm_q=(
@@ -3623,6 +3661,20 @@ class SimRuntime:
                 t_sec = time.perf_counter()
                 if q_errmodel is not None:
                     a.sim_scene.apply_sim_q(q_errmodel)
+                    # The joint values the sim is actually driving.  Neither the panel
+                    # nor the log showed these, so a pose found by hand could not be
+                    # carried anywhere else.  Rate limited, and only when it moves.
+                    _q = (float(q_errmodel.linear_m), float(q_errmodel.roll_rad),
+                          float(q_errmodel.theta1_rad), float(q_errmodel.theta2_rad))
+                    _now = time.perf_counter()
+                    _prev = getattr(self, '_last_logged_q', None)
+                    if _prev is None or (
+                        _now - getattr(self, '_last_logged_q_at', 0.0) >= 1.0
+                        and max(abs(x - y) for x, y in zip(_q, _prev)) > 1e-3
+                    ):
+                        self._last_logged_q = _q
+                        self._last_logged_q_at = _now
+                        print('[runtime] arm q = [%.4f, %.4f, %.4f, %.4f]' % _q, flush=True)
                 perf.section("command", t_sec)
 
                 t_sec = time.perf_counter()

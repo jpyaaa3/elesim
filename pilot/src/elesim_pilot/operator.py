@@ -15,6 +15,11 @@ from elesim_protocol import (
 )
 
 
+#: Operations the UI polls continuously.  Everything else is a person
+#: pressing something, which is worth a line in the log.
+_POLL_OPERATIONS = frozenset({"snapshot", "view_snapshot"})
+
+
 class OperatorDispatcher:
     """Execute the protocol's explicitly allowlisted UI intent surface."""
 
@@ -51,8 +56,16 @@ class OperatorDispatcher:
                 result = None
             else:
                 raise ValueError(f"operation is not allowlisted: {operation} {name}")
+            if operation not in _POLL_OPERATIONS:
+                print(f"[operator] {operation} {name} ok", flush=True)
             return {"request_id": request_id, "ok": True, "result": encode_value(result)}
         except Exception as exc:
+            # Returning the reason to the UI and printing nothing here left the
+            # pilot log silent whenever a command failed: an intent arrived, no
+            # handler line followed, and there was no way to tell a dropped
+            # request from a raising one.  Both look like "the button does
+            # nothing".
+            print(f"[operator] {operation} {name} FAILED: {exc!r}", flush=True)
             return {"request_id": request_id, "ok": False, "error": repr(exc)}
 
     def _view_snapshot(self) -> dict[str, Any]:

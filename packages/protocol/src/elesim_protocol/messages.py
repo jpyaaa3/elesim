@@ -29,12 +29,21 @@ class SimQ:
 
 
 # Default arm pose at startup / sim reset (control-panel display [u]).
-# Spawn/reset + perception-friendly arm pose (display [u]).
+#
+# The wrap-grasp policy's Home waypoint, so a fresh sim starts where an episode
+# starts: q = (-0.1656, 0.0, -0.5934, +0.5934).  Driving from the old
+# perception-friendly pose meant every hand-driven wrap attempt began somewhere
+# the policy never sees.
+#
+# u_s2 is 10 and not 350 because the sim role inverts that axis
+# (robot.arm.mapping.command_direction = [1, 1, 1, -1]).  Computed against the
+# schema default instead, this pose came out with both segments curling the
+# same way -- a closed ring rather than Home's S.
 DEFAULT_START_CONTROL_U = ControlU(
-    u_linear=250.0,
+    u_linear=180.0,
     u_roll=180.0,
-    u_s1=85.0,
-    u_s2=45.0,
+    u_s1=10.0,
+    u_s2=10.0,
 )
 
 PERCEPTION_READY_CONTROL_U = DEFAULT_START_CONTROL_U

@@ -2752,9 +2752,14 @@ class ControlService(_MotionFeedbackActions):
             tol = float(max(0.01, raw_tol))
         return replace(pk, center_tol=tol)
 
-    @staticmethod
     def reset_simulation(self) -> None:
-        """Reset sim GO2+arm pose, stop workers, and zero teleop commands."""
+        """Reset sim GO2+arm pose, stop workers, and zero teleop commands.
+
+        Not a staticmethod: it drives the pilot through `self`.  Decorated as
+        one, every Respawn press failed with "missing 1 required positional
+        argument: 'self'" -- and the dispatcher returned that to the UI without
+        logging it, so the button simply did nothing.
+        """
         self.stop_gaze_stabilizer()
         self.stop_object_pick()
         self.send_go2_velocity(vx=0.0, vy=0.0, wz=0.0)

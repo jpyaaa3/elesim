@@ -219,6 +219,12 @@ class WrapGraspEnv:
         self.episode_length_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long
         )
+        #: Envs whose physics diverged during the current macro step.  Their
+        #: state was nan, so `step` ends those episodes rather than reporting
+        #: anything from them.
+        self._diverged = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
         self._object_radius = z(self.num_envs)
         self._object_height = z(self.num_envs)
         self._object_mass = z(self.num_envs)
@@ -523,7 +529,7 @@ class WrapGraspEnv:
 
         self.episode_length_buf += 1
         timeout = self.episode_length_buf >= self.max_episode_length
-        dones = reward_out.terminate | timeout
+        dones = reward_out.terminate | timeout | self._diverged
 
         self._last_reasons = reward_out.termination_reason
         extras: dict[str, Any] = {
@@ -539,7 +545,10 @@ class WrapGraspEnv:
         done_ids = dones.nonzero(as_tuple=False).flatten()
         if done_ids.numel():
             self._reset_idx(done_ids)
+        recovered = self._diverged.clone()
+        self._diverged[:] = False
         self._obs = self._build_observations()
+        self._sanitise_recovered_observations(recovered)
         return self._obs, reward_out.total, dones, extras
 
     # -- action and simulation --------------------------------------------
@@ -583,6 +592,50 @@ class WrapGraspEnv:
         self._last_joint_cmd = commanded.clone()
         return realised
 
+    def _step_scene_or_recover(self) -> None:
+        """Advance the physics, surviving a solver divergence.
+
+        Genesis raises for the whole scene when the constraint solver produces
+        nan -- "Invalid constraint forces causing 'nan'" -- and a 600 iteration
+        run died at 1266 because of one such step.  The errno behind it is
+        per-env and writable, so the envs that actually diverged can be found,
+        put back, and the rest of the batch carried on.
+
+        The affected episodes are flagged and terminated by `step`: their state
+        was nan, so nothing they would report is worth learning from.
+        """
+        try:
+            self.scene.step()
+            return
+        except Exception as exc:                     # gs.GenesisException
+            solver = getattr(getattr(self.scene.scene, "sim", None), "rigid_solver", None)
+            mask = None
+            if solver is not None and hasattr(solver, "get_error_envs_mask"):
+                try:
+                    mask = solver.get_error_envs_mask().to(self.device)
+                except Exception:
+                    mask = None
+            if mask is None or not bool(mask.any()):
+                # Not something this can attribute to particular envs.
+                raise
+            ids = mask.nonzero(as_tuple=False).flatten()
+            self._diverged[ids] = True
+            try:
+                from genesis.utils.misc import qd_to_torch
+
+                qd_to_torch(solver._errno).zero_()
+            except Exception:
+                raise exc
+            # Put the diverged envs back at Home with the object upright, so the
+            # next substep does not start from the nan state that caused this.
+            self._reset_idx(ids)
+            self._zero_object_velocity(ids)
+            print(
+                f"[env] solver diverged in {int(mask.sum())} env(s); reset and "
+                "continuing",
+                flush=True,
+            )
+
     def _simulate_macro_step(self) -> None:
         settle = self.cfg.macro_step.settle
         substeps = int(self.cfg.macro_step.substeps)
@@ -611,7 +664,7 @@ class WrapGraspEnv:
             )
             if self.tug is not None:
                 self._apply_tug_force()
-            self.scene.step()
+            self._step_scene_or_recover()
             self.contacts.accumulate()
             if self.substep_monitor is not None:
                 self.substep_monitor(self, i)
@@ -993,6 +1046,36 @@ class WrapGraspEnv:
             parts.append(state["phi"].unsqueeze(-1))
             parts.append(state["coverage_near"].unsqueeze(-1))
         return torch.cat(parts, dim=-1)
+
+    def _sanitise_recovered_observations(self, recovered: torch.Tensor) -> None:
+        """Clear nan left over from a diverged env's own step.
+
+        Resetting the env puts its joints and object back, but values carried
+        through the step -- contact accumulations, displacement, tilt -- can
+        still be nan, and rsl_rl checks the observation before it ever looks at
+        `dones`: a run died with "observation group 'privileged' contains NaN"
+        one step after a recovery.  Those episodes are already terminated, so
+        zeros cost nothing.
+
+        Only the envs that diverged are touched.  A nan anywhere else is a
+        different fault and should still surface rather than be papered over.
+        """
+        if not bool(recovered.any()):
+            return
+        ids = recovered.nonzero(as_tuple=False).flatten()
+        for key in ("policy", "privileged"):
+            tensor = self._obs[key]
+            rows = tensor[ids]
+            bad = ~torch.isfinite(rows)
+            if not bool(bad.any()):
+                continue
+            rows = torch.nan_to_num(rows, nan=0.0, posinf=0.0, neginf=0.0)
+            tensor[ids] = rows
+            print(
+                f"[env] cleared {int(bad.sum())} non-finite {key} value(s) in "
+                f"{int(recovered.sum())} recovered env(s)",
+                flush=True,
+            )
 
     def _build_observations(
         self,

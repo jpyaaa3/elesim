@@ -409,6 +409,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--video-out", default=None, help="mp4 path (default: alongside the report)"
     )
+    # The viewpoint is a rendering choice, not a property of the task, and the
+    # default oblique one hides what the wrap actually does: phi is an azimuth
+    # span about the object axis, and an oblique camera foreshortens it.
+    #
+    # Looking straight down needs a distant camera and a narrow field, not a
+    # close one: the object is 1.1 m tall and the arm wraps at z 0.57, so a
+    # nearby overhead camera magnifies the near end of the pole until its
+    # silhouette covers the arm entirely.  Far away with a narrow fov is
+    # nearly orthographic, and the arm -- which wraps outside the object's
+    # radius -- reads as a ring around it.
+    parser.add_argument(
+        "--camera-pos", default=None,
+        help="camera position as x,y,z (default: the oblique view)",
+    )
+    parser.add_argument(
+        "--camera-lookat", default=None,
+        help="camera target as x,y,z (default: the object centre)",
+    )
+    # Genesis defaults `up` to +z, which is degenerate for a view looking
+    # straight down it: the camera's roll is then undefined and the render
+    # comes back as if from somewhere else entirely.  An overhead view has to
+    # say which way is up in the frame.
+    parser.add_argument(
+        "--camera-up", default=None,
+        help="camera up vector as x,y,z (default: +z; set +y for an overhead view)",
+    )
+    parser.add_argument("--camera-fov", type=float, default=40.0)
+    parser.add_argument(
+        "--camera-res", default="960x720", help="render resolution, WxH",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
@@ -417,15 +447,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.render > 0:
         # Cameras must exist before scene.build(), so they are declared here and
         # the scene is constructed with them rather than attached afterwards.
+        def _triple(text, fallback):
+            if text is None:
+                return fallback
+            parts = [float(v) for v in str(text).replace(" ", "").split(",")]
+            if len(parts) != 3:
+                raise ValueError(f"x,y,z 세 개가 필요합니다: {text!r}")
+            return tuple(parts)
+
+        width, _, height = str(args.camera_res).lower().partition("x")
         camera_specs = [
             {
                 "name": "eval",
-                "res": (960, 720),
-                "pos": (1.25, -0.95, 1.05),
-                "lookat": tuple(float(v) for v in cfg.object_center()),
-                "fov": 40,
+                "res": (int(width), int(height)),
+                "pos": _triple(args.camera_pos, (1.25, -0.95, 1.05)),
+                "lookat": _triple(
+                    args.camera_lookat,
+                    tuple(float(v) for v in cfg.object_center()),
+                ),
+                "fov": float(args.camera_fov),
             }
         ]
+        if args.camera_up is not None:
+            camera_specs[0]["up"] = _triple(args.camera_up, (0.0, 0.0, 1.0))
     scene = WrapGraspScene(cfg, camera_specs=camera_specs).build()
     env = WrapGraspEnv(cfg, scene=scene)
     # Evaluation measures the deployed task, which starts at Home.  The reverse

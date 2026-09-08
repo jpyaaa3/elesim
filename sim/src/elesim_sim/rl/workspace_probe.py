@@ -490,6 +490,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="let the object float; reproduces the analytic sweep's assumption",
     )
+    # The placement grid's extent, so a question about one region can be asked
+    # directly.  The report lists its top 25 rows, and a wide sweep fills those
+    # with the best placements everywhere -- which is the wrong answer when
+    # what is being asked is how a *particular* region scores.  The centreline
+    # was in the default grid all along and never appeared in a report.
+    parser.add_argument(
+        "--x-range", default=None, help="placement x sweep as lo,hi (m)",
+    )
+    parser.add_argument(
+        "--y-range", default=None, help="placement y sweep as lo,hi (m)",
+    )
+    parser.add_argument(
+        "--placement-steps", type=int, default=None,
+        help="grid steps per axis for the placement sweep",
+    )
     parser.add_argument("--out", default="sim/benchmarks/workspace.md")
     parser.add_argument("--json-out", default=None)
     args = parser.parse_args(argv)
@@ -497,11 +512,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     cfg = load_config(args.config, overlays=args.overlay, overrides=args.overrides)
 
     if args.placement_search:
+        def _pair(text, fallback):
+            if text is None:
+                return fallback
+            lo, _, hi = str(text).replace(" ", "").partition(",")
+            return (float(lo), float(hi))
+
         rows, pmeta = placement_search(
             cfg,
             grid=int(args.grid),
             roll_steps=int(args.roll_steps),
             linear_steps=int(args.linear_steps),
+            x_range=_pair(args.x_range, (0.10, 0.50)),
+            y_range=_pair(args.y_range, (-0.20, 0.20)),
+            steps=int(args.placement_steps or 17),
         )
         print(json.dumps({"meta": pmeta, "top": rows[:15]}, indent=2))
         out = Path(args.out)
